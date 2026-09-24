@@ -17,9 +17,17 @@ struct DeviceLinkControlPlaneRules: Equatable, Sendable {
 
     let required: Set<String>
 
-    /// Whether `directory` names every required rule. A directory issued
-    /// before the field existed names none, which is the truthful answer.
+    /// Whether `directory` proves that Mac-to-Mac admission is implemented.
+    ///
+    /// Current Workers name the rule explicitly. The previous v2 Worker did
+    /// not have `directory.rules`, but its non-optional `inboundPeers` field
+    /// was produced by the same exact-account, same-app-namespace and
+    /// same-build admission query. Keep that deployed Worker compatible while
+    /// still rejecting a response that carries neither proof.
     func isSatisfied(by directory: V2Directory) -> Bool {
-        required.isSubset(of: Set(directory.rules ?? []))
+        if required.isSubset(of: Set(directory.rules ?? [])) {
+            return true
+        }
+        return directory.rules == nil && directory.inboundPeers != nil
     }
 }

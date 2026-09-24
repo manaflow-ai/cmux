@@ -9,27 +9,29 @@ import Testing
 @testable import cmux
 #endif
 
-/// The directory names the admission rules the Devices service applied. A
-/// directory without the Mac-to-Mac rule proves the deployed service predates
-/// it, and the row must carry that verdict instead of dialing into a refusal
-/// (https://github.com/manaflow-ai/cmux/issues/13458).
+/// The directory proves the admission rules the Devices service applied.
+/// Current Workers name the rule; the previous v2 Worker proves the same
+/// admission query with its `inboundPeers` field.
 @Suite("Devices: control-plane rules")
 struct DeviceLinkControlPlaneRulesTests {
     private let selfID = "11111111-1111-1111-1111-111111111111"
     private let studioID = "22222222-2222-2222-2222-222222222222"
 
-    @Test("The required rule set is the Mac-to-Mac inbound rule, and an old directory names none")
+    @Test("The required rule set is the Mac-to-Mac inbound rule")
     func requiredRules() {
         #expect(DeviceLinkControlPlaneRules.current.required == [DeviceLinkControlPlaneRules.macPeerInbound])
         let bare = V2Directory(devices: [], issuedAt: 1, permissionExpiresAt: 2, relayURLs: [], revision: 1, teamID: "team")
         #expect(!DeviceLinkControlPlaneRules.current.isSatisfied(by: bare))
+        let legacy = V2Directory(devices: [], inboundPeers: [], issuedAt: 1, permissionExpiresAt: 2,
+            relayURLs: [], revision: 1, teamID: "team")
+        #expect(DeviceLinkControlPlaneRules.current.isSatisfied(by: legacy))
         let named = V2Directory(devices: [], issuedAt: 1, permissionExpiresAt: 2, relayURLs: [], revision: 1,
             rules: ["cmux.mac-peer-inbound.v1", "cmux.future.v9"], teamID: "team")
         #expect(DeviceLinkControlPlaneRules.current.isSatisfied(by: named))
     }
 
-    @Test("A directory names the admission rule it applied; one without it marks the row's control plane outdated", arguments: [true, false])
-    func controlPlaneRules(advertised: Bool) throws {
+    @Test("A directory names or proves the admission rule it applied", arguments: [true, false])
+    func controlPlaneRules(legacyServiceProvesAdmission: Bool) throws {
         func record(deviceID: String, endpoint: String) -> V2DeviceRecord {
             let identity = V2Identity(appNamespace: "com.cmuxterm.app.nightly", buildTag: "nightly",
                 deviceID: deviceID, environment: "production", projectID: "project",
@@ -43,17 +45,18 @@ struct DeviceLinkControlPlaneRulesTests {
         var cache = V2CachedState(identity: own.descriptor.identity)
         cache.device = own
         cache.directory = V2Directory(devices: [record(deviceID: studioID, endpoint: String(repeating: "ab", count: 32))],
+            inboundPeers: legacyServiceProvesAdmission ? [] : nil,
             issuedAt: 1000, permissionExpiresAt: 1060, relayURLs: [], revision: 1,
-            rules: advertised ? [DeviceLinkControlPlaneRules.macPeerInbound] : nil, teamID: "work-team")
+            rules: nil, teamID: "work-team")
         let macs = DeviceIrxClient.displayBindings(cache: cache, now: Date(timeIntervalSince1970: 1001))
-        #expect(macs.map(\.controlPlaneSupportsMacPeers) == [advertised])
+        #expect(macs.map(\.controlPlaneSupportsMacPeers) == [legacyServiceProvesAdmission])
         let records = DeviceDirectoryMerge.merge(.init(
             authenticatedMacs: macs, ownersKnown: true, selfInstance: SurfaceDeviceInstanceID(deviceID: selfID, tag: "nightly"),
             currentUserID: "my-account", resolvedTeamID: "work-team"
         ))
         let row = try #require(records.first)
         #expect(row.isDialable, "the Mac stays listed and dialable; the link decides what to say")
-        #expect(row.controlPlaneSupport == (advertised ? .supported : .outdated))
+        #expect(row.controlPlaneSupport == (legacyServiceProvesAdmission ? .supported : .outdated))
         let retained = DeviceDirectoryMerge.merge(.init(
             previous: records, selfInstance: SurfaceDeviceInstanceID(deviceID: selfID, tag: "nightly"),
             currentUserID: "my-account", resolvedTeamID: "work-team"
