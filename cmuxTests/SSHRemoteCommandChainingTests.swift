@@ -159,7 +159,7 @@ struct SSHRemoteCommandChainingTests {
         #expect(remainingPayloads.isEmpty, "\(remainingPayloads)")
     }
 
-    @Test
+    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
     func persistentWorkspaceRestoreKeepsConfiguredRemoteCommandInNewPaneBootstrap() throws {
         let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
         let liveConfiguration = WorkspaceRemoteConfiguration(
