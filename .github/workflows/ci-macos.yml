@@ -508,18 +508,13 @@ jobs:
           set -euo pipefail
           echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
 
-      # Read-only on purpose: nightly.yml `refresh-test-compilation-cache` is the
-      # only writer. A cache saved here would be scoped to this pull request and
-      # would spend the cache budget that keeps the main seed alive.
-      - name: Restore test compilation cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
-          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ github.event.pull_request.base.sha || github.sha }}
-          restore-keys: |
-            xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+      # No test compilation cache restore. Swift keys each compile job on its
+      # whole module, so `cmux` and cmuxUITests missed on every file even with
+      # the key, paths and Xcode matching the nightly seed (581/581 and 566/566
+      # in sampled admission logs, 2026-09-24). Only modules unchanged since the
+      # six-hourly seed hit, and the DerivedData seed below already leaves those
+      # built. The restore spent 13-43 s pulling 932 MB for that.
+      # tests/test_ci_test_compilation_cache_seed.sh pins its absence.
 
       # The compilation cache cannot help the app target: Swift keys each job on
       # its whole module, and `cmux` is one module. Xcode's incremental build
