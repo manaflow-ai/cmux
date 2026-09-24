@@ -227,32 +227,39 @@ struct AgentFeedRow: View, Equatable {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The reply affordance under a finished turn follows message-feed
-    /// conventions: a compact curved-arrow action with a large tap target,
-    /// rather than a filled primary-action pill.
+    /// The reply affordance under a finished turn follows social-feed action
+    /// bars: a quiet secondary-colored outline icon and label that sit at
+    /// text scale, so blue stays reserved for links like See more. The hit
+    /// area extends past the visible label to a 44-point target without
+    /// adding layout height to the row.
     private var replyButton: some View {
         Button {
             actions.beginCompose(model.item, .terminalReply)
         } label: {
-            HStack(spacing: 6) {
-                if isReplyPending {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Image(systemName: model.item.userReply == nil
-                        ? "arrowshape.turn.up.left.fill"
-                        : "checkmark.circle.fill")
-                        .font(.footnote)
+            HStack(alignment: .center, spacing: 5) {
+                Group {
+                    if isReplyPending {
+                        ProgressView()
+                            .controlSize(.mini)
+                    } else {
+                        Image(systemName: model.item.userReply == nil
+                            ? "arrowshape.turn.up.left"
+                            : "checkmark")
+                            .imageScale(.small)
+                            .fontWeight(.medium)
+                    }
                 }
+                .frame(width: 16, height: 16)
+                .accessibilityHidden(true)
                 Text(replyButtonTitle)
-                    .font(.subheadline.weight(.medium))
             }
-            .foregroundStyle(model.item.userReply == nil ? Color.accentColor : Color.secondary)
-            .frame(minHeight: 44, alignment: .leading)
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle().inset(by: -13))
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.plain)
         .disabled(isReplyPending || model.item.userReply != nil)
-        .contentShape(Rectangle())
+        .padding(.top, 2)
         .accessibilityIdentifier("MobileAgentFeedReplyButton")
     }
 
