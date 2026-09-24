@@ -21,6 +21,8 @@ extension Workspace {
         replayFileURL: URL? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
+        // A native SSH viewer cannot execute a replacement workload on this Mac.
+        guard machineOwningSurface(panelId)?.isSSH != true else { return nil }
         guard !isRetiredFromOwningTabManager,
               let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
