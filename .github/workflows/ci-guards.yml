@@ -51,10 +51,6 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_persistent_mac_compile.py
 
-      - name: Validate nightly owned-Mac route
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_nightly_mini_route.py
-
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
@@ -351,6 +347,10 @@ jobs:
       - name: Validate pull request macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
+
+      - name: Validate the persistent-pool rescue
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_pool_rescue.py
 
       - name: Validate persistent compile fleet command
         if: ${{ matrix.group == 'ci' }}

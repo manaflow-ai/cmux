@@ -908,155 +908,6 @@ struct RemoteResumeBindingTests {
         #expect(environment["ANTHROPIC_API_KEY"] == nil)
     }
 
-    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
-    func persistentRestoreRunsRemoteResumeOnlyWhenSessionMustBeCreated() throws {
-        let fixture = try makeRelayedFixture()
-        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
-        let persistedTerminal = try #require(
-            fixture.snapshot.panels.first { $0.id == fixture.surfaceID }?.terminal
-        )
-        #expect(persistedTerminal.wasAgentRunning == true)
-        let suiteName = "cmux-remote-resume-binding-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let socketPath = reserveRemoteRestoreSocket()
-        defer { cleanupRemoteRestoreSocket(socketPath) }
-
-        let restoredWorkspace = Workspace(
-            agentSessionAutoResumeDefaults: defaults,
-            restorableAgentIndexProvider: { .empty }
-        )
-        defer { restoredWorkspace.teardownAllPanels() }
-        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(fixture.snapshot)
-        let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
-        let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredSurfaceID))
-        let liveFirstCommand = try #require(restoredPanel.surface.debugInitialCommand())
-
-        #expect(liveFirstCommand.contains("ssh-pty-attach"), "\(liveFirstCommand)")
-        #expect(liveFirstCommand.contains("--require-existing"), "\(liveFirstCommand)")
-        let liveFirstRemoteCommand = try decodedRemoteCommand(from: liveFirstCommand)
-        try expectRemoteResumeBootstrap(
-            liveFirstRemoteCommand,
-            relayPort: fixture.relayPort
-        )
-        #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
-
-        let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
-        let roundTripBinding = try #require(
-            roundTrip.panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
-        )
-        let encodedBinding = try JSONEncoder().encode(roundTripBinding)
-        let bindingObject = try #require(
-            JSONSerialization.jsonObject(with: encodedBinding) as? [String: Any]
-        )
-        let launchFlavor = try #require(bindingObject["launchFlavor"] as? [String: Any])
-        #expect(launchFlavor["kind"] as? String == "persistentSSH")
-        let remoteContext = try #require(launchFlavor["remoteContext"] as? [String: Any])
-        #expect(remoteContext["workspaceID"] as? String == restoredWorkspace.id.uuidString)
-        #expect(remoteContext["surfaceID"] as? String == restoredSurfaceID.uuidString)
-        #expect(remoteContext["persistentPTYSessionID"] as? String == fixture.remotePTYSessionID)
-
-        let ended = restoredWorkspace.markRemotePTYAttachEnded(
-            surfaceId: restoredSurfaceID,
-            sessionID: fixture.remotePTYSessionID
-        )
-        #expect(ended.clearedRemotePTYSession)
-        restoredWorkspace.markPersistentRemotePTYAttachFailed(surfaceId: restoredSurfaceID)
-        let restarted = restoredWorkspace.reattachPersistentRemotePTYPanels(
-            requestedSurfaceId: restoredSurfaceID,
-            restartEndedSessions: true
-        )
-        #expect(restarted == [restoredSurfaceID])
-
-        let gonePTYCommand = try #require(
-            restoredWorkspace.terminalPanel(for: restoredSurfaceID)?.surface.debugInitialCommand()
-        )
-        #expect(!gonePTYCommand.contains("--require-existing"), "\(gonePTYCommand)")
-        let gonePTYRemoteCommand = try decodedRemoteCommand(from: gonePTYCommand)
-        try expectRemoteResumeBootstrap(
-            gonePTYRemoteCommand,
-            relayPort: fixture.relayPort
-        )
-    }
-
-    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
-    func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
-        let fixture = try makeRelayedFixture()
-        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
-        let mismatchedSnapshot = try snapshotByReplacingRemoteContext(
-            fixture.snapshot,
-            persistentPTYSessionID: "different-persistent-session"
-        )
-        let suiteName = "cmux-mismatched-remote-resume-binding-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let socketPath = reserveRemoteRestoreSocket()
-        defer { cleanupRemoteRestoreSocket(socketPath) }
-
-        let restoredWorkspace = Workspace(
-            agentSessionAutoResumeDefaults: defaults,
-            restorableAgentIndexProvider: { .empty }
-        )
-        defer { restoredWorkspace.teardownAllPanels() }
-        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(mismatchedSnapshot)
-        let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
-        let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredSurfaceID))
-        let startupCommand = try #require(restoredPanel.surface.debugInitialCommand())
-
-        #expect(startupCommand.contains("ssh-pty-attach"), "\(startupCommand)")
-        #expect(startupCommand.contains("--require-existing"), "\(startupCommand)")
-        #expect(restoredPanel.surface.debugInitialInputForTesting() == nil)
-        #expect(!startupCommand.contains("--command-b64"), "\(startupCommand)")
-        #expect(!startupCommand.contains("session-remote-7989"), "\(startupCommand)")
-        #expect(!startupCommand.contains("REMOTE_FLAG"), "\(startupCommand)")
-    }
-
-    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
-    func legacyRemoteSnapshotWithoutWorkspaceIDMigratesBindingIntoPersistentSSHContext() throws {
-        let fixture = try makeRelayedFixture()
-        defer { withExtendedLifetime(fixture.relayPortReservation) {} }
-        let legacySnapshot = try snapshotWithoutLaunchFlavorOrWorkspaceID(fixture.snapshot)
-        let suiteName = "cmux-legacy-remote-resume-binding-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let socketPath = reserveRemoteRestoreSocket()
-        defer { cleanupRemoteRestoreSocket(socketPath) }
-
-        let restoredWorkspace = Workspace(
-            agentSessionAutoResumeDefaults: defaults,
-            restorableAgentIndexProvider: { .empty }
-        )
-        defer { restoredWorkspace.teardownAllPanels() }
-        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(legacySnapshot)
-        let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
-        let startupCommand = try #require(
-            restoredWorkspace.terminalPanel(for: restoredSurfaceID)?.surface.debugInitialCommand()
-        )
-        let remoteCommand = try decodedRemoteCommand(from: startupCommand)
-        try expectRemoteResumeBootstrap(
-            remoteCommand,
-            relayPort: fixture.relayPort
-        )
-
-        let roundTripBinding = try #require(
-            restoredWorkspace.sessionSnapshot(includeScrollback: false)
-                .panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
-        )
-        guard case .persistentSSH(let context) = roundTripBinding.launchFlavor else {
-            Issue.record("Legacy remote binding was not migrated to persistent SSH")
-            return
-        }
-        #expect(context.workspaceID == restoredWorkspace.id)
-        #expect(context.surfaceID == restoredSurfaceID)
-        #expect(context.persistentPTYSessionID == fixture.remotePTYSessionID)
-    }
-
     @Test
     func legacyBindingMigrationStopsAtPersistentSSHOwnershipBoundaries() throws {
         let binding = try legacyLocalBinding()
@@ -1346,64 +1197,6 @@ struct RemoteResumeBindingTests {
         return try #require(envelope["result"] as? [String: Any])
     }
 
-    private func decodedRemoteCommand(from startupCommand: String) throws -> String {
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).map(\.value)
-        let script = try #require(words.dropFirst(2).first)
-        let scriptWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
-        let commandIndex = try #require(scriptWords.firstIndex(of: "--command-b64"))
-        let token = try #require(scriptWords.dropFirst(commandIndex + 1).first)
-        // The word parser retains the retry script's command separator.
-        let encoded = token.hasSuffix(";") ? String(token.dropLast()) : token
-        let data = try #require(Data(base64Encoded: encoded))
-        return try #require(String(data: data, encoding: .utf8))
-    }
-
-    private func snapshotWithoutLaunchFlavorOrWorkspaceID(
-        _ snapshot: SessionWorkspaceSnapshot
-    ) throws -> SessionWorkspaceSnapshot {
-        let encoded = try JSONEncoder().encode(snapshot)
-        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        object.removeValue(forKey: "workspaceId")
-        var panels = try #require(object["panels"] as? [[String: Any]])
-        let panelIndex = try #require(panels.firstIndex { $0["terminal"] != nil })
-        var panel = panels[panelIndex]
-        var terminal = try #require(panel["terminal"] as? [String: Any])
-        var binding = try #require(terminal["resumeBinding"] as? [String: Any])
-        binding.removeValue(forKey: "launchFlavor")
-        terminal["resumeBinding"] = binding
-        panel["terminal"] = terminal
-        panels[panelIndex] = panel
-        object["panels"] = panels
-        let legacyData = try JSONSerialization.data(withJSONObject: object)
-        return try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: legacyData)
-    }
-
-    private func snapshotByReplacingRemoteContext(
-        _ snapshot: SessionWorkspaceSnapshot,
-        persistentPTYSessionID: String
-    ) throws -> SessionWorkspaceSnapshot {
-        let encoded = try JSONEncoder().encode(snapshot)
-        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
-        var panels = try #require(object["panels"] as? [[String: Any]])
-        let panelIndex = try #require(panels.firstIndex { $0["terminal"] != nil })
-        var panel = panels[panelIndex]
-        var terminal = try #require(panel["terminal"] as? [String: Any])
-        var binding = try #require(terminal["resumeBinding"] as? [String: Any])
-        var launchFlavor = try #require(binding["launchFlavor"] as? [String: Any])
-        var remoteContext = try #require(launchFlavor["remoteContext"] as? [String: Any])
-        remoteContext["persistentPTYSessionID"] = persistentPTYSessionID
-        launchFlavor["remoteContext"] = remoteContext
-        binding["launchFlavor"] = launchFlavor
-        terminal["resumeBinding"] = binding
-        panel["terminal"] = terminal
-        panels[panelIndex] = panel
-        object["panels"] = panels
-        return try JSONDecoder().decode(
-            SessionWorkspaceSnapshot.self,
-            from: JSONSerialization.data(withJSONObject: object)
-        )
-    }
-
     private func legacyLocalBinding() throws -> SurfaceResumeBindingSnapshot {
         let object: [String: Any] = [
             "name": "Codex",
@@ -1419,29 +1212,6 @@ struct RemoteResumeBindingTests {
             SurfaceResumeBindingSnapshot.self,
             from: JSONSerialization.data(withJSONObject: object)
         )
-    }
-
-    private func expectRemoteResumeBootstrap(_ command: String, relayPort: Int) throws {
-        #expect(command.contains("export CMUX_SOCKET_PATH=127.0.0.1:\(relayPort)"), "\(command)")
-        #expect(command.contains("__CMUX_WORKSPACE_ID__"), "\(command)")
-        #expect(command.contains("__CMUX_SURFACE_ID__"), "\(command)")
-        let initialCommand = try decodedInitialCommand(from: command)
-        #expect(initialCommand.contains("/srv/remote project"), "\(initialCommand)")
-        #expect(initialCommand.contains("REMOTE_FLAG=value with spaces"), "\(initialCommand)")
-        #expect(initialCommand.contains("session-remote-7989"), "\(initialCommand)")
-        #expect(!initialCommand.contains("ANTHROPIC_API_KEY"), "\(initialCommand)")
-    }
-
-    private func decodedInitialCommand(from bootstrap: String) throws -> String {
-        let payloadLine = try #require(bootstrap.split(separator: "\n").first { line in
-            line.contains("printf %s '") && line.contains("> \"$cmux_initial_command_tmp\"")
-        })
-        let prefixRange = try #require(payloadLine.range(of: "printf %s '"))
-        let encodedSuffix = payloadLine[prefixRange.upperBound...]
-        let closingQuote = try #require(encodedSuffix.firstIndex(of: "'"))
-        let encodedCommand = String(encodedSuffix[..<closingQuote])
-        let data = try #require(Data(base64Encoded: encodedCommand))
-        return try #require(String(data: data, encoding: .utf8))
     }
 
     private func runBundledKiroSessionStart(
@@ -1606,18 +1376,6 @@ struct RemoteResumeBindingTests {
             as: UTF8.self
         )
         return (process.terminationStatus, stderr, timedOut)
-    }
-
-    private func reserveRemoteRestoreSocket() -> String {
-        TerminalController.shared.stop(cleanupDiscoveryState: true)
-        let requestedPath = "/tmp/cmux-remote-resume-\(UUID().uuidString).sock"
-        return TerminalController.shared.reserveStartupSocketPath(requestedPath)
-    }
-
-    private func cleanupRemoteRestoreSocket(_ path: String) {
-        TerminalController.shared.stop(cleanupDiscoveryState: true)
-        try? FileManager.default.removeItem(atPath: path)
-        try? FileManager.default.removeItem(atPath: path + ".lock")
     }
 
     private func makeMainWindow(id: UUID) -> NSWindow {

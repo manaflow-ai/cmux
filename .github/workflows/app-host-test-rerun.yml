@@ -38,6 +38,11 @@ on:
         description: Optional caller-generated id echoed into the run name so dispatchers can find their run
         required: false
         default: ""
+      all_test_sources:
+        description: Compile every cmuxTests source instead of only those the selected suites reach.
+        required: false
+        type: boolean
+        default: false
       baseline:
         description: Also run the same selectors against the unmodified CI-built bundle, for a before/after.
         required: false
@@ -149,7 +154,11 @@ jobs:
       - name: Fetch the products' revision and package submodules
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          # Only "Stage and validate products" checks this revision out, and it
+          # differs from the tested one only in files no app target reads.
+          # Without blobs the fetch is a tree walk; the checkout then fetches
+          # just the files that differ.
+          git fetch --no-tags --depth=1 --filter=blob:none origin "$SOURCE_SHA"
           # Only vendor/bonsplit is a Swift package; GhosttyKit is downloaded
           # by the submodule's recorded SHA without checking it out.
           git submodule update --init --depth 1 vendor/bonsplit
@@ -203,14 +212,21 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Restore Swift packages
+        id: swift-package-cache
         uses: ./.github/actions/cache-restore
         with:
           backend: r2
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Resolve Swift packages
+        env:
+          # With the seed ci-macos.yml restores, an exact hit resolves offline.
+          CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
+          # Move the restored packages into the canonical root rather than
+          # copying them, as ci-macos.yml does; only that copy is read later.
+          CMUX_CI_MOVE_SOURCE_PACKAGES: "1"
         run: |
           set -euo pipefail
           python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
@@ -220,6 +236,9 @@ jobs:
             "$CANONICAL_ROOT/derived-data-rerun-resolve" "$PWD/.ci-source-packages"
 
       - name: Compile only the cmuxTests bundle
+        env:
+          SELECTORS: ${{ needs.plan.outputs.selectors }}
+          ALL_SOURCES: ${{ inputs.all_test_sources }}
         run: |
           set -euo pipefail
           bundle="$COMPILE_DERIVED_DATA/Build/Products/Debug/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest"
@@ -234,19 +253,38 @@ jobs:
             --package-root "$PWD/Examples" \
             --package-root "$PWD/.ci-source-packages/checkouts"
           rm -f "$bundle/Contents/MacOS/cmuxTests"
-          # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-          xcodebuild -project cmux.xcodeproj -target cmuxTests -configuration Debug \
-            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
-            -disableAutomaticPackageResolution \
-            -xcconfig "$RUNNER_TEMP/cmuxTests-detached.xcconfig" \
-            "SYMROOT=$COMPILE_DERIVED_DATA/Build/Products" \
-            "OBJROOT=$COMPILE_DERIVED_DATA/Build/Intermediates.noindex" \
-            "ARCHS=$PRODUCT_ARCH" \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
-            'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
-            -showBuildTimingSummary \
-            build 2>&1 | tee "$RUNNER_TEMP/rerun-out/cmuxTests-build.log"
+          compile() {
+            xcodebuild -project cmux.xcodeproj -target cmuxTests -configuration Debug \
+              -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+              -disableAutomaticPackageResolution \
+              -xcconfig "$RUNNER_TEMP/cmuxTests-detached.xcconfig" \
+              "SYMROOT=$COMPILE_DERIVED_DATA/Build/Products" \
+              "OBJROOT=$COMPILE_DERIVED_DATA/Build/Intermediates.noindex" \
+              "ARCHS=$PRODUCT_ARCH" \
+              COMPILER_INDEX_STORE_ENABLE=NO \
+              'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
+              'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
+              -showBuildTimingSummary \
+              build 2>&1 | tee -a "$RUNNER_TEMP/rerun-out/cmuxTests-build.log"
+          }
+          # Compile only the test sources the selected suites reach (see
+          # source_closure in app_host_test_rerun.py). A source the pruning
+          # missed fails this compile, and then every source is compiled.
+          cp cmux.xcodeproj/project.pbxproj "$RUNNER_TEMP/detached.pbxproj"
+          sources="every test source"
+          if [ "$ALL_SOURCES" != "true" ] \
+            && python3 "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/app_host_test_rerun.py" prune \
+              --project cmux.xcodeproj/project.pbxproj --test-root cmuxTests --only-testing "$SELECTORS" \
+            && compile; then
+            sources="only the test sources the selected suites reach"
+          else
+            if [ "$ALL_SOURCES" != "true" ]; then
+              echo "::notice::The pruned cmuxTests compile did not succeed; compiling every test source"
+            fi
+            cp "$RUNNER_TEMP/detached.pbxproj" cmux.xcodeproj/project.pbxproj
+            compile
+          fi
+          echo "- Compiled $sources" >> "$GITHUB_STEP_SUMMARY"
           test -f "$bundle/Contents/MacOS/cmuxTests"
 
       - name: Stage and validate products
@@ -275,8 +313,13 @@ jobs:
           find "$products/PackageFrameworks" -maxdepth 1 -type d -name 'CmuxAgentJournal*_PackageProduct.framework' | grep -q .
           # The receipt binds the products to the revision they were built
           # from, so validate with that revision checked out; the plan job
-          # proved it differs from the tested one only under cmuxTests/.
-          git checkout -q --detach "$SOURCE_SHA"
+          # proved it differs from the tested one only in paths no app target reads.
+          # The blob-less fetch leaves the differing files to fetch here.
+          for attempt in 1 2 3; do
+            git checkout -q --detach "$SOURCE_SHA" && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep 10
+          done
           python3 scripts/ci/app_host_test_products.py restore "$derived"
           git checkout -q --detach "$TEST_SHA"
 

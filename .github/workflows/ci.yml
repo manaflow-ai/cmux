@@ -111,9 +111,44 @@ jobs:
           POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          # Owned Mac pools (off unless 1), their machine counts, and the lane
+          # Xcode whose version names their label (glaeda-std-xcode-26.6).
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          OWNED_JOBS_PER_RUN: ${{ vars.CI_OWNED_POOL_JOBS_PER_RUN }}
+          CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: python3 scripts/ci/pr_runner_pool.py
+
+      # A job queued on a persistent pool (owned Macs) waits for it however long
+      # it stays busy. This marker tells ci-owned-pool-rescue.yml, running from
+      # main, to watch the run and re-run it on Blacksmith when a job waits past
+      # CI_OWNED_POOL_RESCUE_SECONDS. No persistent pool, no marker, no watching.
+      # Fail-safe like the picker: a missing marker only means the run is not
+      # watched, which is how every run behaved before the rescue existed.
+      - name: Mark a run on a persistent macOS pool
+        id: macos-pool-marker
+        if: ${{ steps.macos-pool.outputs.persistent == 'true' }}
+        continue-on-error: true
+        env:
+          POOL: ${{ steps.macos-pool.outputs.runner }}
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          POOL="$POOL" MARKER="$marker" python3 -c 'import json,os; json.dump({"pool": os.environ["POOL"]}, open(os.environ["MARKER"], "w"))'
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.macos-pool-marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.macos-pool-marker.outputs.path }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
 
       - name: Record GitHub-selected source identity
         id: source-identity
@@ -738,7 +773,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: |
           set -euo pipefail
           fingerprint="$(python3 scripts/ci/build_input_fingerprint.py --extra "xcode=$XCODE_APP")"
@@ -755,7 +790,7 @@ jobs:
           # the pull-request macOS jobs compile under, or a lane move would reuse
           # a build admitted under the previous Xcode and skip the compile. A run
           # pr_runner_pool.py moved to the macOS 15 pool compiles under its Xcode.
-          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP: ${{ steps.macos-pool.outputs.xcode_app || github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           HEAD_FINGERPRINT: ${{ steps.inputs.outputs.fingerprint }}
         run: |
           set -euo pipefail
@@ -953,7 +988,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 10
     steps:
       - name: Checkout wrapper and test inputs
