@@ -14,10 +14,10 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/classify-app-host-test-output.py"
-TEST_DEPOT_WORKFLOW = ROOT / ".github/workflows/test-depot.yml"
-TEST_DEPOT_RUN_UNIT_TESTS = next(
+SUITE_WORKFLOW = ROOT / ".github/workflows/test-macos-suite.yml"
+SUITE_RUN_UNIT_TESTS = next(
     step["run"]
-    for step in yaml.safe_load(TEST_DEPOT_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["tests"]["steps"]
+    for step in yaml.safe_load(SUITE_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["tests"]["steps"]
     if step.get("name") == "Run unit tests"
 )
 SPEC = importlib.util.spec_from_file_location("classify_app_host_test_output", SCRIPT)
@@ -339,7 +339,7 @@ class AppHostTestOutputTests(unittest.TestCase):
                 "TEST_RESULTS_ROOT": str(root / "results"),
             }
             completed = subprocess.run(
-                ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                ["bash", "-c", SUITE_RUN_UNIT_TESTS],
                 cwd=root,
                 env=environment,
                 capture_output=True,
@@ -376,7 +376,7 @@ class AppHostTestOutputTests(unittest.TestCase):
                     "FAKE_TEST_MODE": mode,
                 }
                 completed = subprocess.run(
-                    ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                    ["bash", "-c", SUITE_RUN_UNIT_TESTS],
                     cwd=root,
                     env=environment,
                     capture_output=True,
@@ -410,7 +410,7 @@ class AppHostTestOutputTests(unittest.TestCase):
             fake_runner.chmod(0o755)
             results = root / "results"
             completed = subprocess.run(
-                ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                ["bash", "-c", SUITE_RUN_UNIT_TESTS],
                 cwd=root,
                 env={
                     **os.environ,
@@ -453,7 +453,7 @@ class AppHostTestOutputTests(unittest.TestCase):
                 )
                 fake_runner.chmod(0o755)
                 completed = subprocess.run(
-                    ["bash", "-c", TEST_DEPOT_RUN_UNIT_TESTS],
+                    ["bash", "-c", SUITE_RUN_UNIT_TESTS],
                     cwd=root,
                     env={
                         **os.environ,

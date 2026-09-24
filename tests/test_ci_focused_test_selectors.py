@@ -22,7 +22,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/focused_test_selectors.py"
 E2E = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
-DEPOT = yaml.safe_load((ROOT / ".github/workflows/test-depot.yml").read_text())
+MACOS_SUITE = yaml.safe_load((ROOT / ".github/workflows/test-macos-suite.yml").read_text())
 
 
 def load():
@@ -390,8 +390,8 @@ open(path, "w").write({json.dumps(json.dumps(enumeration))})
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("::error::cmuxUITests/FooUITests/testTypo executed zero tests", result.stderr)
 
-    def test_test_depot_ui_filter_that_executed_nothing_fails(self):
-        script = step(DEPOT, "tests", "Run UI tests")["run"]
+    def test_macos_suite_ui_filter_that_executed_nothing_fails(self):
+        script = step(MACOS_SUITE, "tests", "Run UI tests")["run"]
         for summary, filter_, expected in (
             ("Executed 0 tests, with 0 failures (0 unexpected) in 0.001 seconds", "FooUITests/testTypo", 1),
             ("Executed 1 test, with 0 failures (0 unexpected) in 0.5 seconds", "FooUITests/testBar", 0),

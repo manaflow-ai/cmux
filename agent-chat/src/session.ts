@@ -1,6 +1,7 @@
 // Client-side session state: one WebSocket, one session per page.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyThemeVars } from "./theme";
+import type { HarnessRecommendation, HarnessCatalogs } from "../harness-contract";
 import { latestRouteStatus, normalizeRouteStatus, type RouteHealth, type RoutePhase, type RouteStatus } from "../route-status";
 
 export type AgentEvent =
@@ -93,6 +94,33 @@ export type Block =
   | { kind: "files"; files: ChangedFile[]; revision?: string };
 
 export interface Provider { id: string; label: string; iconUrl?: string; iconDarkUrl?: string; installed?: boolean; installCommand?: string; }
+export type { HarnessRecommendation } from "../harness-contract";
+
+export interface CwdHarnessRequest {
+  requestId: string;
+  cwd: string;
+  connectionEpoch: number;
+}
+
+export interface CwdHarnessResponse {
+  requestId?: unknown;
+  cwd?: unknown;
+  connectionEpoch?: unknown;
+}
+
+/** Only the latest request on the current WebSocket may update visible harnesses. */
+export function acceptsCwdHarnessResponse(
+  active: CwdHarnessRequest | null,
+  response: CwdHarnessResponse,
+): boolean {
+  return Boolean(
+    active
+    && response.requestId === active.requestId
+    && response.cwd === active.cwd
+    && response.connectionEpoch === active.connectionEpoch,
+  );
+}
+
 export interface SessionSummary {
   id: string;
   provider: string;
@@ -158,12 +186,15 @@ export function foldEvent(blocks: Block[], evt: AgentEvent): Block[] {
   }
 }
 
-interface Hello { providers: Provider[]; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
+interface Hello { providers: Provider[]; harnesses?: HarnessRecommendation[]; harnessCatalogs?: HarnessCatalogs; defaultCwd: string; keys?: { ctrlJ?: CtrlJMode }; }
 
 export interface SessionState {
   ready: boolean;
   connectionEpoch: number;
   providers: Provider[];
+  harnesses: HarnessRecommendation[];
+  harnessCatalogs: HarnessCatalogs;
+  harnessesCwd: string;
   capabilities: Record<string, ProviderCapabilities>;
   defaultCwd: string;
   ctrlJ: CtrlJMode;
@@ -253,6 +284,9 @@ export function useSession(): SessionState {
   const [ready, setReady] = useState(false);
   const [connectionEpoch, setConnectionEpoch] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [harnesses, setHarnesses] = useState<HarnessRecommendation[]>([]);
+  const [harnessCatalogs, setHarnessCatalogs] = useState<HarnessCatalogs>({});
+  const [harnessesCwd, setHarnessesCwd] = useState("");
   const [capabilities, setCapabilities] = useState<Record<string, ProviderCapabilities>>({});
   const [defaultCwd, setDefaultCwd] = useState("");
   const [ctrlJ, setCtrlJ] = useState<CtrlJMode>("newline");
@@ -292,6 +326,7 @@ export function useSession(): SessionState {
   } | null>(null);
   const pendingStartTimeoutRef = useRef<number | null>(null);
   const optimisticUsersRef = useRef<string[]>([]);
+  const latestCwdRequestRef = useRef<CwdHarnessRequest | null>(null);
 
   const closeHandoffWindow = useCallback(() => {
     const popup = handoffWindowRef.current;
@@ -362,6 +397,11 @@ export function useSession(): SessionState {
           case "hello": {
             const h = msg as Hello & { kind: string; capabilities?: Record<string, ProviderCapabilities> };
             setProviders(h.providers);
+            setHarnessCatalogs(h.harnessCatalogs ?? {});
+            latestCwdRequestRef.current = null;
+            setHarnesses([]);
+            setHarnessesCwd("");
+            setHarnesses(h.harnesses ?? []);
             setCapabilities(h.capabilities ?? {});
             setDefaultCwd(h.defaultCwd);
             setCtrlJ(h.keys?.ctrlJ === "menu" ? "menu" : "newline");
@@ -504,6 +544,10 @@ export function useSession(): SessionState {
             break;
           case "cwd-check":
             setCwdChecks((m) => ({ ...m, [msg.cwd]: { ok: Boolean(msg.ok), message: msg.message } }));
+            if (Array.isArray(msg.harnesses) && acceptsCwdHarnessResponse(latestCwdRequestRef.current, msg)) {
+              setHarnesses(msg.harnesses as HarnessRecommendation[]);
+              setHarnessesCwd(String(msg.cwd));
+            }
             break;
           case "theme":
             if (msg.vars && typeof msg.vars === "object") applyThemeVars(msg.vars, msg.theme);
@@ -663,14 +707,22 @@ export function useSession(): SessionState {
     }
   }, [sendRaw]);
   const checkCwd = useCallback((cwd: string) => {
-    sendRaw({ op: "check-cwd", cwd });
-  }, [sendRaw]);
+    const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const request: CwdHarnessRequest = { requestId, cwd, connectionEpoch };
+    latestCwdRequestRef.current = request;
+    setHarnesses([]);
+    setHarnessesCwd("");
+    sendRaw({ op: "check-cwd", ...request });
+  }, [connectionEpoch, sendRaw]);
   const clearError = useCallback(() => setLastError(""), []);
 
   return {
     ready,
     connectionEpoch,
     providers,
+    harnesses,
+    harnessCatalogs,
+    harnessesCwd,
     capabilities,
     defaultCwd,
     ctrlJ,
