@@ -1,0 +1,40 @@
+name: canary mtime semantics (do not merge)
+
+on:
+  push:
+    branches: [canary/seed-mtime-semantics]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        explicit: ['YES', 'NO']
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Probe
+        run: |
+          defaults write com.apple.dt.XCBuild EnableBuildDebugging -bool YES
+          ./scripts/ci/canary/mtime_semantics.sh "${{ matrix.explicit }}" | tee "$RUNNER_TEMP/probe.txt"
+          cat "$RUNNER_TEMP/probe.txt" >> "$GITHUB_STEP_SUMMARY"
+      - name: Forget build debugging
+        if: always()
+        run: defaults delete com.apple.dt.XCBuild EnableBuildDebugging || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: canary-mtime-${{ matrix.explicit }}
+          path: |
+            ${{ runner.temp }}/mtime-canary/*.log
+            ${{ runner.temp }}/mtime-canary/pkg/DD/**/buildDebugging*
+          retention-days: 3
+          if-no-files-found: warn
