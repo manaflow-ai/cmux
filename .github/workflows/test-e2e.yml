@@ -392,7 +392,7 @@ jobs:
         id: warm
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
-        timeout-minutes: 15
+        timeout-minutes: 10
         env:
           GH_TOKEN: ${{ github.token }}
           WARM_KEY: ${{ steps.compilation-cache-key.outputs.fingerprint }}

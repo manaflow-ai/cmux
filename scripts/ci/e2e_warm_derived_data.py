@@ -22,18 +22,26 @@ the adopted DerivedData is to this revision; distance only costs compile time.
 
 `restore` adopts the newest DerivedData archive for KEY that a `main` run of
 this workflow published. Any miss, expiry or transfer failure is a cold build.
+So is running past CMUX_WARM_BUDGET_SECONDS: a step timeout kills the process
+before its cleanup can run, and every adoption on the macOS fleet between
+2026-09-23 17:00 and 2026-09-24 01:00 did exactly that, adding 15 silent
+minutes to each build. Each phase logs its duration, so the next slow one
+names itself.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
 
 import parallel_artifact_download as transport
@@ -45,6 +53,24 @@ PREFIX = "e2e-derived-data-v1-"
 # Never walk into build outputs or git metadata: they are not inputs, and
 # DerivedData lives inside the workspace on every runner pool.
 SKIPPED_DIRECTORIES = frozenset({".git", "DerivedData"})
+# Adopting is worth it only while it beats a cold build by a wide margin.
+DEFAULT_BUDGET_SECONDS = 420
+
+
+class BudgetExceeded(Exception):
+    pass
+
+
+CURRENT_PHASE = ["start"]
+
+
+@contextmanager
+def phase(name: str):
+    CURRENT_PHASE[0] = name
+    started = time.monotonic()
+    print(f"[warm] {name}...", file=sys.stderr, flush=True)
+    yield
+    print(f"[warm] {name}: {time.monotonic() - started:.1f}s", file=sys.stderr, flush=True)
 
 
 def digest(path: Path) -> str:
@@ -131,7 +157,8 @@ def extract(archive: Path, destination: Path) -> None:
 
 def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
     repository = os.environ["GITHUB_REPOSITORY"]
-    artifact = newest(repository, key)
+    with phase("find main's archive"):
+        artifact = newest(repository, key)
     if artifact is None:
         return {"hit": "false", "reason": "no-main-derived-data"}
     if int(artifact.get("size_in_bytes") or 0) > transport.MAX_BYTES:
@@ -144,14 +171,19 @@ def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
         # fleet, which took more than the step's 10 minutes for a 1.9 GB
         # archive (run 35896881813). Ranged requests read the same blob.
         bundle = Path(staging, "artifact.zip")
-        transport.download_zip(repository, artifact["id"], bundle, artifact["size_in_bytes"])
-        if transport.sha256_file(bundle) != expected.removeprefix("sha256:"):
-            raise ValueError("DerivedData artifact does not match its provider digest")
-        with zipfile.ZipFile(bundle) as archive:
-            archive.extractall(staging)
-        extract(Path(staging, ARCHIVE), derived)
+        with phase(f"download {artifact['size_in_bytes']} bytes"):
+            transport.download_zip(repository, artifact["id"], bundle, artifact["size_in_bytes"])
+        with phase("verify digest"):
+            if transport.sha256_file(bundle) != expected.removeprefix("sha256:"):
+                raise ValueError("DerivedData artifact does not match its provider digest")
+        with phase("unzip"):
+            with zipfile.ZipFile(bundle) as archive:
+                archive.extractall(staging)
+        with phase("extract DerivedData"):
+            extract(Path(staging, ARCHIVE), derived)
     recorded = json.loads((derived / MANIFEST).read_text())
-    restored, changed = replay(workspace, recorded)
+    with phase(f"replay {len(recorded)} input times"):
+        restored, changed = replay(workspace, recorded)
     return {
         "hit": "true",
         "producer_run_id": str(artifact["workflow_run"]["id"]),
@@ -172,8 +204,18 @@ def main(argv: list[str]) -> int:
         return 0
     if len(argv) == 5 and argv[1] == "restore":
         derived = Path(argv[3])
+        budget = int(os.environ.get("CMUX_WARM_BUDGET_SECONDS") or DEFAULT_BUDGET_SECONDS)
+
+        def expire(_signum, _frame):
+            raise BudgetExceeded(f"over {budget}s, in {CURRENT_PHASE[0]}")
+
+        signal.signal(signal.SIGALRM, expire)
+        signal.alarm(budget)
         try:
-            result = restore(Path(argv[2]).resolve(), derived, argv[4])
+            try:
+                result = restore(Path(argv[2]).resolve(), derived, argv[4])
+            finally:
+                signal.alarm(0)
         except Exception as error:  # noqa: BLE001 - every failure means a cold build
             # A half-extracted DerivedData is worse than none: start cold.
             shutil.rmtree(derived, ignore_errors=True)

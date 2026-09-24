@@ -152,5 +152,54 @@ class InterruptedAdoption(unittest.TestCase):
         self.assertNotIn("continue-on-error", steps[discard[0]])
 
 
+class AdoptionBudget(unittest.TestCase):
+    """A slow adoption gives up by itself, cleans up, and names the slow phase.
+
+    A step timeout kills the process before its own cleanup runs, so the
+    budget has to expire inside it.
+    """
+
+    def run_restore(self, slow_restore):
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as root:
+            derived = Path(root, "DerivedData")
+            derived.mkdir()
+            Path(derived, "stale.o").write_text("main's intermediate")
+            output = Path(root, "output")
+            env = {"CMUX_WARM_BUDGET_SECONDS": "1", "GITHUB_OUTPUT": str(output)}
+            with mock.patch.dict(os.environ, env), \
+                    mock.patch.object(warm, "restore", slow_restore), \
+                    mock.patch("sys.stdout", io.StringIO()):
+                status = warm.main(["warm", "restore", root, str(derived), "key"])
+            return status, list(derived.iterdir()), output.read_text()
+
+    def test_an_adoption_over_budget_starts_cold_and_names_its_phase(self):
+        def slow_restore(_workspace, derived, _key):
+            with warm.phase("extract DerivedData"):
+                Path(derived, "half.o").write_text("partial")
+                import time
+                time.sleep(5)
+            self.fail("the budget did not interrupt the adoption")
+
+        status, left, output = self.run_restore(slow_restore)
+        self.assertEqual(status, 0)
+        self.assertEqual(left, [], "a timed-out adoption left DerivedData behind")
+        self.assertIn("hit=false", output)
+        self.assertIn("BudgetExceeded", output)
+        self.assertIn("extract DerivedData", output)
+
+    def test_an_adoption_within_budget_is_never_interrupted_afterwards(self):
+        def quick_restore(_workspace, _derived, _key):
+            return {"hit": "true"}
+
+        status, left, output = self.run_restore(quick_restore)
+        import time
+        time.sleep(1.5)  # past the budget: a still-armed alarm would fire here
+        self.assertEqual(status, 0)
+        self.assertIn("hit=true", output)
+        self.assertEqual(len(left), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
