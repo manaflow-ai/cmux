@@ -154,6 +154,15 @@ if ! [[ "$duration" =~ ^[0-9]+$ ]] || [ "$duration" -lt 1 ]; then
   exit 2
 fi
 
+# The timeout helpers do arithmetic on these; a non-integer would abort the
+# surrounding command instead of timing it out.
+for timeout_var in CMUX_PROFILE_SYSTEM_PROFILER_TIMEOUT_SECONDS CMUX_PROFILE_TOOL_VERSION_TIMEOUT_SECONDS CMUX_PROFILE_TOC_TIMEOUT_SECONDS; do
+  if [ -n "${!timeout_var:-}" ] && ! [[ "${!timeout_var}" =~ ^[0-9]+$ ]]; then
+    echo "start-cmux-profiling: $timeout_var must be a whole number of seconds" >&2
+    exit 2
+  fi
+done
+
 case "$target_channel" in
   ""|stable|nightly|staging|dev)
     ;;
@@ -251,7 +260,7 @@ run_output_with_timeout() {
   local child_pid ticks
   # Poll in tenths of a second: a whole-second poll cost every probe at least
   # 1 s, even an instant one like `xcodebuild -version`.
-  local limit=$((timeout_seconds * 10))
+  local limit=$((10#$timeout_seconds * 10))
 
   "$@" > "$output_file" 2>/dev/null &
   child_pid="$!"
@@ -664,7 +673,7 @@ wait_with_timeout() {
   local log_file="$3"
   local ticks=0
   # Tenths of a second, like run_output_with_timeout.
-  local limit=$((timeout_seconds * 10))
+  local limit=$((10#$timeout_seconds * 10))
 
   while kill -0 "$child_pid" >/dev/null 2>&1; do
     if [ "$ticks" -ge "$limit" ]; then
