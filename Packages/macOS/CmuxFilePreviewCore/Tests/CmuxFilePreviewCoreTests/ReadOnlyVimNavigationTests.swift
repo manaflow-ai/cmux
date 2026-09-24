@@ -3,6 +3,39 @@ import Testing
 @testable import CmuxFilePreviewCore
 
 struct ReadOnlyVimNavigationTests {
+    @Test func horizontalYankUsesExclusiveMotionAndIncludesEndCharacter() {
+        var vim = ReadOnlyVimNavigation(text: "alpha")
+        for key in ["y", "l"] { vim.handle(key) }
+        #expect(vim.yankedText == "a")
+        for key in ["3", "y", "l"] { vim.handle(key) }
+        #expect(vim.yankedText == "alp")
+        vim.handle("$")
+        for key in ["y", "l"] { vim.handle(key) }
+        #expect(vim.yankedText == "a")
+    }
+
+    @Test(arguments: ["i", "G", "g", "2", "q"])
+    func unsupportedYankDoesNotOverwriteClipboard(motion: String) {
+        var vim = ReadOnlyVimNavigation(text: "alpha beta")
+        vim.handle("y")
+        vim.handle(motion)
+        #expect(vim.yankedText == nil)
+        #expect(vim.cursor == 0)
+    }
+
+    @Test func longLineNavigation() {
+        let padding = String(repeating: " ", count: 10_000)
+        var vim = ReadOnlyVimNavigation(text: padding + "x\n" + padding + "y")
+        vim.handle("^")
+        #expect(vim.cursor == 10_000)
+        vim.handle("j")
+        #expect(vim.cursor == 20_002)
+        vim.handle("0")
+        vim.handle("f")
+        vim.handle("y")
+        #expect(vim.cursor == 20_002)
+    }
+
     @Test func countsAndWords() {
         var vim = ReadOnlyVimNavigation(text: "one two\nthree four\nfive six\n")
         for key in ["2", "j", "0", "w"] { vim.handle(key) }

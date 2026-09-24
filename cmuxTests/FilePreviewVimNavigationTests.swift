@@ -10,6 +10,16 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct FilePreviewVimNavigationTests {
+    @Test func disablingVimRestoresExistingReadOnlyState() {
+        let view = SavingTextView.makeFilePreviewTextView()
+        view.isEditable = false
+        view.updateVimNavigation(enabled: false)
+        #expect(!view.isEditable)
+        view.updateVimNavigation(enabled: true)
+        view.updateVimNavigation(enabled: false)
+        #expect(!view.isEditable)
+    }
+
     @Test func readOnlyModeBlocksUndoWithoutDiscardingEditingHistory() throws {
         let view = SavingTextView.makeFilePreviewTextView()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: .borderless, backing: .buffered, defer: false)
