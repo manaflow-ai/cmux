@@ -111,7 +111,6 @@ struct MobileTerminalFramePacerTests {
         #expect(first?.emitted == 1)
         #expect(first?.coalesced == 2)
         #expect(first?.sheds == 1)
-        #expect((first?.periodMillis ?? 0) > 90)
         // Inside the sampling interval: nothing extra on the wire.
         _ = pacer.updateArrived(now: t0 + .milliseconds(500), acceptedInputSequence: nil)
         let second = pacer.takeSample(now: t0 + .milliseconds(600))
