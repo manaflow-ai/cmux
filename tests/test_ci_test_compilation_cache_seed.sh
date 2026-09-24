@@ -175,6 +175,8 @@ STUB
 chmod +x "$TMP_DIR/bin/xcodebuild"
 export STUB_RESOLVE_ATTEMPTS="$TMP_DIR/resolve-attempts.txt"
 export STUB_XCODEBUILD_ARGS="$TMP_DIR/args.txt"
+# swiftpm-manifest-cache.sh runs resolves under a fixed environment.
+export CMUX_CI_SWIFTPM_KEEP_ENV="STUB_RESOLVE_ATTEMPTS STUB_XCODEBUILD_ARGS STUB_SKIP_UPDATES_FAILS STUB_RESOLVE_FAILS_UNTIL STUB_RESOLVE_ARTIFACTS_FROM STUB_XCODE_VERSION"
 
 run_script() {
   (cd "$TMP_DIR/work" && PATH="$TMP_DIR/bin:$PATH" "$SCRIPT" "$@")

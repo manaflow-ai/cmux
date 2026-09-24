@@ -70,13 +70,34 @@ jobs:
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
+      # Manifest evaluation is most of a warm resolve. seed-derived-data.yml
+      # saves it from main at this workspace path; see
+      # scripts/ci/swiftpm-manifest-cache.sh.
+      - name: Compute SwiftPM manifest cache key
+        id: swiftpm-manifest-key
+        run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM manifest cache
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
+          restore-keys: ${{ steps.swiftpm-manifest-key.outputs.prefix }}
+
+      - name: Install SwiftPM manifest cache
+        continue-on-error: true
+        run: scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
+
       - name: Resolve Swift package dependencies
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.spm-cache"
           mkdir -p "$SOURCE_PACKAGES_DIR"
           resolve() {
-            xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
+            scripts/ci/swiftpm-manifest-cache.sh run \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
               -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -packageCachePath "$SOURCE_PACKAGES_DIR/.package-cache" \

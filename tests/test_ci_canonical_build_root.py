@@ -240,6 +240,7 @@ class CanonicalRecipeTests(unittest.TestCase):
             root.mkdir()
             (root / "src").symlink_to(workspace)
             env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
+                       CMUX_CI_SWIFTPM_KEEP_ENV="CALLS",
                        CMUX_CI_CANONICAL_ROOT=str(root))
             derived = str(root / "derived-data-compile-admission")
             packages = str(workspace / ".ci-source-packages")
@@ -283,6 +284,7 @@ class CanonicalRecipeTests(unittest.TestCase):
             root.mkdir()
             (root / "src").symlink_to(workspace)
             env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ['PATH'], CALLS=str(calls),
+                       CMUX_CI_SWIFTPM_KEEP_ENV="CALLS",
                        CMUX_CI_CANONICAL_ROOT=str(root))
             derived = str(root / "derived-data-compile-admission")
             result = subprocess.run(
