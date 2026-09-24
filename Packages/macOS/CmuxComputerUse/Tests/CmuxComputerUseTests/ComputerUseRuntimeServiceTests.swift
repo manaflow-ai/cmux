@@ -1,80 +1,106 @@
-import CoreServices
 import Foundation
 import Testing
 @testable import CmuxComputerUse
 
+/// Staged helper copies must never carry `com.apple.quarantine`, whatever the
+/// bundled source carried: LaunchServices shows the first-open dialog for any
+/// record on the copy, including the empty record Foundation's
+/// `quarantineProperties = nil` writes on macOS 26.4.1 (#13803).
 struct ComputerUseRuntimeServiceTests {
-    @Test func copiedHelperReleasesQuarantineWithoutFollowingSymlinks() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-computer-use-quarantine-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        defer { try? fileManager.removeItem(at: root) }
-
-        let helper = root.appendingPathComponent(
-            "cmux Computer Use.app",
-            isDirectory: true
-        )
-        let macOSDirectory = helper.appendingPathComponent(
-            "Contents/MacOS",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(
-            at: macOSDirectory,
-            withIntermediateDirectories: true
-        )
-        let executable = macOSDirectory.appendingPathComponent("cmux-cua")
-        try Data("helper".utf8).write(to: executable)
-
-        let outside = root.appendingPathComponent("outside-helper")
+    @Test func releasingAQuarantinedHelperCopyRemovesTheAttributeWithoutFollowingSymlinks() throws {
+        let fixture = try HelperBundleFixture()
+        defer { fixture.remove() }
+        let outside = fixture.root.appendingPathComponent("outside-helper", isDirectory: false)
         try Data("outside".utf8).write(to: outside)
-        let symlink = macOSDirectory.appendingPathComponent("outside-link")
-        try fileManager.createSymbolicLink(
-            at: symlink,
-            withDestinationURL: outside
+        let link = fixture.executable
+            .deletingLastPathComponent()
+            .appendingPathComponent("outside-link", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+        let record = TestQuarantineAttribute.webDownloadRecord()
+        for entry in try fixture.bundleEntries() where entry != link {
+            try TestQuarantineAttribute.apply(record, to: entry)
+        }
+        try TestQuarantineAttribute.apply(record, to: outside)
+
+        try ComputerUseRuntimeService.releaseCopiedHelperFromQuarantine(
+            at: fixture.bundle,
+            fileManager: .default
         )
 
-        for url in [
-            helper,
-            helper.appendingPathComponent("Contents", isDirectory: true),
-            macOSDirectory,
-            executable,
-            outside,
-        ] {
-            try applyTestQuarantine(to: url)
+        for entry in try fixture.bundleEntries() {
+            #expect(try TestQuarantineAttribute.record(at: entry) == nil, "\(entry.path)")
+        }
+        #expect(try TestQuarantineAttribute.record(at: outside) == record)
+    }
+
+    @Test func releasingACleanHelperCopyLeavesNoAttributeBehind() throws {
+        let fixture = try HelperBundleFixture()
+        defer { fixture.remove() }
+        for entry in try fixture.bundleEntries() {
+            #expect(try TestQuarantineAttribute.record(at: entry) == nil, "\(entry.path)")
         }
 
         try ComputerUseRuntimeService.releaseCopiedHelperFromQuarantine(
-            at: helper,
-            fileManager: fileManager
+            at: fixture.bundle,
+            fileManager: .default
         )
 
-        for url in [
-            helper,
-            helper.appendingPathComponent("Contents", isDirectory: true),
-            macOSDirectory,
-            executable,
-        ] {
-            #expect(try quarantineProperties(at: url) == nil)
+        for entry in try fixture.bundleEntries() {
+            #expect(try TestQuarantineAttribute.record(at: entry) == nil, "\(entry.path)")
         }
-        #expect(try quarantineProperties(at: outside) != nil)
     }
 
-    private func applyTestQuarantine(to url: URL) throws {
-        var values = URLResourceValues()
-        values.quarantineProperties = [
-            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
-            kLSQuarantineTimeStampKey as String: Date(),
-            kLSQuarantineAgentNameKey as String: "CmuxComputerUseTests",
-        ]
-        var mutableURL = url
-        try mutableURL.setResourceValues(values)
+    @Test func stagingACleanBundledHelperProducesAQuarantineFreeCopy() throws {
+        let fixture = try HelperBundleFixture()
+        defer { fixture.remove() }
+        let directory = fixture.root.appendingPathComponent("staged", isDirectory: true)
+        let destination = directory.appendingPathComponent(
+            "cmux Computer Use.app",
+            isDirectory: true
+        )
+
+        let installed = try #require(
+            ComputerUseRuntimeService.installHelper(
+                nested: fixture.bundle,
+                destination: destination,
+                directory: directory
+            )
+        )
+
+        #expect(installed == destination)
+        let stagedEntries = try fixture.entries(of: destination)
+        #expect(stagedEntries.count == (try fixture.bundleEntries().count))
+        for entry in stagedEntries {
+            #expect(try TestQuarantineAttribute.record(at: entry) == nil, "\(entry.path)")
+        }
     }
 
-    private func quarantineProperties(at url: URL) throws -> [String: Any]? {
-        try url.resourceValues(
-            forKeys: [.quarantinePropertiesKey]
-        ).quarantineProperties
+    @Test func stagingAQuarantinedBundledHelperProducesAQuarantineFreeCopy() throws {
+        let fixture = try HelperBundleFixture()
+        defer { fixture.remove() }
+        let record = TestQuarantineAttribute.webDownloadRecord(agent: "Homebrew")
+        for entry in try fixture.bundleEntries() {
+            try TestQuarantineAttribute.apply(record, to: entry)
+        }
+        let directory = fixture.root.appendingPathComponent("staged", isDirectory: true)
+        let destination = directory.appendingPathComponent(
+            "cmux Computer Use.app",
+            isDirectory: true
+        )
+
+        let installed = try #require(
+            ComputerUseRuntimeService.installHelper(
+                nested: fixture.bundle,
+                destination: destination,
+                directory: directory
+            )
+        )
+
+        #expect(installed == destination)
+        for entry in try fixture.entries(of: destination) {
+            #expect(try TestQuarantineAttribute.record(at: entry) == nil, "\(entry.path)")
+        }
+        // Only the copy is released; the bundled source keeps its record.
+        #expect(try TestQuarantineAttribute.record(at: fixture.executable) == record)
     }
 }

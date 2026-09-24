@@ -1561,7 +1561,7 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: false,
-                agentLifecycle: .running,
+                agentLifecycle: .idle,
                 hookEventName: hookEventName,
                 lastSubtitle: nil,
                 lastBody: nil,
@@ -1846,7 +1846,7 @@ final class ClaudeHookSessionStore {
         includeTerminalPromptTurnIds: Bool = true
     ) -> Bool {
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
-            return true
+            return CodexSessionTurnOwnerAdmission.recordedTurnOwnerMayStillBeAlive(record)
         }
         let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
             || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
@@ -4808,7 +4808,7 @@ struct CMUXCLI {
         }
         if command == SudoExecutionRunner.hiddenCommand {
             Darwin.exit(runHiddenSudoRunner(commandArgs: rawCommandArgs))
-        }
+        }; if command == "__restore-lease-watch" { runRestoreLeaseWatcher(commandArgs: rawCommandArgs) }
         if command == "sudo" {
             let exitCode = try runSudoCommand(commandArgs: rawCommandArgs)
             if exitCode != 0 { Darwin.exit(exitCode) }
@@ -5220,6 +5220,10 @@ struct CMUXCLI {
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         var client = SocketClient(path: resolvedSocketPath)
+        let defersSocketConnection = Self.commandDefersSocketConnectionUntilRequest(
+            command: command,
+            commandArgs: commandArgs
+        )
         let cursorHookSocketTimeout: TimeInterval? = isCursorShellHookCommand ? 0.35 : nil
         let cursorHookDeadline: Date? = isCursorShellHookCommand
             ? Date.now.addingTimeInterval(3.0)
@@ -5233,20 +5237,24 @@ struct CMUXCLI {
                 ]
             )
         }
-        cliTelemetry.breadcrumb(
-            "socket.connect.attempt",
-            data: [
-                "command": command,
-                "path": resolvedSocketPath
-            ]
-        )
+        if !defersSocketConnection {
+            cliTelemetry.breadcrumb(
+                "socket.connect.attempt",
+                data: [
+                    "command": command,
+                    "path": resolvedSocketPath
+                ]
+            )
+        }
         do {
-            if let cursorHookDeadline {
-                try client.connect(deadline: cursorHookDeadline)
-            } else {
-                try client.connect()
+            if !defersSocketConnection {
+                if let cursorHookDeadline {
+                    try client.connect(deadline: cursorHookDeadline)
+                } else {
+                    try client.connect()
+                }
+                cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
             }
-            cliTelemetry.breadcrumb("socket.connect.success", data: ["path": resolvedSocketPath])
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
@@ -5287,13 +5295,21 @@ struct CMUXCLI {
             }
         }
         defer { client.close() }
-        try authenticateClientIfNeeded(
-            client,
-            explicitPassword: socketPasswordArg,
-            socketPath: resolvedSocketPath,
-            responseTimeout: cursorHookSocketTimeout,
-            deadline: cursorHookDeadline
-        )
+        if defersSocketConnection {
+            // send/sendV2 connects and authenticates immediately before the first request.
+            client.configureAuthentication(password: SocketPasswordResolver.resolve(
+                explicit: socketPasswordArg,
+                socketPath: resolvedSocketPath
+            ))
+        } else {
+            try authenticateClientIfNeeded(
+                client,
+                explicitPassword: socketPasswordArg,
+                socketPath: resolvedSocketPath,
+                responseTimeout: cursorHookSocketTimeout,
+                deadline: cursorHookDeadline
+            )
+        }
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
         // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
         // beside renumberable refs unless the caller explicitly chooses a format.
@@ -8115,6 +8131,16 @@ struct CMUXCLI {
         return FileManager.default.fileExists(atPath: resolvePath(arg))
     }
 
+    /// These VM handlers finish local planning and validation before their first request.
+    static func commandDefersSocketConnectionUntilRequest(
+        command: String,
+        commandArgs: [String]
+    ) -> Bool {
+        guard command == "vm" || command == "cloud",
+              let subcommand = commandArgs.first?.lowercased() else { return false }
+        return ["dev", "layout", "env"].contains(subcommand)
+    }
+
     /// Returns whether a command can reach its own dispatch path without a live
     /// implicit socket. Commands that launch cmux or only touch local state must
     /// validate their arguments before discovery reports a transport failure.
@@ -8123,7 +8149,8 @@ struct CMUXCLI {
         commandArgs: [String],
         environment: [String: String]
     ) -> Bool {
-        if commandCanLaunchAppWhenSocketUnavailable(command) {
+        if commandCanLaunchAppWhenSocketUnavailable(command)
+            || Self.commandDefersSocketConnectionUntilRequest(command: command, commandArgs: commandArgs) {
             return true
         }
 
@@ -11381,86 +11408,6 @@ struct CMUXCLI {
         }
     }
 
-    /// Runs an `ssh` argv interactively in the user's terminal so password /
-    /// host-key / MFA / FIDO prompts work as in a normal SSH. The spawned ssh is
-    /// made the terminal's foreground process group (Foundation otherwise spawns it
-    /// backgrounded, where its tty read would be SIGTTIN-stopped and hang with no
-    /// prompt).
-    ///
-    /// The argv is supplied by the app over the authenticated control socket, but
-    /// as defense in depth the executable is required to be an `ssh` binary — the
-    /// CLI never execs an arbitrary command handed back from a socket response.
-    private func runInteractiveAuthSSH(sshArgv: [String], destination: String) throws {
-        // Interactive auth needs a controlling tty to prompt on. In a non-tty
-        // context (script, pipe, URL handler) ssh can't prompt and would hang or
-        // fail opaquely, so refuse early with an actionable message.
-        guard isatty(STDIN_FILENO) == 1 else {
-            throw CLIError(
-                message: "ssh-tmux: \(destination) needs interactive authentication, which requires a terminal. Run `cmux ssh-tmux \(destination)` directly from an interactive shell."
-            )
-        }
-        // The app builds this argv with a hardcoded /usr/bin/ssh; require exactly
-        // that. A basename check would accept a planted /tmp/ssh — pin the full
-        // path so the CLI never execs an arbitrary command returned over the socket.
-        let allowedSSHPaths: Set<String> = ["/usr/bin/ssh"]
-        guard let executable = sshArgv.first, allowedSSHPaths.contains(executable) else {
-            throw CLIError(message: "ssh-tmux: refusing to run a non-standard ssh path for authentication")
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = Array(sshArgv.dropFirst())
-        process.standardInput = FileHandle.standardInput
-        process.standardOutput = FileHandle.standardOutput
-        process.standardError = FileHandle.standardError
-
-        // Foundation spawns the child in its OWN process group, so ssh starts as a
-        // BACKGROUND job of the terminal. ssh's password / host-key / MFA prompt
-        // reads from the controlling tty, and a background tty read raises SIGTTIN,
-        // which STOPS ssh — it hangs forever with no prompt (cert/agent hosts never
-        // read the tty, so they were unaffected). Hand the terminal's foreground
-        // process group to the child (and SIGCONT it in case it already stopped) so
-        // it can prompt, exactly as the other interactive-child CLI paths do; the
-        // `defer` reclaims the foreground for this CLI when ssh exits.
-        let originalForegroundProcessGroup = tcgetpgrp(STDIN_FILENO)
-        var didForegroundChild = false
-        do {
-            try cliRunProcess(process)
-        } catch {
-            throw CLIError(message: "ssh-tmux: failed to launch ssh: \(String(describing: error))")
-        }
-        if originalForegroundProcessGroup > 0 {
-            let childProcessGroup = getpgid(process.processIdentifier)
-            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
-                do {
-                    try setTerminalForegroundProcessGroup(childProcessGroup)
-                } catch {
-                    // The handoff is required: without the terminal foreground, ssh's
-                    // prompt SIGTTIN-stops and waitUntilExit() below hangs forever (the
-                    // exact bug this dance prevents). Continue the child in case it
-                    // already stopped, kill it, and fail loudly instead of hanging.
-                    _ = Darwin.kill(-childProcessGroup, SIGCONT)
-                    process.terminate()
-                    throw CLIError(
-                        message: "ssh-tmux: couldn't hand the terminal to ssh for \(destination); aborting to avoid a hang (\(String(describing: error)))"
-                    )
-                }
-                _ = Darwin.kill(-childProcessGroup, SIGCONT)
-                didForegroundChild = true
-            }
-        }
-        defer {
-            if didForegroundChild {
-                try? setTerminalForegroundProcessGroup(originalForegroundProcessGroup)
-            }
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw CLIError(
-                message: "ssh-tmux: ssh authentication to \(destination) failed (exit \(process.terminationStatus))"
-            )
-        }
-    }
-
     /// Generic "open a workspace, SSH into the remote, bootstrap cmuxd-remote, forward socket,
     /// drop the user in a shell" pipeline. The inner loop of `cmux ssh`; also called from
     /// `cmux vm new`/`shell`/`attach` so cloud VMs reuse the exact same bootstrap.
@@ -11490,6 +11437,19 @@ struct CMUXCLI {
         )
         let resolvedUserSSHConfiguration =
             configurationResult.status == 0 ? configurationResult.stdout : nil
+        let resolvedOpenSSHDefaults: String?
+        if configurationResult.status == 0 {
+            let defaultConfigurationResult = resolvedSSHConfigurationResult(
+                for: sshOptions,
+                timeout: configurationTimeout,
+                configurationFile: "/dev/null"
+            )
+            resolvedOpenSSHDefaults = defaultConfigurationResult.status == 0
+                ? defaultConfigurationResult.stdout
+                : nil
+        } else {
+            resolvedOpenSSHDefaults = nil
+        }
         let fallsBackToOpenSSHInteractiveSession =
             usesImplicitManagedInteractiveShell && resolvedUserSSHConfiguration == nil
         let effectiveTerminalTransport: WorkspaceRemoteTerminalTransport =
@@ -11504,7 +11464,11 @@ struct CMUXCLI {
         sshOptions.sshOptions = sharingOptions.mergingDefaults(
             into: inputSSHOptions.sshOptions,
             userConfiguredControlOptions: resolvedUserSSHConfiguration.flatMap {
-                sharingOptions.userConfiguredControlOptions(fromSSHConfigOutput: $0)
+                sharingOptions.userConfiguredControlOptions(
+                    fromSSHConfigOutput: $0,
+                    baselineSSHConfigOutput: resolvedOpenSSHDefaults,
+                    explicitOptions: inputSSHOptions.sshOptions
+                )
             }
         )
         if resolvedUserSSHConfiguration != nil {
@@ -11519,6 +11483,13 @@ struct CMUXCLI {
                     SSHHostConfiguredRemoteCommand().configuredCommand(fromSSHConfigOutput: $0)
                 }
                 : nil
+        if !sshOptions.skipDaemonBootstrap, effectiveTerminalTransport == .ssh,
+           !sshOptions.remoteCommand.disablesTTY(in: sshOptions.sshOptions,
+               hostRequestTTY: resolvedUserSSHConfiguration.flatMap { sshConfigurationValue(named: "requesttty", in: $0) }) {
+            try runSSHTui(options: sshOptions, configuredRemoteCommand: configuredInteractiveRemoteCommand,
+                          client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+            return
+        }
         let sshStartedAt = Date()
         func logSSHTiming(_ stage: String, extra: String = "") {
             let elapsedMs = Int(Date().timeIntervalSince(sshStartedAt) * 1000)
@@ -11712,7 +11683,7 @@ struct CMUXCLI {
             } else {
                 let splitAttachCommand = [
                     "env",
-                    "CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}",
+                    "CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-\(SSHReconnectBudget().maximumLimit)}",
                     "CMUX_SSH_RECONNECT_DELAY_SECONDS=${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}",
                     shellQuote(executablePath),
                     "vm",
@@ -11725,7 +11696,7 @@ struct CMUXCLI {
                     sshCommand: splitAttachCommand,
                     shellFeatures: shellFeaturesValue,
                     remoteRelayPort: 0,
-                    reconnectLimitDefault: 86400
+                    reconnectLimitDefault: SSHReconnectBudget().maximumLimit
                 )
             }
         } else {
@@ -13366,7 +13337,7 @@ struct CMUXCLI {
         let quotedVMID = shellQuote(vmID)
         let lines = [
             "cmux_freestyle_cli=\(quotedCLI)",
-            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-\(SSHReconnectBudget().maximumLimit)}\"",
             "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",
@@ -13513,10 +13484,19 @@ struct CMUXCLI {
         retryLimit: Int,
         retryDelaySeconds: Double
     ) -> String {
-        let retryText = String(
-            localized: "cli.vm.sshInfo.retry.status",
-            defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (\(Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)))."
-        )
+        let retryAttempt = Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)
+        let retryText: String
+        if retryDelaySeconds <= 0 {
+            retryText = String(
+                localized: "cli.vm.sshInfo.retry.nowStatus",
+                defaultValue: "Retrying now (attempt \(retryAttempt))."
+            )
+        } else {
+            retryText = String(
+                localized: "cli.vm.sshInfo.retry.status",
+                defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds))s (attempt \(retryAttempt))."
+            )
+        }
         let errorText = String(describing: error)
         if Self.isLocalCloudVMServiceUnreachable(errorText),
            let url = Self.firstHTTPURL(in: errorText) {
@@ -13542,19 +13522,16 @@ struct CMUXCLI {
 
     private static func retryAttemptLabel(attempt: Int, retryLimit: Int) -> String {
         if retryLimit >= 86_400 {
-            return "attempt \(attempt)"
+            return "\(attempt)"
         }
-        return "attempt \(attempt)/\(retryLimit)"
+        return "\(attempt)/\(retryLimit)"
     }
 
     private static func retryDelayLabel(_ seconds: Double) -> String {
-        if seconds <= 0 {
-            return String(localized: "cli.vm.sshInfo.retry.now", defaultValue: "now")
-        }
         if seconds.rounded(.towardZero) == seconds {
-            return "\(Int(seconds))s"
+            return "\(Int(seconds))"
         }
-        return String(format: "%.1fs", seconds)
+        return String(format: "%.1f", seconds)
     }
 
     private static func isLocalCloudVMServiceUnreachable(_ message: String) -> Bool {
@@ -14902,6 +14879,18 @@ struct CMUXCLI {
             throw CLIError(message: "ssh-session-attach: control socket returned no owning workspace")
         }
         let workspaceRef = Self.normalizedEnvValue(resolution["workspace_ref"] as? String)
+
+        if resolution["backend"] as? String == "cmux-tui", let resource = resolution["resource"] as? String {
+            var projection: [String: Any] = ["resource": resource, "workspace_id": workspaceID]
+            try applyFocusOption(focusOpt, defaultValue: true, to: &projection)
+            if let paneOpt { projection["pane_id"] = paneOpt }
+            if let splitOpt { projection["direction"] = splitOpt; projection["placement"] = "split" }
+            if let surfaceOpt { projection["surface_id"] = surfaceOpt }
+            let payload = try client.sendV2(method: "surface.project", params: projection, responseTimeout: 180)
+            printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat,
+                           fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["workspace", "surface"]))
+            return
+        }
 
         let initialCommand = sshSessionAttachStartupCommand(sessionID: sessionID)
         var params: [String: Any] = [
@@ -27594,9 +27583,9 @@ struct CMUXCLI {
                     telemetry: telemetry
                 )
             }
-            // SessionStart itself is the process-running signal. Keep ordinary
-            // startup/resume visually quiet, but register the PID immediately so
-            // later hooks and terminal state are attached to this exact surface.
+            // SessionStart establishes session identity and process ownership.
+            // Keep ordinary startup/resume visually quiet; actual work starts at
+            // UserPromptSubmit, while the PID still binds later hooks to this surface.
             let shouldRegisterPID = isForkSessionLaunch
                 ? resolvedSurface.isAuthoritative
                 : shouldPromoteActiveSession ||
@@ -27619,9 +27608,9 @@ struct CMUXCLI {
                     client: client,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
-                    value: "Running",
-                    icon: "bolt.fill",
-                    color: "#4C8DFF",
+                    value: "Idle",
+                    icon: "pause.circle.fill",
+                    color: "#8E8E93",
                     pid: claudePid
                 )
             }
@@ -30617,13 +30606,7 @@ struct CMUXCLI {
             }
 
             if let currentTranscriptPath = transcriptPath {
-                let userInput = autoreleasepool {
-                    readCodexTranscriptUserInput(
-                        path: currentTranscriptPath,
-                        turnId: turnId,
-                        excluding: publishedUserInputCallIds
-                    )
-                }
+                let userInput = autoreleasepool(invoking: { readCodexTranscriptUserInput(path: currentTranscriptPath, turnId: turnId, excluding: publishedUserInputCallIds) })
                 if let userInput {
                     publishedUserInputCallIds.insert(userInput.callId)
                     publishCodexMonitorUserInput(
@@ -30634,13 +30617,7 @@ struct CMUXCLI {
                     )
                 }
 
-                let failureResult = autoreleasepool {
-                    readCodexTranscriptFailure(
-                        path: currentTranscriptPath,
-                        turnId: turnId,
-                        requireTerminalCompletion: true
-                    )
-                }
+                let failureResult = autoreleasepool(invoking: { readCodexTranscriptFailure(path: currentTranscriptPath, turnId: turnId, requireTerminalCompletion: true) })
                 switch failureResult {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
@@ -35929,19 +35906,18 @@ export default CMUXSessionRestore;
             // this narrow transcript check for pre-ledger launches so stale
             // prompt-depth records cannot strand an older session; it is never
             // part of the modern child-work decision.
+            let activePromptTurnStackForStop = mapped?.activePromptTurnIds?
+                .compactMap({ normalizedHookValue($0) }) ?? []
+            let activePromptTurnIdsForStop = activePromptTurnStackForStop.isEmpty
+                ? normalizedHookValue(mapped?.activePromptTurnId).map { [$0] } ?? []
+                : activePromptTurnStackForStop
             let terminalActivePromptTurnIdsForStop: Set<String>
             if !relayOrigin,
                !staleIdleStopHasNewerRunningSession,
                def.name == "codex",
                codexLifecycle?.usesLegacyIdentity == true,
                let incomingTurnId = normalizedHookValue(input.turnId) {
-                let activePromptTurnStack = mapped?.activePromptTurnIds?
-                    .compactMap({ normalizedHookValue($0) }) ?? []
-                let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
-                let activeTurnIds = activePromptTurnStack.isEmpty
-                    ? activePromptTurnId.map { [$0] } ?? []
-                    : activePromptTurnStack
-                let activeTurnIdsToCheck = activeTurnIds.filter { $0 != incomingTurnId }
+                let activeTurnIdsToCheck = activePromptTurnIdsForStop.filter { $0 != incomingTurnId }
                 if !activeTurnIdsToCheck.isEmpty,
                    let transcriptPath = normalizedHookValue(localTranscriptPath(mapped: mapped))
                        ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
@@ -36079,6 +36055,27 @@ export default CMUXSessionRestore;
                         correlationKey: correlationKey,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId
+                    )
+                }
+            }
+
+            if def.name == "codex", codexLifecycle?.usesLegacyIdentity == true,
+               !suppressCompletionNotification {
+                for priorTurnId in activePromptTurnIdsForStop
+                    where terminalActivePromptTurnIdsForStop.contains(priorTurnId) {
+                    emitAgentJournalEvent(
+                        client: client,
+                        kind: .idleObserved,
+                        source: def.name,
+                        agentKey: def.statusKey,
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        nativeEvent: "transcript-terminal",
+                        attention: AgentAttentionContext(turnIdentity: priorTurnId),
+                        occurredAtMs: Self.semanticOccurredAtMs(input.rawObject),
+                        store: store,
+                        telemetry: telemetry
                     )
                 }
             }

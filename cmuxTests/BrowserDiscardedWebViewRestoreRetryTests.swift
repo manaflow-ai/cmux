@@ -2,6 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import Testing
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -47,6 +48,77 @@ private final class BrowserDiscardRestoreRefusedEndpoint {
     }
 
     deinit { Darwin.close(descriptor) }
+}
+
+/// WebKit builds a `WKNavigation`'s embedded C++ `API::Navigation` itself, so an
+/// instance made with a bare `WKNavigation()` carries unconstructed storage.
+/// Allocating one is harmless; releasing it is not — `-[WKNavigation dealloc]`
+/// traps and takes the whole xctest host down. The discard-restore bookkeeping
+/// only ever compares these by identity, so minting them here and holding them
+/// for the run is behaviour-preserving. Same rationale, and same shape, as
+/// `BrowserDiscardRestoreHealPredicateTests`.
+@MainActor
+private enum BrowserDiscardRestoreNavigationStub {
+    private static var retained: [WKNavigation] = []
+
+    static func make() -> WKNavigation {
+        let navigation = WKNavigation()
+        retained.append(navigation)
+        return navigation
+    }
+}
+
+/// Records WebKit's navigation commands without starting a network load, and
+/// reports a navigation object for a main-frame load so the panel's
+/// discard-restore bookkeeping tracks the attempt exactly as it does for a real
+/// one. Sibling of `BrowserReloadRecordingWebView`, which returns nil instead —
+/// that would make the panel treat every restore as "navigation_not_started"
+/// and would not exercise the refused-connection path this case is about.
+@MainActor
+private final class BrowserDiscardRestoreFakeWebView: WKWebView {
+    private(set) var requests: [URLRequest] = []
+    private(set) var errorPageLoadCount = 0
+
+    override func load(_ request: URLRequest) -> WKNavigation? {
+        requests.append(request)
+        return BrowserDiscardRestoreNavigationStub.make()
+    }
+
+    override func loadHTMLString(_: String, baseURL _: URL?) -> WKNavigation? {
+        errorPageLoadCount += 1
+        return nil
+    }
+}
+
+/// Swaps the panel's live web view for a fake navigation source. `webViewInstanceID`
+/// is deliberately left alone, so the navigation-delegate callbacks the panel
+/// installed stay bound to whatever `panel.webView` is now.
+@MainActor
+@discardableResult
+private func installFakeNavigationSource(in panel: BrowserPanel) -> BrowserDiscardRestoreFakeWebView {
+    panel.detachWebViewObservers()
+    let configuration = WKWebViewConfiguration()
+    configuration.websiteDataStore = panel.websiteDataStore
+    let webView = BrowserDiscardRestoreFakeWebView(frame: .zero, configuration: configuration)
+    panel.webView = webView
+    return webView
+}
+
+/// Reports a refused connection for `url` through the panel's real navigation
+/// delegate, the way `BrowserFailedNavigationReloadTests` does. Every state
+/// transition it drives — failure bookkeeping, error page, retry policy — is
+/// synchronous, so no caller has to wait for anything.
+@MainActor
+private func refuseConnection(to url: URL, in panel: BrowserPanel) {
+    panel.navigationDelegate?.webView(
+        panel.webView,
+        didFailProvisionalNavigation: nil,
+        withError: NSError(
+            domain: NSURLErrorDomain,
+            code: NSURLErrorCannotConnectToHost,
+            userInfo: [NSURLErrorFailingURLStringErrorKey: url.absoluteString]
+        )
+    )
 }
 
 @MainActor
@@ -113,7 +185,7 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         }
     }
 
-    @Test func browserPanelRetriesDiscardedRestoreAfterConnectionRefused() async throws {
+    @Test func browserPanelRetriesDiscardedRestoreAfterConnectionRefused() throws {
         // RED(#7504): connection-refused restore must leave the pane retryable on the next restore touch.
         let endpoint = try BrowserDiscardRestoreRefusedEndpoint(path: "cmux-issue-7504")
         defer { withExtendedLifetime(endpoint) {} }
@@ -127,41 +199,41 @@ struct BrowserDiscardedWebViewRestoreRetryTests {
         )
         defer { panel.close() }
 
-        // This case exercises real WebKit failure callbacks. Give both the
-        // original and replacement views a sized native host before loading.
-        let window = NSWindow(
-            contentRect: NSRect(x: 20, y: 20, width: 640, height: 480),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = panel.webView
-        window.orderBack(nil)
-        defer {
-            window.contentView = nil
-            window.close()
-        }
+        // `WKWebView.isLoading` is not a completion signal: on the app-host
+        // runners the provisional load to the reserved loopback port neither
+        // fails nor commits, and `isLoading` stays true even after
+        // `stopLoading()`. The retry bookkeeping under test needs no real load
+        // at all, so drive the panel from a fake navigation source and report
+        // the refusal through the navigation delegate, the terminal callback
+        // that actually owns this transition. The restore bookkeeping, the error
+        // page, and the retry policy all run unchanged, and every transition is
+        // synchronous — nothing here waits on WebKit.
+        let originalSource = installFakeNavigationSource(in: panel)
         try #require(panel.navigate(to: url) != nil)
+        #expect(originalSource.requests.last?.url == url)
 
-        try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(30)) {
-            panel.navigationDelegate?.activeErrorPageDisplayURL == url
-                && !panel.webView.isLoading && !panel.isLoading
-        })
+        refuseConnection(to: url, in: panel)
+        #expect(panel.navigationDelegate?.activeErrorPageDisplayURL == url)
+        #expect(originalSource.errorPageLoadCount == 1)
+        #expect(!panel.webView.isLoading)
+        #expect(!panel.isLoading)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
 
         #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
         #expect(panel.webView !== originalWebView)
-        window.contentView = panel.webView
+        let restoreSource = installFakeNavigationSource(in: panel)
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore1"))
-        try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(20)) {
-            let restorePending = panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool ?? false
-            return panel.navigationDelegate?.activeErrorPageDisplayURL == url
-                && !restorePending && !panel.webView.isLoading && !panel.isLoading
-        })
+        #expect(restoreSource.requests.last?.url == url)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == true)
+
+        refuseConnection(to: url, in: panel)
+        #expect(panel.navigationDelegate?.activeErrorPageDisplayURL == url)
+        #expect(panel.webViewLifecycleTopPayload()["restore_pending"] as? Bool == false)
+        #expect(!panel.webView.isLoading)
+        #expect(!panel.isLoading)
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore2"))
     }

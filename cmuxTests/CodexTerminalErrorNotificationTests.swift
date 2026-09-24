@@ -63,10 +63,17 @@ struct CodexTerminalErrorNotificationTests {
         #expect(!result.timedOut, "\(result.stderr)")
         #expect(result.status == 0, "\(result.stderr)")
         #expect(
-            server.commands.contains { command in
-                command.contains(
-                    "notify_target \(workspaceID) \(surfaceID) Codex|Error|Selected model is at capacity. Please try a different model."
-                )
+            AgentJournalAppendCapture.captures(in: server.commands).contains { capture in
+                guard capture.kind == "agent.error.reported",
+                      capture.workspaceId == workspaceID,
+                      capture.surfaceId == surfaceID,
+                      let attention = capture.draft["attention"] as? [String: Any],
+                      let notification = attention["notification"] as? [String: Any] else {
+                    return false
+                }
+                return notification["title"] as? String == "Codex" &&
+                    notification["subtitle"] as? String == "Error" &&
+                    notification["body"] as? String == "Selected model is at capacity. Please try a different model."
             },
             "Expected the nested terminal error to notify, saw \(server.commands)"
         )
@@ -257,17 +264,12 @@ private struct CodexTerminalErrorProcess {
         stdin.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdin.fileHandleForWriting.close()
 
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
-        let timedOut = finished.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if finished.wait(timeout: .now() + 1) == .timedOut {
+            if waitForProcessExit(process, timeout: 1) == .timedOut {
                 Darwin.kill(process.processIdentifier, SIGKILL)
-                guard finished.wait(timeout: .now() + 1) == .success else {
+                guard waitForProcessExit(process, timeout: 1) == .success else {
                     return Result(
                         status: -1,
                         stdout: "",

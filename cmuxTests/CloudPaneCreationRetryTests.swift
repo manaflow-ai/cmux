@@ -73,6 +73,11 @@ struct CloudPaneCreationRetryTests {
         store.cancelAll()
         release.resolve(true)
         _ = await returned.result
+        // The coordinator applies its generation fence after `project` returns,
+        // behind `CloudOperationContext.withPhase`'s recorder await. That await
+        // can suspend on a cold path, so the fence is not observable
+        // synchronously; settle before asserting the discard.
+        await Self.yieldUntil { discarded }
         #expect(discarded)
     }
 
@@ -143,6 +148,17 @@ struct CloudPaneCreationRetryTests {
         #expect(projections == 0)
         #expect(store.failure == nil)
         #expect(!store.canRetry)
+    }
+
+    @MainActor
+    private static func yieldUntil(
+        timeout: Duration = .seconds(2),
+        _ condition: @MainActor () -> Bool
+    ) async {
+        let deadline = ContinuousClock.now + timeout
+        while !condition(), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
     }
 
     private static func resource() -> SurfaceResource {

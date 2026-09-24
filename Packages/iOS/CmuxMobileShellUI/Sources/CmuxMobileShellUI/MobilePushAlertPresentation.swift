@@ -9,7 +9,17 @@ struct MobilePushAlertPresentationModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .onChange(of: coordinator.tabUnavailableAlert, initial: true) { _, alert in
-                presentedAlert = alert
+                presentedAlert = alert?.kind == .tabUnavailable ? alert : nil
+            }
+            .overlay(alignment: .top) {
+                if coordinator.tabUnavailableAlert?.kind == .connectionUnavailable {
+                    MobilePushConnectionUnavailableBanner(
+                        retry: coordinator.retryPendingDeeplink,
+                        dismiss: coordinator.dismissTabUnavailableAlert
+                    )
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                }
             }
             .alert(item: $presentedAlert) { alert in
                 switch alert.kind {
@@ -31,28 +41,7 @@ struct MobilePushAlertPresentationModifier: ViewModifier {
                         }
                     )
                 case .connectionUnavailable:
-                    Alert(
-                        title: Text(L10n.string(
-                            "mobile.push.connectionUnavailable.title",
-                            defaultValue: "Connection unavailable"
-                        )),
-                        message: Text(L10n.string(
-                            "mobile.push.connectionUnavailable.message",
-                            defaultValue: "We’ll keep this notification ready until your Mac reconnects."
-                        )),
-                        primaryButton: .default(Text(L10n.string(
-                            "mobile.push.connectionUnavailable.retry",
-                            defaultValue: "Try again"
-                        ))) {
-                            coordinator.retryPendingDeeplink()
-                        },
-                        secondaryButton: .cancel(Text(L10n.string(
-                            "mobile.push.connectionUnavailable.cancel",
-                            defaultValue: "Cancel"
-                        ))) {
-                            coordinator.dismissTabUnavailableAlert()
-                        }
-                    )
+                    Alert(title: Text(""), dismissButton: .cancel())
                 }
             }
     }

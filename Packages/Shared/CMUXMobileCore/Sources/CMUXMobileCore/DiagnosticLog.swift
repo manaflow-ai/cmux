@@ -167,8 +167,10 @@ public final class DiagnosticLog: Sendable {
     /// past the consumer's pace drops the oldest pending events (per
     /// `.bufferingNewest`), never the caller. Repeated
     /// ``DiagnosticEventCode/selectedPathChanged`` values for the same redacted
-    /// path class are consumed but not retained, so observer wakeups cannot be
-    /// mistaken for transport changes.
+    /// peer, session, and path class are consumed but not retained while their
+    /// previous snapshot remains in the ring. Individual
+    /// ``DiagnosticEventCode/transportPathEvent`` lifecycle edges are retained,
+    /// including opened and selected events for the same path class.
     ///
     /// - Parameter event: The event to record.
     public nonisolated func record(_ event: DiagnosticEvent) {
@@ -203,6 +205,27 @@ public final class DiagnosticLog: Sendable {
             a: kind.rawValue,
             b: failure?.rawValue,
             c: boundedCount
+        ))
+    }
+
+    /// Records the source and effort metadata of one visible task model result.
+    ///
+    /// The fixed integer slots avoid exporting provider names, model IDs, or
+    /// command output. The event's `b` slot is the provider, `c` is the source,
+    /// and `ms` is the total number of efforts exposed by the result.
+    public nonisolated func recordTaskModelResult(
+        correlationID: String?,
+        provider: DiagnosticTaskModelProvider,
+        source: DiagnosticTaskModelSource,
+        effortCount: Int
+    ) {
+        record(DiagnosticEvent(
+            .appFeatureAction,
+            surface: correlation.handle(for: correlationID),
+            ms: UInt32(clamping: max(0, effortCount)),
+            a: DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
+            b: provider.rawValue,
+            c: source.rawValue
         ))
     }
 
@@ -528,11 +551,19 @@ public final class DiagnosticLog: Sendable {
     }
 
     private actor Store {
+        private struct SelectedPathKey: Hashable {
+            let surface: UInt32?
+            let session: Int?
+        }
+
         private var slots: [DiagnosticEvent?]
         private var head = 0
         private var filled = 0
         private var totalProcessed = 0
-        private var selectedPathKind: DiagnosticPathKind?
+        // Each entry points to its newest retained snapshot. Eviction removes
+        // that entry, bounding deduplication by ring capacity without requiring
+        // every transport to emit a separate session-end event.
+        private var selectedPaths: [SelectedPathKey: (kind: DiagnosticPathKind, slot: Int)] = [:]
         private let capacity: Int
         private let buildStamp: String
         private let role: DiagnosticRuntimeRole
@@ -563,9 +594,19 @@ public final class DiagnosticLog: Sendable {
         @discardableResult
         func append(_ event: DiagnosticEvent) -> Bool {
             totalProcessed += 1
-            if let nextPathKind = event.diagnosticPathKind {
-                guard nextPathKind != selectedPathKind else { return false }
-                selectedPathKind = nextPathKind
+            let key = SelectedPathKey(surface: event.surface, session: event.c)
+            if event.code == .selectedPathChanged,
+               let nextPathKind = event.diagnosticPathKind {
+                guard selectedPaths[key]?.kind != nextPathKind else { return false }
+            }
+            if let previous = slots[head], previous.code == .selectedPathChanged {
+                let previousKey = SelectedPathKey(surface: previous.surface, session: previous.c)
+                if selectedPaths[previousKey]?.slot == head {
+                    selectedPaths.removeValue(forKey: previousKey)
+                }
+            }
+            if event.code == .selectedPathChanged, let pathKind = event.diagnosticPathKind {
+                selectedPaths[key] = (pathKind, head)
             }
             slots[head] = event
             head = (head + 1) % capacity
@@ -588,7 +629,7 @@ public final class DiagnosticLog: Sendable {
             head = 0
             filled = 0
             totalProcessed = 0
-            selectedPathKind = nil
+            selectedPaths.removeAll(keepingCapacity: false)
             self.anchorWallNanos = anchorWallNanos
             self.anchorMonotonicNanos = anchorMonotonicNanos
         }
