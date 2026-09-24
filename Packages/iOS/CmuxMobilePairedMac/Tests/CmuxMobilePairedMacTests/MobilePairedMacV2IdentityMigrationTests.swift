@@ -28,17 +28,21 @@ import Testing
         let (store, directory) = try fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
         try await save(store, id: "old")
-        try await store.setCustomization(macDeviceID: "old", instanceTag: "nightly", customName: "Office",
+        try await store.seedMigrationCustomization(macDeviceID: "old", instanceTag: "nightly", customName: "Office",
                                          customColor: "palette:2", customIcon: "house", stackUserID: "alice",
                                          teamID: "team-a", now: Date(timeIntervalSince1970: 101))
-        try await store.setConnectionMethod(macDeviceID: "old", instanceTag: "nightly", rawValue: "direct",
+        try await store.seedMigrationConnectionMethod(macDeviceID: "old", instanceTag: "nightly", rawValue: "direct",
                                             stackUserID: "alice", teamID: "team-a")
-        try await store.setDirectAddresses(macDeviceID: "old", instanceTag: "nightly", rawJSON: "[]",
+        try await store.seedMigrationDirectAddresses(macDeviceID: "old", instanceTag: "nightly", rawJSON: "[]",
                                           stackUserID: "alice", teamID: "team-a")
         try await save(store, id: "new", active: false)
-        try await store.setCustomization(macDeviceID: "new", instanceTag: "nightly", customName: "New choice",
+        try await store.seedMigrationCustomization(macDeviceID: "new", instanceTag: "nightly", customName: "New choice",
                                          customColor: nil, customIcon: nil, stackUserID: "alice",
                                          teamID: "team-a", now: Date(timeIntervalSince1970: 102))
+        let seeded = try await store.loadAll()
+        #expect(seeded.first(where: { $0.macDeviceID == "old" })?.customName == "Office")
+        #expect(seeded.first(where: { $0.macDeviceID == "old" })?.connectionMethodRawValue == "direct")
+        #expect(seeded.first(where: { $0.macDeviceID == "new" })?.customName == "New choice")
         let evidence = [MobilePairedMacDirectoryIdentity(deviceID: "new", instanceTag: "nightly", routes: [try route()])]
         let aliases = try await store.reconcileLegacyIdentities(with: evidence, stackUserID: "alice", teamID: "team-a")
         let rows = try await store.loadAll(stackUserID: "alice", teamID: "team-a")
@@ -104,10 +108,11 @@ import Testing
         let (legacy, directory) = try fixture()
         defer { try? FileManager.default.removeItem(at: directory) }
         try await save(legacy, id: "old")
-        try await legacy.setCustomization(macDeviceID: "old", instanceTag: "nightly", customName: "Old choice",
+        try await legacy.seedMigrationCustomization(macDeviceID: "old", instanceTag: "nightly", customName: "Old choice",
                                           customColor: nil, customIcon: nil, stackUserID: "alice",
                                           teamID: "team-a", now: Date(timeIntervalSince1970: 101))
         let original = try await legacy.loadAll()
+        #expect(original.first?.customName == "Old choice")
         let destination = directory.appendingPathComponent("v2.sqlite3")
         let upgraded = try MobilePairedMacStore(databaseURL: destination,
             importingLegacyDatabaseURL: directory.appendingPathComponent("macs.sqlite3"))
@@ -116,11 +121,11 @@ import Testing
         #expect(try await upgraded.loadAll().first?.customName == "Old choice")
         #expect(try await legacy.loadAll() == original)
         // The user clears the old custom name, then a stale source reappears.
-        try await upgraded.setCustomization(macDeviceID: "new", instanceTag: "nightly", customName: nil,
+        try await upgraded.seedMigrationCustomization(macDeviceID: "new", instanceTag: "nightly", customName: nil,
                                             customColor: nil, customIcon: nil, stackUserID: "alice",
                                             teamID: "team-a", now: Date(timeIntervalSince1970: 102))
         try await save(upgraded, id: "old", active: false)
-        try await upgraded.setCustomization(macDeviceID: "old", instanceTag: "nightly", customName: "Old choice",
+        try await upgraded.seedMigrationCustomization(macDeviceID: "old", instanceTag: "nightly", customName: "Old choice",
                                             customColor: nil, customIcon: nil, stackUserID: "alice",
                                             teamID: "team-a", now: Date(timeIntervalSince1970: 101))
         _ = try await upgraded.reconcileLegacyIdentities(with: evidence, stackUserID: "alice", teamID: "team-a")
@@ -130,5 +135,29 @@ import Testing
         let reopened = try MobilePairedMacStore(databaseURL: destination,
             importingLegacyDatabaseURL: directory.appendingPathComponent("macs.sqlite3"))
         #expect(try await reopened.loadAll() == rows)
+    }
+}
+
+// Keep fixture writes actor-isolated. From an async concrete-store call, Swift
+// can prefer an async compatibility default over the synchronous actor method.
+private extension MobilePairedMacStore {
+    func seedMigrationCustomization(macDeviceID: String, instanceTag: String?, customName: String?,
+                                    customColor: String?, customIcon: String?, stackUserID: String?,
+                                    teamID: String?, now: Date) throws {
+        try setCustomization(macDeviceID: macDeviceID, instanceTag: instanceTag, customName: customName,
+                             customColor: customColor, customIcon: customIcon, stackUserID: stackUserID,
+                             teamID: teamID, now: now)
+    }
+
+    func seedMigrationConnectionMethod(macDeviceID: String, instanceTag: String?, rawValue: String?,
+                                       stackUserID: String?, teamID: String?) throws {
+        try setConnectionMethod(macDeviceID: macDeviceID, instanceTag: instanceTag, rawValue: rawValue,
+                                stackUserID: stackUserID, teamID: teamID)
+    }
+
+    func seedMigrationDirectAddresses(macDeviceID: String, instanceTag: String?, rawJSON: String?,
+                                      stackUserID: String?, teamID: String?) throws {
+        try setDirectAddresses(macDeviceID: macDeviceID, instanceTag: instanceTag, rawJSON: rawJSON,
+                               stackUserID: stackUserID, teamID: teamID)
     }
 }

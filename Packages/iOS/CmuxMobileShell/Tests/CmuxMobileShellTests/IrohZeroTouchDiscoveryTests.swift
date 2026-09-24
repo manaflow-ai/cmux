@@ -789,9 +789,10 @@ struct IrohZeroTouchDiscoveryTests {
                                        routes: [oldRoute], instanceTag: live.instanceTag,
                                        markActive: true, stackUserID: "user-1", teamID: nil,
                                        now: Self.fixedNow)
-        try await fixture.store.setCustomization(macDeviceID: "old-physical-mac", instanceTag: live.instanceTag,
+        try await fixture.store.seedV2MigrationCustomization(macDeviceID: "old-physical-mac", instanceTag: live.instanceTag,
                                                  customName: "Office", customColor: "palette:2", customIcon: "house",
                                                  stackUserID: "user-1", teamID: nil, now: Self.fixedNow)
+        #expect(try await fixture.store.loadAll().first?.customName == "Office")
 
         #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
         #expect(fixture.factory.attemptedRouteIDs() == [live.routes[0].id])
@@ -839,7 +840,7 @@ struct IrohZeroTouchDiscoveryTests {
                                        routes: old.routes, instanceTag: old.instanceTag,
                                        markActive: true, stackUserID: "user-1", teamID: nil,
                                        now: Self.fixedNow)
-        try await fixture.store.setCustomization(macDeviceID: old.deviceID, instanceTag: old.instanceTag,
+        try await fixture.store.seedV2MigrationCustomization(macDeviceID: old.deviceID, instanceTag: old.instanceTag,
                                                  customName: "Unresolved preference", customColor: nil, customIcon: nil,
                                                  stackUserID: "user-1", teamID: nil, now: Self.fixedNow)
         #expect(await fixture.shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
@@ -1152,5 +1153,15 @@ private struct ZeroTouchFixture {
         for subscription in shell.secondaryMacSubscriptions.values { subscription.cancel() }
         Task { await shell.remoteClient?.disconnect() }
         try? FileManager.default.removeItem(at: directory)
+    }
+}
+
+private extension MobilePairedMacStore {
+    func seedV2MigrationCustomization(macDeviceID: String, instanceTag: String?, customName: String?,
+                                      customColor: String?, customIcon: String?, stackUserID: String?,
+                                      teamID: String?, now: Date) throws {
+        try setCustomization(macDeviceID: macDeviceID, instanceTag: instanceTag, customName: customName,
+                             customColor: customColor, customIcon: customIcon, stackUserID: stackUserID,
+                             teamID: teamID, now: now)
     }
 }
