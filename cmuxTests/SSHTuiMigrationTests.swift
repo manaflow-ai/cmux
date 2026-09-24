@@ -122,4 +122,39 @@ struct SSHTuiMigrationTests {
         #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
     }
 
+    @Test("Native SSH forks never fall back to local creation without a provider")
+    @MainActor
+    func disconnectedNativeSSHForkFailsClosed() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: panelID))
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        let config = configuration()
+        workspace.remoteConfiguration = config
+        let resource = SurfaceResourceID(machine: .init(rawValue: SSHTuiConnection(configuration: config).id),
+                                         kind: .terminal, key: "fork-test-" + UUID().uuidString)
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)],
+                        workspaceID: workspace.id, restoringWorkspace: workspace)
+        let snapshot = SessionRestorableAgentSnapshot(kind: .claude,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951", workingDirectory: "/home/alice/project")
+        let originalPanels = Set(workspace.panels.keys)
+        #expect(workspace.forkAgentConversation(fromPanelId: panelID, snapshot: snapshot, direction: .right) == nil)
+        #expect(workspace.forkAgentConversationToNewTab(fromPanelId: panelID, snapshot: snapshot,
+                                                       anchorTabId: tabID, paneId: paneID) == nil)
+        #expect(Set(workspace.panels.keys) == originalPanels)
+        let launch = try #require(workspace.forkAgentWorkspaceLaunch(fromPanelId: panelID, snapshot: snapshot))
+        let forkConfiguration = try #require(launch.remoteConfiguration)
+        #expect(SSHTuiConnection(configuration: forkConfiguration).id == resource.machine.rawValue)
+        #expect(forkConfiguration.configuredRemoteCommand == snapshot.forkCommand)
+        #expect(launch.initialTerminalCommand == nil)
+        #expect(launch.initialTerminalInput.isEmpty)
+        #expect(launch.startupRestoreAgent == nil)
+        #expect(launch.autoConnectRemoteConfiguration)
+    }
+
 }
