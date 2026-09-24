@@ -95,6 +95,20 @@ struct SSHTuiMigrationTests {
         #expect(SSHTuiConnection(configuration: original).id == SSHTuiConnection(configuration: restored).id)
     }
 
+    @Test("Legacy persistent SSH snapshots are not claimed by the TUI owner")
+    func legacySnapshotDoesNotBecomeTuiSession() throws {
+        let legacy = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "fixture@host",
+            preserveAfterTerminalExit: true, relayPort: 1234, persistentDaemonSlot: "legacy-owned")
+        #expect(legacy.tuiSSHConfiguration(agentSocketPath: nil) == nil)
+    }
+
+    @Test("Managed SSH snapshot serialization records its session owner")
+    func managedSnapshotRecordsOwner() throws {
+        let snapshot = try #require(configuration().sessionSnapshot())
+        let object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot)) as? [String: Any])
+        #expect(object["sshSessionOwner"] as? String == "cmux-tui")
+    }
+
     @Test("SSH projection identities survive session serialization without becoming Cloud machines")
     func projectionRoundTripRetainsSSHBackend() throws {
         let id = SSHTuiConnection(configuration: configuration()).id
