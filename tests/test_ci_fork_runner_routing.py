@@ -26,6 +26,8 @@ MACOS_15_FORK_JOBS = {
     ("ci-macos-compat.yml", "compat-tests"),
     # Exists to exercise the paste worker on macOS 15.
     ("plain-paste-worker.yml", "macos-15"),
+    # Seeds the macOS 15 pool's SwiftPM manifest cache, keyed on its Xcode.
+    ("seed-swiftpm-manifests.yml", "seed"),
 }
 # A matrix job may instead pick a hosted label per row, e.g. to spread
 # app-host shards over macos-15 and macos-26. Accepted only when every
