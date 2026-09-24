@@ -8,7 +8,6 @@ import UIKit
 final class WorkspaceNavigationBarController: UIViewController {
     private let titleCapsule = WorkspaceNavigationTitleView()
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
-    private var leadingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var leadingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
@@ -70,7 +69,6 @@ final class WorkspaceNavigationBarController: UIViewController {
             }
         }
         let nextLeadingButtons = leadingItems.compactMap { controls[$0.id]?.button }
-        leadingIDs = leadingItems.map(\.id)
         if !leadingGroup.barButtonItems.elementsEqual(nextLeadingButtons, by: { $0 === $1 }) {
             leadingGroup = UIBarButtonItemGroup(
                 barButtonItems: nextLeadingButtons,
@@ -106,25 +104,17 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         let item = target.navigationItem
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
-        let orientation = navigation.view.window?.windowScene?.interfaceOrientation
-        let isLandscape = orientation == .landscapeLeft || orientation == .landscapeRight
-        for (id, control) in controls {
-            let placement: WorkspaceNavigationControlView.Placement = leadingIDs.contains(id) ? .leading : .trailing
-            let visualOffset: CGFloat
-            switch id {
-            case .back, .sidebar:
-                visualOffset = -2
-            case .changes:
-                visualOffset = 4
-            case .terminals:
-                visualOffset = 8
-            case .alternateScreen:
-                visualOffset = 0
-            }
-            control.view.update(
-                placement: placement,
-                isLandscape: isLandscape,
-                visualOffset: visualOffset
+        let isLandscape = target.view.bounds.width > target.view.bounds.height
+        for value in leadingGroup.barButtonItems {
+            (value.customView as? WorkspaceNavigationControlView)?.update(
+                placement: .leading,
+                isLandscape: isLandscape
+            )
+        }
+        for value in trailingGroup.barButtonItems {
+            (value.customView as? WorkspaceNavigationControlView)?.update(
+                placement: .trailing,
+                isLandscape: isLandscape
             )
         }
         item.style = .browser
