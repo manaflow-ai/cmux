@@ -2121,6 +2121,91 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
         ], path
 
 
+def _helper_repo(files: dict[str, str]) -> Path:
+    repo = Path(tempfile.mkdtemp())
+    env = {k: v for k, v in os.environ.items() if k not in {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"}}
+    for relative, text in files.items():
+        target = repo / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=repo, env=env, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=repo, env=env, check=True)
+    return repo
+
+
+ROUTED_TREE = {
+    ".github/workflows/ci.yml": "jobs:\n  guards:\n    uses: ./.github/workflows/ci-guards.yml\n",
+    ".github/workflows/ci-guards.yml": "jobs:\n  guard:\n    runs-on: ubuntu-latest\n    steps:\n      - run: python3 tests/test_helper.py\n",
+    "scripts/ci/helper.py": "print('helper')\n",
+    "tests/test_helper.py": "import helper\n",
+}
+GUARD_ONLY_REFERENCES = (frozenset(), frozenset({"tests/test_helper.py"}))
+
+
+def reaches(files: dict[str, str]) -> bool:
+    return module.ci_helper_reaches_routed_lane(
+        "scripts/ci/helper.py", _helper_repo({**ROUTED_TREE, **files}), GUARD_ONLY_REFERENCES
+    )
+
+
+def test_helper_run_only_outside_the_routed_workflow_tree_reaches_no_lane() -> None:
+    dispatch = {".github/workflows/dispatch.yml": "on: workflow_dispatch\njobs:\n  run:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/helper.py\n"}
+    assert not reaches(dispatch)
+    # Its own Linux guard naming it as `test_helper` does not make it routed.
+    assert not reaches({})
+
+
+def test_helper_a_routed_job_can_execute_still_fails_open() -> None:
+    assert reaches({".github/workflows/ci-guards.yml": ROUTED_TREE[".github/workflows/ci-guards.yml"] + "      - run: python3 scripts/ci/helper.py\n"})
+    # Through a script a routed workflow runs.
+    assert reaches({
+        "scripts/ci/wrapper.sh": "python3 \"$(dirname \"$0\")/helper.py\"\n",
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    runs-on: macos-15\n    steps:\n      - run: scripts/ci/wrapper.sh\n",
+    })
+    # Through a composite action a routed workflow uses.
+    assert reaches({
+        ".github/actions/run-helper/action.yml": "runs:\n  using: composite\n  steps:\n    - run: python3 scripts/ci/helper.py\n      shell: bash\n",
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    runs-on: macos-15\n    steps:\n      - uses: ./.github/actions/run-helper\n",
+    })
+
+
+def test_a_pull_request_cannot_unroute_a_workflow_by_editing_ci_yml() -> None:
+    mac_helper = {
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    uses: './.github/workflows/mac.yml'\n",
+        ".github/workflows/mac.yml": "on: workflow_call\njobs:\n  build:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/helper.py\n",
+    }
+    # A quoted call is still a call.
+    assert reaches(mac_helper)
+    # The head drops the call; the base still has it.
+    base = _helper_repo({**ROUTED_TREE, **mac_helper})
+    head = _helper_repo({**ROUTED_TREE, ".github/workflows/mac.yml": mac_helper[".github/workflows/mac.yml"]})
+    assert not module.ci_helper_reaches_routed_lane("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES)
+    assert module.ci_helper_reaches_routed_lane("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES, base_root=base)
+
+
+def test_helper_named_by_product_source_or_a_native_test_fails_open() -> None:
+    assert reaches({"Sources/Build.swift": "// scripts/ci/helper.py\n"})
+    native = module.ci_helper_reaches_routed_lane(
+        "scripts/ci/helper.py",
+        _helper_repo(ROUTED_TREE),
+        (frozenset({"tests/test_helper.py"}), frozenset({"tests/test_helper.py"})),
+    )
+    assert native
+
+
+def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
+    tree = {k: v for k, v in ROUTED_TREE.items() if not k.startswith("tests/")}
+    assert module.ci_helper_reaches_routed_lane("scripts/ci/helper.py", _helper_repo(tree), GUARD_ONLY_REFERENCES)
+
+
+def test_repository_helpers_route_by_where_they_run() -> None:
+    references = module.load_macos_job_test_references(ROOT)
+    # Runs only in the dispatch-only E2E lane.
+    assert not module.ci_helper_reaches_routed_lane("scripts/ci/e2e_warm_derived_data.py", ROOT, references)
+    # run_python_test_lane.py imports it and ci-macos.yml runs that on a Mac.
+    assert module.ci_helper_reaches_routed_lane("scripts/ci/test_execution_registry.py", ROOT, references)
+
+
 def test_workflow_diff_failure_runs_all_areas() -> None:
     script = detect_step_script()
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -3419,6 +3504,34 @@ def test_unit_ci_asks_for_the_unit_tests_without_the_expensive_lanes() -> None:
         assert wants_unit_suite(event, "compile-only", []) is True
 
 
+
+def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import coverage_gap, wants_unit_suite
+
+    tests_diff = ["cmuxTests/WorkspaceUnitTests.swift", "Sources/Workspace.swift"]
+    # The diff already says which job can judge it; no label is needed.
+    assert wants_unit_suite("pull_request", "compile-only", [], tests_diff) is True
+    assert (
+        coverage_gap(
+            "pull_request",
+            False,
+            tests_diff,
+            [],
+            unit_suite=wants_unit_suite("pull_request", "compile-only", [], tests_diff),
+        )
+        is False
+    )
+    # A diff outside cmuxTests/ keeps the cheap path.
+    assert wants_unit_suite("pull_request", "compile-only", [], ["Sources/Workspace.swift"]) is False
+    # cmuxUITests/ is not run by this job, so it does not select it, and the
+    # gap it leaves is still refused.
+    ui_diff = ["cmuxUITests/LaunchUITests.swift"]
+    assert wants_unit_suite("pull_request", "compile-only", [], ui_diff) is False
+    assert coverage_gap("pull_request", False, ui_diff, [], unit_suite=False) is True
+    # An unreadable diff runs the unit tests rather than guessing.
+    assert wants_unit_suite("pull_request", "compile-only", [], None) is True
+
 def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import coverage_gap
@@ -4700,7 +4813,11 @@ def test_claude_wrapper_scope_executes_workflow_shell() -> None:
         (["tests/node_runtime.py"], "true"),
         (["scripts/ci/run_python_test_lane.py"], "true"),
         (["scripts/ci/test_execution_registry.py"], "true"),
-        (["tests/test-execution.toml"], "true"),
+        # Every new test registers here, so this path alone must not wake a
+        # Mac for the wrapper suite. The wrapper's own registration is pinned
+        # on Linux by test_claude_wrapper_has_one_independent_registry_execution.
+        (["tests/test-execution.toml"], "false"),
+        (["tests/test-execution.toml", "tests/test_claude_wrapper_hooks.py"], "true"),
         ([".github/workflows/ci.yml"], "true"),
         (["Resources/bin/cmux-claude-wrapper", "Sources/AppDelegate.swift"], "true"),
         (["Sources/AppDelegate.swift"], "false"),

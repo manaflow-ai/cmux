@@ -14,8 +14,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def gate(expression, *, macos, cli, full_suite, compile_admitted, swift_packages="false"):
-    routes = dict(macos=macos, cli=cli, full_suite=full_suite,
+def gate(expression, *, macos, cli, full_suite, compile_admitted, swift_packages="false", unit_suite="false"):
+    routes = dict(macos=macos, cli=cli, full_suite=full_suite, unit_suite=unit_suite,
                   compile_admitted=compile_admitted, release_build="false", swift_packages=swift_packages)
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
@@ -43,8 +43,10 @@ class CLIProductRoutingTests(unittest.TestCase):
         cls.jobs = cls.workflow["jobs"]
 
     def test_actual_conditions_keep_targeted_route_alive_after_prior_admission(self):
-        for macos, cli, full_suite, admitted, packages in product(("false", "true"), repeat=5):
-            routes = dict(macos=macos, cli=cli, full_suite=full_suite,
+        for macos, cli, full_suite, unit_suite, admitted, packages in product(("false", "true"), repeat=6):
+            if unit_suite == "true" and admitted == "true":
+                continue  # changes never admits a prior build for a unit-ci run
+            routes = dict(macos=macos, cli=cli, full_suite=full_suite, unit_suite=unit_suite,
                           compile_admitted=admitted, swift_packages=packages)
             compile_needed = (macos == "true" or cli == "true") and (
                 full_suite == "true" or cli == "true" or admitted != "true")
@@ -56,8 +58,10 @@ class CLIProductRoutingTests(unittest.TestCase):
                 self.assertEqual(gate(self.jobs["cli-product-tests"]["if"], **routes), cli_needed)
                 self.assertEqual(gate(self.jobs["swift-package-tests"]["if"], **routes),
                                  (macos == "true" and full_suite == "true") or packages == "true")
-                for name in ("app-host-unit-tests", "tests-build-and-lag"):
-                    self.assertEqual(gate(self.jobs[name]["if"], **routes), macos == "true" and full_suite == "true")
+                self.assertEqual(gate(self.jobs["app-host-unit-tests"]["if"], **routes),
+                                 macos == "true" and (full_suite == "true" or unit_suite == "true"))
+                self.assertEqual(gate(self.jobs["tests-build-and-lag"]["if"], **routes),
+                                 macos == "true" and full_suite == "true")
 
     def test_required_status_rejects_missing_targeted_cli_work(self):
         job = self.jobs["macos-status"]
