@@ -1,4 +1,5 @@
 import Foundation
+import CmuxWorkspaces
 
 /// Preserves one Codex restore intent after a stale turn owner exits.
 ///
