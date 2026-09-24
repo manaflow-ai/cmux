@@ -149,6 +149,11 @@ def seed_terminal(ready, directory):
         # Clear that bytes/history and interrupt it after the clone identity is
         # published. These two calls are deliberately detached from the name
         # refresh loop, so New Machine never waits on them.
+        # A warm template shell draws its first prompt only after the name
+        # arrives (cmux-prompt.bash) and records that here. Clearing and
+        # interrupting it then would only drop what the user already typed.
+        if (Path("/run/cmux") / "first-prompt-named").exists():
+            return
         tui("terminal", terminal, "history", "clear", "--quiet")
         tui("terminal", terminal, "keys", "ctrl+c", "--quiet")
 

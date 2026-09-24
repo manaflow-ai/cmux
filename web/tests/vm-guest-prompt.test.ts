@@ -62,7 +62,7 @@ describe("Cloud Bash prompt", () => {
       .digest("hex");
     expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
       bashrc: "b5229855c3edd1961e8bd695ea1254b410ca2146a8f37903d7c2b9db588692c8",
-      prompt: "71dd0bdc75bf70c12de5e01c9844b2801a37c5d0bbb80e346b00e2199f502134",
+      prompt: "a54db7a272d41cb2e924638f3d323ea61e1138260a13866c4ffaf055bab44a00",
     });
   });
 
@@ -250,6 +250,61 @@ print("named", ready.wait(2.0))
 `, script, directory], { encoding: "utf8" });
     expect(result.stderr).toBe("");
     expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
+  });
+
+  test("the armed template shell waits for its clone binding and replaces the builder's ids", () => {
+    const directory = fixture();
+    install(directory, "cmux", 100);
+    const run = path.join(directory, "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "template-arm"), "");
+    // A clone binds 0.3 s after the shell reached its first prompt; the name
+    // arrives right after. The builder's ids must be gone, the clone's set.
+    const output = bash(directory, `
+      export CMUX_PROMPT_RUN_DIR='${run}' CMUX_TUI_SESSION_ID=sess_builder CMUX_TUI_TERMINAL_ID=term_builder
+      . '${directory}/prompt.bash'
+      ( sleep 0.3; : > '${run}/clone-started'
+        printf 'CMUX_TUI_SESSION_ID=sess_clone\\nCMUX_TUI_TERMINAL_ID=term_clone\\n' > '${run}/bound'
+        printf 'shiny-cobalt-lizard\\n' > '${directory}/vm-name' ) &
+      __cmux_prompt_name >/dev/null
+      printf '%s %s %s ' "$CMUX_TUI_SESSION_ID" "$CMUX_TUI_TERMINAL_ID" "$__cmux_vm_name"
+      [ -e '${run}/template-arm' ] && printf armed || printf consumed
+      [ -e '${run}/first-prompt-named' ] && printf ' named'
+      wait
+    `);
+    expect(output).toBe("sess_clone term_clone shiny-cobalt-lizard consumed named");
+  });
+
+  test("without a binding the template shell gives up after the clone starts and drops the builder's ids", () => {
+    const directory = fixture();
+    install(directory, "cmux", 100);
+    const run = path.join(directory, "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "template-arm"), "");
+    writeFileSync(path.join(run, "clone-started"), "");
+    const output = bash(directory, `
+      export CMUX_PROMPT_RUN_DIR='${run}' CMUX_TUI_SESSION_ID=sess_builder CMUX_TUI_TERMINAL_ID=term_builder
+      . '${directory}/prompt.bash'
+      __cmux_prompt_name >/dev/null
+      printf '[%s][%s]' "\${CMUX_TUI_SESSION_ID-unset}" "\${CMUX_TUI_TERMINAL_ID-unset}"
+    `);
+    expect(output).toBe("[unset][unset]");
+  }, 15_000);
+
+  test("a shell that finds no arm file never waits", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    const run = path.join(directory, "run");
+    mkdirSync(run);
+    const started = Date.now();
+    const output = bash(directory, `
+      export CMUX_PROMPT_RUN_DIR='${run}' CMUX_TUI_SESSION_ID=sess_live
+      . '${directory}/prompt.bash'
+      __cmux_prompt_name >/dev/null
+      printf '%s' "$CMUX_TUI_SESSION_ID"
+    `);
+    expect(output).toBe("sess_live");
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 });
 
