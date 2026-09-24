@@ -463,6 +463,26 @@ class XcodePin(unittest.TestCase):
         with mock.patch.object(fleet, "gh_api", side_effect=lambda path: pages[path]):
             self.assertEqual(fleet.read_variables(), {"A": "repo", "B": "org"})
 
+    def test_an_operator_without_org_admin_still_gets_the_pin(self) -> None:
+        pr = fleet.XCODE_VARIABLES[0]
+        pages = {
+            f"repos/{fleet.REPO}": {"id": REPO_ID},
+            f"repos/{fleet.REPO}/actions/organization-variables?per_page=100": {"variables": []},
+            f"repos/{fleet.REPO}/actions/variables?per_page=100":
+                {"variables": [{"name": pr, "value": "/Applications/Xcode_26.4.app"}]},
+        }
+
+        def api(path: str, *args, **kwargs):
+            if path.startswith(f"orgs/{fleet.ORG}/"):
+                raise fleet.Failure("HTTP 403: Must have admin rights")
+            return pages[path]
+
+        with mock.patch.object(fleet, "gh", return_value=(True, "operator")), \
+                mock.patch.object(fleet, "gh_api", side_effect=api):
+            github = fleet.read_github()
+        self.assertIsNotNone(github.error)
+        self.assertEqual(fleet.expected_xcode(github.variables), ("/Applications/Xcode_26.4.app", pr))
+
 
 class Quarantine(unittest.TestCase):
     def test_reasons_match_glaeda(self) -> None:
