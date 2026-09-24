@@ -342,6 +342,7 @@ PR_ROUTE = re.compile(r"&& \((?P<lane>[^()]*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 PR_XCODE = "/Applications/Xcode_26.6.app"
 MINI = "glaeda-std-xcode-26.6"
+LIGHT = "glaeda-light-xcode-26.6"
 OWNED_PINS = {**PINS, "CMUX_CI_XCODE_APP_PR": PR_XCODE}
 
 
@@ -360,8 +361,9 @@ class OwnedPools(unittest.TestCase):
     """Owned Macs first when switched on, Blacksmith as overflow, never a queue."""
 
     def test_label_follows_the_lane_xcode_pin(self):
-        self.assertEqual(pool.owned_pools(PR_XCODE), (MINI,))
-        self.assertEqual(pool.owned_pools("/Applications/Xcode_27.0.1.app"), ("glaeda-std-xcode-27.0.1",))
+        self.assertEqual(pool.owned_pools(PR_XCODE), (MINI, LIGHT))
+        self.assertEqual(pool.owned_pools("/Applications/Xcode_27.0.1.app"),
+                         ("glaeda-std-xcode-27.0.1", "glaeda-light-xcode-27.0.1"))
         self.assertEqual(pool.owned_pools(""), ())
         self.assertEqual(pool.owned_pools("/Applications/Xcode.app"), ())
 
@@ -381,6 +383,15 @@ class OwnedPools(unittest.TestCase):
         choice = owned_choice(fleet(busy=8))
         self.assertEqual((choice.runner, choice.xcode_app), (MINI, ""))
         self.assertIn("3 of 11 owned machines free", choice.reason)
+
+    def test_light_is_the_second_owned_pool(self):
+        snap = fleet(busy=9)
+        snap["pools"][LIGHT] = {"queued": 0, "running": 0}
+        both = json.dumps({MINI: 11, LIGHT: 3})
+        self.assertEqual(owned_choice(snap, owned_slots=both).runner, LIGHT)
+        # Two light minis cannot hold a three-job run, so it overflows.
+        self.assertEqual(owned_choice(snap, owned_slots=json.dumps({MINI: 11, LIGHT: 2})).runner, LARGE)
+        self.assertEqual(owned_choice(fleet(), owned_slots=both).runner, MINI)
 
     def test_a_run_needs_a_machine_for_each_of_its_jobs(self):
         # 11 machines, 9 busy: one run's 3 jobs would not all start.
