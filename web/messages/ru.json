@@ -4057,5 +4057,15 @@
     "organization": "Организация",
     "personalAccount": "личный аккаунт",
     "switchAccountButton": "Использовать другой аккаунт"
+  },
+  "MobileRelease106": {
+    "title": "Что нового в 1.0.6",
+    "releaseLabel": "1.0.6 · Сентябрь 2026",
+    "connectionTitle": "Обновлены подключения к Mac",
+    "connectionDetail": "Обновление использует новый сервис подключения и транспорт Iroh. Старые сборки для Mac нужно обновить, чтобы подключаться.",
+    "updateTitle": "Обновите cmux на Mac",
+    "updateDetail": "Требуется cmux {stableVersion} или новее либо NIGHTLY {nightlyVersion} или новее. Включите сопряжение с iOS в Настройки > Мобильные устройства на каждом Mac.",
+    "rollbackTitle": "Нужно сохранить старую сборку для Mac?",
+    "rollbackDetail": "Используйте cmux BETA 1.0.5 ({rollbackBuild}) из TestFlight > Предыдущие сборки, пока она доступна. Выберите именно эту сборку: более поздние используют новый сервис подключения."
   }
 }

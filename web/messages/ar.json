@@ -4054,5 +4054,15 @@
     "organization": "المؤسسة",
     "personalAccount": "حساب شخصي",
     "switchAccountButton": "استخدام حساب مختلف"
+  },
+  "MobileRelease106": {
+    "title": "الجديد في 1.0.6",
+    "releaseLabel": "1.0.6 · سبتمبر 2026",
+    "connectionTitle": "تحديث اتصالات Mac",
+    "connectionDetail": "يستخدم هذا التحديث خدمة الاتصال الجديدة ونقل Iroh. تحتاج إصدارات Mac القديمة إلى تحديث كي تتصل.",
+    "updateTitle": "حدّث cmux على Mac",
+    "updateDetail": "يتطلب cmux {stableVersion} أو أحدث، أو NIGHTLY {nightlyVersion} أو أحدث. فعّل إقران iOS في الإعدادات > الهاتف المحمول على كل Mac.",
+    "rollbackTitle": "هل تحتاج إلى الاحتفاظ بإصدار Mac قديم؟",
+    "rollbackDetail": "استخدم cmux BETA 1.0.5 ({rollbackBuild}) من TestFlight > الإصدارات السابقة ما دام متاحًا. اختر هذا الإصدار بالتحديد، لأن الإصدارات اللاحقة تستخدم خدمة اتصال أحدث."
   }
 }

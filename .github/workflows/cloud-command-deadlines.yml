@@ -3,9 +3,10 @@ on:
   pull_request:
     paths:
       - Sources/Cloud/CloudTuiPersistent*.swift
-      - Sources/Cloud/CloudTuiManualIO*.swift
-      - Sources/Cloud/CloudTuiTerminalProjectionTarget.swift
-      - Sources/Cloud/CloudTuiRemoteColors.swift
+      - Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiManualIO*.swift
+      - Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiPersistentRequestBuilder.swift
+      - Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift
+      - Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiRemoteColors.swift
       - cmuxTests/CloudCommand*.swift
       - cmuxTests/CloudTuiManualIOConnectionTests.swift
       - tests/fixtures/cloud-command-deadlines/**
@@ -38,7 +39,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   command-regressions:
-    runs-on: ${{ inputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.runner || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

@@ -4059,5 +4059,15 @@
     "organization": "Organisation",
     "personalAccount": "compte personnel",
     "switchAccountButton": "Utiliser un autre compte"
+  },
+  "MobileRelease106": {
+    "title": "Nouveautés de la version 1.0.6",
+    "releaseLabel": "1.0.6 · Septembre 2026",
+    "connectionTitle": "Connexions Mac mises à jour",
+    "connectionDetail": "Cette mise à jour utilise le nouveau service de connexion et le transport Iroh. Les anciennes versions Mac doivent être mises à jour pour se connecter.",
+    "updateTitle": "Mettez à jour cmux sur votre Mac",
+    "updateDetail": "Nécessite cmux {stableVersion} ou version ultérieure, ou NIGHTLY {nightlyVersion} ou version ultérieure. Activez le jumelage iOS dans Réglages > Mobile sur chaque Mac.",
+    "rollbackTitle": "Vous devez conserver une ancienne version Mac ?",
+    "rollbackDetail": "Utilisez cmux BETA 1.0.5 ({rollbackBuild}) dans TestFlight > Versions précédentes tant qu’elle reste disponible. Choisissez exactement cette version, car les suivantes utilisent un service de connexion plus récent."
   }
 }

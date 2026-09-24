@@ -5217,7 +5217,8 @@ def test_r2_transport_is_an_explicit_optional_remote_broker() -> None:
 
 PR_LANE_XCODE_PIN = (
     "${{ github.event_name == 'pull_request' "
-    "&& (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) "
+    "&& (inputs.pr_xcode_app || github.event.pull_request.head.repo.full_name == github.repository "
+    "&& vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) "
     "|| vars.CMUX_CI_XCODE_APP_MACOS_15 }}"
 )
 
@@ -5238,6 +5239,11 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     admission_pin = PR_LANE_XCODE_PIN.replace(
         "github.event_name == 'pull_request'",
         "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')",
+        1,
+    ).replace(
+        # A fork pull request leaves the lane's pin; main's dispatch keeps it.
+        "github.event.pull_request.head.repo.full_name == github.repository",
+        "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)",
         1,
     )
     for job_name, pin in [

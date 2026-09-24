@@ -4054,5 +4054,15 @@
     "organization": "조직",
     "personalAccount": "개인 계정",
     "switchAccountButton": "다른 계정 사용"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6의 새로운 기능",
+    "releaseLabel": "1.0.6 · 2026년 9월",
+    "connectionTitle": "Mac 연결 업데이트",
+    "connectionDetail": "이 업데이트는 새로운 연결 서비스와 Iroh 전송을 사용합니다. 이전 Mac 빌드는 연결하려면 업데이트해야 합니다.",
+    "updateTitle": "Mac에서 cmux 업데이트",
+    "updateDetail": "cmux {stableVersion} 이상 또는 NIGHTLY {nightlyVersion} 이상이 필요합니다. 각 Mac의 설정 > 모바일에서 iOS 페어링을 활성화하세요.",
+    "rollbackTitle": "이전 Mac 빌드를 계속 사용해야 하나요?",
+    "rollbackDetail": "제공되는 동안 TestFlight > 이전 빌드에서 cmux BETA 1.0.5 ({rollbackBuild})를 사용하세요. 이후 빌드는 새로운 연결 서비스를 사용하므로 이 빌드를 정확히 선택하세요."
   }
 }

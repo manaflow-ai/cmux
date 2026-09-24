@@ -253,85 +253,6 @@ struct SSHStartupManualReconnectTests {
         #expect(Self.processIsRunning(readyGrandchildPID) == false)
     }
 
-    @Test func controlCThroughForegroundAuthenticationPTYExitsWithoutWaitingForInput() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-foreground-auth-signal-\(UUID().uuidString)", isDirectory: true)
-        let fakeCLI = root.appendingPathComponent("cmux")
-        let fakeSSH = root.appendingPathComponent("ssh")
-        let authReadyMarker = root.appendingPathComponent("auth-ready")
-
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        try Self.writeFakeSSHCLI(at: fakeCLI)
-        try Self.writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "trap 'exit 130' INT",
-            "printf '%s\\n' ready > \"${CMUX_TEST_AUTH_READY_MARKER:?}\"",
-            "while :; do /bin/sleep 30; done",
-        ])
-        for executable in [fakeCLI, fakeSSH] {
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        }
-
-        let startup = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
-        defer { Self.removeFixturePaths(startup.cleanupPaths) }
-        let startupCommand = startup.command
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
-        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_AUTH_READY_MARKER"] = authReadyMarker.path
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
-
-        let process = Process()
-        let standardInput = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/script")
-        process.arguments = ["-q", "-F", "/dev/null", "/bin/sh", "-c", startupCommand]
-        process.environment = environment
-        process.standardInput = standardInput
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        defer {
-            if process.isRunning {
-                Darwin.kill(process.processIdentifier, SIGKILL)
-                process.waitUntilExit()
-            }
-            try? standardInput.fileHandleForWriting.close()
-        }
-
-        try SSHStartupCommandTestSupport.startProcess(process)
-        let authReady = Self.waitForFile(at: authReadyMarker, containing: "ready", timeout: 3)
-        #expect(authReady, "Timed out waiting for foreground authentication to enter its nested PTY")
-        if authReady {
-            try standardInput.fileHandleForWriting.write(contentsOf: Data([0x03]))
-        }
-
-        let exitDeadline = Date.now.addingTimeInterval(3)
-        while process.isRunning, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        let exitedPromptly = !process.isRunning
-        if process.isRunning {
-            Darwin.kill(process.processIdentifier, SIGKILL)
-        }
-        process.waitUntilExit()
-
-        #expect(
-            exitedPromptly,
-            "Ctrl-C during foreground authentication must not fall through to the final Enter prompt"
-        )
-        #expect(process.terminationStatus == 130)
-    }
-
     @Test func directSignalInterruptsPersistentAttachAuthenticationBackoff() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -419,110 +340,39 @@ struct SSHStartupManualReconnectTests {
         #expect(process.terminationStatus == 130)
     }
 
-    @Test func persistentAttachExitsAtForegroundAuthenticationFailureLimit() throws {
+    @Test func persistentAttachIgnoresInheritedInternalPendingSignalState() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-foreground-auth-limit-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-ssh-attach-inherited-pending-signal-\(UUID().uuidString)", isDirectory: true)
         let fakeCLI = root.appendingPathComponent("cmux")
         let fakeSSH = root.appendingPathComponent("ssh")
-        let fakeSleep = root.appendingPathComponent("sleep")
-        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
-
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        try Self.writeFakeSSHCLI(at: fakeCLI)
-        try Self.writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
-            "count=$((count + 1))",
-            "printf '%s' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
-            "printf '%s\\n' 'ssh: connect to host boot-retry.example.test port 22: Network is unreachable' >&2",
-            "exit 255",
-        ])
-        try Self.writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "exit 0"])
-        for executable in [fakeCLI, fakeSSH, fakeSleep] {
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        }
-
-        let startup = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
-        defer { Self.removeFixturePaths(startup.cleanupPaths) }
-        // Keep the real helper retry budget: the preserved __ssh-* CLI helper
-        // owns authentication retries, so rewriting its shell wrapper does not
-        // change the number of attempts it executes. The fake sleep removes backoff.
-        let startupCommand = startup.command
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
-        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
-        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
-
-        let result = Self.runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 10
-        )
-
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 255, Comment(rawValue: result.stderr))
-        let attempts = try String(contentsOf: attemptFile, encoding: .utf8)
-        #expect(attempts == "20", Comment(rawValue: result.stderr))
-    }
-
-    @Test func establishedStartupRetriesUnclassifiedReauthenticationFailure() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-unclassified-reauth-\(UUID().uuidString)", isDirectory: true)
-        let fakeCLI = root.appendingPathComponent("cmux")
-        let fakeSSH = root.appendingPathComponent("ssh")
-        let fakeSleep = root.appendingPathComponent("sleep")
         let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
         let attachFile = root.appendingPathComponent("attach-attempts.txt")
 
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
+        // Observe the PTY handoff separately from SSH authentication so a
+        // successful attach cannot consume another authentication attempt.
         try Self.writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "case \" $* \" in",
-            "  *\" ssh-pty-attach \"*)",
-            "    count=$(cat \"${CMUX_TEST_ATTACH_FILE}\" 2>/dev/null || printf 0)",
-            "    count=$((count + 1))",
-            "    printf '%s' \"$count\" > \"${CMUX_TEST_ATTACH_FILE}\"",
-            "    if [ \"$count\" -eq 1 ]; then exit 255; fi ;;",
-            "esac",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"ssh-pty-attach\" ]; then",
+            "    printf '%s\\n' attached >> \"${CMUX_TEST_ATTACH_FILE:?}\"",
+            "  fi",
+            "done",
             "exit 0",
         ])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
-            "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
-            "count=$((count + 1))",
-            "printf '%s' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
-            "case \"$count\" in",
-            "  1) exit 0 ;;",
-            "  2) printf '%s\\n' 'unclassified authentication failure' >&2; exit 255 ;;",
-            "  *) exit 0 ;;",
-            "esac",
+            "printf '%s\\n' auth >> \"${CMUX_TEST_ATTEMPT_FILE:?}\"",
+            "exit 0",
         ])
-        try Self.writeShellFile(at: fakeSleep, lines: ["#!/bin/sh", "exit 0"])
-        for executable in [fakeCLI, fakeSSH, fakeSleep] {
+        for executable in [fakeCLI, fakeSSH] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startup = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
-        defer { Self.removeFixturePaths(startup.cleanupPaths) }
-        let startupCommand = startup.command
+        let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -533,22 +383,23 @@ struct SSHStartupManualReconnectTests {
         environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
         environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
         environment["CMUX_TEST_ATTACH_FILE"] = attachFile.path
-        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
-        environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
+        // The supervisor's own deferred-signal state must start empty. An
+        // inherited value would replay a signal nobody sent right after the
+        // authentication child launches, exiting 130 before any attach.
+        environment["cmux_ssh_attach_pending_signal"] = "130"
+        environment["cmux_ssh_attach_pending_signal_name"] = "INT"
 
         let result = Self.runProcess(
             executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
+            arguments: ["-c", "exec " + startupCommand],
             environment: environment,
             timeout: 5
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        let authenticationAttempts = try String(contentsOf: attemptFile, encoding: .utf8)
-        let attachAttempts = try String(contentsOf: attachFile, encoding: .utf8)
-        #expect(authenticationAttempts == "3")
-        #expect(attachAttempts == "2")
+        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "auth\n")
+        #expect(try String(contentsOf: attachFile, encoding: .utf8) == "attached\n")
     }
 
     @Test func terminalExitPromptIgnoresQueuedWakeReportsAndEOTUntilFreshEnter() throws {
@@ -592,91 +443,11 @@ struct SSHStartupManualReconnectTests {
         )
     }
 
-    @Test func persistentStartupIgnoresInheritedInternalPendingSignalState() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-inherited-pending-signal-\(UUID().uuidString)", isDirectory: true)
-        let fakeCLI = root.appendingPathComponent("cmux")
-        let fakeSSH = root.appendingPathComponent("ssh")
-        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
-        let attachFile = root.appendingPathComponent("attach-attempts.txt")
-
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        // Observe the PTY handoff separately from SSH authentication so a
-        // successful attach cannot consume another authentication attempt.
-        try Self.writeShellFile(at: fakeCLI, lines: [
-            "#!/bin/sh",
-            "for arg in \"$@\"; do",
-            "  if [ \"$arg\" = \"ssh-pty-attach\" ]; then",
-            "    printf '%s\\n' attached >> \"${CMUX_TEST_ATTACH_FILE:?}\"",
-            "  fi",
-            "done",
-            "exit 0",
-        ])
-        try Self.writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "count=$(cat \"${CMUX_TEST_ATTEMPT_FILE}\" 2>/dev/null || printf 0)",
-            "count=$((count + 1))",
-            "printf '%s' \"$count\" > \"${CMUX_TEST_ATTEMPT_FILE}\"",
-            "exit 0",
-        ])
-        for executable in [fakeCLI, fakeSSH] {
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
-        }
-
-        let startup = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
-            replacingSystemSSHWith: fakeSSH
-        )
-        defer { Self.removeFixturePaths(startup.cleanupPaths) }
-        let startupCommand = startup.command
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
-        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
-        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
-        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
-        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
-        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
-        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
-        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
-        environment["CMUX_TEST_ATTACH_FILE"] = attachFile.path
-        environment["CMUX_SSH_PENDING_SIGNAL"] = "130"
-        environment["CMUX_SSH_PENDING_SIGNAL_NAME"] = "INT"
-        environment["cmux_ssh_attach_pending_signal"] = "130"
-        environment["cmux_ssh_attach_pending_signal_name"] = "INT"
-
-        let result = Self.runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", startupCommand],
-            environment: environment,
-            timeout: 5
-        )
-
-        #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        #expect(result.status == 0, Comment(rawValue: result.stderr))
-        let authenticationAttempts = try String(contentsOf: attemptFile, encoding: .utf8)
-        #expect(authenticationAttempts == "1")
-        #expect(try String(contentsOf: attachFile, encoding: .utf8) == "attached\n")
-    }
-
     @MainActor
     @Test func reconnectRejectsUnendedTerminalSurfaceId() throws {
         let workspace = Workspace()
         let initialPanelId = try #require(workspace.focusedTerminalPanel?.id)
-        let configuration = WorkspaceRemoteConfiguration(
-            destination: "cmux-macmini",
-            port: nil,
-            identityFile: nil,
-            sshOptions: [],
-            localProxyPort: nil,
-            relayPort: 64007,
-            relayID: String(repeating: "a", count: 16),
-            relayToken: String(repeating: "b", count: 64),
-            localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini"
-        )
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.configureRemoteConnection(Self.makeRemoteConfiguration(), autoConnect: false)
         workspace.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",

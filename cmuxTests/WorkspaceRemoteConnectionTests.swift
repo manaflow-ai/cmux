@@ -2098,10 +2098,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             // becoming another scripted process owner.
             sshOptions: ["ControlMaster=no"],
             localProxyPort: nil,
-            relayPort: nil,
-            relayID: nil,
-            relayToken: nil,
-            localSocketPath: nil,
+            relayPort: 64036,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh test@hpc.example"
         )
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
@@ -2237,10 +2237,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             // transport keeps ControlMaster resolution out of this fixture's process script.
             sshOptions: ["ControlMaster=no"],
             localProxyPort: nil,
-            relayPort: nil,
-            relayID: nil,
-            relayToken: nil,
-            localSocketPath: nil,
+            relayPort: 64037,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: true
         )
@@ -6329,17 +6329,20 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    /// Runs `cmux ssh` against a mock socket that answers only `workspace.ssh.open`.
+    /// TTY sessions go to cmux-tui through that one request since #13866, so a
+    /// regression to the legacy workspace.create / workspace.remote.configure flow
+    /// fails on the unexpected method.
     @MainActor
-    func testSSHCommandCreatesConfiguresAndSelectsRemoteWorkspaceViaCLI() throws {
+    private func runSSHOpenCommand(
+        socketName: String,
+        arguments: [String],
+        workspaceRef: String
+    ) throws -> (result: ProcessRunResult, requests: [[String: Any]]) {
         let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("ssh")
+        let socketPath = makeSocketPath(socketName)
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
-        let workspaceID = "11111111-1111-1111-1111-111111111111"
-        let workspaceRef = "workspace:7"
-        let windowID = "22222222-2222-2222-2222-222222222222"
-        let surfaceID = "33333333-3333-3333-3333-333333333333"
-
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -6356,55 +6359,57 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     error: ["code": "unexpected", "message": "Unexpected payload"]
                 )
             }
-
-            switch method {
-            case "workspace.create":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "window_id": windowID,
-                        "surface_id": surfaceID,
-                    ]
-                )
-            case "workspace.rename":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            case "workspace.remote.configure":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                let autoConnect = (params["auto_connect"] as? Bool) ?? true
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "workspace_ref": workspaceRef,
-                        "remote": [
-                            "enabled": true,
-                            "state": autoConnect || params["foreground_auth_token"] != nil ? "connecting" : "disconnected",
-                        ],
-                    ]
-                )
-            case "workspace.select":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            default:
+            guard method == "workspace.ssh.open" else {
                 return self.v2Response(
                     id: id,
                     ok: false,
                     error: ["code": "unexpected", "message": "Unexpected method \(method)"]
                 )
             }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "workspace_id": "11111111-1111-1111-1111-111111111111",
+                    "workspace_ref": workspaceRef,
+                    "surface_id": "33333333-3333-3333-3333-333333333333",
+                    "surface_ref": "surface:1",
+                    "transport": "cmux-tui",
+                ]
+            )
         }
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        // Caller context would otherwise become workspace_id / surface_id params.
+        environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
 
         let result = runProcess(
             executablePath: cliPath,
+            arguments: ["ssh"] + arguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+
+        let requests = try state.commands.map { line -> [String: Any] in
+            let data = try XCTUnwrap(line.data(using: .utf8))
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+        }
+        return (result, requests)
+    }
+
+    @MainActor
+    func testSSHCommandOpensNamedRemoteWorkspaceThroughCmuxTuiViaCLI() throws {
+        let windowID = "22222222-2222-2222-2222-222222222222"
+        let workspaceRef = "workspace:7"
+        let run = try runSSHOpenCommand(
+            socketName: "ssh",
             arguments: [
-                "ssh",
                 "--name", "SSH Workspace",
                 "--port", "2222",
                 "--identity", "/Users/test/.ssh/id_ed25519",
@@ -6412,168 +6417,58 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                 "--window", windowID,
                 "cmux-macmini",
             ],
-            environment: environment,
-            timeout: 5
+            workspaceRef: workspaceRef
         )
 
-        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(run.result.timedOut, run.result.stderr)
+        XCTAssertEqual(run.result.status, 0, run.result.stderr)
+        XCTAssertTrue(run.result.stdout.hasPrefix("OK"), run.result.stdout)
+        XCTAssertTrue(run.result.stdout.contains(workspaceRef), run.result.stdout)
+        XCTAssertTrue(run.result.stderr.isEmpty, run.result.stderr)
+        XCTAssertEqual(run.requests.compactMap { $0["method"] as? String }, ["workspace.ssh.open"])
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
-
-        let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        }
-        XCTAssertEqual(
-            requests.compactMap { $0["method"] as? String },
-            ["workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
-        )
-
-        let createParams = try XCTUnwrap(requests[0]["params"] as? [String: Any])
-        XCTAssertEqual(createParams["window_id"] as? String, windowID)
-        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        XCTAssertFalse(initialCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-        let renameParams = try XCTUnwrap(requests[1]["params"] as? [String: Any])
-        XCTAssertEqual(renameParams["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(renameParams["title"] as? String, "SSH Workspace")
-
-        let configureParams = try XCTUnwrap(requests[2]["params"] as? [String: Any])
-        XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(configureParams["destination"] as? String, "cmux-macmini")
-        XCTAssertEqual(configureParams["port"] as? Int, 2222)
-        XCTAssertEqual(configureParams["identity_file"] as? String, "/Users/test/.ssh/id_ed25519")
-        XCTAssertEqual(configureParams["local_socket_path"] as? String, socketPath)
-        XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
-        let relayPort = try XCTUnwrap(configureParams["relay_port"] as? Int)
-        XCTAssertGreaterThan(relayPort, 0)
-        let relayID = try XCTUnwrap(configureParams["relay_id"] as? String)
-        XCTAssertFalse(relayID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        let relayToken = try XCTUnwrap(configureParams["relay_token"] as? String)
-        XCTAssertEqual(relayToken.count, 64)
-        let foregroundAuthToken = try XCTUnwrap(configureParams["foreground_auth_token"] as? String)
-        XCTAssertFalse(foregroundAuthToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        XCTAssertFalse(terminalStartupCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
-        XCTAssertTrue(sshOptions.contains("ControlMaster=auto"))
-        XCTAssertTrue(sshOptions.contains("ControlPersist=600"))
-        XCTAssertTrue(sshOptions.contains { option in
-            option.range(
-                of: "^ControlPath=/tmp/cmux-ssh-\(getuid())-[0-9a-f]{40}$",
-                options: .regularExpression
-            ) != nil
-        })
-        XCTAssertFalse(sshOptions.contains(where: { $0.contains("-\(relayPort)-%C") }))
-        XCTAssertTrue(sshOptions.contains("StrictHostKeyChecking=accept-new"))
-
+        let openParams = try XCTUnwrap(run.requests.first?["params"] as? [String: Any])
+        XCTAssertEqual(openParams["destination"] as? String, "cmux-macmini")
+        XCTAssertEqual(openParams["port"] as? Int, 2222)
+        XCTAssertEqual(openParams["identity_file"] as? String, "/Users/test/.ssh/id_ed25519")
+        XCTAssertEqual(openParams["title"] as? String, "SSH Workspace")
+        XCTAssertEqual(openParams["window_id"] as? String, windowID)
         // `cmux ssh` should land the user in the new SSH workspace immediately.
-        let selectParams = try XCTUnwrap(requests[3]["params"] as? [String: Any])
-        XCTAssertEqual(selectParams["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(selectParams["window_id"] as? String, windowID)
+        XCTAssertEqual(openParams["focus"] as? Bool, true)
+        XCTAssertEqual(openParams["terminal_profile"] as? String, "shell")
+        XCTAssertNil(openParams["initial_command"])
+        XCTAssertNil(openParams["relay_port"])
+        let operationID = try XCTUnwrap(openParams["operation_id"] as? String)
+        XCTAssertNotNil(UUID(uuidString: operationID), operationID)
+        let sshOptions = try XCTUnwrap(openParams["ssh_options"] as? [String])
+        XCTAssertTrue(sshOptions.contains("StrictHostKeyChecking=accept-new"), "ssh_options: \(sshOptions)")
     }
 
     @MainActor
-    func testSSHCommandDoesNotDeferReconnectWhenWhitespaceControlMasterDisablesMultiplexing() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("ssh-controlmaster-no")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let workspaceID = "11111111-1111-1111-1111-111111111111"
-        let workspaceRef = "workspace:9"
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let data = line.data(using: .utf8),
-                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return self.v2Response(
-                    id: "unknown",
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected payload"]
-                )
-            }
-
-            switch method {
-            case "workspace.create":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                    ]
-                )
-            case "workspace.remote.configure":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "workspace_ref": workspaceRef,
-                        "remote": [
-                            "enabled": true,
-                            "state": "connecting",
-                        ],
-                    ]
-                )
-            default:
-                return self.v2Response(
-                    id: id,
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
-                )
-            }
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
+    func testSSHCommandPassesWhitespaceControlMasterOptionsToCmuxTuiUnchanged() throws {
+        let run = try runSSHOpenCommand(
+            socketName: "ssh-controlmaster-no",
             arguments: [
-                "ssh",
                 "--no-focus",
                 "--port", "2222",
                 "--ssh-option", "ControlMaster no",
                 "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
                 "cmux-macmini",
             ],
-            environment: environment,
-            timeout: 5
+            workspaceRef: "workspace:9"
         )
 
-        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(run.result.timedOut, run.result.stderr)
+        XCTAssertEqual(run.result.status, 0, run.result.stderr)
+        XCTAssertTrue(run.result.stderr.isEmpty, run.result.stderr)
+        XCTAssertEqual(run.requests.compactMap { $0["method"] as? String }, ["workspace.ssh.open"])
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
-
-        let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        }
-        XCTAssertEqual(
-            requests.compactMap { $0["method"] as? String },
-            ["workspace.create", "workspace.remote.configure"]
-        )
-
-        let configureParams = try XCTUnwrap(requests[1]["params"] as? [String: Any])
-        XCTAssertEqual(configureParams["auto_connect"] as? Bool, true)
-        XCTAssertNil(configureParams["foreground_auth_token"])
-        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
-        XCTAssertTrue(sshOptions.contains("ControlMaster no"))
-        XCTAssertTrue(sshOptions.contains("ControlPath /tmp/cmux-ssh-%C"))
+        let openParams = try XCTUnwrap(run.requests.first?["params"] as? [String: Any])
+        XCTAssertEqual(openParams["focus"] as? Bool, false)
+        XCTAssertNil(openParams["foreground_auth_token"])
+        let sshOptions = try XCTUnwrap(openParams["ssh_options"] as? [String])
+        XCTAssertTrue(sshOptions.contains("ControlMaster no"), "ssh_options: \(sshOptions)")
+        XCTAssertTrue(sshOptions.contains("ControlPath /tmp/cmux-ssh-%C"), "ssh_options: \(sshOptions)")
     }
 
     @MainActor
