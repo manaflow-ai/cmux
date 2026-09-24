@@ -184,7 +184,7 @@ class Watching(unittest.TestCase):
         api = FakeAPI(clock, lambda s: [changes()(s), job("macos / macOS compile admission", labels=[BLACKSMITH])])
         code, summary = run_main(api, clock)
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1"])
+        self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
         self.assertIn("the run is on an ephemeral pool", summary)
 
     def test_waits_for_the_picker_before_looking_for_the_marker(self):

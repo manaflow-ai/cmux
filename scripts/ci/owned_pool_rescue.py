@@ -9,7 +9,8 @@ requested, from the default branch, with Actions write.
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
-(`macos-pool-persistent-<run id>-<attempt>`); no marker means the run is on an
+(`macos-pool-persistent-<run id>-<attempt>-<jobs>-<pool>`, the jobs and pool
+for the janitor's count); no marker means the run is on an
 ephemeral pool and the watch ends. Otherwise it watches the run's jobs until the
 run finishes. If a job on the persistent pool is still queued with no runner
 after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
@@ -181,9 +182,10 @@ class GitHub:
                 break
         return found
 
-    def has_artifact(self, run_id: int, name: str) -> bool:
-        data = self.request("GET", f"/actions/runs/{run_id}/artifacts?name={name}&per_page=10")
-        return any(item.get("name") == name for item in (data or {}).get("artifacts") or [])
+    def has_artifact(self, run_id: int, prefix: str) -> bool:
+        """Whether the run uploaded an artifact whose name starts with `prefix`."""
+        data = self.request("GET", f"/actions/runs/{run_id}/artifacts?per_page=100")
+        return any(str(item.get("name") or "").startswith(prefix) for item in (data or {}).get("artifacts") or [])
 
     def pull(self, number: int) -> Mapping[str, Any]:
         return self.request("GET", f"/pulls/{number}")
@@ -226,7 +228,8 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
 
 
 def marker_name(target: Target) -> str:
-    return f"{MARKER_PREFIX}-{target.run_id}-{target.attempt}"
+    """The marker's name up to its jobs and pool, which only the janitor reads."""
+    return f"{MARKER_PREFIX}-{target.run_id}-{target.attempt}-"
 
 
 READ_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, ValueError)

@@ -85,6 +85,13 @@ on:
         required: false
         default: ""
         type: string
+      # Set only when pr_runner is persistent (an owned Mac pool): the
+      # Blacksmith pool on the same Xcode that a re-run of failed jobs takes,
+      # because such a re-run reuses attempt 1's pick (pr_runner_pool.py).
+      pr_retry_runner:
+        required: false
+        default: ""
+        type: string
       pr_xcode_app:
         required: false
         default: ""
@@ -111,7 +118,7 @@ jobs:
     # compile on the pool and Xcode seed-derived-data.yml builds with, so both
     # can adopt its DerivedData seed below. Merge groups and dispatches on
     # other branches keep the macos-15 lane.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt > 1 && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # A changed-suites run adds its tests after the compile: the same
     # 30-minute batch ceiling the separate worker had.
     timeout-minutes: ${{ inputs.unit_in_admission == 'true' && 105 || 75 }}
@@ -152,7 +159,7 @@ jobs:
       # keys on the toolchain and the build path instead, so a product built
       # here at the canonical root matches on any pool with the same Xcode.
       # The macOS runner guard still requires it to track runs-on.
-      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt > 1 && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
       # What the changed-suites steps at the end of this job read, with the
       # values `app-host unit tests` gives its changed-suites worker, shard 8.
       # The compile reads none of them: it runs plain xcodebuild and bakes the
@@ -1052,7 +1059,9 @@ jobs:
     # compile admission to macOS 26. To spread shards over providers again,
     # every pool involved must carry the admission's exact Xcode; the
     # restore step refuses an older one with both versions named.
-    runs-on: ${{ needs.macos-compile-admission.outputs.runner }}
+    # A re-run of failed shards after compile admission passed on an owned
+    # pool keeps its outputs; pr_retry_runner moves them to Blacksmith.
+    runs-on: ${{ github.run_attempt > 1 && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
@@ -1134,7 +1143,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ github.run_attempt > 1 && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -2748,7 +2757,7 @@ jobs:
     # full-suite dispatch follows admission onto the pull-request pool and
     # Xcode. The product consumer guard in the CI change-area tests fails when
     # the two drift.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt > 1 && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -2761,7 +2770,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt > 1 && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail

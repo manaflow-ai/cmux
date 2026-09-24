@@ -175,9 +175,17 @@ Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
 (16 GB), then the Blacksmith pools as overflow. An owned pool's capacity is its entry in
 `CI_OWNED_POOL_SLOTS`, and the janitor's snapshot counts the jobs queued and
 running on that label. A pull request run puts several macOS jobs on its pool
-at once, so a run takes the owned pool only when `CI_OWNED_POOL_JOBS_PER_RUN`
-machines (default 3) are still free after the jobs already there and the runs
-created since the snapshot. It is skipped when the snapshot is older than 20
+at once, each on its own machine, so a run takes the owned pool only when its
+own peak is free at once. The picker runs after the suite choice and counts
+that peak from the run's routing: the Claude wrapper, CLI pipe and remote
+daemon lanes, beside the larger of compile admission alone or what follows it
+(a full suite's seven app-host shards and tests-build-and-lag, 11 jobs in all;
+a changed-suites run's one shard). Taken is the larger of the jobs the janitor
+saw on the pool and `committed`, the peaks the runs holding it declared, so a
+run whose later jobs do not exist yet still counts them. A run created since
+the snapshot has an unknown peak: any that could have taken the pool is
+assumed to, and charged 11 machines, so a wrong guess leaves minis idle
+rather than queueing a job there. It is skipped when the snapshot is older than 20
 minutes or the label has no slots, and it is never the fewest-queued fallback.
 Fork runs and retry attempts never take it. While `CI_PR_POOL_OWNED` is off,
 owned labels in `CI_PR_POOL_ORDER` are dropped and the rest of the order is
@@ -190,19 +198,46 @@ names no owned pool.
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 11, "glaeda-light-xcode-26.6": 2}` |
-| `CI_OWNED_POOL_JOBS_PER_RUN` | `3` | machines a run needs free to take an owned pool (1 to 10) |
+
+Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label with a positive
+whole number of machines counts as none. While owned pools are on, the
+`changes` job raises a workflow warning and a summary line for each such entry,
+so a typo shows up on every run instead of quietly leaving a pool unused.
 
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it
 stays busy. An offline mini still counts as a slot, and the snapshot can be
 minutes old. When the picker chooses a persistent pool, `changes`
-uploads a `macos-pool-persistent-<run>-<attempt>` marker, and
+uploads a `macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>` marker (the
+janitor reads the run's peak and pool from its name), and
 `ci-owned-pool-rescue.yml` (from `main`, with Actions write) watches that run.
 If one of its jobs waits for a persistent runner longer than
 `CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600), the watcher confirms the
 pull request head has not moved, cancels the run, and re-runs it. A retry
 attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
-whole, and so does any manual re-run after a job failed on an owned Mac.
+whole, and so does a manual "Re-run all jobs".
+
+"Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
+the failed jobs read attempt 1's outputs, owned pool included, with no watcher
+(the rescue follows attempt 1 only). So a persistent choice also names
+`retry_runner`, the Blacksmith pool the same rule picks on the lane's own
+Xcode, which is also the Xcode the owned label names. Every pull request macOS
+`runs-on`, and the app-host shards that otherwise inherit compile admission's
+pool, reads `github.run_attempt > 1 && inputs.pr_retry_runner` first. It is
+empty for a run on Blacksmith, so those re-run where they ran.
+
+An owned-pool run never publishes a persistent-compile route request
+(`CI_PERSISTENT_MAC_COMPILE`): its compile admission already runs on an owned
+Mac, and the two would compete for the same machines.
+
+The queue janitor treats an owned label as one more macOS pool. A stale pull
+request run (category b: closed, merged or superseded) is cancelled there on
+every sweep whatever the queue, which frees minis for current work. The other
+categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
+on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
+janitor also lists the artifacts of each in-flight attempt-1, same-repository
+pull request CI run that has no macOS job on another pool, one request per
+run, to read its marker's peak into `committed`.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -222,8 +257,8 @@ jobs only as `pr_runner` or on a `pull_request` `runs-on` branch.
 `CI_PR_POOL_ORDER` is the one variable that may name owned labels (the guard's
 `owned` pattern, which must match `pr_runner_pool.OWNED_LABEL`), and the CI
 health report checks every other entry in it against the workflow policy.
-Owned pools stay off until `CI_PR_POOL_OWNED`, `CI_OWNED_POOL_SLOTS` and
-`CI_PR_POOL_ORDER` are all set.
+Owned pools stay off until `CI_PR_POOL_OWNED` is 1 and `CI_OWNED_POOL_SLOTS`
+gives the lane's owned label machines.
 
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
