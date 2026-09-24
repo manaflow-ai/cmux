@@ -200,7 +200,10 @@ them (section 5).
    XCTest, and it is a required check. Its home is the isolated Tart pool
    (18 slots, `ci-runners.md`), where each job gets a fresh VM clone and an
    Aqua login session. A shared mini cannot give it either.
-4. **`release-build`, signing, notarization, nightly, TestFlight** - never.
+4. **Nightly app compile** - compile only, behind `NIGHTLY_MAC_MINI`. See
+   [Nightly lane](#nightly-lane). Signing, notarization and publication stay
+   hosted.
+5. **`release-build`, signing, notarization, TestFlight** - never.
    Unchanged from `ci-runners.md`.
 
 ## 2. Security
@@ -648,6 +651,54 @@ workflow files is never the rollback; the variable is.
 A contributor with write access can build and test the entire routing path
 with the variable unset, which is exactly the state the repository is in
 today. Nothing they merge takes effect until a maintainer sets one variable.
+
+## Nightly lane
+
+Direction from Manaflow (2026-09-24): dev builds, nightlies and CI/CD run on
+the minis first and spill over to Blacksmith. The nightly takes the same shape
+as the compile lane above: the mini produces, a hosted job decides.
+
+| Piece | Where |
+| --- | --- |
+| Producer | `.github/workflows/nightly-mini-build.yml`: dispatch-only, `permissions: {}`, no secrets, public `git fetch`, and it builds only a commit already on the dispatched ref |
+| Router | `route-nightly-mini` in `nightly.yml`, running `scripts/ci/nightly_mini_route.py` |
+| Adoption | `build-nightly-app` step `Adopt owned-Mac products`: source SHA, tree, full `xcodebuild -version` and archs must match, or it compiles hosted |
+| Guard | `check_nightly_mini_lane` plus one exact-line exemption in `check_no_self_hosted_fleet_runners` |
+
+```yaml
+runs-on: group cmux-nightly-mini, labels [self-hosted, macOS, ARM64, cmux-nightly-mini-build]
+```
+
+The group must restrict workflow access to
+`manaflow-ai/cmux/.github/workflows/nightly-mini-build.yml@refs/heads/main`.
+The label avoids the bare word `nightly`, which the HQ build-fleet controller
+reserves as a tag. It is a separate registration from the compile lane's runner.
+
+**Selector.** `NIGHTLY_MAC_MINI`:
+
+| Value | Effect |
+| --- | --- |
+| unset | nothing changes; the route job does not run |
+| `build-only` | unsigned `build_only` measurement runs try a mini first |
+| `all` | every non-fast nightly build tries a mini first, including the ones that are then signed and published |
+
+A manual `build_only` dispatch can pass `mac_mini: true` without the variable.
+`NIGHTLY_MAC_MINI_QUEUE_SECONDS` (default 300) bounds the wait for a mini, and
+`NIGHTLY_MAC_MINI_EXECUTION_SECONDS` (default 2700) bounds the build. Past
+either one, or on any producer failure, the router cancels its request and
+`build-nightly-app` compiles on Blacksmith exactly as before. A route job that
+fails outright changes nothing either: the hosted build runs on `!cancelled()`.
+
+**Trust decision (not made by this change).** `build-only` ships nothing, so
+it is safe to turn on once the runner exists. `all` means the signed nightly
+DMG contains bits compiled on a persistent machine that also keeps warm state
+across runs. Signing keys never reach the mini; the question is whether
+Developer ID should sign what a mini compiled. The adoption check proves which
+commit and toolchain the producer claims, not that the warm state was clean. That is
+for Leo and Manaflow to decide before `all` is set. Until then the published nightly
+is compiled on Blacksmith.
+
+**Rollback.** `gh variable delete NIGHTLY_MAC_MINI --repo manaflow-ai/cmux`.
 
 ## 7. Open gaps
 

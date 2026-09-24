@@ -51,6 +51,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_ci_persistent_mac_compile.py
 
+      - name: Validate nightly owned-Mac route
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_nightly_mini_route.py
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
