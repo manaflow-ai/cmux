@@ -42,15 +42,20 @@ final class WorkspaceNavigationBarController: UINavigationController {
         overrideUserInterfaceStyle = environment.colorScheme == .dark ? .dark : .light
         view.backgroundColor = backgroundColor
         contentHost.rootView = AnyView(content.environment(\.self, environment))
-        let appearance = UINavigationBarAppearance()
-        if !scrollEdgeGlass {
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = backgroundColor
+        let appearance: UINavigationBarAppearance?
+        if scrollEdgeGlass {
+            // Preserve the system's transparent bar and scroll-edge effect.
+            appearance = nil
+        } else {
+            let opaqueAppearance = UINavigationBarAppearance()
+            opaqueAppearance.configureWithOpaqueBackground()
+            opaqueAppearance.backgroundColor = backgroundColor
+            appearance = opaqueAppearance
         }
         item.standardAppearance = appearance
-        item.scrollEdgeAppearance = scrollEdgeGlass ? nil : appearance
+        item.scrollEdgeAppearance = appearance
         item.compactAppearance = appearance
-        item.compactScrollEdgeAppearance = scrollEdgeGlass ? nil : appearance
+        item.compactScrollEdgeAppearance = appearance
         titleHost.rootView = AnyView(title.environment(\.self, environment).buttonStyle(.plain))
         titleCapsule.invalidateIntrinsicContentSize()
         // A custom title must have a natural size before the bar resizes it.
@@ -63,21 +68,14 @@ final class WorkspaceNavigationBarController: UINavigationController {
 
         var addedHosts: [UIHostingController<AnyView>] = []
         for value in leadingItems + trailingItems {
-            let minimumWidth: CGFloat = switch value.id {
-            case .sidebar: 44
-            case .back: 52
-            case .trailingCluster: 0
-            case .alternateScreen, .changes, .terminals: 30
-            }
             let content = AnyView(value.content
                 .environment(\.self, environment)
                 .buttonStyle(.plain)
-                .frame(minWidth: minimumWidth, minHeight: 36)
+                .imageScale(.large)
                 .fixedSize())
             if let control = controls[value.id] {
                 control.host.rootView = content
-                control.host.view.invalidateIntrinsicContentSize()
-                control.width.constant = control.host.sizeThatFits(in: UIView.layoutFittingExpandedSize).width
+                control.view.refreshContentSize()
             } else {
                 let host = UIHostingController(rootView: content)
                 host.sizingOptions = .intrinsicContentSize
@@ -85,15 +83,9 @@ final class WorkspaceNavigationBarController: UINavigationController {
                 addChild(host)
                 addedHosts.append(host)
                 host.view.backgroundColor = .clear
-                host.view.setContentHuggingPriority(.required, for: .horizontal)
-                host.view.setContentCompressionResistancePriority(.required, for: .horizontal)
-                host.view.translatesAutoresizingMaskIntoConstraints = false
-                let width = host.view.widthAnchor.constraint(
-                    equalToConstant: host.sizeThatFits(in: UIView.layoutFittingExpandedSize).width
-                )
-                width.isActive = true
-                let button = UIBarButtonItem(customView: host.view)
-                controls[value.id] = HostedControl(host: host, button: button, width: width)
+                let customView = WorkspaceNavigationControlView(host: host)
+                let button = UIBarButtonItem(customView: customView)
+                controls[value.id] = HostedControl(host: host, button: button, view: customView)
                 // The bar installs the custom view when its item array updates.
             }
         }
@@ -121,7 +113,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
         for id in Array(controls.keys) where !visibleIDs.contains(id) {
             guard let control = controls.removeValue(forKey: id) else { continue }
             control.host.willMove(toParent: nil)
-            control.host.view.removeFromSuperview()
+            control.view.removeFromSuperview()
             control.host.removeFromParent()
         }
         for host in addedHosts {
@@ -133,7 +125,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
     private struct HostedControl {
         let host: UIHostingController<AnyView>
         let button: UIBarButtonItem
-        let width: NSLayoutConstraint
+        let view: WorkspaceNavigationControlView
     }
 }
 

@@ -7,7 +7,7 @@ import UIKit
 struct WorkspaceNavigationBar: UIViewControllerRepresentable {
     struct Item {
         enum ID: Hashable {
-            case sidebar, back, alternateScreen, changes, terminals, trailingCluster
+            case sidebar, back, alternateScreen, changes, terminals
         }
 
         let id: ID
