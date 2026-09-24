@@ -36,6 +36,12 @@ public struct MobileWhatsNewPreviewView: View {
         NavigationStack {
             MobileWhatsNewListView()
         }
+            .overlay(alignment: .bottom) {
+                if hasRemoteFixture && center.lastRefreshSucceeded {
+                    Text("Remote notice loaded")
+                        .accessibilityIdentifier("MobileWhatsNewPreviewLoaded")
+                }
+            }
             .environment(center)
             .task {
                 guard hasRemoteFixture else { return }

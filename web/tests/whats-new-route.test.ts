@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 
 import { whatsNewList, type WhatsNewList } from "../data/whats-new";
 
@@ -141,5 +142,10 @@ describe("whats-new route channel targeting", () => {
         }),
       ]),
     });
+  });
+
+  test("the simulator exercises the shipped announcement payload", () => {
+    const source = readFileSync(new URL("../../ios/cmuxUITests/cmuxUITests.swift", import.meta.url), "utf8");
+    expect(source).toContain(`let payload = #"${JSON.stringify(whatsNewList)}"#`);
   });
 });
