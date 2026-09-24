@@ -22,30 +22,5 @@ extension SurfaceCatalog {
         Array(Set(projections.lazy.filter { $0.resource.machine == machine && $0.resource.kind == .terminal }.map { $0.resource.key })).sorted()
     }
 
-    /// Records whether a materialized pane was created as a local Cloud preview.
-    /// This survives an asynchronous binding update without confusing a deleted
-    /// remote tab whose coordinates were cleared by reconciliation.
-    func noteMaterializedProjection(_ projection: SurfaceProjection) -> SurfaceProjection {
-        guard projection.resource.kind == .display || projection.resource.isForwardedPort else {
-            localWorkspacePreviewPanelIDs.remove(projection.panelID)
-            return projection
-        }
-        if projection.remoteTabID == nil {
-            localWorkspacePreviewPanelIDs.insert(projection.panelID)
-        } else {
-            localWorkspacePreviewPanelIDs.remove(projection.panelID)
-        }
-        return projection
-    }
-
-    func noteUpdatedProjection(_ projection: SurfaceProjection) -> SurfaceProjection {
-        noteMaterializedProjection(projection)
-    }
-
-    func forgetProjectionOrigins(_ projections: some Sequence<SurfaceProjection>) {
-        for projection in projections {
-            localWorkspacePreviewPanelIDs.remove(projection.panelID)
-        }
-    }
 
 }
