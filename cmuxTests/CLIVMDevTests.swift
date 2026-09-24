@@ -168,8 +168,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         if expectsSocketConnection {
             serverHandled = startVMDevMock(listenerFD: listenerFD, state: state, log: log, respond: respond)
         } else {
-            // Invalid input is rejected before connecting. Leave the socket
-            // listening so an accidental connection remains observable.
+            // Invalid input is rejected before connecting, so the mock's expectation
+            // would only be fulfilled by the listener closing, which happens after the
+            // wait. Keep the socket listening instead and check its backlog once the
+            // process has exited: an accidental connection is still observable.
             let flags = fcntl(listenerFD, F_GETFL)
             XCTAssertGreaterThanOrEqual(flags, 0)
             XCTAssertEqual(fcntl(listenerFD, F_SETFL, flags | O_NONBLOCK), 0)
@@ -377,6 +379,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // dev invocations cannot create duplicate workspaces or starter shells.
         let commands = log.execCommands()
         XCTAssertEqual(commands.count, 1, commands.description)
+        guard commands.count == 1 else { return }
         let apply = commands[0]
         XCTAssertTrue(apply.hasSuffix("| base64 -d | cmux layout apply --json --reuse --name app -"), apply)
         let document = try XCTUnwrap(Self.vmDevBase64Payload(inCommand: apply).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any])

@@ -104,6 +104,102 @@ class PreflightTests(unittest.TestCase):
         self.run_mode('delete-worker')
         self.assertEqual(self.calls, [(f'workers/scripts/{self.resource}?force=true', 'DELETE', None)])
 
+    def test_secret_cleanup_ignores_absent_secrets(self):
+        def missing_secret(path, method='GET', value=None):
+            self.calls.append((path, method, value))
+            if '/secrets/' in path:
+                raise cf.CloudflareError(method, path, 404)
+            return {}
+        with patch.object(cf, 'api', missing_secret), patch.object(cf, 'CREATED', self.created), \
+             patch('sys.argv', ['canary', 'delete-secret']), \
+             patch.dict(os.environ, {'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1'}):
+            cf.main()
+        self.assertEqual(len(self.calls), 2)
+        self.assertTrue(all(call[1] == 'DELETE' for call in self.calls))
+
+    def test_secret_cleanup_preserves_non_not_found_errors(self):
+        def forbidden_secret(path, method='GET', value=None):
+            self.calls.append((path, method, value))
+            if '/secrets/' in path:
+                raise cf.CloudflareError(method, path, 403)
+            return {}
+        with patch.object(cf, 'api', forbidden_secret), patch.object(cf, 'CREATED', self.created), \
+             patch('sys.argv', ['canary', 'delete-secret']), \
+             patch.dict(os.environ, {'GITHUB_RUN_ID': '123', 'GITHUB_RUN_ATTEMPT': '1'}):
+            with self.assertRaises(RuntimeError):
+                cf.main()
+
+    def test_workflow_covers_transport_pushes_and_canary_measurement_budget(self):
+        canary = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()
+        self.assertIn('timeout-minutes: 20', canary)
+        transport = (ROOT / '.github/workflows/ci-artifact-transport.yml').read_text()
+        push = transport.split('  push:', 1)[1].split('\n\npermissions:', 1)[0]
+        # The app-host lane that consumes these artifacts lives in
+        # ci-macos.yml since #13405, so that is the workflow whose pushes
+        # must re-validate transport.
+        self.assertIn('- .github/workflows/ci-macos.yml', push)
+
+    def test_workflow_retries_remote_artifact_delete_before_bucket_cleanup(self):
+        workflow = (ROOT / '.github/workflows/ci-artifact-canary.yml').read_text()
+        delete_step = workflow.split("name: Remove only the canary's artifact copy", 1)[1]
+        delete_step = delete_step.split('name: Remove an empty bucket created by this run', 1)[0]
+        self.assertIn('for attempt in 1 2 3 4; do', delete_step)
+        self.assertIn('wrangler r2 object delete "$key" --remote', delete_step)
+        self.assertIn('sleep "$((attempt * 5))"', delete_step)
+        self.assertIn('exit 1', delete_step)
+
+        script = delete_step.split('        run: |\n', 1)[1]
+        script = '\n'.join(line[10:] for line in script.splitlines() if line.startswith('          '))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrangler = root / 'node_modules/.bin/wrangler'
+            wrangler.parent.mkdir(parents=True)
+            wrangler.write_text(
+                '#!/bin/sh\n'
+                'count_file="$FAKE_WRANGLER_COUNT"\n'
+                'count=$(cat "$count_file" 2>/dev/null || echo 0)\n'
+                'count=$((count + 1))\n'
+                'echo "$count" > "$count_file"\n'
+                'printf "%s\\n" "$*" >> "$FAKE_WRANGLER_ARGS"\n'
+                '[ "$count" -gt "$FAKE_WRANGLER_FAILURES" ]\n')
+            wrangler.chmod(0o755)
+            fake_bin = root / 'bin'
+            fake_bin.mkdir()
+            sleep = fake_bin / 'sleep'
+            sleep.write_text('#!/bin/sh\nprintf "%s\\n" "$1" >> "$FAKE_SLEEP_ARGS"\n')
+            sleep.chmod(0o755)
+
+            def execute(failures):
+                count = root / 'count'
+                args = root / 'wrangler-args'
+                sleeps = root / 'sleep-args'
+                for path in (count, args, sleeps):
+                    path.unlink(missing_ok=True)
+                env = os.environ | {
+                    'CANARY_RESOURCE': 'cmux-ci-artifacts-canary-123-1',
+                    'FAKE_WRANGLER_COUNT': str(count),
+                    'FAKE_WRANGLER_ARGS': str(args),
+                    'FAKE_SLEEP_ARGS': str(sleeps),
+                    'FAKE_WRANGLER_FAILURES': str(failures),
+                    'PATH': f'{fake_bin}:{os.environ["PATH"]}',
+                }
+                result = subprocess.run(['bash', '-c', f'set -euo pipefail\n{script}'],
+                                        cwd=root, env=env, capture_output=True, text=True)
+                return result, int(count.read_text()), args.read_text().splitlines(), \
+                    sleeps.read_text().splitlines() if sleeps.exists() else []
+
+            result, count, args, sleeps = execute(2)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(count, 3)
+            self.assertEqual(sleeps, ['5', '10'])
+            self.assertIn('cmux-ci-artifacts-canary-123-1/github/manaflow-ai/cmux/10610975375/', args[0])
+
+            result, count, _, sleeps = execute(4)
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(count, 4)
+            self.assertEqual(sleeps, ['5', '10', '15'])
+            self.assertIn('failed to remove the canary artifact after 4 attempts', result.stderr)
+
 
 class MeasurementTests(unittest.TestCase):
     def test_hashes_real_bytes_and_distinguishes_fill_from_hit(self):

@@ -4,6 +4,8 @@ on:
   # This is a fast, contributor-side diagnostic. The authoritative required
   # check runs from the base branch in web-complexity-trusted.yml.
   pull_request:
+    paths:
+      - web/**
   push:
     branches:
       - main
