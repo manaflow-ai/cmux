@@ -404,6 +404,10 @@ path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_persistent_compile_fleet.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_persistent_mac_compile.py"
 lane = "linux-guard"
 
