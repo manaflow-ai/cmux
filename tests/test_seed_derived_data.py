@@ -395,6 +395,16 @@ class Wiring(unittest.TestCase):
         self.assertIs(start.get("continue-on-error"), True)
         self.assertIn("seed_derived_data.py start", start["run"])
         self.assertIn("seed_derived_data.py adopt", adopt["run"])
+        # The adopt step's own deadline must fire before the step timeout, or
+        # a timed-out step leaves the detached download pulling a seed through
+        # the compile.
+        self.assertLess(seed.FETCH_WAIT_SECONDS, adopt["timeout-minutes"] * 60 - 30)
+        # Like adoption, starting the download never decides what the product
+        # is, so it must not move the product recipe (and every edit to it
+        # would otherwise invalidate every reusable product).
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
+        import product_input_identity
+        self.assertIn("Start the DerivedData seed download", product_input_identity.NON_PRODUCT_RECIPE_STEPS)
 
     def test_adoption_is_optional_and_limited_to_pull_requests(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
