@@ -1,0 +1,59 @@
+name: Incremental DerivedData experiment
+# Experiment branch only; never merged.
+on:
+  push:
+    branches: [exp/incremental-dd-measure-20260923]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: incremental-dd-experiment-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 170
+    env:
+      CMUX_CI_XCODE_APP: /Applications/Xcode_26.6.app
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SEED: 157c67f3ffbfd9e240e1b83c2abba5ebb45d0172
+      MID: 96974117dbafaf1c82abbec459624746e44ba09c
+      HEAD_SHA: 2c2314e0571d4453a45326c0ea953dbdec4dc572
+    steps:
+      - name: Probe Blacksmith sticky disk support
+        id: sticky
+        continue-on-error: true
+        uses: useblacksmith/stickydisk@v1
+        with:
+          key: cmux-incremental-dd-probe
+          path: ${{ runner.temp }}/sticky-probe
+          commit: "false"
+      - name: Report sticky disk probe
+        run: |
+          echo "sticky outcome: ${{ steps.sticky.outcome }}"
+          env | grep -o '^BLACKSMITH[A-Z_]*' | sort || echo "no BLACKSMITH_* variables"
+          mount | grep -i -E 'sticky|ext4|vd[a-z]' || echo "no sticky/ext4 mount"
+          sw_vers; sysctl -n hw.ncpu machdep.cpu.brand_string; df -h "$RUNNER_TEMP" /private/tmp
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+          fetch-depth: 60
+          persist-credentials: false
+      - run: ./scripts/select-ci-xcode.sh
+      - run: ./scripts/install-rust-ci.sh
+      - run: ./scripts/download-prebuilt-ghosttykit.sh
+      - name: Measure
+        run: bash .github/incremental-dd-experiment.sh "$SEED" "$MID" "$HEAD_SHA"
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: incremental-dd-experiment-logs
+          path: |
+            ${{ runner.temp }}/logs
+            ${{ runner.temp }}/results.tsv
+            ${{ runner.temp }}/snapshot.txt
+          retention-days: 7
