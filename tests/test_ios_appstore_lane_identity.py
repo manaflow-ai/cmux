@@ -889,6 +889,10 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         "beta archive command stamps the beta host id for the notification extension",
     )
     _check(
+        f"CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER={BETA_BUNDLE_ID}.NotificationServiceV2" in archive_call,
+        "beta archive uses the registered notification extension identifier",
+    )
+    _check(
         not any(arg.startswith("PRODUCT_BUNDLE_IDENTIFIER=") for arg in archive_call),
         "beta archive command does not override PRODUCT_BUNDLE_IDENTIFIER for every target",
     )
@@ -939,7 +943,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         "final signed beta IPA keeps the beta marketing version",
     )
     _check(
-        extension_info.get("CFBundleIdentifier") == BETA_BUNDLE_ID + ".NotificationService",
+        extension_info.get("CFBundleIdentifier") == BETA_BUNDLE_ID + ".NotificationServiceV2",
         "final signed beta IPA carries the notification extension bundle",
     )
     for key, expected in PRODUCTION_RUNTIME_ORIGINS.items():
