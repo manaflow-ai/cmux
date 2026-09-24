@@ -276,12 +276,6 @@ struct CMUXMobileRootView: View {
         rootContent
         #if os(iOS)
         .environment(
-            \.mobileResetLocalData,
-            localDataEraser.map { eraser in
-                MobileResetLocalDataAction { resetLocalData(eraser: eraser) }
-            }
-        )
-        .environment(
             \.mobileChildPresentationProvider,
             MobileChildPresentationProvider(resolve: childSheetPresentation)
         )
@@ -292,6 +286,14 @@ struct CMUXMobileRootView: View {
             rootPresentationContent
                 .interactiveDismissDisabled(shouldHoldRootSettingsForMigration)
         }
+        // Outside the root sheet so its Settings page gets the action too;
+        // a sheet reads the environment where `.sheet` is applied.
+        .environment(
+            \.mobileResetLocalData,
+            localDataEraser.map { eraser in
+                MobileResetLocalDataAction { resetLocalData(eraser: eraser) }
+            }
+        )
         #else
         .sheet(isPresented: addDeviceSheetBinding) {
             pairingSheet(initialPresentation: pairingPresentation)
