@@ -59,6 +59,7 @@ const {
   issueRouteToken,
   revokeRouteTokensForVm,
   routeTokenHash,
+  routeTokenLastUsedWritesSettled,
 } = await import("../services/coderouter/repository");
 
 beforeAll(() => {
@@ -122,7 +123,7 @@ describe("coderouter route token VM binding", () => {
     expect(lookup.sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
 
     // One detached write covers all three.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await routeTokenLastUsedWritesSettled("team-1");
     const writes = statements.filter((statement) => statement.kind === "update");
     expect(writes).toHaveLength(1);
     expect(writes[0]?.table).toBe(coderouterRouteTokens);
@@ -134,7 +135,8 @@ describe("coderouter route token VM binding", () => {
     // Within the interval, later requests do not write again.
     statements = [];
     await authenticateRouteToken(TOKEN, new Date("2026-09-23T12:00:30.000Z"));
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // A write scheduled by this call would be pending here, so settling waits for it.
+    await routeTokenLastUsedWritesSettled("team-1");
     expect(statements.map((statement) => statement.kind)).toEqual(["select"]);
   });
 

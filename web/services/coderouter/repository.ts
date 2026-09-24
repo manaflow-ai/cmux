@@ -87,6 +87,11 @@ const routeTokenLastUsed = createLastUsedWriter({
   reportFailure: () => reportLastUsedWriteFailure("route_token_usage", "route_token_last_used"),
 });
 
+/** Resolves when this process's deferred route-token `last_used_at` writes for the team have settled. */
+export function routeTokenLastUsedWritesSettled(teamId: string): Promise<void> {
+  return routeTokenLastUsed.settled(teamId);
+}
+
 export type RouteTokenPrincipal = {
   readonly teamId: string;
   readonly stackUserId: string;
