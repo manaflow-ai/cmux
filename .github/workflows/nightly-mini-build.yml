@@ -159,7 +159,7 @@ jobs:
             # with-host-lock refuses a job below its free-disk floor. The router
             # reads the failed producer as producer_failure and the nightly
             # compiles on Blacksmith.
-            echo "::error::the host lock refused this build (free-disk floor); the nightly falls back to Blacksmith"
+            echo "::error::exit 75: the host lock refuses a build below its free-disk floor, so this nightly compiles on Blacksmith"
           fi
           [ "$status" -eq 0 ] || exit "$status"
           echo "seconds=$(( $(date +%s) - started ))" >> "$GITHUB_OUTPUT"
@@ -230,5 +230,5 @@ jobs:
             echo
             echo "- source: \`$SOURCE_SHA\`"
             echo "- runner: \`$RUNNER_NAME\`"
-            echo "- xcodebuild seconds: \`${BUILD_SECONDS:-n/a}\`"
+            echo "- build seconds, including any wait for the host lock: \`${BUILD_SECONDS:-n/a}\`"
           } >> "$GITHUB_STEP_SUMMARY"
