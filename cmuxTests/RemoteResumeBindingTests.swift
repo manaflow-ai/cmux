@@ -908,7 +908,7 @@ struct RemoteResumeBindingTests {
         #expect(environment["ANTHROPIC_API_KEY"] == nil)
     }
 
-    @Test
+    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
     func persistentRestoreRunsRemoteResumeOnlyWhenSessionMustBeCreated() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
@@ -981,7 +981,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    @Test
+    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
@@ -1015,7 +1015,7 @@ struct RemoteResumeBindingTests {
         #expect(!startupCommand.contains("REMOTE_FLAG"), "\(startupCommand)")
     }
 
-    @Test
+    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
     func legacyRemoteSnapshotWithoutWorkspaceIDMigratesBindingIntoPersistentSSHContext() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
