@@ -16,6 +16,7 @@ final class WorkspaceNavigationControlView: UIView {
     private var placement: Placement = .leading
     private var isLandscape = false
     private var widthAdjustment: CGFloat = 0
+    private var visualOffset: CGFloat = 0
 
     init(content: AnyView) {
         contentView = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
@@ -62,11 +63,14 @@ final class WorkspaceNavigationControlView: UIView {
         refreshContentSize()
     }
 
-    func update(placement: Placement, isLandscape: Bool) {
-        guard self.placement != placement || self.isLandscape != isLandscape else { return }
+    func update(placement: Placement, isLandscape: Bool, visualOffset: CGFloat = 0) {
+        let effectiveOffset = isLandscape ? visualOffset : 0
+        guard self.placement != placement || self.isLandscape != isLandscape || self.visualOffset != effectiveOffset else { return }
         self.placement = placement
         self.isLandscape = isLandscape
+        self.visualOffset = effectiveOffset
         widthAdjustment = placement == .trailing && isLandscape ? -3 : 0
+        contentView.layer.setAffineTransform(CGAffineTransform(translationX: effectiveOffset, y: 0))
         let leading: CGFloat = placement == .trailing && isLandscape ? 4.5 : 8
         let trailing: CGFloat = placement == .leading && isLandscape ? -5 : 8
         layoutMargins = UIEdgeInsets(top: 8, left: leading, bottom: 8, right: trailing)
