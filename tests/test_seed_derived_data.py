@@ -181,7 +181,11 @@ class Wiring(unittest.TestCase):
         # Only trusted main code may write a seed pull requests adopt.
         self.assertEqual(set(triggers), {"push", "workflow_dispatch"})
         self.assertEqual(triggers["push"]["branches"], ["main"])
+        # cancel-in-progress would starve publishing while merges keep
+        # arriving faster than a seed builds; see the comment beside it.
         self.assertIs(workflow["concurrency"]["cancel-in-progress"], False)
+        # One group per pool: a seed is only useful to admission on that pool.
+        self.assertIn(workflow["jobs"]["seed"]["runs-on"].strip("${} "), workflow["concurrency"]["group"])
 
         seeder = steps("seed-derived-data.yml", "seed")
         resolve_at, _ = named(seeder, "Resolve Swift packages")

@@ -21,10 +21,15 @@ on:
 permissions:
   contents: read
 
-# One seed at a time. GitHub keeps only the newest pending run, so a burst of
-# merges seeds the latest commit instead of queueing one build per merge.
+# One seed at a time per runner pool, and never cancel-in-progress. main
+# takes several merges an hour and a cold seed takes 15-20 minutes, so
+# cancelling the running seed for each newer push would starve publishing for
+# as long as merges keep arriving. With `false`, the running seed always
+# finishes and publishes, GitHub keeps at most one pending run, and a newer
+# push replaces that pending run, so the published seed is never more than
+# about one build behind main. tests/test_seed_derived_data.py pins this.
 concurrency:
-  group: seed-derived-data
+  group: seed-derived-data-${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
   cancel-in-progress: false
 
 jobs:
