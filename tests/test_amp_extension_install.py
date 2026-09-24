@@ -158,6 +158,8 @@ append($ENV{"FAKE_CMUX_ENV_LOG"}, sprintf(
 
         check_env = env.copy()
         check_env["CMUX_TEST_AMP_EXTENSION_PATH"] = str(extension_path)
+        # Speed up settle-watchdog polling; the production default is 750ms.
+        check_env["CMUX_AMP_SETTLE_INTERVAL_MS"] = "100"
         check_env["CMUX_SURFACE_ID"] = "surface-amp-test"
         check_env["CMUX_WORKSPACE_ID"] = "workspace-amp-test"
         invalid_cmux_override = root / "cmux-directory"
@@ -599,6 +601,177 @@ readOnlyResolvers.shift()("running");
 await waitForLifecycleState("T-amp-read-only", "running", 2);
 if (lifecycleStateCount("T-amp-read-only", "idle") !== 0) {
   throw new Error("an out-of-order get-only state read reconciled stale idle state");
+}
+
+// A stale "running" snapshot from the authoritative state read (or a discarded
+// read, or a dead subscription) must not swallow turn completion. Otherwise a
+// long-lived session sticks on "Running" forever and the completion hook —
+// which drives sidebar attention — never fires. The plugin must settle the
+// staged turn outcome by re-reading state and, failing that, trusting
+// agent.end — and the settlement must survive late stale reads instead of
+// being undone by them.
+const settleThread = {
+  id: "T-amp-settle",
+  state: {
+    get: async () => "running",
+    subscribe() { return { unsubscribe() {} }; },
+  },
+  title: {
+    get: async () => "Settle Amp title",
+    subscribe() { return { unsubscribe() {} }; },
+  },
+};
+await handlers.get("session.start")({ thread: settleThread }, { thread: settleThread });
+await handlers.get("agent.start")(
+  { thread: settleThread, message: "settle turn", id: "turn-settle" },
+  { thread: settleThread }
+);
+await handlers.get("agent.end")({
+  thread: settleThread,
+  id: "turn-settle",
+  status: "done",
+  messages: [{
+    role: "assistant",
+    content: [{ type: "text", text: "Settle thread completed" }]
+  }]
+}, { thread: settleThread });
+await waitForLifecycleState("T-amp-settle", "idle", 1);
+// Completion must remain settled: a late stale "running" read issued before
+// settlement may not undo it.
+await new Promise((resolve) => setTimeout(resolve, 1500));
+const settledRecords = readJsonRecords().filter((payload) =>
+  payload.session_id === "T-amp-settle" && payload.hook_event_name === "Lifecycle"
+);
+if (!settledRecords.some((payload) =>
+  payload.agent_state === "idle"
+    && payload.turn_outcome === "done"
+    && payload.turn_id === "turn-settle"
+)) {
+  throw new Error("settle reconciliation did not deliver the staged turn outcome");
+}
+const settleIdleIndex = settledRecords.findIndex((payload) => payload.agent_state === "idle");
+if (settledRecords.slice(settleIdleIndex + 1).some((payload) => payload.agent_state === "running")) {
+  throw new Error("a late stale state read undid the settle completion");
+}
+
+// needs-input is authoritative and alive; a lagging agent.end must not
+// synthesize a completion over it.
+let approvalStateSubscriber = null;
+const approvalThread = {
+  id: "T-amp-settle-approval",
+  state: {
+    get: async () => "awaiting-approval",
+    subscribe(cb) {
+      approvalStateSubscriber = cb;
+      return { unsubscribe() {} };
+    },
+  },
+  title: {
+    get: async () => "Approval Amp title",
+    subscribe() { return { unsubscribe() {} }; },
+  },
+};
+await handlers.get("session.start")({ thread: approvalThread }, { thread: approvalThread });
+await handlers.get("agent.start")(
+  { thread: approvalThread, message: "approval turn", id: "turn-approval" },
+  { thread: approvalThread }
+);
+await handlers.get("agent.end")({
+  thread: approvalThread,
+  id: "turn-approval",
+  status: "done",
+  messages: []
+}, { thread: approvalThread });
+if (typeof approvalStateSubscriber !== "function") {
+  throw new Error("missing approval thread state subscription");
+}
+approvalStateSubscriber("awaiting-approval");
+await new Promise((resolve) => setTimeout(resolve, 2000));
+if (lifecycleStateCount("T-amp-settle-approval", "idle") !== 0) {
+  throw new Error("settle synthesis overrode authoritative needs-input");
+}
+
+// A state emission during the settle window proves the observable is alive
+// (e.g. a follow-up turn re-armed without agent.start); the watchdog must
+// stand down and let the authoritative path own completion.
+let liveStateSubscriber = null;
+const liveThread = {
+  id: "T-amp-settle-live",
+  state: {
+    get: async () => "running",
+    subscribe(cb) {
+      liveStateSubscriber = cb;
+      return { unsubscribe() {} };
+    },
+  },
+  title: {
+    get: async () => "Live Amp title",
+    subscribe() { return { unsubscribe() {} }; },
+  },
+};
+await handlers.get("session.start")({ thread: liveThread }, { thread: liveThread });
+await handlers.get("agent.start")(
+  { thread: liveThread, message: "live turn", id: "turn-live" },
+  { thread: liveThread }
+);
+await handlers.get("agent.end")({
+  thread: liveThread,
+  id: "turn-live",
+  status: "done",
+  messages: []
+}, { thread: liveThread });
+if (typeof liveStateSubscriber !== "function") {
+  throw new Error("missing live thread state subscription");
+}
+liveStateSubscriber("running");
+await new Promise((resolve) => setTimeout(resolve, 1500));
+if (lifecycleStateCount("T-amp-settle-live", "idle") !== 0) {
+  throw new Error("settle synthesis overrode a live authoritative observable");
+}
+
+// A follow-up turn that starts and ends between settle ticks owns its own
+// completion; the stale watchdog for the earlier turn must not touch it.
+const followupThread = {
+  id: "T-amp-settle-followup",
+  state: {
+    get: async () => "running",
+    subscribe() { return { unsubscribe() {} }; },
+  },
+  title: {
+    get: async () => "Follow-up Amp title",
+    subscribe() { return { unsubscribe() {} }; },
+  },
+};
+await handlers.get("session.start")({ thread: followupThread }, { thread: followupThread });
+await handlers.get("agent.start")(
+  { thread: followupThread, message: "first turn", id: "turn-followup-a" },
+  { thread: followupThread }
+);
+await handlers.get("agent.end")({
+  thread: followupThread,
+  id: "turn-followup-a",
+  status: "done",
+  messages: []
+}, { thread: followupThread });
+await handlers.get("agent.start")(
+  { thread: followupThread, message: "second turn", id: "turn-followup-b" },
+  { thread: followupThread }
+);
+await handlers.get("agent.end")({
+  thread: followupThread,
+  id: "turn-followup-b",
+  status: "done",
+  messages: []
+}, { thread: followupThread });
+await waitForInputFragment('"turn_id":"turn-followup-b"');
+await waitForLifecycleState("T-amp-settle-followup", "idle", 1);
+const followupIdle = readJsonRecords().filter((payload) =>
+  payload.session_id === "T-amp-settle-followup"
+    && payload.hook_event_name === "Lifecycle"
+    && payload.agent_state === "idle"
+);
+if (!followupIdle.some((payload) => payload.turn_id === "turn-followup-b")) {
+  throw new Error("the follow-up turn completion was not delivered");
 }
 
 // A long-lived Amp process must not retain every completed thread forever.
