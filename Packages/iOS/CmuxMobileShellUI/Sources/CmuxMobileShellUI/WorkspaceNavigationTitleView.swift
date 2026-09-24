@@ -3,12 +3,14 @@ import SwiftUI
 import UIKit
 
 /// UINavigationBar assigns the title's frame between its button groups.
-/// This view gives its hosted menu the same bounds, allowing text to truncate.
+/// This view insets its hosted menu by the base toolbar's glass padding.
 /// There is deliberately no minimum title width or screen/size-class estimate.
 @MainActor
 final class WorkspaceNavigationTitleView: UIView {
     private let host: UIHostingController<AnyView>
     private let capsule: UIVisualEffectView
+    private static let horizontalInset: CGFloat = 10
+    private static let preferredContentWidth: CGFloat = 180
 
     init(host: UIHostingController<AnyView>) {
         self.host = host
@@ -40,10 +42,13 @@ final class WorkspaceNavigationTitleView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let content = host.view.intrinsicContentSize
-        // Match the compact base toolbar's 151 point title island while
-        // leaving UINavigationBar free to compress it when the trailing
-        // cluster needs more room.
-        return CGSize(width: max(0, content.width - 1), height: 44)
+        // Preserve the base title's preferred maximum. This is a presentation
+        // preference, not an estimate of available space: the navigation bar
+        // can reduce it further to fit its actual button groups.
+        return CGSize(
+            width: min(Self.preferredContentWidth, max(0, content.width)) + 2 * Self.horizontalInset,
+            height: 44
+        )
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
@@ -56,7 +61,7 @@ final class WorkspaceNavigationTitleView: UIView {
         if #unavailable(iOS 26.0) {
             capsule.layer.cornerRadius = bounds.height / 2
         }
-        let inset = min(3, bounds.width / 2)
+        let inset = min(Self.horizontalInset, bounds.width / 2)
         host.view.frame = bounds.insetBy(dx: inset, dy: 0)
     }
 }

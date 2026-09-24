@@ -36,6 +36,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         titleHost.sizingOptions = .intrinsicContentSize
         titleHost.safeAreaRegions = []
         addChild(titleHost)
+        item.style = .browser
         item.largeTitleDisplayMode = .never
         bar.setItems([item], animated: false)
         titleHost.didMove(toParent: self)
@@ -71,11 +72,6 @@ final class WorkspaceNavigationBarController: UIViewController {
                 .environment(\.self, environment)
                 .buttonStyle(.plain)
                 .frame(minWidth: minimumWidth, minHeight: 36)
-                // UIKit's standard leading item gap is 16 points. The base
-                // toolbar leaves 20 points after the 52 point back island;
-                // reserve that extra four points in the item itself so the
-                // button's visible glass remains 52 points wide.
-                .padding(.trailing, value.id == .back ? 4 : 0)
                 .fixedSize())
             if let control = controls[value.id] {
                 control.host.rootView = content
@@ -112,11 +108,11 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs
-            // UIKit places rightBarButtonItems from the trailing edge inward.
-            // Our input order follows the visual leading-to-trailing order.
-            item.setRightBarButtonItems(
-                trailingIDs.reversed().compactMap { controls[$0]?.button },
-                animated: false
+            // This group contains the actions that must remain available.
+            // UIKit reserves its width before laying out the compressible title.
+            item.pinnedTrailingGroup = UIBarButtonItemGroup(
+                barButtonItems: trailingIDs.compactMap { controls[$0]?.button },
+                representativeItem: nil
             )
         }
 

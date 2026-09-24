@@ -9,9 +9,18 @@ extension WorkspaceDetailView {
             leadingItems: navigationBarLeadingItems,
             trailingItems: navigationBarTrailingItems
         )
+        // The native bar applies its own safe-area margins. Give it the same
+        // full-width coordinate space as the original navigation bar.
+        .ignoresSafeArea(.container, edges: .horizontal)
         .background {
-            store.activeTerminalTheme.terminalBackgroundColor
-                .ignoresSafeArea(edges: .top)
+            Group {
+                if terminalScrollEdgeGlassActive {
+                    Rectangle().fill(.regularMaterial)
+                } else {
+                    store.activeTerminalTheme.terminalBackgroundColor
+                }
+            }
+            .ignoresSafeArea(edges: .top)
         }
         .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
     }
@@ -45,6 +54,7 @@ extension WorkspaceDetailView {
                 .frame(width: 55, height: 36)
             }
             terminalPickerToolbarButton
+                .imageScale(.large)
                 .frame(width: 42, height: 36)
         }
         .buttonStyle(.plain)
