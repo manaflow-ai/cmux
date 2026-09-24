@@ -34,12 +34,12 @@ env:
 # push replaces that pending run, so the published seed is never more than
 # about one build behind main. tests/test_seed_derived_data.py pins this.
 concurrency:
-  group: seed-derived-data-${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+  group: seed-derived-data-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
   cancel-in-progress: false
 
 jobs:
   decide:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     outputs:
       build: ${{ steps.inputs.outputs.build }}
@@ -77,7 +77,7 @@ jobs:
     if: needs.decide.outputs.build == 'true'
     # Must match pull-request compile admission: the seed key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
-    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 60
     env:
