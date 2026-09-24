@@ -53,7 +53,7 @@ class CLIProductRoutingTests(unittest.TestCase):
             cli_needed = cli == "true" or (macos == "true" and full_suite == "true")
             with self.subTest(**routes):
                 self.assertEqual(gate(self.caller["macos"]["if"], **routes), compile_needed or packages == "true")
-                self.assertEqual(gate(self.caller["macos-debounce"]["if"], **routes), compile_needed)
+                self.assertEqual(gate(self.caller["macos-admission-gate"]["if"], **routes), compile_needed)
                 self.assertEqual(gate(self.jobs["macos-compile-admission"]["if"], **routes), compile_needed)
                 self.assertEqual(gate(self.jobs["cli-product-tests"]["if"], **routes), cli_needed)
                 self.assertEqual(gate(self.jobs["swift-package-tests"]["if"], **routes),

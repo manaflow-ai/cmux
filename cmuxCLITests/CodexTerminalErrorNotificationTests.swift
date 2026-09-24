@@ -151,7 +151,7 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
             }
             guard clientFD >= 0 else { return }
             defer { Darwin.close(clientFD) }
-            ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
+            guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
@@ -271,17 +271,12 @@ private struct CodexTerminalErrorProcess {
         stdin.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdin.fileHandleForWriting.close()
 
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
-        let timedOut = finished.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if finished.wait(timeout: .now() + 1) == .timedOut {
+            if waitForProcessExit(process, timeout: 1) == .timedOut {
                 Darwin.kill(process.processIdentifier, SIGKILL)
-                guard finished.wait(timeout: .now() + 1) == .success else {
+                guard waitForProcessExit(process, timeout: 1) == .success else {
                     return Result(
                         status: -1,
                         stdout: "",

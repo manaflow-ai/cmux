@@ -122,7 +122,31 @@ enum CLIHookProcessRunner {
 /// raising SIGPIPE. cmuxCLITests runs without an app host, so nothing else
 /// ignores the signal and it would terminate the whole test runner. The option
 /// is set per socket so the CLI's own SIGPIPE behavior stays under test.
-func ignoreSIGPIPE(onAcceptedFixtureSocket fd: Int32) {
+///
+/// Returns false when the option could not be set. The caller must then close
+/// the client without writing to it.
+func ignoreSIGPIPE(onAcceptedFixtureSocket fd: Int32) -> Bool {
     var noSignal: Int32 = 1
-    _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
+    return setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size)) == 0
+}
+
+/// Writes all of `text` to a fixture socket, retrying short and interrupted
+/// writes. Returns false once the write fails, for example after the client
+/// hung up.
+@discardableResult
+func writeAllToFixtureSocket(_ text: String, fd: Int32) -> Bool {
+    let bytes = Array(text.utf8)
+    var offset = 0
+    while offset < bytes.count {
+        let written = bytes.withUnsafeBytes { buffer in
+            Darwin.write(fd, buffer.baseAddress!.advanced(by: offset), buffer.count - offset)
+        }
+        if written < 0 {
+            if errno == EINTR { continue }
+            return false
+        }
+        if written == 0 { return false }
+        offset += written
+    }
+    return true
 }

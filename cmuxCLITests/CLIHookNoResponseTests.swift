@@ -332,7 +332,10 @@ struct CLIHookNoResponseTests {
                 return
             }
             defer { Darwin.close(clientFD) }
-            ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
+            guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else {
+                fulfillOnce()
+                return
+            }
 
             readLines(from: clientFD) { line in
                 state.append(line)
@@ -384,7 +387,10 @@ struct CLIHookNoResponseTests {
                     return
                 }
                 accepted += 1
-                ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
+                guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else {
+                    Darwin.close(clientFD)
+                    continue
+                }
 
                 DispatchQueue.global(qos: .userInitiated).async {
                     defer { Darwin.close(clientFD) }
@@ -459,10 +465,7 @@ struct CLIHookNoResponseTests {
     }
 
     private static func writeLine(_ line: String, to fd: Int32) {
-        let response = line + "\n"
-        _ = response.withCString { ptr in
-            Darwin.write(fd, ptr, strlen(ptr))
-        }
+        writeAllToFixtureSocket(line + "\n", fd: fd)
     }
 
     private static func v2Response(
