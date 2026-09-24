@@ -80,27 +80,41 @@ elif [ -e "$src" ] && [ ! -d "$src" ]; then
   rm -f "$src"
 fi
 
-# --delete makes the copy exact, so a file deleted in the branch cannot
-# survive from a previous job and compile into the product. .git comes along
-# because the product receipt stamps `git rev-parse HEAD` from the build tree.
+# The copy must be exact, so a file deleted in the branch cannot survive from a
+# previous job and compile into the product; the old tree is removed first.
+# .git comes along because the product receipt stamps `git rev-parse HEAD`
+# from the build tree.
+#
+# The copy is an APFS clone (`cp -c`), which shares blocks instead of writing
+# them: 8 s against openrsync's 32 s for a 483 MB checkout on an M-series Mac,
+# and openrsync also truncates modification times to whole seconds. A volume
+# without clone support falls back to rsync.
 #
 # CMUX_CI_MOVE_SOURCE_PACKAGES=1 moves the restored .ci-source-packages
 # instead of copying it: it is most of the bytes, and a caller that never reads
 # the workspace copy again (ci-macos.yml compile admission) should not pay for
-# it twice. The exclusion only keeps rsync from copying it; the old copy is
-# removed below, so the result is as exact as the plain copy.
-rsync_args=(-a --delete)
+# it twice. It is set aside under the root before the clone and moved into the
+# fresh tree after, so an earlier job's packages cannot survive either.
 move_packages=false
 if [ "${CMUX_CI_MOVE_SOURCE_PACKAGES:-}" = 1 ]; then
   move_packages=true
-  rsync_args+=(--exclude=/.ci-source-packages)
 fi
-mkdir -p "$src"
-rsync "${rsync_args[@]}" "$workspace"/ "$src"/
+incoming="$root/.ci-source-packages.incoming"
+rm -rf "$incoming"
+if [ "$move_packages" = true ] && { [ -e "$workspace/.ci-source-packages" ] || [ -L "$workspace/.ci-source-packages" ]; }; then
+  mv "$workspace/.ci-source-packages" "$incoming"
+fi
+rm -rf "$src"
+if ! cp -cpR "$workspace"/. "$src" 2>/dev/null; then
+  echo "canonical-build-root: clone failed; copying with rsync" >&2
+  rm -rf "$src"
+  mkdir -p "$src"
+  rsync -a --delete "$workspace"/ "$src"/
+fi
 if [ "$move_packages" = true ]; then
   rm -rf "$src/.ci-source-packages"
-  if [ -e "$workspace/.ci-source-packages" ] || [ -L "$workspace/.ci-source-packages" ]; then
-    mv "$workspace/.ci-source-packages" "$src/.ci-source-packages"
+  if [ -e "$incoming" ] || [ -L "$incoming" ]; then
+    mv "$incoming" "$src/.ci-source-packages"
   fi
 fi
 
