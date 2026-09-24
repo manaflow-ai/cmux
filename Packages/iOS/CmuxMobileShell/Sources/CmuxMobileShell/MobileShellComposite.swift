@@ -4288,7 +4288,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard loadGeneration == pairedMacLoadGeneration else { return false }
         pairedMacLoadState = .notLoaded
         do {
-            _ = try await refreshDirectoryPairedMacIdentities(scope: scope)
+            // Replay committed aliases before hidden-marker cleanup. Loading
+            // saved metadata must still work without network discovery.
+            try await reconcileDirectoryPairedMacIdentities([], scope: scope)
         } catch {
             if await isScopeCurrent(scope), loadGeneration == pairedMacLoadGeneration {
                 pairedMacLoadState = .failed

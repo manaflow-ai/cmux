@@ -851,6 +851,32 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func interruptedV2MigrationRestoresHiddenPreferenceBeforeOfflineListCleanup() async throws {
+        let live = try candidate(deviceID: "v2-installation", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[]])
+        discovery.usesAuthoritativeDeviceIDs = true
+        let fixture = try await makeFixture(discovery: discovery, reportedDeviceID: live.deviceID)
+        defer { fixture.cleanup() }
+        try await fixture.store.upsert(macDeviceID: "old-physical-mac", displayName: "My Mac",
+                                       routes: live.routes, instanceTag: live.instanceTag,
+                                       markActive: true, stackUserID: "user-1", teamID: nil,
+                                       now: Self.fixedNow)
+        let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
+        await fixture.shell.rememberHiddenMacDeviceID(
+            MobilePairedMac.pairingID(macDeviceID: "old-physical-mac", instanceTag: live.instanceTag), scope: scope
+        )
+        // Model a process stopping after SQL commits but before defaults move.
+        _ = try await fixture.store.reconcileLegacyIdentities(with: [
+            MobilePairedMacDirectoryIdentity(deviceID: live.deviceID, instanceTag: live.instanceTag, routes: live.routes)
+        ], stackUserID: "user-1", teamID: nil)
+        #expect(await fixture.shell.loadPairedMacs())
+        #expect(discovery.callCount() == 0)
+        #expect(await fixture.shell.isHiddenMacDeviceID(live.deviceID, instanceTag: live.instanceTag, scope: scope))
+        #expect(fixture.factory.attemptedRouteIDs().isEmpty)
+        #expect(fixture.shell.hasHiddenComputers)
+    }
+
+    @Test
     func secondaryRecoverySchedulesWithoutLegacyPresence() async throws {
         let fixture = try await makeFixture(candidates: [], reportedDeviceID: "mac")
         defer { fixture.cleanup() }
