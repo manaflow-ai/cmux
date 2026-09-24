@@ -44,11 +44,7 @@ pub(crate) fn payload(
         ("linux", "x86_64") => "x86_64-unknown-linux-musl",
         ("macos", "aarch64") => "aarch64-apple-darwin",
         ("macos", "x86_64") => "x86_64-apple-darwin",
-        _ => {
-            return Err(BootstrapError::PlatformProbe(format!(
-                "no bundled SSH artifact for {os}-{arch}"
-            )));
-        }
+        _ => return Ok(None),
     };
     let name = format!("cmux-tui-{target}");
     let expected = manifest
