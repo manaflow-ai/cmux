@@ -24,6 +24,11 @@ struct TerminalTabAgentIconResolver {
 extension Workspace {
     /// Returns the current provider mark for one terminal panel, if known.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
+        // A Cloud terminal's agent lives on the remote machine, so local PID
+        // and restore state never see it; the projected resource is its owner.
+        if let remote = cloudProjectedResource(forPanel: panelId), remote.kind == .terminal {
+            return remote.terminalAgentIconAssetName
+        }
         let resolver = TerminalTabAgentIconResolver()
         let statusKeys = agentPIDKeysByPanelId[panelId, default: []]
             .map(agentStatusKey(forAgentPIDKey:))
