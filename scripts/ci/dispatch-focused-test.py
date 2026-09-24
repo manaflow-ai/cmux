@@ -31,9 +31,6 @@ RUNNERS = (
     "blacksmith-6vcpu-macos-26",
     "blacksmith-12vcpu-macos-26",
     "blacksmith-6vcpu-macos-latest",
-    "tart-canary",
-    "tart-dual",
-    "tart-small",
 )
 # Half of all commits compile on the large macOS 26 SKU, so the two sizes are
 # compared on real focused-run traffic rather than one benchmark. The split is

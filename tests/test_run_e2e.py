@@ -397,7 +397,7 @@ class FocusedLauncherTests(unittest.TestCase):
         # who asked the default pool. Dispatch instead.
         result = self.launch(
             "cmuxTests/ExampleTests", "--wait",
-            LAUNCHER_PRIOR_RUNS=self._live(runner="tart-canary"),
+            LAUNCHER_PRIOR_RUNS=self._live(runner="blacksmith-6vcpu-macos-15"),
             LAUNCHER_WATCH_STATUS="0",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
