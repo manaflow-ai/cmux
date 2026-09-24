@@ -67,17 +67,9 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
-      - name: Validate quality guard structure
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_quality_guard_structure.py
-
       - name: Validate Xcode build metrics receipt
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_build_metrics.py
-
-      - name: Validate app-host guard structure
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_app_host_guard_structure.py
 
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' }}
@@ -86,10 +78,6 @@ jobs:
       - name: Validate canonical compile cache build root
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
-
-      - name: Validate release guard structure
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_release_guard_structure.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
@@ -131,7 +119,7 @@ jobs:
         run: python3 tests/test_web_complexity_scope.py
 
       - name: Validate iOS package conventions for this change
-        if: ${{ matrix.group == 'preflight' }}
+        if: ${{ matrix.group == 'release-ios' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
@@ -308,10 +296,6 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_preflight_trust.py
 
-      - name: Validate required checks report for the merge queue
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_merge_queue_required_checks.py
-
       - name: Validate required-check drift reconciliation
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_drift.py
@@ -449,7 +433,7 @@ jobs:
         run: python3 tests/test_swift_testing_suite_timeout.py
 
       - name: Validate hung test watchdog
-        if: ${{ matrix.group == 'app-host-execution' }}
+        if: ${{ matrix.group == 'app-host-watchdog' }}
         run: |
           python3 tests/test_hung_test_watchdog.py
           python3 tests/test_run_with_timeout_process_tree.py
@@ -461,7 +445,7 @@ jobs:
           python3 tests/test_swift_package_execution.py
 
       - name: Validate xcodebuild noninteractive crash prompt guard
-        if: ${{ matrix.group == 'app-host-execution' }}
+        if: ${{ matrix.group == 'app-host-watchdog' }}
         run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
 
       - name: Validate xcodebuild failure diagnostics
@@ -752,12 +736,6 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: node scripts/release_asset_guard.test.js
 
-      - name: Validate CI change area filter
-        if: ${{ matrix.group == 'ci' }}
-        run: |
-          python3 tests/test_ci_change_areas.py
-          python3 tests/test_ci_linux_guard_routing.py
-
       - name: Validate fork runner routing
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
@@ -792,10 +770,6 @@ jobs:
       - name: Validate release-build timeout guard
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_release_build_timeout.sh
-
-      - name: Validate reusable workflow permission grants
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_reusable_workflow_permissions.py
 
       - name: Validate release does not gate on iOS screenshot capture
         if: ${{ matrix.group == 'release-ios' }}

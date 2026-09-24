@@ -14,9 +14,11 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def gate(expression, *, macos, cli, full_suite, compile_admitted, swift_packages="false", unit_suite="false"):
+def gate(expression, *, macos, cli, full_suite, compile_admitted, swift_packages="false", unit_suite="false",
+         unit_in_admission="false"):
     routes = dict(macos=macos, cli=cli, full_suite=full_suite, unit_suite=unit_suite,
-                  compile_admitted=compile_admitted, release_build="false", swift_packages=swift_packages)
+                  compile_admitted=compile_admitted, release_build="false", swift_packages=swift_packages,
+                  unit_in_admission=unit_in_admission)
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
     expression = expression.replace("github.event_name", repr("pull_request"))
@@ -43,11 +45,13 @@ class CLIProductRoutingTests(unittest.TestCase):
         cls.jobs = cls.workflow["jobs"]
 
     def test_actual_conditions_keep_targeted_route_alive_after_prior_admission(self):
-        for macos, cli, full_suite, unit_suite, admitted, packages in product(("false", "true"), repeat=6):
+        for macos, cli, full_suite, unit_suite, admitted, packages, in_admission in product(("false", "true"), repeat=7):
             if unit_suite == "true" and admitted == "true":
                 continue  # changes never admits a prior build for a unit-ci run
+            if in_admission == "true" and unit_suite != "true":
+                continue  # choose_ci_suite only runs suites in admission for a unit run
             routes = dict(macos=macos, cli=cli, full_suite=full_suite, unit_suite=unit_suite,
-                          compile_admitted=admitted, swift_packages=packages)
+                          compile_admitted=admitted, swift_packages=packages, unit_in_admission=in_admission)
             compile_needed = (macos == "true" or cli == "true") and (
                 full_suite == "true" or cli == "true" or admitted != "true")
             cli_needed = cli == "true" or (macos == "true" and full_suite == "true")
@@ -59,7 +63,8 @@ class CLIProductRoutingTests(unittest.TestCase):
                 self.assertEqual(gate(self.jobs["swift-package-tests"]["if"], **routes),
                                  (macos == "true" and full_suite == "true") or packages == "true")
                 self.assertEqual(gate(self.jobs["app-host-unit-tests"]["if"], **routes),
-                                 macos == "true" and (full_suite == "true" or unit_suite == "true"))
+                                 macos == "true" and (full_suite == "true" or unit_suite == "true")
+                                 and in_admission != "true")
                 self.assertEqual(gate(self.jobs["tests-build-and-lag"]["if"], **routes),
                                  macos == "true" and full_suite == "true")
 

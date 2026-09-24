@@ -63,10 +63,6 @@
       "classification": "host/display dependency",
       "issue": 13948
     },
-    "TerminalTabIconRegressionTests/activeAgentKeepsReleaseTerminalIcon(statusKey:)": {
-      "classification": "unknown",
-      "issue": 13879
-    },
     "WorkspaceContentViewVisibilityTests/testMinimalModeToggleDoesNotReevaluateChromeHeavyBodies()": {
       "classification": "product bug",
       "issue": 13930
