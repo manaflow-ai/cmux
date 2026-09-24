@@ -95,7 +95,7 @@ build() {
     'CMUX_CI_TARGET_FLAGS_cmuxTests=-driver-show-incremental'
   )
   case "$series" in
-    cached) extra=(COMPILATION_CACHE_ENABLE_CACHING=YES) ;;
+    cached|cached-short) extra=(COMPILATION_CACHE_ENABLE_CACHING=YES) ;;
     cached-remarks) extra=("${pertarget[@]}") ;;
     tests-uncached) extra=("${pertarget[@]}" CMUX_CI_TARGET_CACHE_cmuxTests=NO) ;;
     tests-uncached-implicit)
@@ -139,9 +139,23 @@ remarks_run() {
   restore
 }
 
+short_run() {
+  local s="$1"
+  restore
+  build "$s" baseline
+  perl -0pi -e 's/(func updateNSView\(_ view: GPUSpinnerNSView, context: Context\) \{\n)/$1        let cmuxProbeBody = 1; _ = cmuxProbeBody\n/' "$app_file"
+  build "$s" app-body-only
+  printf '\nprivate func cmuxProbePrivate() -> Int { 2 }\n' >> "$app_file"
+  build "$s" app-new-private-func
+  perl -0pi -e 's/(func testParsesSSHURLWithExplicitHostUserPortAndTitle\(\) throws \{\n)/$1        let cmuxProbeTestBody = 6; _ = cmuxProbeTestBody\n/' "$test_file"
+  build "$s" test-body-only
+  restore
+}
+
 series_run() {
   local s="$1"
   [ "$s" = cached-remarks ] && { remarks_run "$s"; return; }
+  case "$s" in tests-uncached-implicit|cached-short) short_run "$s"; return ;; esac
   restore
   build "$s" baseline
   build "$s" null

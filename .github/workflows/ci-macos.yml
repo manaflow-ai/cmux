@@ -142,7 +142,7 @@ jobs:
     # compile on the pool and Xcode seed-derived-data.yml builds with, so both
     # can adopt its DerivedData seed below. Merge groups and dispatches on
     # other branches keep the macos-15 lane.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && ((github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' admission ')) && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: blacksmith-12vcpu-macos-26  # CANARY pin
     # A changed-suites run adds its tests after the compile: the same
     # 30-minute batch ceiling the separate worker had.
     timeout-minutes: 240
@@ -605,12 +605,11 @@ jobs:
       - name: Canary probe cmuxTests incremental rebuilds
         if: always() && steps.hosted-compile.outcome == 'success'
         continue-on-error: true
-        timeout-minutes: 150
+        timeout-minutes: 200
         run: |
           scripts/ci/canary-cmuxtests-incremental.sh \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS" \
-            tests-uncached tests-uncached-implicit cached-remarks
-          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/canary-probe-logs.tgz" $(cd "$RUNNER_TEMP" && ls probe-*.txt)
+            cached-short tests-uncached cached-remarks tests-uncached-implicit
 
       - name: Canary upload probe logs
         if: always()
@@ -618,7 +617,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: canary-cmuxtests-probe-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/canary-probe-logs.tgz
+          path: ${{ runner.temp }}/probe-*.txt
           retention-days: 5
           if-no-files-found: warn
 
