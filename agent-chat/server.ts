@@ -17,6 +17,9 @@ import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
+import { discoverHarnesses } from "./harnesses";
+import type { HarnessRecommendation } from "./harness-contract";
+import { harnessCatalogs } from "./harness-messages";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -249,6 +252,39 @@ function capabilitiesFor(provider: string): ProviderCapabilities {
 
 function capabilitiesMap(): Record<string, ProviderCapabilities> {
   return Object.fromEntries(PROVIDERS.map((p) => [p.id, capabilitiesFor(p.id)]));
+}
+
+/**
+ * Build the server-side harness choices consumed by the command palette and
+ * other clients. The resolver is injectable so this stays deterministic in
+ * tests and callers can provide a cached installation probe.
+ */
+export function harnessRecommendations(
+  providers: ProviderDef[] = PROVIDERS,
+  isInstalled: (provider: ProviderDef) => boolean = (provider) => Boolean(Bun.which(provider.cmd?.[0] ?? provider.id, { PATH: process.env.PATH })),
+  triggersFor: (provider: ProviderDef) => CommandTrigger[] = (provider) => capabilitiesFor(provider.id).triggers,
+): HarnessRecommendation[] {
+  return providers
+    .map((provider) => {
+      const installed = isInstalled(provider);
+      return {
+        id: provider.id,
+        label: provider.label,
+        installed,
+        priority: installed ? 0 : 1,
+        triggers: triggersFor(provider),
+        kind: "provider" as const,
+        provider: provider.id,
+        tags: [],
+        reason: installed
+          ? { id: "installed" as const }
+          : provider.installCommand
+            ? { id: "install" as const, params: { command: provider.installCommand } }
+            : { id: "missing" as const },
+        ...(provider.installCommand ? { installCommand: provider.installCommand } : {}),
+      };
+    })
+    .sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label));
 }
 
 function providerInfo(p: ProviderDef) {
@@ -1896,6 +1932,11 @@ function startServer() {
       ws.send(JSON.stringify({
         kind: "hello",
         providers: PROVIDERS.map(providerInfo),
+        harnessCatalogs,
+        harnesses: [
+          ...harnessRecommendations(),
+          ...discoverHarnesses({ cwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD }),
+        ],
         capabilities: capabilitiesMap(),
         defaultCwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD,
         keys: keyConfig,
@@ -2042,9 +2083,18 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     }
     case "check-cwd": {
       const cwd = String(msg.cwd || DEFAULT_CWD);
+      const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+      const connectionEpoch = typeof msg.connectionEpoch === "number" ? msg.connectionEpoch : undefined;
       Promise.resolve(checkCwd(cwd))
-        .then((res) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ...res })))
-        .catch((err) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ok: false, message: String(err) })));
+        .then((res) => ws.send(JSON.stringify({
+          kind: "cwd-check",
+          cwd,
+          ...(requestId ? { requestId } : {}),
+          ...(connectionEpoch !== undefined ? { connectionEpoch } : {}),
+          ...res,
+          harnesses: discoverHarnesses({ cwd }),
+        })))
+        .catch((err) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ok: false, message: String(err), ...(requestId ? { requestId } : {}), ...(connectionEpoch !== undefined ? { connectionEpoch } : {}) })));
       break;
     }
     case "send": {
