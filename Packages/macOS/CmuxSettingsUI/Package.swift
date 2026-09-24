@@ -28,7 +28,8 @@ let package = Package(
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
             ],
             resources: [
-                .process("Resources"),
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/CustomSidebars"),
             ]
         ),
         .testTarget(

@@ -1,14 +1,12 @@
-<!-- Writing guidance: ../STYLE.md. Lead with the concrete problem and resulting behavior; keep supporting detail proportional to the change. -->
+<!-- Before drafting or revising this description, read ../STYLE.md. State the change and relevant validation; link supporting detail. -->
 
 ## Summary
 
-- What changed?
-- Why?
+<!-- Explain the concrete problem and resulting behavior. -->
 
 ## Testing
 
-- How did you test this change?
-- What did you verify manually?
+<!-- Say what ran and what it established. Include manual verification when relevant. -->
 
 ## Demo Video
 
@@ -16,14 +14,16 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 
 - Video URL or attachment:
 
+<!--
 ## Review Trigger (Copy/Paste as PR comment)
 
 ```text
 @codex review
 @coderabbitai review
-@greptile-apps review
+@greptileai review
 @cubic-dev-ai review
 ```
+-->
 
 ## Checklist
 
@@ -34,5 +34,3 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 - [ ] I requested bot reviews after my latest commit (copy/paste block above or equivalent)
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
-
-<!-- Agent-authored PRs may opt into the current-head bot-thread gate by adding the marker `agent-pr-review-required` to the PR body. -->

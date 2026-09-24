@@ -6,7 +6,7 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
   "r2_buckets": [
     {
@@ -19,6 +19,10 @@
       {
         "name": "ARTIFACT_IMPORTS",
         "class_name": "ArtifactImport"
+      },
+      {
+        "name": "REQUEST_ADMISSION",
+        "class_name": "RequestAdmission"
       }
     ]
   },
@@ -27,6 +31,12 @@
       "tag": "v1",
       "new_sqlite_classes": [
         "ArtifactImport"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "RequestAdmission"
       ]
     }
   ],

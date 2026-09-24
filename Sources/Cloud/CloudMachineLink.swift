@@ -1,40 +1,8 @@
 import Foundation
+import CmuxCore
 
-/// Bounded recovery for the event side channel. The command socket remains usable while the
-/// feed is repaired, but a broken child process must never create an infinite spawn loop.
-struct CloudMachineLinkEventsRecoveryPolicy: Sendable, Equatable {
-    static let standard = Self(delays: [
-        .milliseconds(250),
-        .milliseconds(500),
-        .seconds(1),
-        .seconds(2),
-        .seconds(4),
-    ], stabilityWindow: .seconds(10))
-
-    let delays: [Duration]
-    /// A stream must carry an accepted event for this long before prior failures
-    /// stop counting. This prevents a child that emits one event and exits from
-    /// resetting the bounded recovery budget forever.
-    let stabilityWindow: Duration
-
-    init(delays: [Duration], stabilityWindow: Duration = .seconds(10)) {
-        precondition(!delays.isEmpty)
-        precondition(delays.allSatisfy { $0 > .zero })
-        precondition(stabilityWindow > .zero)
-        self.delays = delays
-        self.stabilityWindow = stabilityWindow
-    }
-
-    func delay(forAttempt attempt: Int) -> Duration? {
-        guard attempt > 0, attempt <= delays.count else { return nil }
-        return delays[attempt - 1]
-    }
-}
-
-/// One headless cmux-tui link to a cloud machine's daemon: a `remote connect --headless`
-/// client process whose local mux socket the app drives for snapshots, events, and
-/// terminal creation. The pane's own `vm-tui-connect` link is separate; this one belongs
-/// to the sidebar and the `vm.*` tree methods and never touches a tty.
+/// One headless cmux-tui carrier for a remote machine, over SSH or the Cloud network.
+/// Native panes and control requests share its daemon-owned session and local socket.
 ///
 /// Lifecycle: `connect` spawns the client and resolves once the first
 /// `connection-snapshot` line names the socket; the process is kept until `disconnect`
@@ -204,6 +172,7 @@ actor CloudMachineLink {
         carrier: Bool = false,
         timeout: Duration = .seconds(60),
         wireguardHubSocket: String? = nil,
+        ssh: SSHTuiConnection? = nil,
         releaseHubLease: (@Sendable () async -> Void)? = nil
     ) async throws -> Connected {
         if let connected, state == .connected {
@@ -216,7 +185,10 @@ actor CloudMachineLink {
         try paths.ensureStateDir()
         let process = Process()
         process.executableURL = clientURL
-        process.arguments = CloudTuiCommandLine.linkArguments(
+        process.arguments = ssh?.arguments(
+            stateDirectory: paths.stateDir.path,
+            deviceName: CloudTuiClientPaths.deviceName()
+        ) ?? CloudTuiCommandLine.linkArguments(
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
@@ -225,6 +197,7 @@ actor CloudMachineLink {
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
+        if let ssh { environment = environment.merging((ssh.configuration.sshProcessEnvironment ?? [:])) { _, new in new } }
         process.environment = environment
         let stdout = Pipe()
         let stderr = Pipe()

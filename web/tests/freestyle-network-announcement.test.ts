@@ -60,7 +60,7 @@ describe("Freestyle private network readiness", () => {
       exec: async ({ command }: { command: string }) => {
         // Adapter, reporter, and hook preparation can add probes. This test
         // guards publication/rollback ordering, not the number of setup execs.
-        if (command.startsWith("python3 -c ")) events.push("guest-network");
+        if (command.includes("Private network addresses are not ready")) events.push("guest-network");
         return { statusCode: 0, stdout: "", stderr: "" };
       },
       fs: {
@@ -72,10 +72,13 @@ describe("Freestyle private network readiness", () => {
     const client = { vms: {
       create: async () => { events.push("allocated"); return { vm, vmId: data.id, data }; },
       get: async () => data,
+      ref: (id: string) => {
+        if (id !== data.id) throw new Error(`unexpected VM ref: ${id}`);
+        return vm;
+      },
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const allocation = operation === "create"
@@ -84,9 +87,7 @@ describe("Freestyle private network readiness", () => {
     if (hasAddresses) {
       await allocation;
       events.push("published");
-      expect(events).toEqual(operation === "create"
-        ? ["allocated", "published"]
-        : ["allocated", "guest-network", "published"]);
+      expect(events).toEqual(["allocated", "published"]);
     } else {
       await expect(allocation).rejects.toThrow();
       expect(events).toEqual(["allocated", "delete"]);
@@ -102,7 +103,7 @@ describe("Freestyle private network readiness", () => {
     };
     const vm = {
       exec: async ({ command }: { command: string }) => {
-        if (command.startsWith("python3 -c ")) {
+        if (command.includes("Private network addresses are not ready")) {
           events.push("guest-network");
           return { statusCode: 124, stdout: "", stderr: "network state probe timed out" };
         }
@@ -113,10 +114,13 @@ describe("Freestyle private network readiness", () => {
     };
     const client = { vms: {
       create: async () => { events.push("allocated"); return { vm, vmId: data.id, data }; },
+      ref: (id: string) => {
+        if (id !== data.id) throw new Error(`unexpected VM ref: ${id}`);
+        return vm;
+      },
     } } as unknown as Freestyle;
     const provider = new FreestyleProvider({
       client: () => client,
-      resolveDaemonSource: async () => { throw new Error("No daemon install is needed"); },
     });
 
     const handle = await provider.create({ image: "sh-fixture", network: { id: "vpc-fixture" } });

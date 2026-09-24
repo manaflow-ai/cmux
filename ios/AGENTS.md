@@ -11,6 +11,15 @@ or explain the remaining verification gap in the PR.
 
 The sections below moved here from the repository root `CLAUDE.md`, unchanged. Team dev builds and fleet allocation stay in the root file ("Dev builds on the Mac mini fleet"); nothing here overrides it. Script paths are relative to the repository root.
 
+## Keep cheap iOS-only regressions in `ios/tests/`
+
+Linux-runnable regressions that only inspect iOS scripts/configuration belong in
+`ios/tests/` and should be wired into a Linux guard lane. Do not put new
+iOS-only Node tests under `scripts/lib/`: the main CI change router treats that
+tree as macOS-relevant, which can queue an unrelated macOS compile-admission
+build. Tests that genuinely need Xcode, a simulator, or a physical device stay
+in the corresponding iOS verification lane.
+
 ## iOS UI follows the Apple HIG
 
 `Packages/iOS/AGENTS.md` requires consulting the Apple Human Interface
