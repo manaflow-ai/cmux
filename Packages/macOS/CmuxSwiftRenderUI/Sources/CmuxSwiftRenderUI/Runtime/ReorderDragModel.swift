@@ -71,4 +71,3 @@ final class ReorderDragModel {
     var coarseSource = 0
     var coarseTarget = 0
 }
-
