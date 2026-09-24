@@ -339,6 +339,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_health_report.py
 
+      - name: Validate runner label policy
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_runner_label_policy.py
+
       - name: Validate the trusted web complexity workflow
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_web_complexity_trusted_workflow.py
@@ -553,6 +557,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_appstore_lane_identity.py
 
+      - name: Validate the cmux.app upload marker follows the receipt
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_appstore_upload_marker.py
+
       - name: Validate TestFlight upload argument expansion
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_array_expansion.py
@@ -729,6 +737,7 @@ jobs:
           python3 tests/test_ci_guard_workflow_structure.py
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
+          python3 tests/test_e2e_warm_derived_data.py
           python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
