@@ -389,11 +389,11 @@ jobs:
       # for why the resolve runs under a fixed environment to hit them.
       - name: Compute SwiftPM manifest cache key
         id: swiftpm-manifest-key
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
 
       - name: Restore SwiftPM manifest cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         with:
@@ -403,7 +403,7 @@ jobs:
           restore-keys: ${{ steps.swiftpm-manifest-key.outputs.prefix }}
 
       - name: Install SwiftPM manifest cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         continue-on-error: true
         run: scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
 
