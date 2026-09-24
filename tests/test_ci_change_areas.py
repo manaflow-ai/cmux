@@ -592,6 +592,7 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         "scripts/ci/triage-radar.py",
         "scripts/ci/notify-indexnow.py",
         "scripts/ci/r2_cache_census.py",
+        "scripts/ci/r2_cache_prune.py",
         "scripts/ci/verify-r2-canary.py",
         "scripts/ci/build_graph_health.py",
         "scripts/ci/validate_test_execution_registry.py",
@@ -4155,6 +4156,143 @@ def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> N
         assert selectors("full-ci\n") == "unit_selectors="
 
 
+def test_an_app_host_consumer_edit_runs_a_canary_after_the_compile() -> None:
+    """Compile-only builds the product and never restores or runs it.
+
+    A pull request that edits how the app-host shards restore and run that
+    product (#14163) paid for the compile and executed none of its change.
+    """
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import (
+        APP_HOST_CONSUMER_PATHS,
+        CONSUMER_CANARY_SELECTOR,
+        consumer_canary_selectors,
+    )
+    from cmux_unit_test_shard import FOCUSED_GATE_SELECTORS, discover_selectors
+
+    workflow_path = ".github/workflows/ci-macos.yml"
+    lines = MACOS_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    job_start = lines.index("  app-host-unit-tests:") + 1
+    job_end = next(
+        number
+        for number, line in enumerate(lines, start=1)
+        if number > job_start and re.match(r"^  [A-Za-z0-9_-]+:$", line)
+    ) - 1
+    compile_line = lines.index("  macos-compile-admission:") + 2
+
+    def hunk(line: int, count: int = 1) -> str:
+        return f"--- a/{workflow_path}\n+++ b/{workflow_path}\n@@ -{line},{count} +{line},{count} @@\n"
+
+    canary = [CONSUMER_CANARY_SELECTOR]
+    # A script only the shards run is a consumer edit.
+    for path in ("scripts/ci/app_host_test_products.py", "scripts/ci/cmux_unit_test_shard.py"):
+        assert consumer_canary_selectors(ROOT, [path], None) == canary, path
+    # So is a ci-macos.yml hunk inside the shards' job, first line to last.
+    for line in (job_start, job_start + 20, job_end):
+        assert consumer_canary_selectors(ROOT, [workflow_path], hunk(line)) == canary, line
+    # Compile admission's outputs, and the route and Xcode env they carry,
+    # decide where the shards run and which Xcode loads the product (#14163).
+    admission_start = lines.index("  macos-compile-admission:")
+    admission_steps = lines.index("    steps:", admission_start)
+    for key in ("    outputs:", "      runner: ", "      CMUX_PRODUCT_RUNNER: ", "      CMUX_CI_XCODE_APP: "):
+        line = next(number for number, text in enumerate(lines[admission_start:admission_steps],
+                                                       start=admission_start + 1) if text.startswith(key))
+        assert consumer_canary_selectors(ROOT, [workflow_path], hunk(line)) == canary, key
+    # A ci-macos.yml hunk elsewhere is judged by the job it sits in.
+    assert consumer_canary_selectors(ROOT, [workflow_path], hunk(compile_line)) == []
+    assert consumer_canary_selectors(ROOT, [workflow_path], hunk(admission_steps + 3)) == []
+    assert consumer_canary_selectors(ROOT, [workflow_path], hunk(job_end + 5)) == []
+    # A pure deletion at the job's last line still sits inside it.
+    assert consumer_canary_selectors(ROOT, [workflow_path], hunk(job_end, 0)) == canary
+    # Without hunks for ci-macos.yml nothing can place the edit, so it runs.
+    assert consumer_canary_selectors(ROOT, [workflow_path], None) == canary
+    assert consumer_canary_selectors(ROOT, [workflow_path], "") == canary
+    # Product sources are judged by the compile, as before.
+    assert consumer_canary_selectors(ROOT, ["Sources/Workspace.swift"], None) == []
+    assert consumer_canary_selectors(ROOT, None, None) == []
+
+    # Every listed path exists and the shards' job reaches it, directly or
+    # through another listed script, so the list cannot silently rot.
+    assert workflow_path in APP_HOST_CONSUMER_PATHS
+    scripts = [path for path in APP_HOST_CONSUMER_PATHS if path != workflow_path]
+    job = "\n".join(lines[job_start - 1 : job_end])
+    reached = {path for path in scripts if Path(path).name in job}
+    for _ in scripts:
+        for path in sorted(reached):
+            if path.endswith((".py", ".sh")):
+                text = (ROOT / path).read_text(encoding="utf-8")
+                reached |= {other for other in scripts if Path(other).name in text}
+    for path in scripts:
+        assert (ROOT / path).is_file(), path
+        assert path in reached, f"{path} is not reached from app-host-unit-tests"
+
+    # The canary is an existing XCTest suite the shared batch can run: not a
+    # strict step's suite, and not a known failure.
+    discovered = {selector.identifier.split("/")[1] for selector in discover_selectors(ROOT)}
+    assert CONSUMER_CANARY_SELECTOR.split("/")[1] in discovered
+    assert CONSUMER_CANARY_SELECTOR not in FOCUSED_GATE_SELECTORS
+    known = (ROOT / "scripts/ci/app-host-known-failures.json").read_text(encoding="utf-8")
+    assert CONSUMER_CANARY_SELECTOR.split("/")[1] not in known
+
+    # The tests diff ci.yml hands the chooser carries ci-macos.yml's hunks.
+    ci_text = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert f'"$MERGE_SHA" -- cmuxTests {workflow_path} \\\n' in ci_text
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        labels = Path(directory) / "labels.txt"
+
+        def outputs(paths: list[str], label: str = "") -> dict[str, str]:
+            changed.write_text("".join(f"{path}\n" for path in paths))
+            labels.write_text(label)
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--labels-file", str(labels),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines())
+
+        consumer = ["scripts/ci/app_host_test_products.py", "Sources/Workspace.swift"]
+        result = outputs(consumer)
+        assert result["full_suite"] == "false", result
+        assert result["unit_suite"] == "true", result
+        assert result["unit_selectors"] == CONSUMER_CANARY_SELECTOR, result
+        assert result["unit_strict_steps"] == "", result
+        assert result["coverage_gap"] == "false", result
+        # Edited suites already run through the consumer; they replace the canary.
+        suites = outputs(consumer + ["cmuxTests/TerminalTabIconRegressionTests.swift"])
+        assert suites["unit_selectors"] == "cmuxTests/TerminalTabIconRegressionTests", suites
+        # Labels asking for every suite still get every suite.
+        assert outputs(consumer, "unit-ci\n")["unit_selectors"] == ""
+        full = outputs(consumer, "full-ci\n")
+        assert (full["full_suite"], full["unit_selectors"]) == ("true", ""), full
+        # A diff with no consumer edit keeps the compile-only path.
+        assert outputs(["Sources/Workspace.swift"])["unit_suite"] == "false"
+        assert result["unit_canary"] == "true", result
+        assert suites["unit_canary"] == "false", suites
+        assert outputs(["Sources/Workspace.swift"])["unit_canary"] == "false"
+
+    # The canary rides on a compile the pull request pays for anyway. A diff
+    # whose build inputs were already compiled (a known-failures edit, say)
+    # keeps skipping the Mac: both reuse checks still run for a canary, and
+    # either one finding a compile drops it from the job's outputs.
+    changes = yaml.safe_load(ci_text)["jobs"]["changes"]
+    by_id = {step.get("id"): step for step in changes["steps"] if step.get("id")}
+    for step_id in ("unchanged_inputs", "admitted"):
+        condition = by_id[step_id]["if"]
+        assert "(steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true')" \
+            in condition, (step_id, condition)
+    reused = ("(steps.unchanged_inputs.outputs.compile_admitted == 'true' || "
+              "steps.admitted.outputs.compile_admitted == 'true')")
+    dropped = f"steps.suite.outputs.unit_canary == 'true' && {reused}"
+    assert changes["outputs"]["unit_suite"] == \
+        f"${{{{ {dropped} && 'false' || steps.suite.outputs.unit_suite }}}}", changes["outputs"]["unit_suite"]
+    assert changes["outputs"]["unit_selectors"] == \
+        f"${{{{ !({dropped}) && steps.suite.outputs.unit_selectors || '' }}}}", changes["outputs"]["unit_selectors"]
+
+
 def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import coverage_gap
@@ -4179,7 +4317,9 @@ def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
 
 def test_the_unit_tier_is_routed_end_to_end() -> None:
     caller = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "      unit_suite: ${{ steps.suite.outputs.unit_suite }}" in caller
+    # The changes job forwards the chooser's unit tier (less a consumer canary
+    # dropped for a reused compile; see the canary test for the full form).
+    assert "|| steps.suite.outputs.unit_suite }}" in yaml.safe_load(caller)["jobs"]["changes"]["outputs"]["unit_suite"]
     assert "      unit_suite: ${{ needs.changes.outputs.unit_suite }}" in caller
 
     # The macOS workflow must be reachable for a unit-ci run whose compile was
@@ -4378,13 +4518,23 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
     scripts = [step["run"] for step in steps if "run" in step]
     with tempfile.TemporaryDirectory(prefix="cmux-schema-preflight-") as tmp:
         repo = Path(tmp)
-        # Isolate this gate's schema behavior; unrelated validators succeed.
-        for script in scripts:
-            for name in re.findall(r"(?:python3 |\./)([\w/.-]+\.(?:py|sh))", script):
-                target = repo / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text("#!/usr/bin/env bash\nexit 0\n" if name.endswith(".sh") else "pass\n")
-                target.chmod(0o755)
+        # Run the actual CI wrapper while isolating the schema checker from
+        # unrelated validators. Read its declared recipe without importing it.
+        import ast
+        recipe_tree = ast.parse((ROOT / "scripts/verify-local.py").read_text())
+        checks = next(ast.literal_eval(node.value) for node in recipe_tree.body
+                      if isinstance(node, ast.Assign)
+                      and any(isinstance(target, ast.Name) and target.id == "CHECKS"
+                              for target in node.targets))
+        for _name, category, _description, argv in checks:
+            target = repo / argv[1]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("#!/usr/bin/env bash\nexit 0\n" if target.suffix == ".sh"
+                              else 'print("Ran 1 test in 0.001s\\nOK")\n' if category == "tests"
+                              else "pass\n")
+            target.chmod(0o755)
+        for name in ("verify-local.py", "verification_receipt.py"):
+            shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
         generator = repo / "scripts/generate-cmux-config-schema.py"
         generator.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "scripts/generate-cmux-config-schema.py", generator)
@@ -4394,16 +4544,23 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
         generated = repo / "Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/ConfigValidation"
         generated.mkdir(parents=True)
         subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "-c", "user.name=fixture", "-c",
+                        "user.email=fixture@example.invalid", "commit", "-qm", "fixture"],
+                       cwd=repo, check=True)
         def run_gate():
             return subprocess.run(["bash", "-e", "-c", "\n".join(scripts)], cwd=repo,
-                                  capture_output=True, text=True)
-        assert run_gate().returncode == 0
+                                  capture_output=True, text=True, env={**os.environ, "CI": "true"})
+        result = run_gate()
+        assert result.returncode == 0, result.stdout + result.stderr
         schema.write_text('{"type":"object","title":"changed"}\n')
         stale = run_gate()
         assert stale.returncode != 0, "stale schema reached native admission"
         assert "is stale" in stale.stdout
         subprocess.run([sys.executable, str(generator)], cwd=repo, check=True)
-        assert run_gate().returncode == 0
+        result = run_gate()
+        assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
@@ -5269,7 +5426,7 @@ def test_perf_activation_workflow_keeps_required_status_while_gating_benchmark()
 def test_guard_bun_setup_runs_only_for_owned_groups() -> None:
     block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
     setup = block.index("      - name: Set up Bun for guard tests")
-    next_step = block.index("      - name: Validate Claude launch environment policy behavior", setup)
+    next_step = block.index("      - name: Run agent-chat unit tests", setup)
     setup_block = block[setup:next_step]
     assert "if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}" in setup_block
     assert block.count("setup-bun@") == 1
@@ -5359,6 +5516,7 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     definitions = {
         ".github/workflows/ci.yml": ".github/workflows/ci-macos.yml",
         ".github/workflows/test-e2e.yml": ".github/workflows/test-e2e.yml",
+        ".github/workflows/seed-derived-data.yml": ".github/workflows/seed-derived-data.yml",
     }
     for path, (job_name, step_name) in reuse_app_host_products.COMPILE_JOBS.items():
         workflow = yaml.safe_load((ROOT / definitions[path]).read_text(encoding="utf-8"))

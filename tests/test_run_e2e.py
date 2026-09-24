@@ -321,8 +321,9 @@ class FocusedLauncherTests(unittest.TestCase):
         # issue: the run starts with no jobs and nothing says why.
         workflow = (ROOT / ".github/workflows/test-e2e.yml").read_text()
         self.assertIn(
-            "group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || '"
-            "blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}",
+            "group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+            "((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || '"
+            "blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}",
             workflow,
             "the dispatcher's length check copies this group; update both together",
         )
@@ -1020,7 +1021,10 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         job = self.jobs["runner"]
         self.assertEqual(job["permissions"], {"contents": "read", "actions": "read"})
         self.assertIn("ubuntu", job["runs-on"])
-        self.assertEqual(job["outputs"]["label"], "${{ steps.pool.outputs.label }}")
+        self.assertEqual(
+            job["outputs"]["label"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}",
+        )
         step = self.pool_step()
         self.assertEqual(step["id"], "pool")
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
