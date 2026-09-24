@@ -46,6 +46,9 @@ class SeedDerivedData(unittest.TestCase):
         self.fake.write_text(FAKE_R2)
         self.env = dict(os.environ)
         os.environ["CMUX_R2_CACHE_SCRIPT"] = str(self.fake)
+        # Seed keys name the Swift job width; pin it so keys do not depend on
+        # the machine running the tests.
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
 
     def tearDown(self):
         os.environ.clear()
@@ -163,9 +166,9 @@ class SeedDerivedData(unittest.TestCase):
         result = self.start_then_adopt("hit")
 
         self.assertEqual(result["hit"], "true")
-        self.assertEqual(result["key"], "admission-derived-data-v1-x-0123abc")
+        self.assertEqual(result["key"], "admission-derived-data-v1-x-j6-0123abc")
         self.assertEqual((result["unchanged_inputs"], result["changed_inputs"]), ("1", "1"))
-        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-base"])
+        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-j6-base"])
         self.assertEqual((self.derived / "Build/App.o").read_text(), "object")
         self.assertFalse((self.derived / "from-resolve").exists())
         self.assertEqual(self.mtime("Sources/Other.swift"), BUILD_TIME_NS)
@@ -175,7 +178,7 @@ class SeedDerivedData(unittest.TestCase):
         self.publish_seed()
         result = self.start_then_adopt("fail")
         self.assertEqual(result["hit"], "false")
-        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-base"])
+        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-j6-base"])
         self.assertEqual((self.derived / "from-resolve").read_text(), "resolve")
         self.assertGreater(self.mtime("Sources/Other.swift"), BUILD_TIME_NS)
         self.assert_no_leftovers()
@@ -203,7 +206,7 @@ class SeedDerivedData(unittest.TestCase):
         with mock.patch.object(seed, "start", start_and_kill):
             result = self.start_then_adopt("hit")
         self.assertEqual(result["hit"], "true")
-        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-base")
+        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-j6-base")
         self.assert_no_leftovers()
 
     def test_a_download_started_for_other_keys_is_not_adopted(self):
@@ -211,8 +214,8 @@ class SeedDerivedData(unittest.TestCase):
         result = self.start_then_adopt("hit", ("admission-derived-data-v1-y-", "base"))
         # The stray download is stopped and adopt fetches its own keys.
         self.assertEqual(result["hit"], "true")
-        self.assertEqual(result["key"], "admission-derived-data-v1-x-0123abc")
-        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-base")
+        self.assertEqual(result["key"], "admission-derived-data-v1-x-j6-0123abc")
+        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-j6-base")
         self.assert_no_leftovers()
 
     def test_adopt_prefers_the_nearest_seeded_ancestor_over_the_newest_pointer(self):
@@ -230,6 +233,8 @@ class SeedDerivedData(unittest.TestCase):
         self.assertEqual(seed.nearest("p-", ["c5", "c4"], exists), None)
 
         restored = []
+        # Through main, keys carry the width (see setUp).
+        published = {"p-j6-c3", "p-j6-c1"}
         self.publish_seed()
         os.environ["FAKE_MODE"] = "hit"
         output = self.root / "output"
@@ -238,7 +243,7 @@ class SeedDerivedData(unittest.TestCase):
                 mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published), \
                 mock.patch.object(seed, "adopt", side_effect=lambda *a: restored.append(a) or {"hit": "true", "key": a[2]}):
             self.assertEqual(seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c4"]), 0)
-        self.assertEqual(restored[0][2:], ("p-c3", "p-"))
+        self.assertEqual(restored[0][2:], ("p-j6-c3", "p-j6-"))
         self.assertIn("seed_distance=1", output.read_text())
 
         # No seeded ancestor: ask for REVISION's own key, so the restore falls
@@ -249,7 +254,7 @@ class SeedDerivedData(unittest.TestCase):
                 mock.patch.object(seed, "seed_exists", return_value=False), \
                 mock.patch.object(seed, "adopt", side_effect=lambda *a: restored.append(a) or {"hit": "true", "key": "p-c1"}):
             seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c9"])
-        self.assertEqual(restored[0][2:], ("p-c9", "p-"))
+        self.assertEqual(restored[0][2:], ("p-j6-c9", "p-j6-"))
         self.assertIn("seed_distance=\n", output.read_text())
 
     def test_seed_keys_name_the_swift_job_width(self):
@@ -490,7 +495,10 @@ class Wiring(unittest.TestCase):
         self.assertEqual(save["with"]["backend"], "r2")
         written = save["with"]["key"]
         suffix = "${{ needs.decide.outputs.head_sha }}"
-        self.assertTrue(written.endswith(suffix))
+        self.assertEqual(written, "${{ steps.derived-data-seed-key.outputs.scoped }}" + suffix)
+        _, scope = named(seeder, "Scope DerivedData seed key")
+        self.assertEqual(scope["env"]["FINGERPRINT"], "${{ steps.compilation-cache-key.outputs.fingerprint }}")
+        self.assertIn('scope "admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${FINGERPRINT}-"', scope["run"])
 
         admission = steps("ci-macos.yml", "macos-compile-admission")
         resolve_at, _ = named(admission, "Resolve Swift packages")
@@ -500,7 +508,11 @@ class Wiring(unittest.TestCase):
         self.assertLess(resolve_at, adopt_at)
         self.assertLess(adopt_at, compile_at)
         self.assertLess(compile_at, forget_at)
-        self.assertEqual(adopt["env"]["SEED_PREFIX"], written[: -len(suffix)])
+        # Admission passes the unscoped prefix; seed_derived_data.py scopes it.
+        self.assertEqual(
+            adopt["env"]["SEED_PREFIX"],
+            "admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-",
+        )
         # Adopt writes the override before it can time out, so clear it
         # whenever adopt ran, not only when it reported a hit.
         self.assertIn("steps.seed-derived-data.outcome != 'skipped'", forget["if"])
@@ -523,9 +535,9 @@ class Wiring(unittest.TestCase):
         self.assertEqual(triggers["push"]["branches"], ["main"])
         # cancel-in-progress would starve publishing while merges keep
         # arriving faster than a seed builds; see the comment beside it.
-        self.assertIs(workflow["concurrency"]["cancel-in-progress"], False)
+        self.assertIs(workflow["jobs"]["seed"]["concurrency"]["cancel-in-progress"], False)
         # One group per pool: a seed is only useful to admission on that pool.
-        self.assertIn(workflow["jobs"]["seed"]["runs-on"].strip("${} "), workflow["concurrency"]["group"])
+        self.assertIn(workflow["jobs"]["seed"]["runs-on"].strip("${} "), workflow["jobs"]["seed"]["concurrency"]["group"])
 
         seeder = steps("seed-derived-data.yml", "seed")
         resolve_at, _ = named(seeder, "Resolve Swift packages")
@@ -539,7 +551,7 @@ class Wiring(unittest.TestCase):
         self.assertLess(build_at, save_at)
         self.assertIs(adopt.get("continue-on-error"), True)
         self.assertEqual(save["with"]["backend"], "r2")
-        self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.prefix }}${{ github.sha }}")
+        self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
 
         # Same key shape, runner and Xcode as the nightly seeder, or pull
         # requests would never match what this writes.
@@ -547,7 +559,7 @@ class Wiring(unittest.TestCase):
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
-        self.assertEqual(job["runs-on"], nightly["runs-on"])
+        self.assertIn(nightly["runs-on"], job["strategy"]["matrix"]["pool"])
         self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"], nightly["env"]["CMUX_CI_XCODE_APP"])
 
         # Resolve against the same Swift package cache admission restores, so
@@ -591,13 +603,14 @@ class Wiring(unittest.TestCase):
         # They may move to a larger runner of the same image, since neither
         # the seed key nor the product key names the size, but never to
         # another image or Xcode.
-        runs_on = load("seed-derived-data.yml")["jobs"]["seed"]["runs-on"]
+        own, runs_on = load("seed-derived-data.yml")["jobs"]["seed"]["strategy"]["matrix"]["pool"]
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
         self.assertIn(larger, runs_on)
         # Any other pool value is admission's pull-request pool, unchanged.
         fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
+        self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
         self.assertIn(fallback, admission)
 
     def test_main_push_publishes_the_product_admission_would_compile(self):
@@ -748,7 +761,8 @@ class Wiring(unittest.TestCase):
                 context = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
                 for name in unset:
                     context["vars"].pop(name)
-                self.assertEqual(evaluate(admission["runs-on"], context), evaluate(seeder["runs-on"], context))
+                pools = [evaluate(pool, context) for pool in seeder["strategy"]["matrix"]["pool"]]
+                self.assertIn(evaluate(admission["runs-on"], context), pools)
                 self.assertEqual(
                     evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
                     evaluate(seeder["env"]["CMUX_CI_XCODE_APP"], context),

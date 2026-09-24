@@ -34,16 +34,6 @@ permissions:
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
-# One seed at a time per runner pool, and never cancel-in-progress. main
-# takes several merges an hour and a cold seed takes 15-20 minutes, so
-# cancelling the running seed for each newer push would starve publishing for
-# as long as merges keep arriving. With `false`, the running seed always
-# finishes and publishes, GitHub keeps at most one pending run, and a newer
-# push replaces that pending run, so the published seed is never more than
-# about one build behind main. tests/test_seed_derived_data.py pins this.
-concurrency:
-  group: seed-derived-data-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
-  cancel-in-progress: false
 
 jobs:
   decide:
@@ -84,11 +74,33 @@ jobs:
     # Must match pull-request and main full-suite compile admission: the seed
     # key carries the toolchain and the build paths, so a mismatch is a miss,
     # not a wrong hit. tests/test_seed_derived_data.py evaluates both routes.
-    # The 12 vCPU macOS 26 pool runs the same image and Xcode as the 6 vCPU
-    # one admission uses, but pull requests do not queue on it: on 2026-09-24
-    # seeds waited 19-25 minutes for a 6 vCPU runner while 12 vCPU jobs
-    # started in 15 s. Neither key names the runner size.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    #
+    # A seed serves only the width it was built at: Swift Build passes the
+    # runner's CPU count to swift-driver as -j<n>, so a 12 vCPU seed reran
+    # every SwiftDriver task and re-emitted 62 modules on a 6 vCPU admission
+    # (run 36043267820). Admission takes the 12 vCPU pool when it is free and
+    # the 6 vCPU one otherwise, so both seed, and seed_derived_data.py keys
+    # each seed by its width. The first entry is admission's own pool; the
+    # second is the 12 vCPU pool of the same image and Xcode, which is the
+    # same pool again under any other MACOS_RUNNER_PR.
+    strategy:
+      fail-fast: false
+      matrix:
+        pool:
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ matrix.pool }}
+    # One seed at a time per pool, and never cancel-in-progress. main takes
+    # several merges an hour and a cold seed takes 15-20 minutes, so
+    # cancelling the running seed for each newer push would starve publishing
+    # for as long as merges keep arriving. With `false`, the running seed
+    # always finishes and publishes, GitHub keeps at most one pending job, and
+    # a newer push replaces it, so the published seed is never more than about
+    # one build behind main. Per pool, so the 6 vCPU queue never holds back
+    # the 12 vCPU seed. tests/test_seed_derived_data.py pins this.
+    concurrency:
+      group: seed-derived-data-${{ matrix.pool }}
+      cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 60
     env:
@@ -128,7 +140,10 @@ jobs:
         run: |
           set -euo pipefail
           fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
-          echo "prefix=admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-" >> "$GITHUB_OUTPUT"
+          prefix="admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-"
+          # Adoption scopes the prefix itself; the save names this width.
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "scoped=$(python3 scripts/ci/seed_derived_data.py scope "$prefix")" >> "$GITHUB_OUTPUT"
 
       - name: Install compilation dependencies
         run: |
@@ -277,17 +292,18 @@ jobs:
         with:
           backend: r2
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
-          key: ${{ steps.key.outputs.prefix }}${{ github.sha }}
+          key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
 
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
       # rewrite Build/Products, so these follow "Save seed". Only a main push
       # is a producer pull requests trust; a dispatch would publish a product
       # nothing adopts. A failure here costs pull requests the adoption, never
-      # the seed.
+      # the seed. The product does not depend on the width, so only the first
+      # pool publishes it, under the one artifact name admission looks up.
       - name: Stage compiled package frameworks
         id: stage-products
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && strategy.job-index == 0
         continue-on-error: true
         run: |
           set -euo pipefail
