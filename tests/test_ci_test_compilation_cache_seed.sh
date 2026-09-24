@@ -144,17 +144,23 @@ echo "---" >> "$STUB_XCODEBUILD_ARGS"
 packages=""
 scheme=""
 resolving=0
+skip_updates=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -scheme) scheme="$2"; shift ;;
     -clonedSourcePackagesDirPath) packages="$2"; shift ;;
     -resolvePackageDependencies) resolving=1 ;;
+    -skipPackageUpdates) skip_updates=1 ;;
   esac
   shift
 done
 if [ -n "$scheme" ]; then echo "build output for $scheme"; fi
 if [ "$resolving" -eq 1 ]; then
   echo x >> "$STUB_RESOLVE_ATTEMPTS"
+  # A package cache missing a pinned revision fails an offline resolve.
+  if [ "$skip_updates" -eq 1 ] && [ -n "${STUB_SKIP_UPDATES_FAILS:-}" ]; then
+    exit 74
+  fi
   if [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -le "${STUB_RESOLVE_FAILS_UNTIL:-0}" ]; then
     # A failed resolve that leaves a partial clone behind.
     mkdir -p "$packages/checkouts/partial-clone"
@@ -249,6 +255,49 @@ for name_and_body in "macos-compile-admission:$ADMISSION" "refresh-test-compilat
   fi
 done
 echo "PASS: resolve retries until the binary artifacts exist, in both jobs"
+
+# An exact `spm-` hit was saved after a successful resolve of this same
+# Package.resolved, so its repositories already hold every pinned revision.
+# Resolving it must not fetch every package remote again. Anything short of an
+# exact hit, or an offline resolve that fails, keeps the normal resolve.
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+mkdir -p "$TMP_DIR/exact-packages/checkouts/kept"
+if ! CMUX_CI_SWIFTPM_CACHE_EXACT_HIT=true run_script resolve "$TMP_DIR/derived" "$TMP_DIR/exact-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 1 ] \
+  || ! grep -Fxq -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: an exact package-cache hit must resolve once without fetching package remotes"
+  exit 1
+fi
+: > "$STUB_RESOLVE_ATTEMPTS"
+: > "$STUB_XCODEBUILD_ARGS"
+if ! CMUX_CI_SWIFTPM_CACHE_EXACT_HIT=true STUB_SKIP_UPDATES_FAILS=1 run_script resolve "$TMP_DIR/derived" "$TMP_DIR/exact-packages" >/dev/null 2>&1 \
+  || [ "$(wc -l < "$STUB_RESOLVE_ATTEMPTS")" -ne 2 ] \
+  || [ "$(grep -cFx -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS")" -ne 1 ] \
+  || [ ! -d "$TMP_DIR/exact-packages/checkouts/kept" ]; then
+  echo "FAIL: a failed offline resolve must fall back to a normal resolve of the same restored cache"
+  exit 1
+fi
+for hit in "" false; do
+  : > "$STUB_RESOLVE_ATTEMPTS"
+  : > "$STUB_XCODEBUILD_ARGS"
+  if ! CMUX_CI_SWIFTPM_CACHE_EXACT_HIT="$hit" run_script resolve "$TMP_DIR/derived" "$TMP_DIR/prefix-packages" >/dev/null 2>&1 \
+    || grep -Fxq -- -skipPackageUpdates "$STUB_XCODEBUILD_ARGS"; then
+    echo "FAIL: a prefix restore or a miss must fetch package remotes as before (hit='$hit')"
+    exit 1
+  fi
+done
+if ! awk '
+  /^      - name: / { step = $0 }
+  step ~ /name: Cache Swift packages$/ && /^        id: swift-package-cache$/ { id = 1 }
+  step ~ /name: Resolve Swift packages$/ && /CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: \$\{\{ steps\.swift-package-cache\.outputs\.cache-hit \}\}/ { wired = 1 }
+  step ~ /name: Resolve Swift packages$/ && /CMUX_CI_MOVE_SOURCE_PACKAGES: "1"/ { moved = 1 }
+  END { exit !(id && wired && moved) }
+' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must pass the package cache's exact-hit output to resolve and move, not copy, the cache"
+  exit 1
+fi
+echo "PASS: an exact package-cache hit resolves without remote fetches, with a normal-resolve fallback"
 
 if run_script bogus >/dev/null 2>&1 || run_script build only-one-arg >/dev/null 2>&1; then
   echo "FAIL: the script must reject unknown commands and short argument lists"

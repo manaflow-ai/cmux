@@ -103,6 +103,12 @@ jobs:
       source_revision: ${{ github.sha }}
       producer_run_id: ${{ github.run_id }}
       producer_run_attempt: ${{ github.run_attempt }}
+      # The pool and Xcode this product was built with. Every job that runs
+      # the product takes both from here, so a routing change to this job
+      # (MACOS_RUNNER_PR, a new event on the pull-request route) moves its
+      # consumers with it.
+      runner: ${{ env.CMUX_PRODUCT_RUNNER }}
+      xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
@@ -476,6 +482,7 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
+        id: swift-package-cache
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
@@ -488,9 +495,16 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
+      # Nothing here reads the workspace package cache after resolve, so it
+      # moves into the canonical root instead of a second copy, and an exact
+      # cache hit resolves without fetching every package remote. See
+      # scripts/ci/canonical-build-root.sh and compile-app-host-test-product.sh.
       - name: Resolve Swift packages
         id: hosted-package-readiness
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        env:
+          CMUX_CI_MOVE_SOURCE_PACKAGES: "1"
+          CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
@@ -1031,49 +1045,40 @@ jobs:
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') }}
     name: ${{ inputs.unit_selectors != '' && 'app-host unit tests (changed suites)' || format('app-host unit tests ({0}/7)', matrix.shard) }}
-    # Same-repository pull requests stripe the seven app-host consumers across
-    # Blacksmith 15/26 and GitHub-hosted 15/26 so one saturated provider cannot
-    # serialize the whole suite. Fork pull requests stay on Blacksmith: their
-    # workflow YAML is contributor-controlled and must never select an owned
-    # self-hosted label that may overlap a hosted macOS label.
-    #
-    # Non-PR events keep the ordinary MACOS_RUNNER_15 routing below. The PR
-    # pools carry different Xcodes (26.3 on macos-15, 26.6 on macos-26), so
-    # PR shards pin none and app_host_test_products.py accepts the
-    # compile-admission product under any Xcode of the same major version.
-    #
-    # A workflow running in a fork's own repository has no Blacksmith, so it
-    # splits the shards over GitHub-hosted macos-15 and macos-26 by the OS
-    # of each shard's pool (#14023 sends its other macOS jobs to macos-15).
-    #
-    # A changed-suites run's single worker (shard 8, below) routes through
-    # this same expression with its own matrix row's pools.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && matrix.hosted_runner || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && matrix.pr_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    # Every consumer runs on compile admission's pool and pins its Xcode,
+    # both read from the admission's outputs. The shards run test-without-building
+    # against the admission's cmuxTests bundle, which only loads under the
+    # Xcode that linked it: a bundle linked by Xcode 26.6 (macos-26) imports
+    # Testing.framework symbols Xcode 26.3 (macos-15) does not ship, and dies
+    # in dlopen before running a test. Striping the shards over pools with
+    # different Xcodes (#14097) did exactly that once MACOS_RUNNER_PR moved
+    # compile admission to macOS 26. To spread shards over providers again,
+    # every pool involved must carry the admission's exact Xcode; the
+    # restore step refuses an older one with both versions named.
+    runs-on: ${{ needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
       # only needs a verdict, and the first failure already is one.
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        # Each row is a consumer and its pools: `pr_runner` for a
-        # same-repository pull request, `hosted_runner` in a fork's own
-        # repository. The rows are JSON because a static include row always
-        # becomes a job, and a changed-suites run (inputs.unit_selectors) must
-        # drop the seven numbered consumers for one worker. That worker is
-        # shard 8, which matches none of the numbered shards below that own a
-        # strict step, so it executes only its own batch. It takes shard 1's
-        # pools.
+        # Each row is a consumer. The rows are JSON because a static include
+        # row always becomes a job, and a changed-suites run
+        # (inputs.unit_selectors) must drop the seven numbered consumers for
+        # one worker. That worker is shard 8, which matches none of the
+        # numbered shards below that own a strict step, so it executes only
+        # its own batch. No row names a pool: see runs-on above.
         include: >-
           ${{ fromJSON(inputs.unit_selectors != '' && '[
-          {"shard": 8, "pr_runner": "blacksmith-6vcpu-macos-15", "hosted_runner": "macos-15"}
+          {"shard": 8}
           ]' || '[
-          {"shard": 1, "pr_runner": "blacksmith-6vcpu-macos-15", "hosted_runner": "macos-15"},
-          {"shard": 2, "pr_runner": "blacksmith-6vcpu-macos-26", "hosted_runner": "macos-26"},
-          {"shard": 3, "pr_runner": "macos-15", "hosted_runner": "macos-15"},
-          {"shard": 4, "pr_runner": "macos-26", "hosted_runner": "macos-26"},
-          {"shard": 5, "pr_runner": "blacksmith-6vcpu-macos-15", "hosted_runner": "macos-15"},
-          {"shard": 6, "pr_runner": "blacksmith-6vcpu-macos-26", "hosted_runner": "macos-26"},
-          {"shard": 7, "pr_runner": "macos-26", "hosted_runner": "macos-26"}
+          {"shard": 1},
+          {"shard": 2},
+          {"shard": 3},
+          {"shard": 4},
+          {"shard": 5},
+          {"shard": 6},
+          {"shard": 7}
           ]') }}
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -1087,11 +1092,9 @@ jobs:
       CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
       CMUX_APP_HOST_UNIT_SELECTORS: ${{ inputs.unit_selectors }}
       CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
-      # Same-repository pull-request shards span pools whose images carry
-      # different Xcodes, so they pin none: select-ci-xcode.sh takes the
-      # newest stable Xcode with the macOS 26 SDK the machine has, and
-      # restore accepts any Xcode of the admission build's major version.
-      CMUX_CI_XCODE_APP: ${{ !(github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) && (github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15) || '' }}
+      # The admission's own pin, so the shards select the Xcode that linked
+      # the product they run.
+      CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       # Global search owns a seventh consumer because its serialized container
@@ -1129,18 +1132,23 @@ jobs:
       CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
     steps:
       # Runs before checkout so a misrouted shard never checks out the PR.
-      - name: Verify GitHub-hosted PR route
-        if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && startsWith(matrix.pr_runner, 'macos-') }}
+      # The self-hosted fleet also carries a macos-26 label, so a macos-*
+      # request must prove it landed on GitHub-hosted capacity.
+      - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ matrix.pr_runner }}
+          REQUESTED_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
-          if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
-            echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
-            exit 1
-          fi
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -2828,7 +2836,11 @@ jobs:
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
     # Reuse compile admission's app and UI test products; this runner only
-    # performs display and runtime verification.
+    # performs display and runtime verification. Its route and Xcode pin
+    # restate compile admission's (the test bundles only load under the Xcode
+    # that linked them), except that paid overflow may move non-PR display
+    # work to MACOS_RUNNER_DISPLAY under the same macOS 15 pin. The product
+    # consumer guard in the CI change-area tests fails when the two drift.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     env:
