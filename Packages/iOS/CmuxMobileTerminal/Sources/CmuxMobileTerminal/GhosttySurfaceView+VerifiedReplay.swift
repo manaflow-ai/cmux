@@ -445,9 +445,12 @@ extension GhosttySurfaceView {
         frozenLayer.frame = layer.bounds
         let oldViewport = verifiedReplayFrozenViewportRect ?? viewportRect
         if let contentLayer = verifiedReplayFrozenContentLayer {
+            // The copy spans the renderer layer, which extends above the grid
+            // into the scroll-edge band. Offset it the same way
+            // `rendererLayerRect(forGridRenderRect:)` offsets the live layer.
             contentLayer.frame = CGRect(
                 x: viewportRect.minX,
-                y: viewportRect.minY,
+                y: viewportRect.minY - appliedRenderTopInsetPts,
                 width: contentLayer.bounds.width,
                 height: contentLayer.bounds.height
             )

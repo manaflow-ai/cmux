@@ -2117,7 +2117,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// THESE values (not the live inputs) so the layer always matches the
     /// exact pixel extent the renderer drew; changed insets converge
     /// through the next geometry pass.
-    private var appliedRenderTopInsetPts: CGFloat = 0
+    private(set) var appliedRenderTopInsetPts: CGFloat = 0
     private var appliedRenderBottomInsetPts: CGFloat = 0
 
     public func setTopContentInset(_ inset: CGFloat) {
@@ -5778,6 +5778,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         if canPublishSettledKeyboardViewport {
             publishSettledKeyboardViewportImmediately = false
             keyboardTargetGeometryReportPending = false
+            scheduleVisibleArtifactCountUpdate()
             publishViewportReport(reportGrid, reason: "keyboard_settled")
             return
         }
