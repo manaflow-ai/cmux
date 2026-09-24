@@ -183,6 +183,25 @@ class SeedDerivedData(unittest.TestCase):
         self.assertEqual((self.derived / "from-resolve").read_text(), "resolve")
         self.assert_no_leftovers()
 
+    def test_a_killed_background_download_is_downloaded_again(self):
+        # A runner that reaps a step's processes when the step ends would
+        # kill the download; adopt must not mistake that for a missing seed.
+        self.publish_seed()
+        os.environ["FAKE_DELAY"] = "30"
+        real_start = seed.start
+
+        def start_and_kill(*args):
+            real_start(*args)
+            ticket = json.loads(self.derived.with_name(self.derived.name + ".seed.ticket").read_text())
+            seed.stop(ticket["pid"])
+            os.environ["FAKE_DELAY"] = "0"
+
+        with mock.patch.object(seed, "start", start_and_kill):
+            result = self.start_then_adopt("hit")
+        self.assertEqual(result["hit"], "true")
+        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-base")
+        self.assert_no_leftovers()
+
     def test_a_download_started_for_other_keys_is_not_adopted(self):
         self.publish_seed()
         result = self.start_then_adopt("hit", ("admission-derived-data-v1-y-base", "admission-derived-data-v1-y-"))

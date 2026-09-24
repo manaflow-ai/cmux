@@ -495,6 +495,28 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
+      # The key names only the Xcode version and the canonical paths, so it is
+      # known before the source tree is copied there.
+      - name: Compute test compilation cache key
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      # The seed download (~40 s) needs only that key, so it runs while
+      # packages resolve instead of after them. "Adopt the nightly DerivedData
+      # seed" below waits for it; if this step fails, adopt downloads itself.
+      - name: Start the DerivedData seed download
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && github.event_name == 'pull_request' && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        env:
+          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py start \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX$BASE_SHA" "$SEED_PREFIX"
+
       # Nothing here reads the workspace package cache after resolve, so it
       # moves into the canonical root instead of a second copy, and an exact
       # cache hit resolves without fetching every package remote. See
@@ -514,13 +536,6 @@ jobs:
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
-
-      - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
 
       # No test compilation cache restore. Swift keys each compile job on its
       # whole module, so `cmux` and cmuxUITests missed on every file even with
