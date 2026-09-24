@@ -49,36 +49,34 @@ jobs:
   decide:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
     outputs:
       build: ${{ steps.inputs.outputs.build }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          fetch-depth: 2
+          # seed_decide.py walks back up to ANCESTOR_LIMIT (30) commits.
+          fetch-depth: 32
 
-      # A push that leaves the build fingerprint unchanged (docs, web, another
-      # workflow) builds exactly what its parent's seed holds, and pull
-      # requests fall back to that seed by prefix. Skip the Mac entirely.
-      - name: Compare build inputs with the parent commit
+      # A push whose build fingerprint equals that of an existing seed (docs,
+      # web, another workflow) builds exactly what that seed holds, and pull
+      # requests fall back to it by prefix. Skip the Mac only then. The parent
+      # is not enough: a newer push replaces a pending seed run, so the parent
+      # often has no seed. seed_decide.py compares with the nearest seeded
+      # ancestor instead, and builds on any doubt.
+      - name: Compare build inputs with the nearest seed
         id: inputs
         env:
+          GH_TOKEN: ${{ github.token }}
           XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = workflow_dispatch ] || ! git rev-parse -q --verify 'HEAD^1' >/dev/null; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          head="$(python3 scripts/ci/build_input_fingerprint.py --revision HEAD --extra "xcode=$XCODE_APP")"
-          parent="$(python3 scripts/ci/build_input_fingerprint.py --revision 'HEAD^1' --extra "xcode=$XCODE_APP")"
-          if [ "$head" = "$parent" ]; then
-            echo "Build inputs unchanged since the parent commit; its seed already covers this one."
-            echo "build=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          fi
+          python3 scripts/ci/seed_decide.py --repository "$GITHUB_REPOSITORY" --xcode "$XCODE_APP" \
+            --event-name "$EVENT_NAME" --github-output "$GITHUB_OUTPUT"
 
   seed:
     needs: decide
