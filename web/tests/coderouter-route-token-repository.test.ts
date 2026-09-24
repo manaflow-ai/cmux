@@ -8,7 +8,7 @@ const realCloudDb = dbClientModule.cloudDb;
 let useStubDb = false;
 
 type Statement = {
-  readonly kind: "insert" | "update";
+  readonly kind: "insert" | "update" | "select";
   readonly table: unknown;
   readonly values: Record<string, unknown>;
   readonly where: SQL | null;
@@ -23,6 +23,16 @@ function whereResult(rows: Record<string, unknown>[]) {
 }
 
 const stubDb = {
+  select: (fields: Record<string, unknown>) => ({
+    from: (table: unknown) => ({
+      where: (where: SQL) => ({
+        limit: async () => {
+          statements.push({ kind: "select", table, values: fields, where });
+          return returnedRows;
+        },
+      }),
+    }),
+  }),
   insert: (table: unknown) => ({
     values: async (values: Record<string, unknown>) => {
       statements.push({ kind: "insert", table, values, where: null });
@@ -49,6 +59,7 @@ const {
   issueRouteToken,
   revokeRouteTokensForVm,
   routeTokenHash,
+  routeTokenLastUsedWritesSettled,
 } = await import("../services/coderouter/repository");
 
 beforeAll(() => {
@@ -86,17 +97,47 @@ describe("coderouter route token VM binding", () => {
     expect(statements[1]?.values).toMatchObject({ label: "cli", vmId: null });
   });
 
-  test("authenticateRouteToken returns the binding", async () => {
-    returnedRows = [{ teamId: "team-1", stackUserId: "user-1", vmId: "vm-1" }];
-    await expect(authenticateRouteToken(TOKEN)).resolves.toEqual({
-      teamId: "team-1",
-      stackUserId: "user-1",
-      vmId: "vm-1",
-    });
-    returnedRows = [{ teamId: "team-1", stackUserId: "user-1", vmId: null }];
-    await expect(authenticateRouteToken(TOKEN)).resolves.toMatchObject({ vmId: null });
+  test("a malformed stored VM binding fails closed while CLI tokens still authenticate", async () => {
+    returnedRows = [{ id: "token-a", teamId: "team-1", stackUserId: "user-1", vmId: "vm-1" }];
+    await expect(authenticateRouteToken(TOKEN)).resolves.toBeNull();
+    returnedRows = [{ id: "token-b", teamId: "team-1", stackUserId: "user-1", vmId: null }];
+    await expect(authenticateRouteToken(TOKEN)).resolves.toEqual({ teamId: "team-1", stackUserId: "user-1", vmId: null });
     returnedRows = [];
     await expect(authenticateRouteToken(TOKEN)).resolves.toBeNull();
+  });
+
+  test("authentication is a read-only lookup and defers a rate-limited last-used write", async () => {
+    const now = new Date("2026-09-23T12:00:00.000Z");
+    returnedRows = [{ id: "token-c", teamId: "team-1", stackUserId: "user-1", vmId: null }];
+    const principals = await Promise.all([
+      authenticateRouteToken(TOKEN, now),
+      authenticateRouteToken(TOKEN, now),
+      authenticateRouteToken(TOKEN, now),
+    ]);
+    expect(principals.every((principal) => principal?.teamId === "team-1")).toBe(true);
+    // Each request only reads; nothing on the request's await chain writes.
+    const reads = statements.filter((statement) => statement.kind === "select");
+    expect(reads).toHaveLength(3);
+    const lookup = rendered(reads[0]?.where ?? null);
+    expect(lookup.sql).toContain('"coderouter_route_tokens"."token_hash" = $1');
+    expect(lookup.sql).toContain('"coderouter_route_tokens"."revoked_at" is null');
+
+    // One detached write covers all three.
+    await routeTokenLastUsedWritesSettled("team-1");
+    const writes = statements.filter((statement) => statement.kind === "update");
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.table).toBe(coderouterRouteTokens);
+    const write = rendered(writes[0]?.where ?? null);
+    expect(write.sql).toContain('"coderouter_route_tokens"."id" = $1');
+    expect(write.sql).toContain('"coderouter_route_tokens"."last_used_at" <= $2');
+    expect(write.params).toEqual(["token-c", new Date("2026-09-23T11:59:00.000Z").toISOString()]);
+
+    // Within the interval, later requests do not write again.
+    statements = [];
+    await authenticateRouteToken(TOKEN, new Date("2026-09-23T12:00:30.000Z"));
+    // A write scheduled by this call would be pending here, so settling waits for it.
+    await routeTokenLastUsedWritesSettled("team-1");
+    expect(statements.map((statement) => statement.kind)).toEqual(["select"]);
   });
 
   test("bindRouteTokenToVm only claims an unbound, live token of the team", async () => {

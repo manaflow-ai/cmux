@@ -279,7 +279,7 @@ enum RenderableSystemSymbol {
         let configuration = NSImage.SymbolConfiguration(
             pointSize: rasterSize,
             weight: fontWeight
-        )
+        ).applying(.preferringMonochrome())
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
         let imageSize = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
         guard let image = materializedImage(configuredImage, size: imageSize) else {

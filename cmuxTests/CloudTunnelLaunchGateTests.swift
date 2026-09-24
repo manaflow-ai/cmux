@@ -566,7 +566,7 @@ struct CloudTunnelLaunchGateTests {
         #expect(controller.calls == ["stop", "install"])
     }
 
-    @Test("a saved VPN configuration with Cloud Machines off still composes the eager controller: the inherited tunnel is stopped, no new start is admitted")
+    @Test("a saved VPN configuration with Cloud Machines off defers the controller and admits no start")
     @MainActor
     func savedConfigurationWithToggleOffStopsInheritedTunnelOnly() async throws {
         let factory = ControllerFactory()
@@ -584,14 +584,15 @@ struct CloudTunnelLaunchGateTests {
         let controller = CloudTunnelCoordinator.liveController(for: Self.networkExtension, activation: policy) { identifier in
             factory.make(identifier)
         }
-        #expect(controller is FakeTunnelController)
-        #expect(factory.builds == [Self.extensionID])
+        // Cloud-off is a hard launch gate. A saved configuration does not
+        // authorize reading or stopping NetworkExtension state.
+        #expect(controller is CloudTunnelDeferredController)
+        #expect(factory.builds.isEmpty)
         let coordinator = makeCoordinator(controller: controller, enroller: enroller, admission: policy.tunnelAdmission)
 
-        // Quit, sign-out, or `cmux vpn down` stops the tunnel the previous
-        // instance left running, without enrolling anything.
+        // Teardown is inert while the real controller was never composed.
         await coordinator.requestDown()
-        #expect(factory.controller.calls == ["stop"])
+        #expect(factory.controller.calls.isEmpty)
         #expect(enroller.enrollCount == 0)
         #expect(await coordinator.state == .off)
 
@@ -600,7 +601,7 @@ struct CloudTunnelLaunchGateTests {
         await #expect(throws: CloudTunnelError.cloudMachinesOff) {
             try await coordinator.requestUp(pin: true)
         }
-        #expect(factory.controller.calls == ["stop"])
+        #expect(factory.controller.calls.isEmpty)
         #expect(enroller.enrollCount == 0)
     }
 

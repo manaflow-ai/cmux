@@ -30,10 +30,19 @@ permissions:
   contents: read
 
 jobs:
+  # Proof of concept for capability-based runner selection. This job needs a
+  # macOS host with iOS runtimes and a working simctl; which vendor supplies
+  # that is .github/runners.json's problem, not this workflow's. On
+  # manaflow-ai the resolved label is blacksmith-6vcpu-macos-26, exactly what
+  # vars.MACOS_RUNNER_IOS holds today. See docs/ci-runner-capability-map.md.
+  runners:
+    uses: ./.github/workflows/resolve-runners.yml
+
   upload-and-validate:
     name: Upload and validate production App Store build
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    needs: runners
+    runs-on: ${{ fromJSON(needs.runners.outputs.map).macos_26_ios }}
     timeout-minutes: 90
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -147,6 +156,7 @@ jobs:
       - name: Install App Store provisioning profile
         env:
           IOS_APPSTORE_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROVISIONING_PROFILE_BASE64 }}
+          IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
           IOS_BETA_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_BETA_PROVISIONING_PROFILE_BASE64 }}
           APPLE_RELEASE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_RELEASE_PROVISIONING_PROFILE_BASE64 }}

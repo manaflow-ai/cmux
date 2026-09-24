@@ -7,12 +7,12 @@ import type { CheckoutAttribution } from "../analytics/checkoutAttribution";
 export async function personalPortalSession(input: {
   userId: string;
   origin: string;
-  target: "pro" | "max";
+  target: "go" | "pro" | "max";
   attribution: CheckoutAttribution;
 }) {
   const status = await stripeBillingStatusForUser(input.userId);
   if (!status.customerId) throw new Error("Billing customer is unavailable");
-  const canSwitch = status.hasRecurringSubscription && status.subscriptionId &&
+  const canSwitch = input.target !== "go" && status.hasRecurringSubscription && status.subscriptionId &&
     ["active", "trialing"].includes(status.subscriptionStatus ?? "") &&
     status.activePlanId !== input.target;
   const session = await stripe().billingPortal.sessions.create({

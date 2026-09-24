@@ -40,9 +40,20 @@ export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError
   readonly currentMb: number;
   readonly maxMb: number;
   readonly reason: "below_current" | "above_max";
+  readonly resource?: "cpu" | "memory" | "storage";
 }> {}
 
-/** A grow-only disk resize is already running for this machine. */
+/** A resize exceeds the caller's plan-specific resource ceiling. */
+export class VmResizePlanLimitError extends Data.TaggedError("VmResizePlanLimitError")<{
+  readonly vmId: string;
+  readonly resource: "cpu" | "memory" | "storage";
+  readonly requested: number;
+  readonly max: number;
+  readonly planId: string;
+  readonly upgradePlanId?: string;
+}> {}
+
+/** Another resize owns or has superseded this machine's resource reservation. */
 export class VmResizeInProgressError extends Data.TaggedError("VmResizeInProgressError")<{
   readonly vmId: string;
 }> {}
@@ -141,6 +152,17 @@ export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError
   readonly limit: number;
 }> {}
 
+export class VmUsageLimitExceededError extends Data.TaggedError("VmUsageLimitExceededError")<{
+  readonly includedHours: number;
+  readonly usedHours: number;
+}> {}
+
+export class VmSavedLimitExceededError extends Data.TaggedError("VmSavedLimitExceededError")<{
+  readonly limit: number;
+  readonly current: number;
+}> {}
+export class VmGoShapeError extends Data.TaggedError("VmGoShapeError")<{}> {}
+
 export class VmCreateCreditsInsufficientError extends Data.TaggedError("VmCreateCreditsInsufficientError")<{
   readonly itemId: string;
   readonly billingCustomerId: string;
@@ -199,6 +221,7 @@ export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
 
 export type VmWorkflowError =
   | VmMemoryPlanError
+  | VmResizePlanLimitError
   | VmDatabaseError
   | VmProviderOperationError
   | VmOperationUnsupportedError
@@ -213,6 +236,9 @@ export type VmWorkflowError =
   | VmAccountDeletionInProgressError
   | VmImageConfigError
   | VmLimitExceededError
+  | VmUsageLimitExceededError
+  | VmSavedLimitExceededError
+  | VmGoShapeError
   | VmCreateCreditsInsufficientError
   | VmBillingError
   | VmAttachTransportUnsupportedError
@@ -299,6 +325,10 @@ export function isVmLimitExceededError(err: unknown): err is VmLimitExceededErro
   return (err as { _tag?: string } | null)?._tag === "VmLimitExceededError";
 }
 
+export function isVmUsageLimitExceededError(err: unknown): err is VmUsageLimitExceededError {
+  return (err as { _tag?: string } | null)?._tag === "VmUsageLimitExceededError";
+}
+
 export function isVmCreateCreditsInsufficientError(err: unknown): err is VmCreateCreditsInsufficientError {
   return (err as { _tag?: string } | null)?._tag === "VmCreateCreditsInsufficientError";
 }
@@ -340,6 +370,7 @@ export function isVmOperationUnsupportedError(err: unknown): err is VmOperationU
 // tags that are not in the union.
 const vmWorkflowErrorTagRecord = {
   VmMemoryPlanError: true,
+  VmResizePlanLimitError: true,
   VmDatabaseError: true,
   VmProviderOperationError: true,
   VmOperationUnsupportedError: true,
@@ -354,6 +385,9 @@ const vmWorkflowErrorTagRecord = {
   VmAccountDeletionInProgressError: true,
   VmImageConfigError: true,
   VmLimitExceededError: true,
+  VmUsageLimitExceededError: true,
+  VmSavedLimitExceededError: true,
+  VmGoShapeError: true,
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
   VmAttachTransportUnsupportedError: true,

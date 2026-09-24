@@ -253,6 +253,16 @@ extension RemoteSessionCoordinator {
                 })
                 return
             }
+            if let parkedState = self.parkedState {
+                // Nothing makes a parked session ready, so parking this
+                // request would only hold it until its timeout.
+                complete(.failure(self.parkedBridgeStartErrorLocked(
+                    parkedState,
+                    sessionID: sessionID,
+                    lifecycleID: lifecycleID
+                )))
+                return
+            }
             guard !isCancelled() else { return }
             self.pendingPTYBridgeStarts[waiterID] = PendingPTYBridgeStart(
                 sessionID: sessionID,
@@ -300,6 +310,9 @@ extension RemoteSessionCoordinator {
         requireExisting: Bool
     ) throws -> RemotePTYBridgeServer.Endpoint {
         guard canStartPTYBridgeLocked else {
+            if let parkedState {
+                throw parkedBridgeStartErrorLocked(parkedState, sessionID: sessionID, lifecycleID: lifecycleID)
+            }
             throw NSError(domain: "cmux.remote.pty", code: 5, userInfo: [
                 NSLocalizedDescriptionKey: "remote daemon is not ready",
             ])
@@ -334,15 +347,49 @@ extension RemoteSessionCoordinator {
     }
 
     func failPendingPTYBridgeStartsLocked(_ message: String) {
+        failPendingPTYBridgeStartsLocked(error: NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
+            NSLocalizedDescriptionKey: message,
+        ]))
+    }
+
+    /// Releases every request parked on readiness with `error`.
+    func failPendingPTYBridgeStartsLocked(error: any Error) {
+        failPendingPTYBridgeStartsLocked { _ in error }
+    }
+
+    /// Releases every request parked on readiness with its own error.
+    func failPendingPTYBridgeStartsLocked(makeError: (PendingPTYBridgeStart) -> any Error) {
         guard !pendingPTYBridgeStarts.isEmpty else { return }
         let pending = pendingPTYBridgeStarts
         pendingPTYBridgeStarts.removeAll(keepingCapacity: false)
-        let error = NSError(domain: "cmux.remote.pty", code: 10, userInfo: [
-            NSLocalizedDescriptionKey: message,
-        ])
         for request in pending.values {
-            request.completion(.failure(error))
+            request.completion(.failure(makeError(request)))
         }
+    }
+
+    /// The error for a bridge start that meets a parked session.
+    ///
+    /// An explicit cleanup outranks the parked verdict. A generation the user
+    /// already closed must end its attach the way it does on any other
+    /// failure (`pty_lifecycle_closed`, which the CLI reconciles into a clean
+    /// exit), not report a connection problem and wait for Reconnect to
+    /// reattach it. The lifecycle lives in the broker's registry, so this
+    /// needs no daemon; when the broker holds no entry for the transport
+    /// there is no recorded cleanup to honor.
+    func parkedBridgeStartErrorLocked(
+        _ parkedState: RemoteSessionParkedState,
+        sessionID: String,
+        lifecycleID: String
+    ) -> any Error {
+        let lifecycle = try? proxyBroker.ptySessionLifecycle(
+            configuration: configuration,
+            sessionID: sessionID.trimmingCharacters(in: .whitespacesAndNewlines),
+            lifecycleID: lifecycleID
+        )
+        if let lifecycle, lifecycle != .active {
+            return RemotePTYLifecycleError.intentionallyClosed
+        }
+        return RemoteSessionParkedError(detail: parkedState.detail)
     }
 
     /// Resizes a persistent PTY attachment; same blocking contract as

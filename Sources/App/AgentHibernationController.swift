@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import CmuxWorkspaces
 
@@ -21,7 +22,7 @@ struct AgentHibernationRecord {
     let panelProcessIDs: Set<Int>
     let processIDs: Set<Int>
     let processIdentities: [Int: AgentPIDProcessIdentity]
-    let processLiveness: RestorableAgentProcessLiveness
+    private(set) var processLiveness: RestorableAgentProcessLiveness = .unknown
     init(
         key: AgentHibernationPanelKey,
         workspace: Workspace,

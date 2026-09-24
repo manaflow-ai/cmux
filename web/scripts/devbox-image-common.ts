@@ -34,10 +34,12 @@ export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "cmux-opencode",
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
   "cmux-motd",
+  "cmux-prompt.bash",
   "cmux-terminfo.sh",
   "cmux-terminfo.src",
   "codex-managed.toml",
@@ -711,6 +713,12 @@ export function devboxDaemonReadyCondition(): string {
     `[ "$(cat /etc/cmux/daemon-instance-id 2>/dev/null)" = "$cmux_instance" ]`
   );
 }
+
+/** Keep snapshot timers tied to the hypervisor, rather than a migrated host TSC. */
+export const devboxSnapshotClockCommand =
+  "grep -qw kvm-clock /sys/devices/system/clocksource/clocksource0/available_clocksource && " +
+  "echo kvm-clock > /sys/devices/system/clocksource/clocksource0/current_clocksource && " +
+  "test \"$(cat /sys/devices/system/clocksource/clocksource0/current_clocksource)\" = kvm-clock";
 
 /**
  * Blocks in the guest until {@link devboxDaemonReadyCondition} holds, then

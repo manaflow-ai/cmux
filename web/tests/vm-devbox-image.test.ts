@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+declare const Bun: {
+  readonly TOML: { parse(input: string): unknown };
+};
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -73,9 +77,9 @@ const listen = (
     });
   });
 
-const sourceAgentConfig = (home: string, coderouterOrigin: string): Promise<void> =>
+const sourceAgentConfig = (home: string, coderouterOrigin: string, fetchOpenCodeConfig = false, onFetchStarted?: () => void): Promise<void> =>
   new Promise((resolve, reject) => {
-    const child = spawn("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], {
+    const child = spawn("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${fetchOpenCodeConfig ? "printf 'cmux-fetch-started\\n'; cmux_ensure_opencode_config" : ":"}`], {
       env: {
         ...process.env,
         HOME: home,
@@ -83,7 +87,16 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string): Promise<void
         OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: coderouterOrigin,
       },
-      stdio: "ignore",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    let output = "";
+    let reportedStart = false;
+    child.stdout.on("data", (data: Buffer) => {
+      output += data.toString();
+      if (!reportedStart && output.includes("cmux-fetch-started\n")) {
+        reportedStart = true;
+        onFetchStarted?.();
+      }
     });
     child.on("error", reject);
     child.on("exit", (code) =>
@@ -101,6 +114,9 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-opencode",
+      "cmux-prompt-sync",
+      "cmux-prompt.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -116,6 +132,8 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-opencode",
+      "cmux-prompt.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -133,7 +151,7 @@ describe("devbox image template", () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-agent-config-origin-"));
     try {
       const run = (extraEnv: Record<string, string>) =>
-        spawnSync("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
+        spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
           encoding: "utf8",
           env: {
             NODE_ENV: "test",
@@ -162,8 +180,8 @@ describe("devbox image template", () => {
   });
 
   test("every shell file parses", () => {
-    for (const name of ["cmux-bashrc", "agent-config.sh", "cmux-terminfo.sh"]) {
-      const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
+    for (const name of ["cmux-bashrc", "cmux-prompt.bash", "agent-config.sh", "cmux-terminfo.sh"]) {
+      const result = spawnSync("/bin/bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
     for (const name of ["cmux-devbox-boot", "cmux-motd"]) {
@@ -245,6 +263,54 @@ describe("devbox image template", () => {
     expect(verify).toContain("test ! -e /opt/mise");
   });
 
+  test("ble.sh runtime files do not follow a transient XDG runtime directory", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-runtime-"));
+    const blesh = path.join(directory, "blesh");
+    const transientRuntime = path.join(directory, "transient-runtime");
+    const bootRuntime = path.join(directory, "boot-runtime");
+    mkdirSync(blesh);
+    mkdirSync(transientRuntime);
+    writeFileSync(path.join(blesh, "ble.sh"), [
+      "BLE_VERSION=fixture",
+      "BLE_RUNTIME_DIR=\"$XDG_RUNTIME_DIR\"",
+      "bleopt() { mkdir -p \"$BLE_RUNTIME_DIR/blesh\"; printf ok > \"$BLE_RUNTIME_DIR/blesh/live\"; }",
+      "ble-face() { :; }",
+      "ble-bind() { :; }",
+      "printf '%s' \"$XDG_RUNTIME_DIR\" > \"$HOME/ble-runtime\"",
+    ].join("\n"));
+    writeFileSync(path.join(directory, "terminfo.sh"), "");
+    writeFileSync(path.join(directory, "prompt.bash"), "PROMPT_COMMAND=()");
+    const rc = path.join(directory, "bashrc");
+    writeFileSync(
+      rc,
+      bashrc
+        .replaceAll("/etc/profile.d/cmux-terminfo.sh", path.join(directory, "terminfo.sh"))
+        .replaceAll("/etc/cmux", directory)
+        .replaceAll("/tmp/cmux-blesh-runtime-${UID}", bootRuntime)
+        .replaceAll("/usr/local/share/blesh", blesh),
+    );
+    try {
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; rm -rf '${bootRuntime}/blesh'; bleopt; test -f '${bootRuntime}/blesh/live'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
+        encoding: "utf8",
+        env: {
+          NODE_ENV: "test",
+          PATH: process.env.PATH!,
+          HOME: directory,
+          USER: "cmux",
+          TERM: "dumb",
+          XDG_RUNTIME_DIR: transientRuntime,
+        },
+      });
+      expect(result.status).toBe(0);
+      expect(readFileSync(path.join(directory, "ble-runtime"), "utf8")).toBe(
+        bootRuntime,
+      );
+      expect(result.stdout).toBe(transientRuntime);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   test("one non-root work user named cmux, on a machine named cmux", () => {
     // Half the complaint this answers: a cmux Cloud terminal opened as
     // `root@freestyle-vm`, and `claude --dangerously-skip-permissions` refuses
@@ -304,10 +370,10 @@ describe("devbox image template", () => {
     // Bounded and fails closed.
     expect(wait).toContain("seq 1 240");
     expect(wait).toContain("exit 1");
-    for (const name of ["build-devbox-freestyle.ts", "verify-devbox-image.ts", "derive-devbox-sizes.ts"]) {
+    for (const name of ["build-devbox-freestyle.ts", "verify-devbox-image.ts", "derive-devbox-sizes.ts", "check-devbox-image-reachable.ts"]) {
       const script = readScript(name);
-      expect({ name, sleeps: /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script) })
-        .toEqual({ name, sleeps: false });
+      const sleeps = /sleep 30\b|setTimeout\(resolve, 30_000\)|sleep\(30_000\)/.test(script);
+      expect({ name, sleeps }).toEqual({ name, sleeps: name === "build-devbox-freestyle.ts" });
       expect({ name, waits: script.includes("devboxWaitForDaemonCommand") }).toEqual({ name, waits: true });
     }
     // The ladder rows are independent, so they run concurrently, and the full
@@ -419,13 +485,14 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
-    // identity on the platform instance id, wiping cmux-remote's default root
-    // state dir on a clone, and holds the daemon on the builder itself.
+    // identity on the platform instance id, rotating auth/connection state on
+    // a clone while preserving the warm journal, and holds the daemon on the builder.
     expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
     expect(devboxBoot).toContain("/latest/meta-data/instance-id");
     expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
     expect(devboxBoot).toContain("BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id");
-    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR"');
+    expect(devboxBoot).toContain('find "$REMOTE_STATE_DIR/sessions"');
+    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR/connections"');
     // The supervisor owns the daemon as a background child so it can stop a
     // daemon that belongs to another machine (a clone of a live machine).
     expect(devboxBoot).toContain("daemon_pid=$!");
@@ -736,6 +803,83 @@ describe("devbox image template", () => {
     }
   });
 
+  test("agent config generator adds the codex provider around hook trust state another writer left first", () => {
+    // The bake runs `cmux-tui agent hook install codex` before any shell has
+    // seen a boot env, so ~/.codex/config.toml already exists with only the
+    // hook trust table. The provider block goes in around it: bare key on
+    // top, tables at the end, trust state untouched, one TOML document.
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-merge-"));
+    try {
+      mkdirSync(path.join(home, ".codex"), { recursive: true });
+      const hooks = [
+        "[hooks]",
+        "",
+        '[hooks.state."/home/cmux/.codex/hooks.json:Stop:0:0"]',
+        'trusted_hash = "3f0c"',
+        "",
+      ].join("\n");
+      writeFileSync(path.join(home, ".codex/config.toml"), hooks);
+      const env = {
+        ...process.env,
+        HOME: home,
+        OPENAI_BASE_URL: "https://example.invalid/v1",
+        OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+        CMUX_CODEROUTER_URL: "https://example.invalid",
+      };
+      expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+      const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
+      const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
+      expect(parsed.model_provider).toBe("cmux");
+      expect(parsed.hooks).toEqual({ state: { "/home/cmux/.codex/hooks.json:Stop:0:0": { trusted_hash: "3f0c" } } });
+      expect(parsed.model_providers).toEqual({
+        cmux: {
+          name: "cmux",
+          base_url: "https://example.invalid/v1",
+          env_key: "OPENAI_API_KEY",
+          wire_api: "responses",
+          requires_openai_auth: false,
+          supports_websockets: false,
+          env_http_headers: {
+            "x-cmux-surface-id": "CMUX_SURFACE_ID",
+            "x-cmux-workspace-id": "CMUX_WORKSPACE_ID",
+          },
+        },
+      });
+      expect(parsed.history).toEqual({ persistence: "save-all" });
+      // The bare key precedes the first table header, or TOML would file it under [hooks].
+      expect(merged.indexOf('model_provider = "cmux"')).toBeLessThan(merged.indexOf("[hooks]"));
+      expect(existsSync(path.join(home, ".codex/config.toml.cmux-tmp"))).toBe(false);
+      // Idempotent: a second login sees the provider and rewrites nothing.
+      expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+      expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(merged);
+      // A config that already names a provider is the user's, even without
+      // ours, however the key is spaced (TOML allows none around "=").
+      for (const theirs of [
+        'model_provider = "openai"\n',
+        'model_provider="openai"\n',
+        '  model_provider\t=  "openai"\n',
+        '"model_provider" = "openai"\n',
+        "'model_provider' = \"openai\"\n",
+        '"model\\u005fprovider" = "openai"\n',
+        '[ model_providers . cmux ]\nname = "x"\n',
+        '[ "model_providers" . "cmux" ]\nname = "x"\n',
+        "[ 'model_providers' . 'cmux' ]\nname = \"x\"\n",
+        'model_providers.cmux.name = "x"\n',
+        ' [history]\npersistence = "none"\n',
+        ' [ "history" ]\npersistence = "none"\n',
+        "['history']\npersistence = \"none\"\n",
+        'history = { persistence = "none" }\n',
+        'model_provider = "unterminated\n',
+      ]) {
+        writeFileSync(path.join(home, ".codex/config.toml"), theirs);
+        expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+        expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(theirs);
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("agent config generator materializes the coderouter plane from boot env", () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-"));
     try {
@@ -797,8 +941,7 @@ describe("devbox image template", () => {
       expect(pi).not.toContain("crt_");
       // claude: env only, nothing generated.
       expect(existsSync(path.join(home, ".claude"))).toBe(false);
-      // opencode: the config endpoint is unreachable here, so nothing may be
-      // written (the next shell retries).
+      // opencode config is lazy; a normal shell never contacts the endpoint.
       expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -826,7 +969,10 @@ describe("devbox image template", () => {
       );
     });
     try {
+      // Shell initialization must never perform optional network discovery.
       await sourceAgentConfig(home, server.origin);
+      expect(authorization).toBeUndefined();
+      await sourceAgentConfig(home, server.origin, true);
       // The guest sends only the placeholder; the edge adds the route token.
       expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
       const configPath = path.join(home, ".config/opencode/opencode.json");
@@ -847,8 +993,57 @@ describe("devbox image template", () => {
       expect(written).not.toContain("crt_test-token");
       // Write-if-missing: a second shell leaves the user's file alone.
       authorization = undefined;
-      await sourceAgentConfig(home, server.origin);
+      await sourceAgentConfig(home, server.origin, true);
       expect(authorization).toBeUndefined();
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("concurrent OpenCode starts wait for one authenticated config and preserve a user file", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-opencode-concurrent-"));
+    let requests = 0;
+    let started = 0;
+    let releaseResponse!: () => void;
+    const allStarted = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    const server = await listen((_request, response) => {
+      requests += 1;
+      void allStarted.then(() => {
+        response.end(JSON.stringify({ provider: { go: { options: { apiKey: "crt_test" } } } }));
+      });
+    });
+    try {
+      await Promise.all(Array.from({ length: 4 }, () => sourceAgentConfig(home, server.origin, true, () => {
+        if (++started === 4) releaseResponse();
+      })));
+      expect(requests).toBe(1);
+      const config = path.join(home, ".config/opencode/opencode.json");
+      expect(JSON.parse(readFileSync(config, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
+      writeFileSync(config, '{"provider":{"mine":{}}}');
+      await sourceAgentConfig(home, server.origin, true);
+      expect(readFileSync(config, "utf8")).toBe('{"provider":{"mine":{}}}');
+      expect(requests).toBe(1);
+    } finally {
+      releaseResponse();
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("failed OpenCode config cannot launch a command without its configured provider", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-opencode-failure-"));
+    let requests = 0;
+    const server = await listen((_request, response) => {
+      requests += 1;
+      response.statusCode = 503;
+      response.end("unavailable");
+    });
+    try {
+      await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
+      await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
+      expect(requests).toBe(1);
+      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
     } finally {
       await server.close();
       rmSync(home, { recursive: true, force: true });
@@ -867,12 +1062,13 @@ describe("devbox image template", () => {
     try {
       const configPath = path.join(home, ".config/opencode/opencode.json");
       // 503 no_usable_account: nothing written, the shell exits clean.
-      await sourceAgentConfig(home, server.origin);
+      await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
       // An empty catalog is not persisted either (it would block retries).
+      rmSync(path.join(home, ".cache/cmux"), { recursive: true, force: true });
       body = JSON.stringify({ provider: {} });
       status = 200;
-      await sourceAgentConfig(home, server.origin);
+      await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
     } finally {
       await server.close();

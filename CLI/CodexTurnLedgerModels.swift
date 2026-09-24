@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 /// The process identity carried by one Codex hook invocation.
 ///

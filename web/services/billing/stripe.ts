@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { env } from "../../app/env";
 import {
   MAX_PRICING_USD,
+  GO_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   type BillingInterval,
@@ -15,6 +16,7 @@ let stripeClient: Stripe | null = null;
 const resolvedProPriceIds = new Map<BillingInterval, string>();
 const resolvedTeamPriceIds = new Map<BillingInterval, string>();
 const resolvedMaxPriceIds = new Map<BillingInterval, string>();
+const resolvedGoPriceIds = new Map<BillingInterval, string>();
 
 /**
  * Metadata the catalog script stamps on the Billing Portal configuration
@@ -72,10 +74,8 @@ export function stripe(): Stripe {
 }
 
 export async function resolveProPrice(interval: BillingInterval): Promise<string> {
-  const overridden = interval === "month"
-    ? env.STRIPE_PRO_MONTHLY_50_PRICE_ID
-    : env.STRIPE_PRO_YEARLY_480_PRICE_ID;
-  return resolvePlanPrice(PRO_PRICING_USD[interval], interval, overridden, resolvedProPriceIds, "pro");
+  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
+  return resolvePlanPrice(PRO_PRICING_USD.month, interval, env.STRIPE_PRO_MONTHLY_50_PRICE_ID, resolvedProPriceIds, "pro");
 }
 
 /** Max is sold monthly only; there is no yearly Price to resolve. */
@@ -89,11 +89,19 @@ export async function resolveMaxPrice(): Promise<string> {
   );
 }
 
+export async function resolveGoPrice(): Promise<string> {
+  return resolvePlanPrice(
+    GO_PRICING_USD.month,
+    "month",
+    env.STRIPE_GO_MONTHLY_10_PRICE_ID,
+    resolvedGoPriceIds,
+    "go",
+  );
+}
+
 export async function resolveTeamPrice(interval: BillingInterval): Promise<string> {
-  const overridden = interval === "month"
-    ? env.STRIPE_TEAM_MONTHLY_60_PRICE_ID
-    : env.STRIPE_TEAM_YEARLY_576_PRICE_ID;
-  return resolvePlanPrice(TEAM_PRICING_USD[interval], interval, overridden, resolvedTeamPriceIds, "team");
+  if (interval !== "month") throw new Error("Annual billing is unavailable for new subscriptions");
+  return resolvePlanPrice(TEAM_PRICING_USD.month, interval, env.STRIPE_TEAM_MONTHLY_60_PRICE_ID, resolvedTeamPriceIds, "team");
 }
 
 /**
@@ -108,7 +116,7 @@ async function resolvePlanPrice(
   interval: BillingInterval,
   overridden: string | undefined,
   cache: Map<BillingInterval, string>,
-  planId: "pro" | "max" | "team",
+  planId: "go" | "pro" | "max" | "team",
 ): Promise<string> {
   const cached = cache.get(interval);
   if (cached) return cached;

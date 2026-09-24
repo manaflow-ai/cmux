@@ -1,5 +1,6 @@
 // Device registry — register a Mac/host (and its running cmux app instance) and
-// list the team's registered devices so a phone can auto-pair on reload.
+// list the team's registered devices so a phone can auto-pair on reload, and
+// withdraw one owned app instance when its host stops advertising.
 //
 // Auth: Stack Bearer + X-Stack-Refresh-Token from the native client (same as
 // /api/device-tokens). Team scope: the caller picks a team via `X-Cmux-Team-Id`
@@ -11,10 +12,16 @@
 // when the registry is unreachable, so pairing survives the cloud being down.
 
 import { and, desc, eq, sql } from "drizzle-orm";
+import * as Effect from "effect/Effect";
 import { env } from "../../env";
 import { cloudDb } from "../../../db/client";
 import { deviceAppInstances, devices } from "../../../db/schema";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
+import {
+  discoveryRegistrationTouchInterval,
+  filterDiscoverableDevices,
+  registrationDiscoveryLabels,
+} from "../../../services/iroh/registryDiscovery";
 import {
   unauthorized,
   verifyRequest,
@@ -38,6 +45,7 @@ import {
 } from "../../../services/devices/registrationNoOp";
 import { recordRegistrationNoOp } from "../../../services/auth/authTelemetry";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
+import { withdrawDeviceInstance } from "../../../services/iroh/deviceRegistryWithdrawal";
 
 
 const MAX_REQUEST_BYTES = 16 * 1024;
@@ -174,7 +182,9 @@ export async function POST(request: Request): Promise<Response> {
   void _ignoredManualLabel;
   const tag = trimmedString(body.value.tag) || "default";
   const routes = sanitizeServerPublishedRoutes(routesArray(body.value.routes));
-  const instanceLabels = recordOrEmpty(body.value.instanceLabels);
+  const instanceLabels = registrationDiscoveryLabels(
+    recordOrEmpty(body.value.instanceLabels), body.value.discoveryLease,
+  );
   // `manual: true` marks a user-initiated remote added through the cmux CLI
   // (`cmux remotes add`) rather than a Mac self-registering its own live
   // routes. The Mac self-registration legitimately advertises a `debug_loopback`
@@ -263,7 +273,7 @@ export async function POST(request: Request): Promise<Response> {
             instanceLabels,
           },
           now,
-          touchIntervalMs: presenceTouchIntervalMs(),
+          touchIntervalMs: discoveryRegistrationTouchInterval(instanceLabels, presenceTouchIntervalMs()),
         })
       ) {
         return { error: null, unchanged: true as const };
@@ -472,7 +482,47 @@ export async function GET(request: Request): Promise<Response> {
     })),
   }));
 
-  return jsonResponse({ teamId: team.teamId, devices: devicesPayload });
+  const response = jsonResponse({ teamId: team.teamId, devices: filterDiscoverableDevices(devicesPayload) });
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
+
+/** Withdraw one owned native app instance without deleting its device or siblings. */
+export async function PATCH(request: Request): Promise<Response> {
+  const rateLimitResponse = await enforceDeviceRegistryIngressLimit(request);
+  if (rateLimitResponse) return rateLimitResponse;
+  let user: Awaited<ReturnType<typeof verifyRequest>>;
+  try {
+    user = await verifyRequest(request, {
+      requestedTeamId: requestedVmTeamIdFromRequest(request),
+      allowCookie: false,
+    });
+  } catch (error) {
+    return authProviderErrorResponse(error, "devices.patch.auth");
+  }
+  if (!user) return unauthorized();
+  const team = resolveTeam(request, user);
+  if (!team.ok) return team.response;
+  const body = await readBoundedJson(request);
+  if (!body.ok) return jsonResponse({ error: "invalid_request" }, body.status);
+  const deviceUuid = trimmedString(body.value.deviceId).toLowerCase();
+  const tag = trimmedString(body.value.tag);
+  if (!UUID_RE.test(deviceUuid)) return jsonResponse({ error: "invalid_device_id" }, 400);
+  if (!tag || tag.length > MAX_TAG_LENGTH) return jsonResponse({ error: "invalid_tag" }, 400);
+
+  return Effect.runPromise(withdrawDeviceInstance({
+    deviceUuid,
+    tag,
+    teamId: team.teamId,
+    userId: user.id,
+  }).pipe(Effect.match({
+    onSuccess: (result) => result.kind === "not_owned"
+      ? jsonResponse({ error: "device_not_owned" }, 403)
+      : jsonResponse({ ok: true, withdrawn: result.kind === "withdrawn" }),
+    onFailure: (error) => error instanceof AccountDeletionMutationBlockedError
+      ? jsonResponse({ error: "account_deletion_in_progress" }, 409)
+      : jsonResponse({ error: "internal_error" }, 500),
+  })));
 }
 
 /**

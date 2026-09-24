@@ -1,3 +1,4 @@
+import { accountAccessForIdentity } from "./accountAccess";
 // The Claude leg of coderouter: serves the Anthropic Messages API to a guest
 // (Claude Code inside a Cloud VM, or any Anthropic SDK client holding a
 // route token) and forwards to one of the team's Claude upstream accounts.
@@ -13,6 +14,7 @@
 // the AWS event stream back to SSE. Usage is read from a bounded head and
 // tail of the response only.
 import {
+  authenticateCoderouterCredential,
   authenticateRequestRouteToken,
   type RouteTokenAuthResult,
   type RouteTokenIdentity,
@@ -113,6 +115,8 @@ const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 export const INVALID_CREDENTIAL_COOLDOWN_MS = 15 * 60_000;
 /** 5xx / 529 / transport failure: transient, give the account a short rest. */
 export const UPSTREAM_UNAVAILABLE_COOLDOWN_MS = 20_000;
+const CLAUDE_PREOUTPUT_PROBE_BYTES = 64 * 1024;
+const CLAUDE_PREOUTPUT_PROBE_IDLE_MS = 500;
 
 type ClaudeSurface = "messages" | "count_tokens" | "models";
 
@@ -140,7 +144,7 @@ type ClaudeProxyRuntime = {
 };
 
 const defaultDependencies: ClaudeProxyDependencies = {
-  authenticate: (request) => authenticateRequestRouteToken(request),
+  authenticate: (request) => authenticateRequestRouteToken(request, authenticateCoderouterCredential),
   select: selectClaudeUpstream,
   cooldown: markClaudeAccountCooldown,
   touchUsed: touchClaudeAccountUsed,
@@ -373,6 +377,7 @@ function stickyKey(identity: RouteTokenIdentity): string {
  * request. A response the proxy cannot move past (last account, or attempt
  * budget spent) is returned as-is so the client sees the real upstream error.
  */
+// oxlint-disable-next-line complexity -- Account routing keeps provider failover, stream probing, cooldown, and deadline transitions atomic.
 async function routeWithFailover(
   dependencies: ClaudeProxyDependencies,
   identity: RouteTokenIdentity,
@@ -402,6 +407,7 @@ async function routeWithFailover(
         upstreamHeaderDeadlineAt,
         runtime.now,
         (signal) => dependencies.select(identity.teamId, {
+          access: accountAccessForIdentity(identity),
           stickyKey: stickyKey(identity),
           excludedAccountIds: excluded,
           signal,
@@ -496,7 +502,6 @@ async function routeWithFailover(
       healthy: selection.healthy,
       total: selection.total,
     });
-    let attempt: Attempt;
     const attemptStartedAt = performance.now();
     const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
       upstreamHeaderDeadlineAt,
@@ -504,26 +509,9 @@ async function routeWithFailover(
       runtime.upstreamHeadersTimeoutMs,
     );
     if (headersTimeoutMs === null) return deadlineResult(attempts, lastFailure);
-    try {
-      attempt = { kind: "response", response: await send(upstream, headersTimeoutMs) };
-    } catch (error) {
-      if (request.signal.aborted) throw error;
-      attempt = { kind: "transport", error };
-    }
+    const attempt = await sendClaudeAttempt(send, upstream, headersTimeoutMs, surface, request.signal);
     const verdict = classifyAttempt(attempt);
-    recordCoderouterSpan({
-      name: "upstream_attempt",
-      startedAt: attemptStartedAt,
-      ...(verdict.kind === "failover" ? { error: verdict.failureCode } : {}),
-      attributes: {
-        provider: "claude",
-        upstream_kind: upstream.kind,
-        attempt: attempts,
-        surface,
-        status: attempt.kind === "response" ? attempt.response.status : 0,
-        ...(verdict.kind === "failover" ? { failure_code: verdict.failureCode, cooldown_ms: verdict.cooldownMs } : {}),
-      },
-    });
+    recordClaudeAttempt(attemptStartedAt, upstream, attempts, surface, attempt, verdict);
     if (verdict.kind === "done") {
       void dependencies.touchUsed(upstream.accountId, request.signal).catch(() => undefined);
       return { kind: "response", response: verdict.response, upstream, attempts, failed: false, failureStage: "none" };
@@ -569,6 +557,49 @@ async function routeWithFailover(
   return deadlineResult(attempts, lastFailure);
 }
 
+async function sendClaudeAttempt(
+  send: (upstream: ClaudeUpstream, headersTimeoutMs: number) => Promise<Response>,
+  upstream: ClaudeUpstream,
+  headersTimeoutMs: number,
+  surface: ClaudeSurface,
+  signal: AbortSignal,
+): Promise<Attempt> {
+  let attempt: Attempt;
+  try {
+    attempt = { kind: "response", response: await send(upstream, headersTimeoutMs) };
+  } catch (error) {
+    if (signal.aborted) throw error;
+    attempt = { kind: "transport", error };
+  }
+  if (surface === "messages" && attempt.kind === "response") {
+    return probeClaudeStreamFailure(attempt.response, signal);
+  }
+  return attempt;
+}
+
+function recordClaudeAttempt(
+  startedAt: number,
+  upstream: ClaudeUpstream,
+  attemptCount: number,
+  surface: ClaudeSurface,
+  attempt: Attempt,
+  verdict: Verdict,
+): void {
+  recordCoderouterSpan({
+    name: "upstream_attempt",
+    startedAt,
+    ...(verdict.kind === "failover" ? { error: verdict.failureCode } : {}),
+    attributes: {
+      provider: "claude",
+      upstream_kind: upstream.kind,
+      attempt: attemptCount,
+      surface,
+      status: attempt.kind === "response" ? attempt.response.status : 0,
+      ...(verdict.kind === "failover" ? { failure_code: verdict.failureCode, cooldown_ms: verdict.cooldownMs } : {}),
+    },
+  });
+}
+
 function deadlineResult(
   attempts: number,
   lastFailure: { response: Response; upstream: ClaudeUpstream; stage: RouteFailureStage } | null,
@@ -586,6 +617,144 @@ function deadlineResult(
       "retry-after": "5",
     }),
   };
+}
+
+/**
+ * Anthropic can encode an overload as the first event of an otherwise-200
+ * SSE response. Buffer only the pre-output prefix so account failover remains
+ * safe, while normal streams are returned with every byte preserved.
+ */
+async function probeClaudeStreamFailure(response: Response, signal: AbortSignal): Promise<Attempt> {
+  if (!isStreamingResponse(response) || !response.body) return { kind: "response", response };
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  const decoder = new TextDecoder();
+  let text = "";
+  let total = 0;
+  let pendingRead: Promise<ReadableStreamReadResult<Uint8Array>> | undefined;
+  try {
+    for (;;) {
+      if (signal.aborted) throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+      const next = await readClaudeProbe(reader, signal);
+      if ("timedOut" in next) {
+        pendingRead = next.pending;
+        break;
+      }
+      if (next.done) break;
+      chunks.push(next.value);
+      total += next.value.byteLength;
+      text += decoder.decode(next.value, { stream: true });
+      const verdict = classifyClaudeStreamPrefix(text);
+      if (verdict === "overloaded") {
+        await reader.cancel();
+        return { kind: "response", response: new Response(concatClaudeProbeChunks(chunks), { status: 529, headers: response.headers }) };
+      }
+      if (verdict === "output" || total >= CLAUDE_PREOUTPUT_PROBE_BYTES) break;
+    }
+    text += decoder.decode();
+    if (classifyClaudeStreamPrefix(`${text}\n\n`) === "overloaded") {
+      await reader.cancel();
+      return { kind: "response", response: new Response(concatClaudeProbeChunks(chunks), { status: 529, headers: response.headers }) };
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  }
+  let buffered = chunks.slice();
+  let upstreamDone = false;
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const chunk = buffered.shift();
+      if (chunk) {
+        controller.enqueue(chunk);
+        return;
+      }
+      if (upstreamDone) {
+        controller.close();
+        return;
+      }
+      const next = await (pendingRead ?? reader.read());
+      pendingRead = undefined;
+      if (next.done) {
+        upstreamDone = true;
+        controller.close();
+      } else {
+        controller.enqueue(next.value);
+      }
+    },
+    async cancel(reason) {
+      upstreamDone = true;
+      await reader.cancel(reason);
+    },
+  });
+  return { kind: "response", response: new Response(stream, { status: response.status, headers: response.headers }) };
+}
+
+type ClaudeProbeRead =
+  | ReadableStreamReadResult<Uint8Array>
+  | { readonly timedOut: true; readonly pending: Promise<ReadableStreamReadResult<Uint8Array>> };
+
+function concatClaudeProbeChunks(chunks: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+  const total = chunks.reduce((size, chunk) => size + chunk.byteLength, 0);
+  // Allocate an ArrayBuffer-backed view so the result is accepted as a Fetch BodyInit
+  // under TypeScript's stricter ArrayBufferLike definitions.
+  const joined = new Uint8Array(new ArrayBuffer(total));
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return joined;
+}
+
+async function readClaudeProbe(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal: AbortSignal,
+): Promise<ClaudeProbeRead> {
+  const pending = reader.read();
+  const timeoutSignal = AbortSignal.timeout(CLAUDE_PREOUTPUT_PROBE_IDLE_MS);
+  const raceSignal = AbortSignal.any([signal, timeoutSignal]);
+  let onAbort: (() => void) | undefined;
+  const cancellation = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      if (signal.aborted) {
+        reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+      } else {
+        reject(new Error("claude_probe_idle"));
+      }
+    };
+    if (raceSignal.aborted) onAbort();
+    else raceSignal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([pending, cancellation]);
+  } catch (error) {
+    if (error instanceof Error && error.message === "claude_probe_idle") return { timedOut: true, pending };
+    if (signal.aborted) throw signal.reason ?? error;
+    throw error;
+  } finally {
+    if (onAbort) raceSignal.removeEventListener("abort", onAbort);
+  }
+}
+
+function classifyClaudeStreamPrefix(text: string): "waiting" | "output" | "overloaded" {
+  const blocks = text.split(/\r?\n\r?\n/);
+  for (const block of blocks.slice(0, -1)) {
+    const data = block.match(/^data:\s*(.*)$/m)?.[1]?.trim();
+    if (!data) continue;
+    try {
+      const event = JSON.parse(data) as { type?: unknown; error?: { type?: unknown } };
+      const errorType = String(event.error?.type ?? "").toLowerCase();
+      if (errorType === "overloaded_error" || errorType === "rate_limit_error") return "overloaded";
+      // Anthropic sends message_start, pings, and block start/stop metadata
+      // before the first content delta. Keep probing through those records so
+      // a provider error that follows metadata can still fail over safely.
+      if (event.type === "content_block_delta") return "output";
+    } catch {
+      // Wait for the rest of a split JSON event.
+    }
+  }
+  return "waiting";
 }
 
 function throwIfRequestAborted(request: Request): void {
@@ -1051,6 +1220,7 @@ function captureRouteHealth(dependencies: ClaudeProxyDependencies, input: Health
     requestId: input.requestId,
     teamId: input.identity?.teamId,
     stackUserId: input.identity?.stackUserId,
+    apiKeyId: input.identity?.apiKeyId,
     vmId: input.identity?.vmId ?? null,
     provider: "claude",
     agent,
@@ -1087,6 +1257,7 @@ function captureModelUsage(
     requestId: ledger.requestId,
     teamId: identity.teamId,
     stackUserId: identity.stackUserId,
+    apiKeyId: identity.apiKeyId,
     vmId: identity.vmId,
     provider: "claude",
     upstreamKind: upstream.kind,

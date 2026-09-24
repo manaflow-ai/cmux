@@ -28,6 +28,7 @@ final class MobileAttachTicketStore {
         terminalID: String?,
         routes: [CmxAttachRoute],
         ttl: TimeInterval,
+        macDeviceID: String = MobileHostIdentity.deviceID(),
         macUserEmail: String? = nil,
         macUserID: String? = nil,
         macPairingCompatibilityVersion: Int? = nil,
@@ -46,7 +47,7 @@ final class MobileAttachTicketStore {
         let ticket = try CmxAttachTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
-            macDeviceID: MobileHostIdentity.deviceID(),
+            macDeviceID: macDeviceID,
             macDisplayName: MobileHostIdentity.instanceDisplayName(),
             macUserEmail: macUserEmail,
             macUserID: macUserID,

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 : "${CMUX_DERIVED_DATA_PATH:?CMUX_DERIVED_DATA_PATH is required}"
-SOURCE_PACKAGES_DIR="${CMUX_SOURCE_PACKAGES_DIR:-$PWD/.ci-source-packages}"
+: "${CMUX_UI_XCTESTRUN:?CMUX_UI_XCTESTRUN is required}"
 
 DRC_HELPER_PATH=""
 DRC_DIAG_PATH=""
@@ -260,10 +260,7 @@ PRELAUNCH_EOF
     DRC_START_SIGNAL_PID=$!
 
     xcodebuild_ok=false
-    if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-      -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-      -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-      -disableAutomaticPackageResolution \
+    if xcodebuild -xctestrun "$CMUX_UI_XCTESTRUN" \
       -destination "platform=macOS" \
       -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
       test-without-building 2>&1 | tee "$DRC_XCODEBUILD_LOG"; then
@@ -356,10 +353,7 @@ run_browser_find_focus() {
   persistent_display_id="$(tr -d '\n' < "$PERSISTENT_ID_PATH")"
 
   CMUX_UI_TEST_TARGET_DISPLAY_ID="$persistent_display_id" \
-    xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-    -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-    -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-    -disableAutomaticPackageResolution \
+    xcodebuild -xctestrun "$CMUX_UI_XCTESTRUN" \
     -destination "platform=macOS" \
     -maximum-test-execution-time-allowance 180 \
     -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFOpensBrowserFindAfterCmdDCmdLNavigation \
