@@ -6329,10 +6329,32 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             NotificationCenter.default.removeObserver(observer)
         }
 
+        var didCommitGhosttyAppConfig = false
         GhosttyApp.shared.reloadConfiguration(
             soft: true,
             source: "test.fontBarrier",
-            reloadSettingsFromFile: false
+            reloadSettingsFromFile: false,
+            commitCompletion: { _ in didCommitGhosttyAppConfig = true }
+        )
+        // Held, not merely not yet run: the transaction is parked at the
+        // font-work barrier, and giving the main actor turns does not move it.
+        // Only releasing the barrier below may.
+#if DEBUG
+        XCTAssertEqual(
+            GhosttyApp.shared.debugConfigurationReloadPhase,
+            .waitingForFontWork,
+            "The app config update must wait at the font-work barrier"
+        )
+        for _ in 0..<5 { await Task.yield() }
+        XCTAssertEqual(
+            GhosttyApp.shared.debugConfigurationReloadPhase,
+            .waitingForFontWork,
+            "Main-actor turns must not release the font-work barrier"
+        )
+#endif
+        XCTAssertFalse(
+            didCommitGhosttyAppConfig,
+            "The app config must not commit before font work finishes"
         )
         XCTAssertFalse(
             didUpdateGhosttyAppConfig,
