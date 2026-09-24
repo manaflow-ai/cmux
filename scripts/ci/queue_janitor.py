@@ -43,6 +43,13 @@ workflows are never candidates, whatever their state.
 Everything that decides is a pure function over already-fetched JSON; the
 GitHub client at the bottom only fetches and cancels.
 
+Every sweep can also write what it saw per pool (``--pool-load``): queued and
+running macOS jobs, the oldest queued job's age, and the queued jobs that
+belong to release or nightly runs. ci-queue-janitor.yml uploads it as the
+``macos-pool-load`` artifact, and pr_runner_pool.py reads the newest one to
+pick a pull request run's pool without listing every in-flight run's jobs
+itself.
+
 Orphaned runs are a separate pass (find_orphans): a job the runner scheduler
 lost holds nothing on any pool, so that pass ignores the queue threshold,
 has its own cap, and may end main schedules, nightly and TestFlight runs,
@@ -310,6 +317,69 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
         # A failure we cannot time cannot clear the grace window; fail closed.
         decided_by = decided_at = None
     return MacosUsage(queued, running, oldest, compiling, decided_by, decided_at, held_by_pool, queued_by_pool)
+
+
+# Workflows whose queued macOS jobs a pull request must not take a pool from.
+RESERVED_POOL_WORKFLOW = re.compile(r"release|nightly", re.IGNORECASE)
+POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
+POOL_LOAD_VERSION = 1
+# Environment variable -> snapshot settings key, for pr_runner_pool.py.
+POOL_SETTINGS_ENV = {
+    "PR_POOL_LANE": "lane",
+    "PR_POOL_OVERFLOW": "overflow",
+    "PR_POOL_ORDER": "order",
+    "PR_POOL_MAX_QUEUED": "max_queued",
+}
+
+
+def pool_load_snapshot(
+    runs: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    now: dt.datetime,
+    settings: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Per-pool macOS demand from the jobs this sweep already listed.
+
+    A pool is a job's single runner label when it asked for one, which is
+    every Blacksmith job, so pr_runner_pool.py can look a label up directly.
+    Only jobs waiting for a runner count as queued; a `waiting` job is held
+    by an environment approval and asks no pool for anything yet.
+    `reserved_queued` counts the queued jobs of release and nightly runs; it
+    is what tells a pull request to stay off a pool those runs are waiting on.
+    `settings` carries the pool-choice repository variables, which a fork
+    pull request's run cannot read itself.
+    """
+    pools: dict[str, dict[str, Any]] = {}
+    oldest: dict[str, dt.datetime] = {}
+    for run in runs:
+        reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
+        for job in jobs_by_run.get(run.get("id"), ()):
+            if not is_macos_job(job):
+                continue
+            status = job.get("status")
+            if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
+                continue
+            pool = runner_pool(job)
+            entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
+                                            "oldest_queued_minutes": 0})
+            if status in RUNNING_JOB_STATUSES:
+                entry["running"] += 1
+                continue
+            entry["queued"] += 1
+            if reserved:
+                entry["reserved_queued"] += 1
+            created = parse_time(job.get("created_at"))
+            if created and (pool not in oldest or created < oldest[pool]):
+                oldest[pool] = created
+    for pool, created in oldest.items():
+        pools[pool]["oldest_queued_minutes"] = max(0, int((now - created).total_seconds() // 60))
+    return {
+        "version": POOL_LOAD_VERSION,
+        "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "pools": dict(sorted(pools.items())),
+        "settings": dict(settings or {}),
+    }
 
 
 def touches_doomed_job_inputs(paths: Iterable[str]) -> bool:
@@ -1110,6 +1180,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
+    parser.add_argument("--pool-load", type=Path, default=(
+        Path(os.environ["POOL_LOAD_OUT"]) if os.environ.get("POOL_LOAD_OUT") else None),
+        help="write this sweep's per-pool macOS demand here as JSON")
     parser.add_argument("--summary", type=Path, default=(
         Path(os.environ["GITHUB_STEP_SUMMARY"]) if os.environ.get("GITHUB_STEP_SUMMARY") else None))
     args = parser.parse_args(argv)
@@ -1155,6 +1228,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
         return 1
+
+    if args.pool_load:
+        # Before any cancellation: pr_runner_pool.py wants the demand a new run
+        # would queue behind, and the janitor's cancels are capped anyway.
+        pool_settings = {key: os.environ.get(name, "") for name, key in POOL_SETTINGS_ENV.items()}
+        args.pool_load.write_text(
+            json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings), indent=2) + "\n",
+            encoding="utf-8")
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,
