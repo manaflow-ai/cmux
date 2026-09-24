@@ -4431,7 +4431,6 @@ fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
 
-
 /// Every per-machine file the daemon creates under its state root. A cloned
 /// VM must never serve these from the snapshot it was restored from.
 fn state_identity(state: &Path) -> (Vec<u8>, Vec<u8>, String) {
@@ -4490,8 +4489,10 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     );
     assert!(wait_for_screen(&harness.socket, original_surface, &marker).contains(&marker));
     let before = state_identity(&harness.state);
-    let registry_before = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}))
-        ["registry_id"]
+    let registry_before = request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "list-workspaces"}),
+    )["registry_id"]
         .clone();
     let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
     let host_pid = record.host_pid;
@@ -4520,7 +4521,11 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         if path == host_root {
             continue;
         }
-        if path.is_dir() { fs::remove_dir_all(&path).unwrap() } else { fs::remove_file(&path).unwrap() }
+        if path.is_dir() {
+            fs::remove_dir_all(&path).unwrap()
+        } else {
+            fs::remove_file(&path).unwrap()
+        }
     }
     let _ = fs::remove_file(&harness.socket);
 
@@ -4532,20 +4537,32 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
             &harness.socket,
             serde_json::json!({"id": 6, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
         );
+        let data = &resolved["data"];
         if resolved["ok"] == true
-            && resolved["lifecycle"] == "running"
-            && resolved["terminal_incarnation"].as_str() == Some(incarnation.as_str())
-            && let Some(surface) = resolved["surface"].as_u64()
+            && data["lifecycle"] == "running"
+            && data["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = data["surface"].as_u64()
         {
             break surface;
         }
-        assert!(Instant::now() < deadline, "fresh daemon did not adopt the template host");
+        if Instant::now() >= deadline {
+            let workspaces = request_response(
+                &harness.socket,
+                serde_json::json!({"id": 60, "cmd": "list-workspaces"}),
+            );
+            let records = load_terminal_host_records(&harness.host_root()).unwrap_or_default();
+            panic!(
+                "fresh daemon did not adopt the template host: resolved={resolved} workspaces={workspaces} records={}",
+                records.len()
+            );
+        }
         std::thread::sleep(Duration::from_millis(50));
     };
     assert!(wait_for_screen(&harness.socket, adopted_surface, &marker).contains(&marker));
     assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, host_pid);
 
-    let workspaces = request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
+    let workspaces =
+        request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
     assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
     assert_ne!(workspaces["registry_id"], registry_before);
     let after = state_identity(&harness.state);
