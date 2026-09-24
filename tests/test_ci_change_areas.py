@@ -4110,9 +4110,8 @@ def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> N
     )
     assert [row["shard"] for row in changed_rows] == [8], changed_rows
     assert [row["shard"] for row in numbered_rows] == [1, 2, 3, 4, 5, 6, 7], numbered_rows
-    # Shard 8 routes like the others: a same-repository PR pool and a
-    # GitHub-hosted label for a fork's own repository.
-    assert {"pr_runner", "hosted_runner"} <= set(changed_rows[0]), changed_rows
+    # No row names a pool: every consumer runs where compile admission ran.
+    assert all(set(row) == {"shard"} for row in changed_rows + numbered_rows), (changed_rows, numbered_rows)
     assert job["env"]["CMUX_APP_HOST_UNIT_SELECTORS"] == "${{ inputs.unit_selectors }}"
     # Shard 8 must own none of the strict steps the numbered shards run.
     owners = {key: value for key, value in job["env"].items() if key.endswith("_SHARD")}
@@ -4890,19 +4889,6 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert f"CMUX_CI_XCODE_APP: {PR_LANE_XCODE_PIN}" in block, job_name
-        assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
-        assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
-
-    # Same-repository pull-request app-host shards span pools with different
-    # Xcodes, so they pin none and take the machine's newest macOS 26 SDK
-    # Xcode; forks and other events keep the lane pin.
-    for job_name in ["app-host-unit-tests"]:
-        block = workflow_job_block(job_name, MACOS_WORKFLOW)
-        unpinned = PR_LANE_XCODE_PIN.replace(
-            "${{ ",
-            "${{ !(github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) && (",
-        ).replace(" }}", ") || '' }}")
-        assert f"CMUX_CI_XCODE_APP: {unpinned}" in block, job_name
         assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
