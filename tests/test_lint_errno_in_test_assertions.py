@@ -90,6 +90,31 @@ class RejectsErrnoInsideAssertions(unittest.TestCase):
             [(1, "#expect")],
         )
 
+    def test_closure_that_reads_errno_before_its_own_call(self) -> None:
+        # Both closures run inside the assertion, after the probe outside them.
+        self.assertEqual(
+            lines(
+                """\
+                let result = kill(pid, 0)
+                #expect({ errno == ESRCH }())
+                #expect(pid.map { _ in errno == ESRCH } == true)
+                """
+            ),
+            [(2, "#expect"), (3, "#expect")],
+        )
+
+    def test_division_is_not_a_regex_literal(self) -> None:
+        self.assertEqual(
+            lines(
+                """\
+                #expect(total / errno == 1)
+                #expect(a/b == errno)
+                #expect(x /y/ errno)
+                """
+            ),
+            [(1, "#expect"), (2, "#expect"), (3, "#expect")],
+        )
+
     def test_nested_assertions_report_once(self) -> None:
         self.assertEqual(lines("#expect(try #require(errno) == EBADF)\n"), [(1, "#expect")])
 
@@ -140,6 +165,26 @@ class AcceptsCapturedErrno(unittest.TestCase):
         # reads errno straight after its own syscall.
         self.assertEqual(
             lines("#expect(pid.map { kill($0, 0) != 0 && errno == ESRCH } == true)\n"),
+            [],
+        )
+
+    def test_regex_literal_text(self) -> None:
+        self.assertEqual(
+            lines(
+                """\
+                #expect("errno".firstMatch(of: /errno/) != nil)
+                #expect(log.contains(#/errno=\\d+/#))
+                #expect(log.contains(##/
+                    errno
+                    /##))
+                """
+            ),
+            [],
+        )
+
+    def test_immediately_invoked_closure_with_its_own_call(self) -> None:
+        self.assertEqual(
+            lines("#expect({ kill(pid, 0) == -1 && errno == ESRCH }())\n"),
             [],
         )
 

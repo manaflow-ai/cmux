@@ -21,11 +21,15 @@ assertions take autoclosures too; a message such as
 
 The fix never changes the assertion, so this lint rejects every `errno` token
 in an assertion's parenthesised arguments and prints the capture-first form.
-A closure literal inside the arguments is exempt: the macro passes it through
-unchanged, so `pid.map { kill($0, 0) != 0 && errno == ESRCH }` reads `errno` in
-the closure's own body with nothing in between.
+A closure literal inside the arguments is exempt when its body makes a call
+before it reads `errno`: the macro passes the closure through unchanged, so
+`pid.map { kill($0, 0) != 0 && errno == ESRCH }` reads the `errno` its own
+`kill` set, with nothing in between. A closure that reads `errno` before any
+call of its own, such as `{ errno == ESRCH }()`, reads a value set outside it
+and is rejected like a bare read.
 
-Comments and string literals are ignored; string interpolations are scanned.
+Comments, string literals and regex literals are ignored; string
+interpolations are scanned.
 """
 
 from __future__ import annotations
@@ -50,6 +54,13 @@ TEST_PATH = re.compile(
 
 ASSERTION = re.compile(r"(#expect|#require|\bXCTAssert[A-Za-z]*|\bXCTUnwrap)\s*\(")
 ERRNO = re.compile(r"\berrno\b")
+# A call inside a closure body: an identifier, `)`, `]`, `?`, `!` or `>`
+# followed by `(`.
+CALL = re.compile(r"(?:\w|[)\]?!>])\(")
+# Where a bare `/` starts a regex literal instead of dividing: after an
+# operator, an opening bracket, a separator, or one of these keywords.
+REGEX_AFTER_PUNCTUATION = "([{,:;=!&|^?<>+-*%~"
+REGEX_AFTER_KEYWORD = re.compile(r"\b(?:return|try|await|in|case|throw|where|else|if|guard|while)$")
 # `Darwin.errno` and friends are the same global; any other `x.errno` is a
 # member that happens to share the name.
 MODULE_QUALIFIER = re.compile(r"\b(?:Darwin|Glibc|Musl|Foundation)\s*\.\s*$")
@@ -78,7 +89,7 @@ class Finding:
 
 
 class _Masker:
-    """Blank comments and string-literal text, keeping offsets and newlines."""
+    """Blank comments, string-literal and regex-literal text, keeping offsets."""
 
     def __init__(self, text: str) -> None:
         self.text = text
@@ -105,6 +116,10 @@ class _Masker:
                 i = self.block_comment(i)
             elif ch == '"' or (ch == "#" and self.raw_string_hashes(i) is not None):
                 i = self.string(i)
+            elif ch == "#" and self.extended_regex_hashes(i) is not None:
+                i = self.extended_regex(i)
+            elif ch == "/" and self.starts_bare_regex(i):
+                i = self.bare_regex(i)
             elif ch == "(":
                 depth += 1
                 i += 1
@@ -140,6 +155,53 @@ class _Masker:
         if j < self.n and self.text[j] == '"' and j > i:
             return j - i
         return None
+
+    def extended_regex_hashes(self, i: int) -> Optional[int]:
+        j = i
+        while j < self.n and self.text[j] == "#":
+            j += 1
+        if j < self.n and self.text[j] == "/" and j > i:
+            return j - i
+        return None
+
+    def extended_regex(self, i: int) -> int:
+        """`#/.../#`, which may span lines. It has no interpolation."""
+        hashes = self.extended_regex_hashes(i) or 0
+        start = i + hashes + 1
+        end = self.text.find("/" + "#" * hashes, start)
+        end = self.n if end == -1 else end
+        self.blank(start, end)
+        return min(end + 1 + hashes, self.n)
+
+    def starts_bare_regex(self, i: int) -> bool:
+        """A `/` in expression position, followed by a non-space, that closes
+        on the same line. Anything else is division."""
+        if i + 1 >= self.n or self.text[i + 1] in " \t\n":
+            return False
+        before = "".join(self.out[max(0, i - 80) : i]).rstrip()
+        if before and before[-1] not in REGEX_AFTER_PUNCTUATION:
+            if REGEX_AFTER_KEYWORD.search(before) is None:
+                return False
+        return self.bare_regex_end(i) is not None
+
+    def bare_regex_end(self, i: int) -> Optional[int]:
+        text = self.text
+        j = i + 1
+        while j < self.n and text[j] != "\n":
+            if text[j] == "\\":
+                j += 2
+            elif text[j] == "/":
+                # A bare regex literal cannot end in a space.
+                return j if text[j - 1] not in " \t" else None
+            else:
+                j += 1
+        return None
+
+    def bare_regex(self, i: int) -> int:
+        end = self.bare_regex_end(i)
+        assert end is not None
+        self.blank(i + 1, end)
+        return end + 1
 
     def string(self, i: int) -> int:
         text = self.text
@@ -191,6 +253,10 @@ def _argument_end(masked: str, open_paren: int) -> int:
     return len(masked)
 
 
+def _closure_calls_before(masked: str, lo: int, index: int) -> bool:
+    return CALL.search(masked, lo + 1, index) is not None
+
+
 def _closure_spans(masked: str, start: int, end: int) -> List[Tuple[int, int]]:
     spans: List[Tuple[int, int]] = []
     depth = 0
@@ -230,7 +296,12 @@ def scan_source(text: str, path: str) -> List[Finding]:
         closures = _closure_spans(masked, open_paren, end)
         for token in ERRNO.finditer(masked, open_paren, end):
             index = token.start()
-            if any(lo < index < hi for lo, hi in closures):
+            # A closure reads the errno of its own earlier call; one that reads
+            # errno first sees a value set before the assertion ran.
+            if any(
+                lo < index < hi and _closure_calls_before(masked, lo, index)
+                for lo, hi in closures
+            ):
                 continue
             if not _is_errno_global(masked, index, end):
                 continue
