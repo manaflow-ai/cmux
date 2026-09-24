@@ -1,98 +1,45 @@
-name: IROH v2
+name: IROH v2 deployment target diagnostic
 
 on:
-  pull_request:
-    paths:
-      - workers/iroh-v2/**
-      - Packages/Shared/CmuxIrxTransport/**
-      - .github/workflows/iroh-v2.yml
-  push:
-    branches: [main]
-    paths:
-      - workers/iroh-v2/**
-      - Packages/Shared/CmuxIrxTransport/**
-      - .github/workflows/iroh-v2.yml
   workflow_dispatch:
-    inputs:
-      deploy_development:
-        description: Deploy the tested revision to the development worker
-        type: boolean
-        default: false
-
-# A new push cancels the previous run for the same pull request. Other events
-# key on the run id, so they never cancel each other.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  client:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 15
+  target:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - name: Run control-service, compatibility and admission regressions
-        run: >-
-          swift test --package-path Packages/Shared/CmuxIrxTransport
-          --filter 'V2URLSessionSocketTests|V2ControlServiceTests|V2DirectoryCompatibilityTests|V2FileStateStoreTests|V2KeychainStoreTests|V2InstallationIDStoreTests|IrxJournalTests|V2InboundAdmissionAuthorityTests|IrxMacPeerAuthorizationTests'
-
-  backend:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: workers/iroh-v2
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          # Miniflare 5 needs the ws upgrade events implemented in Bun 1.4.
-          bun-version: "1.4.2"
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "22"
-      - run: bun install --frozen-lockfile
-      - name: Contracts, architecture, generated bindings and unit tests
-        run: bun run check
-      - name: Real Cloudflare runtime and SQLite tests
-        run: bun run test:runtime
-      - name: Validate staging and production bundles
-        run: |
-          bunx wrangler deploy --env staging --dry-run --outdir dist/staging
-          bunx wrangler deploy --env production --dry-run --outdir dist/production
-
-  deploy-development:
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy_development
-    needs: backend
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
-    concurrency:
-      group: iroh-v2-deploy-development
-      cancel-in-progress: false
-    defaults:
-      run:
-        working-directory: workers/iroh-v2
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: "22"
-      - run: bun install --frozen-lockfile
-      - name: Deploy development worker
+      - name: Check account and required secret names without changing the Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN"; exit 1; }
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          bunx wrangler deploy --env development
+          python3 - <<'PY_CHECK'
+          import json, os, urllib.request, urllib.error
+          expected = "0c1675e0def6de1ab3a50a4e17dc5656"
+          configured = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+          token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+          print("iroh_account_match=" + str(configured == expected).lower())
+          if not configured or not token:
+              raise SystemExit("Missing deployment authentication")
+          required = {"API_TICKET_CURRENT_KEY_ID", "API_TICKET_KEYS", "AXIOM_TOKEN", "DATABASE_URL", "RELAY_KEY_ID", "RELAY_SIGNING_KEY", "RELAY_URLS", "SENTRY_DSN", "STACK_PROJECT_ID", "STACK_PUBLISHABLE_KEY", "STACK_SERVER_KEY"}
+          targets = [("configured", configured)]
+          if configured != expected:
+              targets.append(("expected_iroh_account", expected))
+          for label, account in targets:
+              url = "https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/cmux-iroh-v2-development/secrets"
+              request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+              try:
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      payload = json.load(response)
+              except urllib.error.HTTPError as error:
+                  print(json.dumps({"target": label, "http": error.code}))
+                  continue
+              if not payload.get("success"):
+                  print(json.dumps({"target": label, "success": False, "errorCodes": [item.get("code") for item in payload.get("errors", [])]}))
+                  continue
+              names = sorted(item["name"] for item in payload.get("result", []) if isinstance(item, dict) and isinstance(item.get("name"), str))
+              print(json.dumps({"target": label, "success": True, "secretNames": names, "missingRequiredNames": sorted(required - set(names))}))
+          PY_CHECK
