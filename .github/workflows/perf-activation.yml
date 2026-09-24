@@ -165,7 +165,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -179,7 +179,7 @@ jobs:
 
           # Guard against a stale/poisoned Swift-package cache: resolve can
           # report success without binary artifacts materialized. Matches the
-          # check test-e2e.yml and test-depot.yml already run; this workflow
+          # check test-e2e.yml and test-macos-suite.yml already run; this workflow
           # now restores from the same shared `spm-` namespace they do.
           for attempt in 1 2 3; do
             if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
