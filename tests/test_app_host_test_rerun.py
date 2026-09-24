@@ -66,6 +66,29 @@ class EligibilityTests(unittest.TestCase):
         head = self.repo.commit("cmux.xcodeproj/project.pbxproj", "y")
         self.assertEqual(rerun.non_test_changes(base, head, cwd=str(self.repo.path)), ["cmux.xcodeproj/project.pbxproj"])
 
+    def test_docs_and_ci_changes_do_not_change_the_app(self) -> None:
+        base = self.repo.commit("Sources/App.swift", "1")
+        self.repo.commit("docs/ci-runners.md", "x")
+        self.repo.commit(".github/workflows/ci.yml", "x")
+        head = self.repo.commit("scripts/ci/tool.py", "x")
+        self.assertEqual(rerun.non_test_changes(base, head, cwd=str(self.repo.path)), [])
+
+    def test_bundled_markdown_and_skills_change_the_app(self) -> None:
+        # The app copies these into its resources; the rerun keeps CI's app.
+        base = self.repo.commit("Sources/App.swift", "1")
+        self.repo.commit("Resources/en.lproj/cloud-agent-skill.md", "x")
+        head = self.repo.commit("skills/cmux-cua/SKILL.md", "x")
+        self.assertEqual(
+            rerun.non_test_changes(base, head, cwd=str(self.repo.path)),
+            ["Resources/en.lproj/cloud-agent-skill.md", "skills/cmux-cua/SKILL.md"],
+        )
+
+    def test_no_neutral_path_is_referenced_by_the_project(self) -> None:
+        paths = re.findall(r'path = "?([^";]+)"?;', (ROOT / "cmux.xcodeproj" / "project.pbxproj").read_text())
+        for path in paths:
+            if path.startswith(rerun.OUTSIDE_THE_APP) or path + "/" in rerun.OUTSIDE_THE_APP:
+                self.assertIn(path, ("cmuxTests", "cmuxUITests"), path)
+
     def test_limit_bounds_the_walk(self) -> None:
         for index in range(5):
             head = self.repo.commit("cmuxTests/ATests.swift", str(index))
@@ -148,6 +171,26 @@ class PullRequestProductTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no single merge commit"):
             self.built(run)
 
+    def dispatched_run(self, built: str, run_id: int = 6) -> dict:
+        title = f"cmuxTests/ATests on blacksmith-6vcpu-macos-26 @ {built} [abc123]"
+        return {"id": run_id, "event": "workflow_dispatch", "head_sha": self.head, "display_title": title,
+                "path": ".github/workflows/test-e2e.yml"}
+
+    def test_a_dispatched_ci_run_built_its_head(self) -> None:
+        # ci-main-full-suite.yml dispatches main's ci.yml, titled just "CI".
+        run = {"id": 7, "event": "workflow_dispatch", "head_sha": self.head, "display_title": "CI",
+               "path": ".github/workflows/ci.yml"}
+        self.assertEqual(self.built(run), self.head)
+
+    def test_a_dispatched_run_built_the_revision_its_title_names(self) -> None:
+        self.assertEqual(self.built(self.dispatched_run(self.base)), self.base)
+
+    def test_a_dispatched_run_without_a_full_revision_is_rejected(self) -> None:
+        run = self.dispatched_run(self.base)
+        run["display_title"] = "cmuxTests/ATests on blacksmith-6vcpu-macos-26 @ my-branch"
+        with self.assertRaisesRegex(ValueError, "no full revision"):
+            self.built(run)
+
     def plan(self, ref: str, source_run_id: str, api) -> dict:
         self.addCleanup(os.chdir, os.getcwd())
         os.chdir(self.repo.path)
@@ -193,6 +236,21 @@ class PullRequestProductTests(unittest.TestCase):
         # carries the base's app change; the older push run built the head.
         runs = [
             {**self.pull_request_run(run_id=2), "created_at": "2026-01-02"},
+            {"id": 1, "event": "push", "head_sha": self.head, "created_at": "2026-01-01"},
+        ]
+
+        def api(path: str) -> dict:
+            if "head_sha=" in path:
+                return {"workflow_runs": runs if f"head_sha={self.head}" in path else []}
+            return {"artifacts": [self.PRODUCTS]}
+
+        planned = self.plan(self.head, "", api)
+        self.assertEqual((planned["source_run_id"], planned["source_sha"]), ("1", self.head))
+
+    def test_automatic_plan_passes_over_a_dispatched_run_of_another_revision(self) -> None:
+        # test-e2e.yml runs list under main's head but compile the branch they test.
+        runs = [
+            {**self.dispatched_run(self.base, run_id=2), "created_at": "2026-01-02"},
             {"id": 1, "event": "push", "head_sha": self.head, "created_at": "2026-01-01"},
         ]
 
@@ -410,6 +468,68 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][:3], ["gh", "run", "download"])
 
 
+class SourcePruningTests(unittest.TestCase):
+    """A rerun compiles only the test sources its suites can reach."""
+
+    SOURCES = {
+        "ATests.swift": "final class ATests: XCTestCase {\n    func testOne() { XCTAssertEqual(makeWidget().size, 2) }\n}\n",
+        "ATests+More.swift": "extension ATests {\n    func testTwo() {}\n}\n",
+        "WidgetSupport.swift": "func makeWidget() -> Widget { Widget(size: 2) }\nstruct Widget { let size: Int }\n",
+        "Unrelated.swift": "final class BTests: XCTestCase {\n    func testThree() { XCTAssertTrue(true) }\n}\n",
+        "Private.swift": "private func makeWidget() -> Int { 1 }\nstruct Other {}\n",
+        "Members.swift": "extension Widget {\n    var doubled: Int { size * 2 }\n    func unused() {\n        let size = 3\n    }\n}\n",
+        "Conformance.swift": "extension Widget: Equatable {}\n",
+        "Init.swift": "extension Widget {\n    init() { self.init(size: 1) }\n}\n",
+    }
+
+    def closure(self, suites: set[str], **changes: str) -> set[str] | None:
+        return rerun.source_closure({**self.SOURCES, **changes}, suites)
+
+    def test_follows_the_suite_to_the_helpers_it_uses(self) -> None:
+        self.assertEqual(
+            self.closure({"ATests"}),
+            {"ATests.swift", "ATests+More.swift", "WidgetSupport.swift", "Init.swift"},
+        )
+
+    def test_an_extension_member_or_conformance_comes_in_once_it_is_used(self) -> None:
+        uses = "final class ATests: XCTestCase {\n    func testOne() { XCTAssertEqual(makeWidget().doubled, makeWidget() as Equatable) }\n}\n"
+        kept = self.closure({"ATests"}, **{"ATests.swift": uses})
+        self.assertIn("Members.swift", kept)
+        self.assertIn("Conformance.swift", kept)
+
+    def test_a_local_variable_in_an_extension_is_not_a_member(self) -> None:
+        self.assertNotIn("Members.swift", self.closure({"ATests"}))
+
+    def test_a_suite_not_declared_at_the_top_level_compiles_everything(self) -> None:
+        self.assertIsNone(self.closure({"ATests", "MissingTests"}))
+
+    def test_prunes_only_test_sources_and_keeps_everything_else(self) -> None:
+        original = (ROOT / "cmux.xcodeproj" / "project.pbxproj").read_text()
+        sources = {path.name for path in (ROOT / "cmuxTests").rglob("*.swift")}
+        text, dropped = rerun.prune_project(original, {"CmuxPopoverGroupTests.swift"}, sources)
+        self.assertEqual(dropped, len(sources) - 1)
+        # Only removals; the rewritten list may re-indent the lines it keeps.
+        self.assertTrue({line.strip() for line in text.splitlines()} <= {line.strip() for line in original.splitlines()})
+        phase = text[text.index("F1000005A1B2C3D4E5F60718 /* Sources */ = {"):]
+        phase = phase[: phase.index("};")]
+        self.assertIn("CmuxPopoverGroupTests.swift in Sources", phase)
+        # The bundle also compiles CLI sources and the Objective-C release guard.
+        self.assertIn("CLIError.swift in Sources", phase)
+        self.assertIn("CmuxTestWindowReleaseGuard.m in Sources", phase)
+
+    def test_the_real_suites_reach_a_small_closure(self) -> None:
+        sources = {path.name: path.read_text(errors="replace") for path in (ROOT / "cmuxTests").rglob("*.swift")}
+        kept = rerun.source_closure(sources, {"CmuxPopoverGroupTests"})
+        self.assertIn("CmuxPopoverGroupTests.swift", kept)
+        self.assertLess(len(kept), len(sources) // 10)
+
+    def test_the_workflow_falls_back_to_every_source(self) -> None:
+        text = WORKFLOW.read_text()
+        step = text[text.index("- name: Compile only the cmuxTests bundle"): text.index("- name: Stage and validate products")]
+        self.assertLess(step.index("app_host_test_rerun.py\" prune"), step.index('cp "$RUNNER_TEMP/detached.pbxproj"'))
+        self.assertIn("&& compile; then", step)
+
+
 class WorkflowTests(unittest.TestCase):
     def test_runs_on_a_fork_without_repository_variables(self) -> None:
         labels = re.findall(r"runs-on: (.*)", WORKFLOW.read_text())
@@ -419,6 +539,14 @@ class WorkflowTests(unittest.TestCase):
                 label.startswith("${{ github.repository_owner != 'manaflow-ai' && '"),
                 f"a fork must reach a hosted label before any variable: {label}",
             )
+
+    def test_every_swiftpm_cache_key_carries_the_layout_version(self) -> None:
+        # #14013 moved the artifact zips into the seed and bumped the layout;
+        # a key without it restores a pre-#14013 seed, and resolution then
+        # downloads the artifacts again (116 s in run 36012287965).
+        for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            for key in re.findall(r"key: (spm-.*)", workflow.read_text()):
+                self.assertIn("scripts/ci/swiftpm-cache-layout", key, f"{workflow.name}: {key}")
 
     def test_the_helper_comes_from_the_workflow_revision(self) -> None:
         text = WORKFLOW.read_text()

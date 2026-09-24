@@ -84475,6 +84475,65 @@
         }
       }
     },
+    "mobile.ios106PairingUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · September 2026"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026年9月"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · September 2026"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · septembre 2026"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · سبتمبر 2026"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · septiembre de 2026"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026 年 9 月"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026 年 9 月"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1.0.6 · 2026년 9월"
+          }
+        }
+      }
+    },
     "mobile.connectionsUpdate.releaseLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -85897,55 +85956,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use cmux %@ or later. Older Macs: use BETA 1.0.4 (20260817224846)."
+            "value": "Use cmux %@ or later. Older Macs: use BETA 1.0.5 (20260914204800)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この iPhone アップデートは新しい接続プロトコルを使用し、アップデート済みの Mac としかペアリングできません。接続する前に、Mac の cmux を %@ にアップデートしてください。まだ Mac をアップデートしない場合は、旧バージョンの Mac で動作する最後のバージョンである cmux BETA TestFlight 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
+            "value": "この iPhone アップデートは新しい接続プロトコルを使用し、アップデート済みの Mac としかペアリングできません。接続する前に、Mac の cmux を %@ にアップデートしてください。まだ Mac をアップデートしない場合は、旧バージョンの Mac で動作する最後のバージョンである cmux BETA TestFlight 1.0.5 (20260914204800) をそのままご利用ください（または戻してください）。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dieses iPhone-Update spricht ein neues Verbindungsprotokoll und lässt sich nur mit einem aktualisierten Mac koppeln. Aktualisieren Sie cmux auf Ihrem Mac auf %@, bevor Sie eine Verbindung herstellen. Sie sind nicht bereit, Ihren Mac zu aktualisieren? Bleiben Sie bei cmux BETA TestFlight Version 1.0.4 (20260817224846) (oder kehren Sie zu ihr zurück), der letzten Version, die mit älteren Macs funktioniert."
+            "value": "Dieses iPhone-Update spricht ein neues Verbindungsprotokoll und lässt sich nur mit einem aktualisierten Mac koppeln. Aktualisieren Sie cmux auf Ihrem Mac auf %@, bevor Sie eine Verbindung herstellen. Sie sind nicht bereit, Ihren Mac zu aktualisieren? Bleiben Sie bei cmux BETA TestFlight Version 1.0.5 (20260914204800) (oder kehren Sie zu ihr zurück), der letzten Version, die mit älteren Macs funktioniert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cette mise à jour de l'iPhone utilise un nouveau protocole de connexion et s'associe uniquement à un Mac mis à jour. Mettez à jour cmux sur votre Mac vers %@ avant de vous connecter. Pas prêt à mettre à jour votre Mac ? Restez sur (ou revenez à) cmux BETA TestFlight version 1.0.4 (20260817224846), la dernière version qui fonctionne avec les anciens Mac."
+            "value": "Cette mise à jour de l'iPhone utilise un nouveau protocole de connexion et s'associe uniquement à un Mac mis à jour. Mettez à jour cmux sur votre Mac vers %@ avant de vous connecter. Pas prêt à mettre à jour votre Mac ? Restez sur (ou revenez à) cmux BETA TestFlight version 1.0.5 (20260914204800), la dernière version qui fonctionne avec les anciens Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يتحدث تحديث iPhone هذا عن بروتوكول اتصال جديد ولا يقترن إلا بجهاز Mac محدث. قم بتحديث cmux على جهاز Mac الخاص بك إلى %@ قبل الاتصال. لست مستعدًا لتحديث جهاز Mac الخاص بك؟ استمر (أو ارجع إلى) إصدار cmux BETA TestFlight 1.0.4 (20260817224846)، الإصدار الأخير الذي يعمل مع أجهزة Mac الأقدم."
+            "value": "يتحدث تحديث iPhone هذا عن بروتوكول اتصال جديد ولا يقترن إلا بجهاز Mac محدث. قم بتحديث cmux على جهاز Mac الخاص بك إلى %@ قبل الاتصال. لست مستعدًا لتحديث جهاز Mac الخاص بك؟ استمر (أو ارجع إلى) إصدار cmux BETA TestFlight 1.0.5 (20260914204800)، الإصدار الأخير الذي يعمل مع أجهزة Mac الأقدم."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Esta actualización de iPhone utiliza un nuevo protocolo de conexión y solo se empareja con una Mac actualizada. Actualice cmux en su Mac a %@ antes de conectarse. ¿No estás listo para actualizar tu Mac? Permanezca (o vuelva a) cmux BETA TestFlight versión 1.0.4 (20260817224846), la última versión que funciona con Mac más antiguas."
+            "value": "Esta actualización de iPhone utiliza un nuevo protocolo de conexión y solo se empareja con una Mac actualizada. Actualice cmux en su Mac a %@ antes de conectarse. ¿No estás listo para actualizar tu Mac? Permanezca (o vuelva a) cmux BETA TestFlight versión 1.0.5 (20260914204800), la última versión que funciona con Mac más antiguas."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 iPhone 更新採用新的連接協議，並且僅與更新的 Mac 配對。在連接之前，將 Mac 上的 cmux 更新為 %@。還沒準備好更新您的 Mac？保留（或恢復到）cmux BETA TestFlight 版本 1.0.4 (20260817224846)，這是適用於舊版 Mac 的最後一個版本。"
+            "value": "此 iPhone 更新採用新的連接協議，並且僅與更新的 Mac 配對。在連接之前，將 Mac 上的 cmux 更新為 %@。還沒準備好更新您的 Mac？保留（或恢復到）cmux BETA TestFlight 版本 1.0.5 (20260914204800)，這是適用於舊版 Mac 的最後一個版本。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此 iPhone 更新采用新的连接协议，并且仅与更新的 Mac 配对。连接之前，将 Mac 上的 cmux 更新为 %@。还没准备好更新您的 Mac？保留（或恢复到）cmux BETA TestFlight 版本 1.0.4 (20260817224846)，这是适用于旧版 Mac 的最后一个版本。"
+            "value": "此 iPhone 更新采用新的连接协议，并且仅与更新的 Mac 配对。连接之前，将 Mac 上的 cmux 更新为 %@。还没准备好更新您的 Mac？保留（或恢复到）cmux BETA TestFlight 版本 1.0.5 (20260914204800)，这是适用于旧版 Mac 的最后一个版本。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 iPhone 업데이트는 새로운 연결 프로토콜을 사용하며 업데이트된 Mac과만 페어링됩니다. 연결하기 전에 Mac의 cmux를 %@로 업데이트하세요. 아직 Mac을 업데이트할 준비가 되지 않으셨나요? 이전 Mac에서 작동하는 마지막 버전인 cmux BETA TestFlight 버전 1.0.4(20260817224846)를 유지하거나 이전 버전으로 되돌립니다."
+            "value": "이 iPhone 업데이트는 새로운 연결 프로토콜을 사용하며 업데이트된 Mac과만 페어링됩니다. 연결하기 전에 Mac의 cmux를 %@로 업데이트하세요. 아직 Mac을 업데이트할 준비가 되지 않으셨나요? 이전 Mac에서 작동하는 마지막 버전인 cmux BETA TestFlight 버전 1.0.5(20260914204800)를 유지하거나 이전 버전으로 되돌립니다."
           }
         }
       }
@@ -86015,55 +86074,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+            "value": "Not ready? Stay on (or revert to) cmux BETA 1.0.5 (20260914204800)."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "まだの場合は、cmux BETA 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
+            "value": "まだの場合は、cmux BETA 1.0.5 (20260914204800) をそのままご利用ください（または戻してください）。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch nicht bereit? Bleiben Sie bei cmux BETA 1.0.4 (20260817224846) oder kehren Sie dorthin zurück."
+            "value": "Noch nicht bereit? Bleiben Sie bei cmux BETA 1.0.5 (20260914204800) oder kehren Sie dorthin zurück."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pas encore prêt ? Restez sur cmux BETA 1.0.4 (20260817224846) ou revenez-y."
+            "value": "Pas encore prêt ? Restez sur cmux BETA 1.0.5 (20260914204800) ou revenez-y."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لست مستعدًا بعد؟ ابقَ على cmux BETA 1.0.4 (20260817224846) أو ارجع إليه."
+            "value": "لست مستعدًا بعد؟ ابقَ على cmux BETA 1.0.5 (20260914204800) أو ارجع إليه."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Aún no? Quédate en cmux BETA 1.0.4 (20260817224846) o vuelve a esa versión."
+            "value": "¿Aún no? Quédate en cmux BETA 1.0.5 (20260914204800) o vuelve a esa versión."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "還沒準備好？可以繼續使用（或還原至）cmux BETA 1.0.4 (20260817224846)。"
+            "value": "還沒準備好？可以繼續使用（或還原至）cmux BETA 1.0.5 (20260914204800)。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "还没准备好？可以继续使用（或还原至）cmux BETA 1.0.4 (20260817224846)。"
+            "value": "还没准备好？可以继续使用（或还原至）cmux BETA 1.0.5 (20260914204800)。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 준비되지 않았나요? cmux BETA 1.0.4 (20260817224846)를 계속 사용하거나 해당 버전으로 되돌리세요."
+            "value": "아직 준비되지 않았나요? cmux BETA 1.0.5 (20260914204800)를 계속 사용하거나 해당 버전으로 되돌리세요."
           }
         }
       }

@@ -14529,6 +14529,20 @@
         "ko": {"stringUnit": {"state": "translated", "value": "1.0.4 · 2026년 9월"}}
       }
     },
+    "mobile.ios106PairingUpdate.releaseLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "1.0.6 · September 2026"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026年9月"}},
+        "de": {"stringUnit": {"state": "translated", "value": "1.0.6 · September 2026"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "1.0.6 · septembre 2026"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "1.0.6 · سبتمبر 2026"}},
+        "es": {"stringUnit": {"state": "translated", "value": "1.0.6 · septiembre de 2026"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026 年 9 月"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026 年 9 月"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "1.0.6 · 2026년 9월"}}
+      }
+    },
     "mobile.whatsNew.pairing.pageTitle": {
       "extractionState": "manual",
       "localizations": {

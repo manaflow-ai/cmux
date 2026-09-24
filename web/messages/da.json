@@ -4054,5 +4054,15 @@
     "organization": "Organisation",
     "personalAccount": "personlig konto",
     "switchAccountButton": "Brug en anden konto"
+  },
+  "MobileRelease106": {
+    "title": "Nyt i 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Opdaterede Mac-forbindelser",
+    "connectionDetail": "Denne opdatering bruger den nye forbindelsestjeneste og Iroh-transport. Ældre Mac-builds skal opdateres for at oprette forbindelse.",
+    "updateTitle": "Opdater cmux på din Mac",
+    "updateDetail": "Kræver cmux {stableVersion} eller nyere eller NIGHTLY {nightlyVersion} eller nyere. Slå iOS-parring til i Indstillinger > Mobil på hver Mac.",
+    "rollbackTitle": "Har du brug for at beholde et ældre Mac-build?",
+    "rollbackDetail": "Brug cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere builds, så længe det er tilgængeligt. Vælg netop dette build, da senere builds bruger en nyere forbindelsestjeneste."
   }
 }
