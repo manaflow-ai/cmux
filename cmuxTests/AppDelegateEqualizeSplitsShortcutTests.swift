@@ -6352,8 +6352,14 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             source: "test.fontBarrier",
             reloadSettingsFromFile: false
         )
+        // The reload publishes on later main-actor turns, so a check made
+        // straight after the call passes whether or not the barrier holds.
+        // Give it those turns while font work still holds the barrier.
+        let publishedBeforeFontWork = await AppKitTestEventPump().waitUntil(
+            timeout: .milliseconds(500)
+        ) { didUpdateGhosttyAppConfig }
         XCTAssertFalse(
-            didUpdateGhosttyAppConfig,
+            publishedBeforeFontWork,
             "The app config update itself must wait behind font work"
         )
         XCTAssertGreaterThan(scheduler.delays.count, 2)
