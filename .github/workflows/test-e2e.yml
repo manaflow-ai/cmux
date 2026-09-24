@@ -357,8 +357,10 @@ jobs:
           # admission uses, so it can adopt the DerivedData seeds main
           # publishes for admission (see "Adopt the DerivedData seed").
           workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          # The CAS path is a compiler argument, so it must match admission's
+          # too: any other value invalidates every compile the seed carries.
           DERIVED_DATA_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission"
-          CACHE_PATH="$workspace_path/DerivedData/cmux-e2e-compilation-cache"
+          CACHE_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"
           rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
           mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
@@ -419,8 +421,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.compilation-cache-restore.outcome == 'failure' }}
         run: |
           set -euo pipefail
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
-          if [ "$CMUX_E2E_COMPILATION_CACHE" != "$workspace_path/DerivedData/cmux-e2e-compilation-cache" ]; then
+          if [ "$CMUX_E2E_COMPILATION_CACHE" != "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" ]; then
             echo "::error::refusing to clear an unowned compilation cache"
             exit 1
           fi
@@ -660,11 +661,10 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
           cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
           case "$cache_path" in
-            "$workspace_path/DerivedData/cmux-e2e-compilation-cache"|"") ;;
+            "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"|"") ;;
             *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
           esac
           case "$derived_data_path" in
