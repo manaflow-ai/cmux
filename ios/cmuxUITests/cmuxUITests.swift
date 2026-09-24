@@ -7545,7 +7545,7 @@ final class cmuxUITests: XCTestCase {
             // A fresh simulator may cover the keyboard with Apple's typing
             // introduction. Compare the actual keyboard in both builds.
             let typingIntroduction = app.buttons["Continue"]
-            if typingIntroduction.waitForExistence(timeout: 1) {
+            if typingIntroduction.exists {
                 typingIntroduction.tap()
             }
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-keyboard")
