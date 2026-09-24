@@ -173,16 +173,24 @@ pool, and no machine carries the new label until glaeda has verified the new
 Xcode on it. Only the `std` class (48 GB) takes a whole run. With
 `CI_PR_POOL_OWNED=1` the owned pool goes first in the default order and the
 Blacksmith pools become overflow. Its capacity is its entry in
-`CI_OWNED_POOL_SLOTS`; the janitor's snapshot counts the jobs queued and
-running on that label, and the run takes the pool only while a slot is free
-after the runs created since the snapshot. It is skipped when the snapshot is
-older than 20 minutes or the label has no slots, and it is never the
-fewest-queued fallback. Fork runs never take it.
+`CI_OWNED_POOL_SLOTS`, and the janitor's snapshot counts the jobs queued and
+running on that label. A pull request run puts several macOS jobs on its pool
+at once, so a run takes the owned pool only when `CI_OWNED_POOL_JOBS_PER_RUN`
+machines (default 3) are still free after the jobs already there and the runs
+created since the snapshot. It is skipped when the snapshot is older than 20
+minutes or the label has no slots, and it is never the fewest-queued fallback.
+Fork runs and retry attempts never take it. While `CI_PR_POOL_OWNED` is off,
+owned labels in `CI_PR_POOL_ORDER` are dropped and the rest of the order is
+used; an owned label for another Xcode than the lane's pin is dropped the same
+way and named in the `changes` summary. An order left empty by that turns the
+preference off. A pin path that is not `/Applications/Xcode_<version>.app`
+names no owned pool.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below; an order naming an owned pool is ignored while this is off |
-| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, from the fleet manifest: `{"glaeda-std-xcode-26.6": 11}` |
+| `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 11}` |
+| `CI_OWNED_POOL_JOBS_PER_RUN` | `3` | machines a run needs free to take an owned pool (1 to 10) |
 
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it

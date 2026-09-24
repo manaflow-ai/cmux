@@ -117,6 +117,14 @@ XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
+# A pull request run puts several macOS jobs on its pool at once (compile
+# admission, tests-build-and-lag, the Claude wrapper, CLI pipe and remote
+# daemon lanes), each on its own owned machine. A run takes an owned pool only
+# when that many machines are free, so its later jobs do not queue there and
+# trip the rescue.
+JOBS_PER_RUN_VARIABLE = "CI_OWNED_POOL_JOBS_PER_RUN"
+DEFAULT_JOBS_PER_RUN = 3
+MAX_JOBS_PER_RUN = 10
 # A snapshot older than this is not trusted to place a run on an owned pool.
 OWNED_MAX_AGE_MINUTES = 20
 # Pools whose machines are discarded after each job; the only ones a fork run may use.
@@ -143,6 +151,9 @@ API = "https://api.github.com"
 class Settings:
     order: tuple[str, ...] = DEFAULT_ORDER
     max_queued: int = DEFAULT_MAX_QUEUED
+    jobs_per_run: int = DEFAULT_JOBS_PER_RUN
+    # Owned labels the order named for another Xcode than the lane's pin.
+    stale: tuple[str, ...] = ()
 
 
 def persistent(label: str) -> bool:
@@ -166,12 +177,14 @@ class Choice:
 
 
 def settings(overflow: str | None, order: str | None, max_queued: str | None,
-             owned: str | None = None, pr_xcode_app: str | None = None) -> Settings | None:
+             owned: str | None = None, pr_xcode_app: str | None = None,
+             jobs_per_run: str | None = None) -> Settings | None:
     """Settings from repository variables; None when turned off or invalid.
 
-    Owned pools stay out of the order unless `owned` is "1", even when
+    Owned pools are dropped from the order unless `owned` is "1", even when
     CI_PR_POOL_ORDER names them, so one variable turns the fleet on and off.
-    An owned label in the order must be the one the lane's Xcode pin names.
+    An owned label for another Xcode than the lane's pin is dropped too and
+    reported, so a moved pin never turns off the Blacksmith preference.
     """
     if (overflow or "").strip() == "0":
         return None
@@ -185,16 +198,20 @@ def settings(overflow: str | None, order: str | None, max_queued: str | None,
         labels = tuple(label for label in labels if not persistent(label))
         if not labels:
             return None
-    known = set(POOLS) | set(current)
-    if len(set(labels)) != len(labels) or any(label not in known for label in labels):
+    stale = tuple(label for label in labels if persistent(label) and label not in current)
+    labels = tuple(label for label in labels if label not in stale)
+    if not labels:
+        return None
+    if len(set(labels)) != len(labels) or any(label not in POOLS and label not in current for label in labels):
         return None
     try:
         limit = int(max_queued) if (max_queued or "").strip() else DEFAULT_MAX_QUEUED
+        weight = int(jobs_per_run) if (jobs_per_run or "").strip() else DEFAULT_JOBS_PER_RUN
     except ValueError:
         return None
-    if limit < 1:
+    if limit < 1 or not 1 <= weight <= MAX_JOBS_PER_RUN:
         return None
-    return Settings(labels, limit)
+    return Settings(labels, limit, weight, stale)
 
 
 def parse_time(value: str | None) -> dt.datetime | None:
@@ -262,18 +279,23 @@ def effective_queue(counts: Mapping[str, int], added: int) -> int:
     return counts["queued"] + max(0, added - idle)
 
 
+def owned_free(counts: Mapping[str, int], added_runs: int, jobs_per_run: int) -> int:
+    """Machines of an owned pool still free once `added_runs` more runs took theirs."""
+    return counts.get("capacity", 0) - counts["running"] - counts["queued"] - added_runs * jobs_per_run
+
+
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
-         max_queued: int) -> tuple[str, bool]:
+         max_queued: int, jobs_per_run: int = DEFAULT_JOBS_PER_RUN) -> tuple[str, bool]:
     """The rule itself: first usable pool with headroom, else the fewest queued.
 
-    An owned pool has headroom only while a runner is idle for this run too:
-    a job queued there waits for that pool alone, so it never takes queued
-    work, and it is never the fewest-queued fallback.
+    An owned pool has headroom only while every job of this run gets a machine
+    at once (jobs_per_run of them): a job queued there waits for that pool
+    alone. It is never the fewest-queued fallback.
     """
     queued = {label: effective_queue(load[label], added[label]) for label in usable}
     for label in usable:
         if persistent(label):
-            if effective_queue(load[label], added[label] + 1) == 0:
+            if owned_free(load[label], added[label], jobs_per_run) >= jobs_per_run:
                 return label, True
         elif queued[label] < max_queued:
             return label, True
@@ -337,15 +359,22 @@ def decide(
     note = f"; skipped {', '.join(skipped)} (reserved, no Xcode pin, or owned without slots or a fresh snapshot)" if skipped else ""
     added = {label: max(0, int((placed or {}).get(label) or 0)) for label in usable}
     for _ in range(max(0, routed_since)):
-        earlier, _ = pick(load, added, usable, limits.max_queued)
+        earlier, _ = pick(load, added, usable, limits.max_queued, limits.jobs_per_run)
         added[earlier] += 1
-    label, headroom = pick(load, added, candidates, limits.max_queued)
+    label, headroom = pick(load, added, candidates, limits.max_queued, limits.jobs_per_run)
     if persistent(label) and not headroom:
         return Choice("", "", "every owned pool this run may take is busy, and no other pool is in the order")
     replayed = sum(added.values())
     replay = f" after replaying {replayed} newer run(s)" if replayed else ""
-    why = (f"first pool in order with headroom (< {limits.max_queued} queued){replay}" if headroom
-           else f"no pool has headroom{replay}; fewest queued")
+    if headroom and persistent(label):
+        free = owned_free(load[label], added[label], limits.jobs_per_run)
+        why = f"first pool in order with headroom ({free} of {load[label]['capacity']} owned machines free){replay}"
+    elif headroom:
+        why = f"first pool in order with headroom (< {limits.max_queued} queued){replay}"
+    else:
+        why = f"no pool has headroom{replay}; fewest queued"
+    if limits.stale:
+        note += f"; dropped {', '.join(limits.stale)} (not the lane's Xcode pin)"
     return Choice(label, xcode(label) or "", why + note)
 
 
@@ -361,6 +390,7 @@ def choose(
     xcode_pins: Mapping[str, str],
     owned: str | None = None,
     owned_slots: str | None = None,
+    jobs_per_run: str | None = None,
     fetch: Callable[[], Mapping[str, Any] | None],
     count_routed: Callable[[str], int] = lambda since: 0,
     now: dt.datetime,
@@ -375,7 +405,7 @@ def choose(
     if not fork:
         if (default_runner or "").strip() != DEFAULT_RUNNER:
             return Choice("", "", f"MACOS_RUNNER_PR is {default_runner or 'unset'}, not {DEFAULT_RUNNER}"), None
-        limits = settings(overflow, order, max_queued, owned, xcode_pins.get(PR_XCODE_VARIABLE))
+        limits = settings(overflow, order, max_queued, owned, xcode_pins.get(PR_XCODE_VARIABLE), jobs_per_run)
         if limits is None:
             return Choice("", "", f"{OVERFLOW_VARIABLE} is 0, or {ORDER_VARIABLE}/{MAX_QUEUED_VARIABLE} "
                                   "is invalid"), None
@@ -566,6 +596,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         max_queued=env.get("POOL_MAX_QUEUED"),
         owned=env.get("POOL_OWNED"),
         owned_slots=env.get("OWNED_SLOTS"),
+        jobs_per_run=env.get("OWNED_JOBS_PER_RUN"),
         xcode_pins={variable: env.get(variable) or ""
                     for variable in {*POOLS.values(), PR_XCODE_VARIABLE} if variable},
         fetch=fetch,
