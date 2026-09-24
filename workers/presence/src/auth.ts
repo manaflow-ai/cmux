@@ -20,6 +20,10 @@ export interface AuthEnv {
   STACK_API_URL?: string;
   STACK_PROJECT_ID?: string;
   STACK_PUBLISHABLE_CLIENT_KEY?: string;
+  /** Comma-separated email domains. When set, only users whose VERIFIED
+   * primary email is in one of these domains authenticate. Set for Worker
+   * Previews (internal team only); unset in production. */
+  ALLOWED_EMAIL_DOMAINS?: string;
 }
 
 export interface AuthedUser {
@@ -147,6 +151,25 @@ function stackHeaders(env: AuthEnv, accessToken: string): Record<string, string>
   };
 }
 
+/** Pure for tests. With no configured domains every user passes; otherwise
+ * the primary email must be verified and its domain must match exactly
+ * (case-insensitive), so `evil-manaflow.ai` or `manaflow.ai.evil.com` fail. */
+export function isAllowedEmail(
+  allowedDomains: string | undefined,
+  primaryEmail: unknown,
+  primaryEmailVerified: unknown,
+): boolean {
+  const domains = (allowedDomains ?? "")
+    .split(",")
+    .map((domain) => domain.trim().toLowerCase())
+    .filter((domain) => domain.length > 0);
+  if (domains.length === 0) return true;
+  if (primaryEmailVerified !== true || typeof primaryEmail !== "string") return false;
+  const at = primaryEmail.lastIndexOf("@");
+  if (at <= 0) return false;
+  return domains.includes(primaryEmail.slice(at + 1).trim().toLowerCase());
+}
+
 async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<AuthedUser | null> {
   const apiUrl = (env.STACK_API_URL ?? "https://api.stack-auth.com").replace(/\/$/, "");
   const headers = stackHeaders(env, accessToken);
@@ -157,9 +180,14 @@ async function fetchStackUser(env: AuthEnv, accessToken: string): Promise<Authed
     id?: unknown;
     selected_team_id?: unknown;
     selected_team?: { id?: unknown } | null;
+    primary_email?: unknown;
+    primary_email_verified?: unknown;
   };
   const userId = typeof me.id === "string" && me.id ? me.id : null;
   if (!userId) return null;
+  if (!isAllowedEmail(env.ALLOWED_EMAIL_DOMAINS, me.primary_email, me.primary_email_verified)) {
+    return null;
+  }
   const selectedTeamId =
     typeof me.selected_team_id === "string" && me.selected_team_id
       ? me.selected_team_id

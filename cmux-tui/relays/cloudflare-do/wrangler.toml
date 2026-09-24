@@ -20,3 +20,20 @@ new_sqlite_classes = ["RelaySlot", "RelayCircuit"]
 
 [observability.logs]
 enabled = true
+
+# Worker Previews (.github/workflows/worker-previews.yml). Previews get ONLY
+# these bindings, never production secrets, and their Durable Object classes
+# are recreated per Preview. CMUX_RELAY_TICKET_KEY for previews is a
+# preview-only key stored in the Preview base config
+# (`wrangler preview base-config secret put CMUX_RELAY_TICKET_KEY`), so a
+# production ticket never authorizes a preview route and vice versa.
+[previews.vars]
+CMUX_RELAY_TICKET_ISSUER = "cmux-relay"
+
+[[previews.durable_objects.bindings]]
+name = "RELAY_SLOTS"
+class_name = "RelaySlot"
+
+[[previews.durable_objects.bindings]]
+name = "RELAY_CIRCUITS"
+class_name = "RelayCircuit"

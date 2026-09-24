@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   AUTH_CACHE_TTL_MS,
   cacheDeadline,
+  isAllowedEmail,
   requestedTeamIdFromRequest,
   resolveTeamId,
   tokenExpiryMs,
@@ -128,3 +129,27 @@ describe("verifyRequest negative cache", () => {
     }
   });
 })
+
+describe("isAllowedEmail", () => {
+  it("allows every user when no domains are configured (production)", () => {
+    expect(isAllowedEmail(undefined, "someone@example.com", false)).toBe(true);
+    expect(isAllowedEmail(" , ", undefined, undefined)).toBe(true);
+  });
+
+  it("allows a verified email in a configured domain, case-insensitively", () => {
+    expect(isAllowedEmail("manaflow.ai", "dev@Manaflow.AI", true)).toBe(true);
+    expect(isAllowedEmail("example.com, manaflow.ai", "dev@manaflow.ai", true)).toBe(true);
+  });
+
+  it("rejects an unverified email in a configured domain", () => {
+    expect(isAllowedEmail("manaflow.ai", "dev@manaflow.ai", false)).toBe(false);
+    expect(isAllowedEmail("manaflow.ai", "dev@manaflow.ai", undefined)).toBe(false);
+  });
+
+  it("rejects look-alike and missing emails", () => {
+    expect(isAllowedEmail("manaflow.ai", "dev@evil-manaflow.ai", true)).toBe(false);
+    expect(isAllowedEmail("manaflow.ai", "dev@manaflow.ai.evil.com", true)).toBe(false);
+    expect(isAllowedEmail("manaflow.ai", "manaflow.ai", true)).toBe(false);
+    expect(isAllowedEmail("manaflow.ai", null, true)).toBe(false);
+  });
+});

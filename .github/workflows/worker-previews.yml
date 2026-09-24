@@ -1,0 +1,245 @@
+# Cloudflare Worker Previews for pull requests.
+#
+# Every same-repository pull request that changes a Worker gets its own
+# Preview at https://pr-<number>-<worker>.debussy.workers.dev, updated on each
+# push and deleted when the pull request closes. The link appears on the pull
+# request as a "View deployment" button through the GitHub environment.
+#
+# Previews cannot touch production:
+#   - A Preview receives only the bindings in the `previews` block of the
+#     Worker's wrangler config plus the Preview base config. Production Worker
+#     secrets are never inherited.
+#   - Durable Object classes are recreated per Preview (separate namespaces),
+#     so production presence and relay state is unreachable.
+#   - `wrangler preview` never changes the production deployment, routes, or
+#     custom domains.
+#
+# Public repository rules:
+#   - Pull requests from forks never run the deploy jobs: GitHub withholds
+#     secrets from them, and the `if` below skips them explicitly. This file
+#     must never use `pull_request_target`, which would run fork code with
+#     secrets.
+#   - The preview name is derived from the pull request number, never from the
+#     branch name or title.
+#   - The Cloudflare token reaches only the wrangler step, after dependencies
+#     are installed.
+#
+# Token: jobs read CLOUDFLARE_API_TOKEN inside the `cloudflare-worker-previews`
+# environment. An environment secret of that name overrides the repository
+# secret, so a narrower preview-only token can be dropped in without editing
+# this file.
+#
+# Wrangler comes from .github/worker-previews (pinned, lockfile), so previews
+# never change the Wrangler version that production deploys use.
+
+name: Worker previews
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, closed]
+    paths:
+      - workers/presence/**
+      - cmux-tui/relays/cloudflare-do/**
+      - .github/actions/setup-cmux-tui-rust/**
+      - .github/worker-previews/**
+      - .github/workflows/worker-previews.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: worker-previews-${{ github.event.pull_request.number }}
+  # A newer push supersedes an older preview build. A close must finish its
+  # cleanup, and it is also the last event for the pull request.
+  cancel-in-progress: ${{ github.event.action != 'closed' }}
+
+env:
+  WRANGLER_SEND_METRICS: "false"
+
+jobs:
+  changes:
+    name: Detect changed Workers
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      presence: ${{ steps.detect.outputs.presence }}
+      relay: ${{ steps.detect.outputs.relay }}
+    steps:
+      - name: List changed files
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          files="$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')"
+          shared='^(\.github/worker-previews/|\.github/workflows/worker-previews\.yml$)'
+          presence=false
+          relay=false
+          if grep -Eq "^workers/presence/|$shared" <<<"$files"; then presence=true; fi
+          if grep -Eq "^cmux-tui/relays/cloudflare-do/|^\.github/actions/setup-cmux-tui-rust/|$shared" <<<"$files"; then relay=true; fi
+          echo "presence=$presence" >> "$GITHUB_OUTPUT"
+          echo "relay=$relay" >> "$GITHUB_OUTPUT"
+          echo "presence=$presence relay=$relay"
+
+  presence:
+    name: Preview cmux-presence
+    needs: changes
+    if: needs.changes.outputs.presence == 'true' && github.event.action != 'closed'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    environment:
+      name: cloudflare-worker-previews
+      url: ${{ steps.preview.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Install pinned preview Wrangler
+        working-directory: .github/worker-previews
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Worker dependencies
+        working-directory: workers/presence
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck and unit tests
+        working-directory: workers/presence
+        run: |
+          bun run typecheck
+          bun test
+
+      - name: Deploy Preview
+        id: preview
+        uses: ./.github/actions/worker-preview-deploy
+        with:
+          worker-dir: workers/presence
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  relay:
+    name: Preview cmux-remote-relay
+    needs: changes
+    if: needs.changes.outputs.relay == 'true' && github.event.action != 'closed'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    environment:
+      name: cloudflare-worker-previews
+      url: ${{ steps.preview.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Set up pinned Rust toolchain
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Worker builder
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install --locked worker-build@0.8.5
+
+      - name: Install pinned preview Wrangler
+        working-directory: .github/worker-previews
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # Build before the token exists in any step environment. Wrangler runs
+      # the same [build] command again; cargo reuses this build.
+      - name: Build Worker
+        working-directory: cmux-tui/relays/cloudflare-do
+        run: worker-build --release --no-panic-recovery
+
+      - name: Deploy Preview
+        id: preview
+        uses: ./.github/actions/worker-preview-deploy
+        with:
+          worker-dir: cmux-tui/relays/cloudflare-do
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          cloudflare-account-id: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  cleanup:
+    name: Delete Preview
+    needs: changes
+    if: github.event.action == 'closed'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    environment: cloudflare-worker-previews
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [presence, relay]
+        include:
+          - worker: presence
+            dir: workers/presence
+          - worker: relay
+            dir: cmux-tui/relays/cloudflare-do
+    steps:
+      # Deletion reads only the Worker name from the base branch config, so
+      # closing a pull request never executes its code with the token.
+      - name: Checkout base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+
+      - name: Install pinned preview Wrangler
+        working-directory: .github/worker-previews
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo "Base branch has no preview tooling yet; nothing to delete."
+            exit 0
+          fi
+          npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Delete Preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PREVIEW_NAME: pr-${{ github.event.pull_request.number }}
+          WORKER_DIR: ${{ matrix.dir }}
+        run: |
+          set -uo pipefail
+          wrangler="$GITHUB_WORKSPACE/.github/worker-previews/node_modules/.bin/wrangler"
+          [ -x "$wrangler" ] || exit 0
+          if output="$("$wrangler" preview delete --cwd "$WORKER_DIR" --name "$PREVIEW_NAME" -y 2>&1)"; then
+            echo "$output"
+            exit 0
+          fi
+          echo "$output"
+          # A pull request that never produced this Worker's Preview has
+          # nothing to delete.
+          if grep -Eqi 'not found|does not exist|10025|10222' <<<"$output"; then
+            echo "No $PREVIEW_NAME Preview for this Worker."
+            exit 0
+          fi
+          exit 1

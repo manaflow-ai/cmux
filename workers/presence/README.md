@@ -203,3 +203,17 @@ Leave `CMUX_PRESENCE_BASE_URL` unset to use the shared `cmux-presence-dev`
 baseline. The durable fix for any feature is to **merge it** — then it ships on
 prod via CI and anyone deploying dev from `main` carries it, no coordination
 needed.
+
+### Pull request Previews
+
+Every same-repository pull request that touches this Worker gets a Cloudflare
+Preview at `https://pr-<number>-cmux-presence.debussy.workers.dev`, redeployed on
+each push and deleted when the pull request closes
+(`.github/workflows/worker-previews.yml`). The pull request shows it as a
+"View deployment" link. A Preview has its own Durable Object namespaces and
+only the `[previews]` bindings in `wrangler.toml`: the development Stack project,
+staging web, and no production secrets. Point a dev build at it with
+`CMUX_PRESENCE_BASE_URL`, exactly like an isolated dev Worker. Fork pull requests
+get no Preview. `ALLOWED_EMAIL_DOMAINS = "manaflow.ai"` restricts a Preview to
+Stack users with a verified `@manaflow.ai` primary email; every other token gets
+401. Production does not set it.

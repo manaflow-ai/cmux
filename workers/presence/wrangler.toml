@@ -23,6 +23,12 @@ name = "cmux-presence"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
 
+# Worker Previews (.github/workflows/worker-previews.yml) serve each same-repo
+# pull request at https://pr-<number>-cmux-presence.debussy.workers.dev. This
+# only allows preview URLs; the production workers.dev URL stays disabled
+# because of the custom-domain route below.
+preview_urls = true
+
 [observability]
 enabled = true
 
@@ -53,3 +59,26 @@ new_sqlite_classes = ["AccountControlPlane"]
 [[routes]]
 pattern = "presence.cmux.dev"
 custom_domain = true
+
+# Previews get ONLY the bindings declared here, never the production Worker
+# secrets. Durable Object classes are recreated per Preview, so a preview can
+# never read or write production presence state. Auth uses the public
+# development Stack project (the same values Debug builds ship), and the
+# control plane proxies to staging web, matching wrangler.dev.toml.
+# CONNECTIVITY_INVALIDATION_SECRET and SENTRY_DSN are intentionally absent:
+# publisher calls fail closed and Sentry reporting is a no-op.
+[previews.vars]
+STACK_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+STACK_PUBLISHABLE_CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
+CMUX_WEB_BASE_URL = "https://cmux-staging.vercel.app"
+# Only cmux team members (verified @manaflow.ai Stack email) authenticate on a
+# Preview. Production leaves this unset.
+ALLOWED_EMAIL_DOMAINS = "manaflow.ai"
+
+[[previews.durable_objects.bindings]]
+name = "TEAM_PRESENCE"
+class_name = "TeamPresence"
+
+[[previews.durable_objects.bindings]]
+name = "ACCOUNT_CONTROL_PLANE"
+class_name = "AccountControlPlane"
