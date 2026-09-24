@@ -385,11 +385,13 @@ def main(argv: list[str]) -> int:
     # explicit requests for every suite.
     asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
     selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
+    canary = False
     if not unit:
         # Nothing else asked for the unit tests, so a consumer edit takes the
-        # one-suite canary rather than seven shards.
+        # one-suite canary rather than seven shards. ci.yml drops it again when
+        # the compile is reused: it only rides on a compile this run pays for.
         selectors = consumer_canary_selectors(args.root, paths, diff)
-        unit = bool(selectors)
+        unit = canary = bool(selectors)
     steps: list[str] = []
     if selectors:
         workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
@@ -400,6 +402,7 @@ def main(argv: list[str]) -> int:
         f"unit_selectors={' '.join(selectors)}",
         f"unit_strict_steps={''.join(f'|{step}' for step in steps) + '|' if steps else ''}",
         f"coverage_gap={'true' if gap else 'false'}",
+        f"unit_canary={'true' if canary else 'false'}",
     ]
     for line in lines:
         print(line)
