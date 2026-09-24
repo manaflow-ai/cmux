@@ -96,6 +96,7 @@ FORBIDDEN_PATTERNS = (
 # codebase and bans ALL of their names from the guarded functions -- not just the
 # literal `SidebarRowsFillLayout`. This closes the "rename the layout to dodge the
 # guard" bypass (#6870 review).
+LAYOUT_WORD = re.compile(r"\bLayout\b")
 CUSTOM_LAYOUT_DECL = re.compile(
     r"\b(?:struct|final\s+class|class|enum|extension)\s+([A-Z]\w*)\b[^{]*?\bLayout\b[^{]*?\{",
     re.DOTALL,
@@ -176,6 +177,15 @@ REQUIRED_PRIMITIVES = (
 )
 
 
+_CODE_TOKEN = re.compile(r'//|/\*|"""|"')
+_STRING_TOKEN = re.compile(r'[\\"]')
+_NOT_NEWLINE = re.compile(r"[^\n]")
+
+
+def _blank(text):
+    return _NOT_NEWLINE.sub(" ", text)
+
+
 def neutralize_swift(source):
     """Return ``source`` with comment and string-literal *contents* replaced by
     spaces, preserving every character's position and all newlines.
@@ -186,84 +196,68 @@ def neutralize_swift(source):
     the guard, and so braces/parens inside comments or strings never corrupt the
     function-body matching.
     """
+    # Jump between tokens with regex and str.find rather than stepping one
+    # character at a time: the guard neutralizes hundreds of files per run.
+    #
+    # A multi-line string ends only at `"""`, so a bare `"` inside must not end
+    # it; otherwise the rest (e.g. a forbidden token named in prose) would read
+    # as code and trip the guard with a false positive. (#6870 review)
     out = []
     i = 0
     n = len(source)
-    LINE_COMMENT, BLOCK_COMMENT, STRING, MULTILINE_STRING = 1, 2, 3, 4
-    state = 0
     while i < n:
-        ch = source[i]
-        nxt = source[i + 1] if i + 1 < n else ""
-        if state == 0:
-            if ch == "/" and nxt == "/":
-                out.append("  ")
-                i += 2
-                state = LINE_COMMENT
-                continue
-            if ch == "/" and nxt == "*":
-                out.append("  ")
-                i += 2
-                state = BLOCK_COMMENT
-                continue
-            if source[i:i + 3] == '"""':
-                # Swift multi-line string literal: only a closing `"""` ends it,
-                # so a bare `"` inside must NOT toggle string state -- otherwise
-                # the inner quote would close the literal early and expose the
-                # rest (e.g. a forbidden token named in prose) as apparent code,
-                # tripping the guard with a false positive. (#6870 review)
-                out.append('"""')
-                i += 3
-                state = MULTILINE_STRING
-                continue
-            if ch == '"':
-                out.append('"')
-                i += 1
-                state = STRING
-                continue
-            out.append(ch)
-            i += 1
-            continue
-        if state == LINE_COMMENT:
-            if ch == "\n":
-                out.append("\n")
-                state = 0
-            else:
-                out.append(" ")
-            i += 1
-            continue
-        if state == BLOCK_COMMENT:
-            if ch == "*" and nxt == "/":
-                out.append("  ")
-                i += 2
-                state = 0
-            else:
-                out.append("\n" if ch == "\n" else " ")
-                i += 1
-            continue
-        if state == STRING:
-            if ch == "\\" and nxt != "":
-                # Preserve the escape pair as spaces so positions stay aligned.
-                out.append("  ")
-                i += 2
-                continue
-            if ch == '"':
-                out.append('"')
-                i += 1
-                state = 0
-                continue
-            out.append("\n" if ch == "\n" else " ")
-            i += 1
-            continue
-        if state == MULTILINE_STRING:
-            if source[i:i + 3] == '"""':
-                out.append('"""')
-                i += 3
-                state = 0
-                continue
-            # A lone `"` does not close a multi-line string; only `"""` does.
-            out.append("\n" if ch == "\n" else " ")
-            i += 1
-            continue
+        match = _CODE_TOKEN.search(source, i)
+        if match is None:
+            out.append(source[i:])
+            break
+        out.append(source[i:match.start()])
+        token = match.group()
+        i = match.end()
+        if token == "//":
+            out.append("  ")
+            end = source.find("\n", i)
+            if end < 0:
+                out.append(" " * (n - i))
+                break
+            out.append(" " * (end - i) + "\n")
+            i = end + 1
+        elif token == "/*":
+            out.append("  ")
+            end = source.find("*/", i)
+            if end < 0:
+                out.append(_blank(source[i:]))
+                break
+            out.append(_blank(source[i:end]) + "  ")
+            i = end + 2
+        elif token == '"""':
+            out.append('"""')
+            end = source.find('"""', i)
+            if end < 0:
+                out.append(_blank(source[i:]))
+                break
+            out.append(_blank(source[i:end]) + '"""')
+            i = end + 3
+        else:
+            out.append('"')
+            while True:
+                inner = _STRING_TOKEN.search(source, i)
+                if inner is None:
+                    out.append(_blank(source[i:]))
+                    i = n
+                    break
+                out.append(_blank(source[i:inner.start()]))
+                i = inner.start()
+                if source[i] == '"':
+                    out.append('"')
+                    i += 1
+                    break
+                # Blank the escape pair so positions stay aligned.
+                if i + 1 < n:
+                    out.append("  ")
+                    i += 2
+                else:
+                    out.append(" ")
+                    i += 1
     return "".join(out)
 
 
@@ -397,7 +391,10 @@ def find_custom_layout_type_names(paths):
                 text = handle.read()
         except OSError:
             continue
-        if "Layout" not in text:
+        # Word-bounded, like CUSTOM_LAYOUT_DECL: neutralizing only blanks text
+        # between delimiters, so a match there is a match here. The substring
+        # test first is much cheaper than the regex across every Swift file.
+        if "Layout" not in text or not LAYOUT_WORD.search(text):
             continue
         for match in CUSTOM_LAYOUT_DECL.finditer(neutralize_swift(text)):
             names.add(match.group(1))
