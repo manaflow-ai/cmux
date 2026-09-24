@@ -4453,6 +4453,27 @@ fn state_identity(state: &Path) -> (Vec<u8>, Vec<u8>, String) {
     (machine_id, pepper, session)
 }
 
+/// The durable launch spec the registry recorded for a terminal host.
+fn registry_launch_spec(state: &Path, terminal_id: &str) -> serde_json::Value {
+    let registry = walk_files(state)
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("workspace registry");
+    let connection = rusqlite::Connection::open_with_flags(
+        &registry,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let spec: String = connection
+        .query_row(
+            "SELECT launch_spec_json FROM terminal_hosts WHERE terminal_id = ?1",
+            [terminal_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    serde_json::from_str(&spec).unwrap()
+}
+
 fn walk_files(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut pending = vec![root.to_path_buf()];
@@ -4536,6 +4557,10 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     // The binding is written before the daemon listens, and the public
     // terminal list must already show the terminal it names. A client that
     // listed nothing here (the Cloud prompt sync) created a second workspace.
+    // The warm host is claimed through the Cloud template path, not the
+    // migration import for hosts that predate the SQLite registry.
+    let spec = registry_launch_spec(&harness.state, &terminal_id);
+    assert_eq!(spec, serde_json::json!({"template_terminal": true}), "{spec}");
     let bound = fs::read_to_string(harness.dir.join("bound")).unwrap();
     let bound_terminal = bound
         .lines()
