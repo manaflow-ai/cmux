@@ -129,11 +129,63 @@ def extract(archive: Path, destination: Path) -> None:
             bundle.extractall(destination)
 
 
+# Changes under these never reach the app host's compiled product. A
+# difference anywhere else, most often in a package every app file imports,
+# recompiles the whole app target on top of adopted DerivedData, so the
+# download only adds its own time (runs 35942257134, 35942449623).
+OUTSIDE_THE_APP_BUILD = ("cmuxTests/", "cmuxUITests/", ".github/", "docs/", "skills/", "tests/", "web/")
+COMPARE_FILE_LIMIT = 300
+
+
+def built_revision(run: dict) -> str | None:
+    """The commit a producer run compiled, from its `… @ <ref>` title."""
+    ref = str(run.get("display_title") or "").rpartition(" @ ")[2].split(" ", 1)[0]
+    if len(ref) == 40 and all(c in "0123456789abcdef" for c in ref):
+        return ref
+    if ref == "main":
+        return run.get("head_sha")
+    return None
+
+
+def outside_the_app_build(path: str) -> bool:
+    return path.startswith(OUTSIDE_THE_APP_BUILD) or path.endswith(".md")
+
+
+def app_build_changes(repository: str, producer: str, tested: str) -> list[str] | None:
+    """Files between the two revisions that feed the app build, or None if unknown."""
+    changed: set[str] = set()
+    for base, head in ((producer, tested), (tested, producer)):
+        comparison = api(f"repos/{repository}/compare/{base}...{head}")
+        files = comparison.get("files") or []
+        if len(files) >= COMPARE_FILE_LIMIT:
+            return None
+        for entry in files:
+            changed.update(filter(None, (entry.get("filename"), entry.get("previous_filename"))))
+    return sorted(path for path in changed if not outside_the_app_build(path))
+
+
+def tested_revision(workspace: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(workspace), "rev-parse", "HEAD"], check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
 def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
     repository = os.environ["GITHUB_REPOSITORY"]
     artifact = newest(repository, key)
     if artifact is None:
         return {"hit": "false", "reason": "no-main-derived-data"}
+    run = api(f"repos/{repository}/actions/runs/{artifact['workflow_run']['id']}")
+    producer = built_revision(run)
+    tested = tested_revision(workspace)
+    if producer is None:
+        return {"hit": "false", "reason": "producer-revision-unknown"}
+    if producer != tested:
+        changes = app_build_changes(repository, producer, tested)
+        if changes is None:
+            return {"hit": "false", "reason": "producer-too-far"}
+        if changes:
+            return {"hit": "false", "reason": f"app-build-changed-since-producer ({len(changes)} files, e.g. {changes[0]})"}
     if int(artifact.get("size_in_bytes") or 0) > transport.MAX_BYTES:
         return {"hit": "false", "reason": "derived-data-too-large"}
     expected = str(artifact.get("digest") or "")
@@ -155,6 +207,7 @@ def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
     return {
         "hit": "true",
         "producer_run_id": str(artifact["workflow_run"]["id"]),
+        "producer_revision": producer,
         "unchanged_inputs": str(restored),
         "changed_inputs": str(changed),
     }
