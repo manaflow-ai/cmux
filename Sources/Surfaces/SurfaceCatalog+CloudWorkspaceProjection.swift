@@ -67,7 +67,7 @@ extension SurfaceCatalog {
 
     func requestCloudWorkspaceProjection(_ workspaceID: UUID) {
         guard let binding = cloudWorkspaceProjectionCoordinator.environment.bindings()[workspaceID] else { return }
-        cloudWorkspaceProjectionCoordinator.request(machine: .cloud(binding.vmID), catalog: self)
+        cloudWorkspaceProjectionCoordinator.request(machine: SurfaceMachineID(rawValue: binding.vmID), catalog: self)
     }
 
 }

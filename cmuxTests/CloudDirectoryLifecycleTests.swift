@@ -181,7 +181,7 @@ struct CloudDirectoryLifecycleTests {
         defer { fixture.close() }
         let binding = fixture.workspace.cloudVMBinding
         let projections = fixture.catalog.projections
-        var summary = fixture.provider.summary
+        var summary = try #require(fixture.provider.summary.cloudSummary)
         summary.displayName = label
         summary.slug = slug
         fixture.provider.update(summary: summary)

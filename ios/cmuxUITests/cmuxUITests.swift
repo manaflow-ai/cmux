@@ -12,6 +12,42 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testFilesChipsScrollThroughSheetEdge() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_MAC_SURFACE_GALLERY": "files",
+        ])
+        defer { app.terminate() }
+        let openFiles = app.buttons["FilesPreviewOpen"]
+        XCTAssertTrue(openFiles.waitForExistence(timeout: 10))
+        openFiles.tap()
+        let scroller = app.scrollViews["TerminalArtifactGalleryFilterScroller"]
+        XCTAssertTrue(scroller.waitForExistence(timeout: 10))
+        let all = app.buttons["All"]
+        XCTAssertTrue(all.exists)
+        let initialX = all.frame.minX
+        let scopePicker = app.segmentedControls.firstMatch
+        XCTAssertTrue(scopePicker.exists)
+        XCTAssertEqual(scroller.frame.minX, scopePicker.frame.minX - 16, accuracy: 1)
+        // A resting content inset is allowed; the viewport itself must reach
+        // the sheet edge rather than sharing that inset.
+        XCTAssertEqual(initialX - scroller.frame.minX, 16, accuracy: 1)
+        let before = XCTAttachment(screenshot: app.screenshot())
+        before.name = "Files chips before scrolling"
+        before.lifetime = .keepAlways
+        add(before)
+        scroller.swipeLeft(velocity: .slow)
+        XCTAssertLessThanOrEqual(all.frame.minX, scroller.frame.minX + 1)
+        let after = XCTAttachment(screenshot: app.screenshot())
+        after.name = "Files chips at sheet edge"
+        after.lifetime = .keepAlways
+        add(after)
+        scroller.swipeRight(velocity: .slow)
+        XCTAssertEqual(all.frame.minX, initialX, accuracy: 1)
+        scroller.swipeLeft(velocity: .slow)
+        scroller.swipeRight(velocity: .slow)
+    }
+
+    @MainActor
     func testDeveloperSettingsReplaysWhatsNewRange() throws {
         let app = launchApp(
             mockData: false,
@@ -8369,8 +8405,14 @@ final class cmuxUITests: XCTestCase {
         grantNotificationAuthorizationIfRequested()
         let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
         if whatsNewContinue.waitForExistence(timeout: 4) {
-            tap(whatsNewContinue, in: app)
-            XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+            // Continue advances through every unseen page before dismissing.
+            for _ in 0..<4 where whatsNewContinue.exists {
+                tap(whatsNewContinue, in: app)
+            }
+            _ = try XCTUnwrap(
+                whatsNewContinue.waitForNonExistence(timeout: 4) ? true : nil,
+                "Finish every What's New page before opening the workspace"
+            )
         }
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
@@ -11432,7 +11474,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_client_namespace": macInstanceTag == "dev"
                 ? "mac:com.cmuxterm.app.debug"
                 : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
-            "mac_app_version": "0.64.23",
+            "mac_app_version": "0.64.25",
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,

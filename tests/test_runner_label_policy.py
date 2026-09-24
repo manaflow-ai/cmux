@@ -46,6 +46,32 @@ class PolicyIsReadFromTheGuard(unittest.TestCase):
         with self.assertRaises(PolicyUnreadable):
             _shell_local("local something_else='x'\n", "fleet")
 
+    def test_an_unreadable_guard_file_or_bad_pattern_raises_policy_unreadable(self) -> None:
+        import tempfile
+
+        import runner_label_policy
+
+        good = GUARD_SCRIPT.read_text(encoding="utf-8")
+        cases = {
+            "missing": None,
+            "bad regex": good.replace("local fleet='", "local fleet='(", 1),
+            "not utf-8": good.encode("utf-8") + b"\xff\n",
+        }
+        for label, text in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "guard.sh"
+                if isinstance(text, bytes):
+                    path.write_bytes(text)
+                elif text is not None:
+                    path.write_text(text, encoding="utf-8")
+                with mock.patch.object(runner_label_policy, "GUARD_SCRIPT", path):
+                    runner_label_policy._patterns.cache_clear()
+                    try:
+                        with self.assertRaises(PolicyUnreadable):
+                            forbidden_reason("warp-macos-26-arm64-12x")
+                    finally:
+                        runner_label_policy._patterns.cache_clear()
+
     def test_a_missing_guard_function_raises(self) -> None:
         with self.assertRaises(PolicyUnreadable):
             _guard_function("other_check() {\n  local fleet='x'\n}\n")

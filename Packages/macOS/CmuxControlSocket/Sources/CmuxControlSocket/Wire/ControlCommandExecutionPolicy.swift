@@ -176,7 +176,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
         "workspace.env",
-        "workspace.remote.pty_sessions",
+        "workspace.ssh.open", "workspace.remote.pty_sessions",
         "workspace.remote.pty_close",
         "workspace.remote.pty_detach",
         "workspace.remote.pty_bridge",

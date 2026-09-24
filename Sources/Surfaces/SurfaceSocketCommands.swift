@@ -1156,12 +1156,7 @@ extension TerminalController {
                 "build_label": record.buildLabel ?? NSNull(),
             ] as [String: Any]
         }
-        let kind: String
-        switch info.id {
-        case .local: kind = "local"
-        case .cloud: kind = "cloud"
-        case .device: kind = "device"
-        }
+        let kind = info.id.kind
         return [
             "id": info.id.rawValue,
             "local": info.id.isLocal,

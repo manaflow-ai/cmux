@@ -38,7 +38,7 @@ concurrency:
 jobs:
   authorize:
     name: Authorize trusted PR
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -224,7 +224,7 @@ jobs:
           set -euo pipefail
           archive="$RUNNER_TEMP/persistent-mac-compile.tar.gz"
           cp "$METRICS" "$DERIVED_DATA/persistent-mac-metrics.json"
-          COPYFILE_DISABLE=1 tar -chzf "$archive" -C "$DERIVED_DATA"             Build/Products cmux-build.log persistent-mac-metrics.json
+          COPYFILE_DISABLE=1 tar -chf - -C "$DERIVED_DATA" Build/Products cmux-build.log persistent-mac-metrics.json | gzip -1 > "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload persistent compile product

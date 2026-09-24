@@ -49,7 +49,8 @@ def main():
                  "CloudTerminalNavigationHost", "CloudTerminalNavigationScheduling",
                  "SurfaceResourceGroup+CloudNavigation"]:
         stage(f"Sources/Cloud/{name}.swift")
-    for kind, name in [("enum", "SurfaceMachineID"), ("enum", "SurfaceResourceKind"),
+    stage("Sources/Surfaces/SurfaceMachineID.swift", "enum SurfaceMachineID:")
+    for kind, name in [("enum", "SurfaceResourceKind"),
                        ("enum", "SurfaceLifecycle"), ("struct", "SurfaceAgentBadge"),
                        ("struct", "CloudCreationAttachment"), ("struct", "SurfaceResource"),
                        ("struct", "SurfaceResourceID"), ("struct", "SurfaceRemoteWorkspace"),

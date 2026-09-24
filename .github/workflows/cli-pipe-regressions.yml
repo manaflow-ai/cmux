@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   cli-pipe-regressions:
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 30
     env:
       CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -48,13 +48,16 @@ jobs:
 
       # A cold resolve clones every package in the project and took about 90
       # seconds of each run. Nightly seeds this key; a miss only means a cold
-      # resolve.
+      # resolve. The seed carries SwiftPM's binary-artifact zips under
+      # .package-cache/: the sanitizer drops workspace-state.json, so without
+      # them every resolve downloads about 600 MB of Sentry, Iroh and Sparkle
+      # from GitHub again.
       - name: Restore Swift packages
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -69,6 +72,7 @@ jobs:
             xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
               -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -packageCachePath "$SOURCE_PACKAGES_DIR/.package-cache" \
               -resolvePackageDependencies
           }
           if ! resolve; then
