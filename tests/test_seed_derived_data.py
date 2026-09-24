@@ -221,6 +221,20 @@ class Wiring(unittest.TestCase):
         _, admission_spm = named(steps("ci-macos.yml", "macos-compile-admission"), "Cache Swift packages")
         self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
 
+    def test_the_seed_pool_differs_from_admission_only_in_runner_size(self):
+        # Seeds used to queue behind pull requests on admission's own pool.
+        # They may move to a larger runner of the same image, since neither
+        # the seed key nor the product key names the size, but never to
+        # another image or Xcode.
+        runs_on = load("seed-derived-data.yml")["jobs"]["seed"]["runs-on"]
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
+        larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
+        self.assertIn(larger, runs_on)
+        # Any other pool value is admission's pull-request pool, unchanged.
+        fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
+        self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
+        self.assertIn(fallback, admission)
+
     def test_main_push_publishes_the_product_admission_would_compile(self):
         """Pull requests adopt this product in place of compiling, so it has to
         be the admission product: same key, same staging, same packaging, same
