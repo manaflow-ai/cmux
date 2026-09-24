@@ -60,6 +60,61 @@ import Testing
         #expect(center.unseenPages.map(\.id) == ["pairing.1.0.6"])
     }
 
+    @Test func cancelledInitialRefreshWaitsForTheNextCompletedAttempt() async {
+        let gate = RefreshGate()
+        let defaults = UserDefaults(suiteName: "CancelledWhatsNew-\(UUID().uuidString)")!
+        defaults.set("connections.v2", forKey: MobileWhatsNewCenter.markerKey)
+        let center = MobileWhatsNewCenter(
+            apiBaseURL: "https://cmux.test", appVersion: "1.0.6",
+            buildType: .beta, defaults: defaults,
+            loader: { _ in try await gate.load() }
+        )
+        let first = Task { await center.refresh() }
+        await gate.waitUntilStarted()
+        first.cancel()
+        gate.finish(.failure(CancellationError()))
+        await first.value
+        #expect(!center.hasCompletedInitialRefresh)
+        #expect(!center.lastRefreshSucceeded)
+
+        let second = Task { await center.refresh() }
+        await gate.waitUntilStarted()
+        #expect(!center.hasCompletedInitialRefresh)
+        gate.finish(.success(Data(#"""
+        {"visibleEntryIds":["pairing.1.0.6"],"announcements":[{
+          "id":"release","minVersion":"1.0.6","maxVersion":"1.0.6",
+          "channels":["beta"],"title":"Release notice",
+          "features":[{"title":"Update your Mac","detail":"New Mac required."}]
+        }]}
+        """#.utf8)))
+        await second.value
+        #expect(center.hasCompletedInitialRefresh)
+        #expect(center.unseenPages.map(\.id) == ["release", "pairing.1.0.6"])
+    }
+
+    private final class RefreshGate {
+        private var pending: CheckedContinuation<Data, any Error>?
+        private var started: CheckedContinuation<Void, Never>?
+
+        func load() async throws -> Data {
+            try await withCheckedThrowingContinuation { continuation in
+                pending = continuation
+                started?.resume()
+                started = nil
+            }
+        }
+
+        func waitUntilStarted() async {
+            guard pending == nil else { return }
+            await withCheckedContinuation { started = $0 }
+        }
+
+        func finish(_ result: Result<Data, any Error>) {
+            pending?.resume(with: result)
+            pending = nil
+        }
+    }
+
     @Test func pinpointNoticeOnlyReachesItsVersionAndChannels() async {
         let payload = #"""
         {"visibleEntryIds":["pairing.1.0.6","connections.v1"],"announcements":[{
