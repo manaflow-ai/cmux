@@ -160,9 +160,10 @@ jobs:
                 || rm -f /tmp/cmux-ci-base-workflow.yml
             fi
             # The changed lines of cmuxTests/, so choose_ci_suite.py can tell
-            # which declarations a test edit touched. Absent reads as "every
-            # line of each changed file".
-            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- cmuxTests \
+            # which declarations a test edit touched, and of ci-macos.yml, so
+            # it can tell whether an edit sits in the app-host shards' job.
+            # Absent reads as "every line of each changed file".
+            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- cmuxTests .github/workflows/ci-macos.yml \
               > /tmp/cmux-ci-tests.diff || rm -f /tmp/cmux-ci-tests.diff
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
