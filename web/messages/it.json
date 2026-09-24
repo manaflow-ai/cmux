@@ -14,6 +14,17 @@
     "benefitSuperpowers": "Pianificazione, TDD, subagenti e revisione"
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Configurazione della Cloud VM incompleta",
+      "reason": "La configurazione guest della Cloud VM non è stata completata.",
+      "message": "cmux non ha potuto completare la configurazione della Cloud VM.",
+      "action": "Riprova. Se il problema continua, contatta l'assistenza."
+    },
+    "createCleanupPending": {
+      "title": "Pulizia della VM Cloud in sospeso",
+      "message": "La configurazione della VM Cloud non è riuscita e la pulizia è ancora in sospeso.",
+      "action": "Contatta il supporto con l’ID della traccia prima di creare un’altra macchina."
+    },
     "unsupported": {
       "title": "Operazione Cloud VM non disponibile",
       "reason": "Questo tipo di macchina non offre questa operazione.",
@@ -1448,6 +1459,7 @@
       "restartNew": "Crea un nuovo workspace (predefinito)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Attiva o disattiva il ritorno a capo nell’editor di file (Option+Z).",
       "title": "Scorciatoie da tastiera",
       "description": "Tutte le scorciatoie da tastiera disponibili in cmux, raggruppate per categoria.",
       "metaDescription": "Tutte le scorciatoie da tastiera cmux per workspace, superfici, pannelli divisi, browser, notifiche, ricerca e gestione delle finestre su macOS.",

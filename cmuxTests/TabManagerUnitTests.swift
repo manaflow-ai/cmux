@@ -479,7 +479,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         )
     }
 
-    func testDefaultFreestyleCloudSplitRepairsRawSSHStartupCommand() throws {
+    func testDefaultFreestyleCloudSplitRoutesToCloudAndRepairsRawSSHStartupCommand() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
@@ -507,13 +507,29 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             autoConnect: false
         )
 
-        let splitPanel = try XCTUnwrap(
-            workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
+        // The workspace's startup command is repaired from the raw `ssh` form to the
+        // default-freestyle `vm-pty-attach` attach for every local terminal it spawns.
+        let repairedCommand = try XCTUnwrap(
+            workspace.effectiveRemoteTerminalStartupCommand(from: workspace.remoteConfiguration)
         )
-        let splitCommand = try XCTUnwrap(splitPanel.surface.debugInitialCommand())
-        XCTAssertTrue(splitCommand.contains("vm-pty-attach"), splitCommand)
-        XCTAssertTrue(splitCommand.contains("--default-freestyle-sshd"), splitCommand)
-        XCTAssertFalse(splitCommand.contains("ssh -p 22"), splitCommand)
+        XCTAssertTrue(repairedCommand.contains("vm-pty-attach"), repairedCommand)
+        XCTAssertTrue(repairedCommand.contains("--default-freestyle-sshd"), repairedCommand)
+        XCTAssertFalse(repairedCommand.contains("ssh -p 22"), repairedCommand)
+
+        // A split from the managed-Cloud SSH pane is Cloud-owned (fa5dc4cc10): it routes
+        // to the machine's provider and fails closed without one, never spawning a local
+        // shell next to the remote pane.
+        XCTAssertEqual(workspace.machineOwningSurface(remotePanelId), .cloud("71smiccrg35sw9pydt8k"))
+        let panelIdsBeforeSplit = Set(workspace.panels.keys)
+        let outcome = workspace.newTerminalSplitOutcome(
+            from: remotePanelId, orientation: .horizontal, focus: false
+        )
+        XCTAssertFalse(outcome.isAccepted)
+        XCTAssertNil(outcome.panel)
+        XCTAssertEqual(Set(workspace.panels.keys), panelIdsBeforeSplit)
+        let failure = try XCTUnwrap(workspace.cloudPaneCreationFailureStore.failure)
+        XCTAssertEqual(failure.machine, .cloud("71smiccrg35sw9pydt8k"))
+        XCTAssertEqual(failure.sourcePanelID, remotePanelId)
     }
 
     func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
@@ -2164,10 +2180,28 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
             appDelegate.notificationStore = originalNotificationStore
         }
 
+        // A workspace's LAST surface is not closed by the shortcut at all: with
+        // the close-on-last-surface preference enabled (its default) the close
+        // is escalated to the window-close path, which a window-less test
+        // TabManager cannot perform, so nothing closes and nothing is cleared.
+        // Give the workspace a second surface so the shortcut closes the
+        // surface itself, which is what this test is about.
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
-            XCTFail("Expected selected workspace and focused panel")
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let initialPanelId = workspace.focusedPanelId,
+              let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+              workspace.newTerminalSurface(inPane: paneId, focus: false) != nil else {
+            XCTFail("Expected workspace with two terminal surfaces")
             return
+        }
+        workspace.focusPanel(initialPanelId)
+        // Close confirmation is orthogonal to notification clearing, and the
+        // ambient warn-before-closing default would otherwise decide whether
+        // the surface closes at all.
+        initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        manager.confirmCloseHandler = { _, _, _ in
+            XCTFail("Close confirmation must not be required for this surface")
+            return false
         }
 
         store.addNotification(
@@ -2183,6 +2217,7 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
+        XCTAssertNil(workspace.panels[initialPanelId])
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
     }
 

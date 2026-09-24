@@ -22,11 +22,13 @@ import time
 import zipfile
 
 from app_host_layered_products import LAYERS as NAMES, MANIFEST, SCHEMA as LAYER_SCHEMA
+import parallel_artifact_download
 
 INDEX = "app-host-layer-index.json"
 MAX_INDEX = 8 * 1024 * 1024
 MAX_ARCHIVE = 8 * 1024 * 1024 * 1024
 SCHEMA = "cmux.app-host-layer-transport"
+APP_HOST_TEST_LAYERS = ("app-cli", "runtime", "tests")
 
 
 def mapping(value):
@@ -102,6 +104,16 @@ class GitHub:
         return json.loads(result)
 
     def download(self, artifact_id, target, limit):
+        # Parallel range reads of the same exact-ID blob; the caller still pins
+        # size and provider digest. Any miss falls back to one gh stream.
+        try:
+            parallel_artifact_download.download_zip(self.repository, positive(artifact_id), target, limit)
+            return
+        except (parallel_artifact_download.TransportError, OSError, ValueError) as error:
+            print(f"Parallel layer download missed ({type(error).__name__}: {error}); using gh stream.")
+        self.download_stream(artifact_id, target, limit)
+
+    def download_stream(self, artifact_id, target, limit):
         # gh strips API authorization when following its cross-host blob redirect.
         # Bound bytes and elapsed time while streaming; do not buffer large ZIPs.
         with tempfile.TemporaryFile() as errors, target.open("wb") as output:
@@ -260,7 +272,18 @@ def publish_index(api, directory, receipts, identity, expected):
     (directory / INDEX).write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
 
 
-def restore_remote(api, reference, identity, expected, destination, restore):
+def selected_layers(value):
+    requested = tuple(value)
+    if not requested or len(set(requested)) != len(requested) or any(name not in NAMES for name in requested):
+        raise ValueError("invalid requested layer set")
+    canonical = tuple(name for name in NAMES if name in requested)
+    if requested != canonical:
+        raise ValueError("requested layers must use canonical order")
+    return canonical
+
+
+def restore_remote(api, reference, identity, expected, destination, restore, *, selected_layers=NAMES):
+    selected = globals()["selected_layers"](selected_layers)
     since = verify_run(api, expected)
     if destination.is_symlink() or destination.exists():
         raise ValueError("layered consumer DerivedData must be absent")
@@ -299,24 +322,28 @@ def restore_remote(api, reference, identity, expected, destination, restore):
             raise ValueError("transport requires all four layers")
         if len({r.get("artifact_id") for r in rows}) != len(NAMES):
             raise ValueError("duplicate layer artifact IDs")
+        row_by_name = {row["name"]: row for row in rows}
         for row in rows:
             canonical = layers[row["name"]]
             if any(row.get(k) != canonical[k] for k in ("archive", "size", "sha256")):
                 raise ValueError("transport and canonical manifest disagree")
-            archive = root / (row["name"] + ".zip")
-            fetch_zip(api, row, expected, archive, MAX_ARCHIVE, since, row["name"])
+        for name in selected:
+            row = row_by_name[name]
+            archive = root / (name + ".zip")
+            fetch_zip(api, row, expected, archive, MAX_ARCHIVE, since, name)
             extract_files(archive, {row["archive"]: row}, root)
         # The local assembler owns pre-extraction archive checks, exact inventory,
         # signatures-preserving paths, and transactional publication of Products.
         started = time.monotonic()
         result = "failure"
         try:
-            restore(root / MANIFEST, destination, identity)
+            restore(root / MANIFEST, destination, identity, selected)
             result = "success"
         finally:
             print("CMUX_APP_HOST_LAYER_ASSEMBLY " + json.dumps({
                 "producer_run_id": expected["run_id"], "producer_run_attempt": expected["run_attempt"],
-                "profile": "app-host-full", "layers": list(NAMES), "result": result,
+                "profile": "app-host-tests" if selected == APP_HOST_TEST_LAYERS else "app-host-full",
+                "layers": list(selected), "result": result,
                 "elapsed_seconds": round(time.monotonic() - started, 3)}, sort_keys=True))
 
 
@@ -347,13 +374,23 @@ def main():
         return
     hit = False
     try:
-        def assemble(manifest, destination, expected_identity):
+        def assemble(manifest, destination, expected_identity, required_layers):
             identity_path = manifest.parent / "expected-identity.json"
             identity_path.write_text(json.dumps(expected_identity))
-            subprocess.run([os.sys.executable, str(Path(__file__).with_name("app_host_layered_products.py")),
-                            "restore", str(manifest), str(destination), "--identity", str(identity_path)], check=True)
+            subprocess.run([
+                os.sys.executable,
+                str(Path(__file__).with_name("app_host_layered_products.py")),
+                "restore",
+                str(manifest),
+                str(destination),
+                "--identity",
+                str(identity_path),
+                "--layers",
+                ",".join(required_layers),
+            ], check=True)
+        requested = APP_HOST_TEST_LAYERS if os.environ.get("CMUX_APP_HOST_LAYER_PROFILE") == "app-host-tests" else NAMES
         restore_remote(api, {"artifact_id": args.index_id, "artifact_digest": args.index_digest},
-                       identity, expected, args.path, assemble)
+                       identity, expected, args.path, assemble, selected_layers=requested)
         hit = True
     except (KeyError, ValueError, TypeError, OSError, TimeoutError, subprocess.SubprocessError,
             zipfile.BadZipFile, RuntimeError, NotImplementedError) as error:

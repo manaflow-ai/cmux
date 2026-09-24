@@ -21,6 +21,9 @@ nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app
 final class HostSettingsActions: SettingsHostActions {
     let computersActions: ComputersSettingsActions
     private let configFileURL: URL
+    private let automationConfigStore: AutomationConfigStore
+    private let openAutomationRulesFile: @MainActor (URL) -> Void
+    private let reportAutomationRulesError: @MainActor (Error) -> Void
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private let runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
@@ -57,12 +60,31 @@ final class HostSettingsActions: SettingsHostActions {
     init(
         configFileURL: URL,
         computerUseRuntimeService: ComputerUseRuntimeService,
+        automationConfigStore: AutomationConfigStore = AutomationConfigStore(),
+        openAutomationRulesFile: @escaping @MainActor (URL) -> Void = {
+            PreferredEditorService(defaults: .standard).open($0)
+        },
+        reportAutomationRulesError: @escaping @MainActor (Error) -> Void = { _ in
+            let alert = NSAlert()
+            alert.messageText = String(
+                localized: "settings.automation.rules.createFailed.title",
+                defaultValue: "Could Not Create Automation Rules"
+            )
+            alert.informativeText = String(
+                localized: "settings.automation.rules.createFailed.message",
+                defaultValue: "Check that the configuration folder is writable and the disk has free space, then try again."
+            )
+            alert.runModal()
+        },
         computersActions: ComputersSettingsActions? = nil,
         runComputerUseOnboardingAction:
             @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
     ) {
         self.computersActions = computersActions ?? ComputersSettingsActions()
         self.configFileURL = configFileURL
+        self.automationConfigStore = automationConfigStore
+        self.openAutomationRulesFile = openAutomationRulesFile
+        self.reportAutomationRulesError = reportAutomationRulesError
         self.computerUseRuntimeService = computerUseRuntimeService
         self.runComputerUseOnboardingAction = runComputerUseOnboardingAction
         startObservingAppIconMode()
@@ -227,6 +249,57 @@ final class HostSettingsActions: SettingsHostActions {
         // through `NSWorkspace.shared.open` would route to the default
         // `.json` handler and ignore the cmux setting.
         PreferredEditorService(defaults: .standard).open(configFileURL)
+    }
+
+    /// Reads the existing automation configuration off-main and summarizes it for Settings.
+    func automationRulesStatus() async -> AutomationRulesStatus {
+        let fileURL = automationConfigStore.fileURL
+        let configExists = FileManager.default.fileExists(atPath: fileURL.path)
+        do {
+            let configuration = try await automationConfigStore.loadOffMain()
+            let enabledCount = configuration.rules.reduce(into: 0) { count, rule in
+                if rule.enabled { count += 1 }
+            }
+            return AutomationRulesStatus(
+                configPath: fileURL.path,
+                ruleCount: configuration.rules.count,
+                enabledCount: enabledCount,
+                configExists: configExists
+            )
+        } catch {
+            hostSettingsLogger.error("Failed to load automation rules: \(String(describing: error), privacy: .private)")
+            return AutomationRulesStatus(
+                configPath: fileURL.path,
+                ruleCount: 0,
+                enabledCount: 0,
+                configExists: configExists,
+                hasError: true
+            )
+        }
+    }
+
+    /// Materializes the existing empty v1 configuration when needed, then opens it in the preferred editor.
+    func openAutomationRulesInExternalEditor() {
+        let fileURL = automationConfigStore.fileURL
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            do {
+                try automationConfigStore.save(AutomationConfiguration())
+            } catch {
+                hostSettingsLogger.error("Failed to create automation rules: \(String(describing: error), privacy: .private)")
+                reportAutomationRulesError(error)
+                return
+            }
+        }
+        openAutomationRulesFile(fileURL)
+    }
+
+    /// Routes a reload request to the already-attached automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool {
+        if case .ok = TerminalController.shared.v2AutomationReload() {
+            return true
+        }
+        return false
     }
 
     func customSidebarNames() -> [String] {
