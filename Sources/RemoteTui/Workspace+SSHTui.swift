@@ -2,7 +2,8 @@ import CmuxCore
 import Foundation
 
 extension Workspace {
-    /// All managed SSH entrypoints converge here, including saved workspace descriptors.
+    /// Managed SSH entrypoints without a cmuxd-remote relay converge here, including saved
+    /// workspace descriptors. See `WorkspaceRemoteConfiguration.routesThroughSSHTui`.
     func configureSSHTuiConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool) -> Bool {
         AppDelegate.shared?.sshTuiWorkspaceCoordinator.disconnect(workspace: self)
         remoteSessionController?.stop()

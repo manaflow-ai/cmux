@@ -113,6 +113,16 @@ struct SSHTuiMigrationTests {
         #expect(workspace.configureRemoteConnection(legacy, autoConnect: false))
         #expect(!workspace.usesSSHTui)
         #expect(workspace.effectiveRemoteTerminalStartupCommand(from: workspace.remoteConfiguration) == "ssh -T alice@example.invalid")
+        // Only cmux-tui-owned persistent sessions drop the startup command; a
+        // persistent relay configuration still runs its own.
+        let persistentLegacy = WorkspaceRemoteConfiguration(
+            destination: "alice@example.invalid", port: nil, identityFile: nil, sshOptions: [],
+            localProxyPort: nil, relayPort: 64007, relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64), localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach", preserveAfterTerminalExit: true
+        )
+        #expect(workspace.effectiveRemoteTerminalStartupCommand(from: persistentLegacy) == "ssh-pty-attach")
+        #expect(workspace.effectiveRemoteTerminalStartupCommand(from: native) == nil)
     }
 
     @Test("SSH projection identities survive session serialization without becoming Cloud machines")
