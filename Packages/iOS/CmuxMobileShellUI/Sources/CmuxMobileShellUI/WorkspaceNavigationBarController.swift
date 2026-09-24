@@ -15,6 +15,10 @@ final class WorkspaceNavigationBarController: UINavigationController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // The SwiftUI detail column already supplies the split-view margins.
+        // Let this embedded native bar use the full column width in landscape,
+        // matching the original SwiftUI toolbar's safe-area placement.
+        viewRespectsSystemMinimumLayoutMargins = false
         bar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
         bar.tintColor = .label
         bar.prefersLargeTitles = false
