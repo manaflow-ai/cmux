@@ -853,7 +853,7 @@ struct TerminalComposerView: View {
                 // before we choose its staging path.
                 let imported: ImportedPhotoLibraryFile
                 do {
-                    guard let loaded = try await loadImportedPhotoLibraryFile(item) else {
+                    guard let loaded = try await ImportedPhotoLibraryFile.load(item) else {
                         store.recordAppEvent(
                             .attachmentPreparationFailed,
                             correlationID: terminalID,
