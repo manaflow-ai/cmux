@@ -467,6 +467,7 @@ jobs:
         run: |
           python3 tests/test_run_e2e.py
           python3 tests/test_ci_e2e_compilation_cache.py
+          python3 tests/test_ci_focused_test_selectors.py
 
       - name: Validate manual macOS package cache recovery
         if: ${{ matrix.group == 'app-host-execution' }}
