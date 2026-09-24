@@ -591,6 +591,8 @@ class Wiring(unittest.TestCase):
         self.assertIn("seed_derived_data.py scope", key["run"])
         _, save = named(seeder, "Save seed")
         self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
+        # A failed scope call must not save under the bare revision.
+        self.assertIn('test -n "$scoped"', key["run"])
         nightly = steps("nightly.yml", "refresh-test-compilation-cache")
         scope_at, scope = named(nightly, "Scope DerivedData seed key")
         save_at, nightly_save = named(nightly, "Save DerivedData seed")
@@ -603,7 +605,9 @@ class Wiring(unittest.TestCase):
         # They may move to a larger runner of the same image, since neither
         # the seed key nor the product key names the size, but never to
         # another image or Xcode.
-        own, runs_on = load("seed-derived-data.yml")["jobs"]["seed"]["strategy"]["matrix"]["pool"]
+        # The 12 vCPU pool comes first: it starts in seconds, and the first
+        # entry alone publishes the app-host product.
+        runs_on, own = load("seed-derived-data.yml")["jobs"]["seed"]["strategy"]["matrix"]["pool"]
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
         self.assertIn(larger, runs_on)
