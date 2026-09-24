@@ -35,9 +35,15 @@ final class HookPromptLengthUITests: XCTestCase {
         environment["CMUX_TAG"] = "ui-tests-14024-hook-length"
         environment["CMUX_UI_TEST_PROCESS"] = "1"
         environment["CMUX_UI_TEST_MODE"] = "1"
+        let appLogURL = root.appendingPathComponent("app.log")
+        let appDiagnosticsURL = root.appendingPathComponent("app-diagnostics.json")
+        environment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = appDiagnosticsURL.path
         app.environment = environment
-        app.standardOutput = FileHandle.nullDevice
-        app.standardError = FileHandle.nullDevice
+        _ = FileManager.default.createFile(atPath: appLogURL.path, contents: nil)
+        let appLog = try FileHandle(forWritingTo: appLogURL)
+        defer { try? appLog.close() }
+        app.standardOutput = appLog
+        app.standardError = appLog
         try app.run()
         defer {
             if app.isRunning { app.terminate() }
@@ -61,7 +67,22 @@ final class HookPromptLengthUITests: XCTestCase {
         try process.run()
         wait(for: [finished], timeout: 180)
         if process.isRunning { process.terminate() }
-        let diagnostics = (try? String(contentsOf: output, encoding: .utf8)) ?? "missing probe output"
+        var diagnostics = (try? String(contentsOf: output, encoding: .utf8)) ?? "missing probe output"
+        if !process.isRunning && process.terminationStatus != 0 {
+            diagnostics += "\nappRunning=\(app.isRunning)"
+            if !app.isRunning { diagnostics += " appExit=\(app.terminationStatus)" }
+            diagnostics += "\n" + ((try? String(contentsOf: appLogURL, encoding: .utf8)) ?? "missing app log")
+            diagnostics += "\n" + ((try? String(contentsOf: appDiagnosticsURL, encoding: .utf8)) ?? "missing app diagnostics")
+            let startupLog = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("Logs/cmux/startup-com.cmuxterm.app.debug.log")
+            if let startupLog, let startup = try? String(contentsOf: startupLog, encoding: .utf8) {
+                for line in startup.split(separator: "\n") {
+                    guard let row = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                          row["pid"] as? Int == Int(app.processIdentifier) else { continue }
+                    diagnostics += "\n" + line
+                }
+            }
+        }
         XCTAssertFalse(process.isRunning, diagnostics)
         if !process.isRunning { XCTAssertEqual(process.terminationStatus, 0, diagnostics) }
         let attachment = XCTAttachment(string: diagnostics)
@@ -102,6 +123,7 @@ def rpc(method, params):
         return result['result']
 
 deadline = time.monotonic() + 60
+last_socket_error = None
 while True:
     try:
         with socket.socket(socket.AF_UNIX) as connection:
@@ -110,9 +132,9 @@ while True:
             connection.sendall(b'ping\n')
             if connection.makefile().readline().strip() == 'PONG':
                 break
-    except (OSError, TimeoutError):
-        pass
-    assert time.monotonic() < deadline, 'isolated control socket did not become ready'
+    except (OSError, TimeoutError) as error:
+        last_socket_error = str(error)
+    assert time.monotonic() < deadline, ('isolated control socket did not become ready', last_socket_error, pathlib.Path(sock).exists())
     time.sleep(0.05)
 
 workspace = rpc('workspace.create', {'focus': False})['workspace_id']
