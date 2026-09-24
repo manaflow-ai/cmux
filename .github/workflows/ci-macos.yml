@@ -2468,6 +2468,7 @@ jobs:
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
+            CmuxSurfaceCatalogModel
             CmuxSudoBroker
             CmuxSudoBrokerUI
             CmuxTerminal

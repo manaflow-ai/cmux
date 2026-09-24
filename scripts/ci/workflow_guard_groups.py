@@ -90,6 +90,7 @@ PATH_OWNERS = {
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
+    "scripts/ci/nightly_mini_route.py": frozenset(("preflight",)),
     "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
