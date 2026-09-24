@@ -44,7 +44,34 @@ def fork_exercised_workflows() -> list[Path]:
     return sorted(seen)
 
 
+def pull_request_selects(line: str, family: str) -> bool:
+    """True when `github.event_name == 'pull_request'` selects a hosted label."""
+    return bool(
+        re.search(
+            r"github\.event_name == 'pull_request' && '" + family + r"-[^']+'",
+            line,
+        )
+    )
+
+
 class ForkRunnerRoutingTests(unittest.TestCase):
+    def test_pull_request_branch_must_select_the_hosted_label(self) -> None:
+        selected = (
+            "runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest'"
+            " || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        )
+        inverted = (
+            "runs-on: ${{ github.event_name == 'pull_request'"
+            " && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}"
+        )
+        inverted_linux = (
+            "runs-on: ${{ github.event_name == 'pull_request'"
+            " && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"
+        )
+        self.assertTrue(pull_request_selects(selected, "ubuntu"))
+        self.assertFalse(pull_request_selects(inverted, "macos"))
+        self.assertFalse(pull_request_selects(inverted_linux, "ubuntu"))
+
     def test_pull_request_graph_is_nonempty_and_includes_reusable_workflows(self) -> None:
         roots = pull_request_workflows()
         graph = fork_exercised_workflows()
@@ -64,19 +91,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
                 # A few trust-boundary workflows already choose GitHub-hosted
                 # capacity specifically for pull_request and use the repository
-                # pool for push/main. That is equivalent to the owner branch.
-                pull_request_linux = bool(
-                    re.search(
-                        r"github\.event_name == 'pull_request'.*'ubuntu-[^']+'",
-                        line,
-                    )
-                )
-                pull_request_macos = bool(
-                    re.search(
-                        r"github\.event_name == 'pull_request'.*'macos-[^']+'",
-                        line,
-                    )
-                )
+                # pool for push/main. That is equivalent to the owner branch,
+                # but only when the hosted label is the value the pull_request
+                # condition selects, not a label appearing later on the line.
+                pull_request_linux = pull_request_selects(line, "ubuntu")
+                pull_request_macos = pull_request_selects(line, "macos")
                 hosted_linux = FORK_LINUX_BRANCH in line or pull_request_linux
                 hosted_macos = FORK_MACOS_BRANCH in line or pull_request_macos
 
