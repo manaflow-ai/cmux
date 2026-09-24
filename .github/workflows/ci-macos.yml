@@ -658,6 +658,42 @@ jobs:
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
           exit "$status"
 
+      # CANARY (do not merge): measure what an incremental rebuild recompiles.
+      - name: Canary probe incremental rebuilds
+        if: always() && steps.hosted-compile.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 40
+        run: |
+          set -uo pipefail
+          report() {
+            local log="$1" name="$2" seconds="$3"
+            echo "== probe $name: ${seconds}s"
+            echo "   GenerateAssetSymbols tasks: $(grep -cE '^GenerateAssetSymbols ' "$log")"
+            echo "   CompileAssetCatalog tasks: $(grep -cE '^CompileAssetCatalog' "$log")"
+            echo "   EmitSwiftModule/SwiftEmitModule cmux: $(grep -cE "^(SwiftEmitModule|EmitSwiftModule) .*\(in target 'cmux' " "$log")"
+            grep -oE "^SwiftCompile normal arm64 [^ ]+ \(in target '[^']+'" "$log" | sed -E "s/.*target '//;s/'//" | sort | uniq -c | sort -rn | head -8 | sed 's/^/   /'
+            { echo "### probe $name: ${seconds}s"; grep -oE "^SwiftCompile normal arm64 [^ ]+ \(in target '[^']+'" "$log" | sed -E "s/.*target '//;s/'//" | sort | uniq -c | sort -rn | head -5; } >> "$GITHUB_STEP_SUMMARY"
+          }
+          probe() {
+            local name="$1" log="$RUNNER_TEMP/probe-$1.txt" started=$SECONDS
+            CMUX_CI_BUILD_SCHEMES=cmux-unit scripts/ci/compile-app-host-test-product.sh canonical-build \
+              "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+              "$PWD/.ci-source-packages" \
+              "$CMUX_COMPILE_ADMISSION_CAS" \
+              "$log" > /dev/null 2>&1 || echo "probe $name build failed"
+            report "$log" "$name" "$((SECONDS - started))"
+          }
+          src=/private/tmp/cmux-ci/src
+          stat -f '%Sm %N' "$src/Assets.xcassets" "$src/Assets.xcassets/AppIcon.appiconset" 2>/dev/null || true
+          find "$src/Assets.xcassets" -type f | head -2 | xargs stat -f '%Sm %N' 2>/dev/null || true
+          probe null
+          touch "$src/cmuxTests/CmuxSSHURLRequestTests.swift"
+          probe test-file-mtime
+          touch "$src/Assets.xcassets"
+          probe assets-dir-mtime
+          touch "$src/Sources/Sidebar/GPUSpinner.swift"
+          probe app-file-mtime
+
       # Adoption sets a per-user Xcode default. Only a build whose inputs were
       # just replayed should ignore inode changes, so a reused runner does not
       # carry it into an unrelated job.
