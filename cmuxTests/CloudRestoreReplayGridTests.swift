@@ -27,6 +27,9 @@ struct CloudRestoreReplayGridTests {
 
         let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
         #expect(report.cmd == "resize-surface")
+        #expect(report.surface == 17)
+        #expect(report.columns == 99)
+        #expect(report.rows == 35)
         fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive"]])
         let claim = try #require(
             await fixture.socket.nextCommand(timeout: .seconds(5)),
@@ -48,6 +51,9 @@ struct CloudRestoreReplayGridTests {
 
         let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
         #expect(report.cmd == "resize-surface")
+        #expect(report.surface == 17)
+        #expect(report.columns == 99)
+        #expect(report.rows == 35)
         fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive"]])
         #expect(await fixture.socket.nextCommand(timeout: .milliseconds(200)) == nil)
         fixture.focus()
