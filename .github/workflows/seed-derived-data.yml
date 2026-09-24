@@ -336,6 +336,22 @@ jobs:
           retention-days: 3
           compression-level: 0
 
+      # macOS jobs start their checkout from these objects, so a pull request
+      # fetches only what changed since this main commit instead of the whole
+      # tree and its submodules (scripts/ci/git-seed.sh). A failure costs them
+      # the head start, never this seed.
+      - name: Save git object seed
+        id: git-seed
+        if: github.ref == 'refs/heads/main'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        run: scripts/ci/git-seed.sh save "$GITHUB_WORKSPACE"
+
       - name: Summarize
         if: always()
         env:

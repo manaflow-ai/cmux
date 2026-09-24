@@ -79,6 +79,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
 
+      - name: Validate seeded macOS checkout
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_git_seed.py
+
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
         run: |

@@ -34,6 +34,21 @@ jobs:
       # restore needs this set here.
       CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
     steps:
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
+      # because nothing is checked out yet. A miss leaves the workspace empty
+      # and checkout clones as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
