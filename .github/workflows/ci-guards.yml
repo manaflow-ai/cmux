@@ -723,7 +723,9 @@ jobs:
 
       - name: Validate test compilation cache seeding
         if: ${{ matrix.group == 'quality-sharding' }}
-        run: bash ./tests/test_ci_test_compilation_cache_seed.sh
+        run: |
+          bash ./tests/test_ci_test_compilation_cache_seed.sh
+          bash ./tests/test_ci_swiftpm_manifest_cache.sh
 
       - name: Validate cmux-tui client installation
         if: ${{ matrix.group == 'release-tooling' }}
