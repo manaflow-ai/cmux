@@ -97,12 +97,24 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(choose(backlog(small=0, large=0), order=OLD).runner, OLD)
 
     def test_runs_since_the_snapshot_spread_a_burst(self):
-        # 12vcpu idle, 6vcpu 26 backed up, macOS 15 idle: the first three
-        # pushes after a sweep fill 12vcpu to the threshold, the next three
-        # take macOS 15, then the pools share the overflow by queue length.
-        picks = [choose(backlog(small=6, large=0, old=0), routed=n).runner for n in range(9)]
-        self.assertEqual(picks, [LARGE] * 3 + [OLD] * 3 + [LARGE, OLD, LARGE])
+        # 12vcpu has 9 of its 10 slots idle (1 running), 6vcpu 26 is backed
+        # up, macOS 15 is full with nothing queued: pushes after a sweep fill
+        # 12vcpu's idle slots, then its threshold, then queue on macOS 15.
+        snap = backlog(small=6, large=0, old=0)
+        snap["pools"][OLD]["running"] = pool.POOL_CAPACITY
+        picks = [choose(snap, routed=n).runner for n in range(16)]
+        self.assertEqual(picks, [LARGE] * 12 + [OLD] * 3 + [LARGE])
         self.assertIn("replaying 4", choose(backlog(small=6), routed=4).reason)
+
+    def test_idle_slots_absorb_recent_runs(self):
+        # The 11:45Z proof run: 12vcpu 0 queued and 2 running, four runs
+        # created in the minute since the sweep. They fit its idle slots.
+        snap = backlog(small=2, large=0, old=1)
+        snap["pools"][LARGE]["running"] = 2
+        self.assertEqual(choose(snap, routed=4).runner, LARGE)
+        self.assertEqual(pool.effective_queue({"queued": 0, "running": 2}, 8), 0)
+        self.assertEqual(pool.effective_queue({"queued": 0, "running": 2}, 10), 2)
+        self.assertEqual(pool.effective_queue({"queued": 1, "running": 3}, 2), 3)
 
     def test_counting_errors_keep_the_default(self):
         choice = choose(backlog(), routed=RuntimeError("GET /actions/workflows/ci.yml/runs failed (500)"))

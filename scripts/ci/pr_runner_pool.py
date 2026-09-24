@@ -32,8 +32,9 @@ jobs each sweep and publishes what it saw as the `macos-pool-load` artifact.
 Only a copy uploaded by a run on main of this repository counts, so no other
 branch can steer the choice. The janitor sweeps every 10 to 30 minutes, so
 every pull request run created since the snapshot is replayed through the
-same rule first, one queued job each, and a burst of pushes spreads across
-the pools instead of all taking the one that looked idle. That costs three
+same rule first, one job each, filling a pool's idle slots (POOL_CAPACITY
+less what is running) before they count as queued, so a burst of pushes
+spreads across the pools instead of all taking the one that looked idle. That costs three
 API requests (the artifact listing, its download redirect, and one page of
 CI runs); listing jobs here would cost one per in-flight run on every push,
 out of the GITHUB_TOKEN's shared budget of about 1000 an hour. A snapshot
@@ -86,6 +87,9 @@ OVERFLOW_VARIABLE = "CI_PR_POOL_OVERFLOW"
 ORDER_VARIABLE = "CI_PR_POOL_ORDER"
 MAX_QUEUED_VARIABLE = "CI_PR_POOL_MAX_QUEUED"
 DEFAULT_MAX_QUEUED = 3
+# Concurrent jobs one Blacksmith macOS pool ran at most, measured 2026-09-24:
+# 10 or 11 on each 6vcpu pool while jobs queued behind them.
+POOL_CAPACITY = 10
 
 ARTIFACT_NAME = "macos-pool-load"
 SNAPSHOT_FILE = "macos-pool-load.json"
@@ -157,8 +161,20 @@ def describe(snapshot: Mapping[str, Any], label: str) -> str:
     return text
 
 
-def pick(queued: Mapping[str, int], usable: Sequence[str], max_queued: int) -> tuple[str, bool]:
+def effective_queue(counts: Mapping[str, int], added: int) -> int:
+    """Queued jobs once `added` more arrive: they fill the pool's idle slots first.
+
+    A pool with jobs queued is already full, so everything added queues. One
+    with none queued has POOL_CAPACITY - running idle slots to fill first.
+    """
+    idle = 0 if counts["queued"] else max(0, POOL_CAPACITY - counts["running"])
+    return counts["queued"] + max(0, added - idle)
+
+
+def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
+         max_queued: int) -> tuple[str, bool]:
     """The rule itself: first usable pool with headroom, else the fewest queued."""
+    queued = {label: effective_queue(load[label], added[label]) for label in usable}
     for label in usable:
         if queued[label] < max_queued:
             return label, True
@@ -202,11 +218,11 @@ def decide(
         return Choice("", "", "every pool in the order is reserved or has no Xcode pin")
     skipped = [label for label in limits.order if label not in usable]
     note = f"; skipped {', '.join(skipped)} (reserved or no Xcode pin)" if skipped else ""
-    queued = {label: load[label]["queued"] for label in usable}
+    added = {label: 0 for label in usable}
     for _ in range(max(0, routed_since)):
-        earlier, _ = pick(queued, usable, limits.max_queued)
-        queued[earlier] += 1
-    label, headroom = pick(queued, usable, limits.max_queued)
+        earlier, _ = pick(load, added, usable, limits.max_queued)
+        added[earlier] += 1
+    label, headroom = pick(load, added, usable, limits.max_queued)
     replay = f" after replaying {routed_since} newer run(s)" if routed_since else ""
     why = (f"first pool in order with headroom (< {limits.max_queued} queued){replay}" if headroom
            else f"no pool has headroom{replay}; fewest queued")
