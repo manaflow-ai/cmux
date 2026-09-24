@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import re
 from pathlib import Path
+import subprocess
+import tempfile
 import unittest
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("e2e_sibling_build", ROOT / "scripts/ci/e2e_sibling_build.py")
@@ -119,6 +124,22 @@ class WorkflowTests(unittest.TestCase):
         # A tested revision older than the helper compiles as before.
         self.assertIn("[ -f scripts/ci/e2e_sibling_build.py ]", step)
         self.assertIn('cat "$first" >> "$GITHUB_OUTPUT"', step)
+
+    def test_the_budget_step_adds_the_wait_to_job_timeout(self) -> None:
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
+        steps = workflow["jobs"]["runner"]["steps"]
+        pool = next(step for step in steps if step.get("id") == "pool")
+        self.assertIn('echo "Runner: $label', pool["run"])
+        budget = next(step for step in steps if step.get("id") == "budget")
+        with tempfile.NamedTemporaryFile("r") as output:
+            for timeout, expected in (("45", "build_timeout=75"), ("90", "build_timeout=120")):
+                open(output.name, "w").close()
+                env = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": output.name,
+                       "JOB_TIMEOUT": timeout, "SIBLING_WAIT_MINUTES": budget["env"]["SIBLING_WAIT_MINUTES"]}
+                subprocess.run(["bash", "-c", budget["run"]], env=env, check=True)
+                self.assertEqual(Path(output.name).read_text().strip(), expected)
+            env["JOB_TIMEOUT"] = "45.5"
+            self.assertNotEqual(subprocess.run(["bash", "-c", budget["run"]], env=env, capture_output=True).returncode, 0)
 
     def test_the_wait_has_its_own_share_of_the_build_timeout(self) -> None:
         text = (ROOT / ".github/workflows/test-e2e.yml").read_text()

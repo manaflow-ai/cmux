@@ -122,6 +122,7 @@ jobs:
             --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED")"
           echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto})"
 
       - name: Budget the build job
         id: budget
@@ -132,7 +133,6 @@ jobs:
           set -euo pipefail
           case "$JOB_TIMEOUT" in ''|*[!0-9]*) echo "job_timeout must be whole minutes" >&2; exit 1 ;; esac
           echo "build_timeout=$((JOB_TIMEOUT + SIBLING_WAIT_MINUTES))" >> "$GITHUB_OUTPUT"
-          echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto})"
 
   filter:
     # Seconds on Linux, and it rejects a malformed selector before either
