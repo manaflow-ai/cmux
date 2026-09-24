@@ -1,3 +1,4 @@
+import CmuxCloudTui
 import Foundation
 import Testing
 #if canImport(cmux_DEV)

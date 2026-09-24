@@ -21,17 +21,23 @@ SWIFT
 # CloudTuiTerminalProjectionTarget lives in the CmuxSurfaceCatalogModel package, not in Sources/Cloud.
 cp "$ROOT/Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift" \
     "$DEST/Sources/CloudCommandFixture/"
-for name in CloudTuiPersistentResourceConnection CloudTuiPersistentRequestBuilder \
+cp "$ROOT/Sources/Cloud/CloudTuiPersistentResourceConnection.swift" "$DEST/Sources/CloudCommandFixture/"
+# The rest of the transport lives in the CmuxCloudTui package.
+for name in CloudTuiPersistentRequestBuilder \
     CloudTuiManualIOConnection CloudTuiManualIODescriptorLease CloudTuiManualIOCommand \
     CloudTuiManualIOFrame CloudTuiManualIOFrameDecoder CloudTuiRemoteColors; do
-    cp "$ROOT/Sources/Cloud/$name.swift" "$DEST/Sources/CloudCommandFixture/"
+    cp "$ROOT/Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/$name.swift" "$DEST/Sources/CloudCommandFixture/"
 done
 cp "$ROOT/tests/fixtures/cloud-command-deadlines/StandaloneDependencies.swift" "$DEST/Sources/CloudCommandFixture/"
-# The fixture stubs the catalog value types it needs (StandaloneDependencies.swift), so the
-# copied sources must not import the real package.
-sed -i.bak '/^import CmuxSurfaceCatalogModel$/d' "$DEST/Sources/CloudCommandFixture/"*.swift
+# The fixture stubs the catalog value types it needs (StandaloneDependencies.swift) and
+# compiles the transport into one module, so the copied sources and tests must not import
+# the real packages.
+sed -i.bak -e '/^import CmuxSurfaceCatalogModel$/d' -e '/^import CmuxCloudTui$/d' \
+    "$DEST/Sources/CloudCommandFixture/"*.swift
 rm -f "$DEST/Sources/CloudCommandFixture/"*.bak
 for name in CloudCommandDeadlineClock CloudCommandDeadlineTests CloudTuiManualIOConnectionTests; do
     cp "$ROOT/cmuxTests/$name.swift" "$DEST/Tests/CloudCommandFixtureTests/"
 done
+sed -i.bak '/^import CmuxCloudTui$/d' "$DEST/Tests/CloudCommandFixtureTests/"*.swift
+rm -f "$DEST/Tests/CloudCommandFixtureTests/"*.bak
 swift test --package-path "$DEST" -Xswiftc -warnings-as-errors

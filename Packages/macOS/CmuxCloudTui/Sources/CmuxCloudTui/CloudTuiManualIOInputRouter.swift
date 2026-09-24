@@ -10,7 +10,7 @@ import Foundation
 // @unchecked Sendable is safe because all mutable pending-input state is
 // isolated to `queue`; callers cross the boundary only with immutable input
 // values and the connection's thread-safe enqueue operation.
-final class CloudTuiManualIOInputRouter: @unchecked Sendable {
+public final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private var surfaceID: UInt64
     private let queue: DispatchQueue
     private let commandBuilder: CloudTuiManualIOCommand
@@ -19,7 +19,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     private let pendingByteLimit = 256 * 1024
     private var pendingByteCount = 0
 
-    init(
+    public init(
         surfaceID: UInt64,
         queue: DispatchQueue = DispatchQueue(label: "com.cmux.cloud-manual-io-input", qos: .userInitiated),
         commandBuilder: CloudTuiManualIOCommand = CloudTuiManualIOCommand()
@@ -32,7 +32,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     /// Updates the numeric surface target after a cmux-tui daemon restart.
     /// Public terminal resource IDs survive a restart, while the compatibility
     /// tree's numeric surface IDs may be allocated again.
-    func updateSurfaceID(_ surfaceID: UInt64) {
+    public func updateSurfaceID(_ surfaceID: UInt64) {
         queue.async { [self, surfaceID] in
             guard self.surfaceID != surfaceID else { return }
             let previousSurfaceID = self.surfaceID
@@ -57,7 +57,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     }
 
     /// Rebinds pending input to a newly connected transport.
-    func setConnection(_ connection: CloudTuiManualIOConnection?) {
+    public func setConnection(_ connection: CloudTuiManualIOConnection?) {
         queue.async { [self, connection] in
             self.connection = connection
             guard let connection else { return }
@@ -68,7 +68,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     }
 
     /// Stops delivery and discards queued bytes during permanent pane teardown.
-    func invalidate() {
+    public func invalidate() {
         queue.async { [self] in
             connection = nil
             pendingLines.removeAll(keepingCapacity: false)
@@ -77,7 +77,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     }
 
     /// Orders a control request with the manual input that preceded the paste.
-    func sendControl(
+    public func sendControl(
         _ command: [String: Any], on connection: CloudTuiManualIOConnection, requestID: UInt64
     ) throws -> UInt64 {
         let command = command.merging(["id": requestID]) { _, value in value }
@@ -91,7 +91,7 @@ final class CloudTuiManualIOInputRouter: @unchecked Sendable {
     }
 
     /// Enqueues one manual input event.
-    func send(_ input: TerminalManualInput) {
+    public func send(_ input: TerminalManualInput) {
         // Keep base64/JSON work off Ghostty's synchronous I/O callback. The
         // callback only copies the already-owned Sendable value and enqueues it
         // on this serial transport lane.

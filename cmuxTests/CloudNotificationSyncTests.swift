@@ -4,6 +4,7 @@ import CmuxSurfaceCatalogModel
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+import CmuxCloudTui
 import Foundation
 import Testing
 

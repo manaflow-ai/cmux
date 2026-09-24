@@ -3,9 +3,10 @@ on:
   pull_request:
     paths:
       - Sources/Cloud/CloudTuiPersistent*.swift
-      - Sources/Cloud/CloudTuiManualIO*.swift
+      - Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiManualIO*.swift
+      - Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiPersistentRequestBuilder.swift
       - Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift
-      - Sources/Cloud/CloudTuiRemoteColors.swift
+      - Packages/macOS/CmuxCloudTui/Sources/CmuxCloudTui/CloudTuiRemoteColors.swift
       - cmuxTests/CloudCommand*.swift
       - cmuxTests/CloudTuiManualIOConnectionTests.swift
       - tests/fixtures/cloud-command-deadlines/**
