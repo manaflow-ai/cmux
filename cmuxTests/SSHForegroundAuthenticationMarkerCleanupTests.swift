@@ -80,19 +80,25 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         defer {
             Darwin.kill(childPID, SIGKILL)
         }
+        let signaledAt = Date()
         Darwin.kill(process.processIdentifier, SIGINT)
 
-        let exitDeadline = Date().addingTimeInterval(3)
+        // Cleanup gets a 2s discovery window plus a bounded force pass, capped
+        // at 15s by the policy's deadline regression. The child's TERM handler
+        // runs promptly, but the post-TERM process-table snapshots can outlast
+        // 3s on a loaded runner, so wait for the policy bound instead.
+        let exitDeadline = signaledAt.addingTimeInterval(15)
         while process.isRunning, Date() < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
         let exited = !process.isRunning
+        let elapsed = Date().timeIntervalSince(signaledAt)
         if process.isRunning {
             Darwin.kill(process.processIdentifier, SIGKILL)
         }
         process.waitUntilExit()
 
-        #expect(exited)
+        #expect(exited, "Restored attach did not exit \(elapsed)s after SIGINT")
         if exited {
             #expect(process.terminationStatus == 130)
         }
