@@ -739,12 +739,13 @@ jobs:
           # using the same certificate and API key as the host profile. The
           # helper also installs an optional pre-provisioned extension secret,
           # then falls back to the active profile in ASC.
+          EXTENSION_BUNDLE_ID="$(bash ./ios/scripts/notification-service-bundle-id.sh "$IOS_BETA_BUNDLE_ID")"
           if [ "$IOS_BETA_PROFILE_TYPE" = "internal" ] || [ -n "${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" ]; then
             EXTENSION_ENV="$RUNNER_TEMP/cmux-${IOS_BETA_PROFILE_TYPE}-extension.env"
             : > "$EXTENSION_ENV"
             IOS_APPSTORE_TEAM_ID=7WLXT3NR37 \
             IOS_APPSTORE_BUNDLE_IDENTIFIER="$IOS_BETA_BUNDLE_ID" \
-            IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER="$IOS_BETA_BUNDLE_ID.NotificationService" \
+            IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER="$EXTENSION_BUNDLE_ID" \
             IOS_APPSTORE_PROVISIONING_PROFILE_BASE64="$PROFILE_BASE64" \
             IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_BASE64:-}" \
             IOS_APPSTORE_KEYCHAIN_NAME=ios-testflight.keychain \

@@ -140,14 +140,14 @@ def write_plist(path, value):
 APPSTORE_PROFILE = plistlib.loads({_plist_bytes(_profile_plist())!r})
 BETA_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID, "cmux Beta Distribution Test", "00000000-0000-0000-0000-000000000002"))!r})
 EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_extension_profile_plist())!r})
-BETA_EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID + ".NotificationService", "cmux Beta Notification Service Distribution", "00000000-0000-0000-0000-000000000004"))!r})
+BETA_EXTENSION_PROFILE = plistlib.loads({_plist_bytes(_profile_plist(BETA_BUNDLE_ID + ".NotificationServiceV2", "cmux Beta Notification Service Distribution", "00000000-0000-0000-0000-000000000004"))!r})
 BETA_EXTENSION_PROFILE["Entitlements"]["keychain-access-groups"] = [TEAM_ID + ".*"]
 FIXTURE_CERTIFICATE = {ssl.DER_cert_to_PEM_cert(FIXTURE_CERTIFICATE_DER)!r}
 
 def profile_for_bundle(bundle_id):
     if bundle_id == BETA_BUNDLE_ID:
         source = BETA_PROFILE
-    elif bundle_id == BETA_BUNDLE_ID + ".NotificationService":
+    elif bundle_id == BETA_BUNDLE_ID + ".NotificationServiceV2":
         source = BETA_EXTENSION_PROFILE
     elif bundle_id == APPSTORE_EXTENSION_BUNDLE_ID:
         source = EXTENSION_PROFILE
@@ -170,7 +170,7 @@ def bundle_id_for_target(path):
     return value or APPSTORE_BUNDLE_ID
 
 def entitlements_for_bundle(bundle_id):
-    if bundle_id.endswith(".NotificationService"):
+    if bundle_id.endswith((".NotificationService", ".NotificationServiceV2")):
         # This is the broken exported artifact: the extension profile is
         # embedded, but the extension signature claims no keychain group.
         return {{
@@ -441,7 +441,7 @@ if "archive" in args:
     write_plist(
         extension / "Info.plist",
         {{
-            "CFBundleIdentifier": f"{{bundle_id}}.NotificationService",
+            "CFBundleIdentifier": setting("CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER=") or f"{{bundle_id}}.NotificationService",
             "CMUXHostBundleIdentifier": bundle_id,
             "CMUXKeychainAccessGroup": bundle_id,
         }},
@@ -465,7 +465,7 @@ if "-exportArchive" in args:
     write_plist(
         extension / "Info.plist",
         {{
-            "CFBundleIdentifier": f"{{bundle_id}}.NotificationService",
+            "CFBundleIdentifier": plistlib.loads((app_info.parent / "PlugIns" / "NotificationService.appex" / "Info.plist").read_bytes())["CFBundleIdentifier"],
             "CMUXHostBundleIdentifier": bundle_id,
             "CMUXKeychainAccessGroup": bundle_id,
         }},
@@ -482,7 +482,7 @@ if "-exportArchive" in args:
         extension = app / "PlugIns" / "NotificationService.appex"
         write_plist(
             extension / "Info.plist",
-            {{"CFBundleIdentifier": BETA_BUNDLE_ID + ".NotificationService"}},
+            {{"CFBundleIdentifier": BETA_BUNDLE_ID + ".NotificationServiceV2"}},
         )
         (extension / "embedded.mobileprovision").write_text(
             "beta extension profile", encoding="utf-8"
@@ -773,6 +773,12 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
         )
     )
     (app / "Info.plist").write_bytes(_plist_bytes(info))
+    extension = app / "PlugIns" / "NotificationService.appex"
+    extension.mkdir(parents=True)
+    suffix = "NotificationServiceV2" if bundle_id == BETA_BUNDLE_ID else "NotificationService"
+    (extension / "Info.plist").write_bytes(
+        _plist_bytes({"CFBundleIdentifier": f"{bundle_id}.{suffix}"})
+    )
 
 
 def _set_fixture_versions(repo: Path) -> None:
@@ -795,6 +801,7 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
     repo = target / "repo"
     for relative in (
         "ios/scripts/upload-testflight.sh",
+        "ios/scripts/notification-service-bundle-id.sh",
         "ios/Config/Shared.xcconfig",
         "ios/Config/cmux-release.entitlements",
         "ios/Config/NotificationService.entitlements",
@@ -918,7 +925,7 @@ def test_upload_beta_lane_uses_beta_marketing_version(tmp: Path, fakebin: Path) 
         "export options map the beta profile to dev.cmux.app.beta",
     )
     _check(
-        profiles.get(f"{BETA_BUNDLE_ID}.NotificationService")
+        profiles.get(f"{BETA_BUNDLE_ID}.NotificationServiceV2")
         == env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"],
         "export options map the beta notification extension to its own profile",
     )
