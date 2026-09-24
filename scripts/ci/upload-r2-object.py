@@ -163,7 +163,10 @@ def main() -> int:
         help="Refuse to overwrite an immutable object; accept an identical existing object",
     )
     parser.add_argument("--dry-run-json", action="store_true", help="Print the signed request instead of uploading")
+    parser.add_argument("--timeout", type=int, default=30)
     args = parser.parse_args()
+    if args.timeout <= 0:
+        parser.error("--timeout must be positive")
     if not args.content_type:
         content_type, encoding = mimetypes.guess_type(args.file)
         # A compressed file is not the unencoded type returned by guess_type.
@@ -214,7 +217,7 @@ def main() -> int:
             amz_date,
             extra_headers={"if-none-match": "*"} if args.write_once else None,
         )
-        with _open_signed_request(request, timeout=30) as response:
+        with _open_signed_request(request, timeout=args.timeout) as response:
             response.read()
             print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
             return 0

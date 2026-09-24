@@ -401,7 +401,7 @@ jobs:
               if [[ "$write_once" == "true" ]]; then
                 upload_args+=(--write-once)
               fi
-              python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
+              python3 scripts/ci/upload-r2-object.py --timeout 120 "${upload_args[@]}" \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --bucket cmux-binaries \
@@ -466,7 +466,7 @@ jobs:
             local prefix="$1"
             local cache="$2"
             for file in "$legacy_assets"/*; do
-              python3 scripts/ci/upload-r2-object.py --write-once \
+              python3 scripts/ci/upload-r2-object.py --timeout 120 --write-once \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --bucket cmux-binaries \
@@ -525,7 +525,7 @@ jobs:
               if [[ "$write_once" == "true" ]]; then
                 upload_args+=(--write-once)
               fi
-              python3 scripts/ci/upload-r2-object.py "${upload_args[@]}" \
+              python3 scripts/ci/upload-r2-object.py --timeout 120 "${upload_args[@]}" \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --bucket cmux-binaries \
@@ -541,7 +541,7 @@ jobs:
             local prefix="$1"
             local cache="$2"
             for file in assets-legacy/*; do
-              python3 scripts/ci/upload-r2-object.py \
+              python3 scripts/ci/upload-r2-object.py --timeout 120 \
                 --file "$file" \
                 --endpoint-url "$R2_ENDPOINT" \
                 --bucket cmux-binaries \
