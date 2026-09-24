@@ -220,11 +220,7 @@ pub fn start_idle_terminal_reaper(
 ) -> std::io::Result<IdleTerminalReaper> {
     let (stop, stopped) = mpsc::channel::<()>();
     let thread = std::thread::Builder::new().name("mux-idle-close".into()).spawn(move || {
-        loop {
-            match stopped.recv_timeout(interval) {
-                Err(RecvTimeoutError::Timeout) => {}
-                Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
-            }
+        while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(interval) {
             let Some(mux) = mux.upgrade() else { break };
             mux.reap_idle_terminals(Instant::now());
         }
