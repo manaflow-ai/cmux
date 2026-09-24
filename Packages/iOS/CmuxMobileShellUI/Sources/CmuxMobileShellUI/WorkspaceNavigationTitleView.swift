@@ -25,6 +25,8 @@ final class WorkspaceNavigationTitleView: UIView {
             capsule = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
         }
         super.init(frame: .zero)
+        accessibilityIdentifier = "MobileWorkspaceTitleHost"
+        isAccessibilityElement = true
         if #available(iOS 26.0, *) {
             capsule.cornerConfiguration = .capsule()
         } else {

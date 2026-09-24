@@ -9,9 +9,11 @@ final class WorkspaceNavigationControlView: UIView {
     private let contentView: UIView & UIContentView
     private var width: NSLayoutConstraint?
 
-    init(content: AnyView) {
+    init(content: AnyView, accessibilityIdentifier: String? = nil) {
         contentView = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
         super.init(frame: .zero)
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.isAccessibilityElement = accessibilityIdentifier != nil
         // The bar already places items around the device's safe area. Adding
         // it again here enlarges the end items by 17 points in landscape.
         insetsLayoutMarginsFromSafeArea = false
