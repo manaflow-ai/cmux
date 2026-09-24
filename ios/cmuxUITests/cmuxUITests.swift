@@ -142,13 +142,13 @@ final class cmuxUITests: XCTestCase {
                 screenshot.name = "1.0.6 notice - \(channel) - \(appearance)"
                 screenshot.lifetime = .keepAlways
                 add(screenshot)
-                let continueButton = app.buttons["MobileWhatsNewContinue"].firstMatch
+                let continueButton = app.buttons["Continue"].firstMatch
                 XCTAssertTrue(continueButton.isHittable)
                 continueButton.tap()
                 let pairingSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
                 XCTAssertTrue(pairingSheet.waitForExistence(timeout: 5))
                 XCTAssertTrue(pairingSheet.staticTexts["Action Required: Enable iOS pairing on your Mac"].waitForExistence(timeout: 5))
-                XCTAssertTrue(app.images["MobileWhatsNewMacSettingsScreenshot"].waitForExistence(timeout: 5))
+                XCTAssertTrue(app.images.matching(NSPredicate(format: "label == %@", "cmux Mac Settings, Mobile section, showing Enable iOS pairing.")).firstMatch.waitForExistence(timeout: 5))
                 XCTAssertTrue(app.staticTexts["cmux 0.64.25 or later"].exists)
                 XCTAssertTrue(app.staticTexts["cmux NIGHTLY 0.64.25-nightly.3522337919701 or later"].exists)
                 let pairingScreenshot = XCTAttachment(screenshot: app.screenshot())
@@ -161,7 +161,7 @@ final class cmuxUITests: XCTestCase {
             } else {
                 XCTAssertTrue(app.staticTexts["MobileWhatsNewPreviewLoaded"].waitForExistence(timeout: 15))
                 XCTAssertFalse(title.exists, "Notice must not reach \(channel) \(version)")
-                XCTAssertFalse(app.buttons["MobileWhatsNewContinue"].exists)
+                XCTAssertFalse(app.buttons["Continue"].exists)
             }
             app.terminate()
         }
