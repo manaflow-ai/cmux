@@ -268,9 +268,16 @@ def _cmux_wrapper_path [wrapper_file: string] {
 # Route `claude` through the cmux wrapper so session tracking and
 # notification hooks are injected even if later PATH edits shadow the
 # per-surface shim. `^claude` resolves the real external through PATH.
+#
+# The Automation toggle owns command interception. Nushell applies `hide` at
+# parse time, even inside an `if` that never runs, so a conditional hide
+# removed the wrapper for everyone. Decide at call time instead: with
+# integration off, run the user's external `claude` directly.
 def --wrapped claude [...args: string] {
     let shim = ($env.CMUX_CLAUDE_WRAPPER_SHIM? | default "")
-    if ($shim != "") and ($shim | path exists) {
+    if ($env.CMUX_CLAUDE_INTEGRATION_DISABLED? | default "") == "1" {
+        ^claude ...$args
+    } else if ($shim != "") and ($shim | path exists) {
         ^$shim ...$args
     } else {
         let wrapper = (_cmux_wrapper_path "cmux-claude-wrapper")
@@ -280,13 +287,6 @@ def --wrapped claude [...args: string] {
             ^claude ...$args
         }
     }
-}
-
-# The Automation toggle owns command interception. Keep the wrapper definition
-# available for enabled launches, then hide it entirely when integration is off
-# so Nushell resolves the user's external `claude` directly.
-if ($env.CMUX_CLAUDE_INTEGRATION_DISABLED? | default "") == "1" {
-    hide claude
 }
 
 # Routes grok through the bundled cmux wrapper when present.

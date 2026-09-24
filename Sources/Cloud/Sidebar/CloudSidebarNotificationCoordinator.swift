@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Coalesces admitted notifications until the next main-actor turn. Each machine

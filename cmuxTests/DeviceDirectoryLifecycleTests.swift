@@ -2,6 +2,7 @@ import CMUXAuthCore
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileRPC
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
