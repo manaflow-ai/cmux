@@ -815,6 +815,7 @@ jobs:
             xcode-compilation-ios-testflight-${{ steps.distribution.outputs.bundle_id }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-
 
       - name: Restore iOS SwiftPM cache
+        id: ios-spm-restore
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         with:
@@ -946,6 +947,23 @@ jobs:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: ${{ runner.temp }}/cmux-ios-upload/DerivedData/CompilationCache.noindex
           key: xcode-compilation-ios-testflight-${{ steps.distribution.outputs.bundle_id }}-${{ runner.os }}-${{ runner.arch }}-${{ steps.ios-compilation-cache-key.outputs.toolchain }}-${{ github.sha }}
+
+      # test-ios.yml saves this key only on a seed_cache dispatch, so nothing
+      # wrote it; the upload lanes resolve the same packages on main anyway.
+      - name: Save iOS SwiftPM cache
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.ios-spm-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          # Only an R2 save sees the bucket credentials.
+          AWS_ACCESS_KEY_ID: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+          AWS_SECRET_ACCESS_KEY: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+          CI_CACHE_R2_ENDPOINT: ${{ (vars.CI_CACHE_BACKEND || 'r2') == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/cmux-ios-spm
+          key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
       - name: Save deferred TestFlight notes request
         id: notes_request
         if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.distribution.outputs.upload_mode != 'marketing_version_override' }}
