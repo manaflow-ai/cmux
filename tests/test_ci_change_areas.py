@@ -4295,6 +4295,8 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
             continue
         if (
             name == "tests-build-and-lag"
+            # Its own owned_jobs key, so it never follows admission's placement.
+            and "' lag '" in runs_on
             and runs_on.replace("vars.MACOS_RUNNER_DISPLAY", "vars.MACOS_RUNNER_15").replace(
                 "' lag '", "' admission '") == producer["runs-on"]
             and xcode == producer["env"]["CMUX_CI_XCODE_APP"]

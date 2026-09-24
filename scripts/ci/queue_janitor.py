@@ -425,7 +425,12 @@ def pool_load_snapshot(
                     POOL_QUEUED_JOB_STATUSES | RUNNING_JOB_STATUSES):
                 seen[runner_pool(job)] = seen.get(runner_pool(job), 0) + 1
         marker = (markers or {}).get(run.get("id"))
-        if marker and run.get("status") != "completed":
+        # A run whose owned jobs all finished holds no owned machine, even while
+        # its Blacksmith jobs (per-job placement) keep it in flight. Before its
+        # first owned job exists, the marker still reserves its peak.
+        owned_jobs = [job for job in jobs_by_run.get(run.get("id"), ()) if is_macos_job(job) and owned_label(job)]
+        released = bool(owned_jobs) and all(job.get("status") == "completed" for job in owned_jobs)
+        if marker and run.get("status") != "completed" and not released:
             seen[marker[0]] = max(seen.get(marker[0], 0), marker[1])
         for label, count in seen.items():
             committed[label] = committed.get(label, 0) + count
