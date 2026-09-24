@@ -77,6 +77,13 @@ class MatchesTheProducer(unittest.TestCase):
         for value in ("pilot", "all", "off"):
             self.assertIn(f'"{value}"', text)
 
+    def test_glaeda_candidate_pin_is_exact(self) -> None:
+        # A reviewed candidate is named by its run, full source commit and archive digest together.
+        self.assertRegex(fleet.CANDIDATE_RUN, r"^[0-9]+$")
+        self.assertRegex(fleet.CANDIDATE_SOURCE, r"^[0-9a-f]{40}$")
+        self.assertRegex(fleet.CANDIDATE_SHA256, r"^[0-9a-f]{64}$")
+        self.assertIn(fleet.CANDIDATE_SOURCE, fleet.candidate_archive().name)
+
     def test_runner_pin_is_a_sha256(self) -> None:
         self.assertRegex(fleet.RUNNER_SHA256, r"^[0-9a-f]{64}$")
         self.assertIn(fleet.RUNNER_VERSION, fleet.RUNNER_URL)
@@ -221,6 +228,16 @@ class UpPlan(unittest.TestCase):
         for state in ("quarantined", "retired"):
             with self.subTest(state=state), self.assertRaisesRegex(fleet.Failure, state):
                 fleet.up_plan(mini(enrollment={"nodeId": "n", "state": state}), False, None, False)
+
+    def test_the_candidate_is_downloaded_only_when_enrollment_needs_it(self) -> None:
+        fresh = mini(enrollment=None, acceptance=False, runner_configured=False, runner_name=None, service_loaded=None)
+        self.assertEqual([s.key for s in fleet.up_plan(fresh, False, "cmux-mac-002", False, have_candidate=False)],
+                         ["download", "enroll", "register", "start"])
+        self.assertEqual([s.key for s in fleet.up_plan(mini(), False, None, False, have_candidate=False)], [])
+
+    def test_an_old_glaeda_checkout_is_fast_forwarded(self) -> None:
+        self.assertEqual([s.key for s in fleet.up_plan(mini(), True, None, False, glaeda_current=False)],
+                         ["update", "setup"])
 
     def test_the_plan_names_the_token_source(self) -> None:
         local = mini(runner_configured=False, service_loaded=None)

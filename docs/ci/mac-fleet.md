@@ -531,8 +531,13 @@ to run next. Commands that change something show their plan and ask first
 | Operator | the mini, in a cmux checkout | `scripts/persistent-compile up --node-id cmux-mac-NNN` |
 | Maintainer | anywhere | `scripts/persistent-compile pilot <PR>`, later `all` |
 
-`up` clones Glaeda if needed, then runs `glaeda-mini-setup` and
-`glaeda-mini-enroll`, registers the runner and starts it. It stops at the first
+Before `up`, reserve the mini through its existing owner (#13491 step 1); `up`
+does not take machines from other schedulers. `up` clones Glaeda if needed and
+runs `glaeda-mini-setup`. It then downloads the reviewed Glaeda candidate
+pinned in `scripts/ci/persistent_compile_fleet.py` (`CANDIDATE_*`) and has
+`glaeda-mini-enroll` verify and stage those exact bytes, then enroll and
+accept the mini with them; no Rust is built on the node. Last, it registers
+the runner and starts it. It stops at the first
 step that needs sudo or a human, prints that step, and resumes from there when
 run again. It refuses to register a mini whose Glaeda enrollment is not
 `eligible`. The runner is the pinned `actions-runner` (sha256 checked) in

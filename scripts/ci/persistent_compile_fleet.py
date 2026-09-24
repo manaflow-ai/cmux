@@ -48,6 +48,13 @@ COHORT_VARIABLE = "CI_PERSISTENT_MAC_COMPILE_COHORT"
 XCODE_APP = "/Applications/Xcode_26.3.app"
 ROLE = "cmux_macos_native_build"
 GLAEDA_URL = "https://github.com/teamleaderleo/glaeda.git"
+# The reviewed Glaeda candidate a mini runs (#13491, docs/FLEET_DISTRIBUTION.md in
+# Glaeda). The node installs these exact bytes and builds no Rust. Actions keeps the
+# artifact for 30 days; replace all four values together from the new run's receipt.
+CANDIDATE_RUN = "35879163562"
+CANDIDATE_ARTIFACT = "glaeda-candidate-aarch64-apple-darwin"
+CANDIDATE_SOURCE = "36e07e36ea7b9bc9e04c366547a5312dd348024d"
+CANDIDATE_SHA256 = "c2ceaa2df44d82d8a972fbe2ae6c33a8ceb11247f010cd837fa403313ec8f66e"
 TOKEN_ENV = "CMUX_RUNNER_TOKEN"
 
 RUNNER_VERSION = "2.336.0"
@@ -95,6 +102,19 @@ def enrollment_path() -> Path:
 
 def acceptance_path() -> Path:
     return fleet_root() / "acceptance" / f"{ROLE}.json"
+
+
+def candidate_dir() -> Path:
+    return Path.home() / "Library/Caches/cmux-fleet" / f"glaeda-candidate-{CANDIDATE_SOURCE[:12]}"
+
+
+def candidate_archive() -> Path:
+    return candidate_dir() / f"glaeda-{CANDIDATE_SOURCE}-aarch64-apple-darwin.tar.gz"
+
+
+def candidate_staged() -> bool:
+    # Same generation directory glaeda-mini-enroll stages into.
+    return (Path.home() / "Projects/glaeda-generations" / CANDIDATE_SOURCE[:12] / "stage-receipt.json").is_file()
 
 
 def runner_dir() -> Path:
@@ -517,19 +537,26 @@ class UpStep:
     text: str
 
 
-def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_token: bool) -> list[UpStep]:
+def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_token: bool,
+            glaeda_current: bool = True, have_candidate: bool = True) -> list[UpStep]:
     """What `up` still has to do on this mini, in order. Pure, so it is tested without a Mac."""
     steps: list[UpStep] = []
     if local.glaeda is None:
         steps.append(UpStep("clone", f"clone Glaeda into {Path.home() / 'glaeda'}"))
+    elif not glaeda_current:
+        steps.append(UpStep("update", f"fast-forward the Glaeda checkout at {local.glaeda} (it predates glaeda-mini-enroll)"))
     if setup_pending:
         steps.append(UpStep("setup", "glaeda-mini-setup: build-host tools, LaunchAgents and cache directories"))
     state = (local.enrollment or {}).get("state")
+    enroll_needed = local.enrollment is None or state not in {"eligible", "quarantined", "retired"} or not local.acceptance
+    if enroll_needed and not have_candidate:
+        steps.append(UpStep("download", f"download the reviewed Glaeda candidate {CANDIDATE_SOURCE[:12]} "
+                                        f"(run {CANDIDATE_RUN}) with gh"))
     if local.enrollment is None:
         if not node_id:
             raise Failure("this mini is not enrolled yet: pass --node-id, an opaque id such as cmux-mac-002 "
                           "(not a hostname or serial)")
-        steps.append(UpStep("enroll", f"enroll as {node_id} and run local acceptance "
+        steps.append(UpStep("enroll", f"stage the candidate, enroll as {node_id} and run local acceptance "
                                       "(a cold cmux build, about 13 minutes)"))
     elif state in {"quarantined", "retired"}:
         raise Failure(f"Glaeda node {local.enrollment.get('nodeId')} is {state}; "
@@ -575,9 +602,11 @@ def cmd_up(args: argparse.Namespace) -> int:
     local = read_local(args.glaeda_root)
     if not local.xcode:
         raise Failure(f"install Xcode 26.3 at {XCODE_APP} and run: sudo xcode-select -s {XCODE_APP}")
-    receipt = mini_setup_receipt(local.glaeda, apply=False) if local.glaeda else {}
-    steps = up_plan(local, local.glaeda is None or setup_pending(receipt), args.node_id,
-                    bool(os.environ.get(TOKEN_ENV)))
+    current = local.glaeda is not None and (local.glaeda / "scripts" / "glaeda-mini-enroll").is_file()
+    receipt = mini_setup_receipt(local.glaeda, apply=False) if current else {}
+    steps = up_plan(local, not current or setup_pending(receipt), args.node_id,
+                    bool(os.environ.get(TOKEN_ENV)), glaeda_current=current,
+                    have_candidate=candidate_staged() or candidate_archive().is_file())
     if not steps:
         print(f"{local.runner_name} is enrolled, registered and running. Nothing to do.")
         return 0
@@ -590,6 +619,10 @@ def cmd_up(args: argparse.Namespace) -> int:
             target = Path.home() / "glaeda"
             run_checked(["git", "clone", GLAEDA_URL, os.fspath(target)], Path.home())
             local.glaeda = target
+        elif step.key == "update":
+            run_checked(["git", "-C", os.fspath(local.glaeda), "pull", "--ff-only"], Path.home())
+        elif step.key == "download":
+            download_candidate()
         elif step.key == "setup":
             receipt = mini_setup_receipt(local.glaeda, apply=True)
             if not receipt.get("ready"):
@@ -598,7 +631,9 @@ def cmd_up(args: argparse.Namespace) -> int:
                     print(f"  {line}")
                 raise Failure("do the steps above, then run scripts/persistent-compile up again")
         elif step.key == "enroll":
-            enroll = ["--cmux-root", os.fspath(ROOT), "--apply"] + (["--node-id", args.node_id] if args.node_id else [])
+            enroll = ["--cmux-root", os.fspath(ROOT), "--apply", "--candidate", os.fspath(candidate_archive()),
+                      "--sha256", CANDIDATE_SHA256, "--source", CANDIDATE_SOURCE]
+            enroll += ["--node-id", args.node_id] if args.node_id else []
             if glaeda_python(local.glaeda, "glaeda-mini-enroll", *enroll).returncode:
                 raise Failure("Glaeda enrollment stopped (see above); fix it and run scripts/persistent-compile up again")
             local = read_local(os.fspath(local.glaeda))
@@ -610,6 +645,19 @@ def cmd_up(args: argparse.Namespace) -> int:
             start_service(runner_dir())
     print(f"\n{local.runner_name or 'the runner'} is up. Check from anywhere: scripts/persistent-compile")
     return 0
+
+
+def download_candidate() -> None:
+    directory = candidate_dir()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    ok, error = gh("run", "download", CANDIDATE_RUN, "--repo", "teamleaderleo/glaeda",
+                   "--name", CANDIDATE_ARTIFACT, "--dir", os.fspath(directory))
+    if not ok:
+        raise Failure(f"could not download Glaeda candidate run {CANDIDATE_RUN} ({error}). Artifacts expire after "
+                      "30 days: ask for a new candidate and update CANDIDATE_* in scripts/ci/persistent_compile_fleet.py")
+    if not candidate_archive().is_file():
+        raise Failure(f"the downloaded artifact has no {candidate_archive().name}")
+    # glaeda-mini-enroll verifies the bytes against CANDIDATE_SHA256 before staging anything.
 
 
 def cmd_token(_: argparse.Namespace) -> int:
