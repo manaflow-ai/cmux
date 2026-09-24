@@ -1,19 +1,30 @@
 {
-  "guestCLI": {
-    "welcomeBrand": "cmux Cloud",
-    "welcomeHelp": "  cmux welcome  Cloud kılavuzunu yeniden göster",
-    "welcomeUsage": "Kullanım: cmux welcome\n\ncmux Cloud kılavuzunu yeniden göster.",
-    "welcomeOption": "cmux welcome: bilinmeyen seçenek %s\n\nKullanım: cmux welcome",
-    "welcomeIntro": "cmux Cloud’a hoş geldiniz\nKodlama ajanları için makineniz",
-    "welcomeCodeRouter": "\nAjanlar\ncodex\tCodex’i CodeRouter hesaplarınızla her zamanki gibi çalıştırın.\nclaude\tClaude Code’u CodeRouter üzerinden normal şekilde çalıştırın.\ncmux cr accounts\tBağlı hesaplar\ncmux cr models\tKullanılabilir modeller\n\nMac’inizde hesap ekleyin\ncmux cr add codex\tChatGPT hesabı bağlayın\ncmux cr add claude\tClaude hesabı bağlayın",
-    "welcomeWorkspaces": "\nMakineniz\nÇalışma alanları\tTek makinede birçok çalışma alanı ve terminal bulunur. Mac’te bir paneli kapatmak uzak terminalleri durdurmaz.\nUyku ve depolama\tUyku hesaplamayı duraklatır; uyandırmak için yeniden bağlanın. Çalışma süresi ve saklama sınırları planınıza bağlıdır. Silmeden önce yedekleyin.",
-    "welcomeDisplays": "Ekranlar → Masaüstü (Displays → Desktop)\tMac’inizden grafik uygulamaları ve tarayıcıları açın.",
-    "welcomeNoDisplays": "Ekranlar → Masaüstü (Displays → Desktop)\tDestekleniyorsa Mac’inizden grafik uygulamaları ve tarayıcıları açın.",
-    "welcomePorts": "Bağlantı noktaları\tMac’inizde geliştirme sunucusunu özel olarak önizleyin. Başkalarına erişim vermek için Paylaş’i açıkça kullanın.",
-    "welcomeFiles": "\nProjeler\ngit clone <repo-url>\tProjenizi buraya klonlayın ve çalışın.\n\nMac’inizden dosya aktarın\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
-    "welcomeReplay": "\nKılavuz\tcmux welcome\nYardım\tcmux --help\nBelgeler\thttps://cmux.com/docs"
+  "agentHarness": {
+    "title": "Algılanan harness yapılandırması",
+    "selectionNotice": "Bir sağlayıcı seçmek bu harnessleri başlatmaz veya etkinleştirmez.",
+    "selectProvider": "{provider} seç",
+    "foundPath": "{path} bulundu",
+    "foundCommand": "{command} komutu bulundu",
+    "installed": "Sağlayıcı yüklü",
+    "missing": "Sağlayıcı yüklü değil",
+    "install": "Şununla yükle: {command}",
+    "benefitPi": "Sıkıştırma, bellek ve sağlayıcı yönlendirmesi",
+    "benefitOpenagent": "OpenCode için paralel uzmanlar ve kurtarma",
+    "benefitClaude": "Claude Code için ekipler ve doğrulama",
+    "benefitSuperpowers": "Planlama, TDD, alt aracılar ve inceleme"
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM kurulumu tamamlanamadı",
+      "reason": "Cloud VM konuk kurulumu tamamlanmadı.",
+      "message": "cmux, Cloud VM kurulumunu tamamlayamadı.",
+      "action": "İşlemi yeniden deneyin. Sorun devam ederse destek ekibiyle iletişime geçin."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM temizliği bekleniyor",
+      "message": "Cloud VM kurulumu başarısız oldu ve temizlik henüz tamamlanmadı.",
+      "action": "Başka bir makine oluşturmadan önce izleme kimliğiyle destek ekibine başvurun."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",
@@ -1262,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux yapılandırması. Genel cmux.json; uygulama ayarlarını, kısayolları, eylemleri, özel komutları, bildirim hook'larını ve çalışma alanı düzenlerini destekler. Projeye özel .cmux/cmux.json veya cmux.json; eylemleri, komutları, bildirim hook'larını, UI eylem bağlantılarını, Agent Chat geçersiz kılmalarını, vault ajanlarını, çalışma alanı grubu geçersiz kılmalarını ve çalışma alanı başlatma ile düğme yapılandırmasını destekler.",
         "rightSidebar": "cmux.json içinde korunan eski ve uzantılara ait sağ kenar çubuğu yapılandırması.",
+        "packs": {
+          "description": "Bu yapılandırmadan önce yüklenen yerel cmux paket dosyaları veya dizinleri. Dizinler cmux.pack.json olarak çözümlenir. Bir yol dizesi veya path alanı olan bir nesne kullanın.",
+          "path": "Mutlak değilse bu yapılandırma dosyasına göre belirlenen yerel dosya veya dizin yolu."
+        },
         "paneBorderColor": "Bölünmüş çalışma alanlarında cmux bölme ayırıcı rengini geçersiz kılar. Bu, Ghostty iç bölmelerini değil cmux bölme sınırlarını etkiler.",
         "activePaneBorderColor": "Bölünmüş çalışma alanlarında odaktaki cmux bölmesinin etrafına çizilen isteğe bağlı kenarlık rengi.",
         "automation": {
@@ -1273,6 +1288,7 @@
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Yeni pencereler açılırken yalnızca DEBUG derlemelerinde kullanılan ekran adı. Boş değer sistem varsayılanını kullanır.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
@@ -4039,5 +4055,29 @@
     "organization": "Kuruluş",
     "personalAccount": "kişisel hesap",
     "switchAccountButton": "Farklı bir hesap kullan"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 sürümündeki yenilikler",
+    "releaseLabel": "1.0.6 · Eylül 2026",
+    "connectionTitle": "Mac bağlantıları güncellendi",
+    "connectionDetail": "Bu güncelleme yeni bağlantı hizmetini ve Iroh aktarımını kullanır. Eski Mac derlemelerinin bağlanabilmesi için güncellenmesi gerekir.",
+    "updateTitle": "Mac’inizde cmux’u güncelleyin",
+    "updateDetail": "cmux {stableVersion} veya üstü ya da NIGHTLY {nightlyVersion} veya üstü gerekir. Her Mac’te Ayarlar > Mobil bölümünden iOS eşleştirmesini etkinleştirin.",
+    "rollbackTitle": "Eski bir Mac derlemesini kullanmanız mı gerekiyor?",
+    "rollbackDetail": "Kullanılabilir olduğu sürece TestFlight > Önceki Derlemeler’den cmux BETA 1.0.5 ({rollbackBuild}) sürümünü kullanın. Sonraki derlemeler daha yeni bir bağlantı hizmeti kullandığı için tam olarak bu derlemeyi seçin."
+  },
+  "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  Cloud kılavuzunu yeniden göster",
+    "welcomeUsage": "Kullanım: cmux welcome\n\ncmux Cloud kılavuzunu yeniden göster.",
+    "welcomeOption": "cmux welcome: bilinmeyen seçenek %s\n\nKullanım: cmux welcome",
+    "welcomeIntro": "cmux Cloud’a hoş geldiniz\nKodlama ajanları için makineniz",
+    "welcomeCodeRouter": "\nAjanlar\ncodex\tCodex’i CodeRouter hesaplarınızla her zamanki gibi çalıştırın.\nclaude\tClaude Code’u CodeRouter üzerinden normal şekilde çalıştırın.\ncmux cr accounts\tBağlı hesaplar\ncmux cr models\tKullanılabilir modeller\n\nMac’inizde hesap ekleyin\ncmux cr add codex\tChatGPT hesabı bağlayın\ncmux cr add claude\tClaude hesabı bağlayın",
+    "welcomeWorkspaces": "\nMakineniz\nÇalışma alanları\tTek makinede birçok çalışma alanı ve terminal bulunur. Mac’te bir paneli kapatmak uzak terminalleri durdurmaz.\nUyku ve depolama\tUyku hesaplamayı duraklatır; uyandırmak için yeniden bağlanın. Çalışma süresi ve saklama sınırları planınıza bağlıdır. Silmeden önce yedekleyin.",
+    "welcomeDisplays": "Ekranlar → Masaüstü (Displays → Desktop)\tMac’inizden grafik uygulamaları ve tarayıcıları açın.",
+    "welcomeNoDisplays": "Ekranlar → Masaüstü (Displays → Desktop)\tDestekleniyorsa Mac’inizden grafik uygulamaları ve tarayıcıları açın.",
+    "welcomePorts": "Bağlantı noktaları\tMac’inizde geliştirme sunucusunu özel olarak önizleyin. Başkalarına erişim vermek için Paylaş’i açıkça kullanın.",
+    "welcomeFiles": "\nProjeler\ngit clone <repo-url>\tProjenizi buraya klonlayın ve çalışın.\n\nMac’inizden dosya aktarın\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nKılavuz\tcmux welcome\nYardım\tcmux --help\nBelgeler\thttps://cmux.com/docs"
   }
 }

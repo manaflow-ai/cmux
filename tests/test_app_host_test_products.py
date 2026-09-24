@@ -29,7 +29,9 @@ class TestProductHandoff(unittest.TestCase):
         executable = products / "Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
         executable.parent.mkdir(parents=True)
         executable.write_text("binary")
-        for scheme in ("cmux", "cmux-unit", "cmux-numeric-locale"):
+        self.cli_bundle = Path("Debug/cmuxCLITests.xctest")
+        (products / self.cli_bundle).mkdir(parents=True)
+        for scheme in ("cmux", "cmux-unit", "cmux-numeric-locale", "cmux-cli-tests"):
             target = {
                 "TestHostPath": "__TESTROOT__/Debug/cmux DEV.app",
                 "TestBundlePath": "__TESTHOST__/Contents/PlugIns/cmuxTests.xctest",
@@ -45,6 +47,15 @@ class TestProductHandoff(unittest.TestCase):
                     "UITargetAppPath": "__TESTROOT__/Debug/cmux DEV.app",
                     "DependentProductPaths": [str(products / self.ui_bundle)],
                 })
+            if scheme == "cmux-cli-tests":
+                # A unit-test target without TEST_HOST is loaded by the
+                # platform's own xctest agent, which is not in Build/Products.
+                target = {
+                    "TestHostPath": "__PLATFORMS__/MacOSX.platform/Developer/Library/Xcode/Agents/xctest",
+                    "TestBundlePath": "__TESTROOT__/Debug/cmuxCLITests.xctest",
+                    "EnvironmentVariables": {"SOURCE": "/producer/work/cmux/fixtures"},
+                    "DependentProductPaths": [str(products / self.cli_bundle)],
+                }
             # Cover both manifest versions Xcode has shipped.
             value = {"cmuxTests": target} if scheme == "cmux-unit" else {"TestConfigurations": [{"TestTargets": [target]}]}
             (products / f"{scheme}_macosx26.5-arm64.xctestrun").write_bytes(plistlib.dumps(value))
@@ -58,12 +69,25 @@ class TestProductHandoff(unittest.TestCase):
         self.transfer()
         current = {**self.identity, "checkout": "/consumer/work/cmux", "developer": "/consumer/Xcode.app/Contents/Developer"}
         outputs = module.restore(self.consumer, current)
-        self.assertEqual(set(outputs), {"CMUX_APP_HOST_XCTESTRUN", "CMUX_NUMERIC_LOCALE_XCTESTRUN", "CMUX_UI_XCTESTRUN"})
+        self.assertEqual(
+            set(outputs),
+            {
+                "CMUX_APP_HOST_XCTESTRUN",
+                "CMUX_CLI_TESTS_XCTESTRUN",
+                "CMUX_NUMERIC_LOCALE_XCTESTRUN",
+                "CMUX_UI_XCTESTRUN",
+            },
+        )
         for path in outputs.values():
             value = plistlib.loads(Path(path).read_bytes())
             target = list(module.targets(value))[0]
             self.assertEqual(target["EnvironmentVariables"]["SOURCE"], "/consumer/work/cmux/fixtures")
-            bundle = self.ui_bundle if "UITargetAppPath" in target else self.bundle
+            if "UITargetAppPath" in target:
+                bundle = self.ui_bundle
+            elif not module.hosted_by_product(target):
+                bundle = self.cli_bundle
+            else:
+                bundle = self.bundle
             self.assertEqual(target["DependentProductPaths"], [str(self.consumer / "Build/Products" / bundle)])
             self.assertTrue(Path(target["DependentProductPaths"][0]).exists())
 
@@ -91,6 +115,23 @@ class TestProductHandoff(unittest.TestCase):
         for key in ("revision", "xcode", "architecture"):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
                 module.restore(self.consumer, {**self.identity, key: "different"})
+
+    def test_accepts_another_point_release_of_the_same_xcode(self):
+        self.transfer()
+        module.restore(self.consumer, {**self.identity, "xcode": "Xcode 26.6\nBuild version 17F113"})
+
+    def test_rejects_an_xcode_older_than_the_producers(self):
+        # Xcode 26.3's Testing.framework lacks symbols a 26.6-linked bundle
+        # imports; refuse with both versions named instead of a dlopen crash.
+        self.identity["xcode"] = "Xcode 26.6\nBuild version 17F113"
+        self.transfer()
+        with self.assertRaisesRegex(ValueError, r"xcode.*26\.6.*26\.3"):
+            module.restore(self.consumer, {**self.identity, "xcode": "Xcode 26.3\nBuild version 17C529"})
+
+    def test_rejects_another_major_xcode(self):
+        self.transfer()
+        with self.assertRaisesRegex(ValueError, "xcode"):
+            module.restore(self.consumer, {**self.identity, "xcode": "Xcode 27.0\nBuild version 18A1"})
 
     def test_missing_bundle_fails_in_producer_and_consumer(self):
         self.transfer()

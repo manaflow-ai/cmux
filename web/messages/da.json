@@ -1,19 +1,30 @@
 {
-  "guestCLI": {
-    "welcomeBrand": "cmux Cloud",
-    "welcomeHelp": "  cmux welcome  vis Cloud-vejledningen igen",
-    "welcomeUsage": "Brug: cmux welcome\n\nVis cmux Cloud-guiden igen.",
-    "welcomeOption": "cmux welcome: ukendt indstilling %s\n\nBrug: cmux welcome",
-    "welcomeIntro": "Velkommen til cmux Cloud\nDin maskine til kodeagenter",
-    "welcomeCodeRouter": "\nAgenter\ncodex\tKør Codex som normalt med dine CodeRouter-konti.\nclaude\tKør Claude Code som normalt gennem CodeRouter.\ncmux cr accounts\tTilknyttede konti\ncmux cr models\tTilgængelige modeller\n\nTilføj konti på din Mac\ncmux cr add codex\tTilknyt en ChatGPT-konto\ncmux cr add claude\tTilknyt en Claude-konto",
-    "welcomeWorkspaces": "\nDin maskine\nArbejdsområder\tÉn maskine, mange arbejdsområder og terminaler. Hvis du lukker et panel på din Mac, fortsætter fjernterminalerne.\nDvale og lagring\tDvale sætter beregning på pause; forbind igen for at vække maskinen. Grænser for køretid og opbevaring følger dit abonnement. Tag en sikkerhedskopi før sletning.",
-    "welcomeDisplays": "Skærme → Skrivebord (Displays → Desktop)\tÅbn grafiske apps og browsere fra din Mac.",
-    "welcomeNoDisplays": "Skærme → Skrivebord (Displays → Desktop)\tGrafiske apps og browsere fra din Mac, når de er tilgængelige.",
-    "welcomePorts": "Porte\tÅbn en privat forhåndsvisning af en udviklingsserver på din Mac. Brug Del aktivt for at give andre adgang.",
-    "welcomeFiles": "\nProjekter\ngit clone <repo-url>\tKlon dit projekt, og arbejd her.\n\nOverfør filer fra din Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
-    "welcomeReplay": "\nGuide\tcmux welcome\nHjælp\tcmux --help\nDokumentation\thttps://cmux.com/docs"
+  "agentHarness": {
+    "title": "Registreret harness-konfiguration",
+    "selectionNotice": "Valg af en udbyder starter eller aktiverer ikke disse harnesses.",
+    "selectProvider": "Vælg {provider}",
+    "foundPath": "Fandt {path}",
+    "foundCommand": "Fandt kommandoen {command}",
+    "installed": "Udbyderen er installeret",
+    "missing": "Udbyderen er ikke installeret",
+    "install": "Installer med: {command}",
+    "benefitPi": "Komprimering, hukommelse og udbyderrouting",
+    "benefitOpenagent": "Parallelle specialister og gendannelse til OpenCode",
+    "benefitClaude": "Teams og verifikation til Claude Code",
+    "benefitSuperpowers": "Planlægning, TDD, underagenter og gennemgang"
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Opsætning af Cloud VM blev ikke fuldført",
+      "reason": "Gæsteopsætningen af Cloud VM blev ikke fuldført.",
+      "message": "cmux kunne ikke fuldføre opsætningen af Cloud VM.",
+      "action": "Prøv igen. Kontakt support, hvis problemet fortsætter."
+    },
+    "createCleanupPending": {
+      "title": "Oprydning af Cloud VM afventer",
+      "message": "Opsætningen af Cloud VM mislykkedes, og oprydningen afventer stadig.",
+      "action": "Kontakt support med sporings-ID’et, før du opretter en ny maskine."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",
@@ -1262,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux-konfiguration. Den globale cmux.json understøtter appindstillinger, genveje, handlinger, brugerdefinerede kommandoer, notifikations-hooks og arbejdsområdelayouts. En projektspecifik .cmux/cmux.json eller cmux.json understøtter handlinger, kommandoer, notifikations-hooks, kobling af UI-handlinger, tilsidesættelser for Agent Chat, vault-agenter, tilsidesættelser for arbejdsområdegrupper samt konfiguration af opstart og knapper for arbejdsområder.",
         "rightSidebar": "Ældre og udvidelsesejet konfiguration af højre sidepanel, som bevares i cmux.json.",
+        "packs": {
+          "description": "Lokale cmux-pakkefiler eller mapper, der indlæses før denne konfiguration. Mapper peger på cmux.pack.json. Brug en stistreng eller et objekt med et path-felt.",
+          "path": "Lokal fil- eller mappesti, relativ til denne konfigurationsfil, medmindre den er absolut."
+        },
         "paneBorderColor": "Tilsidesæt farven på cmux-rudeadskilleren i opdelte arbejdsområder. Dette påvirker cmux-rudegrænser, ikke Ghosttys interne opdelinger.",
         "activePaneBorderColor": "Valgfri kantfarve, der tegnes omkring den fokuserede cmux-rude i opdelte arbejdsområder.",
         "automation": {
@@ -1273,6 +1288,7 @@
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
           "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Skærmnavn, der kun bruges i DEBUG-builds, når nye vinduer åbnes. En tom værdi bruger systemets standard.",
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
@@ -4038,5 +4054,29 @@
     "organization": "Organisation",
     "personalAccount": "personlig konto",
     "switchAccountButton": "Brug en anden konto"
+  },
+  "MobileRelease106": {
+    "title": "Nyt i 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Opdaterede Mac-forbindelser",
+    "connectionDetail": "Denne opdatering bruger den nye forbindelsestjeneste og Iroh-transport. Ældre Mac-builds skal opdateres for at oprette forbindelse.",
+    "updateTitle": "Opdater cmux på din Mac",
+    "updateDetail": "Kræver cmux {stableVersion} eller nyere eller NIGHTLY {nightlyVersion} eller nyere. Slå iOS-parring til i Indstillinger > Mobil på hver Mac.",
+    "rollbackTitle": "Har du brug for at beholde et ældre Mac-build?",
+    "rollbackDetail": "Brug cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere builds, så længe det er tilgængeligt. Vælg netop dette build, da senere builds bruger en nyere forbindelsestjeneste."
+  },
+  "guestCLI": {
+    "welcomeBrand": "cmux Cloud",
+    "welcomeHelp": "  cmux welcome  vis Cloud-vejledningen igen",
+    "welcomeUsage": "Brug: cmux welcome\n\nVis cmux Cloud-guiden igen.",
+    "welcomeOption": "cmux welcome: ukendt indstilling %s\n\nBrug: cmux welcome",
+    "welcomeIntro": "Velkommen til cmux Cloud\nDin maskine til kodeagenter",
+    "welcomeCodeRouter": "\nAgenter\ncodex\tKør Codex som normalt med dine CodeRouter-konti.\nclaude\tKør Claude Code som normalt gennem CodeRouter.\ncmux cr accounts\tTilknyttede konti\ncmux cr models\tTilgængelige modeller\n\nTilføj konti på din Mac\ncmux cr add codex\tTilknyt en ChatGPT-konto\ncmux cr add claude\tTilknyt en Claude-konto",
+    "welcomeWorkspaces": "\nDin maskine\nArbejdsområder\tÉn maskine, mange arbejdsområder og terminaler. Hvis du lukker et panel på din Mac, fortsætter fjernterminalerne.\nDvale og lagring\tDvale sætter beregning på pause; forbind igen for at vække maskinen. Grænser for køretid og opbevaring følger dit abonnement. Tag en sikkerhedskopi før sletning.",
+    "welcomeDisplays": "Skærme → Skrivebord (Displays → Desktop)\tÅbn grafiske apps og browsere fra din Mac.",
+    "welcomeNoDisplays": "Skærme → Skrivebord (Displays → Desktop)\tGrafiske apps og browsere fra din Mac, når de er tilgængelige.",
+    "welcomePorts": "Porte\tÅbn en privat forhåndsvisning af en udviklingsserver på din Mac. Brug Del aktivt for at give andre adgang.",
+    "welcomeFiles": "\nProjekter\ngit clone <repo-url>\tKlon dit projekt, og arbejd her.\n\nOverfør filer fra din Mac\ncmux vm push <machine> ./project work/project\ncmux vm pull <machine> work/project ./project",
+    "welcomeReplay": "\nGuide\tcmux welcome\nHjælp\tcmux --help\nDokumentation\thttps://cmux.com/docs"
   }
 }

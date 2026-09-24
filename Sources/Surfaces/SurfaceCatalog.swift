@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 /// The single owner of surface identities and projections on this Mac.
@@ -390,7 +391,7 @@ final class SurfaceCatalog {
         info: SurfaceMachineInfo,
         observation: CloudVMStateObservation = .current
     ) {
-        guard case .cloud = state.machine else { return }
+        guard state.machine.tuiMachineID != nil else { return }
         precondition(info.id == state.machine, "cloud state and machine info disagree")
         _ = installCloudStateRows(
             state,
@@ -410,7 +411,7 @@ final class SurfaceCatalog {
         info: SurfaceMachineInfo,
         observation: CloudVMStateObservation = .current
     ) -> Set<SurfaceResourceID> {
-        guard case .cloud = state.machine else { return [] }
+        guard state.machine.tuiMachineID != nil else { return [] }
         precondition(info.id == state.machine, "cloud state and machine info disagree")
         return installCloudStateRows(
             state,
@@ -432,7 +433,7 @@ final class SurfaceCatalog {
         info: SurfaceMachineInfo,
         observation: CloudVMStateObservation = .current
     ) -> Set<SurfaceResourceID> {
-        guard case .cloud = state.machine else { return [] }
+        guard state.machine.tuiMachineID != nil else { return [] }
         precondition(info.id == state.machine, "cloud state and machine info disagree")
 
         var desired: [SurfaceResourceID: SurfaceResource] = [:]
@@ -485,7 +486,7 @@ final class SurfaceCatalog {
         info: SurfaceMachineInfo,
         observation: CloudVMStateObservation
     ) -> Set<SurfaceResourceID> {
-        guard case .cloud = state.machine else { return [] }
+        guard state.machine.tuiMachineID != nil else { return [] }
         precondition(info.id == state.machine, "cloud state and machine info disagree")
 
         var desired: [SurfaceResourceID: SurfaceResource] = [:]
@@ -583,7 +584,7 @@ final class SurfaceCatalog {
         _ info: SurfaceMachineInfo,
         state: CloudVMState? = nil
     ) -> SurfaceMachineInfo {
-        guard case .cloud = info.id,
+        guard info.id.tuiMachineID != nil,
               let state = state ?? cloudStates[info.id] else { return info }
         var adjusted = info
         let canonical = state.workspaces.map {
