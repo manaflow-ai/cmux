@@ -36,7 +36,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileSSHTests",
-            dependencies: ["CmuxMobileSSH"],
+            dependencies: [
+                "CmuxMobileSSH",
+                .product(name: "NIOSSH", package: "swift-nio-ssh"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
