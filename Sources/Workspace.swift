@@ -40,6 +40,20 @@ private func externalBrowserFallbackURL(
     return initialRequest.url
 }
 
+#if DEBUG
+func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
+    guard let text else { return "nil" }
+    let escaped = text
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\n", with: "\\n")
+        .replacingOccurrences(of: "\r", with: "\\r")
+        .replacingOccurrences(of: "\t", with: "\\t")
+    if escaped.count <= limit {
+        return escaped
+    }
+    return "\(escaped.prefix(limit))..."
+}
+#endif
 
 private final class WorkspacePendingTerminalInputObserver: @unchecked Sendable {
     var observer: NSObjectProtocol?
@@ -614,14 +628,13 @@ extension Workspace {
                           let matchingObservation else {
                         return false
                     }
-                    return matchingObservation.processLiveness
-                        .wasRunning(
-                            fallingBackTo: panelShellActivityStates[panelId],
-                            recordedProcessIdentities: matchingObservation.agentProcessIdentities,
-                            confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
-                            currentProcessIdentity: currentAgentProcessIdentity,
-                            processPresence: agentProcessPresence
-                        ) ?? false
+                    return matchingObservation.wasRunningForSnapshot(
+                        effectiveRestorableAgent, binding: resumeBinding,
+                        fallingBackTo: panelShellActivityStates[panelId],
+                        confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                        currentProcessIdentity: currentAgentProcessIdentity,
+                        processPresence: agentProcessPresence
+                    )
                 }
                 guard let effectiveRestorableAgent else { return nil }
                 let matchingObservation = restorableAgentObservation?.matchingAgentSession(

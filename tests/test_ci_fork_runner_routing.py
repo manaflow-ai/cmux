@@ -90,7 +90,10 @@ class ForkRunnerRoutingTests(unittest.TestCase):
 
         for path in fork_exercised_workflows():
             text = path.read_text(encoding="utf-8")
+            # Rows are YAML (`hosted_runner: macos-15`) or JSON literals in a
+            # matrix `include` expression (`"hosted_runner": "macos-15"`).
             hosted_rows = re.findall(r"(?m)^\s+hosted_runner:\s*(\S+)\s*$", text)
+            hosted_rows += re.findall(r'"hosted_runner":\s*"([^"]*)"', text)
             matrix_hosted = bool(hosted_rows) and set(hosted_rows) <= HOSTED_MACOS_LABELS
             for number, line in enumerate(text.splitlines(), start=1):
                 if "runs-on:" not in line:
