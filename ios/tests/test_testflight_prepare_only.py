@@ -70,6 +70,37 @@ class PrepareCandidateTests(unittest.TestCase):
         self.assertEqual(call['script'], 'upload-testflight.sh')
         self.assertNotIn('--export-only', call['args'])
 
+    def test_incomplete_candidate_cannot_be_published(self):
+        text = WORKFLOW.read_text()
+        step = text.split('      - name: Upload prepared candidate artifact\n')[1].split('\n      - name:')[0]
+        condition = next(line.strip()[4:] for line in step.splitlines() if line.strip().startswith('if:'))
+        condition = condition.removeprefix('${{').removesuffix('}}').strip()
+        for upload, package, prepare, cancelled, expected in [
+            ('success', 'failure', 'true', False, False),
+            ('success', 'skipped', 'true', False, False),
+            ('failure', 'skipped', 'true', False, False),
+            ('success', 'success', 'true', True, False),
+            ('success', 'success', 'false', False, False),
+            ('success', 'success', 'true', False, True),
+        ]:
+            values = {"steps.upload.outcome": repr(upload),
+                      "steps.package_candidate.outcome": repr(package),
+                      "github.event.inputs.prepare_only": repr(prepare),
+                      "!cancelled()": repr(not cancelled)}
+            expression = condition
+            for key, value in values.items():
+                expression = expression.replace(key, value)
+            expression = expression.replace('&&', ' and ').replace('||', ' or ')
+            self.assertEqual(eval(expression, {"__builtins__": {}}, {}), expected,
+                             (upload, package, prepare, cancelled))
+
+    def test_manual_beta_release_defaults_to_registered_extension(self):
+        config = (ROOT / 'ios/Config/Release.xcconfig').read_text()
+        values = dict(line.split(' = ', 1) for line in config.splitlines()
+                      if ' = ' in line and not line.startswith('//'))
+        self.assertEqual(values.get('CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER'),
+                         'dev.cmux.app.beta.NotificationServiceV2')
+
     def test_candidate_cannot_claim_uploaded_metadata(self):
         text = WORKFLOW.read_text()
         self.assertIn("uploaded: ${{ github.event.inputs.prepare_only != 'true' && steps.upload.outcome || 'skipped' }}", text)
