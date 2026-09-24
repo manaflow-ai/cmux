@@ -212,6 +212,36 @@ import os
         #expect(report.events == events)
     }
 
+    @Test func interleavedSessionsDeduplicateTheirOwnSelectedPathSnapshots() async {
+        let log = DiagnosticLog(capacity: 16)
+        let selections: [(Int, DiagnosticPathKind)] = [
+            (1, .relay), (2, .relay), (1, .relay), (2, .relay),
+            (1, .privateNetwork), (2, .relay), (1, .privateNetwork), (2, .direct),
+        ]
+        for (session, path) in selections {
+            log.record(DiagnosticEvent(.selectedPathChanged, surface: 8, a: path.rawValue, c: session))
+        }
+        await waitForProcessed(log, selections.count)
+        let events = await log.snapshot().events
+        #expect(events.map(\.c) == [1, 2, 1, 2])
+        #expect(events.compactMap(\.diagnosticPathKind) == [.relay, .relay, .privateNetwork, .direct])
+    }
+
+    @Test func selectedPathDeduplicationExpiresWithItsRetainedSnapshot() async {
+        let log = DiagnosticLog(capacity: 2)
+        let events = [
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 1, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+            DiagnosticEvent(code: .connect, tNanos: 2),
+            DiagnosticEvent(code: .connect, tNanos: 3),
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 4, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 5, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+        ]
+        for (index, event) in events.enumerated() {
+            await recordAndDrain(log, event, processedAfter: index + 1)
+        }
+        #expect(await log.snapshot().events.map(\.tNanos) == [3, 4])
+    }
+
     @Test func ringEvictionDropsOldest() async {
         let log = DiagnosticLog(capacity: 3)
         // Drain each event before recording the next so eviction is governed
