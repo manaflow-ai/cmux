@@ -17841,7 +17841,11 @@ struct CMUXCLI {
                             scannedEveryWindow = false
                             continue
                         }
-                        let items = listed["workspaces"] as? [[String: Any]] ?? []
+                        guard let items = listed["workspaces"] as? [[String: Any]] else {
+                            // An unreadable payload is a hole in the scan, not an empty window.
+                            scannedEveryWindow = false
+                            continue
+                        }
                         for item in items where (item["ref"] as? String) == raw {
                             if let id = item["id"] as? String { return id }
                         }
