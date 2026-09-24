@@ -1013,7 +1013,11 @@ jobs:
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
       CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
       CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # Same-repository pull-request shards span pools whose images carry
+      # different Xcodes, so they pin none: select-ci-xcode.sh takes the
+      # newest stable Xcode with the macOS 26 SDK the machine has, and
+      # restore accepts any Xcode of the admission build's major version.
+      CMUX_CI_XCODE_APP: ${{ !(github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) && (github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15) || '' }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       # Global search owns a seventh consumer because its serialized container

@@ -4349,12 +4349,24 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     # escape hatch exactly as runs-on does, with the macos-15 pin as the default
     # on both branches so an unset variable keeps today's behavior.
     for job_name in [
-        "app-host-unit-tests",
         "macos-compile-admission",
         "tests-build-and-lag",
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert f"CMUX_CI_XCODE_APP: {PR_LANE_XCODE_PIN}" in block, job_name
+        assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
+        assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
+
+    # Same-repository pull-request app-host shards span pools with different
+    # Xcodes, so they pin none and take the machine's newest macOS 26 SDK
+    # Xcode; forks and other events keep the lane pin.
+    for job_name in ["app-host-unit-tests"]:
+        block = workflow_job_block(job_name, MACOS_WORKFLOW)
+        unpinned = PR_LANE_XCODE_PIN.replace(
+            "${{ ",
+            "${{ !(github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) && (",
+        ).replace(" }}", ") || '' }}")
+        assert f"CMUX_CI_XCODE_APP: {unpinned}" in block, job_name
         assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 
