@@ -201,8 +201,10 @@ struct TaskComposerDestinationPicker: View {
                 ForEach(workspace.panes) { pane in
                     let frame = pane.frame
                     let paneGap: CGFloat = 4
+                    let paneInset: CGFloat = 6
+                    let usableHeight = max(0, proxy.size.height - paneInset * 2)
                     let paneWidth = max(44, proxy.size.width * frame.width - paneGap)
-                    let paneHeight = proxy.size.height * frame.height - paneGap
+                    let paneHeight = usableHeight * frame.height - paneGap
                     Button {
                         select(workspace.rpcWorkspaceID, pane.id)
                         dismiss()
@@ -245,7 +247,7 @@ struct TaskComposerDestinationPicker: View {
                     )
                     .offset(
                         x: proxy.size.width * frame.x + paneGap / 2,
-                        y: proxy.size.height * frame.y + paneGap / 2
+                        y: paneInset + usableHeight * frame.y + paneGap / 2
                     )
                 }
             }
