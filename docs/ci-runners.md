@@ -368,7 +368,7 @@ Rollout is reversible through two repository variables:
 
 - `CI_PERSISTENT_MAC_COMPILE=off` (or unset): hosted path only;
 - `CI_PERSISTENT_MAC_COMPILE=pilot` with
-  `CI_PERSISTENT_MAC_COMPILE_COHORT=13198,feature/name`: only matching trusted
+  `CI_PERSISTENT_MAC_COMPILE_COHORT=<pr-number>,feature/name`: only matching trusted
   PR numbers or head branches;
 - `CI_PERSISTENT_MAC_COMPILE=all`: every trusted same-repository
   organization PR (`OWNER` or `MEMBER`).

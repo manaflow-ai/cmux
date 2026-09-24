@@ -3026,7 +3026,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
 
     var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
-    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    /// Not `@Published`. The geometry callback posts `.workspacePaneGeometryDidChange`
+    /// right after assigning it, and the window pane overlay reads it from that
+    /// handler. Publishing it re-evaluated every view observing the workspace on each
+    /// geometry change, which divider drags must not do (see `paneLayoutVersion`, #13930).
+    private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
