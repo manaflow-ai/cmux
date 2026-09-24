@@ -448,6 +448,10 @@ path = "tests/test_ci_sanitize_xcode_source_packages_cache.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_reload_build_cache_keys.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
