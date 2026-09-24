@@ -29,10 +29,15 @@ public enum SSHPrivateKeyParser {
     private static let magic = Array("openssh-key-v1\0".utf8)
 
     public static func parse(_ text: String, passphrase: String? = nil) throws -> SSHParsedPrivateKey {
+        // iOS text input turns `--` into dashes ("smart punctuation"); undo it
+        // so a hand-typed or keyboard-mangled armor line still parses.
+        let text = text
+            .replacingOccurrences(of: "\u{2014}", with: "--")
+            .replacingOccurrences(of: "\u{2013}", with: "--")
         let body = text
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("-----") }
+            .filter { !$0.isEmpty && !$0.contains("OPENSSH PRIVATE KEY") }
             .joined()
         guard text.contains("BEGIN OPENSSH PRIVATE KEY"), let data = Data(base64Encoded: body) else {
             throw SSHPrivateKeyParseError.notOpenSSHFormat

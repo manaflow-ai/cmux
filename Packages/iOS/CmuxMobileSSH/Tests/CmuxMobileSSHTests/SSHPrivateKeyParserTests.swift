@@ -126,5 +126,20 @@ import Testing
         let other = BcryptPBKDF.derive(password: Array("password".utf8), salt: Array("salt".utf8), keyLength: 48, rounds: 16)
         #expect(Self.hex(other) == "c339d704ec235f27690d3f12167c05a55bf86d572f270adbf9fe04c379da5f8c7942a939245dbb39ebe26fc2bd19b88b")
     }
+
+    @Test func acceptsSmartPunctuationMangledArmor() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-smart-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("k").path
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh-keygen")
+        process.arguments = ["-q", "-t", "ed25519", "-N", "", "-f", path]
+        try process.run()
+        process.waitUntilExit()
+        let original = try String(contentsOfFile: path, encoding: .utf8)
+        // iOS smart punctuation turns each "--" into an em dash.
+        let mangled = original.replacingOccurrences(of: "--", with: "\u{2014}")
+        #expect(try SSHPrivateKeyParser.parse(mangled).publicKeyLine == SSHPrivateKeyParser.parse(original).publicKeyLine)
+    }
 }
 #endif
