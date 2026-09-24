@@ -46,7 +46,8 @@ public final class JSONValueModel<Value: SettingCodable> {
     ///     ``SettingsRuntime/errorLog``.
     ///   - validateMutations: Validates the complete config against the
     ///     canonical global schema before each write, through the store's
-    ///     receipt-returning mutations.
+    ///     receipt-returning mutations, and refuses only issues the write
+    ///     introduces.
     public convenience init(
         store: JSONConfigStore,
         key: JSONKey<Value>,
@@ -72,7 +73,7 @@ public final class JSONValueModel<Value: SettingCodable> {
     ///   - store: The JSON config store used for writes (`set`/`reset`).
     ///   - key: The setting to observe.
     ///   - errorLog: Global log that write failures are pushed into.
-    ///   - validateMutations: Validates the complete candidate before writes.
+    ///   - validateMutations: Refuses writes that introduce schema issues.
     ///   - makeStream: Builds the change stream this model iterates.
     init(
         store: JSONConfigStore,
