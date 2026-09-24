@@ -50,7 +50,8 @@ struct cmuxApp: App {
         let v2Configuration = MobileIrohV2Configuration.current(projectID: auth.config.stack.projectId)
         let irx = MobileIrxRuntimeComposition(configuration: v2Configuration,
             macListAuthState: MobileMacListAuthState(),
-            keychainAccessGroup: auth.keychainAccessGroup)
+            keychainAccessGroup: auth.keychainAccessGroup,
+            diagnosticLog: diagnosticLog)
         Task { await irx.configure(auth: auth.coordinator) }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on

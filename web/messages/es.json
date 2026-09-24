@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Configuración de harness detectada",
+    "selectionNotice": "Seleccionar un proveedor no inicia ni habilita estos harnesses.",
+    "selectProvider": "Seleccionar {provider}",
+    "foundPath": "Se encontró {path}",
+    "foundCommand": "Se encontró el comando {command}",
+    "installed": "El proveedor está instalado",
+    "missing": "El proveedor no está instalado",
+    "install": "Instalar con: {command}",
+    "benefitPi": "Compactación, memoria y enrutamiento de proveedores",
+    "benefitOpenagent": "Especialistas paralelos y recuperación para OpenCode",
+    "benefitClaude": "Equipos y verificación para Claude Code",
+    "benefitSuperpowers": "Planificación, TDD, subagentes y revisión"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "La configuración de la Cloud VM no terminó",
+      "reason": "La configuración del invitado de la Cloud VM no se completó.",
+      "message": "cmux no pudo terminar de configurar la Cloud VM.",
+      "action": "Vuelve a intentarlo. Si el problema continúa, contacta con soporte."
+    },
+    "createCleanupPending": {
+      "title": "Limpieza de la VM Cloud pendiente",
+      "message": "La configuración de la VM Cloud falló y la limpieza sigue pendiente.",
+      "action": "Contacta con soporte e indica el ID de seguimiento antes de crear otra máquina."
+    },
     "unsupported": {
       "title": "Operación de Cloud VM no disponible",
       "reason": "Este tipo de máquina no ofrece esta operación.",
@@ -1248,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "Configuración de cmux. El cmux.json global admite ajustes de la aplicación, atajos, acciones, comandos personalizados, hooks de notificación y diseños de espacios de trabajo. Un .cmux/cmux.json o cmux.json local del proyecto admite acciones, comandos, hooks de notificación, conexión de acciones de la interfaz, ajustes de Agent Chat, agentes del vault, ajustes de grupos de espacios de trabajo y configuración de inicio y botones del espacio de trabajo.",
         "rightSidebar": "Configuración heredada y propiedad de extensiones de la barra lateral derecha que se conserva en cmux.json.",
+        "packs": {
+          "description": "Archivos o directorios de paquetes cmux locales que se cargan antes de esta configuración. Los directorios se resuelven como cmux.pack.json. Usa una cadena de ruta o un objeto con un campo path.",
+          "path": "Ruta de archivo o directorio local, relativa a este archivo de configuración salvo que sea absoluta."
+        },
         "paneBorderColor": "Sobrescribe el color del divisor de paneles de cmux en workspaces divididos. Afecta a los límites de paneles de cmux, no a las divisiones internas de Ghostty.",
         "activePaneBorderColor": "Color de borde opcional que se dibuja alrededor del panel de cmux enfocado en workspaces divididos.",
         "automation": {
@@ -1259,6 +1288,7 @@
         "app": {
           "confirmQuit": "Controla cuándo cmux pide confirmación antes de salir. Las compilaciones DEV siempre se cierran inmediatamente sin importar esta opción. El app.warnBeforeQuit heredado aún se acepta como alternativa booleana.",
           "windowTitleTemplate": "Plantilla opcional para el título de NSWindow. En blanco conserva el comportamiento de título predeterminado existente de cmux, incluida la alternativa del directorio actual. Marcadores admitidos: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nombre de pantalla usado solo en compilaciones DEBUG al abrir ventanas nuevas. Un valor vacío usa el valor predeterminado del sistema.",
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas.",
           "warnBeforeClosingTabXButton": "Mostrar una confirmación antes de cerrar una pestaña con el botón de cerrar pestaña.",
           "hideTabCloseButton": "Ocultar los botones de cerrar pestaña en la barra de pestañas del panel.",

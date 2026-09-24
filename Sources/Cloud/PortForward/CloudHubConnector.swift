@@ -18,8 +18,9 @@ struct CloudHubConnector: Sendable {
     /// A cancellable head start for the preferred family, driven by the injected clock.
     var fallbackDelay: Duration = .milliseconds(250)
     /// How often a still-unanswered address gets another, independent attempt.
+    /// Each address keeps its own timer from its first attempt.
     var redialInterval: Duration = .milliseconds(50)
-    /// Redial rounds after the first. The fresh-machine window is well under a
+    /// Redials per address after its first attempt. The fresh-machine window is well under a
     /// second; after 3 s the in-flight attempts ride normal retransmits, so a
     /// blackholed family never holds more than this many sockets per address.
     var maxRedials: Int = 60
@@ -58,10 +59,23 @@ struct CloudHubConnector: Sendable {
     }
 
     /// Runs `attempt(candidate)` for every candidate (each later one delayed by
-    /// `fallbackDelay`) and starts a new attempt for every candidate each
-    /// `redialInterval`, until the first success. Every other in-flight or later
-    /// success is passed to `discard`. Throws the last failure (or a timeout)
-    /// when nothing succeeds within `timeout`.
+    /// `fallbackDelay`) and gives each started candidate a new attempt every
+    /// `redialInterval`, up to `maxRedials` attempts, until the first success.
+    /// Every other in-flight or later success is passed to `discard`. Throws the
+    /// last failure (or a timeout) when nothing succeeds within `timeout`.
+    ///
+    /// Redials serve addresses that have not answered. A candidate whose last
+    /// attempt failed outright (a SOCKS refusal) is not redialed while another
+    /// candidate is still waiting for its head start, or has had an attempt in
+    /// flight for less than `fallbackDelay`: the refusal already answered, and
+    /// redialing it would dial the failed family on every connection of a
+    /// burst. A family silent for longer than that may be blackholed, so the
+    /// refused one is redialed again, which covers a new machine whose listener
+    /// is not open yet while its other family never answers. Once every
+    /// candidate has failed, all of them are redialed. A skipped tick does not
+    /// count against `maxRedials`, so waiting never spends a refused family's
+    /// redials. Each candidate keeps its own redial timer, so a redial never
+    /// starts a fallback before its `fallbackDelay` ends.
     static func hedged<Value: Sendable>(
         candidates: Int,
         fallbackDelay: Duration,
@@ -74,52 +88,90 @@ struct CloudHubConnector: Sendable {
     ) async throws -> Value {
         guard candidates > 0 else { throw CancellationError() }
         return try await withThrowingTaskGroup(of: CloudHubHedgeEvent<Value>.self) { group in
-            func launch(round: Int) {
-                for index in 0..<candidates {
-                    let delay = index > 0 && round == 0 ? fallbackDelay : .zero
-                    group.addTask {
-                        do {
-                            if delay > .zero { try await clock.sleep(for: delay) }
-                            try Task.checkCancellation()
-                            return .success(try await attempt(index))
-                        } catch {
-                            return .failure(error)
-                        }
+            var started = Array(repeating: false, count: candidates)
+            var inFlight = Array(repeating: 0, count: candidates)
+            var failed = Array(repeating: false, count: candidates)
+            // Redial attempts launched, capped by `maxRedials`.
+            var redials = Array(repeating: 0, count: candidates)
+            // Redial ticks elapsed since the candidate started, launched or skipped.
+            var ticks = Array(repeating: 0, count: candidates)
+            var expired = false
+            var lastError: any Error = CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
+            var winner: Value?
+
+            func scheduleRedial(_ index: Int) {
+                guard redials[index] < maxRedials else { return }
+                group.addTask {
+                    try? await clock.sleep(for: redialInterval)
+                    return .redial(index)
+                }
+            }
+            func launch(_ index: Int) {
+                started[index] = true
+                inFlight[index] += 1
+                failed[index] = false
+                group.addTask {
+                    do {
+                        try Task.checkCancellation()
+                        return .success(index, try await attempt(index))
+                    } catch {
+                        return .failure(index, error)
                     }
                 }
             }
-            launch(round: 0)
-            group.addTask {
-                try? await clock.sleep(for: redialInterval)
-                return .tick
+            func anotherCandidateIsPending(besides index: Int) -> Bool {
+                (0..<candidates).contains { other in
+                    guard other != index else { return false }
+                    guard started[other] else { return true }
+                    // Redial ticks measure how long the other family has gone
+                    // unanswered; past its head start it may be blackholed.
+                    return inFlight[other] > 0 && !failed[other] && redialInterval * ticks[other] < fallbackDelay
+                }
+            }
+
+            for index in 0..<candidates {
+                if index == 0 || fallbackDelay <= .zero {
+                    launch(index)
+                    scheduleRedial(index)
+                } else {
+                    group.addTask {
+                        try? await clock.sleep(for: fallbackDelay)
+                        return .start(index)
+                    }
+                }
             }
             group.addTask {
                 try? await clock.sleep(for: timeout)
                 return .deadline
             }
-            var round = 1
-            var expired = false
-            var lastError: any Error = CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
-            var winner: Value?
             while let event = try await group.next() {
                 switch event {
-                case .success(let value):
+                case .success(let index, let value):
+                    inFlight[index] -= 1
                     if winner == nil {
                         winner = value
                         group.cancelAll()
                     } else {
                         discard(value)
                     }
-                case .failure(let error):
-                    if !(error is CancellationError) { lastError = error }
-                case .tick:
-                    guard winner == nil, !expired, round <= maxRedials else { continue }
-                    launch(round: round)
-                    round += 1
-                    group.addTask {
-                        try? await clock.sleep(for: redialInterval)
-                        return .tick
+                case .failure(let index, let error):
+                    inFlight[index] -= 1
+                    if !(error is CancellationError) {
+                        lastError = error
+                        failed[index] = true
                     }
+                case .start(let index):
+                    guard winner == nil, !expired, !Task.isCancelled else { continue }
+                    launch(index)
+                    scheduleRedial(index)
+                case .redial(let index):
+                    guard winner == nil, !expired, !Task.isCancelled else { continue }
+                    ticks[index] += 1
+                    if !(failed[index] && anotherCandidateIsPending(besides: index)) {
+                        redials[index] += 1
+                        launch(index)
+                    }
+                    scheduleRedial(index)
                 case .deadline:
                     expired = true
                     if winner == nil { group.cancelAll() }
@@ -168,8 +220,9 @@ struct CloudHubConnector: Sendable {
 }
 
 enum CloudHubHedgeEvent<Value: Sendable>: Sendable {
-    case success(Value)
-    case failure(any Error)
-    case tick
+    case success(Int, Value)
+    case failure(Int, any Error)
+    case start(Int)
+    case redial(Int)
     case deadline
 }

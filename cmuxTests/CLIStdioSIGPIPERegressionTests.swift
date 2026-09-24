@@ -56,12 +56,7 @@ final class CLIStdioSIGPIPERegressionTests: XCTestCase {
         description: String,
         timeout: TimeInterval = 5
     ) -> XCTWaiter.Result {
-        let exited = expectation(description: description)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exited.fulfill()
-        }
-        return XCTWaiter().wait(for: [exited], timeout: timeout)
+        waitForProcessExit(process, timeout: timeout) == .success ? .completed : .timedOut
     }
 
     private func runProcess(
@@ -91,16 +86,11 @@ final class CLIStdioSIGPIPERegressionTests: XCTestCase {
             )
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

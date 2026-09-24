@@ -170,9 +170,27 @@ def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
     expression = condition.strip()
     if expression.startswith("${{") and expression.endswith("}}"):
         expression = expression[3:-2]
-    if "||" in expression:
-        return "must not offer an alternative to its gates"
-    terms = {"".join(term.split()) for term in expression.split("&&")}
+    # Split on the top-level `&&` only. An `||` inside a parenthesized term
+    # chooses which worker runs the step; one outside offers a way around
+    # the gates themselves.
+    top_level: list[str] = []
+    depth = 0
+    term = ""
+    index = 0
+    while index < len(expression):
+        character = expression[index]
+        depth += {"(": 1, ")": -1}.get(character, 0)
+        if depth == 0 and expression.startswith("||", index):
+            return "must not offer an alternative to its gates"
+        if depth == 0 and expression.startswith("&&", index):
+            top_level.append(term)
+            term = ""
+            index += 2
+            continue
+        term += character
+        index += 1
+    top_level.append(term)
+    terms = {"".join(term.split()) for term in top_level}
     if "always()" in terms:
         return "must not run after a cancelled job"
     if "!cancelled()" not in terms:
@@ -399,6 +417,11 @@ def main() -> int:
             "${{ !cancelled() && steps."
             + preparation_id
             + ".outcome == 'success' || matrix.shard == 1 }}"
+        ),
+        "a parenthesized alternative to a gate": (
+            "${{ !cancelled() && (steps."
+            + preparation_id
+            + ".outcome == 'success' || matrix.shard == 1) }}"
         ),
     }.items():
         if not acceptance_gate_problem(fixture, preparation_id):
