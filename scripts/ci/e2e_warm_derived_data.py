@@ -36,6 +36,8 @@ import tarfile
 import tempfile
 import zipfile
 
+import parallel_artifact_download as transport
+
 WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 ARCHIVE = "derived-data.tar.gz"
 MANIFEST = "cmux-e2e-input-mtimes.json"
@@ -43,8 +45,6 @@ PREFIX = "e2e-derived-data-v1-"
 # Never walk into build outputs or git metadata: they are not inputs, and
 # DerivedData lives inside the workspace on every runner pool.
 SKIPPED_DIRECTORIES = frozenset({".git", "DerivedData"})
-# Beyond this a download loses to the compile it replaces.
-MAX_ARTIFACT_BYTES = 12 * 1024**3
 
 
 def digest(path: Path) -> str:
@@ -134,15 +134,19 @@ def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
     artifact = newest(repository, key)
     if artifact is None:
         return {"hit": "false", "reason": "no-main-derived-data"}
-    if int(artifact.get("size_in_bytes") or 0) > MAX_ARTIFACT_BYTES:
+    if int(artifact.get("size_in_bytes") or 0) > transport.MAX_BYTES:
         return {"hit": "false", "reason": "derived-data-too-large"}
+    expected = str(artifact.get("digest") or "")
+    if not expected.startswith("sha256:"):
+        return {"hit": "false", "reason": "derived-data-without-digest"}
     with tempfile.TemporaryDirectory() as staging:
+        # One connection to the blob store sustains about 2 MB/s on the macOS
+        # fleet, which took more than the step's 10 minutes for a 1.9 GB
+        # archive (run 35896881813). Ranged requests read the same blob.
         bundle = Path(staging, "artifact.zip")
-        with bundle.open("wb") as stream:
-            subprocess.run(
-                ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact['id']}/zip"],
-                check=True, stdout=stream,
-            )
+        transport.download_zip(repository, artifact["id"], bundle, artifact["size_in_bytes"])
+        if transport.sha256_file(bundle) != expected.removeprefix("sha256:"):
+            raise ValueError("DerivedData artifact does not match its provider digest")
         with zipfile.ZipFile(bundle) as archive:
             archive.extractall(staging)
         extract(Path(staging, ARCHIVE), derived)

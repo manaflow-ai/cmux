@@ -1278,7 +1278,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Shared Cloud terminal-link conversion for Workspace and Dock containers.
     nonisolated static func cloudTerminalLinkTarget(url: URL, resource: SurfaceResource, privateAddress: String) -> CloudTerminalLinkTarget? {
-        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
+        guard resource.kind == .terminal, resource.machine.tuiMachineID != nil,
               let rewritten = privateBrowserURL(url.absoluteString, privateAddress: privateAddress),
               let privateURL = URL(string: rewritten) else { return nil }
         return CloudTerminalLinkTarget(url: privateURL)
