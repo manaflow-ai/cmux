@@ -630,6 +630,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
+    # Seeds the checkout of both CLI lanes and initializes cli-pipe's submodules.
+    "scripts/ci/git-seed.sh",
 })
 
 CLI_LANE_INPUT_PREFIXES = (

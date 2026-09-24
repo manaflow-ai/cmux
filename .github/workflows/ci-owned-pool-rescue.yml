@@ -6,7 +6,10 @@ run-name: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event
 # busy the run would wait for it indefinitely. This workflow watches such a run
 # and, when one of its jobs has waited past CI_OWNED_POOL_RESCUE_SECONDS,
 # cancels the run and re-runs it; the retry attempt never takes a persistent
-# pool, so it lands on Blacksmith. scripts/ci/owned_pool_rescue.py has the rule.
+# pool, so it lands on Blacksmith. A job an owned runner refused at job start
+# (it failed in seconds, before any step succeeded) gets its failed jobs re-run
+# instead, which moves them to the picker's retry_runner on Blacksmith.
+# scripts/ci/owned_pool_rescue.py has the rules.
 #
 # It needs actions: write, so it is triggered by workflow_run and its code comes
 # from main: a pull request cannot change it. Only attempt 1 is watched, in the

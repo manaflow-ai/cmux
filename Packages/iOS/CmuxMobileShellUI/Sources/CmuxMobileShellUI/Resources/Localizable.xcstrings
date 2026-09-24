@@ -5309,6 +5309,124 @@
         }
       }
     },
+    "mobile.settings.legacyTerminalSizing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Full Terminal Height"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルの高さを最大限に使用"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volle Terminalhöhe verwenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser toute la hauteur du terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام الارتفاع الكامل للطرفية"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar toda la altura del terminal"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用終端機完整高度"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用终端完整高度"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 전체 높이 사용"
+          }
+        }
+      }
+    },
+    "mobile.settings.legacyTerminalSizing.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let apps like Vim extend beneath the keyboard and toolbars."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vimなどのアプリをキーボードやツールバーの下まで表示します。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apps wie Vim dürfen sich hinter Tastatur und Symbolleisten erstrecken."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permettre aux apps comme Vim de s’étendre sous le clavier et les barres d’outils."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح لتطبيقات مثل Vim بالامتداد خلف لوحة المفاتيح وأشرطة الأدوات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que apps como Vim se extiendan bajo el teclado y las barras de herramientas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 Vim 等 App 延伸至鍵盤和工具列下方。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 Vim 等 App 延伸至键盘和工具栏下方。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim 같은 앱을 키보드와 도구 막대 아래까지 확장합니다."
+          }
+        }
+      }
+    },
     "mobile.settings.haptics": {
       "extractionState": "manual",
       "localizations": {

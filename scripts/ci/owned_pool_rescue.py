@@ -9,7 +9,8 @@ requested, from the default branch, with Actions write.
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
-(`macos-pool-persistent-<run id>-<attempt>`); no marker means the run is on an
+(`macos-pool-persistent-<run id>-<attempt>-<jobs>-<pool>`, the jobs and pool
+for the janitor's count); no marker means the run is on an
 ephemeral pool and the watch ends. Otherwise it watches the run's jobs until the
 run finishes. If a job on the persistent pool is still queued with no runner
 after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
@@ -19,6 +20,22 @@ retry attempt a persistent pool, so every macOS job of the re-run lands on
 Blacksmith together. A run is never split
 across pools, because app-host products only load under the Xcode that linked
 them (#14163); that is why the whole run is re-run, not one job.
+
+An owned runner can also refuse a job it was handed: glaeda's job-started
+hook exits 1 when the host is busy (its lock is held), and the job fails
+within seconds, before any step of the workflow succeeds. GitHub does not
+retry it, so the pull request would stay red until someone re-ran it. A job
+on the persistent pool that failed within REFUSAL_SECONDS of starting with no
+workflow step succeeded counts as refused: the watcher confirms the head has
+not moved, cancels the run if it is still going, and re-runs its failed jobs.
+That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
+retry_runner, the Blacksmith pool the picker named, and what already passed
+(compile admission, say) is kept. That splits the run across machines, which
+is sound only because both sides run the same Xcode: retry_runner is a macOS
+26 pool on the lane's pin, the pin the owned label names, and on 2026-09-24
+both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
+Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
+here instead (rescue with failed_only=False).
 
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
@@ -74,6 +91,11 @@ READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
 CANCEL_WAIT_SECONDS = 180
 FORCE_CANCEL_AFTER_SECONDS = 90
+# A refused job fails in seconds; a real failure of the first step after
+# checkout takes longer than this, and one that does not is cheap to retry.
+REFUSAL_SECONDS = 120
+# The runner's own steps, which run before glaeda's hook decides.
+SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 MAX_JOB_PAGES = 3
 API = "https://api.github.com"
 
@@ -117,6 +139,17 @@ def queued_seconds(job: Mapping[str, Any], now: dt.datetime, first_seen: dt.date
     return 0.0 if since is None else max(0.0, (now - since).total_seconds())
 
 
+def refused(job: Mapping[str, Any]) -> bool:
+    """A job the owned runner refused at job start (see the module docstring)."""
+    if not job_pool(job) or job.get("status") != "completed" or job.get("conclusion") != "failure":
+        return False
+    started, completed = parse_time(job.get("started_at")), parse_time(job.get("completed_at"))
+    if started is None or completed is None or (completed - started).total_seconds() > REFUSAL_SECONDS:
+        return False
+    return not any(step.get("conclusion") == "success" and step.get("name") not in SETUP_STEPS
+                   for step in job.get("steps") or [] if isinstance(step, Mapping))
+
+
 def picker_finished(jobs: Sequence[Mapping[str, Any]]) -> bool:
     picker = [job for job in jobs if job.get("name") == PICKER_JOB]
     return bool(picker) and all(job.get("status") == "completed" for job in picker)
@@ -128,7 +161,7 @@ def run_finished(jobs: Sequence[Mapping[str, Any]]) -> bool:
 
 @dataclasses.dataclass(frozen=True)
 class Look:
-    action: str  # "rescue" or "watch"
+    action: str  # "rescue" (cancel, re-run all), "refused" (re-run failed jobs) or "watch"
     reason: str
     waiting: bool = False  # a persistent-pool job has no runner yet
 
@@ -143,6 +176,10 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
                               f"{budget_seconds}s with no runner")
+    turned_away = [job for job in jobs if refused(job)]
+    if turned_away:
+        names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
+        return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start")
     if waiting:
         return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner", waiting=True)
     return Look("watch", "no job is waiting for a persistent runner")
@@ -181,9 +218,16 @@ class GitHub:
                 break
         return found
 
-    def has_artifact(self, run_id: int, name: str) -> bool:
-        data = self.request("GET", f"/actions/runs/{run_id}/artifacts?name={name}&per_page=10")
-        return any(item.get("name") == name for item in (data or {}).get("artifacts") or [])
+    def has_artifact(self, run_id: int, prefix: str, pages: int = 5) -> bool:
+        """Whether the run uploaded an artifact whose name starts with `prefix`."""
+        for page in range(1, pages + 1):
+            data = self.request("GET", f"/actions/runs/{run_id}/artifacts?per_page=100&page={page}")
+            names = [str(item.get("name") or "") for item in (data or {}).get("artifacts") or []]
+            if any(name.startswith(prefix) for name in names):
+                return True
+            if len(names) < 100:
+                return False
+        return False
 
     def pull(self, number: int) -> Mapping[str, Any]:
         return self.request("GET", f"/pulls/{number}")
@@ -196,6 +240,9 @@ class GitHub:
 
     def rerun(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/rerun")
+
+    def rerun_failed(self, run_id: int) -> None:
+        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs")
 
 
 @dataclasses.dataclass
@@ -226,7 +273,8 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
 
 
 def marker_name(target: Target) -> str:
-    return f"{MARKER_PREFIX}-{target.run_id}-{target.attempt}"
+    """The marker's name up to its jobs and pool, which only the janitor reads."""
+    return f"{MARKER_PREFIX}-{target.run_id}-{target.attempt}-"
 
 
 READ_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, ValueError)
@@ -267,6 +315,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 return "stop", "the run finished before the pool choice"
         interval = POLL_SECONDS
         if on_persistent:
+            if any(refused(job) for job in jobs):
+                look = assess(jobs, now=now(), budget_seconds=budget_seconds, first_seen=first_seen)
+                log(f"look {looks}: {look.reason}")
+                return look.action, look.reason
             if run_finished(jobs) and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
                 return "stop", "the run finished"
             seen_at = now()
@@ -275,8 +327,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen)
             log(f"look {looks}: {look.reason}")
-            if look.action == "rescue":
-                return "rescue", look.reason
+            if look.action in ("rescue", "refused"):
+                return look.action, look.reason
             if not look.waiting:
                 interval = IDLE_POLL_SECONDS
         if (now() - started).total_seconds() >= WATCH_LIMIT_SECONDS:
@@ -296,14 +348,23 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
 
 
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
-           log: Callable[[str], None]) -> str:
-    """Cancel and re-run, unless the pull request has moved on. Returns what happened."""
+           log: Callable[[str], None], failed_only: bool = False) -> str:
+    """Cancel and re-run, unless the pull request has moved on. Returns what happened.
+
+    `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
+    keeping what passed, and needs no cancel when the run already finished.
+    """
     moved = pull_moved(api, target, sleep, log)
     if moved:
         return f"not rescued: {moved}"
     run = read(lambda: api.run(target.run_id), sleep, log)
+    if int(run.get("run_attempt") or 0) != target.attempt:
+        return "not rescued: someone else already re-ran the run"
     if run.get("status") == "completed":
-        return "not rescued: the run already finished"
+        if not failed_only:
+            return "not rescued: the run already finished"
+        api.rerun_failed(target.run_id)
+        return f"re-ran the failed jobs of run {target.run_id}; attempt {target.attempt + 1} takes retry_runner"
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
@@ -327,6 +388,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     moved = pull_moved(api, target, sleep, log)
     if moved:
         return f"cancelled but not re-run: {moved}"
+    if failed_only:
+        api.rerun_failed(target.run_id)
+        return f"re-ran the failed jobs of run {target.run_id}; attempt {target.attempt + 1} takes retry_runner"
     api.rerun(target.run_id)
     return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
 
@@ -367,10 +431,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     log(f"watching run {target.run_id} of pull request #{target.pr_number} (budget {seconds}s)")
     try:
         outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log)
-        if outcome != "rescue":
+        if outcome not in ("rescue", "refused"):
             return finish(f"stopped: {reason}")
-        log(f"rescue: {reason}")
-        return finish(rescue(client, target, now=clock, sleep=sleep, log=log))
+        log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
+        return finish(rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=outcome == "refused"))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it.
         finish(f"gave up: {error}")
