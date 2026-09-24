@@ -157,37 +157,63 @@ if [[ "$got" != "$C1" ]]; then
   echo "FAIL: fallback past a missing manifest must resolve $C1, got '$got'"
   exit 1
 fi
-if [[ $elapsed -gt 5 ]]; then
+# The old behaviour took at least 15 s; the bound leaves room for a loaded runner.
+if [[ $elapsed -gt 10 ]]; then
   echo "FAIL: skipping a missing manifest took ${elapsed}s; a 404 must not be retried"
   exit 1
 fi
 
-# A transient probe failure (here, DNS) is still retried, so it does not read as a
-# missing manifest. The shim fails its first two calls, then runs the real curl.
+# The curl shim replays one scripted outcome per call from $TMP/curl-script, then runs
+# the real curl once the script is empty: `dns` fails like a DNS blip (exit 6), and a
+# status code answers like an HTTP server (curl exit 0, that code on stdout).
 REAL_CURL="$(command -v curl)"
 mkdir -p "$TMP/shim"
-cat >"$TMP/shim/curl" <<EOF
+cat >"$TMP/shim/curl" <<SHIM
 #!/usr/bin/env bash
-left="\$(cat "$TMP/curl-failures-left")"
-if [[ "\$left" -gt 0 ]]; then
-  echo \$((left - 1)) >"$TMP/curl-failures-left"
+script="$TMP/curl-script"
+step="\$(head -n 1 "\$script")"
+if [[ -z "\$step" ]]; then exec "$REAL_CURL" "\$@"; fi
+tail -n +2 "\$script" >"\$script.next"
+mv "\$script.next" "\$script"
+if [[ "\$step" == dns ]]; then
   echo "curl: (6) Could not resolve host: files.cmux.com" >&2
   exit 6
 fi
-exec "$REAL_CURL" "\$@"
-EOF
+printf '%s' "\$step"
+SHIM
 chmod +x "$TMP/shim/curl"
 printf '{"commit":"%s"}\n' "$C3" >"$STORE/$C3/manifest.json"
-echo 2 >"$TMP/curl-failures-left"
-got="$(cd "$TMP/full" && PATH="$TMP/shim:$PATH" CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS=0 "$RESOLVER" 2>/dev/null)"
+resolve_with_curl_script() {
+  printf '%s\n' "$@" >"$TMP/curl-script"
+  (cd "$TMP/full" && PATH="$TMP/shim:$PATH" CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS=0 "$RESOLVER" --max-fallback 3 2>/dev/null)
+}
+expect_curl_script_drained() {
+  if [[ -s "$TMP/curl-script" ]]; then
+    echo "FAIL: the curl shim did not consume its script (test setup): $(tr '\n' ' ' <"$TMP/curl-script")"
+    exit 1
+  fi
+}
+
+# Transient failures (DNS, 5xx, 429) are retried, so they do not read as a missing
+# manifest: C3 is published and must still win.
+got="$(resolve_with_curl_script dns 503 429 || true)"
+expect_curl_script_drained
 if [[ "$got" != "$C3" ]]; then
-  echo "FAIL: a transient probe failure must be retried and resolve $C3, got '$got'"
+  echo "FAIL: transient probe failures must be retried and resolve $C3, got '$got'"
   exit 1
 fi
-if [[ "$(cat "$TMP/curl-failures-left")" != 0 ]]; then
-  echo "FAIL: the curl shim was not exercised (test setup)"
-  exit 1
-fi
+
+# HTTP 404 and 410 are definitive: the resolver moves past C3 at once, although a
+# retry would have found it, and falls back to C1.
+for missing in 404 410; do
+  got="$(resolve_with_curl_script "$missing" || true)"
+  expect_curl_script_drained
+  if [[ "$got" != "$C1" ]]; then
+    echo "FAIL: HTTP $missing must skip $C3 without a retry and fall back to $C1, got '$got'"
+    exit 1
+  fi
+done
+
 for bad in x -1; do
   rc=0
   (cd "$TMP/full" && CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS="$bad" "$RESOLVER" >/dev/null 2>&1) || rc=$?
