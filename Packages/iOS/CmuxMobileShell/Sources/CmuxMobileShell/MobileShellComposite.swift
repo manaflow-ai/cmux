@@ -2262,6 +2262,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isReconnectingStoredMac = false
         pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
+        didSettleExplicitForegroundConnect = false
         replaceRemoteClient(with: nil)
         cancelRemoteOperationTasks()
         resetNotificationFeed()
@@ -2362,6 +2363,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isReconnectingStoredMac = false
         pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
+        didSettleExplicitForegroundConnect = false
         pairedMacRestoreBoundary?.invalidate()
         let refresher = pairedMacStore as? any PairedMacBackupRefreshing
         // Lazy display: clear the stale old-team lists; the next loadPairedMacs() /
@@ -2635,6 +2637,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The most recent recovery trigger parked while inactive, replayed once
     /// by `recoverPendingInactiveRecoveryIfNeeded()` on foreground.
     var pendingInactiveRecoveryTrigger: RecoveryTrigger?
+
+    /// True once an explicit foreground dial (attach ticket, manual host,
+    /// registry row) has settled in this account/team scope. An attach launch
+    /// skips the root stored restore entirely, so this also ends the
+    /// pre-first-restore deferral window for automatic recovery
+    /// (`shouldDeferAutomaticRecoveryToFirstStoredMacRestore`); without it a
+    /// failed attach would leave automatic wake-ups deferred behind a restore
+    /// that is never coming.
+    var didSettleExplicitForegroundConnect = false
 
     enum RecoveryTrigger: CustomStringConvertible {
         case networkChange
@@ -10098,6 +10109,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // client, otherwise the abandoned attempt briefly disconnects the
         // newer session even though every later adoption guard rejects it.
         guard ifStillCurrent?() ?? true else { return nil }
+        // A settled explicit dial resolves the launch-connect window even when
+        // the root stored restore never runs (attach launches skip it), so
+        // automatic recovery cannot stay deferred behind a restore that is
+        // not coming. Stored-restore callers run with `isReconnectingStoredMac`
+        // set and settle the window through `finishStoredMacReconnectAttempt`.
+        let settlesLaunchConnectWindow = !isReconnectingStoredMac
+        defer {
+            if settlesLaunchConnectWindow { didSettleExplicitForegroundConnect = true }
+        }
         let generation = UUID()
         var liveConnectionGeneration = generation
         let ticketMacDeviceID = ticket.macDeviceID

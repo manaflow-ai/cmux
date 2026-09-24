@@ -22,6 +22,7 @@ import Testing
 @MainActor
 extension ReconnectRouteSelectionTests {
     private func makeStartupReadinessShell(
+        failingKinds: Set<CmxAttachTransportKind> = []
     ) async throws -> (
         shell: MobileShellComposite,
         factory: KindRecordingTransportFactory,
@@ -34,7 +35,11 @@ extension ReconnectRouteSelectionTests {
             instanceTag: "default",
             displayName: "Test Mac"
         )
-        let factory = KindRecordingTransportFactory(router: router, box: TransportBox())
+        let factory = KindRecordingTransportFactory(
+            router: router,
+            box: TransportBox(),
+            failingKinds: failingKinds
+        )
         let (pairedStore, directory) = try makePairedMacStore()
         try await pairedStore.upsert(
             macDeviceID: "test-mac",
@@ -125,6 +130,33 @@ extension ReconnectRouteSelectionTests {
         #expect(try await pollUntil { shell.connectionState == .connected })
         #expect(factory.attemptedKinds() == [.iroh])
         await shell.remoteClient?.disconnect()
+    }
+
+    /// An attach-style explicit dial that fails must still end the deferral
+    /// window: attach launches skip the root stored restore entirely, so no
+    /// restore is coming and automatic wake-ups own recovery again. Without
+    /// this, a failed attach would leave every automatic trigger deferred
+    /// until a manual retry.
+    @Test func failedExplicitConnectEndsTheStartupDeferralWindow() async throws {
+        let (shell, factory, directory) = try await makeStartupReadinessShell(
+            failingKinds: [.iroh]
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let ticket = try MobileShellComposite.storedMacTicket(
+            name: "Test Mac",
+            routes: [try iroh()],
+            pairedMacDeviceID: "test-mac"
+        )
+        _ = try? await shell.connect(ticket: ticket)
+        #expect(shell.connectionState != .connected)
+        #expect(!shell.didFinishStoredMacReconnectAttempt)
+
+        shell.recoverMobileConnection(trigger: .directoryChanged)
+
+        #expect(shell.connectionRecoveryOwner.isActive)
+        #expect(factory.attemptedKinds().first == .iroh)
+        shell.connectionRecoveryOwner.cancel()
     }
 
     /// The exact failure recorded in the 2026-09-22 diagnostic export: a

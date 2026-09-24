@@ -202,6 +202,7 @@ extension MobileShellComposite {
             && pairedMacStore != nil
             && connectionState != .connected
             && !didFinishStoredMacReconnectAttempt
+            && !didSettleExplicitForegroundConnect
             && !isReconnectingStoredMac
     }
 
