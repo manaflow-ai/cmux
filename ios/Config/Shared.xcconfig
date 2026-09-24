@@ -10,6 +10,7 @@ PRODUCT_NAME = cmux
 PRODUCT_DISPLAY_NAME = cmux
 CMUX_APP_BUNDLE_IDENTIFIER = dev.cmux.ios
 PRODUCT_BUNDLE_IDENTIFIER = $(CMUX_APP_BUNDLE_IDENTIFIER)
+CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER = $(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService
 // User-visible versions (CFBundleShortVersionString). Keep beta and production
 // independent: TestFlight can stay on the already-approved beta version while
 // the first production App Store upload starts from its own release version.

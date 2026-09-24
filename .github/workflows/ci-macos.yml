@@ -66,12 +66,6 @@ on:
       release_build:
         required: true
         type: string
-      source_identity_valid:
-        required: true
-        type: string
-      source_tree:
-        required: true
-        type: string
       source_parent1:
         required: true
         type: string
@@ -358,170 +352,13 @@ jobs:
             echo "- macOS runner minutes saved: $(show "$REUSE_MACOS_MINUTES_SAVED")"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Observe persistent Mac compile candidate
-        id: persistent-route
-        if: ${{ steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && inputs.source_identity_valid == 'true' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CI_PERSISTENT_MAC_COMPILE: ${{ vars.CI_PERSISTENT_MAC_COMPILE }}
-          CI_PERSISTENT_MAC_COMPILE_COHORT: ${{ vars.CI_PERSISTENT_MAC_COMPILE_COHORT }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_REF: ${{ github.head_ref }}
-          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          SOURCE_TREE: ${{ inputs.source_tree }}
-          SOURCE_PARENT1: ${{ inputs.source_parent1 }}
-        run: |
-          set -euo pipefail
-          route_started="$(python3 -c 'import time; print(time.monotonic())')"
-          python3 scripts/ci/persistent_mac_route.py \
-            --observe-only \
-            --ready-only \
-            --event-name "$GITHUB_EVENT_NAME" \
-            --selector "$CI_PERSISTENT_MAC_COMPILE" \
-            --cohort "$CI_PERSISTENT_MAC_COMPILE_COHORT" \
-            --repository "$GITHUB_REPOSITORY" \
-            --pr-number "$PR_NUMBER" \
-            --head-repository "$HEAD_REPOSITORY" \
-            --head-ref "$HEAD_REF" \
-            --author-association "$AUTHOR_ASSOCIATION" \
-            --head-sha "$HEAD_SHA" \
-            --source-sha "$GITHUB_SHA" \
-            --source-tree "$SOURCE_TREE" \
-            --source-parent1 "$SOURCE_PARENT1" \
-            --run-id "$GITHUB_RUN_ID" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --github-output "$GITHUB_OUTPUT"
-          route_finished="$(python3 -c 'import time; print(time.monotonic())')"
-          route_wall="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$route_started" "$route_finished")"
-          echo "route_wall_seconds=$route_wall" >> "$GITHUB_OUTPUT"
-
-      - name: Download persistent Mac compile product
-        id: persistent-download
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-route.outputs.use_persistent == 'true'
-        continue-on-error: true
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          artifact-ids: ${{ steps.persistent-route.outputs.artifact_id }}
-          path: ${{ runner.temp }}/persistent-mac-compile
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.persistent-route.outputs.producer_run_id }}
-
-      - name: Revalidate persistent Mac compile product
-        id: persistent-restore
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-download.outcome == 'success'
-        continue-on-error: true
-        env:
-          EXPECTED_SOURCE_SHA: ${{ github.sha }}
-          EXPECTED_SOURCE_TREE: ${{ inputs.source_tree }}
-        run: |
-          set -euo pipefail
-          [ -z "$(git status --porcelain --untracked-files=all)" ] || {
-            echo "hosted validation checkout is dirty" >&2
-            exit 1
-          }
-          [ "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_SOURCE_TREE" ]
-
-          # Every identity check below runs after the archive is expanded here, and
-          # the fallback compile runs in this same DerivedData. A refused product
-          # must not become that compile's input, so arm the cleanup before the
-          # first byte is written and keep it until this step's own success.
-          revalidated=false
-          cleanup() {
-            [ "$revalidated" = true ] && return 0
-            rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          }
-          trap cleanup EXIT
-
-          archive="$(find "$RUNNER_TEMP/persistent-mac-compile" -type f -name 'persistent-mac-compile.tar.gz' -print -quit)"
-          [ -n "$archive" ] && [ -f "$archive" ]
-          mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          tar -xzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-          metrics="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/persistent-mac-metrics.json"
-          test -f "$metrics"
-
-          python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-
-          METRICS="$metrics" EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA" EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE" python3 - <<'PY'
-          import hashlib
-          import json
-          import os
-          import platform
-          import subprocess
-          from pathlib import Path
-
-          metrics = json.load(open(os.environ["METRICS"]))
-          expected_sha = os.environ["EXPECTED_SOURCE_SHA"]
-          expected_tree = os.environ["EXPECTED_SOURCE_TREE"]
-
-          def output(*argv):
-              return subprocess.check_output(argv, text=True).strip()
-
-          def digest(path):
-              value = hashlib.sha256()
-              with Path(path).open("rb") as stream:
-                  for block in iter(lambda: stream.read(1024 * 1024), b""):
-                      value.update(block)
-              return value.hexdigest()
-
-          source = metrics.get("source", {})
-          if source != {"commit": expected_sha, "tree": expected_tree}:
-              raise SystemExit("persistent producer source identity mismatch")
-          if output("git", "rev-parse", "HEAD") != expected_sha:
-              raise SystemExit("hosted checkout revision mismatch")
-          if output("git", "rev-parse", "HEAD^{tree}") != expected_tree:
-              raise SystemExit("hosted checkout tree mismatch")
-          if output("git", "status", "--porcelain", "--untracked-files=all"):
-              raise SystemExit("hosted checkout became dirty during validation")
-
-          lockfile = "cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
-          if digest(lockfile) != metrics.get("package_resolved_sha256"):
-              raise SystemExit("Package.resolved identity mismatch")
-          submodules = output("git", "submodule", "status", "--recursive").encode()
-          if hashlib.sha256(submodules).hexdigest() != metrics.get("submodule_identity_sha256"):
-              raise SystemExit("submodule identity mismatch")
-
-          toolchain = metrics.get("toolchain", {})
-          if toolchain.get("xcode") != output("xcodebuild", "-version"):
-              raise SystemExit("Xcode identity mismatch")
-          if toolchain.get("sdk_version") != output("xcrun", "--sdk", "macosx", "--show-sdk-version"):
-              raise SystemExit("macOS SDK version mismatch")
-          if toolchain.get("sdk_build") != output("xcrun", "--sdk", "macosx", "--show-sdk-build-version"):
-              raise SystemExit("macOS SDK build mismatch")
-          if platform.machine() != "arm64":
-              raise SystemExit("persistent product validation requires Apple Silicon")
-
-          classification = metrics.get("classification")
-          if classification not in {"hot", "partially-warm", "cold-reset"}:
-              raise SystemExit("invalid persistent cache classification")
-          glaeda = metrics.get("glaeda", {})
-          for key in ("cache_key", "invocation_identity", "generation"):
-              if not isinstance(glaeda.get(key), str) or not glaeda[key]:
-                  raise SystemExit(f"Glaeda receipt omitted {key}")
-          if not isinstance(glaeda.get("reset_reasons"), list):
-              raise SystemExit("Glaeda reset lineage is invalid")
-          print(
-              f"validated persistent product class={classification} "
-              f"cache_key={glaeda['cache_key']} invocation={glaeda['invocation_identity']}"
-          )
-          PY
-
-          revalidated=true
-          {
-            echo "hit=true"
-            echo "classification=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["classification"])' "$metrics")"
-            echo "metrics=$metrics"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Capture Ghostty revision
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         id: ghostty-revision
         run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Cache GhosttyKit.xcframework
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         id: cache-ghosttykit-admission
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -529,12 +366,12 @@ jobs:
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
         id: swift-package-cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -543,13 +380,37 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
+      # Evaluating the 91 Package.swift files was about 45 s of the resolve
+      # below even on an exact `spm-` hit. seed-derived-data.yml saves the
+      # evaluated manifests from main; see scripts/ci/swiftpm-manifest-cache.sh
+      # for why the resolve runs under a fixed environment to hit them.
+      - name: Compute SwiftPM manifest cache key
+        id: swiftpm-manifest-key
+        if: steps.reuse-products.outputs.hit != 'true'
+        run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM manifest cache
+        if: steps.reuse-products.outputs.hit != 'true'
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
+          restore-keys: ${{ steps.swiftpm-manifest-key.outputs.prefix }}
+
+      - name: Install SwiftPM manifest cache
+        if: steps.reuse-products.outputs.hit != 'true'
+        continue-on-error: true
+        run: scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
 
       # The key names only the Xcode version and the canonical paths, so it is
       # known before the source tree is copied there.
       - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         id: compilation-cache-key
         run: |
           set -euo pipefail
@@ -560,7 +421,7 @@ jobs:
       # seed" below reuses the seed this step picked and waits for it; if this
       # step fails, adopt picks and downloads itself.
       - name: Start the DerivedData seed download
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        if: steps.reuse-products.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
         # Picking the seed probes the bucket before the download detaches; a
         # hung CDN must not hold up the resolve. adopt then picks for itself.
@@ -583,7 +444,7 @@ jobs:
       # scripts/ci/canonical-build-root.sh and compile-app-host-test-product.sh.
       - name: Resolve Swift packages
         id: hosted-package-readiness
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         env:
           CMUX_CI_MOVE_SOURCE_PACKAGES: "1"
           CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
@@ -629,7 +490,7 @@ jobs:
       # them costs compile time.
       - name: Adopt the nightly DerivedData seed
         id: seed-derived-data
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        if: steps.reuse-products.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
         timeout-minutes: 8
         env:
@@ -647,7 +508,7 @@ jobs:
 
       - name: Compile app-host test product
         id: hosted-compile
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true'
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
@@ -788,7 +649,7 @@ jobs:
           set -euo pipefail
           # Fresh manifests embed the canonical checkout. Stamp that producer
           # before relocating into this job's workspace for reuse and consumers.
-          if [ "${{ steps.reuse-products.outputs.hit }}" != true ] && [ "${{ steps.persistent-restore.outputs.hit }}" != true ]; then
+          if [ "${{ steps.reuse-products.outputs.hit }}" != true ]; then
             (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
             python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           fi
@@ -926,14 +787,6 @@ jobs:
         id: admission-metrics
         if: always() && !cancelled()
         env:
-          ROUTE_USE_PERSISTENT: ${{ steps.persistent-route.outputs.use_persistent }}
-          ROUTE_REASON: ${{ steps.persistent-route.outputs.fallback_reason }}
-          QUEUE_TO_START_SECONDS: ${{ steps.persistent-route.outputs.queue_to_start_seconds }}
-          PRODUCER_ALLOCATED_SECONDS: ${{ steps.persistent-route.outputs.producer_allocated_seconds }}
-          ROUTE_WALL_SECONDS: ${{ steps.persistent-route.outputs.route_wall_seconds }}
-          PERSISTENT_HIT: ${{ steps.persistent-restore.outputs.hit }}
-          PERSISTENT_CLASS: ${{ steps.persistent-restore.outputs.classification }}
-          PERSISTENT_METRICS: ${{ steps.persistent-restore.outputs.metrics }}
           HOSTED_QUEUE_SECONDS: ${{ steps.hosted-queue.outputs.seconds }}
           HOSTED_SOURCE_PREP_SECONDS: ${{ steps.hosted-source-prep.outputs.seconds }}
           HOSTED_PACKAGE_SECONDS: ${{ steps.hosted-package-readiness.outputs.seconds }}
@@ -963,58 +816,19 @@ jobs:
               raw = os.environ.get(name, "").strip()
               return float(raw) if raw else None
 
-          persistent = {}
-          persistent_path = os.environ.get("PERSISTENT_METRICS", "").strip()
-          if persistent_path:
-              try:
-                  persistent = json.load(open(persistent_path))
-              except (OSError, ValueError):
-                  persistent = {}
-
-          persistent_hit = os.environ.get("PERSISTENT_HIT") == "true"
-          classification = os.environ.get("PERSISTENT_CLASS") if persistent_hit else "hosted fallback"
-          fallback_reason = ""
-          if not persistent_hit:
-              if os.environ.get("ROUTE_USE_PERSISTENT") == "true":
-                  fallback_reason = "persistent_artifact_validation_failed"
-              else:
-                  fallback_reason = os.environ.get("ROUTE_REASON") or "persistent_route_unused"
-
-          source_preparation = (
-              persistent.get("source_preparation_seconds")
-              if persistent_hit else number("HOSTED_SOURCE_PREP_SECONDS")
-          )
-          package_readiness = (
-              persistent.get("package_readiness_seconds")
-              if persistent_hit else number("HOSTED_PACKAGE_SECONDS")
-          )
-          compile_duration = (
-              persistent.get("compile_duration_seconds")
-              if persistent_hit else number("HOSTED_COMPILE_SECONDS")
-          )
-
           result = {
-              "schema_version": 1,
-              "classification": classification,
-              "fallback_reason": fallback_reason,
-              "queue_to_start_seconds": (
-                  number("QUEUE_TO_START_SECONDS") if persistent_hit else number("HOSTED_QUEUE_SECONDS")
-              ),
-              "source_preparation_seconds": source_preparation,
-              "package_readiness_seconds": package_readiness,
-              "compile_duration_seconds": compile_duration,
+              "schema_version": 2,
+              "queue_to_start_seconds": number("HOSTED_QUEUE_SECONDS"),
+              "source_preparation_seconds": number("HOSTED_SOURCE_PREP_SECONDS"),
+              "package_readiness_seconds": number("HOSTED_PACKAGE_SECONDS"),
+              "compile_duration_seconds": number("HOSTED_COMPILE_SECONDS"),
               "warning_validation_seconds": number("WARNING_SECONDS"),
               "artifact_publication_seconds": number("PUBLICATION_SECONDS"),
-              "route_wall_seconds": number("ROUTE_WALL_SECONDS"),
               "required_admission_runner_seconds": number("ADMISSION_SECONDS"),
-              # Route observation runs inside the already-allocated hosted
-              # admission job, so ADMISSION_SECONDS already contains it.
               "total_macos_compile_admission_seconds": number("ADMISSION_SECONDS"),
-              "persistent_runner_allocated_seconds": number("PRODUCER_ALLOCATED_SECONDS"),
               "hosted_admission_runner_allocated_seconds": number("ADMISSION_SECONDS"),
               "product_published": os.environ.get("PRODUCT_PUBLISHED") == "true",
               "product_upload_outcome": os.environ.get("PRODUCT_UPLOAD_OUTCOME", ""),
-              "persistent": persistent,
               "seed_derived_data": {
                   "outcome": os.environ.get("SEED_OUTCOME", ""),
                   "hit": os.environ.get("SEED_HIT") == "true",
@@ -1040,18 +854,14 @@ jobs:
           print("### macOS compile admission timing")
           print()
           for label, key in (
-              ("class", "classification"),
-              ("fallback reason", "fallback_reason"),
-              ("queue to owned runner", "queue_to_start_seconds"),
+              ("queue to runner", "queue_to_start_seconds"),
               ("source preparation", "source_preparation_seconds"),
               ("package readiness", "package_readiness_seconds"),
               ("compile", "compile_duration_seconds"),
               ("warning validation", "warning_validation_seconds"),
               ("artifact publication", "artifact_publication_seconds"),
-              ("route/controller wall", "route_wall_seconds"),
               ("required admission runner", "required_admission_runner_seconds"),
               ("total admission wall", "total_macos_compile_admission_seconds"),
-              ("persistent runner allocated", "persistent_runner_allocated_seconds"),
           ):
               print(f"- {label}: `{data.get(key)}`")
           seed = data.get("seed_derived_data") or {}

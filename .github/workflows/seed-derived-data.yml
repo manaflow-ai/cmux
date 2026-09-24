@@ -49,36 +49,34 @@ jobs:
   decide:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
     outputs:
       build: ${{ steps.inputs.outputs.build }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          fetch-depth: 2
+          # seed_decide.py walks back up to ANCESTOR_LIMIT (30) commits.
+          fetch-depth: 32
 
-      # A push that leaves the build fingerprint unchanged (docs, web, another
-      # workflow) builds exactly what its parent's seed holds, and pull
-      # requests fall back to that seed by prefix. Skip the Mac entirely.
-      - name: Compare build inputs with the parent commit
+      # A push whose build fingerprint equals that of an existing seed (docs,
+      # web, another workflow) builds exactly what that seed holds, and pull
+      # requests fall back to it by prefix. Skip the Mac only then. The parent
+      # is not enough: a newer push replaces a pending seed run, so the parent
+      # often has no seed. seed_decide.py compares with the nearest seeded
+      # ancestor instead, and builds on any doubt.
+      - name: Compare build inputs with the nearest seed
         id: inputs
         env:
+          GH_TOKEN: ${{ github.token }}
           XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = workflow_dispatch ] || ! git rev-parse -q --verify 'HEAD^1' >/dev/null; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          head="$(python3 scripts/ci/build_input_fingerprint.py --revision HEAD --extra "xcode=$XCODE_APP")"
-          parent="$(python3 scripts/ci/build_input_fingerprint.py --revision 'HEAD^1' --extra "xcode=$XCODE_APP")"
-          if [ "$head" = "$parent" ]; then
-            echo "Build inputs unchanged since the parent commit; its seed already covers this one."
-            echo "build=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          fi
+          python3 scripts/ci/seed_decide.py --repository "$GITHUB_REPOSITORY" --xcode "$XCODE_APP" \
+            --event-name "$EVENT_NAME" --github-output "$GITHUB_OUTPUT"
 
   seed:
     needs: decide
@@ -155,11 +153,79 @@ jobs:
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
+      # SwiftPM's evaluated-manifest cache, which compile admission and
+      # cli-pipe-regressions restore read-only (scripts/ci/swiftpm-manifest-cache.sh).
+      # Exact key only: a miss starts empty so the saved cache holds just this
+      # revision's manifests, at the two paths readers resolve from.
+      - name: Compute SwiftPM manifest cache key
+        id: swiftpm-manifest-key
+        run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM manifest cache
+        id: swiftpm-manifest-restore
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
+
+      - name: Install SwiftPM manifest cache
+        run: |
+          set -euo pipefail
+          if [ "$MANIFEST_CACHE_HIT" = true ]; then
+            scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
+          else
+            rm -rf "$HOME/Library/Caches/org.swift.swiftpm/manifests"
+          fi
+        env:
+          MANIFEST_CACHE_HIT: ${{ steps.swiftpm-manifest-restore.outputs.cache-hit }}
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+
+      # cli-pipe-regressions resolves in the runner workspace, not the canonical
+      # root, and a manifest's cache entry names its absolute path. Repeat that
+      # resolve here, with the same package directory, so its entries exist too.
+      # canonical-resolve left the workspace package cache as restored.
+      - name: Evaluate manifests at the cli-pipe-regressions path
+        id: swiftpm-manifest-workspace
+        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          rm -rf .spm-cache
+          cp -cR .ci-source-packages .spm-cache
+          scripts/ci/swiftpm-manifest-cache.sh run \
+            xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
+            -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
+            -clonedSourcePackagesDirPath "$PWD/.spm-cache" \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
+            -resolvePackageDependencies
+          rm -rf .spm-cache "$RUNNER_TEMP/cmux-cli-resolve"
+
+      - name: Stage SwiftPM manifest cache
+        id: swiftpm-manifest-stage
+        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && steps.swiftpm-manifest-workspace.outcome == 'success'
+        continue-on-error: true
+        run: scripts/ci/swiftpm-manifest-cache.sh stage "$RUNNER_TEMP/swiftpm-manifests"
+
+      - name: Save SwiftPM manifest cache
+        if: steps.swiftpm-manifest-stage.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
 
       # Build on the nearest earlier seed in this commit's history, not the
       # newest pointer: nightly.yml's cold seed of an older main can hold that.
