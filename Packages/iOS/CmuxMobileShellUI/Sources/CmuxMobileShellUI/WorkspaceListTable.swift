@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
@@ -14,6 +15,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     @Environment(\.releaseGateSnapshotter) var releaseGateSnapshotter
     #endif
+    @Environment(\.scrollInteractionReporter) var scrollInteractionReporter
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
@@ -84,6 +86,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         let coordinator = WorkspaceListTableCoordinator(configuration: self)
+        coordinator.scrollInteractionReporter = scrollInteractionReporter
         #if DEBUG
         coordinator.releaseGateUIProbe = releaseGateUIProbe
         coordinator.releaseGateSnapshotter = releaseGateSnapshotter
@@ -115,6 +118,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         context.coordinator.releaseGateUIProbe = releaseGateUIProbe
         context.coordinator.releaseGateSnapshotter = releaseGateSnapshotter
         #endif
+        context.coordinator.scrollInteractionReporter = scrollInteractionReporter
         context.coordinator.update(
             configuration: self,
             in: uiViewController.tableView

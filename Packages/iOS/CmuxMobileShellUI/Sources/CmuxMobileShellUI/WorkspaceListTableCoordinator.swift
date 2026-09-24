@@ -64,6 +64,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     /// The latest snapshot.
     private(set) var configuration: WorkspaceListTable
     weak var tableViewController: WorkspaceListTableViewController?
+    var scrollInteractionReporter: MobileScrollInteractionReporter?
+    /// Whether the reporter was last told a scroll is in progress.
+    private var reportedScrollInteraction = false
     private weak var tableView: UITableView?
 
     private var renderedItems: [WorkspaceListTableItem] = []
@@ -156,6 +159,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         #endif
         pendingContextMenuWorkspaceClose = nil
         isScrollInteractionActive = false
+        reportScrollInteraction(false)
         tableViewController = nil
     }
 
@@ -772,6 +776,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         isScrollInteractionActive = true
+        reportScrollInteraction(true)
         #if DEBUG
         beginSmoothnessSession()
         #endif
@@ -819,6 +824,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
 
     private func scrollInteractionDidSettle(_ scrollView: UIScrollView) {
         isScrollInteractionActive = false
+        reportScrollInteraction(false)
         #if DEBUG
         endSmoothnessSession()
         #endif
@@ -871,6 +877,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         )
     }
     #endif
+
+    private func reportScrollInteraction(_ isActive: Bool) {
+        guard reportedScrollInteraction != isActive else { return }
+        reportedScrollInteraction = isActive
+        scrollInteractionReporter?.interactionChanged(isActive)
+    }
 
     // MARK: Selection, swipes and menus
 

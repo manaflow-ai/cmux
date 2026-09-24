@@ -41,6 +41,11 @@ final class AppCompositionRoot {
     /// for. Constructed here (not lazily in a view) so its record spans every
     /// host view lifetime.
     let keyboardFrameTracker = MobileKeyboardFrameTracker()
+    /// Holds session replay capture while a list scroll is in progress, so its
+    /// main-thread screen capture cannot land mid-fling.
+    let scrollInteractionReporter = MobileScrollInteractionReporter { isActive in
+        MobileCrashReporter.setReplayCapturePaused(isActive)
+    }
     private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The legacy connection-method choice used only by onboarding and migration UI.
     let connectionMethodStore: MobileConnectionMethodStore
