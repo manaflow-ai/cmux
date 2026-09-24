@@ -22,7 +22,7 @@ chmod +x "$TMP_DIR/bin/xcodebuild" "$TMP_DIR/bin/print-env"
 
 run_env() {
   env HOME="$TMP_DIR/home" PATH="$TMP_DIR/bin:$PATH" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-    GITHUB_RUN_ID="$1" GITHUB_OUTPUT="/tmp/step-$1" "$SCRIPT" run print-env
+    GITHUB_RUN_ID="$1" GITHUB_OUTPUT="/tmp/step-$1" CMUX_CI_SWIFTPM_KEEP_ENV="NOT=A-NAME" "$SCRIPT" run print-env
 }
 first="$(run_env 1)"
 second="$(run_env 2)"
@@ -48,14 +48,17 @@ printf '// changed\n' >> "$TMP_DIR/repo/Packages/A/Package.swift"
 git -C "$TMP_DIR/repo" add -A
 changed="$(key_of)"
 other_xcode="$(STUB_XCODE_VERSION=26.5 key_of)"
+git -C "$TMP_DIR/repo" update-index --add --cacheinfo 160000,1111111111111111111111111111111111111111,vendor/bonsplit
+submodule="$(key_of)"
 prefix_of() { sed -n 's/^prefix=//p' <<<"$1"; }
 full_of() { sed -n 's/^key=//p' <<<"$1"; }
 if [ "$base" != "$again" ] \
   || [ "$(full_of "$base")" = "$(full_of "$changed")" ] \
+  || [ "$(full_of "$changed")" = "$(full_of "$submodule")" ] \
   || [ "$(prefix_of "$base")" != "$(prefix_of "$changed")" ] \
   || [ "$(prefix_of "$base")" = "$(prefix_of "$other_xcode")" ] \
   || [[ "$(full_of "$base")" != "$(prefix_of "$base")"* ]]; then
-  echo "FAIL: the key must follow Package.swift contents and the prefix must follow only the toolchain"
+  echo "FAIL: the key must follow Package.swift contents and submodule pointers, and the prefix must follow only the toolchain"
   exit 1
 fi
 echo "PASS: the key follows the manifests and the prefix follows the toolchain"

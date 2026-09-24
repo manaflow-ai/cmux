@@ -43,6 +43,8 @@ key() {
   inputs="$(
     {
       git ls-files -s -- '*Package.swift' 'cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
+      # Submodule pointers, since the vendor/bonsplit manifest lives past one.
+      git ls-files -s | awk '$1 == "160000"'
       shasum -a 256 "$SCRIPT_PATH" | cut -d' ' -f1
     } | shasum -a 256 | cut -c1-32
   )"
@@ -69,6 +71,7 @@ run() {
   local name
   # shellcheck disable=SC2086 # a space-separated list of names
   for name in USER LOGNAME DEVELOPER_DIR http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
+    [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
     if [ -n "${!name:-}" ]; then
       vars+=("$name=${!name}")
     fi
