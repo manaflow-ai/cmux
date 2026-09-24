@@ -7,29 +7,6 @@ import Foundation
 // "is this terminal open somewhere?" has one answer and closing a pane never destroys a
 // remote resource. Pure values here; the owner is `SurfaceCatalog`.
 
-/// Where a resource lives. `.local` is this Mac; `.cloud` is a cmux Cloud machine id.
-enum SurfaceMachineID: Hashable, Codable, Sendable, CustomStringConvertible {
-    case local
-    case cloud(String)
-
-    var description: String {
-        switch self {
-        case .local: return "local"
-        case .cloud(let id): return id
-        }
-    }
-
-    /// Wire form: `"local"` or the machine id.
-    var rawValue: String { description }
-
-    init(rawValue: String) {
-        self = rawValue == "local" ? .local : .cloud(rawValue)
-    }
-
-    var isLocal: Bool { if case .local = self { return true } else { return false } }
-    var cloudMachineID: String? { if case .cloud(let id) = self { return id } else { return nil } }
-}
-
 enum SurfaceResourceKind: String, Codable, Sendable, CaseIterable {
     case terminal
     /// A VNC display on the machine ("display", never "screen": a cmux-tui `screen` is a
@@ -96,6 +73,8 @@ enum SurfaceLifecycle: String, Codable, Sendable {
 struct SurfaceAgentBadge: Hashable, Codable, Sendable {
     var state: String
     var source: String?
+    /// The adapter identity, separate from report provenance (`hook`, `socket`, or `plugin`).
+    var agent: String? = nil
 }
 
 /// The daemon's monotonic position for one complete remote session state.
@@ -289,6 +268,7 @@ struct CloudVMAgentState: Hashable, Codable, Sendable {
     var terminalID: String
     var state: String
     var source: String?
+    var agent: String? = nil
 }
 
 /// How a remote session can be synchronized.
@@ -1585,11 +1565,19 @@ enum CloudVMStateSyncDecision: Equatable, Sendable {
 }
 
 /// The cmux-tui workspace a remote resource belongs to (nil for local resources).
+/// Device workspaces (another Mac's sidebar) additionally carry the cwd, unread
+/// count, and pin state the Mac sidebar shows; cloud workspaces leave them nil.
 struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var id: String
     var name: String
     var index: Int
     var focused: Bool
+    /// The workspace's presented working directory, when the provider reports one.
+    var detail: String? = nil
+    /// The remote sidebar's unread badge count, when the provider reports one.
+    var unreadCount: Int? = nil
+    /// Whether the workspace is pinned on its machine, when the provider reports it.
+    var isPinned: Bool? = nil
 }
 
 /// One view of a remote resource: a tab in one of the daemon's workspaces. A resource
@@ -1613,12 +1601,19 @@ struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var paneIndex: Int? = nil
 }
 
+/// Stable identity from the creation receipt, checked again before attachment.
+struct CloudCreationAttachment: Hashable, Codable, Sendable {
+    let generation: String
+    let terminalID: String
+}
+
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     var id: SurfaceResourceID
     var title: String
     /// cwd for terminals, URL for browsers, display name for screens.
     var detail: String?
     var lifecycle: SurfaceLifecycle
+    var creationAttachment: CloudCreationAttachment? = nil
     var agent: SurfaceAgentBadge?
     /// The workspace of the resource's first view (compat: pre-multi-view callers read
     /// one workspace). nil when the resource has zero views, or is local.
@@ -1727,6 +1722,8 @@ struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     /// reachable through the WireGuard tunnel. nil for the local Mac and for
     /// machines created before private networking.
     var privateAddress: String? = nil
+    /// Account presence for another Mac's app instance; nil for local and cloud machines.
+    var presence: SurfaceDevicePresence? = nil
 }
 
 enum SurfaceLinkState: String, Codable, Sendable {
@@ -1735,31 +1732,11 @@ enum SurfaceLinkState: String, Codable, Sendable {
     case asleep
     case unavailable
     case error
+    /// Another Mac that the presence service reports offline (app quit, asleep, or
+    /// unreachable); its last known tree stays listed until it comes back.
+    case offline
     /// The local Mac needs no link.
     case notApplicable = "n/a"
-}
-
-/// The catalog as one value: what the sidebar renders, what `surface.catalog` and
-/// `cmux vm tree --json` print. Machines are ordered local first, then by name.
-struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
-    var machines: [SurfaceMachineInfo]
-    var resources: [SurfaceResource]
-    var projections: [SurfaceProjection]
-
-    static let empty = SurfaceCatalogSnapshot(machines: [], resources: [], projections: [])
-
-    func resources(on machine: SurfaceMachineID) -> [SurfaceResource] {
-        resources.filter { $0.machine == machine }
-    }
-
-    func projections(of resource: SurfaceResourceID) -> [SurfaceProjection] {
-        projections.filter { $0.resource == resource }
-    }
-
-    func isOpen(_ resource: SurfaceResourceID) -> Bool {
-        projections.contains { $0.resource == resource }
-    }
-
 }
 
 /// One atomic export for agent and socket readers. The sidebar consumes only
@@ -1773,6 +1750,9 @@ struct SurfaceCatalogExport: Sendable {
     /// This preserves cursor/raw-snapshot equality while making offline state
     /// explicit to agents.
     var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
+    /// Existing stable local owner IDs, captured beside this read's runtime projections.
+    /// Missing owners remain unknown; these values never become resource or mutation IDs.
+    var projectionIdentities: [SurfaceProjection: SurfaceProjectionIdentity] = [:]
 }
 
 /// Persisted with the session: which resource each pane projected, so a restored pane

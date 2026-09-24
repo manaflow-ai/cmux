@@ -55,6 +55,9 @@ import {
 } from "./requestContext";
 import {
   vmArtifactUnavailableCopy,
+  vmDisplayNameCopy,
+  vmCreateCleanupPendingCopy,
+  vmGuestInstallCopy,
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
@@ -62,7 +65,10 @@ import {
   vmUnsupportedCopy,
   vmUnsupportedOperationKey,
 } from "./vmErrorMessages";
+import { DISPLAY_NAME_MAX_LENGTH } from "./displayName";
 import { ProviderArtifactUnavailableError } from "./drivers/types";
+import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
+import { PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE } from "./repository";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -474,6 +480,23 @@ export async function vmRequiresProResponse(locale: Locale = "en"): Promise<Resp
 }
 
 /**
+ * The 400 for a create or rename whose `displayName` fails `normalizedDisplayName`.
+ * A person typed that name, so the copy comes from the `vmErrors.displayName`
+ * catalog in the request locale; `details.field`/`maxLength` stay machine-readable.
+ */
+export async function invalidVmDisplayNameResponse(request: Request): Promise<Response> {
+  const copy = await vmDisplayNameCopy(vmRequestLocale(request), { maxLength: DISPLAY_NAME_MAX_LENGTH });
+  return vmErrorResponse({
+    error: "vm_invalid_request",
+    status: 400,
+    message: copy.message,
+    action: copy.action,
+    displayTitle: copy.title,
+    details: { field: "displayName", maxLength: DISPLAY_NAME_MAX_LENGTH },
+  });
+}
+
+/**
  * A machine size the ladder offers but the caller's plan does not include
  * (today: 32 GB and 64 GB, sold by Max). This is a paywall, so the response
  * carries the same `upgradeRequired`/`upgradeUrl` fields as `vm_requires_pro`
@@ -734,6 +757,13 @@ export const vmWorkflowErrorResponders = {
     if (providerArtifactUnavailable(error.cause)) {
       return vmArtifactUnavailableResponse(error, context.locale);
     }
+    if (isProviderCreateCleanupError(error.cause)) {
+      return vmCreateCleanupPendingResponse(context.locale);
+    }
+    const guestInstall = guestCliInstallFailure(error.cause);
+    if (guestInstall) {
+      return vmGuestInstallFailureResponse(error, context.locale, guestInstall);
+    }
     return vmProviderOperationErrorResponse(error);
   },
   VmAccountDeletionInProgressError: (error) =>
@@ -936,6 +966,9 @@ export async function respondVmWorkflowError(
   context: VmWorkflowErrorResponderContext,
   overrides?: VmWorkflowErrorOverrides,
 ): Promise<Response | null> {
+  if (error._tag === "VmCreateFailedError" && error.code === PROVIDER_CREATE_CLEANUP_PENDING_FAILURE_CODE) {
+    return vmCreateCleanupPendingResponse(context.locale);
+  }
   const responders: VmWorkflowErrorResponders = overrides
     ? { ...vmWorkflowErrorResponders, ...overrides }
     : vmWorkflowErrorResponders;
@@ -968,6 +1001,71 @@ function providerArtifactUnavailable(cause: unknown): boolean {
   return false;
 }
 
+type GuestCliInstallFailure = {
+  readonly stage?: string;
+  readonly outcome?: string;
+  readonly cleanupFailed: boolean;
+};
+const guestInstallStages = new Set(["upload", "install", "validate", "verify", "browser", "prompt", "publish"]);
+const guestInstallOutcomes = new Set(["missing_status", "invalid_status", "provider_timeout", "guest_exit", "cancelled", "transport_timeout", "transport", "deadline"]);
+
+/** Match the typed guest installer failure without exposing its English diagnostics. */
+function guestCliInstallFailure(cause: unknown): GuestCliInstallFailure | null {
+  let current = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (typeof current === "object") {
+      const record = current as {
+        _tag?: unknown;
+        stage?: unknown;
+        outcome?: unknown;
+        cleanupCause?: unknown;
+        cause?: unknown;
+      };
+      if (record._tag === "GuestCliInstallError") {
+        return {
+          ...(typeof record.stage === "string" && guestInstallStages.has(record.stage) ? { stage: record.stage } : {}),
+          ...(typeof record.outcome === "string" && guestInstallOutcomes.has(record.outcome) ? { outcome: record.outcome } : {}),
+          cleanupFailed: record.cleanupCause !== undefined,
+        };
+      }
+      current = record.cause;
+    } else {
+      current = undefined;
+    }
+  }
+  return null;
+}
+
+/** Keep stage/outcome/cleanup state in operator telemetry while returning only safe copy. */
+async function vmGuestInstallFailureResponse(
+  error: VmProviderOperationError,
+  locale: Locale,
+  failure: GuestCliInstallFailure,
+): Promise<Response> {
+  const copy = await vmGuestInstallCopy(locale);
+  const phase = vmPhaseForOperation(error.operation);
+  const retryAfterSeconds = retryAfterForOperation(error.operation);
+  return vmErrorResponse({
+    error: "vm_guest_install_failed",
+    status: 502,
+    message: copy.message,
+    reason: copy.reason,
+    action: copy.action,
+    phase,
+    retryable: true,
+    retryAfterSeconds,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true },
+    diagnostics: {
+      provider: error.provider,
+      ...(failure.stage ? { guestInstallStage: failure.stage } : {}),
+      ...(failure.outcome ? { guestInstallOutcome: failure.outcome } : {}),
+      guestInstallCleanupFailed: failure.cleanupFailed,
+    },
+  });
+}
+
 /** Keep manifest diagnostics in server error traces and return only localized setup guidance. */
 async function vmArtifactUnavailableResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
   const copy = await vmArtifactUnavailableCopy(locale);
@@ -981,6 +1079,20 @@ async function vmArtifactUnavailableResponse(error: VmProviderOperationError, lo
     displayTitle: copy.title,
     displayMessage: copy.message,
     details: { operation: error.operation, retryable: false },
+  });
+}
+
+async function vmCreateCleanupPendingResponse(locale: Locale): Promise<Response> {
+  const copy = await vmCreateCleanupPendingCopy(locale);
+  return vmErrorResponse({
+    error: "vm_cloud_create_cleanup_pending",
+    status: 503,
+    message: copy.message,
+    action: copy.action,
+    phase: "create",
+    retryable: false,
+    displayTitle: copy.title,
+    details: { operation: "create", cleanupPending: true, retryable: false },
   });
 }
 
@@ -1155,7 +1267,7 @@ function normalizedRetryAfterSeconds(value: number | undefined): number | undefi
 }
 
 function vmPhaseForOperation(operation: string): VmLifecyclePhase {
-  if (operation.includes("openAttach")) return "attach";
+  if (operation.includes("openAttach") || operation.includes("openCmuxRemote")) return "attach";
   if (operation.includes("openSSH")) return "ssh";
   // Before the "create" check: createTunnel/createNetwork are network setup,
   // not machine creation, and a client that read them as "create" would show

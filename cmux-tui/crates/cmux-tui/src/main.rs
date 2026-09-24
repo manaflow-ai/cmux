@@ -1286,7 +1286,10 @@ fn rewrite_server_start(args: &mut Vec<String>) {
                 index += 1;
             }
             "-h" | "--help" => return,
-            "server" if args.get(index + 1).map(String::as_str) == Some("start") => {
+            scope
+                if cli::canonical_scope(scope) == "server"
+                    && args.get(index + 1).map(String::as_str) == Some("start") =>
+            {
                 let start_args = &args[index + 2..];
                 if (output_mode && !has_inline_relay_ticket_argument(start_args))
                     || server_start_has_cli_routing_flag(start_args)
@@ -2118,6 +2121,7 @@ fn run_server(
         owner_host_colors,
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -2214,6 +2218,7 @@ fn run_server(
         );
     }
     let served_socket = pending_server.into_bound_path();
+    mux.start_journal_plugin(served_socket.clone());
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
     // Cloud VMs carry coderouter identity in their model-plane env; every
     // other host resolves no source and gets no poller.
@@ -2920,6 +2925,15 @@ fn usage_exit(msg: &str) -> ! {
 #[cfg(all(test, unix))]
 mod remote_args_tests {
     use super::*;
+
+    #[test]
+    fn shorthand_server_start_uses_the_existing_lifecycle() {
+        let mut args = ["--session", "shorthand-test", "srv", "start", "--ephemeral"]
+            .map(str::to_string)
+            .to_vec();
+        rewrite_server_start(&mut args);
+        assert_eq!(args, ["--headless", "--session", "shorthand-test", "--ephemeral"]);
+    }
 
     #[test]
     fn daemon_accepts_native_and_durable_object_relay_registrations() {

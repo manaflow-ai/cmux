@@ -11,4 +11,3 @@ struct CloudVMTabState: Hashable, Codable, Sendable {
     var contentID: String
     var nameAuthority: CloudTabNameAuthority? = nil
 }
-

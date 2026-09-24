@@ -2,11 +2,11 @@ import { checkRateLimit as checkVercelRateLimit } from "@vercel/firewall";
 
 import { readBoundedJsonObject } from "../../../../services/apns/routePolicy";
 import {
-  emitMobileNetworkOutcomes,
+  emitMobileObservabilityEvents,
   MAX_MOBILE_NETWORK_OUTCOME_BATCH_EVENTS,
   MAX_MOBILE_NETWORK_OUTCOME_REQUEST_BYTES,
-  parseMobileNetworkOutcome,
-  type MobileNetworkOutcome,
+  parseMobileObservabilityEvent,
+  type MobileObservabilityEvent,
 } from "../../../../services/observability/mobileNetworkOutcome";
 import { reportMissingRateLimitRule } from "../../../../services/rateLimitObservability";
 import { forceFlushTraces, setSpanAttributes, withApiRouteSpan } from "../../../../services/telemetry";
@@ -21,14 +21,14 @@ export type MobileNetworkOutcomeRouteDependencies = {
     options: { readonly allowCookie: false },
   ) => Promise<{ readonly id: string } | null>;
   readonly checkRateLimit: typeof checkVercelRateLimit;
-  readonly emitOutcomes: (userId: string, batch: readonly MobileNetworkOutcome[]) => Promise<void>;
+  readonly emitOutcomes: (userId: string, batch: readonly MobileObservabilityEvent[]) => Promise<void>;
   readonly flushTraces: (timeoutMs?: number) => Promise<boolean>;
 };
 
 const defaultDependencies: MobileNetworkOutcomeRouteDependencies = {
   verifyRequest,
   checkRateLimit: checkVercelRateLimit,
-  emitOutcomes: emitMobileNetworkOutcomes,
+  emitOutcomes: emitMobileObservabilityEvents,
   flushTraces: forceFlushTraces,
 };
 
@@ -75,8 +75,8 @@ export function makeMobileNetworkOutcomeHandler(
         }
 
         const accepted = body.value.batch
-          .map(parseMobileNetworkOutcome)
-          .filter((outcome): outcome is MobileNetworkOutcome => outcome !== null);
+          .map(parseMobileObservabilityEvent)
+          .filter((outcome): outcome is MobileObservabilityEvent => outcome !== null);
         if (accepted.length !== body.value.batch.length) {
           return jsonResponse({ error: "invalid_outcome" }, 400, { "cache-control": "no-store" });
         }
@@ -85,7 +85,8 @@ export function makeMobileNetworkOutcomeHandler(
         }
 
         const failureCount = accepted.filter(
-          (outcome) => outcome.outcome === "failure" || outcome.outcome === "timeout",
+          (outcome) => ("outcome" in outcome && (outcome.outcome === "failure" || outcome.outcome === "timeout"))
+            || ("stage" in outcome),
         ).length;
         setSpanAttributes(span, {
           "cmux.user_id": user.id,

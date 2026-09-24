@@ -1,33 +1,21 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
 import shlex
-import signal
 import subprocess
 import sys
+from pathlib import Path
 
+# Run as a script, this directory is already first on sys.path; loaded through
+# importlib (as tests do), it is not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-def terminate_process_group(process: subprocess.Popen) -> None:
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    try:
-        process.wait(timeout=5)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    process.wait()
+from ci_process_tree import terminate  # noqa: E402
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run a command with a deadline and terminate its process group on timeout."
+        description="Run a command with a deadline and terminate its process tree on timeout."
     )
     parser.add_argument("--timeout-seconds", type=int, required=True)
     parser.add_argument("command", nargs=argparse.REMAINDER)
@@ -51,10 +39,12 @@ def main() -> int:
             file=sys.stderr,
             flush=True,
         )
-        terminate_process_group(process)
+        # The whole tree, not just the process group: swiftpm-testing-helper
+        # runs in its own group and would otherwise outlive the timeout.
+        terminate(process)
         return 124
     except KeyboardInterrupt:
-        terminate_process_group(process)
+        terminate(process)
         return 130
 
 

@@ -85,7 +85,7 @@ public struct IrxFileIdentityStore: IrxIdentityStoring {
     }
 }
 
-public enum IrxIdentityProvisioner {
+extension IrxIdentity {
     /// Loads the persisted identity or mints one. The device ID is pinned by
     /// the caller: if a stored identity carries a different device ID (e.g.
     /// the app's durable ID was reset), the identity is regenerated so the

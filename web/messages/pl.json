@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Wykryta konfiguracja harnessa",
+    "selectionNotice": "Wybranie dostawcy nie uruchamia ani nie włącza tych harnessów.",
+    "selectProvider": "Wybierz {provider}",
+    "foundPath": "Znaleziono {path}",
+    "foundCommand": "Znaleziono polecenie {command}",
+    "installed": "Dostawca jest zainstalowany",
+    "missing": "Dostawca nie jest zainstalowany",
+    "install": "Zainstaluj za pomocą: {command}",
+    "benefitPi": "Kompaktowanie, pamięć i routing dostawców",
+    "benefitOpenagent": "Równolegli specjaliści i odzyskiwanie dla OpenCode",
+    "benefitClaude": "Zespoły i weryfikacja dla Claude Code",
+    "benefitSuperpowers": "Planowanie, TDD, subagenci i przegląd"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Konfiguracja Cloud VM nie została ukończona",
+      "reason": "Konfiguracja gościa Cloud VM nie została ukończona.",
+      "message": "cmux nie może ukończyć konfiguracji Cloud VM.",
+      "action": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą techniczną."
+    },
+    "createCleanupPending": {
+      "title": "Oczekiwanie na usunięcie pozostałości maszyny Cloud VM",
+      "message": "Konfiguracja maszyny Cloud VM nie powiodła się, a usuwanie pozostałości nadal oczekuje.",
+      "action": "Przed utworzeniem kolejnej maszyny skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",
@@ -23,6 +48,11 @@
       "message": "Cloud VM wymagają planu cmux Pro.",
       "action": "Przejdź na cmux Pro na stronie {upgradeUrl}, aby tworzyć Cloud VM."
     },
+    "displayName": {
+      "title": "Nieprawidłowa nazwa maszyny",
+      "message": "Nazwa maszyny musi być tekstem drukowalnym o długości co najwyżej {maxLength} znaków.",
+      "action": "Użyj krótszej nazwy bez znaków sterujących lub pozostaw pole puste, aby ją wyczyścić."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "Maszyny z {memory} GiB wymagają cmux {plan}. Twój plan obsługuje do {max} GiB.",
@@ -35,8 +65,7 @@
     "memoryUnavailable": {
       "message": "Ten rozmiar maszyny jest niedostępny. Wybierz do {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go obejmuje dwie zapisane maszyny VM, w tym uruchomioną.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -46,7 +75,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go obsługuje 2 vCPU, 4 GiB RAM i 16 GiB dysku.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "billingRecovery": {
     "message": "Jeśli znaleźliśmy konto, sprawdź e-mail, aby poznać kolejne kroki"
   },
@@ -81,6 +111,7 @@
   "authError": {
     "emailUnverifiedTitle": "Zweryfikuj e-mail, aby kontynuować",
     "emailUnverifiedBody": "Zaloguj się metodą używaną pierwotnie, a następnie zweryfikuj e-mail przed użyciem tej metody logowania.",
+    "signupPendingBody": "Jeśli masz już konto, zaloguj się metodą używaną wcześniej. Jeśli właśnie utworzyłeś konto, potwierdź adres e-mail przed zalogowaniem.",
     "genericTitle": "Nie udało się zalogować",
     "genericBody": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą.",
     "backToSignIn": "Wróć do logowania"
@@ -318,7 +349,7 @@
       "coderouterGroup": "coderouter",
       "coderouterOverview": "przegląd",
       "team": "zespół",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Urządzenia mobilne"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -363,30 +394,68 @@
         "loading": "Ładowanie…"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "Urządzenia mobilne",
+      "description": "Zarządzaj dostępem do połączonych komputerów, telefonów i tabletów.",
+      "team": "Zespół",
+      "teamSwitchError": "Nie można przełączyć zespołu. Spróbuj ponownie.",
+      "loading": "Ładowanie urządzeń…",
+      "empty": "Brak urządzeń zarejestrowanych dla tego zespołu.",
+      "unavailable": "Nie można załadować urządzeń. Odśwież stronę i spróbuj ponownie.",
+      "retry": "Spróbuj ponownie",
+      "mutationError": "Nie udało się ukończyć zmiany urządzenia.",
+      "revoke": "Odbierz dostęp",
+      "deviceId": "Urządzenie",
+      "revision": "Wersja",
+      "status": "Stan",
+      "active": "Aktywne",
+      "revoked": "Unieważnione",
+      "relaySettings": "Ustawienia przekaźnika",
+      "relaySettingsDescription": "Wybierz serwery przekaźnikowe używane przez ten zespół. Wpisz jeden URL w wierszu.",
+      "saveRelaySettings": "Zapisz ustawienia przekaźnika",
+      "eyebrow": "chmura / urządzenia",
+      "scopeActive": "Wyświetlanie tego zespołu",
+      "emptyTitle": "Brak połączonych urządzeń",
+      "emptyDescription": "Gdy urządzenie cmux zostanie sparowane z tym zespołem, pojawi się tutaj wraz z platformą, wersją i ustawieniami dostępu.",
+      "revoking": "Cofanie dostępu…",
+      "registeredDevices": "Zarejestrowane urządzenia",
+      "activeDevices": "Aktywne urządzenia",
+      "directoryRevision": "Rewizja katalogu",
+      "savingRelaySettings": "Zapisywanie…"
     },
     "coderouterAccounts": {
       "shareWithTeam": "Udostępnij zespołowi",
       "makePrivate": "Ustaw jako prywatne",
       "privateImportHint": "Nowe konta są prywatne. Udostępnij konto, aby maszyny Cloud VM tego zespołu mogły z niego korzystać.",
       "description": "Konta udostępnione są dostępne dla maszyn Cloud VM tego zespołu. Konta prywatne pozostają dostępne tylko dla osoby, która je dodała.",
-      "cancelAction": "Anuluj"
+      "cancelAction": "Anuluj",
+      "apiKeysTitle": "Klucze API",
+      "apiKeysDescription": "Twórz długoterminowe klucze dla skryptów i agentów. Sekret jest wyświetlany raz.",
+      "apiKeysCount": "{count, plural, one {# klucz} few {# klucze} many {# kluczy} other {# klucza}}",
+      "apiKeysLoading": "Ładowanie kluczy API…",
+      "apiKeysLoadError": "Nie udało się załadować kluczy API. Spróbuj ponownie za chwilę.",
+      "apiKeysRetry": "Spróbuj ponownie",
+      "apiKeysEmptyBody": "Brak kluczy API. Utwórz klucz, aby uwierzytelnić klienta CodeRouter.",
+      "apiKeyPrefixColumn": "Klucz",
+      "apiKeyStatusColumn": "Stan",
+      "apiKeySecretTitle": "Skopiuj teraz ten klucz",
+      "apiKeySecretBody": "Ten sekret nie zostanie wyświetlony ponownie.",
+      "apiKeyCopy": "Kopiuj klucz API",
+      "apiKeyCopied": "Skopiowano",
+      "apiKeyCreatedAt": "utworzono {at}",
+      "apiKeyLastUsed": "ostatnie użycie {at}",
+      "apiKeyRevoked": "Unieważniony",
+      "apiKeyLabelPlaceholder": "Na przykład CI lub produkcja",
+      "createApiKeyAction": "Utwórz klucz API",
+      "creatingApiKeyAction": "Tworzenie",
+      "apiKeyCreateError": "Nie udało się utworzyć klucza API.",
+      "revokeApiKeyAction": "Unieważnij",
+      "revokingApiKeyAction": "Unieważnianie",
+      "apiKeyRevokeError": "Nie udało się unieważnić klucza API.",
+      "revokeApiKeyConfirmTitle": "Unieważnić ten klucz API?",
+      "apiKeyUsageDetail": "ostatnie 30 dni: {completions} ukończeń · {tokens} tokenów ({input} wejście / {output} wyjście) · równowartość API {value}",
+      "apiKeyUsageUnavailable": "Użycie niedostępne",
+      "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie."
     }
   },
   "community": {
@@ -1203,6 +1272,8 @@
       "exampleConfig": "Przykładowa konfiguracja",
       "metaTitle": "Konfiguracja",
       "schemaDescriptions": {
+        "root": "Konfiguracja cmux. Globalny plik cmux.json obsługuje ustawienia aplikacji, skróty, akcje, niestandardowe polecenia, hooki powiadomień i układy obszarów roboczych. Plik .cmux/cmux.json lub cmux.json lokalny dla projektu obsługuje akcje, polecenia, hooki powiadomień, powiązania akcji interfejsu, nadpisania Agent Chat, agentów vault, nadpisania grup obszarów roboczych oraz konfigurację uruchamiania i przycisków obszaru roboczego.",
+        "rightSidebar": "Starsza oraz należąca do rozszerzeń konfiguracja prawego paska bocznego zachowywana w cmux.json.",
         "paneBorderColor": "Zastępuje kolor separatora paneli cmux w podzielonych obszarach roboczych. Dotyczy granic paneli cmux, a nie wewnętrznych podziałów Ghostty.",
         "activePaneBorderColor": "Opcjonalny kolor obramowania rysowany wokół aktywnego panelu cmux w podzielonych obszarach roboczych.",
         "automation": {
@@ -1214,6 +1285,7 @@
         "app": {
           "confirmQuit": "Określa, kiedy cmux prosi o potwierdzenie przed zamknięciem. Buildy DEV zawsze zamykają się natychmiast niezależnie od tego ustawienia. Starsze app.warnBeforeQuit jest nadal akceptowane jako zapasowa wartość logiczna.",
           "windowTitleTemplate": "Opcjonalny szablon tytułu NSWindow. Pusta wartość zachowuje istniejące domyślne zachowanie tytułu cmux, w tym fallback do bieżącego katalogu. Obsługiwane symbole zastępcze: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nazwa ekranu używana tylko w kompilacjach DEBUG podczas otwierania nowych okien. Pusta wartość używa ustawienia domyślnego systemu.",
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
@@ -1336,7 +1408,7 @@
       "plusButtonScreenshotAlt": "Menu prawego kliknięcia przycisku plus w cmux pokazuje Worktree Agents, New Terminal i New Browser",
       "plusButtonScreenshotCaption": "Menu prawego kliknięcia używa kolejności z ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Niestandardowe akcje przycisku plus",
-      "newWorkspaceButtonDesc": "Użyj <action>ui.newWorkspace.action</action>, aby nadpisać działanie przycisku plus. Użyj <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (lub aliasu <rightClick>rightClick</rightClick>), aby zdefiniować uporządkowane menu prawego kliknięcia. Wpisami menu mogą być ID akcji, obiekty akcji albo <separator>{ \"type\": \"separator\" }</separator>. Gdy nie ustawiono, menu wyświetla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⌘Y), cmux.newCloudMachine (⇧⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) z bieżącymi skrótami. Pozycje chmurowe pojawiają się tylko po włączeniu Cloud Machines.",
+      "newWorkspaceButtonDesc": "Użyj <action>ui.newWorkspace.action</action>, aby nadpisać działanie przycisku plus. Użyj <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (lub aliasu <rightClick>rightClick</rightClick>), aby zdefiniować uporządkowane menu prawego kliknięcia. Wpisami menu mogą być ID akcji, obiekty akcji albo <separator>{ \"type\": \"separator\" }</separator>. Gdy nie ustawiono, menu wyświetla cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) z bieżącymi skrótami. Pozycje chmurowe pojawiają się tylko po włączeniu Cloud Machines. New Cloud Workspace używa maszyny ostatnio wybranego obszaru Cloud, a następnie pierwszej maszyny na prawym pasku bocznym; New Cloud Machine celowo aprowizuje maszynę.",
       "newWorkspaceWorktreeNote": "Ten przykład sprawia, że zwykłe kliknięcie plus uruchamia akcję <action>worktree-agents</action>. Polecenie obszaru roboczego z <commands>commands</commands> używa widocznego terminala przygotowującego, aby najpierw utworzyć Git <worktree>worktree</worktree>. Codex i Claude startują jednocześnie, czekają na plik stanu dla obszaru roboczego, a następnie przechodzą do utworzonego katalogu przed exec.",
       "simpleCommands": "Proste polecenia",
       "simpleCommandsDesc": "Proste polecenie uruchamia polecenie shell w aktualnie sfokusowanym terminalu:",
@@ -1389,6 +1461,7 @@
       "restartNew": "Utwórz nowy workspace (domyślnie)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Przełącz zawijanie wierszy w edytorze plików (Option+Z).",
       "title": "Skróty klawiszowe",
       "description": "Wszystkie skróty klawiszowe dostępne w cmux, pogrupowane według kategorii.",
       "metaDescription": "Wszystkie skróty klawiszowe cmux dla workspace'ów, surface'ów, dzielonych paneli, przeglądarki, powiadomień, wyszukiwania i zarządzania oknami na macOS.",

@@ -12,6 +12,7 @@ use super::stream::{ResourceStream, StreamCancellation, StreamItemValidator};
 use super::wire::{self, Params, field};
 use crate::{Error, Result};
 use base64::Engine;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::time::Duration;
 
@@ -181,7 +182,8 @@ pub enum SessionEvent {
     Unknown { kind: String, raw: Document },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum JournalClass {
     State,
     Observation,
@@ -189,14 +191,16 @@ pub enum JournalClass {
     Checkpoint,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum JournalReplayPolicy {
     Required,
     Advisory,
     Never,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum JournalSensitivity {
     Public,
     Metadata,
@@ -218,7 +222,8 @@ pub struct JournalAuthority {
     pub role: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalSubject {
     pub kind: String,
     pub id: String,

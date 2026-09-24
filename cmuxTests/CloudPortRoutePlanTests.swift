@@ -203,6 +203,53 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("Cloud browser opening starts app-owned access without a system VPN")
+    func cloudBrowserStartsUserspaceAccess() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
+        let links = CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil })
+        let provider = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: "vm-userspace", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil, addressIPv4: "10.16.0.7"),
+            links: links,
+            catalog: catalog
+        )
+        catalog.register(provider)
+        let panel = BrowserPanel(workspaceId: live.id(), websiteDataStore: .nonPersistent())
+        defer { panel.close() }
+        provider.configureBrowser(panel, url: URL(string: "http://10.16.0.7:8000/path?q=1#fragment")!)
+        let model = try #require(panel.cloudAccess.model)
+        #expect(model.phase == .connecting, "Opening a Cloud port must start userspace access, never wait for VPN approval")
+        #expect(panel.currentURL?.absoluteString == "http://10.16.0.7:8000/path?q=1#fragment")
+        await provider.stop()
+    }
+
+    @Test("Userspace pages ignore system VPN changes and share an existing connection")
+    func userspaceAccessIsIndependentOfVPN() async throws {
+        var starts = 0
+        let endpoint = CloudBrowserProxyEndpoint(host: "127.0.0.1", port: 42001, username: "fixture", password: "secret")
+        let model = CloudPortAccessModel(
+            target: CloudPortForwardTarget(host: "10.16.0.7", port: 8000),
+            coordinator: nil, wake: {}, startForward: { _ in Issue.record("Browser opened explicit forward"); return 42002 },
+            stopForward: {}, startBrowserProxy: { starts += 1; return endpoint }
+        )
+        model.connectBrowser()
+        #expect(await wait { model.isReady })
+        #expect(starts == 1)
+        model.acceptTunnelState(.off)
+        model.acceptTunnelState(.failed("System VPN unavailable"))
+        #expect(model.isReady)
+        let url = try #require(URL(string: "http://10.16.0.7:8000/a?q=1#part"))
+        #expect(model.url(for: url) == url)
+        #expect(model.localAddress == nil)
+        model.connectBrowser()
+        #expect(starts == 1, "Opening a second pane must not reconnect the first")
+        model.retry()
+        #expect(await wait { starts == 2 && model.isReady })
+        await model.retire()
+        #expect(!model.isReady)
+    }
+
     private func makeModel(
         port: Int = 3000,
         coordinator: CloudTunnelCoordinator? = nil,

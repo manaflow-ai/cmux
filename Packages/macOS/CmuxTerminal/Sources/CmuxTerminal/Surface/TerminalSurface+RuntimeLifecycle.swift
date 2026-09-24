@@ -736,8 +736,14 @@ extension TerminalSurface {
         ) {
             return
         }
-        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
+        let requestedSpawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
+        let agentShimState = agentCommandShimStateForSurface(
+            view: view,
+            source: source,
+            spawnPolicy: requestedSpawnPolicy
+        )
         guard agentShimState.isReady else { return }
+        let spawnPolicy = agentCommandShimSpawnPolicy ?? requestedSpawnPolicy
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
@@ -771,7 +777,8 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            agentCommandShims: agentCommandShims
+            agentCommandShims: agentCommandShims,
+            spawnPolicy: spawnPolicy
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput

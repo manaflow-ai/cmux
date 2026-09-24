@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25.
+// cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -37,6 +37,8 @@ pub enum AgentReportSource {
 #[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentSource {
+    #[serde(rename = "plugin")]
+    Plugin,
     #[serde(rename = "detected")]
     Detected,
     #[serde(rename = "socket")]
@@ -373,6 +375,30 @@ pub struct GetCellPixelsResult {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlAcknowledgeResult {
+    pub accepted: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlClaimResult {
+    pub claimed: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlOpenResult {
+    pub opened: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GuestUrlSubscribeResult {
+    pub url_open_ready: bool,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdMappingKind {
     #[serde(rename = "workspace")]
@@ -647,6 +673,9 @@ pub struct ProcessInfoResult {
     /// Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub foreground_cwd: Optional<String>,
+    /// Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub foreground_executable: Optional<String>,
     pub pid: Nullable<u32>,
 }
 
