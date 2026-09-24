@@ -481,6 +481,11 @@ final class SidebarRowChecklistSection: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window != nil, popoverPresenter.isShown {
+            // The popover survived the reparent, so a later close is a real
+            // click-away rather than a detach side effect.
+            popoverAnchorDetachedWhilePresented = false
+        }
         if window != nil, pendingPopoverPresentation {
             needsLayout = true
         }
