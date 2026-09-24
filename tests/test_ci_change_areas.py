@@ -3727,6 +3727,29 @@ def test_admission_counts_only_for_the_inputs_fingerprinted_in_the_same_attempt(
     assert find("old", [artifact_name("old", 1)], jobs) is None
 
 
+def test_a_gate_declined_admission_still_admits_its_inputs() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import find_admitted_build
+    import reuse_app_host_products
+    from find_admitted_build import admitted_run, artifact_name
+
+    # The fast Linux gate failed compile admission after it published, so the
+    # push that fixes the Linux job reuses the product instead of compiling.
+    assert find_admitted_build.GATE_DECLINE_STEP == reuse_app_host_products.GATE_DECLINE_STEP
+    declined = {
+        **admission_job("failure"),
+        "steps": [
+            {"name": "Compile app-host test product", "conclusion": "success"},
+            {"name": find_admitted_build.GATE_DECLINE_STEP, "conclusion": "failure"},
+        ],
+    }
+    api = admission_api([admission_run(8)], {8: [artifact_name("abc", 1)]}, {8: [declined]})
+    assert admitted_run(api, "manaflow-ai/cmux", "feature", "abc", current_run_id=9) == "https://example/8"
+    compile_failed = {**declined, "steps": [{"name": "Compile app-host test product", "conclusion": "failure"}]}
+    api = admission_api([admission_run(8)], {8: [artifact_name("abc", 1)]}, {8: [compile_failed]})
+    assert admitted_run(api, "manaflow-ai/cmux", "feature", "abc", current_run_id=9) is None
+
+
 def test_admission_lookup_finds_matching_attempt_beyond_the_first_jobs_page() -> None:
     original_path = sys.path.copy()
     try:

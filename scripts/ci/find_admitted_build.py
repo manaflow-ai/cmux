@@ -36,6 +36,28 @@ def admission_job_name(name: object) -> bool:
     """
     text = name if isinstance(name, str) else ""
     return text.rsplit(" / ", 1)[-1] == ADMISSION_JOB
+
+
+# ci-macos.yml's compile admission ends with this step, which fails the job
+# when the caller's fast Linux gate declined. It runs only after every earlier
+# step succeeded, so a job that failed there built and published its product.
+GATE_DECLINE_STEP = "Hold consumers behind the fast Linux gate"
+
+
+def compile_job_admitted(job: object) -> bool:
+    """Whether a completed compile job produced its product: it succeeded, or
+    failed only because the fast Linux gate declined its consumers."""
+    if not isinstance(job, dict) or job.get("status", "completed") != "completed":
+        return False
+    if job.get("conclusion") == "success":
+        return True
+    steps = job.get("steps")
+    return job.get("conclusion") == "failure" and isinstance(steps, list) and any(
+        isinstance(step, dict)
+        and step.get("name") == GATE_DECLINE_STEP
+        and step.get("conclusion") == "failure"
+        for step in steps
+    )
 ARTIFACT_PREFIX = "build-inputs-"
 RUNS_TO_CHECK = 6
 JOB_PAGES_TO_CHECK = 3
@@ -78,7 +100,7 @@ def admitted_run(api: Api, repository: str, branch: str, fingerprint: str, curre
                 admitted_attempts = {
                     job["run_attempt"]
                     for job in jobs
-                    if admission_job_name(job.get("name")) and job["conclusion"] == "success"
+                    if admission_job_name(job.get("name")) and compile_job_admitted(job)
                 }
                 for attempt in sorted(admitted_attempts):
                     artifact_query = urlencode({"name": artifact_name(fingerprint, attempt)})

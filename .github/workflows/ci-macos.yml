@@ -967,9 +967,12 @@ jobs:
       # median 99 s after the static stage, long before a compile does. So a
       # single read of its result, with no wait, decides whether the product's
       # consumers start: a first-attempt decline fails this job, which skips
-      # every job that needs it, after the product is already published for
-      # reruns. A gate that is still running, skipped, or absent admits, and
-      # ci-status still fails the run on the failed Linux job.
+      # every job that needs it, after the product is already published.
+      # reuse_app_host_products.py and find_admitted_build.py accept a job that
+      # failed at this step, so a rerun or a later push reuses that product
+      # instead of compiling again. A gate that is still running, skipped, or
+      # absent admits, and ci-status still fails the run on the failed Linux
+      # job.
       - name: Hold consumers behind the fast Linux gate
         if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
         env:
