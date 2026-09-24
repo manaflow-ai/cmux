@@ -56,6 +56,11 @@ public protocol MobileSyncRuntime: Sendable {
     /// Optional source for one dedicated simulator-stream v2 video lane per
     /// Mac simulator panel. A nil provider keeps phones on the v1 event stream.
     var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { get }
+    /// Optional source for "On iPhone" browser tunnel connections opened
+    /// from the paired Mac. Nil keeps the phone browser off the Mac.
+    var tunnelConnectProvider: MobileTunnelConnectProvider? { get }
+    /// Optional source for the paired Mac's loopback listening ports.
+    var tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? { get }
     /// Bounded deadline, in nanoseconds, for the render-grid liveness
     /// watchdog's subscription probe (an idempotent `mobile.events.subscribe`
     /// re-assert). A healthy idle terminal legitimately pushes no events, so
@@ -82,6 +87,8 @@ public extension MobileSyncRuntime {
     var terminalInputLaneProvider: MobileTerminalLaneProvider? { nil }
     var artifactLaneProvider: MobileArtifactLaneProvider? { nil }
     var simulatorStreamLaneProvider: MobileSimulatorStreamLaneProvider? { nil }
+    var tunnelConnectProvider: MobileTunnelConnectProvider? { nil }
+    var tunnelListeningPortsProvider: MobileTunnelListeningPortsProvider? { nil }
 
     /// Returns a cached Stack access token for best-effort status probes.
     var stackAccessTokenForStatusProvider: @Sendable () async -> String? {

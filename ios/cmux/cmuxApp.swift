@@ -107,7 +107,13 @@ struct cmuxApp: App {
                 return try await irx.openSimulatorStreamLane(for: request, panelID: panelUUID)
             },
             // irx.serverEventByteStream merges every per-surface event lane.
-            independentEventsMergeSurfaceLanes: true
+            independentEventsMergeSurfaceLanes: true,
+            tunnelConnectProvider: { request, host, port in
+                try await irx.openTunnelConnection(for: request, host: host, port: port)
+            },
+            tunnelListeningPortsProvider: { request in
+                try await irx.tunnelListeningPorts(for: request)
+            }
         )
 
         return AppCompositionRoot(
