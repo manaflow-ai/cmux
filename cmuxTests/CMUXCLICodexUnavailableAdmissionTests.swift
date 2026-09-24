@@ -143,7 +143,14 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         if scenario == nil || scenario == .recovering {
             #expect(result.status == 0, Comment(rawValue: diagnostics))
             let launched = (markerContents ?? "").split(separator: "\n").map(String.init)
-            #expect(launched == [workingDirectory.resolvingSymlinksInPath().path, codexHome.path, "resume", checkpointID],
+            #expect(launched == [
+                workingDirectory.resolvingSymlinksInPath().path,
+                codexHome.path,
+                "resume",
+                checkpointID,
+                "-c",
+                "check_for_update_on_startup=false"
+            ],
                     Comment(rawValue: diagnostics))
             #expect(result.stderr.isEmpty, Comment(rawValue: diagnostics))
             let claim = try #require(requests.last?["params"] as? [String: Any])
