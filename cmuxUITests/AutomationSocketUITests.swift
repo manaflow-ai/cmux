@@ -47,7 +47,17 @@ final class AutomationSocketUITests: XCTestCase {
         try source.write(to: file, atomically: true, encoding: .utf8)
         let app = XCUIApplication.cmuxTestApplication()
         configureTextBoxMentionLaunchEnvironment(app)
-        app.launchArguments += ["-filePreviewVimKeys", "YES"]
+        // Launch arguments produce strings, while the catalog deliberately accepts
+        // only Boolean values. Configure the app's isolated test defaults domain.
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsDomain))
+        let previousVimSetting = defaults.object(forKey: "filePreviewVimKeys")
+        defaults.set(true, forKey: "filePreviewVimKeys")
+        defaults.synchronize()
+        defer {
+            if let previousVimSetting { defaults.set(previousVimSetting, forKey: "filePreviewVimKeys") }
+            else { defaults.removeObject(forKey: "filePreviewVimKeys") }
+            defaults.synchronize()
+        }
         app.launch()
         defer { app.terminate() }
         app.activate()
