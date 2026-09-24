@@ -78,6 +78,23 @@ class TrustedProducers(unittest.TestCase):
             self.assertFalse(warm.trusted(self.artifact(), "o/r"))
 
 
+class ProviderDigest(unittest.TestCase):
+    def test_an_archive_that_does_not_match_its_digest_is_never_unpacked(self):
+        derived = Path(tempfile.mkdtemp())
+        artifact = {"id": 3, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 7}}
+
+        def download(repository, artifact_id, target, size):
+            Path(target).write_bytes(b"zip!")
+
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+                mock.patch.object(warm, "newest", return_value=artifact), \
+                mock.patch.object(warm.transport, "download_zip", side_effect=download), \
+                mock.patch.object(warm, "extract") as extract:
+            with self.assertRaises(ValueError):
+                warm.restore(derived, derived, "key")
+        extract.assert_not_called()
+
+
 class ArchiveBounds(unittest.TestCase):
     def archive(self, name, link=None):
         path = Path(tempfile.mkdtemp(), "derived-data.tar.gz")
@@ -108,6 +125,31 @@ class ArchiveBounds(unittest.TestCase):
         destination = Path(tempfile.mkdtemp())
         warm.extract(self.archive("Build/Intermediates.noindex/a.o"), destination)
         self.assertTrue((destination / "Build/Intermediates.noindex/a.o").is_file())
+
+
+class InterruptedAdoption(unittest.TestCase):
+    """A timed-out adoption must never reach the build.
+
+    The script's own cleanup runs only when it raises. A step timeout kills
+    it first, so the workflow has to discard what it left behind.
+    """
+
+    def test_an_unfinished_adoption_is_discarded_before_the_build(self):
+        import yaml
+
+        workflow = Path(__file__).resolve().parents[1] / ".github/workflows/test-e2e.yml"
+        steps = yaml.safe_load(workflow.read_text())["jobs"]["build"]["steps"]
+        names = [step.get("name") for step in steps]
+        warm = names.index("Adopt main's DerivedData")
+        build = names.index("Build the app-host and UI test product")
+        discard = [
+            index for index, step in enumerate(steps)
+            if warm < index < build
+            and "steps.warm.outcome != 'success'" in str(step.get("if", ""))
+            and 'rm -rf -- "$CMUX_DERIVED_DATA_PATH"' in str(step.get("run", ""))
+        ]
+        self.assertEqual(len(discard), 1, "no step discards an adoption that did not finish")
+        self.assertNotIn("continue-on-error", steps[discard[0]])
 
 
 if __name__ == "__main__":
