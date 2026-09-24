@@ -862,6 +862,7 @@ jobs:
           ICON_NAME: ${{ needs.decide.outputs.icon_name }}
         run: |
           set -euo pipefail
+          case "$QUEUE_SECONDS$EXECUTION_SECONDS" in *[!0-9]*|'') QUEUE_SECONDS=0 ;; esac
           python3 scripts/ci/nightly_mini_route.py \
             --selector "$NIGHTLY_MAC_MINI" \
             --build-only "$BUILD_ONLY" \
@@ -880,6 +881,7 @@ jobs:
       # needs no cross-run Actions permission.
       - name: Download owned-Mac products
         if: steps.route.outputs.use_mini == 'true'
+        continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ steps.route.outputs.artifact_id }}
@@ -890,6 +892,7 @@ jobs:
       - name: Upload owned-Mac products to this run
         id: rehome
         if: steps.route.outputs.use_mini == 'true'
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: nightly-mini-products
@@ -993,7 +996,7 @@ jobs:
           staging="$RUNNER_TEMP/nightly-mini/products"
           adopted=false
           if [ -f "$archive" ] && mkdir -p "$staging" && tar -xzf "$archive" -C "$staging"; then
-            if HEAD_SHA="$HEAD_SHA" TREE="$(git rev-parse 'HEAD^{tree}')" XCODE="$(xcodebuild -version)" \
+            if HEAD_SHA="$HEAD_SHA" TREE="$(git rev-parse 'HEAD^{tree}')" XCODE="$(xcodebuild -version)" SDK="$(xcrun --sdk macosx --show-sdk-version)" \
               python3 - "$staging/nightly-mini-product.json" <<'PY'
           import json
           import os
@@ -1005,6 +1008,7 @@ jobs:
               "source": product.get("source_sha") == os.environ["HEAD_SHA"],
               "tree": product.get("source_tree") == os.environ["TREE"],
               "xcode": product.get("xcode_version") == os.environ["XCODE"],
+              "sdk": product.get("macos_sdk_version") == os.environ["SDK"],
               "archs": sorted(product.get("archs", [])) == ["arm64", "x86_64"],
           }
           failed = [name for name, ok in checks.items() if not ok]
@@ -1320,7 +1324,9 @@ jobs:
 
   build-sign-notarize-nightly:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    # Explicit results, not the implicit success(): that also checks
+    # route-nightly-mini, which is skipped whenever NIGHTLY_MAC_MINI is unset.
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -1842,7 +1848,8 @@ jobs:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    # Explicit results for the same reason as build-sign-notarize-nightly.
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -2061,7 +2068,7 @@ jobs:
 
   close-nightly-failure-issue:
     needs: [decide, publish-nightly]
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success'
+    if: ${{ !cancelled() && needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

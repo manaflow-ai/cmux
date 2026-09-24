@@ -686,8 +686,13 @@ A manual `build_only` dispatch can pass `mac_mini: true` without the variable.
 `NIGHTLY_MAC_MINI_QUEUE_SECONDS` (default 300) bounds the wait for a mini, and
 `NIGHTLY_MAC_MINI_EXECUTION_SECONDS` (default 2700) bounds the build. Past
 either one, or on any producer failure, the router cancels its request and
-`build-nightly-app` compiles on Blacksmith exactly as before. A route job that
-fails outright changes nothing either: the hosted build runs on `!cancelled()`.
+`build-nightly-app` compiles on Blacksmith exactly as before, only later: the
+fallback starts once the route gives up, so a nightly with no free mini is about
+5 minutes late and one whose mini build overruns is up to 50 minutes late at the
+default bounds. A route job that is skipped or fails changes nothing else: the
+hosted build runs on `!cancelled()`, and signing and publication gate on explicit
+job results rather than on the implicit `success()`, which would also check
+the skipped route job.
 
 **Trust decision (not made by this change).** `build-only` ships nothing, so
 it is safe to turn on once the runner exists. `all` means the signed nightly

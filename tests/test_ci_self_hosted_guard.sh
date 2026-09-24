@@ -1423,6 +1423,22 @@ check_nightly_mini_lane() {
     echo "FAIL: hosted nightly build must revalidate owned-Mac products and keep its compile fallback"
     exit 1
   fi
+  # route-nightly-mini is skipped whenever the selector is unset. An `if:`
+  # without a status function is an implicit success(), which also checks that
+  # skipped ancestor and would silently skip signing and publication.
+  local job job_if
+  for job in build-nightly-app build-sign-notarize-nightly publish-nightly close-nightly-failure-issue; do
+    job_if="$(awk -v want="  ${job}:" '
+      $0 == want { in_job=1; next }
+      in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
+      in_job && /^    if: / { print; exit }
+    ' "$NIGHTLY_FILE")"
+    if [[ "$job_if" != *'!cancelled()'* ]] && [[ "$job_if" != *'always()'* ]]; then
+      echo "FAIL: nightly.yml $job must gate on !cancelled() and explicit results, or a skipped owned-Mac route skips it"
+      printf '%s\n' "$job_if"
+      exit 1
+    fi
+  done
   echo "PASS: nightly owned-Mac producer is dispatch-only, credential-free, compile-only, and revalidated"
 }
 

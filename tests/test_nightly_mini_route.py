@@ -154,6 +154,23 @@ class NightlyMiniRouteTests(unittest.TestCase):
         self.assertEqual(values["producer_seconds"], "600.0")
         self.assertEqual(api.cancelled, [])
 
+    def test_late_listing_is_cancelled_not_abandoned(self):
+        class LateGitHub(FakeGitHub):
+            listings = 0
+
+            def api(self, path, *, method="GET"):
+                if path.startswith("actions/workflows/"):
+                    self.listings += 1
+                    self.run = self.listings > 1
+                return super().api(path, method=method)
+
+        api = LateGitHub()
+        route.route(self.args(), api, OnceWaiter())
+        values = outputs(self.output)
+        self.assertEqual(values["fallback_reason"], "producer_not_observable")
+        self.assertEqual(values["producer_run_id"], "77")
+        self.assertEqual(api.cancelled, ["actions/runs/77/cancel"])
+
     def test_unobservable_dispatch_falls_back(self):
         api = FakeGitHub(run=False)
         route.route(self.args(), api, OnceWaiter())

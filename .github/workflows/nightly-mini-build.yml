@@ -35,8 +35,9 @@ on:
 permissions: {}
 
 concurrency:
-  # One persistent build directory per mini. Never cancel a build that is
-  # already warming it; the router cancels its own queued request instead.
+  # One build at a time across the lane, so a request never lands on a
+  # directory another build is warming. Never cancel a running build; the
+  # router cancels its own queued request instead.
   group: nightly-mini-build
   cancel-in-progress: false
 
@@ -49,6 +50,9 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      # Export DEVELOPER_DIR for this job only; never change the mini's
+      # global xcode-select.
+      CMUX_CI_SKIP_XCODE_SELECT: "1"
     steps:
       - name: Prepare exact nightly source
         id: source
@@ -122,6 +126,10 @@ jobs:
           [[ "$CHANNEL_ICON_NAME" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "invalid icon name" >&2; exit 1; }
           archs="arm64 x86_64"
           started="$(date +%s)"
+          # Keep intermediates and the compilation cache warm, but rebuild the
+          # products: an incremental build never deletes a resource, framework
+          # or dSYM the source has since removed, and those would ship.
+          rm -rf build-universal/Build/Products
           python3 scripts/ci/run-with-helper-prebuild.py \
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \

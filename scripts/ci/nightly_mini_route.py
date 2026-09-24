@@ -127,7 +127,12 @@ def route(args: argparse.Namespace, api: GitHub, waiter) -> int:
 
         run = waiter.until(started + 60, observe_run)
         if run is None:
-            return report(out, fallback_reason="producer_not_observable")
+            # The listing can lag the dispatch. A run left behind would hold a
+            # mini and the lane's concurrency group for its whole timeout.
+            run = waiter.until(shared.now() + 30, observe_run, initial_delay=2.0, max_delay=5.0)
+            if run is not None:
+                shared.cancel(api, int(run["id"]))
+            return report(out, fallback_reason="producer_not_observable", producer_run_id=int(run["id"]) if run else "")
         run_id = int(run["id"])
 
         def observe_queue():
@@ -181,8 +186,11 @@ def route(args: argparse.Namespace, api: GitHub, waiter) -> int:
         # The nightly run was cancelled mid-wait: do not leave a mini building
         # for nobody.
         if run_id is None and dispatched:
-            found = matching_run(api, request_id, args.ref)
-            run_id = int(found["id"]) if found else None
+            try:
+                found = matching_run(api, request_id, args.ref)
+                run_id = int(found["id"]) if found else None
+            except (RuntimeError, KeyError, TypeError, ValueError) as error:
+                print(f"warning: cancelled producer could not be rediscovered: {error}", file=sys.stderr)
         if run_id is not None:
             shared.cancel(api, run_id)
         report(out, fallback_reason="routing_cancelled", producer_run_id=run_id or "")
