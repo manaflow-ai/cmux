@@ -44,10 +44,11 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml')) }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
-    # Never cancel: a queued tick waits for the previous one, so two gates never
-    # both see "nothing in flight" and dispatch twice. Dispatched CI
-    # runs share ci.yml's main concurrency group, which does not cancel
-    # in-progress non-PR runs either.
+    # Never cancel a running gate: it holds the slot until its dispatched run
+    # is listed, so two gates never both see "nothing in flight". GitHub drops
+    # an older pending gate when a newer one queues, which is harmless because
+    # every gate reads main's HEAD afresh. Dispatched CI runs share ci.yml's
+    # main concurrency group, which does not cancel in-progress non-PR runs.
     concurrency:
       group: ci-main-full-suite-dispatch
       cancel-in-progress: false
@@ -67,6 +68,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FORCE: ${{ inputs.force && 'true' || 'false' }}
+          COMPLETED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
           if ! head_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')"; then
@@ -74,11 +76,14 @@ jobs:
             echo "dispatch=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          force_args=()
+          gate_args=()
           if [ "$FORCE" = "true" ]; then
-            force_args=(--force)
+            gate_args+=(--force)
           fi
-          python3 scripts/ci/main_full_suite.py gate --head-sha "$head_sha" ${force_args[@]+"${force_args[@]}"}
+          if [ -n "${COMPLETED_SHA:-}" ]; then
+            gate_args+=(--completed-sha "$COMPLETED_SHA")
+          fi
+          python3 scripts/ci/main_full_suite.py gate --head-sha "$head_sha" ${gate_args[@]+"${gate_args[@]}"}
 
       - name: Dispatch CI on main
         if: ${{ steps.gate.outputs.dispatch == 'true' }}
@@ -86,23 +91,34 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          before="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=1" --jq '.workflow_runs[0].id // 0' || echo 0)"
-          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main
-          # Hold this job's concurrency slot until the run is listed, so the
+          # Hold this job's concurrency slot until the new run is listed, so the
           # next gate sees it in flight instead of dispatching a second one.
-          for _ in $(seq 1 20); do
-            latest="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=1" --jq '.workflow_runs[0].id // 0' || echo 0)"
-            [ "$latest" != "$before" ] && break
+          # Compare creation times rather than run ids, so a failed lookup
+          # cannot pass for "listed".
+          since="$(date -u -d '-5 seconds' +%Y-%m-%dT%H:%M:%SZ)"
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref main
+          listed=false
+          for _ in $(seq 1 30); do
+            newest="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=workflow_dispatch&per_page=1" --jq '.workflow_runs[0].created_at // ""' || true)"
+            if [ -n "$newest" ] && [[ ! "$newest" < "$since" ]]; then
+              listed=true
+              break
+            fi
             sleep 3
           done
+          if [ "$listed" != true ]; then
+            echo "::error::The dispatched CI run was not listed within 90 s, so the next gate may dispatch main a second time."
+            exit 1
+          fi
           echo "Dispatched full-suite CI on main." >> "$GITHUB_STEP_SUMMARY"
 
   report:
     name: Sync the main full-suite failure issue
     # workflow_run reports each dispatched CI run as it completes. The
     # scheduled tick re-syncs from the newest green or red run, so a missed
-    # workflow_run event is caught within one tick. Reports are idempotent.
-    if: ${{ (github.event_name != 'workflow_run' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
+    # workflow_run event is caught within one tick. A push has nothing new to
+    # report. Reports are idempotent.
+    if: ${{ (github.event_name != 'workflow_run' && github.event_name != 'push' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     concurrency:
