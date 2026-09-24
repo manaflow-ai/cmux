@@ -3,9 +3,9 @@ import Darwin
 
 /// Decides whether persisted Codex turn state can still belong to a live process.
 ///
-/// A missing or mismatched PID generation is safe to reclaim. Any inability to
-/// prove that the recorded process is gone remains live-owner uncertainty and
-/// keeps the stale turn guard conservative.
+/// A dead PID or a mismatched recorded PID generation is safe to reclaim. A
+/// missing PID or generation remains live-owner uncertainty and keeps the
+/// stale turn guard conservative.
 enum CodexSessionTurnOwnerAdmission {
     static func recordedTurnOwnerMayStillBeAlive(
         _ record: ClaudeHookSessionRecord
