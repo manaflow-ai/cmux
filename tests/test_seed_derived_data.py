@@ -220,6 +220,16 @@ class Wiring(unittest.TestCase):
         _, admission_spm = named(steps("ci-macos.yml", "macos-compile-admission"), "Cache Swift packages")
         self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
 
+    def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
+        # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to
+        # save without it, so a seeder without it never reads or writes a seed.
+        seeder = load("seed-derived-data.yml")
+        admission = load("ci-macos.yml")
+        self.assertEqual(
+            seeder.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"),
+            admission["env"]["CI_CACHE_R2_PUBLIC_URL"],
+        )
+
     def test_adoption_is_optional_and_limited_to_pull_requests(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
         _, adopt = named(admission, "Adopt the nightly DerivedData seed")
