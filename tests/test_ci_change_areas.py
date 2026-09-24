@@ -4696,7 +4696,11 @@ def test_claude_wrapper_scope_executes_workflow_shell() -> None:
         (["tests/node_runtime.py"], "true"),
         (["scripts/ci/run_python_test_lane.py"], "true"),
         (["scripts/ci/test_execution_registry.py"], "true"),
-        (["tests/test-execution.toml"], "true"),
+        # Every new test registers here, so this path alone must not wake a
+        # Mac for the wrapper suite. The wrapper's own registration is pinned
+        # on Linux by test_claude_wrapper_has_one_independent_registry_execution.
+        (["tests/test-execution.toml"], "false"),
+        (["tests/test-execution.toml", "tests/test_claude_wrapper_hooks.py"], "true"),
         ([".github/workflows/ci.yml"], "true"),
         (["Resources/bin/cmux-claude-wrapper", "Sources/AppDelegate.swift"], "true"),
         (["Sources/AppDelegate.swift"], "false"),
