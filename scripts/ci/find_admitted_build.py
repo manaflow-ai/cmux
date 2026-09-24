@@ -58,6 +58,8 @@ def compile_job_admitted(job: object) -> bool:
         and step.get("conclusion") == "failure"
         for step in steps
     )
+
+
 ARTIFACT_PREFIX = "build-inputs-"
 RUNS_TO_CHECK = 6
 JOB_PAGES_TO_CHECK = 3

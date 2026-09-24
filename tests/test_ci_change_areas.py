@@ -3303,12 +3303,20 @@ def test_compile_admission_holds_every_product_consumer_behind_the_gate() -> Non
     # The gate only judges a pull request's first attempt; a re-run is asking
     # for the Mac results.
     assert "github.event_name == 'pull_request' && github.run_attempt == 1" in step
-    # The product is published before the decision, so a rerun can reuse it,
-    # and a changed-suites run tests only once admitted.
+    # The product is published and a changed-suites run has tested it before
+    # the decision, so a declined job proves what a passed one does and the
+    # reuse lookups can accept it.
     order = [line.removeprefix("      - name: ") for line in admission.splitlines() if line.startswith("      - name: ")]
     gate_at = order.index(CONSUMER_GATE_STEP)
     assert order.index("Seed node-local compiled product cache") < gate_at
-    assert gate_at < order.index("Run changed app-host suites")
+    assert order.index("Run changed app-host suites") < gate_at
+    # No status function: the implicit success() is what makes a failure
+    # here mean every earlier step passed.
+    assert "always()" not in step and "failure()" not in step
+    # A decline is not a test failure: it collects no app-host diagnostics.
+    for name in ("Collect app-host failure diagnostics", "Upload app-host failure diagnostics"):
+        diagnostics = workflow_step_block_in(MACOS_WORKFLOW, "macos-compile-admission", name)
+        assert "steps.consumer-gate.outcome != 'failure'" in diagnostics, name
     # Every Mac job that runs the product needs admission, so a decline
     # skips it.
     jobs = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -4442,7 +4450,8 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
     for name in names[first_test:]:
         condition = str(by_name[name].get("if", ""))
         assert "inputs.unit_in_admission == 'true'" in condition or "steps.test-derived-data.outcome" in condition \
-            or "steps.run-changed-suites.outcome" in condition or name == "Report evidence collection outcomes", name
+            or "steps.run-changed-suites.outcome" in condition \
+            or name in {"Report evidence collection outcomes", "Hold consumers behind the fast Linux gate"}, name
     # Admission runs the worker's own scripts, not copies of them.
     shared = {
         "Enumerate built app-host tests": "Enumerate built app-host tests",
