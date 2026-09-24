@@ -71,14 +71,7 @@ public struct MacSurfaceGalleryPreviewView: View {
             .background(Color(.systemBackground))
             .preferredColorScheme(.dark)
             .popover(isPresented: $filesPresented, arrowEdge: .bottom) {
-                TerminalArtifactFilesSheet(previewPage: ChatArtifactGalleryPage(
-                    sessionID: "files-preview",
-                    referenced: [ChatArtifactGalleryItem(
-                        path: "/tmp/notes.txt", kind: .text,
-                        displayName: "notes.txt", size: 512
-                    )],
-                    referencedTotal: 1
-                ))
+                TerminalArtifactFilesPreview()
                 .environment(displaySettings)
                 .environment(toasts)
                 .preferredColorScheme(.dark)

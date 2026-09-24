@@ -54,9 +54,6 @@ struct TerminalArtifactFilesSheet: View {
     let source: MobileChatEventSource?
     let refreshSignal: TerminalArtifactGalleryRefreshSignal
     let loader: ChatArtifactLoader
-    #if DEBUG
-    private var usesPreviewPage = false
-    #endif
 
     @State var inViewState: InViewLoadState = .loading
     @State var sessionState: SessionLoadState = .idle
@@ -152,9 +149,6 @@ struct TerminalArtifactFilesSheet: View {
         }
         .frame(idealWidth: 380, idealHeight: 520)
         .task(id: "\(workspaceID)#\(surfaceID)") {
-            #if DEBUG
-            guard !usesPreviewPage else { return }
-            #endif
             sessionLoader = ChatArtifactLoader.unsupported(
                 diagnosticLog: diagnosticLog
             )
@@ -168,19 +162,6 @@ struct TerminalArtifactFilesSheet: View {
             thumbnailPrefetchTasks.removeAll()
         }
     }
-
-    #if DEBUG
-    /// Seeds the real sheet for deterministic UI tests without a paired Mac.
-    init(previewPage: ChatArtifactGalleryPage) {
-        self.init(
-            workspaceID: "files-preview", surfaceID: "files-preview",
-            source: nil, refreshSignal: .initial, loader: .unsupported()
-        )
-        usesPreviewPage = true
-        _sessionID = State(initialValue: previewPage.sessionID)
-        _sessionState = State(initialValue: .loaded(SessionGallerySnapshot(page: previewPage)))
-    }
-    #endif
 
     private var artifactIsPresented: Binding<Bool> {
         Binding(

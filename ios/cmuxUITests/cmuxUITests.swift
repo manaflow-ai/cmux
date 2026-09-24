@@ -36,7 +36,7 @@ final class cmuxUITests: XCTestCase {
         before.lifetime = .keepAlways
         add(before)
         scroller.swipeLeft(velocity: .slow)
-        XCTAssertLessThan(all.frame.minX, initialX)
+        XCTAssertLessThanOrEqual(all.frame.minX, scroller.frame.minX + 1)
         let after = XCTAttachment(screenshot: app.screenshot())
         after.name = "Files chips at sheet edge"
         after.lifetime = .keepAlways

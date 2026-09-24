@@ -864,15 +864,22 @@ jobs:
           set -euo pipefail
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
           video_pid=""
+          video_path=""
           stop_video() {
             if [[ -n "$video_pid" ]]; then
               kill -INT "$video_pid" 2>/dev/null || true
-              wait "$video_pid" || true
+              local recorder_status=0
+              wait "$video_pid" || recorder_status=$?
               video_pid=""
+              if [[ "$recorder_status" -ne 0 || ! -s "$video_path" ]]; then
+                echo "::error::Requested simulator recording failed (status $recorder_status): $video_path"
+                return 1
+              fi
             fi
           }
           record_test_seconds() {
-            stop_video
+            local status=$?
+            stop_video || status=1
             local seconds
             seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
           import os, time
@@ -882,6 +889,7 @@ jobs:
             echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
             echo "IOS_BUILD_ONCE_METRIC consumer_test_seconds=$seconds"
             echo "Consumer test time: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
           }
           trap record_test_seconds EXIT
           XCODEBUILD_ARGS=(
@@ -923,8 +931,9 @@ jobs:
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
             if [[ "$RECORD_VIDEO" == "true" ]]; then
+              video_path="$IOS_DERIVED_DATA/logs/attempt-${attempt}.mp4"
               xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force \
-                "$IOS_DERIVED_DATA/logs/attempt-${attempt}.mp4" \
+                "$video_path" \
                 >"$IOS_DERIVED_DATA/logs/video-${attempt}.log" 2>&1 &
               video_pid=$!
             fi
