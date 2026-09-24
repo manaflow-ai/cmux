@@ -254,6 +254,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// surface is created so background mirror output is not lost.
     var pendingRemoteOutput = Data()
     let maxPendingRemoteOutputBytes = 4 * 1_048_576
+    /// cmux-authored display notices written before the runtime surface
+    /// exists. Flushed once, right after the first runtime is sized, so the
+    /// notice precedes the shell's first output without ever reaching its PTY.
+    var pendingDisplayNoticeOutput = Data()
+    let maxPendingDisplayNoticeBytes = 64 * 1_024
     /// FIFO native-output lane for the current runtime surface generation.
     var remoteOutputLane: TerminalSurfaceRemoteOutputLane
     var remoteOutputLaneGeneration: UInt64 = 0

@@ -69,7 +69,7 @@ float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);
 uint64_t ghostty_surface_foreground_pid(void *surface);
 void ghostty_surface_has_selection(void);
-void ghostty_surface_key(void);
+void ghostty_surface_key(void *surface);
 void ghostty_surface_mouse_button(void);
 void ghostty_surface_mouse_pos(void);
 void ghostty_surface_mouse_scroll(void);
@@ -108,8 +108,8 @@ bool ghostty_surface_set_renderer_realized(void *surface, bool realized);
 bool ghostty_surface_rebuild_renderer(void *surface);
 void ghostty_surface_set_size(void);
 void ghostty_surface_size(void);
-void ghostty_surface_text(void);
-void ghostty_surface_text_input(void);
+void ghostty_surface_text(void *surface, const char *data, uintptr_t len);
+void ghostty_surface_text_input(void *surface, const char *data, uintptr_t len);
 void ghostty_surface_update_config(void *surface, void *config);
 ghostty_string_s ghostty_surface_tty_name(void *surface);
 
@@ -127,6 +127,13 @@ bool cmux_test_ghostty_process_output_called_on_main_thread(void);
 void cmux_test_ghostty_process_output_release(void);
 void cmux_test_ghostty_process_output_blocking_reset(void);
 uint32_t cmux_test_ghostty_tty_name_call_count(void);
+// Records the bytes a target surface receives through the process-output
+// (display) path and counts calls on its input paths (text, text_input, key),
+// so tests can prove which side of the PTY a write reached.
+void cmux_test_ghostty_io_recording_begin(void *surface);
+void cmux_test_ghostty_io_recording_reset(void);
+uintptr_t cmux_test_ghostty_recorded_process_output(char *buffer, uintptr_t capacity);
+uint32_t cmux_test_ghostty_recorded_input_call_count(void);
 void cmux_test_ghostty_renderer_realized_begin(void *surface);
 void cmux_test_ghostty_renderer_realized_reset(void);
 uint32_t cmux_test_ghostty_renderer_realized_call_count(void);

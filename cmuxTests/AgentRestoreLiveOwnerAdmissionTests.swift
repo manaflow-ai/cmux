@@ -39,12 +39,14 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         let fixture = try makeFixture(kind: kind, ownerState: .live)
         defer { fixture.cleanup() }
 
-        let input = try restoredStartupInput(fixture)
+        let restored = try restoredStartup(fixture)
 
-        #expect(!input.contains(" restore \(kind.rawValue) \(fixture.sessionID)"), Comment(rawValue: input))
-        #expect(input.contains("already running in process \(fixture.processID)"), Comment(rawValue: input))
-        #expect(input.contains("stop process \(fixture.processID)"), Comment(rawValue: input))
-        #expect(input.contains("cmux restore --surface"), Comment(rawValue: input))
+        // The notice is display output; nothing is typed into the shell.
+        #expect(restored.input == nil, Comment(rawValue: restored.input ?? ""))
+        let notice = restored.displayNotice
+        #expect(notice.contains("already running in process \(fixture.processID)"), Comment(rawValue: notice))
+        #expect(notice.contains("stop process \(fixture.processID)"), Comment(rawValue: notice))
+        #expect(notice.contains("cmux restore --surface"), Comment(rawValue: notice))
     }
 
     @Test(
@@ -65,13 +67,15 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         let fixture = try makeFixture(kind: kind, ownerState: ownerState)
         defer { fixture.cleanup() }
 
-        let input = try restoredStartupInput(fixture)
+        let restored = try restoredStartup(fixture)
+        let input = try #require(restored.input)
 
         #expect(
             input.contains(" restore \(kind.rawValue) \(fixture.sessionID)"),
             "An absent or stale PID generation must not block restore: \(input)"
         )
         #expect(!input.contains("already running in process"), Comment(rawValue: input))
+        #expect(restored.displayNotice.isEmpty, Comment(rawValue: restored.displayNotice))
     }
 
     @Test("Admission stays decidable while other agents rewrite the hook-store directory during every scan")
@@ -735,6 +739,12 @@ struct AgentRestoreLiveOwnerAdmissionTests {
     }
 
     private func restoredStartupInput(_ fixture: Fixture) throws -> String {
+        try #require(restoredStartup(fixture).input)
+    }
+
+    private func restoredStartup(
+        _ fixture: Fixture
+    ) throws -> (input: String?, displayNotice: String) {
         let source = Workspace(agentSessionAutoResumeDefaults: fixture.defaults)
         defer { source.teardownAllPanels() }
         let sourcePanelID = try #require(source.focusedPanelId)
@@ -752,6 +762,9 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         let restoredIDs = restored.restoreSessionSnapshot(snapshot)
         let restoredPanelID = try #require(restoredIDs[sourcePanelID])
         let terminal = try #require(restored.terminalPanel(for: restoredPanelID))
-        return try #require(terminal.surface.debugInitialInputForTesting())
+        return (
+            terminal.surface.debugInitialInputForTesting(),
+            terminal.surface.debugPendingDisplayNoticeText()
+        )
     }
 }

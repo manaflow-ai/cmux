@@ -393,12 +393,8 @@ extension DockSplitStore {
                 restoringWorkingDirectory: resumeSessionWorkingDirectory
             ).map(WorkspaceSurfaceResumeStartupLaunch.input)
             : nil
-        let liveOwnerNoticeInput = liveSessionOwner.map {
-            AgentRestoreLiveOwnerNotice(processID: $0.processID).startupInput(
-                dialect: terminalSnapshot.isRemoteTerminal == true
-                    ? .remoteHost
-                    : .loginShell
-            )
+        let liveOwnerNotice = liveSessionOwner.map {
+            AgentRestoreLiveOwnerNotice(processID: $0.processID).notice
         }
         // Build the candidate before arming the gate. A binding that is
         // disabled, unapproved, or cannot render a command must start as an
@@ -432,15 +428,16 @@ extension DockSplitStore {
         let initialCommand = tmuxLauncher
         let initialInput = bindingLaunch?.initialInput ??
             agentLaunch?.initialInput ??
-            deferredAgentResumeStartupInput ??
-            liveOwnerNoticeInput
+            deferredAgentResumeStartupInput
+        // The notice is display output, never typed into the shell.
+        let liveOwnerDisplayNotice = initialInput == nil ? liveOwnerNotice : nil
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
             (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
             deferredAgentResumeStartupInput != nil
         let startupHandlesWorkingDirectory =
             tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil ||
-            deferredAgentResumeStartupInput != nil || liveOwnerNoticeInput != nil
+            deferredAgentResumeStartupInput != nil || liveOwnerNotice != nil
         let hostShellWorkingDirectory: String? = {
             guard startupHandlesWorkingDirectory else { return workingDirectory }
             let candidate = tmuxLauncher != nil ? workingDirectory : resumeSessionWorkingDirectory
@@ -502,6 +499,9 @@ extension DockSplitStore {
             panelId: terminal.id,
             internallySeededInput: initialInput
         )
+        if let liveOwnerDisplayNotice {
+            terminal.surface.writeDisplayNotice(liveOwnerDisplayNotice.message)
+        }
         if willRunAgentInput {
             // Keep the typed resume selector so the shell-state handler can
             // replay it if the login shell drops the typeahead.

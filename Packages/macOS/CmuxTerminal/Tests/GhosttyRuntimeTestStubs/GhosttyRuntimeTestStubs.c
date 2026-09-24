@@ -51,6 +51,59 @@ static bool cmux_test_process_output_started = false;
 static bool cmux_test_process_output_released = false;
 static bool cmux_test_process_output_called_on_main = false;
 static void* cmux_test_process_output_target = NULL;
+static pthread_mutex_t cmux_test_io_recording_mutex = PTHREAD_MUTEX_INITIALIZER;
+static void* cmux_test_io_recording_target = NULL;
+static char cmux_test_io_recorded_output[65536];
+static uintptr_t cmux_test_io_recorded_output_len = 0;
+static uint32_t cmux_test_io_recorded_input_calls = 0;
+
+static void cmux_test_io_record_output(void *surface, const char *data, uintptr_t len) {
+    pthread_mutex_lock(&cmux_test_io_recording_mutex);
+    if (surface != NULL && surface == cmux_test_io_recording_target && data != NULL) {
+        const uintptr_t room = sizeof(cmux_test_io_recorded_output) - cmux_test_io_recorded_output_len;
+        const uintptr_t copied = len < room ? len : room;
+        memcpy(cmux_test_io_recorded_output + cmux_test_io_recorded_output_len, data, copied);
+        cmux_test_io_recorded_output_len += copied;
+    }
+    pthread_mutex_unlock(&cmux_test_io_recording_mutex);
+}
+
+static void cmux_test_io_record_input(void *surface) {
+    pthread_mutex_lock(&cmux_test_io_recording_mutex);
+    if (surface != NULL && surface == cmux_test_io_recording_target) {
+        cmux_test_io_recorded_input_calls += 1;
+    }
+    pthread_mutex_unlock(&cmux_test_io_recording_mutex);
+}
+
+void cmux_test_ghostty_io_recording_begin(void *surface) {
+    pthread_mutex_lock(&cmux_test_io_recording_mutex);
+    cmux_test_io_recording_target = surface;
+    cmux_test_io_recorded_output_len = 0;
+    cmux_test_io_recorded_input_calls = 0;
+    pthread_mutex_unlock(&cmux_test_io_recording_mutex);
+}
+
+void cmux_test_ghostty_io_recording_reset(void) {
+    cmux_test_ghostty_io_recording_begin(NULL);
+}
+
+uintptr_t cmux_test_ghostty_recorded_process_output(char *buffer, uintptr_t capacity) {
+    pthread_mutex_lock(&cmux_test_io_recording_mutex);
+    const uintptr_t len = cmux_test_io_recorded_output_len;
+    if (buffer != NULL) {
+        memcpy(buffer, cmux_test_io_recorded_output, len < capacity ? len : capacity);
+    }
+    pthread_mutex_unlock(&cmux_test_io_recording_mutex);
+    return len;
+}
+
+uint32_t cmux_test_ghostty_recorded_input_call_count(void) {
+    pthread_mutex_lock(&cmux_test_io_recording_mutex);
+    const uint32_t calls = cmux_test_io_recorded_input_calls;
+    pthread_mutex_unlock(&cmux_test_io_recording_mutex);
+    return calls;
+}
 
 typedef void (*GhosttyRuntimeTestRenderPresentedCallback)(void*, uint64_t);
 typedef void (*GhosttyRuntimeTestRenderFailedCallback)(void*, uint64_t, int);
@@ -503,7 +556,9 @@ uint64_t ghostty_surface_foreground_pid(void *surface) {
     return cmux_test_foreground_pid;
 }
 void ghostty_surface_has_selection(void) {}
-void ghostty_surface_key(void) {}
+void ghostty_surface_key(void *surface) {
+    cmux_test_io_record_input(surface);
+}
 void ghostty_surface_mouse_button(void) {}
 void ghostty_surface_mouse_pos(void) {}
 void ghostty_surface_mouse_scroll(void) {}
@@ -517,8 +572,7 @@ bool ghostty_surface_process_exited(void *surface) {
     return false;
 }
 void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len) {
-    (void)data;
-    (void)len;
+    cmux_test_io_record_output(surface, data, len);
     pthread_mutex_lock(&cmux_test_process_output_mutex);
     if (cmux_test_process_output_should_block
         && surface == cmux_test_process_output_target) {
@@ -637,8 +691,16 @@ bool ghostty_surface_rebuild_renderer(void *surface) {
 }
 void ghostty_surface_set_size(void) {}
 void ghostty_surface_size(void) {}
-void ghostty_surface_text(void) {}
-void ghostty_surface_text_input(void) {}
+void ghostty_surface_text(void *surface, const char *data, uintptr_t len) {
+    (void)data;
+    (void)len;
+    cmux_test_io_record_input(surface);
+}
+void ghostty_surface_text_input(void *surface, const char *data, uintptr_t len) {
+    (void)data;
+    (void)len;
+    cmux_test_io_record_input(surface);
+}
 void ghostty_surface_update_config(void *surface, void *raw_config) {
     (void)raw_config;
     cmux_test_last_updated_surface = surface;
