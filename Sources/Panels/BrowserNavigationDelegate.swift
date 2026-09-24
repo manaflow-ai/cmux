@@ -835,20 +835,12 @@ import WebKit
             if isMainFrame, !isTrustedInternal {
                 (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
             }
-            // cmux://extensions opens only from cmux itself (omnibar, menus,
-            // app code), from history, or from its own links. A website can
-            // neither link to it nor frame it, as with chrome:// in Chrome.
+            // The navigation-action gate already decided whether this load
+            // of cmux://extensions may happen; it never renders in a frame.
             let isManagerPage = ChromeExtensionsManagerPage.isManagerPageURL(url)
-            if isManagerPage {
-                let source = navigationAction.sourceFrame.securityOrigin
-                let fromManagerPage = source.protocol.lowercased() == ChromeExtensionsManagerPage.scheme
-                    && source.host.lowercased() == ChromeExtensionsManagerPage.host
-                let fromHistory = navigationAction.navigationType == .reload
-                    || navigationAction.navigationType == .backForward
-                guard isMainFrame, isTrustedInternal || fromHistory || fromManagerPage else {
-                    decisionHandler(.cancel)
-                    return
-                }
+            if isManagerPage, !isMainFrame {
+                decisionHandler(.cancel)
+                return
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
                 && owner?.isTrustedLocalFileDocument(url) == true
