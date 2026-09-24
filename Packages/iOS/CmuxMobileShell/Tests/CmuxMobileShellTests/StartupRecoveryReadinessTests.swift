@@ -159,6 +159,31 @@ extension ReconnectRouteSelectionTests {
         shell.connectionRecoveryOwner.cancel()
     }
 
+    /// A team switch that retains the live foreground session must also keep
+    /// the deferral window settled: the root starts the new scope's restore
+    /// only when disconnected, so if the retained session later drops, the
+    /// automatic wake-up that notices it owns recovery and must dial.
+    @Test func connectedTeamSwitchKeepsAutomaticRecoveryEligibleAfterDrop() async throws {
+        let (shell, factory, directory) = try await makeStartupReadinessShell()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(await shell.reconnectActiveMacIfAvailable(
+            stackUserID: "user-1",
+            hydratePairedMacs: true
+        ))
+        #expect(shell.connectionState == .connected)
+
+        shell.currentTeamDidChange()
+        shell.disconnectLiveConnection()
+
+        shell.recoverMobileConnection(trigger: .directoryChanged)
+
+        #expect(shell.connectionRecoveryOwner.isActive)
+        #expect(factory.attemptedKinds().first == .iroh)
+        shell.connectionRecoveryOwner.cancel()
+        await shell.remoteClient?.disconnect()
+    }
+
     /// The exact failure recorded in the 2026-09-22 diagnostic export: a
     /// failed pre-readiness automatic attempt left the transient cooldown
     /// armed, and the startup restore then filtered Iroh out of every

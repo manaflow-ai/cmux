@@ -2363,7 +2363,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         isReconnectingStoredMac = false
         pendingForcedStoredMacReconnect = false
         didFinishStoredMacReconnectAttempt = false
-        didSettleExplicitForegroundConnect = false
+        // A team switch that RETAINS the live foreground session satisfies the
+        // new scope's launch-connect window with that session: the root only
+        // starts the replacement restore when disconnected, so leaving the
+        // window open here would defer automatic recovery forever if the
+        // retained session later drops. A disconnected switch keeps the window
+        // open because the root's scope-change path starts that restore.
+        didSettleExplicitForegroundConnect = connectionState == .connected
         pairedMacRestoreBoundary?.invalidate()
         let refresher = pairedMacStore as? any PairedMacBackupRefreshing
         // Lazy display: clear the stale old-team lists; the next loadPairedMacs() /
