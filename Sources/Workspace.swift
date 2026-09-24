@@ -1590,7 +1590,10 @@ extension Workspace {
                inPane: paneId
            ) {
             return restoredCloudPanelID }
-        if usesSSHTui, remoteConfiguration?.preserveAfterTerminalExit == true, snapshot.type == .terminal {
+        // Projected SSH terminals restore as device mirrors. A local shell saved in the
+        // same workspace has no projection record and keeps its own shell and cwd.
+        if usesSSHTui, remoteConfiguration?.preserveAfterTerminalExit == true, snapshot.type == .terminal,
+           cloudProjectionRecord != nil || snapshot.terminal?.isRemoteTerminal != false {
             return restoreDeviceDisplayPanel(snapshot, in: paneId)
         }
         let restoresUntrustedSavedDirectory = cloudVMBinding != nil ||

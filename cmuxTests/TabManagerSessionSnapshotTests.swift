@@ -3258,7 +3258,6 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testPersistentSSHPTYRestorePreservesLocalTerminalWorkingDirectory() throws {
-        try XCTSkipIf(true, "Possible regression since 5f0d2227241: Workspace.createPanel restores every terminal in a preserved SSH TUI workspace as a device mirror, including local shells; needs the migration owner's call.")
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Remote Workspace With Local Terminal")
