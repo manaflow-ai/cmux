@@ -105,6 +105,12 @@ extension MobileShellComposite: MobileSSHComputersSink {
         await sshComputers.open(hostID: hostID)
     }
 
+    /// Reconnects an SSH computer the user is looking at when nothing is
+    /// live (see ``MobileSSHComputers/autoConnect(hostID:)``). Idempotent.
+    public func autoConnectSSHComputer(hostID: UUID) {
+        sshComputers.autoConnect(hostID: hostID)
+    }
+
     /// Creates a workspace on an SSH computer and selects it.
     @discardableResult
     public func createSSHWorkspace(hostID: UUID) async -> MobileWorkspacePreview.ID? {

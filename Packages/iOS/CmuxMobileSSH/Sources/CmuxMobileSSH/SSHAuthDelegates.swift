@@ -42,10 +42,19 @@ final class SSHCredentialAuthDelegate: NIOSSHClientUserAuthenticationDelegate, @
 }
 
 /// Bridges NIO's promise-based host key callback to the async ``SSHHostKeyVerifier``.
+///
+/// The verifier may wait on the user (a trust prompt), so the handshake
+/// deadline is paused for exactly as long as verification is pending.
 final class SSHHostKeyAuthDelegate: NIOSSHClientServerAuthenticationDelegate, Sendable {
+    private struct State {
+        var presented: SSHHostKey?
+        var rejected = false
+        var deadline: SSHHandshakeDeadline?
+    }
+
     private let endpoint: SSHEndpoint
     private let verifier: any SSHHostKeyVerifier
-    private let presented = OSAllocatedUnfairLock<SSHHostKey?>(initialState: nil)
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     init(endpoint: SSHEndpoint, verifier: any SSHHostKeyVerifier) {
         self.endpoint = endpoint
@@ -53,15 +62,32 @@ final class SSHHostKeyAuthDelegate: NIOSSHClientServerAuthenticationDelegate, Se
     }
 
     /// The key the server presented, available once the handshake reached host key validation.
-    var presentedKey: SSHHostKey? { presented.withLock { $0 } }
+    var presentedKey: SSHHostKey? { state.withLock { $0.presented } }
+
+    /// Whether the verifier declined the presented key. Authoritative over
+    /// whatever error the transport surfaces afterwards (NIO may report the
+    /// failed validation as a closed channel).
+    var rejectedPresentedKey: Bool { state.withLock { $0.rejected } }
+
+    /// The handshake budget to pause while the verifier is pending.
+    func pauseDuringVerification(_ deadline: SSHHandshakeDeadline) {
+        state.withLock { $0.deadline = deadline }
+    }
 
     func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
         let key = SSHHostKey(hostKey)
-        presented.withLock { $0 = key }
+        let deadline = state.withLock { state -> SSHHandshakeDeadline? in
+            state.presented = key
+            return state.deadline
+        }
+        deadline?.pause()
         let endpoint = endpoint
         let verifier = verifier
         Task {
-            if await verifier.verify(key, for: endpoint) {
+            let accepted = await verifier.verify(key, for: endpoint)
+            if !accepted { state.withLock { $0.rejected = true } }
+            deadline?.resume()
+            if accepted {
                 validationCompletePromise.succeed(())
             } else {
                 validationCompletePromise.fail(SSHConnectionError.hostKeyRejected(.unknown(presented: key)))

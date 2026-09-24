@@ -46,6 +46,54 @@ struct SSHLabIntegrationTests {
         }
     }
 
+    /// The trust prompt can take as long as the user needs: verification
+    /// time is not part of the handshake budget.
+    @Test(.timeLimit(.minutes(1))) func slowVerifierDoesNotTimeOutTheHandshake() async throws {
+        let connection = try await SSHConnection.connect(
+            to: endpoint,
+            credentials: [try credential()],
+            hostKeyVerifier: DelayedVerifier(delay: .seconds(2), accept: true),
+            connectTimeout: .seconds(1)
+        )
+        #expect(try await connection.exec("echo ok").stdoutString == "ok\n")
+        await connection.close()
+    }
+
+    /// Declining surfaces as `hostKeyRejected` right away, not as a timeout,
+    /// even when the user took longer than the budget to decide.
+    @Test(.timeLimit(.minutes(1))) func declinedHostKeyReportsRejectionNotTimeout() async throws {
+        for delay in [Duration.zero, .seconds(2)] {
+            let started = ContinuousClock.now
+            do {
+                _ = try await SSHConnection.connect(
+                    to: endpoint,
+                    credentials: [try credential()],
+                    hostKeyVerifier: DelayedVerifier(delay: delay, accept: false),
+                    connectTimeout: .seconds(1)
+                )
+                Issue.record("a declined host key must not connect")
+            } catch SSHConnectionError.hostKeyRejected {
+                #expect(ContinuousClock.now - started < delay + .seconds(1))
+            }
+        }
+    }
+
+    /// A declined key on the target behind a jump host is reported as the
+    /// rejection, not as a transport failure of the tunnel.
+    @Test(.timeLimit(.minutes(1))) func declinedHostKeyBehindJumpHostReportsRejection() async throws {
+        let bastion = try await SSHConnection.connect(to: endpoint, credentials: [try credential()], hostKeyVerifier: RecordingVerifier(accept: true))
+        await #expect(throws: SSHConnectionError.hostKeyRejected(.unknown(presented: bastion.hostKey))) {
+            _ = try await SSHConnection.connect(
+                to: endpoint,
+                credentials: [try credential()],
+                hostKeyVerifier: DelayedVerifier(delay: .seconds(2), accept: false),
+                via: bastion,
+                connectTimeout: .seconds(1)
+            )
+        }
+        await bastion.close()
+    }
+
     @Test func wrongKeyFailsAuthentication() async throws {
         let stranger = try SSHPrivateKeyParser.parse(try shell("rm -f /tmp/cmux-ssh-stranger*; ssh-keygen -q -t ed25519 -N '' -f /tmp/cmux-ssh-stranger && cat /tmp/cmux-ssh-stranger", trim: false))
         await #expect(throws: (any Error).self) {
@@ -116,6 +164,16 @@ actor RecordingVerifier: SSHHostKeyVerifier {
         return accept
     }
     private func record(_ key: SSHHostKey) { seen.append(key) }
+}
+
+/// Answers after `delay`, like a user reading a trust prompt.
+struct DelayedVerifier: SSHHostKeyVerifier {
+    let delay: Duration
+    let accept: Bool
+    func verify(_ key: SSHHostKey, for endpoint: SSHEndpoint) async -> Bool {
+        try? await Task.sleep(for: delay)
+        return accept
+    }
 }
 
 func shell(_ command: String, trim: Bool = true) throws -> String {

@@ -29,6 +29,7 @@ let package = Package(
         .package(path: "../CmuxMobileSSH"),
         .package(path: "../CmuxMobileShellModel"),
         .package(path: "../CmuxMobileSupport"),
+        .package(path: "../CmuxMobileTerminalKit"),
         .package(path: "../CmuxMobileTransport"),
     ],
     targets: [
@@ -45,6 +46,7 @@ let package = Package(
                 "CmuxMobileSSH",
                 "CmuxMobileShellModel",
                 "CmuxMobileSupport",
+                "CmuxMobileTerminalKit",
                 "CmuxMobileTransport",
             ],
             swiftSettings: [

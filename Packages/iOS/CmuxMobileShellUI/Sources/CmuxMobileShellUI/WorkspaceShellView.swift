@@ -220,6 +220,8 @@ struct WorkspaceShellView: View {
     /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
     var showAddSSHComputer: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
+    /// The signed-out SSH shell suppresses the Mac-centric What's New sheet.
+    var whatsNewAudience: MobileWhatsNewAudience = .pairedComputers
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -632,6 +634,8 @@ struct WorkspaceShellView: View {
         // rethrowing, which would otherwise let this task keep working for a
         // view that is already gone.
         .task {
+            // No account and no Mac: nothing to announce or pair with.
+            guard whatsNewAudience == .pairedComputers else { return }
             await whatsNewCenter?.refresh()
             guard !Task.isCancelled else { return }
             await store.loadPairedMacs()
@@ -704,7 +708,7 @@ struct WorkspaceShellView: View {
     /// sheet already occupying the presenter) never marks pages as seen.
     private func presentWhatsNewIfNeeded() {
         guard let whatsNewCenter, !showsWhatsNewSheet else { return }
-        let pages = whatsNewCenter.unseenPages
+        let pages = whatsNewCenter.launchSheetPages(for: whatsNewAudience)
         guard !pages.isEmpty else { return }
         whatsNewCandidatePages = pages
     }
@@ -749,7 +753,7 @@ struct WorkspaceShellView: View {
         // The remote list can change during the bounded preload window, so
         // re-check visibility now instead of trusting the staging snapshot.
         guard let whatsNewCenter else { return }
-        let stillUnseen = Set(whatsNewCenter.unseenPages.map(\.listID))
+        let stillUnseen = Set(whatsNewCenter.launchSheetPages(for: whatsNewAudience).map(\.listID))
         let readyPages = pages.filter { page in
             guard stillUnseen.contains(page.listID) else { return false }
             switch page.body {
@@ -1740,7 +1744,8 @@ struct WorkspaceShellView: View {
         let store = store
         return SSHWorkspaceListPanelActions(
             retry: { hostID in Task { await store.openSSHComputer(hostID: hostID) } },
-            newSession: { hostID in createSSHWorkspace(hostID: hostID) }
+            newSession: { hostID in createSSHWorkspace(hostID: hostID) },
+            autoConnect: { hostID in store.autoConnectSSHComputer(hostID: hostID) }
         )
     }
 

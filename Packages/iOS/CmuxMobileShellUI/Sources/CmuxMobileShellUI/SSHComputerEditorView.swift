@@ -241,7 +241,7 @@ struct SSHComputerEditorView: View {
                     text: $draft.name
                 )
                 .multilineTextAlignment(.trailing)
-                .textInputAutocapitalization(.words)
+                .sshLiteralTextEntry()
                 .accessibilityIdentifier("ssh.form.name")
             }
             LabeledContent(L10n.string("mobile.ssh.form.host", defaultValue: "Host")) {
@@ -252,14 +252,14 @@ struct SSHComputerEditorView: View {
                 .multilineTextAlignment(.trailing)
                 .keyboardType(.URL)
                 .textContentType(.URL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .sshLiteralTextEntry()
                 .accessibilityIdentifier("ssh.form.host")
             }
             LabeledContent(L10n.string("mobile.ssh.form.port", defaultValue: "Port")) {
                 TextField("22", text: $draft.port)
                     .multilineTextAlignment(.trailing)
                     .keyboardType(.numberPad)
+                    .sshLiteralTextEntry()
                     .accessibilityIdentifier("ssh.form.port")
             }
             LabeledContent(L10n.string("mobile.ssh.form.username", defaultValue: "Username")) {
@@ -269,8 +269,7 @@ struct SSHComputerEditorView: View {
                 )
                 .multilineTextAlignment(.trailing)
                 .textContentType(.username)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+                .sshLiteralTextEntry()
                 .accessibilityIdentifier("ssh.form.username")
             }
         } header: {
@@ -542,6 +541,14 @@ struct SSHComputerEditorView: View {
                 error.localizedDescription
             )
         }
+    }
+}
+extension View {
+    /// SSH fields hold technical text (hostnames, user names, key and host
+    /// names like "Behind jump (tmux)"): never autocorrect or capitalize it.
+    func sshLiteralTextEntry() -> some View {
+        textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
     }
 }
 #endif

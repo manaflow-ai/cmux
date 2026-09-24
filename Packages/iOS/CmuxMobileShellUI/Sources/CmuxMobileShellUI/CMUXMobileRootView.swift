@@ -822,6 +822,7 @@ struct CMUXMobileRootView: View {
                 showSettings: showSettings,
                 showComputers: showComputers,
                 showAddSSHComputer: showAddSSHComputer,
+                whatsNewAudience: .signedOutSSH,
                 reconnectStoredMac: {},
                 workspaceListDidBecomeVisible: {}
             )

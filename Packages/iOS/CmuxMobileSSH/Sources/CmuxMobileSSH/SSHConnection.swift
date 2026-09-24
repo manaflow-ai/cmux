@@ -67,24 +67,38 @@ public actor SSHConnection {
                 .get()
         }
 
+        // Network phases spend this budget; host key verification, which can
+        // wait on a trust prompt, pauses it (see SSHHostKeyAuthDelegate).
+        let deadline = SSHHandshakeDeadline(timeout: connectTimeout, eventLoop: channel.eventLoop)
+        hostKeyDelegate.pauseDuringVerification(deadline)
         let handshake = channel.eventLoop.makePromise(of: Void.self)
-        let sshHandler = try await channel.eventLoop.flatSubmit { () -> EventLoopFuture<NIOSSHHandler> in
-            let handler = NIOSSHHandler(
-                role: .client(clientConfiguration),
-                allocator: channel.allocator,
-                inboundChildChannelInitializer: nil
-            )
-            return channel.pipeline.addHandlers([
-                handler,
-                SSHHandshakeObserver(promise: handshake),
-            ]).map { handler }
-        }.get()
-
+        deadline.complete(with: handshake.futureResult)
+        let sshHandler: NIOSSHHandler
         do {
-            try await withTimeout(connectTimeout, on: channel.eventLoop, future: handshake.futureResult)
+            sshHandler = try await channel.eventLoop.flatSubmit { () -> EventLoopFuture<NIOSSHHandler> in
+                let handler = NIOSSHHandler(
+                    role: .client(clientConfiguration),
+                    allocator: channel.allocator,
+                    inboundChildChannelInitializer: nil
+                )
+                return channel.pipeline.addHandlers([
+                    handler,
+                    SSHHandshakeObserver(promise: handshake),
+                ]).map { handler }
+            }.get()
         } catch {
+            handshake.fail(error)
             try? await channel.close()
-            if let key = hostKeyDelegate.presentedKey, case SSHConnectionError.hostKeyRejected = error {
+            throw error
+        }
+        do {
+            try await deadline.futureResult.get()
+        } catch {
+            // Closing fails the still-pending handshake through its observer.
+            try? await channel.close()
+            // The verifier's decision wins over however the transport
+            // reported the aborted handshake (error, close, or timeout).
+            if hostKeyDelegate.rejectedPresentedKey, let key = hostKeyDelegate.presentedKey {
                 throw SSHConnectionError.hostKeyRejected(.unknown(presented: key))
             }
             throw error
@@ -275,14 +289,84 @@ final class SSHChannelDataUnwrapper: ChannelDuplexHandler, @unchecked Sendable {
     }
 }
 
-private func withTimeout(_ timeout: TimeAmount, on eventLoop: any EventLoop, future: EventLoopFuture<Void>) async throws {
-    let promise = eventLoop.makePromise(of: Void.self)
-    let task = eventLoop.scheduleTask(in: timeout) {
-        promise.fail(ChannelError.connectTimeout(timeout))
+/// The handshake's time budget, confined to the channel's event loop.
+///
+/// Network phases (version exchange, key exchange, authentication) spend it.
+/// Host key verification may wait on the user, so it pauses the budget and
+/// the remainder is re-armed when verification ends. Pauses nest.
+final class SSHHandshakeDeadline: @unchecked Sendable {
+    private let eventLoop: any EventLoop
+    private let timeout: TimeAmount
+    private let promise: EventLoopPromise<Void>
+    // Event-loop confined.
+    private var remaining: TimeAmount
+    private var armedAt: NIODeadline?
+    private var timer: Scheduled<Void>?
+    private var pauses = 0
+    private var finished = false
+
+    init(timeout: TimeAmount, eventLoop: any EventLoop) {
+        self.eventLoop = eventLoop
+        self.timeout = timeout
+        remaining = timeout
+        promise = eventLoop.makePromise(of: Void.self)
+        onLoop { $0.arm() }
     }
-    future.whenComplete { result in
-        task.cancel()
+
+    /// Succeeds or fails with the watched work, or fails with
+    /// `ChannelError.connectTimeout` once the unpaused budget runs out.
+    var futureResult: EventLoopFuture<Void> { promise.futureResult }
+
+    /// The work this deadline bounds.
+    func complete(with work: EventLoopFuture<Void>) {
+        work.whenComplete { [self] result in onLoop { $0.finish(result) } }
+    }
+
+    /// Stops the clock, keeping the unspent budget.
+    func pause() {
+        onLoop { deadline in
+            guard !deadline.finished else { return }
+            deadline.pauses += 1
+            guard deadline.pauses == 1 else { return }
+            deadline.timer?.cancel()
+            deadline.timer = nil
+            if let armedAt = deadline.armedAt {
+                deadline.remaining = max(.zero, deadline.remaining - (deadline.eventLoop.now - armedAt))
+            }
+            deadline.armedAt = nil
+        }
+    }
+
+    /// Restarts the clock with the unspent budget once every pause ended.
+    func resume() {
+        onLoop { deadline in
+            guard !deadline.finished, deadline.pauses > 0 else { return }
+            deadline.pauses -= 1
+            if deadline.pauses == 0 { deadline.arm() }
+        }
+    }
+
+    private func arm() {
+        guard !finished, pauses == 0 else { return }
+        armedAt = eventLoop.now
+        timer = eventLoop.scheduleTask(in: remaining) { [self] in
+            finish(.failure(ChannelError.connectTimeout(timeout)))
+        }
+    }
+
+    private func finish(_ result: Result<Void, any Error>) {
+        guard !finished else { return }
+        finished = true
+        timer?.cancel()
+        timer = nil
         promise.completeWith(result)
     }
-    try await promise.futureResult.get()
+
+    private func onLoop(_ body: @escaping @Sendable (SSHHandshakeDeadline) -> Void) {
+        if eventLoop.inEventLoop {
+            body(self)
+        } else {
+            eventLoop.execute { body(self) }
+        }
+    }
 }

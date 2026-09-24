@@ -26,6 +26,8 @@ struct WorkspaceShellHost: View {
     /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
     var showAddSSHComputer: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
+    /// The signed-out SSH shell suppresses Mac-centric notices.
+    var whatsNewAudience: MobileWhatsNewAudience = .pairedComputers
     let reconnectStoredMac: () -> Void
     let workspaceListDidBecomeVisible: @MainActor @Sendable () async -> Void
 
@@ -46,7 +48,8 @@ struct WorkspaceShellHost: View {
             showSettings: showSettings,
             showComputers: showComputers,
             showAddSSHComputer: showAddSSHComputer,
-            taskComposerPresentation: taskComposerPresentation
+            taskComposerPresentation: taskComposerPresentation,
+            whatsNewAudience: whatsNewAudience
         )
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()

@@ -39,6 +39,8 @@ let package = Package(
             dependencies: [
                 "CmuxMobileSSH",
                 .product(name: "NIOSSH", package: "swift-nio-ssh"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOEmbedded", package: "swift-nio"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

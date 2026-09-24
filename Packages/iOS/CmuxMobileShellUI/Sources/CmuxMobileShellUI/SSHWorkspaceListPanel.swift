@@ -18,6 +18,8 @@ struct SSHWorkspaceListPanel: Equatable {
 struct SSHWorkspaceListPanelActions {
     let retry: (UUID) -> Void
     let newSession: (UUID) -> Void
+    /// Reconnects an idle host; the runtime ignores it unless eligible.
+    let autoConnect: (UUID) -> Void
 }
 
 extension View {
@@ -31,9 +33,22 @@ extension View {
 private struct SSHWorkspaceListPanelModifier: ViewModifier {
     let panel: SSHWorkspaceListPanel?
     let actions: SSHWorkspaceListPanelActions
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// The host to reconnect: the list is scoped to it, the app is in the
+    /// foreground, and it has no live connection. Changes (scoping, return
+    /// to foreground, a dropped connection) re-fire the trigger; a failed
+    /// host is not idle, so it keeps its Retry instead of looping.
+    private var autoConnectHostID: UUID? {
+        guard scenePhase == .active, let panel, panel.status == .idle else { return nil }
+        return panel.hostID
+    }
 
     func body(content: Content) -> some View {
         content
+            .onChange(of: autoConnectHostID, initial: true) { _, hostID in
+                if let hostID { actions.autoConnect(hostID) }
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 if let panel, panel.hasWorkspaces, panel.status != .connected, panel.status != .idle {
                     SSHWorkspaceStatusBanner(panel: panel, actions: actions)

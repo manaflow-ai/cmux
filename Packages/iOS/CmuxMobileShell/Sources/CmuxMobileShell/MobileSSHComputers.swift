@@ -1,4 +1,5 @@
 import CMUXMobileCore
+internal import CmuxMobileTerminalKit
 public import CmuxMobileSSH
 public import CmuxMobileShellModel
 public import Foundation
@@ -88,6 +89,10 @@ public final class MobileSSHComputers {
     @ObservationIgnored private var browserPanelsWithFrames: Set<String> = []
     @ObservationIgnored private var publishedBrowserPanels: [String: [MobileBrowserPanelDescriptor]] = [:]
     @ObservationIgnored private var promptContinuations: [String: CheckedContinuation<MobileSSHPromptAnswer, Never>] = [:]
+    /// Hosts that stay manual until the user connects them again: the user
+    /// disconnected them or declined a first-connect question.
+    @ObservationIgnored private var autoConnectSuppressed: Set<UUID> = []
+    @ObservationIgnored private var autoConnectTasks: [UUID: Task<Void, Never>] = [:]
     static let replayCap = 4 * 1_024 * 1_024
 
     public init(directory: URL) {
@@ -172,8 +177,46 @@ public final class MobileSSHComputers {
     // MARK: Connections
 
     /// Connects (if needed), resolves the persistence mode, and refreshes
-    /// the host's workspace rows.
+    /// the host's workspace rows. An explicit open re-enables automatic
+    /// reconnects for the host.
     public func open(hostID: UUID) async {
+        autoConnectSuppressed.remove(hostID)
+        // Join an automatic connect already in flight rather than racing it
+        // through the same first-connect questions.
+        if let pending = autoConnectTasks[hostID] { await pending.value }
+        await connectAndList(hostID: hostID)
+    }
+
+    /// Whether ``autoConnect(hostID:)`` would start a connection: the host
+    /// exists, nothing is live or in flight, it did not fail (failures keep
+    /// Retry), and the user did not disconnect it or decline a question.
+    public func canAutoConnect(hostID: UUID) -> Bool {
+        hosts.contains { $0.id == hostID }
+            && (statusByHost[hostID] ?? .idle) == .idle
+            && connections[hostID] == nil
+            && connectTasks[hostID] == nil
+            && autoConnectTasks[hostID] == nil
+            && !autoConnectSuppressed.contains(hostID)
+    }
+
+    /// Connects a host the user is looking at, the way a paired Mac
+    /// reconnects: when its workspace list appears, when the app returns to
+    /// the foreground, and after its connection drops. Idempotent; a no-op
+    /// unless ``canAutoConnect(hostID:)``. The runtime owns the work, so a
+    /// view disappearing mid-connect never cancels a handshake or prompt.
+    @discardableResult
+    public func autoConnect(hostID: UUID) -> Task<Void, Never>? {
+        guard canAutoConnect(hostID: hostID) else { return nil }
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.connectAndList(hostID: hostID)
+            self.autoConnectTasks[hostID] = nil
+        }
+        autoConnectTasks[hostID] = task
+        return task
+    }
+
+    private func connectAndList(hostID: UUID) async {
         guard hosts.contains(where: { $0.id == hostID }) else { return }
         do {
             _ = try await provider(for: hostID)
@@ -222,7 +265,11 @@ public final class MobileSSHComputers {
         await refreshWorkspaces(hostID: hostID)
     }
 
+    /// Closes the host's connection at the user's request. It stays
+    /// disconnected (no automatic reconnect) until opened again.
     public func disconnect(hostID: UUID) async {
+        autoConnectSuppressed.insert(hostID)
+        autoConnectTasks.removeValue(forKey: hostID)?.cancel()
         for surfaceID in attachments.keys where MobileSSHIdentifiers.hostID(of: surfaceID) == hostID {
             await detach(surfaceID: surfaceID)
         }
@@ -299,12 +346,25 @@ public final class MobileSSHComputers {
     /// replays retained output.
     func replay(surfaceID: String) {
         if attachments[surfaceID] != nil || attachTasks[surfaceID] != nil {
-            var bytes = Data("\u{1B}[2J\u{1B}[3J\u{1B}[H".utf8)
-            bytes.append(replayBySurface[surfaceID] ?? Data())
-            sink?.sshDeliver(bytes, surfaceID: surfaceID)
+            sink?.sshDeliver(Self.replacement(replaying: replayBySurface[surfaceID] ?? Data()), surfaceID: surfaceID)
             return
         }
         attach(surfaceID: surfaceID)
+    }
+
+    /// Bytes that replace a surface's whole terminal with `history`.
+    ///
+    /// A full reset (RIS) first, so the replacement never inherits local
+    /// state from earlier bytes (alternate screen, scroll region, origin
+    /// mode, pending synchronized update); then clear screen and scrollback.
+    /// `history` is output the program produced earlier, so its terminal
+    /// query requests are stripped: the program is no longer waiting for
+    /// answers, and a phone that answers for the PTY (plain/tmux) would type
+    /// them into whatever runs now. Only live output may produce replies.
+    static func replacement(replaying history: Data) -> Data {
+        var bytes = Data("\u{1B}c\u{1B}[2J\u{1B}[3J\u{1B}[H".utf8)
+        bytes.append(TerminalReplayQueryFilter.removingQueryRequests(history))
+        return bytes
     }
 
     func input(_ data: Data, surfaceID: String) {
@@ -327,7 +387,7 @@ public final class MobileSSHComputers {
             do {
                 let provider = try await self.provider(for: hostID)
                 replayBySurface[surfaceID] = Data()
-                sink?.sshDeliver(Data("\u{1B}[2J\u{1B}[3J\u{1B}[H".utf8), surfaceID: surfaceID)
+                sink?.sshDeliver(Self.replacement(replaying: Data()), surfaceID: surfaceID)
                 let attachment = try await provider.attach(
                     terminalID: local,
                     columns: grid.columns,
@@ -357,10 +417,9 @@ public final class MobileSSHComputers {
     private func handle(_ event: MobileSSHAttachEvent, surfaceID: String) {
         switch event {
         case .snapshot(let bytes):
+            // A server snapshot (cmux-tui vt-state) is history too.
             replayBySurface[surfaceID] = bytes
-            var reset = Data("\u{1B}c\u{1B}[2J\u{1B}[3J\u{1B}[H".utf8)
-            reset.append(bytes)
-            sink?.sshDeliver(reset, surfaceID: surfaceID)
+            sink?.sshDeliver(Self.replacement(replaying: bytes), surfaceID: surfaceID)
         case .output(let bytes):
             var retained = replayBySurface[surfaceID] ?? Data()
             retained.append(bytes)
@@ -429,7 +488,16 @@ public final class MobileSSHComputers {
         }
         connectTasks[hostID] = task
         defer { connectTasks[hostID] = nil }
-        let connection = try await task.value
+        let connection: SSHConnection
+        do {
+            connection = try await task.value
+        } catch {
+            // Record the failure on THIS host too: when it is a jump host,
+            // the caller only reports the host it was asked to open, and
+            // this one would otherwise stay "connecting" forever.
+            fail(hostID: hostID, error)
+            throw error
+        }
         connections[hostID] = connection
         statusByHost[hostID] = .connected
         publish(host: host)
@@ -463,6 +531,8 @@ public final class MobileSSHComputers {
 
     private func fail(hostID: UUID, _ error: any Error) {
         if error is CancellationError {
+            // A declined question: stay manual rather than asking again.
+            autoConnectSuppressed.insert(hostID)
             statusByHost[hostID] = connections[hostID] == nil ? .idle : .connected
         } else {
             statusByHost[hostID] = .failed(Self.describe(error))

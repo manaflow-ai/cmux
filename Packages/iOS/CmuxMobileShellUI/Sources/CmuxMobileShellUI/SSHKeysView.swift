@@ -204,7 +204,7 @@ struct SSHGenerateKeyView: View {
                     L10n.string("mobile.ssh.keys.label.placeholder", defaultValue: "Key name"),
                     text: $label
                 )
-                .textInputAutocapitalization(.words)
+                .sshLiteralTextEntry()
                 .accessibilityIdentifier("ssh.keys.generate.label")
             } header: {
                 Text(L10n.string("mobile.ssh.keys.label", defaultValue: "Name"))
@@ -286,6 +286,7 @@ struct SSHImportKeyView: View {
                     L10n.string("mobile.ssh.keys.label.placeholder", defaultValue: "Key name"),
                     text: $label
                 )
+                .sshLiteralTextEntry()
                 .accessibilityIdentifier("ssh.keys.import.label")
             } header: {
                 Text(L10n.string("mobile.ssh.keys.label", defaultValue: "Name"))
@@ -294,8 +295,7 @@ struct SSHImportKeyView: View {
                 TextEditor(text: $keyText)
                     .font(.caption.monospaced())
                     .frame(minHeight: 140)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                    .sshLiteralTextEntry()
                     .accessibilityIdentifier("ssh.keys.import.text")
                 Button {
                     isShowingFileImporter = true
