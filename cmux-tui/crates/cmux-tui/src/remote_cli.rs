@@ -5275,14 +5275,23 @@ mod tests {
     #[test]
     fn browser_proxy_loopback_is_opt_in_for_ssh_carriers() {
         let rejected = remote_browser_proxy::parse_browser_proxy_args(&[
-            "ssh://host".into(), "--workspace-root".into(), "/".into(),
-            "--allowed-host".into(), "127.0.0.1".into(),
+            "ssh://host".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--allowed-host".into(),
+            "127.0.0.1".into(),
         ]);
         assert!(rejected.is_err());
 
         let parsed = remote_browser_proxy::parse_browser_proxy_args(&[
-            "ssh://host".into(), "--workspace-root".into(), "/".into(), "--allow-loopback".into(),
-            "--allowed-host".into(), "localhost".into(), "--allowed-host".into(), "::1".into(),
+            "ssh://host".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--allow-loopback".into(),
+            "--allowed-host".into(),
+            "localhost".into(),
+            "--allowed-host".into(),
+            "::1".into(),
         ])
         .unwrap();
         assert!(parsed.allow_loopback);
