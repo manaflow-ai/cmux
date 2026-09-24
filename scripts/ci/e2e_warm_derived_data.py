@@ -36,6 +36,8 @@ import tarfile
 import tempfile
 import zipfile
 
+import parallel_artifact_download as transport
+
 WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 ARCHIVE = "derived-data.tar.gz"
 MANIFEST = "cmux-e2e-input-mtimes.json"
@@ -43,8 +45,6 @@ PREFIX = "e2e-derived-data-v1-"
 # Never walk into build outputs or git metadata: they are not inputs, and
 # DerivedData lives inside the workspace on every runner pool.
 SKIPPED_DIRECTORIES = frozenset({".git", "DerivedData"})
-# Beyond this a download loses to the compile it replaces.
-MAX_ARTIFACT_BYTES = 12 * 1024**3
 
 
 def digest(path: Path) -> str:
@@ -101,10 +101,11 @@ def trusted(artifact: dict, repository: str) -> bool:
     return details.get("path") == WORKFLOW_PATH and details.get("event") == "workflow_dispatch"
 
 
-def newest(repository: str, key: str) -> dict | None:
+def candidates(repository: str, key: str):
+    """Trusted DerivedData artifacts for KEY, newest first."""
     listing = api(f"repos/{repository}/actions/artifacts?name={PREFIX}{key}&per_page=20")
-    candidates = sorted(listing.get("artifacts", []), key=lambda a: a.get("created_at", ""), reverse=True)
-    return next((a for a in candidates if trusted(a, repository)), None)
+    ordered = sorted(listing.get("artifacts", []), key=lambda a: a.get("created_at", ""), reverse=True)
+    return (a for a in ordered if trusted(a, repository))
 
 
 def extract(archive: Path, destination: Path) -> None:
@@ -129,20 +130,97 @@ def extract(archive: Path, destination: Path) -> None:
             bundle.extractall(destination)
 
 
+# Changes under these compile nothing into the app host; at most a resource
+# is copied, and replay restamps it. A difference anywhere else, most often in
+# a package every app file imports, recompiles the whole app target on top of
+# adopted DerivedData, so the download only adds its own time (runs
+# 35942257134, 35942449623).
+OUTSIDE_THE_APP_BUILD = (
+    "cmuxTests/", "cmuxUITests/", ".github/", "docs/", "scripts/ci/", "skills/", "tests/", "web/",
+)
+COMPARE_FILE_LIMIT = 300
+# Each candidate costs three API reads; past a few, the newest seeds are all
+# too far away and the build should start.
+CANDIDATE_LIMIT = 4
+
+
+def built_revision(run: dict) -> str | None:
+    """The commit a producer run compiled, from its `… @ <ref>` title."""
+    ref = str(run.get("display_title") or "").rpartition(" @ ")[2].split(" ", 1)[0]
+    if len(ref) == 40 and all(c in "0123456789abcdef" for c in ref):
+        return ref
+    if ref == "main":
+        return run.get("head_sha")
+    return None
+
+
+def outside_the_app_build(path: str) -> bool:
+    return path.startswith(OUTSIDE_THE_APP_BUILD) or path.endswith(".md")
+
+
+def app_build_changes(repository: str, producer: str, tested: str) -> list[str] | None:
+    """Files between the two revisions that feed the app build, or None if unknown."""
+    changed: set[str] = set()
+    for base, head in ((producer, tested), (tested, producer)):
+        comparison = api(f"repos/{repository}/compare/{base}...{head}")
+        files = comparison.get("files") or []
+        if len(files) >= COMPARE_FILE_LIMIT:
+            return None
+        for entry in files:
+            changed.update(filter(None, (entry.get("filename"), entry.get("previous_filename"))))
+    return sorted(path for path in changed if not outside_the_app_build(path))
+
+
+def tested_revision(workspace: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(workspace), "rev-parse", "HEAD"], check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def near_producer(repository: str, artifact: dict, tested: str) -> tuple[str | None, str]:
+    """The producer's revision and an empty reason if adopting it can save compile time."""
+    run = api(f"repos/{repository}/actions/runs/{artifact['workflow_run']['id']}")
+    producer = built_revision(run)
+    if producer is None:
+        return None, "producer-revision-unknown"
+    if producer == tested:
+        return producer, ""
+    changes = app_build_changes(repository, producer, tested)
+    if changes is None:
+        return producer, "producer-too-far"
+    if changes:
+        return producer, f"app-build-changed-since-producer ({len(changes)} files, e.g. {changes[0]})"
+    return producer, ""
+
+
 def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
     repository = os.environ["GITHUB_REPOSITORY"]
-    artifact = newest(repository, key)
+    tested = tested_revision(workspace)
+    artifact = producer = None
+    reason = "no-main-derived-data"
+    for index, candidate in enumerate(candidates(repository, key)):
+        if index == CANDIDATE_LIMIT:
+            break
+        # An older seed whose app sources match beats a newer one that differs.
+        producer, reason = near_producer(repository, candidate, tested)
+        if not reason:
+            artifact = candidate
+            break
     if artifact is None:
-        return {"hit": "false", "reason": "no-main-derived-data"}
-    if int(artifact.get("size_in_bytes") or 0) > MAX_ARTIFACT_BYTES:
+        return {"hit": "false", "reason": reason}
+    if int(artifact.get("size_in_bytes") or 0) > transport.MAX_BYTES:
         return {"hit": "false", "reason": "derived-data-too-large"}
+    expected = str(artifact.get("digest") or "")
+    if not expected.startswith("sha256:"):
+        return {"hit": "false", "reason": "derived-data-without-digest"}
     with tempfile.TemporaryDirectory() as staging:
+        # One connection to the blob store sustains about 2 MB/s on the macOS
+        # fleet, which took more than the step's 10 minutes for a 1.9 GB
+        # archive (run 35896881813). Ranged requests read the same blob.
         bundle = Path(staging, "artifact.zip")
-        with bundle.open("wb") as stream:
-            subprocess.run(
-                ["gh", "api", f"repos/{repository}/actions/artifacts/{artifact['id']}/zip"],
-                check=True, stdout=stream,
-            )
+        transport.download_zip(repository, artifact["id"], bundle, artifact["size_in_bytes"])
+        if transport.sha256_file(bundle) != expected.removeprefix("sha256:"):
+            raise ValueError("DerivedData artifact does not match its provider digest")
         with zipfile.ZipFile(bundle) as archive:
             archive.extractall(staging)
         extract(Path(staging, ARCHIVE), derived)
@@ -151,6 +229,7 @@ def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
     return {
         "hit": "true",
         "producer_run_id": str(artifact["workflow_run"]["id"]),
+        "producer_revision": producer,
         "unchanged_inputs": str(restored),
         "changed_inputs": str(changed),
     }

@@ -85,30 +85,88 @@ COMPILE_JOBS = {
 }
 
 
+# Build controls the product contract hashes. Only non-secret values belong
+# here, because the contract is published in the artifact receipt.
+#
+# CMUX_CI_XCODE_APP and CMUX_CI_REQUIRED_MACOS_SDK_MAJOR are left out on
+# purpose. They only tell scripts/select-ci-xcode.sh which Xcode to pick, and
+# the Xcode it picked is already `xcode` and `sdk` in the contract. Hashing the
+# selectors as well split one product into two names: compile admission pins
+# Xcode by path while an E2E dispatch picks the same Xcode by SDK, so neither
+# lane could adopt the other's product.
+CONTRACT_ENVIRONMENT = (
+    "CMUX_SKIP_ZIG_BUILD",
+    "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
+    "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
+    "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS",
+)
+
+# Where compile admission and the nightly seeder compile. Every runner pool can
+# reproduce this path, and every app-host consumer aliases its `src` checkout at
+# run time (restore-app-host-test-product.sh), so a product compiled here runs
+# on any pool.
+CANONICAL_DERIVED_DATA = (
+    Path(os.environ.get("CMUX_CI_CANONICAL_ROOT", "/private/tmp/cmux-ci"))
+    / "derived-data-compile-admission"
+)
+
+
 def read(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
 
-def contract():
+def contract(derived=None):
+    """Fingerprint everything that decides a compiled product's bytes.
+
+    With `derived`, the app-host product compiled into that DerivedData, the
+    contract names no runner pool. The pool used to be hashed as a stand-in
+    for three things, and each is now keyed directly:
+
+    - the toolchain: `xcode` and `sdk` are the exact Xcode and SDK builds, and
+      `tools` the exact version of every other compiler a build phase can
+      reach. Two pools with the same toolchain produce the same product.
+    - the host: `macos` is the host's major version. The compilers come from
+      Xcode, not from the host, so a point release of the host cannot change
+      what they emit; the major version stays in so that a product never
+      crosses to a host the lane has not been validated on.
+    - the paths baked into the product: `build_location` is the DerivedData
+      directory it was compiled into. A product compiled under a checkout
+      carries that checkout's absolute path, which differs by pool, so it only
+      matches another job at the same path. A product compiled at the
+      canonical root carries a path every pool reproduces.
+
+    Nothing about the runner's size, provider or image version is left, so a
+    6 and a 12 vCPU runner, or a Blacksmith and a GitHub-hosted runner with the
+    same toolchain, name one product.
+
+    Without `derived` (the Release product contract) the pool is still hashed.
+    """
     versions = {}
     for command in ("rustc", "cargo", "go", "zig", "node", "bun"):
         executable = shutil.which(command)
         versions[command] = read(executable, "version" if command in {"go", "zig"} else "--version") if executable else "absent"
-    return {
+    value = {
         "product_inputs": product_inputs.local_identity(),
         "xcode": read("xcodebuild", "-version"),
         "sdk": read("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
-        "os": read("sw_vers", "-buildVersion"),
         "architecture": platform.machine(),
         "tools": versions,
-        # Only non-secret build controls belong in the public artifact receipt.
-        "environment": {k: os.environ.get(k, "") for k in (
-            "CMUX_CI_XCODE_APP", "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR", "CMUX_SKIP_ZIG_BUILD",
-            "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
-            "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
-            "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS", "ImageOS", "ImageVersion")},
-        "runner": os.environ.get("CMUX_PRODUCT_RUNNER", ""),
+        "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
     }
+    if derived is None:
+        value["os"] = read("sw_vers", "-buildVersion")
+        value["environment"].update(
+            {k: os.environ.get(k, "") for k in ("ImageOS", "ImageVersion")})
+        value["runner"] = os.environ.get("CMUX_PRODUCT_RUNNER", "")
+        return value
+    value["macos"] = read("sw_vers", "-productVersion").split(".", 1)[0]
+    value["build_location"] = str(Path(derived).resolve())
+    return value
+
+
+def portable_contract(value):
+    """The same product compiled at the canonical root, which runs on any pool."""
+    return {**value, "build_location": str(CANONICAL_DERIVED_DATA.resolve())}
 
 
 def key(value):
@@ -258,10 +316,12 @@ def attested_producer_revision(api, run, revision, product_inputs):
         if actual_workflow.get("e2e_recipe") != product_inputs.get("e2e_recipe"):
             return False
         return github_product_identity(api, revision) == product_inputs
-    if revision == head:
-        return True
     if run.get("event") != "pull_request":
-        return False
+        # Checked against these product inputs before download.
+        return revision == head
+    if revision == head:
+        # `select` defers a pull request producer's head check to here.
+        return github_product_identity(api, revision) == product_inputs
     parents = api.get(f"git/commits/{revision}").get("parents")
     if not isinstance(parents, list) or len(parents) != 2:
         return False
@@ -336,8 +396,15 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         # `head_sha` names the workflow definition's ref and attests nothing
         # about the checkout. The binding that matters is the same either way:
         # the tree this job fingerprinted has to equal GitHub's immutable copy
-        # of the revision it claims, which is checked directly below. A locally
-        # modified checkout still cannot adopt anything.
+        # of the revision it checked out, which is checked directly below. A
+        # locally modified checkout still cannot adopt anything.
+        #
+        # That revision is the checkout, not `head_sha`. A pull request run
+        # checks out the merge of its head into the base, and once the base
+        # has changed product inputs the head alone fingerprints differently,
+        # so comparing against the head refused every pull request that was
+        # behind its base. `attested_checkout` has already bound the merge to
+        # the attested head.
         dispatched = run.get("event") == "workflow_dispatch"
         head = current_revision if dispatched else run.get("head_sha")
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
@@ -346,7 +413,7 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if not dispatched and not attested_checkout(run, current_revision):
             record_reason(reasons, "consumer_revision_mismatch")
             return None
-        if github_product_identity(api, head) != value["product_inputs"]:
+        if github_product_identity(api, current_revision) != value["product_inputs"]:
             record_reason(reasons, "consumer_product_inputs_mismatch")
             return None
         return run
@@ -444,7 +511,14 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 if actual_workflow.get("e2e_recipe") != value["product_inputs"].get("e2e_recipe"):
                     record_reason(reasons, "producer_recipe_mismatch")
                     continue
-            elif github_product_identity(api, head) != value["product_inputs"]:
+            elif (run.get("event") != "pull_request"
+                    and github_product_identity(api, head) != value["product_inputs"]):
+                # A pull request producer compiled the merge of its head into
+                # the base, which this listing does not name, so its head alone
+                # can differ while the merge it sealed matches exactly. Its
+                # sealed merge is re-fingerprinted from GitHub after download,
+                # in `attested_producer_revision`; every other producer
+                # compiled its head and is rejected here, before download.
                 record_reason(reasons, "producer_product_inputs_mismatch")
                 continue
             jobs = []
@@ -865,7 +939,7 @@ def main():
     mode, derived_raw = sys.argv[1:]
     derived = Path(derived_raw)
     try:
-        value = contract()
+        value = contract(derived)
     except (OSError, subprocess.SubprocessError):
         value = None
         print("Build environment cannot be fingerprinted; compiling normally.")
@@ -899,15 +973,28 @@ def main():
             if value is None:
                 report["miss_reasons"] = "fingerprint_unavailable"
             elif os.environ.get("GITHUB_EVENT_NAME") in PERMITTED_PRODUCERS:
-                hit = restore(
-                    GitHub(os.environ["GITHUB_REPOSITORY"]),
-                    value,
-                    derived,
-                    os.environ["GITHUB_RUN_ID"],
-                    products.identity(),
-                    os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
-                    report,
-                )
+                api = GitHub(os.environ["GITHUB_REPOSITORY"])
+                # A product this job would compile, then the same product
+                # compiled at the canonical root, which this job can also run.
+                wanted = [value]
+                if portable_contract(value) != value:
+                    wanted.append(portable_contract(value))
+                reasons = []
+                for candidate in wanted:
+                    hit = restore(
+                        api,
+                        candidate,
+                        derived,
+                        os.environ["GITHUB_RUN_ID"],
+                        products.identity(),
+                        os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                        report,
+                    )
+                    reasons.extend(r for r in report["miss_reasons"].split(",")
+                                   if r and r not in reasons)
+                    if hit:
+                        break
+                report["miss_reasons"] = ",".join(reasons)
             else:
                 report["miss_reasons"] = "consumer_event_disallowed"
         except (TypeError, AttributeError, ValueError, KeyError, OSError,
