@@ -2,7 +2,7 @@
 """Move a pull request CI run off a busy persistent macOS pool.
 
 pr_runner_pool.py puts every macOS job of a run on one pool. When that pool is
-persistent (owned Macs, any label outside the ephemeral `blacksmith-` pools),
+owned (a `glaeda-<class>-xcode-<version>` label, pr_runner_pool.persistent),
 GitHub never re-routes a queued job: it waits for that pool however long the
 pool stays busy. ci-owned-pool-rescue.yml starts this script when a CI run is
 requested, from the default branch, with Actions write.
@@ -25,7 +25,7 @@ time the watcher saw it queued, so a job record created before its `needs`
 were met can never count as already past the budget.
 
 It stops watching, doing nothing, when:
-- POOLS has no persistent pool (today), before any API request;
+- owned pools are off (CI_PR_POOL_OWNED is not 1), before any API request;
 - the run is not attempt 1 of a same-repository pull request run of ci.yml;
 - `changes` finished without a marker: the run is on an ephemeral pool;
 - the run finished, or the watch limit passed.
@@ -51,12 +51,12 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import EPHEMERAL_PREFIX, POOLS  # noqa: E402
+from pr_runner_pool import persistent  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
@@ -76,11 +76,6 @@ CANCEL_WAIT_SECONDS = 180
 FORCE_CANCEL_AFTER_SECONDS = 90
 MAX_JOB_PAGES = 3
 API = "https://api.github.com"
-
-
-def persistent_pools(pools: Iterable[str] = POOLS) -> frozenset[str]:
-    """Pool labels whose machines outlive a job: the ones a queued job can wait on for good."""
-    return frozenset(label for label in pools if not label.startswith(EPHEMERAL_PREFIX))
 
 
 def budget(value: str | None) -> int | None:
@@ -104,9 +99,10 @@ def parse_time(value: object) -> dt.datetime | None:
         return None
 
 
-def job_pool(job: Mapping[str, Any], persistent: frozenset[str]) -> str | None:
+def job_pool(job: Mapping[str, Any]) -> str | None:
+    """The owned pool a job asked for, if any."""
     for label in job.get("labels") or []:
-        if label in persistent:
+        if persistent(str(label)):
             return str(label)
     return None
 
@@ -138,14 +134,14 @@ class Look:
 
 
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
-           persistent: frozenset[str], first_seen: Mapping[Any, dt.datetime] | None = None) -> Look:
+           first_seen: Mapping[Any, dt.datetime] | None = None) -> Look:
     """One look at the jobs of a run on a persistent pool."""
     seen = first_seen or {}
-    waiting = [job for job in jobs if job_pool(job, persistent) and waiting_for_runner(job)]
+    waiting = [job for job in jobs if job_pool(job) and waiting_for_runner(job)]
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budget_seconds]
     if stuck:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
-        return Look("rescue", f"{names} queued on {job_pool(stuck[0], persistent)} for at least "
+        return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
                               f"{budget_seconds}s with no runner")
     if waiting:
         return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner", waiting=True)
@@ -249,7 +245,7 @@ def read(call: Callable[[], Any], sleep: Callable[[float], None], log: Callable[
     raise AssertionError("unreachable")
 
 
-def watch(api: GitHub, target: Target, *, budget_seconds: int, persistent: frozenset[str],
+def watch(api: GitHub, target: Target, *, budget_seconds: int,
           now: Callable[[], dt.datetime], sleep: Callable[[float], None],
           log: Callable[[str], None]) -> tuple[str, str]:
     """Watch until a stop or a rescue. Returns (outcome, reason)."""
@@ -275,10 +271,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int, persistent: froze
                 return "stop", "the run finished"
             seen_at = now()
             for job in jobs:
-                if job_pool(job, persistent) and waiting_for_runner(job):
+                if job_pool(job) and waiting_for_runner(job):
                     first_seen.setdefault(job.get("id"), seen_at)
-            look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, persistent=persistent,
-                          first_seen=first_seen)
+            look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen)
             log(f"look {looks}: {look.reason}")
             if look.action == "rescue":
                 return "rescue", look.reason
@@ -338,7 +333,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
          api: GitHub | None = None, now: Callable[[], dt.datetime] | None = None,
-         sleep: Callable[[float], None] = time.sleep, pools: Iterable[str] = POOLS) -> int:
+         sleep: Callable[[float], None] = time.sleep) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.parse_args(argv)
@@ -356,9 +351,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                 handle.write("### Persistent-pool rescue\n\n" + "\n".join(f"- {line}" for line in lines) + "\n")
         return 0
 
-    persistent = persistent_pools(pools)
-    if not persistent:
-        return finish("no persistent pool in POOLS; nothing to watch")
+    if (env.get("POOL_OWNED") or "").strip() != "1":
+        return finish("owned pools are off (CI_PR_POOL_OWNED is not 1); nothing to watch")
     seconds = budget(env.get("RESCUE_SECONDS"))
     if seconds is None:
         return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
@@ -372,8 +366,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
     log(f"watching run {target.run_id} of pull request #{target.pr_number} (budget {seconds}s)")
     try:
-        outcome, reason = watch(client, target, budget_seconds=seconds, persistent=persistent,
-                                now=clock, sleep=sleep, log=log)
+        outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log)
         if outcome != "rescue":
             return finish(f"stopped: {reason}")
         log(f"rescue: {reason}")

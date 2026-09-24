@@ -404,11 +404,7 @@ path = "tests/test_ci_notification_semantics.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_persistent_compile_fleet.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_persistent_mac_compile.py"
+path = "tests/test_ci_cli_product_routing.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1153,6 +1149,10 @@ path = "tests/test_seed_derived_data.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_seed_decide.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_video_recording.py"
 lane = "linux-guard"
 
@@ -1171,7 +1171,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_macos_info_plist.py"
 lane = "macos-cli-no-socket"
-
-[[test]]
-path = "tests/test_nightly_mini_route.py"
-lane = "linux-guard"

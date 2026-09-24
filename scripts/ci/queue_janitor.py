@@ -73,6 +73,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_runner_pool import persistent as owned_pool  # noqa: E402
+
 
 API = "https://api.github.com"
 DEFAULT_THRESHOLD = 6
@@ -244,12 +247,20 @@ def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt
     return True
 
 
+def owned_label(job: Mapping[str, Any]) -> str | None:
+    """The owned Mac pool a job asked for (glaeda-<class>-xcode-<version>), which names no macOS."""
+    return next((str(label) for label in job.get("labels") or () if owned_pool(str(label))), None)
+
+
 def is_macos_job(job: Mapping[str, Any]) -> bool:
-    return any("macos" in str(label).lower() for label in job.get("labels") or ())
+    return bool(owned_label(job)) or any("macos" in str(label).lower() for label in job.get("labels") or ())
 
 
 def runner_pool(job: Mapping[str, Any]) -> str:
-    """The pool a macOS job waits on: the macOS labels it asked for."""
+    """The pool a macOS job waits on: its owned pool label, else the macOS labels it asked for."""
+    owned = owned_label(job)
+    if owned:
+        return owned
     labels = sorted({str(label).lower() for label in job.get("labels") or () if "macos" in str(label).lower()})
     return ",".join(labels)
 
@@ -349,6 +360,10 @@ def pool_load_snapshot(
     is what tells a pull request to stay off a pool those runs are waiting on.
     `settings` carries the pool-choice repository variables, which a fork
     pull request's run cannot read itself.
+
+    A job on an owned pool (`glaeda-<class>-xcode-<version>`) is keyed by
+    that label (runner_pool); its counts are how pr_runner_pool.py knows how
+    many of the pool's machines are taken.
     """
     pools: dict[str, dict[str, Any]] = {}
     oldest: dict[str, dt.datetime] = {}
