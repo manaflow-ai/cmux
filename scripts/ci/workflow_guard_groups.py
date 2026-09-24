@@ -117,6 +117,7 @@ ROUTING_POLICY_PATHS = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
     "tests/test_ci_change_areas.py",
+    "tests/test_ci_fork_runner_routing.py",
     "tests/test_ci_linux_guard_routing.py",
     "tests/test_ci_guard_workflow_structure.py",
     "tests/test_ci_app_host_guard_structure.py",
