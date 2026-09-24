@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Build the Rust helpers that the cmux app target's late script phases bundle
-# (diff sidecar and command palette Nucleo FFI) while xcodebuild compiles
-# Swift.
+# (diff sidecar, command palette Nucleo FFI, and cmux-cua) while xcodebuild
+# compiles Swift.
 #
 # Those phases run after the cmux Swift compile although they do not read its
-# output, so on CI their cargo builds (about 100 s) were the serial tail of the
-# nightly build. This script overlaps the two local-source helpers and runs the same build scripts with the same Cargo
-# target directories and the same toolchain-visible environment that Xcode gives
-# the phases. When the phases then run, Cargo finds every unit fresh and the
+# output, so on CI their cargo builds were the serial tail of the nightly
+# build. This script overlaps them and runs the same build scripts with the
+# same Cargo target directories and the same toolchain-visible environment that
+# Xcode gives the phases. When the phases then run, Cargo finds every unit fresh and the
 # phases only copy, lipo, and sign.
 #
 # Correctness never depends on this script. If it fails, is slower than the
@@ -87,11 +87,18 @@ run_helper nucleo-ffi env \
   CMUX_NUCLEO_FFI_REQUIRE_CARGO=1 \
   "$ROOT/scripts/build-command-palette-nucleo-ffi.sh" &
 nucleo_pid=$!
-# cmux-cua remains in the authoritative Xcode phase. Its source checkout
-# mutates a shared Git cache; cancelling an optional prebuild during checkout
-# could leave a Git index lock that poisons the subsequent required build.
+# cmux-cua's source checkout mutates a shared Git cache, and cancelling it
+# midway could leave a Git index lock that poisons the required build. The
+# caller prepares that source before this script starts (build-cmux-cua.sh
+# --prepare-source), so this run only compiles: it takes no lock and writes no
+# Git state, and killing it at any point is safe. Without a prepared source it
+# fails fast and the Xcode phase builds cmux-cua as before.
+run_helper cmux-cua \
+  "$ROOT/scripts/build-cmux-cua.sh" --compile-prepared --archs "$archs" &
+cua_pid=$!
 
 status=0
 wait "$sidecar_pid" || status=1
 wait "$nucleo_pid" || status=1
+wait "$cua_pid" || status=1
 exit "$status"

@@ -12,6 +12,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUTPUT=""
 ARCHS_RAW=""
 PRINT_HELPER_ID=""
+MODE=""
 CACHE_DIR="${CMUX_CUA_CACHE_DIR:-${HOME:-/tmp}/Library/Caches/cmux/cmux-cua}"
 
 helper_bundle_id_for_host() {
@@ -74,6 +75,10 @@ Options:
   --cache-dir <path>    clone/build cache dir (default: ~/Library/Caches/cmux/cmux-cua)
   --print-helper-id <host-bundle-id>
                          Print the TCC-facing helper identity and exit
+  --prepare-source      materialize and verify the pinned source, then exit
+  --compile-prepared    build the already prepared source into its Cargo
+                         target dir without writing to Git or --output; lets CI
+                         warm the Xcode phase's cargo build ahead of time
   -h, --help            show this help
 
 Environment:
@@ -105,6 +110,10 @@ while (($#)); do
       PRINT_HELPER_ID="$2"
       shift 2
       ;;
+    --prepare-source|--compile-prepared)
+      MODE="${1#--}"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -122,7 +131,7 @@ if [[ -n "$PRINT_HELPER_ID" ]]; then
   exit 0
 fi
 
-if [[ -z "$OUTPUT" ]]; then
+if [[ -z "$OUTPUT" && -z "$MODE" ]]; then
   echo "error: --output is required" >&2
   usage
   exit 2
@@ -268,6 +277,17 @@ if [[ -n "${CMUX_CUA_SRC:-}" ]]; then
     echo "error: CMUX_CUA_SRC is not a git checkout: $SRC_ROOT" >&2
     exit 1
   fi
+elif [[ "$MODE" == "compile-prepared" ]]; then
+  # Read-only use of a source that --prepare-source already materialized. CI
+  # may kill this run at any moment, so it must never hold the source lock or
+  # write to the checkout's Git state. The Xcode phase still re-verifies the
+  # tree before it builds the shipped binary.
+  SRC_ROOT="$CACHE_DIR/src-$CMUX_CUA_PINNED_SHA"
+  if [[ ! -d "$SRC_ROOT/.git" ]]; then
+    echo "error: no prepared cmux-cua source at $SRC_ROOT; run --prepare-source first" >&2
+    exit 1
+  fi
+  validate_managed_source_cache
 else
   # Key the source dir by the pinned SHA so checkouts pinning different
   # commits never mutate each other's verified sources, and a tree that passed
@@ -321,6 +341,10 @@ if [[ "$ACTUAL_SHA" != "$CMUX_CUA_PINNED_SHA" ]]; then
   exit 1
 fi
 release_src_lock
+if [[ "$MODE" == "prepare-source" ]]; then
+  echo "cmux-cua source ready at $SRC_ROOT"
+  exit 0
+fi
 
 CARGO_ROOT="$SRC_ROOT/libs/cmux-cua/rust"
 if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
@@ -328,9 +352,10 @@ if [[ ! -f "$CARGO_ROOT/Cargo.toml" ]]; then
   exit 1
 fi
 
-TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
-
-mkdir -p "$(dirname "$OUTPUT")"
+if [[ -z "$MODE" ]]; then
+  TMPDIR_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-build.XXXXXX")"
+  mkdir -p "$(dirname "$OUTPUT")"
+fi
 
 ensure_rust_target() {
   local target="$1"
@@ -386,10 +411,16 @@ for arch in "${ARCHS[@]}"; do
   if [ "$cargo_status" -ne 0 ]; then
     exit "$cargo_status"
   fi
+  [[ "$MODE" == "compile-prepared" ]] && continue
   arch_output="$TMPDIR_BUILD/cmux-cua-$arch"
   cp "$target_dir/$target/release/cmux-cua" "$arch_output"
   BUILT+=("$arch_output")
 done
+
+if [[ "$MODE" == "compile-prepared" ]]; then
+  echo "cmux-cua compiled in $target_dir"
+  exit 0
+fi
 
 if ((${#BUILT[@]} == 1)); then
   cp "${BUILT[0]}" "$OUTPUT"

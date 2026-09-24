@@ -29,9 +29,16 @@ class LifecycleTests(unittest.TestCase):
             return result
 
     def test_optional_work_does_not_mutate_the_shared_cua_source_cache(self):
+        # The prebuild may be killed mid-run, so it may only compile a source
+        # the caller already prepared; tests/test_cmux_cua_build_cache_safety.py
+        # checks that --compile-prepared writes no Git state.
         prebuild = (ROOT / "scripts/ci/prebuild-app-helpers.sh").read_text()
-        self.assertNotIn('run_helper cmux-cua', prebuild)
-        self.assertNotIn('"$ROOT/scripts/build-cmux-cua.sh"', prebuild)
+        calls = [line for line in prebuild.splitlines() if "build-cmux-cua.sh" in line and not line.lstrip().startswith("#")]
+        self.assertEqual(len(calls), 1, calls)
+        self.assertIn("--compile-prepared", calls[0])
+        workflow = (ROOT / ".github/workflows/nightly.yml").read_text()
+        prepare = workflow.index("./scripts/build-cmux-cua.sh --prepare-source")
+        self.assertLess(prepare, workflow.index("python3 scripts/ci/run-with-helper-prebuild.py"))
 
     def test_failed_build_does_not_wait_for_hung_helper(self):
         result = self.run_case("import signal; signal.pause()", "raise SystemExit(17)")

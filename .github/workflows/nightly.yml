@@ -955,9 +955,13 @@ jobs:
           #
           # The app target's Rust helper phases run after the Swift compile but
           # do not read its output. Build them now at low priority so those
-          # phases find the local-source helpers fresh instead of building them after
-          # the compile. A failed or late prebuild only leaves that work to the
-          # phases, so its status never fails this step.
+          # phases find the helpers fresh instead of building them after the
+          # compile. A failed or late prebuild only leaves that work to the
+          # phases, so its status never fails this step. cmux-cua's Git checkout
+          # happens here, before the prebuild starts, because the prebuild can
+          # be killed at any point and must not own Git state.
+          ./scripts/build-cmux-cua.sh --prepare-source --archs "$archs" \
+            || echo "::warning::cmux-cua source prepare failed; its build phase remains authoritative"
           python3 scripts/ci/run-with-helper-prebuild.py \
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \

@@ -207,12 +207,61 @@ def test_unmanaged_helper_bundle_is_preserved(sha: str) -> None:
         assert sentinel.read_text() == "keep me", result.stderr
 
 
+def test_prepared_source_compiles_without_git_writes(sha: str) -> None:
+    # CI kills the optional prebuild at any moment, so --compile-prepared must
+    # take no source lock and run no Git command that writes the checkout.
+    with tempfile.TemporaryDirectory(prefix="cmux-cua-prepared-") as tmp:
+        root = Path(tmp)
+        cache_dir = root / "cache"
+        environment = successful_build_environment(root, sha)
+        git_log = root / "git.log"
+        real_git = root / "bin" / "git"
+        (root / "bin" / "git.real").write_text(real_git.read_text())
+        (root / "bin" / "git.real").chmod(0o755)
+        write_executable(
+            real_git,
+            f"""#!/bin/bash
+printf '%s\\n' "$*" >> {str(git_log)!r}
+exec {str(root / "bin" / "git.real")!r} "$@"
+""",
+        )
+
+        def run(*args: str) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [str(BUILD_SCRIPT), *args, "--archs", "arm64 x86_64", "--cache-dir", str(cache_dir)],
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+
+        unprepared = run("--compile-prepared")
+        assert unprepared.returncode != 0
+        assert "--prepare-source" in unprepared.stderr, unprepared.stderr
+
+        prepared = run("--prepare-source")
+        assert prepared.returncode == 0, prepared.stderr
+        source_dir = cache_dir / f"src-{sha}"
+        assert (source_dir / ".cmux-cua-managed-source").is_file()
+        assert not (source_dir / "target").exists()
+
+        git_log.write_text("")
+        compiled = run("--compile-prepared")
+        assert compiled.returncode == 0, compiled.stderr
+        for target in ("aarch64-apple-darwin", "x86_64-apple-darwin"):
+            assert (source_dir / ".cmux-cargo-target" / target / "release" / "cmux-cua").is_file()
+        git_commands = [line.split()[2] for line in git_log.read_text().splitlines()]
+        assert set(git_commands) <= {"rev-parse"}, git_commands
+        assert not Path(f"{source_dir}.lock").exists()
+        assert not (root / "output").exists()
+
+
 def main() -> int:
     sha = pinned_sha()
     test_unmanaged_current_source_is_preserved(sha)
     test_stale_sibling_source_is_preserved(sha)
     test_clean_legacy_source_is_adopted(sha)
     test_unmanaged_helper_bundle_is_preserved(sha)
+    test_prepared_source_compiles_without_git_writes(sha)
     print("PASS: cmux-cua builds preserve unmanaged cache contents")
     return 0
 
