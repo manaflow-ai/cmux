@@ -270,7 +270,9 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertTrue(upload["with"]["path"].endswith(pool.SNAPSHOT_FILE))
 
 
-PR_ROUTE = re.compile(r"github\.event_name == 'pull_request' && \((?P<lane>[^()]*vars\.MACOS_RUNNER_PR[^()]*)\)")
+# The pull-request lane, wherever its event condition puts it: compile admission
+# also takes it for main's full-suite dispatch (#14158), where the inputs are empty.
+PR_ROUTE = re.compile(r"&& \((?P<lane>[^()]*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 
 class Wiring(unittest.TestCase):
@@ -319,11 +321,13 @@ class Wiring(unittest.TestCase):
             self.assertIn("changes", [needs] if isinstance(needs, str) else needs, name)
 
     def test_xcode_pins_follow_the_chosen_pool(self):
-        pin = ("${{ github.event_name == 'pull_request' && (inputs.pr_xcode_app || "
-               "vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}")
+        lane = "(inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15)"
+        pin = f"${{{{ github.event_name == 'pull_request' && {lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}"
+        main_dispatch = ("${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' "
+                         f"&& github.ref == 'refs/heads/main') && {lane} || vars.CMUX_CI_XCODE_APP_MACOS_15 }}}}")
         macos = self.workflow("ci-macos.yml")["jobs"]
         for job in ("macos-compile-admission", "tests-build-and-lag"):
-            self.assertEqual(macos[job]["env"]["CMUX_CI_XCODE_APP"], pin, job)
+            self.assertEqual(macos[job]["env"]["CMUX_CI_XCODE_APP"], main_dispatch, job)
         cli = self.workflow("cli-pipe-regressions.yml")["jobs"]["cli-pipe-regressions"]
         self.assertEqual(cli["env"]["CMUX_CI_XCODE_APP"], pin)
 
