@@ -4,9 +4,10 @@
 Pull request macOS jobs share a few small runner pools (Blacksmith and
 GitHub-hosted macOS 15 and 26). When one is saturated, every queued job on it
 that nobody will read delays one that somebody will. This janitor looks at
-in-flight Actions runs, and only when the number of macOS jobs queued on one
-pool exceeds a threshold does it cancel runs that are waste and hold that
-pool, in this priority order:
+in-flight Actions runs and cancels runs that are waste, in this priority
+order. Stale pull request runs (b) are cancelled on every sweep; the other
+categories only when the number of macOS jobs queued on a pool they hold
+exceeds a threshold:
 
   a. push-triggered experiment workflows on ``exp/*`` branches;
   b. pull request runs whose PR is closed or merged, or whose head SHA is no
@@ -28,10 +29,14 @@ Draft pull requests are deliberately not a category: a draft can be an active
 integration branch other work depends on, and ci.yml has no ready_for_review
 trigger to replace a cancelled ci-status.
 
-A pool is the set of macOS labels a job asked for, so a run that only waits on
-a pool that is not backed up is never cancelled: that frees nothing anyone is
-waiting for. It stops as soon as every pool's projected queue is back under
-the threshold, or when it reaches the per-sweep cancel cap. Main pushes, merge groups, scheduled and
+A pool is the set of macOS labels a job asked for. Outside (b), a run that only
+waits on a pool that is not backed up is never cancelled: its output may still
+be read, and cancelling it frees nothing anyone is waiting for. A stale pull
+request run's output is never read, so it goes whatever the queue, unless
+someone re-ran it or labelled the PR no-janitor; those wait for a backed-up
+pool like the other categories. Outside (b), candidates are skipped once every
+pool's projected queue is back under the threshold. Every category shares the
+per-sweep cancel cap, and runs holding a backed-up pool are spent first. Main pushes, merge groups, scheduled and
 dispatched runs on main, release/tag runs, nightly, and TestFlight/App Store
 workflows are never candidates, whatever their state.
 
@@ -352,12 +357,17 @@ def pr_labels(pr: Mapping[str, Any]) -> set[str]:
     return {str(n.get("name")) for n in ((pr.get("labels") or {}).get("nodes") or ())}
 
 
+def labels_complete(pr: Mapping[str, Any]) -> bool:
+    return not ((pr.get("labels") or {}).get("pageInfo") or {}).get("hasNextPage")
+
+
 @dataclasses.dataclass(frozen=True)
 class Candidate:
     run: Mapping[str, Any]
     category: str
     reason: str
     usage: MacosUsage
+    pr: Mapping[str, Any] | None = None
 
 
 def classify(
@@ -506,10 +516,26 @@ def build_plan(
             now=now,
         )
         if verdict:
-            candidates.append(Candidate(run, verdict[0], verdict[1], usage))
+            candidates.append(Candidate(run, verdict[0], verdict[1], usage, pr))
 
-    def order(candidate: Candidate) -> tuple[int, str, int]:
-        return (CATEGORY_ORDER.index(candidate.category), str(candidate.run.get("created_at") or ""), candidate.run["id"])
+    initially_backed_up = {pool for pool, count in queued_by_pool.items() if count > threshold}
+
+    def order(candidate: Candidate) -> tuple[int, int, str, int]:
+        # Runs holding a backed-up pool take the shared cap first; a stale run on
+        # an idle pool frees nothing anyone is waiting for.
+        idle = not initially_backed_up.intersection(candidate.usage.held_by_pool)
+        return (int(idle), CATEGORY_ORDER.index(candidate.category),
+                str(candidate.run.get("created_at") or ""), candidate.run["id"])
+
+    def needs_pressure(candidate: Candidate) -> bool:
+        # A re-run or a no-janitor label means someone wants this output.
+        return candidate.category != "stale-pr" or deliberate(candidate)
+
+    def deliberate(candidate: Candidate) -> bool:
+        pr = candidate.pr or {}
+        # An unread label page may hold no-janitor, so treat it as present.
+        return ((candidate.run.get("run_attempt") or 1) > 1 or JANITOR_OPT_OUT_LABEL in pr_labels(pr)
+                or not labels_complete(pr))
 
     candidates.sort(key=order)
     decisions: list[Decision] = []
@@ -517,14 +543,17 @@ def build_plan(
     cancels = 0
     for candidate in candidates:
         backed_up = {pool for pool, count in projected.items() if count > threshold}
-        if not backed_up:
-            busiest = max(projected.values(), default=0)
-            decisions.append(Decision(
-                candidate, "skip", f"busiest pool projected at {busiest} queued, not over {threshold}"))
-            continue
-        if not backed_up.intersection(candidate.usage.held_by_pool):
-            decisions.append(Decision(candidate, "skip", "its macOS jobs are on pools that are not backed up"))
-            continue
+        # Nobody reads a merged, closed or superseded PR's results, so that run
+        # is waste on any pool; every other category waits for a backed-up one.
+        if needs_pressure(candidate):
+            if not backed_up:
+                busiest = max(projected.values(), default=0)
+                decisions.append(Decision(
+                    candidate, "skip", f"busiest pool projected at {busiest} queued, not over {threshold}"))
+                continue
+            if not backed_up.intersection(candidate.usage.held_by_pool):
+                decisions.append(Decision(candidate, "skip", "its macOS jobs are on pools that are not backed up"))
+                continue
         if cancels >= max_cancels:
             decisions.append(Decision(candidate, "skip", f"per-sweep cap of {max_cancels} reached"))
             continue
@@ -555,7 +584,7 @@ def branches_to_resolve(
 PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
-        labels(first: 50) { nodes { name } }
+        labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         files(first: 100) { pageInfo { hasNextPage } nodes { path } }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
           nodes {
@@ -614,7 +643,12 @@ def render_summary(plan: Plan, *, dry_run: bool, now: dt.datetime, results: Mapp
         lines.append("No wasteful macOS demand found.")
         return "\n".join(lines) + "\n"
     if not plan.over_threshold:
-        lines.append("No pool is over the threshold, so nothing is cancelled. Candidates seen:")
+        if plan.to_cancel():
+            verb = "would be cancelled" if dry_run else "are cancelled"
+            lines.append("No pool is over the threshold, so only runs for merged, closed or superseded "
+                         f"pull requests {verb}. Candidates seen:")
+        else:
+            lines.append("No pool is over the threshold, so nothing is cancelled. Candidates seen:")
         lines.append("")
     lines.append("| Decision | Run | Workflow | Reason | Queued age | macOS jobs (queued/running) |")
     lines.append("| --- | --- | --- | --- | --- | --- |")

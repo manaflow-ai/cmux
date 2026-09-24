@@ -1,9 +1,10 @@
 name: CI queue janitor
 
-# Pull request macOS jobs share a few small runner pools. When more than
-# CI_JANITOR_QUEUE_THRESHOLD macOS jobs are queued on one pool, cancel the runs
-# holding that pool whose results nobody will use: exp/* experiment pushes, runs for closed, merged or
-# superseded pull request heads, full-suite runs whose PR dropped `full-ci`
+# Pull request macOS jobs share a few small runner pools. Every sweep cancels
+# macOS runs for closed, merged or superseded pull request heads, whose results
+# nobody will use. When more than CI_JANITOR_QUEUE_THRESHOLD macOS jobs are
+# queued on one pool, it also cancels the runs holding that pool whose results
+# are waste: exp/* experiment pushes, full-suite runs whose PR dropped `full-ci`
 # once a replacement run is waiting, and last, CI runs whose required
 # ci-status is already decided against them by a failed `macOS compile
 # admission` or `app-host unit tests` shard, in that order. Draft pull requests are never cancelled for being

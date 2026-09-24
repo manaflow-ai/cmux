@@ -65,7 +65,7 @@ def doomed_jobs(*, queued=2, running=1, conclusion="failure", failed_age=30, nam
 
 
 def make_pr(number=1, *, state="OPEN", draft=False, head="aaa", labels=(), owner="manaflow-ai", timeline=(),
-            files=("web/app/page.tsx",), files_truncated=False):
+            files=("web/app/page.tsx",), files_truncated=False, labels_truncated=False):
     return {
         "number": number, "state": state, "isDraft": draft, "headRefOid": head,
         "headRepositoryOwner": {"login": owner},
@@ -73,7 +73,7 @@ def make_pr(number=1, *, state="OPEN", draft=False, head="aaa", labels=(), owner
             "pageInfo": {"hasNextPage": files_truncated},
             "nodes": [{"path": path} for path in files],
         },
-        "labels": {"nodes": [{"name": name} for name in labels]},
+        "labels": {"pageInfo": {"hasNextPage": labels_truncated}, "nodes": [{"name": name} for name in labels]},
         "timelineItems": {"nodes": [
             {"__typename": kind, "createdAt": iso(age), "label": {"name": label}}
             for kind, label, age in timeline
@@ -422,9 +422,86 @@ class PlanTests(unittest.TestCase):
                          [exp_run["id"], merged_run["id"], closed_run["id"]])
         self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "cancel"])
 
-        # 13 queued: experiment frees 2 -> 11, merged frees 1 -> 10; stop at 10.
+        # 13 queued: experiment frees 2 -> 11, merged frees 1 -> 10. The pool
+        # is no longer over 10, but a stale PR run is cancelled regardless.
         result = plan(runs, jobs, prs, threshold=10)
+        self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "cancel"])
+
+        # Other categories stop once the projected queue is back under.
+        main_run, main_jobs = busy_main_push(queued=10)
+        exps = [make_run(event="push", branch=f"exp/stop-{i}", age=10 - i) for i in range(3)]
+        jobs = {main_run["id"]: main_jobs, **{r["id"]: mac_jobs(queued=1) for r in exps}}
+        # 13 queued: two experiments bring it to 11, which is not over 11.
+        result = plan([main_run, *exps], jobs, threshold=11)
         self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "skip"])
+
+    def test_stale_pr_runs_are_cancelled_below_the_threshold(self):
+        # No pool is backed up, yet runs for merged, closed and superseded PRs
+        # produce results nobody reads, so they go whatever the queue.
+        merged_run = make_run(branch="merged-branch", age=50)
+        closed_run = make_run(branch="closed-branch", age=40)
+        superseded_run = make_run(branch="moved-branch", sha="old", age=30)
+        current_run = make_run(branch="current-branch", age=20)
+        exp_run = make_run(event="push", branch="exp/idle", age=10)
+        runs = [merged_run, closed_run, superseded_run, current_run, exp_run]
+        jobs = {run["id"]: mac_jobs(running=1, label="macos-26") for run in runs}
+        prs = {
+            "merged-branch": [make_pr(1, state="MERGED")],
+            "closed-branch": [make_pr(2, state="CLOSED")],
+            "moved-branch": [make_pr(3, head="new")],
+            "current-branch": [make_pr(4)],
+        }
+        result = plan(runs, jobs, prs, threshold=6)
+        self.assertFalse(result.over_threshold)
+        self.assertEqual(
+            [(d.candidate.run["id"], d.action) for d in result.decisions],
+            [(exp_run["id"], "skip"), (merged_run["id"], "cancel"), (closed_run["id"], "cancel"),
+             (superseded_run["id"], "cancel")])
+        summary = janitor.render_summary(result, dry_run=True, now=NOW)
+        self.assertNotIn("nothing is cancelled", summary)
+
+    def test_stale_pr_runs_still_respect_the_cancel_cap(self):
+        runs = [make_run(branch=f"merged-{i}", age=10 + i) for i in range(3)]
+        jobs = {run["id"]: mac_jobs(running=1) for run in runs}
+        prs = {f"merged-{i}": [make_pr(i + 1, state="MERGED")] for i in range(3)}
+        result = plan(runs, jobs, prs, max_cancels=2)
+        self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "skip"])
+
+    def test_stale_runs_on_idle_pools_do_not_take_the_cap_from_a_backed_up_pool(self):
+        # A stale run on an idle pool frees nothing anyone waits for, so it is
+        # cancelled only after the runs that relieve the backed-up pool.
+        main_run, main_jobs = busy_main_push(queued=9)
+        idle_merged = make_run(branch="merged-branch", age=50)
+        doomed = make_run(branch="feature", sha="aaa", age=10)
+        runs = [main_run, idle_merged, doomed]
+        jobs = {main_run["id"]: main_jobs, idle_merged["id"]: mac_jobs(running=1, label="macos-26"),
+                doomed["id"]: doomed_jobs()}
+        prs = {"merged-branch": [make_pr(1, state="MERGED")], "feature": [make_pr(2)]}
+        result = plan(runs, jobs, prs, max_cancels=1)
+        self.assertEqual([c.category for c in result.to_cancel()], ["doomed"])
+
+    def test_a_rerun_or_opted_out_stale_run_waits_for_a_backed_up_pool(self):
+        # Someone re-ran it, or labelled the PR no-janitor, on purpose: keep it
+        # unless its pool is contended.
+        rerun = make_run(branch="moved-branch", sha="old", attempt=2, age=30)
+        opted_out = make_run(branch="kept-branch", sha="old", age=20)
+        prs = {"moved-branch": [make_pr(1, head="new")],
+               "kept-branch": [make_pr(2, head="new", labels=(janitor.JANITOR_OPT_OUT_LABEL,))]}
+        idle_jobs = {rerun["id"]: mac_jobs(running=1), opted_out["id"]: mac_jobs(running=1)}
+        idle = plan([rerun, opted_out], idle_jobs, prs)
+        self.assertEqual(idle.to_cancel(), [])
+        self.assertTrue(all("not over" in d.note for d in idle.decisions))
+
+        main_run, main_jobs = busy_main_push(queued=9)
+        busy = plan([main_run, rerun, opted_out], {main_run["id"]: main_jobs, **idle_jobs}, prs)
+        self.assertEqual([c.run["id"] for c in busy.to_cancel()], [rerun["id"], opted_out["id"]])
+
+    def test_a_stale_run_with_an_unread_label_page_waits_for_a_backed_up_pool(self):
+        # no-janitor may be on the page that was not fetched.
+        run = make_run(branch="moved-branch", sha="old")
+        prs = {"moved-branch": [make_pr(1, head="new", labels_truncated=True)]}
+        result = plan([run], {run["id"]: mac_jobs(running=1)}, prs)
+        self.assertEqual(result.to_cancel(), [])
 
     def test_cancel_cap(self):
         main_run, main_jobs = busy_main_push(queued=30)
@@ -458,9 +535,10 @@ class PlanTests(unittest.TestCase):
         }
         result = plan([main_run, idle_exp, stuck_exp], jobs, threshold=6)
         self.assertTrue(result.over_threshold)
+        # Runs holding the backed-up pool are decided first.
         self.assertEqual([(d.candidate.run["id"], d.action) for d in result.decisions],
-                         [(idle_exp["id"], "skip"), (stuck_exp["id"], "cancel")])
-        self.assertIn("not backed up", result.decisions[0].note)
+                         [(stuck_exp["id"], "cancel"), (idle_exp["id"], "skip")])
+        self.assertIn("not backed up", result.decisions[1].note)
 
     def test_label_dropped_uses_waiting_replacement_in_inventory(self):
         main_run, main_jobs = busy_main_push(queued=10)
