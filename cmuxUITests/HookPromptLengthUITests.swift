@@ -136,6 +136,7 @@ surfaces = rpc('surface.list', {'workspace_id': workspace})['surfaces']
 surface = surfaces[0]['id']
 env.update(CMUX_WORKSPACE_ID=workspace, CMUX_SURFACE_ID=surface)
 expected = {}
+expected_surfaces = {}
 sentinels = ['PRIVATE_PROMPT_', 'PRIVATE_TOOL_', 'PRIVATE_CONTEXT_']
 
 def hook(label, prompt, source='claude', nested=False):
@@ -152,7 +153,11 @@ def hook(label, prompt, source='claude', nested=False):
     result = subprocess.run([cli, '--socket', sock] + args, input=json.dumps(payload),
                             env=env, text=True, capture_output=True, timeout=20)
     assert result.returncode == 0, (label, result.returncode)
-    return 'cmux-feed-v1:' + base64.b64encode(b'claude').decode() + ':' + base64.b64encode(session.encode()).decode()
+    workstream_id = 'cmux-feed-v1:' + base64.b64encode(b'claude').decode() + ':' + base64.b64encode(session.encode()).decode()
+    # Generic hooks feed historically omits surface_id; Claude prompt-submit
+    # is the attributed entrypoint in #14024. Never borrow another surface.
+    expected_surfaces[workstream_id] = surface if source == 'claude' else None
+    return workstream_id
 
 for label, prompt, length in [
     ('long', 'PRIVATE_PROMPT_' + 'x' * (18635 - 15), 18635),
@@ -174,6 +179,7 @@ def push(label, fields, length, event_name='UserPromptSubmit'):
              '_opencode_request_id': session, **fields}
     rpc('feed.push', {'event': event, 'wait_timeout_seconds': 0})
     expected[session] = length
+    expected_surfaces[session] = surface
 
 for index, invalid in enumerate([-1, True, False, 1.5, '18635', None, [], {}, 1048577, 1e100]):
     push('invalid-' + str(index), {'tool_input': {'prompt': 'PRIVATE_PROMPT_bad', 'prompt_length': invalid}}, None)
@@ -211,8 +217,8 @@ for frame in ours:
     assert payload.get('prompt_length') == expected[session], (session, payload.get('prompt_length'), expected[session])
     if expected[session] is None:
         assert 'prompt_length' not in payload, session
-    assert frame['workspace_id'] == workspace and frame['surface_id'] == surface, session
-    assert payload['workspace_id'] == workspace and payload['surface_id'] == surface, session
+    assert frame['workspace_id'] == workspace and frame['surface_id'] == expected_surfaces[session], session
+    assert payload['workspace_id'] == workspace and payload['surface_id'] == expected_surfaces[session], session
     assert payload.get('tool_input') is None and payload.get('context') is None, session
     assert payload.get('extra_fields') is None, session
     assert not any(secret in json.dumps(frame) for secret in sentinels), session
