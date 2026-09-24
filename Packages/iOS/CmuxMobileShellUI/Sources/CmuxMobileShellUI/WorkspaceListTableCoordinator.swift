@@ -81,13 +81,11 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     private var isCommittingGeometry = false
     #if DEBUG
     private var lastObservedOffsetY: CGFloat?
-    private var lastDecelerationFrameTime: CFTimeInterval?
-    private var decelerationFrames = 0
-    private var decelerationHitches = 0
-    /// Main-thread work since the previous deceleration frame, attributed to
-    /// hitches so a missed frame names what ran in it.
-    private var cellConfigurationsSinceFrame = 0
-    private var reconcilesSinceFrame = 0
+    private var smoothnessLink: CADisplayLink?
+    private var smoothness = WorkspaceListScrollSmoothnessTally()
+    /// Whether the table reconciled or configured a cell since the last frame,
+    /// so a hitch can be attributed to list work or to something else.
+    private var listWorkedSinceFrame = false
     #endif
     /// The row whose swipe controls UIKit is presenting.
     private var editedItemID: String?
@@ -153,6 +151,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         #if DEBUG
         releaseGateRowTask?.cancel()
         releaseGateRowTask = nil
+        // The display link retains this coordinator until invalidated.
+        endSmoothnessSession()
         #endif
         pendingContextMenuWorkspaceClose = nil
         isScrollInteractionActive = false
@@ -173,7 +173,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
 
     private func reconcile(in tableView: UITableView) {
         #if DEBUG
-        reconcilesSinceFrame += 1
+        listWorkedSinceFrame = true
         #endif
         let target = targetRows(in: tableView)
         let plan = WorkspaceListUpdatePlan(
@@ -581,7 +581,7 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
             cell.item = item
             cell.renderedModel = model
             #if DEBUG
-            cellConfigurationsSinceFrame += 1
+            listWorkedSinceFrame = true
             #endif
         }
         cell.backgroundColor = .clear
@@ -772,6 +772,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         isScrollInteractionActive = true
+        #if DEBUG
+        beginSmoothnessSession()
+        #endif
     }
 
     func scrollViewDidEndDragging(
@@ -783,11 +786,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        #if DEBUG
-        MobileDebugLog.anchormux(
-            "workspace-list.decel-end frames=\(decelerationFrames) hitches=\(decelerationHitches)"
-        )
-        #endif
         scrollInteractionDidSettle(scrollView)
     }
 
@@ -801,26 +799,6 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
         // viewport shift the user did not ask for.
         let offsetY = scrollView.contentOffset.y
         defer { lastObservedOffsetY = offsetY }
-        // Deceleration advances once per display frame, so a longer gap
-        // between callbacks is a frame the main thread missed.
-        if scrollView.isDecelerating {
-            let now = CACurrentMediaTime()
-            if let last = lastDecelerationFrameTime {
-                let frame = 1 / Double(max(scrollView.window?.screen.maximumFramesPerSecond ?? 60, 1))
-                decelerationFrames += 1
-                if now - last > frame * 2.5 {
-                    decelerationHitches += 1
-                    MobileDebugLog.anchormux(
-                        "workspace-list.decel-hitch gap_ms=\(Int((now - last) * 1000)) configured=\(cellConfigurationsSinceFrame) reconciles=\(reconcilesSinceFrame) frames=\(decelerationFrames) hitches=\(decelerationHitches)"
-                    )
-                }
-            }
-            lastDecelerationFrameTime = now
-            cellConfigurationsSinceFrame = 0
-            reconcilesSinceFrame = 0
-        } else {
-            lastDecelerationFrameTime = nil
-        }
         guard !isCommittingGeometry,
               scrollView.refreshControl?.isRefreshing != true,
               offsetY >= -scrollView.adjustedContentInset.top,
@@ -841,9 +819,55 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDataSource,
 
     private func scrollInteractionDidSettle(_ scrollView: UIScrollView) {
         isScrollInteractionActive = false
+        #if DEBUG
+        endSmoothnessSession()
+        #endif
         guard let tableView = scrollView as? UITableView else { return }
         reconcile(in: tableView)
     }
+
+    #if DEBUG
+    /// Samples every displayed frame from the first drag until the list
+    /// settles, and logs one summary line per scroll session.
+    private func beginSmoothnessSession() {
+        guard smoothnessLink == nil else { return }
+        smoothness = WorkspaceListScrollSmoothnessTally()
+        listWorkedSinceFrame = false
+        let link = CADisplayLink(target: self, selector: #selector(smoothnessFrame(_:)))
+        link.add(to: .main, forMode: .common)
+        smoothnessLink = link
+    }
+
+    @objc private func smoothnessFrame(_ link: CADisplayLink) {
+        smoothness.recordFrame(
+            timestamp: link.timestamp,
+            targetTimestamp: link.targetTimestamp,
+            listWorked: listWorkedSinceFrame
+        )
+        listWorkedSinceFrame = false
+        guard let tableView else { return }
+        var origins: [String: CGFloat] = [:]
+        for case let cell as WorkspaceListTableCell in tableView.visibleCells {
+            if let id = cell.item?.id { origins[id] = cell.frame.minY }
+        }
+        for shift in smoothness.recordRows(origins).prefix(3) {
+            MobileDebugLog.anchormux(
+                "workspace-list.row-shift row=\(shift.id) delta=\(String(format: "%.1f", shift.delta))"
+            )
+        }
+    }
+
+    private func endSmoothnessSession() {
+        guard let link = smoothnessLink else { return }
+        link.invalidate()
+        smoothnessLink = nil
+        let tally = smoothness
+        guard tally.frames > 5 else { return }
+        MobileDebugLog.anchormux(
+            "workspace-list.scroll-session seconds=\(String(format: "%.2f", tally.durationSeconds)) frames=\(tally.frames) hitch_ms_per_s=\(String(format: "%.1f", tally.hitchRatio)) hitched_frames=\(tally.hitchedFrames) with_list_work=\(tally.hitchedFramesWithListWork) worst_ms=\(String(format: "%.1f", tally.worstHitchSeconds * 1000)) row_shifts=\(tally.rowShifts)"
+        )
+    }
+    #endif
 
     // MARK: Selection, swipes and menus
 
