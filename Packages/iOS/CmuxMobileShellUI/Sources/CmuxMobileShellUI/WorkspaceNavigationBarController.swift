@@ -18,6 +18,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
         bar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
         bar.tintColor = .label
         bar.prefersLargeTitles = false
+        updateLandscapeMargins()
         contentHost.view.backgroundColor = .clear
         setViewControllers([contentHost], animated: false)
         // Preserve the existing pinned bar on browser/chat surfaces. Owning
@@ -27,6 +28,24 @@ final class WorkspaceNavigationBarController: UINavigationController {
 
         item.style = .browser
         item.largeTitleDisplayMode = .never
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateLandscapeMargins()
+    }
+
+    private func updateLandscapeMargins() {
+        // SwiftUI's original toolbar extends 6 points farther into the
+        // landscape leading safe area. Keep UIKit's native safe-area handling
+        // and express that difference through the bar's public margins.
+        let landscapeLeadingAdjustment: CGFloat = view.safeAreaInsets.left > 0 ? -6 : 0
+        bar.directionalLayoutMargins = NSDirectionalEdgeInsets(
+            top: 0,
+            leading: landscapeLeadingAdjustment,
+            bottom: 0,
+            trailing: 0
+        )
     }
 
     func update(
