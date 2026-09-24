@@ -1583,6 +1583,9 @@ extension Workspace {
                inPane: paneId
            ) {
             return restoredCloudPanelID }
+        if usesSSHTui, remoteConfiguration?.preserveAfterTerminalExit == true, snapshot.type == .terminal {
+            return restoreDeviceDisplayPanel(snapshot, in: paneId)
+        }
         let restoresUntrustedSavedDirectory = cloudVMBinding != nil ||
             (snapshot.directoryIsTrustedRemoteReport != true &&
                 (snapshot.directoryRequiresRemoteTrust == true ||
@@ -2608,34 +2611,6 @@ extension Workspace {
 /// decomposition, Wave 3). This typealias keeps call sites byte-identical.
 typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRestoreSnapshot
 
-/// A cloud machine bound to a workspace through the cmux-tui remote daemon
-/// (`cmux vm shell`/`vm new`/`vm base open`). See `Workspace.cloudVMBinding`.
-struct WorkspaceCloudVMBinding: Equatable, Sendable {
-    let vmID: String
-    /// Base is the single persistent cloud workspace the sidebar cloud button reuses.
-    let isBase: Bool
-    /// The cmux-tui workspace on the machine this local workspace stands for (`ws_…`),
-    /// recorded when a remote workspace is opened locally. Local workspace renames
-    /// write through to it (`CloudWorkspaceRenameService`).
-    let remoteWorkspaceID: String?
-
-    init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil) {
-        self.vmID = vmID
-        self.isBase = isBase
-        self.remoteWorkspaceID = remoteWorkspaceID
-    }
-
-    /// Machine ids are provider handles (`vivid-newt`, `sc-…`): letters, digits, `.`, `_`, `-`.
-    static func normalizedVMID(_ raw: String?) -> String? {
-        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty,
-              trimmed.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
-            return nil
-        }
-        return trimmed
-    }
-}
-
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHost {
@@ -3152,6 +3127,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
+    var sshTuiConnectionAttemptID: UUID?
     var remoteSessionController: RemoteSessionCoordinator?
     // Retains each detached controller until cleanup finishes or ownership transfers.
     var remoteSessionCleanupControllers: [UUID: (controller: RemoteSessionCoordinator, configuration: WorkspaceRemoteConfiguration)] = [:]
@@ -6792,6 +6768,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             completion(.failure(ManagedFileTransferPolicy.refusalError()))
             return
         }
+        if usesSSHTui, let configuration = remoteConfiguration {
+            DetectedSSHSession(configuration: configuration).uploadDroppedFiles(fileURLs, operation: operation, completion: completion)
+            return
+        }
         guard let controller = remoteSessionController else {
             completion(.failure(RemoteDropUploadError.unavailable))
             return
@@ -6991,6 +6971,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
            !CloudMachinesFeature.offMainIsEnabled() {
             return suspendCloudRemoteConfiguration(configuration)
         }
+        if configuration.transport == .ssh, configuration.terminalTransport == .ssh, !configuration.skipDaemonBootstrap {
+            return configureSSHTuiConnection(configuration, autoConnect: autoConnect)
+        }
         var configuration = configuration.scopedToOwnerWorkspace(id)
         let foregroundAuthToken =
             Self.normalizedForegroundAuthToken(
@@ -7150,6 +7133,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func disconnectRemoteConnection(clearConfiguration: Bool = false, disconnectedDetail: String? = nil) {
+        AppDelegate.shared?.sshTuiWorkspaceCoordinator.disconnect(workspace: self)
         defer { TerminalController.shared.notifyRemotePTYControllerAvailabilityChanged() }
         let previousPresentedDirectory = presentedCurrentDirectory
         let shouldCleanupControlMaster =
@@ -7563,7 +7547,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             .trimmingCharacters(in: .whitespacesAndNewlines), !managedCloudVMID.isEmpty {
             return managedCloudVMID
         }
-        return cloudVMBinding?.vmID
+        guard let binding = cloudVMBinding, !SurfaceMachineID(rawValue: binding.vmID).isSSH else { return nil }
+        return binding.vmID
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
@@ -7577,7 +7562,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // A reserved pane still waiting for its terminal shows nothing but its
         // tab spinner; only a recorded failure (above) puts a card on it.
         if cloudPendingCreations[surfaceId] != nil { return nil }
-        if let resource = cloudProjectedResource(forPanel: surfaceId), let machineID = resource.id.machine.cloudMachineID, let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] { return session.connectionPresentation }
+        if let session = tuiMirrorSession(for: surfaceId) { return session.connectionPresentation }
         return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
@@ -7674,6 +7659,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
         guard let configuration else { return nil }
+        if configuration.transport == .ssh, !configuration.skipDaemonBootstrap, configuration.preserveAfterTerminalExit { return nil }
         if let vmID = defaultFreestyleSSHDVMID(from: configuration) {
             let command = configuration.terminalStartupCommand?
                 .trimmingCharacters(in: .whitespacesAndNewlines)

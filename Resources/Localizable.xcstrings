@@ -550596,6 +550596,183 @@
           }
         }
       }
+    },
+    "cli.ssh.authenticationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication did not open the connection. Check your SSH credentials and retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تتمكن مصادقة SSH من فتح الاتصال. تحقق من بيانات اعتماد SSH وحاول مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung konnte die Verbindung nicht öffnen. Prüfen Sie Ihre SSH-Zugangsdaten und versuchen Sie es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH no abrió la conexión. Revisa tus credenciales SSH e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH n’a pas permis d’ouvrir la connexion. Vérifiez vos identifiants SSH et réessayez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証で接続を確立できませんでした。SSH の認証情報を確認して再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 인증으로 연결을 열지 못했습니다. SSH 자격 증명을 확인하고 다시 시도하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 身份验证未能建立连接。请检查您的 SSH 凭据后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 驗證未能建立連線。請檢查您的 SSH 認證資料後再試一次。"
+          }
+        }
+      }
+    },
+    "ssh.tui.sessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This SSH terminal is no longer available."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تعد هذه الطرفية عبر SSH متاحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses SSH-Terminal ist nicht mehr verfügbar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este terminal SSH ya no está disponible."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce terminal SSH n’est plus disponible."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この SSH ターミナルは利用できなくなりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 SSH 터미널을 더 이상 사용할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 SSH 终端已不可用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 SSH 終端機已無法使用。"
+          }
+        }
+      }
+    },
+    "cli.ssh.authenticationNeedsTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH authentication requires a terminal. Run this command from an interactive shell."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب مصادقة SSH طرفية. شغّل هذا الأمر من صدفة تفاعلية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Authentifizierung benötigt ein Terminal. Führen Sie diesen Befehl in einer interaktiven Shell aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La autenticación SSH requiere un terminal. Ejecuta este comando desde un intérprete de órdenes interactivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’authentification SSH nécessite un terminal. Exécutez cette commande depuis un shell interactif."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 認証にはターミナルが必要です。対話型シェルからこのコマンドを実行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 인증에는 터미널이 필요합니다. 대화형 셸에서 이 명령을 실행하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 身份验证需要终端。请在交互式 Shell 中运行此命令。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 驗證需要終端機。請在互動式 Shell 中執行此命令。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
