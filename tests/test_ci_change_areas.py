@@ -3633,6 +3633,17 @@ def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
             "extension AlphaTests {\n    func testC() {}\n}\n"
         )
         (tests / "Helper.swift").write_text("func sharedHelper() {}\n")
+        (tests / "GammaTests.swift").write_text(
+            "import XCTest\nenum GammaSupport { static let value = 1 }\n"
+            "final class GammaTests: XCTestCase {\n    func testG() {}\n}\n"
+        )
+        (tests / "DeltaTests.swift").write_text(
+            "import XCTest\nprivate func deltaOnly() {}\n"
+            "final class DeltaTests: XCTestCase {\n    func testD() {}\n}\n"
+        )
+        (tests / "FeedCoordinatorTests.swift").write_text(
+            "import Testing\n@Suite struct FeedCoordinatorTests {\n    @Test func testF() {}\n}\n"
+        )
         (tests / "NewHelper.swift").write_text("func newHelper() {}\n")
         (tests / "Fixture.json").write_text("{}\n")
 
@@ -3649,6 +3660,12 @@ def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
         assert suites_declared_in(
             root, alpha + ["cmuxTests/NewHelper.swift"], added=["cmuxTests/NewHelper.swift"]
         ) == ["cmuxTests/AlphaTests"]
+        # A suite file that also shares a helper with other files is a helper.
+        assert suites_declared_in(root, ["cmuxTests/GammaTests.swift"]) == []
+        # A file-local helper cannot reach another suite.
+        assert suites_declared_in(root, ["cmuxTests/DeltaTests.swift"]) == ["cmuxTests/DeltaTests"]
+        # A suite a strict step owns needs its own app host, not a shared batch.
+        assert changed_unit_selectors(root, ["cmuxTests/FeedCoordinatorTests.swift"]) == []
         # Non-Swift inputs and an unreadable diff also run everything.
         assert suites_declared_in(root, alpha + ["cmuxTests/Fixture.json"]) == []
         assert suites_declared_in(root, None) == []
@@ -3667,6 +3684,9 @@ def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> N
     # Shard 8 must own none of the strict steps the numbered shards run.
     owners = {key: value for key, value in job["env"].items() if key.endswith("_SHARD")}
     assert "8" not in owners.values(), owners
+    # A moved helper is not new, so the added list must detect renames.
+    assert '--diff-filter=A "$BASE_SHA"' in CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "git diff -M --name-only --diff-filter=A" in CI_WORKFLOW.read_text(encoding="utf-8")
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     assert ci["jobs"]["macos"]["with"]["unit_selectors"] == "${{ needs.changes.outputs.unit_selectors }}"
 

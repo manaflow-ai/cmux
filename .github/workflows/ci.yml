@@ -152,8 +152,9 @@ jobs:
               exit 0
             fi
             # Files new in this diff. Only other changed files can use a new
-            # test helper, so choose_ci_suite.py need not widen for one.
-            git diff --no-renames --name-only --diff-filter=A "$BASE_SHA" "$MERGE_SHA" \
+            # test helper, so choose_ci_suite.py need not widen for one. Rename
+            # detection stays on here: a moved helper is not new.
+            git diff -M --name-only --diff-filter=A "$BASE_SHA" "$MERGE_SHA" \
               > /tmp/cmux-ci-added-files.txt || rm -f /tmp/cmux-ci-added-files.txt
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then

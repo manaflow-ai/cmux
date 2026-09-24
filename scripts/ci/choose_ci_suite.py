@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -31,8 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cmux_unit_test_shard import (  # noqa: E402
     DEFAULT_TIMINGS_PATH,
-    EXTENSION_RE,
-    SUITE_RE,
+    FOCUSED_GATE_SELECTORS,
     discover_selectors,
     load_timings,
     reweight_selectors,
@@ -59,6 +59,16 @@ UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PRE
 # it as a single batch, so it has to fit comfortably inside the batch timeout
 # a normal shard's batch fits in; a larger diff takes all seven shards.
 CHANGED_SUITES_BUDGET_MS = 10 * 60 * 1000
+
+# A column-zero declaration. Suites and extensions of suites are what a
+# changed-suites run executes; any other one another file can see is a helper.
+TOP_LEVEL_DECLARATION_RE = re.compile(
+    r"^(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*"
+    r"((?:[a-z]+\s+)*)"
+    r"(func|enum|struct|class|actor|protocol|extension|let|var|typealias)\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*)"
+)
+FILE_LOCAL_MODIFIERS = {"private", "fileprivate"}
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -121,10 +131,11 @@ def suites_declared_in(
 
     Returns an empty list, meaning "run every suite", whenever the answer could
     be incomplete: an unreadable diff, a changed file under cmuxTests/ that is
-    not Swift, or an existing one that declares no suite. A helper like that
-    can change the behavior of any suite, and nothing here can say which. A
-    helper `added` by this diff is the exception: nothing called it before, so
-    only files this diff also changed can use it.
+    not Swift, or an existing one that declares no suite or declares anything
+    else other files can see. A helper like that can change the behavior of
+    any suite, and nothing here can say which. A file `added` by this diff is
+    the exception: nothing called it before, so only files this diff also
+    changed can use it.
     """
     if paths is None:
         return []
@@ -143,13 +154,18 @@ def suites_declared_in(
             lines = source.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeError):
             return []
-        declared = {
-            match.group(1)
-            for line in lines
-            if (match := SUITE_RE.match(line) or EXTENSION_RE.match(line))
-            and match.group(1).endswith("Tests")
-        }
-        if not declared and path not in new_files:
+        declared: set[str] = set()
+        shares_helpers = False
+        for line in lines:
+            match = TOP_LEVEL_DECLARATION_RE.match(line)
+            if match is None:
+                continue
+            modifiers, kind, name = match.groups()
+            if name.endswith("Tests") and kind in {"class", "struct", "actor", "extension"}:
+                declared.add(name)
+            elif not FILE_LOCAL_MODIFIERS & set(modifiers.split()):
+                shares_helpers = True
+        if (shares_helpers or not declared) and path not in new_files:
             return []
         suites |= declared
     return sorted(f"cmuxTests/{name}" for name in suites)
@@ -162,11 +178,12 @@ def changed_unit_selectors(
 
     A pull request that edits a few tests needs those tests run, not the
     other few thousand across seven shards. An empty answer keeps the full
-    unit suite: see suites_declared_in(), plus a changed set whose measured
-    time would not fit one batch.
+    unit suite: see suites_declared_in(), plus a suite a strict step owns
+    (those need an app host of their own, which one shared batch is not) and
+    a changed set whose measured time would not fit one batch.
     """
     suites = suites_declared_in(root, paths, added)
-    if not suites:
+    if not suites or FOCUSED_GATE_SELECTORS & set(suites):
         return []
     wanted = {suite.split("/", 1)[1] for suite in suites}
     selectors, _ = reweight_selectors(discover_selectors(root), load_timings(DEFAULT_TIMINGS_PATH))

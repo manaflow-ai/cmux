@@ -1251,7 +1251,7 @@ jobs:
           echo "CMUX_APP_HOST_TEST_INVENTORY=$inventory_json" >> "$GITHUB_ENV"
 
       - name: Upload built app-host test inventory
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == 1 || inputs.unit_selectors != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
