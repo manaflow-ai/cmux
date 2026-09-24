@@ -859,7 +859,7 @@ jobs:
       linux_guard_source: ${{ needs.changes.outputs.linux_guard_source }}
 
   ghosttykit-release-check:
-    needs: [changes, static-preflight]
+    needs: [changes]
     if: ${{ needs.changes.outputs.ghosttykit_release == 'true' }}
     name: GhosttyKit release check
     permissions:
@@ -890,7 +890,7 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh --verify-only
 
   browser:
-    needs: [changes, static-preflight]
+    needs: [changes]
     if: ${{ needs.changes.outputs.browser == 'true' }}
     uses: ./.github/workflows/cmux-browser.yml
 

@@ -3214,6 +3214,25 @@ def test_macos_admission_gate_needs_every_fast_linux_only_job() -> None:
     assert not any(depends_on_macos(need) for need in expected)
 
 
+def test_only_mac_work_waits_for_static_preflight() -> None:
+    jobs = _ci_jobs()
+    # Linux-only jobs start beside the static stage instead of queueing behind
+    # it: waiting added its whole duration to every pull request's critical
+    # path to save a few Linux minutes on a lint failure.
+    for key in ("guards", "ghosttykit-release-check", "browser", "web"):
+        assert _job_runs_only_on_linux(jobs[key]), key
+        assert _job_needs(jobs, key) == ["changes"], key
+    # Every job with a Mac runner still waits, so a lint failure bills no
+    # Mac minutes.
+    mac_jobs = {key for key in jobs if not _job_runs_only_on_linux(jobs[key])}
+    assert {"claude-wrapper", "remote-daemon", "cli", "macos"} <= mac_jobs
+    for key in mac_jobs:
+        assert "static-preflight" in _job_needs(jobs, key), key
+    # A red static stage still fails the run's verdicts and declines macOS.
+    for key in ("macos-admission-gate", "linux-preflight", "ci-status"):
+        assert "static-preflight" in _job_needs(jobs, key), key
+
+
 def test_macos_admission_gate_uses_job_dependencies_not_polling() -> None:
     gate = workflow_job_block("macos-admission-gate")
     assert "!cancelled()" in gate
