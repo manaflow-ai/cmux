@@ -397,7 +397,7 @@ jobs:
       # scripts/ci/owned_build_state.py has the rules; nothing is uploaded.
       - name: Reuse this owned Mac's build state
         id: owned-state
-        if: steps.reuse-products.outputs.hit != 'true' && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
+        if: steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
         continue-on-error: true
         env:
           RESOLVED: ${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
@@ -580,6 +580,15 @@ jobs:
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
           exit "$status"
+
+      # Before the steps below stage frameworks into Build/Products and rewrite
+      # the xctestruns: the kept DerivedData is the one Xcode left.
+      - name: Keep this owned Mac's DerivedData
+        if: steps.hosted-compile.outcome == 'success' && steps.owned-state.outputs.fingerprint != ''
+        continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
+        run: python3 scripts/ci/owned_build_state.py keep "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$FINGERPRINT"
 
       # Adoption sets a per-user Xcode default. Only a build whose inputs were
       # just replayed should ignore inode changes, so a reused runner does not
@@ -966,22 +975,18 @@ jobs:
       # changed-suites run; only the product's source differs. The restore
       # unpacks the uploaded archive into a DerivedData of its own, so the
       # tests run the exact bytes the other consumers download.
-      # After the product is packaged and uploaded, the last reader of the
-      # admission DerivedData; the changed-suites steps below use their own. A
-      # failed or cancelled compile discards it rather than keep half-written
-      # state.
+      # The DerivedData was kept right after the compile; this keeps the
+      # resolved packages and GhosttyKit, whatever happened in between.
       - name: Keep this owned Mac's build state
-        if: always() && steps.reuse-products.outputs.hit != 'true' && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
+        if: always() && steps.owned-state.outcome != 'skipped'
         continue-on-error: true
         env:
           RESOLVED: ${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           GHOSTTY: ${{ steps.ghostty-revision.outputs.sha }}
-          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
-          COMPILED: ${{ steps.hosted-compile.outcome == 'success' }}
         run: |
           python3 scripts/ci/owned_build_state.py save "$CMUX_OWNED_STATE_ROOT" \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" \
-            "$FINGERPRINT" "$RESOLVED" "$GHOSTTY" "$PWD" "$COMPILED"
+            "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" \
+            "$RESOLVED" "$GHOSTTY" "$PWD"
 
       - name: Prepare isolated DerivedData
         id: test-derived-data

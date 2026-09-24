@@ -50,8 +50,9 @@ class Fixture(unittest.TestCase):
         kit = self.workspace / "GhosttyKit.xcframework"
         kit.mkdir()
         (kit / "Info.plist").write_text("kit")
-        return run(state.save, self.store, self.derived, self.packages, fingerprint, resolved, ghostty,
-                   self.workspace, True)
+        kept = run(state.keep, self.store, self.derived, fingerprint)
+        saved = run(state.save, self.store, self.packages, resolved, ghostty, self.workspace)
+        return {**kept, **saved}
 
 
 class Check(Fixture):
@@ -61,8 +62,10 @@ class Check(Fixture):
 
     def test_warm_store_hands_everything_back(self):
         saved = self.keep()
-        self.assertEqual(saved, {"derived_data": "true", "packages": "true", "ghosttykit": "true"})
+        self.assertEqual(saved, {"kept": "true", "packages": "true", "ghosttykit": "true"})
         self.assertFalse((self.store / "derived-data" / "Logs").exists())
+        # keep clones: the job's own DerivedData stays for the steps after it.
+        self.assertTrue((self.derived / "Build" / "obj.o").is_file())
         result = run(state.check, self.store, "fp", "r1", "g1", self.workspace)
         self.assertEqual((result["warm"], result["packages"], result["packages_exact"], result["ghosttykit"]),
                          ("true", "true", "true", "true"))
@@ -94,7 +97,9 @@ class Check(Fixture):
 class AdoptAndSave(Fixture):
     def test_adopt_swaps_the_kept_derived_data_in(self):
         self.keep()
-        self.derived.mkdir(parents=True)  # what the resolve step just recreated
+        # The resolve step deletes the DerivedData and recreates it.
+        state.remove(self.derived)
+        self.derived.mkdir(parents=True)
         (self.derived / "fresh").write_text("resolve")
         self.assertEqual(run(state.adopt, self.store, self.derived), {"hit": "true"})
         self.assertTrue((self.derived / "Build" / "obj.o").is_file())
@@ -105,20 +110,51 @@ class AdoptAndSave(Fixture):
         self.assertEqual(run(state.adopt, self.store, self.derived)["hit"], "false")
 
     def test_a_failed_compile_keeps_packages_but_not_derived_data(self):
+        # adopt moved the kept DerivedData out; with no keep after a failed
+        # compile the store has none, and the next job starts from the seed.
         self.keep()
+        run(state.check, self.store, "fp", "r1", "g1", self.workspace)
         run(state.adopt, self.store, self.derived)
-        result = run(state.save, self.store, self.derived, self.packages, "fp", "r1", "g1", self.workspace, False)
-        self.assertEqual(result["derived_data"], "false")
-        self.assertFalse(self.derived.exists())
+        result = run(state.save, self.store, self.packages, "r1", "g1", self.workspace)
+        self.assertEqual(result["packages"], "true")
         self.assertFalse((self.store / "derived-data").exists())
-        self.assertNotIn("fingerprint", json.loads((self.store / "stamp.json").read_text()))
         self.assertEqual(run(state.check, self.store, "fp", "r1", "g1", self.workspace)["warm"], "false")
+
+    def test_packages_a_job_never_resolved_are_still_kept(self):
+        self.keep()
+        run(state.check, self.store, "fp", "r1", "g1", self.workspace)  # moved into the workspace
+        result = run(state.save, self.store, self.packages, "r1", "g1", self.workspace)
+        self.assertEqual(result["packages"], "true")
+        self.assertTrue((self.store / "source-packages" / "checkouts").is_dir())
+
+    def test_keep_replaces_the_old_derived_data_whole(self):
+        self.keep()
+        (self.derived / "Build" / "new.o").write_text("new")
+        (self.derived / "Build" / "obj.o").unlink()
+        self.assertEqual(run(state.keep, self.store, self.derived, "fp2")["kept"], "true")
+        kept = self.store / "derived-data"
+        self.assertEqual(sorted(path.name for path in (kept / "Build").iterdir()), ["new.o"])
+        self.assertFalse((kept / "derived-data-compile-admission").exists())
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["fingerprint"], "fp2")
+        self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
+
+    def test_clear_refuses_to_leave_anything_behind(self):
+        target = self.store / "x"
+        target.mkdir(parents=True)
+        with unittest.mock.patch.object(state, "remove"), \
+             unittest.mock.patch.object(Path, "rename"):
+            with self.assertRaises(RuntimeError):
+                state.clear(target)
+
+    def test_keep_needs_a_fingerprint(self):
+        self.derived.mkdir(parents=True)
+        self.assertEqual(run(state.keep, self.store, self.derived, "")["kept"], "false")
 
     def test_old_ghosttykit_revisions_are_pruned(self):
         kit = self.workspace / "GhosttyKit.xcframework"
         kit.mkdir()
         for revision in ("a", "b", "c"):
-            run(state.save, self.store, self.derived, self.packages, "", "", revision, self.workspace, False)
+            run(state.save, self.store, self.packages, "", revision, self.workspace)
         kept = sorted(path.name for path in (self.store / "ghosttykit").iterdir())
         self.assertEqual(len(kept), state.KEEP_GHOSTTYKIT_REVISIONS)
         self.assertIn("c", kept)
@@ -143,9 +179,13 @@ class Wiring(unittest.TestCase):
 
     def test_state_steps_run_only_on_an_owned_runner(self):
         self.assertIn(OWNED, self.by_id["owned-state"]["if"])
-        self.assertIn(OWNED, self.step("Keep this owned Mac's build state")["if"])
+        self.assertIn("github.event_name == 'pull_request'", self.by_id["owned-state"]["if"])
+        # Every other state step follows owned-state.
+        self.assertIn("steps.owned-state.outcome != 'skipped'", self.step("Keep this owned Mac's build state")["if"])
+        self.assertIn("steps.owned-state.outputs.fingerprint != ''", self.step("Keep this owned Mac's DerivedData")["if"])
         self.assertIn("steps.owned-state.outputs.warm == 'true'", self.by_id["owned-adopt"]["if"])
-        for step in (self.by_id["owned-state"], self.by_id["owned-adopt"], self.step("Keep this owned Mac's build state")):
+        for step in (self.by_id["owned-state"], self.by_id["owned-adopt"], self.step("Keep this owned Mac's DerivedData"),
+                     self.step("Keep this owned Mac's build state")):
             self.assertIs(step.get("continue-on-error"), True, step["name"])
             self.assertNotIn("uses", step, step["name"])
         self.assertEqual(self.job["env"]["CMUX_OWNED_STATE_ROOT"], "/Users/Shared/cmux-build-fleet/ci")
@@ -167,9 +207,14 @@ class Wiring(unittest.TestCase):
         self.assertLess(index("Keep this owned Mac's build state"), index("Prepare isolated DerivedData"))
         self.assertIn("steps.owned-adopt.outcome", self.step("Forget the adopted-build inode override")["if"])
 
-    def test_the_save_keeps_only_a_successful_compile(self):
-        env = self.step("Keep this owned Mac's build state")["env"]
-        self.assertEqual(env["COMPILED"], "${{ steps.hosted-compile.outcome == 'success' }}")
+    def test_only_a_successful_compile_is_kept_as_xcode_left_it(self):
+        index = self.names.index
+        keep = self.step("Keep this owned Mac's DerivedData")
+        self.assertTrue(keep["if"].startswith("steps.hosted-compile.outcome == 'success'"))
+        self.assertLess(index("Compile app-host test product"), index("Keep this owned Mac's DerivedData"))
+        # Staging and packaging rewrite Build/Products and the xctestruns.
+        for later in ("Stage compiled package frameworks", "Package compiled app-host test product"):
+            self.assertLess(index("Keep this owned Mac's DerivedData"), index(later), later)
         self.assertTrue(self.step("Keep this owned Mac's build state")["if"].startswith("always()"))
 
 

@@ -3,7 +3,8 @@
 
     owned_build_state.py check STORE FINGERPRINT RESOLVED GHOSTTY WORKSPACE
     owned_build_state.py adopt STORE DERIVED_DATA
-    owned_build_state.py save STORE DERIVED_DATA SOURCE_PACKAGES FINGERPRINT RESOLVED GHOSTTY WORKSPACE COMPILED
+    owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
+    owned_build_state.py save STORE SOURCE_PACKAGES RESOLVED GHOSTTY WORKSPACE
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -29,14 +30,21 @@ match or that grew past MAX_DERIVED_BYTES, and moves the packages and
 GhosttyKit into the workspace, where the existing steps pick them up. Its
 `warm` output tells the workflow to skip the SwiftPM cache restore and the
 seed. `adopt` runs where the seed would: the resolve step has just recreated
-the DerivedData, so it swaps the kept one in. `save` runs last, always: it
-moves the DerivedData back only after a successful compile (a failed or
-cancelled one may be half-written), and the packages whenever they resolved.
+the DerivedData, so it swaps the kept one in. `keep` runs right after a
+successful compile and clones the DerivedData as Xcode left it: the steps
+after it stage package frameworks into Build/Products and rewrite the
+xctestruns, which a later build must not start from (seed-derived-data.yml
+saves its seed before them for the same reason). A failed or cancelled
+compile keeps nothing. `save` runs last, always, and keeps the packages
+whenever they resolved and GhosttyKit.
 
-Moves are renames: the canonical root (/private/tmp/cmux-ci) and STORE sit
-on the same APFS volume, so nothing is copied. One job at a time touches
-STORE, because glaeda's job-started hook holds the host lock for the whole
-job. Nothing here uploads anything: a pull request run on an owned Mac never
+Moves are renames and clones are APFS clones: the canonical root
+(/private/tmp/cmux-ci) and STORE sit on the same volume, so nothing is
+copied. A kept DerivedData is replaced by renaming the new one into place
+after the old one is out of the way, so an interrupted job leaves either
+the old state, the new one, or none, never one inside the other. One job at
+a time touches STORE, because glaeda's job-started hook holds the host lock
+for the whole job. Nothing here uploads anything: a pull request run on an owned Mac never
 writes a shared cache or seed, only this Mac's own state, and fork pull
 requests never reach an owned pool.
 """
@@ -101,16 +109,26 @@ def remove(path: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+def clear(path: Path) -> None:
+    """Remove path or fail: a leftover would swallow the next move into it."""
+    if path.exists() or path.is_symlink():
+        aside = path.with_name(f".{path.name}.discard-{os.getpid()}")
+        path.rename(aside)
+        remove(aside)
+    if path.exists() or path.is_symlink():
+        raise RuntimeError(f"could not clear {path}")
+
+
 def move(source: Path, destination: Path) -> None:
     """A rename where the volume allows it, else a copy (shutil.move)."""
-    remove(destination)
+    clear(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(source), str(destination))
 
 
 def clone(source: Path, destination: Path) -> None:
     """An APFS clone of a directory tree, falling back to a copy."""
-    remove(destination)
+    clear(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if subprocess.run(["cp", "-cR", str(source), str(destination)], capture_output=True).returncode != 0:
         remove(destination)
@@ -125,13 +143,13 @@ def check(store: Path, fingerprint: str, resolved: str, ghostty: str, workspace:
     if not derived.is_dir():
         result["reason"] = "no kept DerivedData"
     elif not fingerprint or stamp.get("fingerprint") != fingerprint:
-        remove(derived)
+        clear(derived)
         result["reason"] = "kept DerivedData is for another Xcode or layout"
     else:
         size = tree_bytes(derived)
         result["bytes"] = str(size)
         if size > MAX_DERIVED_BYTES:
-            remove(derived)
+            clear(derived)
             result["reason"] = f"kept DerivedData grew to {size} bytes"
         else:
             result["warm"] = "true"
@@ -164,26 +182,40 @@ def adopt(store: Path, derived: Path) -> dict[str, str]:
     return {"hit": "true"}
 
 
-def save(store: Path, derived: Path, source_packages: Path, fingerprint: str, resolved: str,
-         ghostty: str, workspace: Path, compiled: bool) -> dict[str, str]:
+def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
+    """Clone a just-compiled DerivedData into STORE, stamped with its fingerprint."""
+    if not fingerprint or not derived.is_dir():
+        return {"kept": "false", "reason": "no fingerprint or no DerivedData"}
     store.mkdir(parents=True, exist_ok=True)
+    incoming = store / f".{DERIVED}.incoming"
+    clone(derived, incoming)
+    for name in UNREAD:
+        remove(incoming / name)
     stamp = read_stamp(store)
-    result = {"derived_data": "false", "packages": "false", "ghosttykit": "false"}
-    if compiled and fingerprint and derived.is_dir():
-        for name in UNREAD:
-            remove(derived / name)
-        move(derived, store / DERIVED)
-        stamp["fingerprint"] = fingerprint
-        result["derived_data"] = "true"
-    else:
-        # Half-written or unstamped state is worse than a seed; start over.
-        remove(store / DERIVED)
-        remove(derived)
-        stamp.pop("fingerprint", None)
-    if source_packages.is_dir():
-        move(source_packages, store / PACKAGES)
-        stamp["resolved"] = resolved
-        result["packages"] = "true"
+    stamp.pop("fingerprint", None)
+    write_stamp(store, stamp)
+    clear(store / DERIVED)
+    incoming.rename(store / DERIVED)
+    stamp["fingerprint"] = fingerprint
+    write_stamp(store, stamp)
+    return {"kept": "true"}
+
+
+def save(store: Path, source_packages: Path, resolved: str, ghostty: str, workspace: Path) -> dict[str, str]:
+    store.mkdir(parents=True, exist_ok=True)
+    result = {"packages": "false", "ghosttykit": "false"}
+    # The resolve moved the packages into the canonical tree; a job that
+    # stopped before it left them where check put them.
+    for packages in (source_packages, workspace / ".ci-source-packages"):
+        if packages.is_dir():
+            stamp = read_stamp(store)
+            stamp.pop("resolved", None)
+            write_stamp(store, stamp)
+            move(packages, store / PACKAGES)
+            stamp["resolved"] = resolved
+            write_stamp(store, stamp)
+            result["packages"] = "true"
+            break
     kit = workspace / "GhosttyKit.xcframework"
     kits = store / GHOSTTYKIT
     if ghostty and kit.is_dir() and not (kits / ghostty / "GhosttyKit.xcframework").is_dir():
@@ -194,7 +226,6 @@ def save(store: Path, derived: Path, source_packages: Path, fingerprint: str, re
                            key=lambda path: path.stat().st_mtime, reverse=True)
         for old in revisions[KEEP_GHOSTTYKIT_REVISIONS:]:
             remove(old)
-    write_stamp(store, stamp)
     return result
 
 
@@ -205,9 +236,11 @@ def main(argv: list[str]) -> int:
     if len(argv) == 4 and argv[1] == "adopt":
         write_outputs(adopt(Path(argv[2]), Path(argv[3])))
         return 0
-    if len(argv) == 10 and argv[1] == "save":
-        write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4]), argv[5], argv[6], argv[7],
-                           Path(argv[8]), argv[9] == "true"))
+    if len(argv) == 5 and argv[1] == "keep":
+        write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4]))
+        return 0
+    if len(argv) == 7 and argv[1] == "save":
+        write_outputs(save(Path(argv[2]), Path(argv[3]), argv[4], argv[5], Path(argv[6])))
         return 0
     print(__doc__, file=sys.stderr)
     return 2

@@ -290,11 +290,11 @@ for hit in "" false; do
     exit 1
   fi
 done
+# Kept packages on an owned Mac (owned_build_state.py) count as exact only
+# when their Package.resolved stamp matches.
 if ! awk '
   /^      - name: / { step = $0 }
   step ~ /name: Cache Swift packages$/ && /^        id: swift-package-cache$/ { id = 1 }
-  # An owned Mac's kept packages (owned_build_state.py) count as exact only
-  # when their Package.resolved stamp matches.
   step ~ /name: Resolve Swift packages$/ && /CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: \$\{\{ steps\.swift-package-cache\.outputs\.cache-hit == .true. && .true. \|\| steps\.owned-state\.outputs\.packages_exact \}\}/ { wired = 1 }
   step ~ /name: Resolve Swift packages$/ && /CMUX_CI_MOVE_SOURCE_PACKAGES: "1"/ { moved = 1 }
   END { exit !(id && wired && moved) }
