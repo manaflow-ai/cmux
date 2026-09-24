@@ -5,10 +5,12 @@ import Foundation
 ///
 /// The decoder is intentionally stateless. A socket reader owns line framing;
 /// this value only validates the event discriminator and base64 payload.
-struct CloudTuiManualIOFrameDecoder: Sendable {
+public struct CloudTuiManualIOFrameDecoder: Sendable {
+    public init() {}
+
     /// Decodes a complete JSON object line, returning `nil` for malformed or
     /// unrelated messages.
-    func decode(_ line: Data) -> CloudTuiManualIOFrame? {
+    public func decode(_ line: Data) -> CloudTuiManualIOFrame? {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
             return nil
         }

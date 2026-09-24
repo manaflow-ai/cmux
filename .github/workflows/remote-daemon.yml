@@ -7,6 +7,13 @@ on:
         description: Exercise native Go behavior when daemon inputs changed
         type: boolean
         default: true
+      # The pool ci.yml's `changes` job chose for this pull request run with
+      # scripts/ci/pr_runner_pool.py. Empty, which is every other event and
+      # every caller that predates it, keeps the MACOS_RUNNER_PR route.
+      pr_runner:
+        required: false
+        default: ""
+        type: string
   push:
     branches: [main]
     paths:
@@ -80,7 +87,7 @@ jobs:
     # Plain `go test` with no Xcode or GUI: any Mac will do. Follow the same
     # lanes as the other pull-request macOS jobs instead of pinning the
     # contended macOS 26 pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && (inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

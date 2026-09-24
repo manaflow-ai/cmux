@@ -5,7 +5,7 @@ extension CloudTuiCommandLine {
     /// `tab <tab_id> move --workspace <ws> --screen <screen> --pane <pane> --index <n>`
     /// (spec `tab.move`, the destination grammar `terminal … project` uses): re-parents
     /// one placement; the terminal or browser behind it is untouched.
-    static func moveTabArguments(
+    public static func moveTabArguments(
         socketPath: String,
         tabID: String,
         target: CloudTuiTerminalProjectionTarget,

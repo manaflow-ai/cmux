@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -104,6 +105,116 @@ class ProductLookupTests(unittest.TestCase):
             {"1": [{"id": 3, "name": "app-host-products-v1-abc-1", "expired": True}]},
         )
         self.assertIsNone(rerun.find_products("o/r", ["only"], api))
+
+
+
+class PullRequestProductTests(unittest.TestCase):
+    """A pull_request run built its merge commit, not the head_sha GitHub reports."""
+
+    PRODUCTS = {"id": 7, "name": "app-host-products-v1-abc-1", "expired": False, "size_in_bytes": 1}
+
+    def setUp(self) -> None:
+        self.repo = RepositoryFixture()
+        self.addCleanup(self.repo.close)
+        self.base = self.repo.commit("Sources/App.swift", "1")
+        run_git(self.repo.path, "checkout", "-q", "-b", "topic")
+        self.head = self.repo.commit("cmuxTests/ATests.swift", "a")
+        run_git(self.repo.path, "checkout", "-q", "main")
+        self.base = self.repo.commit("Sources/Other.swift", "base moved")
+        run_git(self.repo.path, "merge", "-q", "--no-ff", "-m", "Merge topic", "topic")
+        self.merge = run_git(self.repo.path, "rev-parse", "HEAD")
+        run_git(self.repo.path, "checkout", "-q", "topic")
+
+    def pull_request_run(self, merge: str | None = None, run_id: int = 5) -> dict:
+        ref = [{"path": "o/r/.github/workflows/ci-macos.yml@x", "ref": "refs/pull/1/merge", "sha": merge or self.merge}]
+        return {"id": run_id, "event": "pull_request", "head_sha": self.head, "referenced_workflows": ref}
+
+    def built(self, run: dict) -> str:
+        return rerun.built_revision(run, cwd=str(self.repo.path), fetch=lambda revision: None)
+
+    def test_a_push_run_built_its_head(self) -> None:
+        self.assertEqual(self.built({"id": 1, "event": "push", "head_sha": self.head}), self.head)
+
+    def test_a_pull_request_run_built_the_recorded_merge(self) -> None:
+        self.assertEqual(self.built(self.pull_request_run()), self.merge)
+
+    def test_a_recorded_commit_that_does_not_merge_the_head_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not a merge of its head"):
+            self.built(self.pull_request_run(merge=self.base))
+
+    def test_a_pull_request_run_without_a_recorded_merge_is_rejected(self) -> None:
+        run = self.pull_request_run()
+        run["referenced_workflows"] = []
+        with self.assertRaisesRegex(ValueError, "no single merge commit"):
+            self.built(run)
+
+    def plan(self, ref: str, source_run_id: str, api) -> dict:
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.repo.path)
+        args = argparse.Namespace(
+            ref=ref, repository="o/r", only_testing="ATests", source_run_id=source_run_id, max_commits=10
+        )
+        with unittest.mock.patch.object(rerun, "product_runner", return_value="runner"):
+            return rerun.plan(args, api=api)
+
+    def test_plan_compares_the_test_ref_against_the_merge(self) -> None:
+        # The merge carries the base's app change, which the head does not.
+        def api(path: str) -> dict:
+            if path.endswith("/artifacts?per_page=100"):
+                return {"artifacts": [self.PRODUCTS]}
+            return self.pull_request_run()
+
+        with self.assertRaises(SystemExit) as raised:
+            self.plan(self.head, "5", api)
+        self.assertIn(f"run 5 built {self.merge}", str(raised.exception))
+        self.assertIn("Sources/Other.swift", str(raised.exception))
+
+    def test_plan_emits_the_merge_as_the_source_revision(self) -> None:
+        # A head that is up to date with its base merges to the same app.
+        run_git(self.repo.path, "merge", "-q", "--no-ff", "-m", "Merge main", "main")
+        self.head = run_git(self.repo.path, "rev-parse", "HEAD")
+        run_git(self.repo.path, "checkout", "-q", "main")
+        run_git(self.repo.path, "merge", "-q", "--no-ff", "-m", "Merge topic", "topic")
+        self.merge = run_git(self.repo.path, "rev-parse", "HEAD")
+        run_git(self.repo.path, "checkout", "-q", "topic")
+        tested = self.repo.commit("cmuxTests/BTests.swift", "b")
+
+        def api(path: str) -> dict:
+            if path.endswith("/artifacts?per_page=100"):
+                return {"artifacts": [self.PRODUCTS]}
+            return self.pull_request_run()
+
+        planned = self.plan(tested, "5", api)
+        self.assertEqual(planned["source_sha"], self.merge)
+        self.assertEqual(planned["changed_tests"], "cmuxTests/BTests.swift")
+
+    def test_automatic_plan_passes_over_a_merge_with_base_app_changes(self) -> None:
+        # The newer pull_request run for this head built a merge that also
+        # carries the base's app change; the older push run built the head.
+        runs = [
+            {**self.pull_request_run(run_id=2), "created_at": "2026-01-02"},
+            {"id": 1, "event": "push", "head_sha": self.head, "created_at": "2026-01-01"},
+        ]
+
+        def api(path: str) -> dict:
+            if "head_sha=" in path:
+                return {"workflow_runs": runs if f"head_sha={self.head}" in path else []}
+            return {"artifacts": [self.PRODUCTS]}
+
+        planned = self.plan(self.head, "", api)
+        self.assertEqual((planned["source_run_id"], planned["source_sha"]), ("1", self.head))
+
+    def test_lookup_reports_the_built_revision_and_skips_ineligible_merges(self) -> None:
+        runs = {"h": [{"id": 1, "created_at": "2026-01-02"}, {"id": 2, "created_at": "2026-01-01"}]}
+
+        def api(path: str) -> dict:
+            match = re.search(r"head_sha=(\w+)", path)
+            if match:
+                return {"workflow_runs": runs.get(match.group(1), [])}
+            return {"artifacts": [self.PRODUCTS]}
+
+        found = rerun.find_products("o/r", ["h"], api, lambda run, revision: None if run["id"] == 1 else "merge")
+        self.assertEqual((found["run_id"], found["revision"]), ("2", "merge"))
 
 
 class ProductRunnerTests(unittest.TestCase):

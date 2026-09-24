@@ -3,14 +3,14 @@ import Foundation
 /// Application-authored colors beside a theme-portable Cloud replay.
 /// Missing entries retain the viewer's Ghostty theme. The pane feeds the
 /// equivalent OSC sequences to its own libghostty to preserve reset semantics.
-struct CloudTuiRemoteColors: Equatable, Sendable {
-    var foreground: String?
-    var background: String?
-    var cursor: String?
+public struct CloudTuiRemoteColors: Equatable, Sendable {
+    public var foreground: String?
+    public var background: String?
+    public var cursor: String?
     /// Palette index (0...255) to `#rrggbb`.
-    var palette: [Int: String]
+    public var palette: [Int: String]
 
-    init(foreground: String? = nil, background: String? = nil, cursor: String? = nil, palette: [Int: String] = [:]) {
+    public init(foreground: String? = nil, background: String? = nil, cursor: String? = nil, palette: [Int: String] = [:]) {
         self.foreground = foreground
         self.background = background
         self.cursor = cursor
@@ -20,7 +20,7 @@ struct CloudTuiRemoteColors: Equatable, Sendable {
     /// Parses the protocol object. Unknown keys and malformed values are
     /// dropped rather than rejecting the frame, since a color is never worth
     /// losing the screen bytes it travels with.
-    init?(json: Any?) {
+    public init?(json: Any?) {
         guard let object = json as? [String: Any] else { return nil }
         // Only older daemons omit provenance. Never treat a newer daemon's
         // shared effective defaults as application OSC, even if malformed.
@@ -38,14 +38,14 @@ struct CloudTuiRemoteColors: Equatable, Sendable {
         self.palette = palette
     }
 
-    var isEmpty: Bool {
+    public var isEmpty: Bool {
         foreground == nil && background == nil && cursor == nil && palette.isEmpty
     }
 
     /// OSC 10/11/12 for the special colors and OSC 4 per authored palette
     /// entry, in index order so output is deterministic. Equivalent to the
     /// delta from a terminal with no remote colors applied.
-    var oscBytes: Data {
+    public var oscBytes: Data {
         oscDelta(from: CloudTuiRemoteColors())
     }
 
@@ -55,7 +55,7 @@ struct CloudTuiRemoteColors: Equatable, Sendable {
     /// so this emits the matching reset for every entry `previous` carried
     /// that `self` no longer does, and a set for every entry that is new or
     /// changed. Unchanged entries produce nothing.
-    func oscDelta(from previous: CloudTuiRemoteColors) -> Data {
+    public func oscDelta(from previous: CloudTuiRemoteColors) -> Data {
         var text = ""
         Self.appendSpecial(&text, set: 10, reset: 110, previous: previous.foreground, next: foreground)
         Self.appendSpecial(&text, set: 11, reset: 111, previous: previous.background, next: background)
