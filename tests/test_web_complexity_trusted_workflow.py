@@ -685,6 +685,15 @@ def test_checker_judges_trusted_files_in_the_merge() -> None:
         result = check(linked, "--merge-repo", str(repo / ".git"), "--merge-tree", linked_tree)
         assert result.returncode == 2
         assert b".github/workflows/web-complexity-trusted.yml is a trusted policy file" in result.stderr
+
+        # The same bytes with a different mode are not the trusted file either.
+        def make_executable(path: Path) -> None:
+            (path / ".github/workflows/web-complexity-trusted.yml").chmod(0o755)
+
+        mode, mode_tree = branch("mode", make_executable)
+        result = check(mode, "--merge-repo", str(repo / ".git"), "--merge-tree", mode_tree)
+        assert result.returncode == 2
+        assert b".github/workflows/web-complexity-trusted.yml is a trusted policy file" in result.stderr
     finally:
         temp.cleanup()
 
@@ -733,7 +742,22 @@ def test_merge_step_merges_only_when_rebase_merging_is_off() -> None:
         # The step asks the repository whether rebase merging is allowed.
         stub = root / "bin"
         stub.mkdir()
-        write(stub, "gh", '#!/bin/sh\n[ "$GH_STUB" = fail ] && exit 1\necho "$GH_STUB"\n')
+        # The stub answers only the exact query the gate depends on, so a
+        # changed field, owner, name or jq path fails like a broken API.
+        write(
+            stub,
+            "gh",
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            "  'api graphql -f owner=example -f name=repo -f query=query($owner: String!, $name: String!) "
+            "{ repository(owner: $owner, name: $name) { rebaseMergeAllowed } } "
+            "--jq .data.repository.rebaseMergeAllowed') ;;\n"
+            '  *) echo "unexpected gh call: $*" >&2; exit 2 ;;\n'
+            "esac\n"
+            # Real gh prints the error body on stdout when a request fails.
+            '[ "$GH_STUB" = fail ] && { echo \'{"message":"Bad credentials"}\'; exit 1; }\n'
+            'echo "$GH_STUB"\n',
+        )
         (stub / "gh").chmod(0o755)
 
         def run_step(head: str, rebase: str) -> dict[str, str]:
