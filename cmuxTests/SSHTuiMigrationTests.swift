@@ -205,7 +205,18 @@ struct SSHTuiMigrationTests {
     @Test("Native SSH respawn preserves its surface and executes only through the provider")
     @MainActor
     func nativeSSHRespawnUsesProviderReplacement() async throws {
-        let workspace = Workspace()
+        // Projection validates its destination through Workspace.liveWorkspace, so
+        // the workspace must belong to the app's TabManager. A detached Workspace()
+        // fails with destinationNotFound and the provider never materializes.
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalTabManager = appDelegate.tabManager
+        let manager = originalTabManager ?? TabManager()
+        appDelegate.tabManager = manager
+        let workspace = manager.addWorkspace(select: false)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) { manager.closeWorkspace(workspace) }
+            appDelegate.tabManager = originalTabManager
+        }
         let panelID = try #require(workspace.focusedPanelId)
         let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
         let config = configuration()
@@ -217,7 +228,6 @@ struct SSHTuiMigrationTests {
         defer {
             provider.release.resolve(true)
             catalog.unregister(machine: provider.machine)
-            workspace.teardownAllPanels()
         }
         let original = provider.resource(key: "original")
         catalog.upsert(original, from: provider)
