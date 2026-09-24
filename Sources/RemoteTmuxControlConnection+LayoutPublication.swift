@@ -134,7 +134,7 @@ extension RemoteTmuxControlConnection {
         rebuildPublishedPaneOwnership()
         initialBatchStaged = [:]
         initialBatchAwaiting = nil
-        prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
+        prunePaneState(keeping: paneIDsForStatePruning())
         record("initial-batch-published")
         #if DEBUG
         cmuxDebugLog("remote.rects.batchFlush windows=\(windowsByID.keys.sorted())")
@@ -155,6 +155,8 @@ extension RemoteTmuxControlConnection {
                 + "lines=\(lines.count) awaiting=\(initialBatchAwaiting.map(String.init(describing:)) ?? "nil")"
         )
         #endif
+        let snapshotKey = RemoteTmuxPaneTitleSnapshotKey(windowId: windowId, generation: generation)
+        let snapshotRevision = paneTitleMetadataSnapshotRevisions.removeValue(forKey: snapshotKey) ?? 0
         guard var pending = pendingLayouts[windowId] else {
             // Window closed while the fetch was in flight; nothing to publish.
             return
@@ -172,12 +174,15 @@ extension RemoteTmuxControlConnection {
         let isStaleReply = generation != pending.generation
         var rects: [Int: (x: Int, y: Int, width: Int, height: Int)] = [:]
         var labels: [Int: String] = [:]
+        var titleMetadata: [Int: RemoteTmuxPaneTitleMetadata] = [:]
+        var panesWithoutTitleMetadata: Set<Int> = []
         var activePane: Int?
         var titleRowPlacement: RemoteTmuxPaneTitleRowPlacement?
         for line in lines {
             // "%id left top width height active border-status :format…" —
-            // the expanded pane-border-format is last (it may contain
-            // spaces) behind the ':' sentinel (it may be empty).
+            // the expanded pane-border-format is the first part of the final
+            // field (it may contain spaces) behind the ':' sentinel; a unit
+            // separator then carries pane-title metadata.
             let parts = line.split(separator: " ", maxSplits: 7, omittingEmptySubsequences: false)
             guard parts.count >= 8,
                   let paneId = RemoteTmuxControlStreamParser.id(parts[0], sigil: "%"),
@@ -196,7 +201,18 @@ extension RemoteTmuxControlConnection {
             if let placement = RemoteTmuxPaneTitleRowPlacement(rawValue: String(parts[6])) {
                 titleRowPlacement = placement
             }
-            labels[paneId] = Self.strippingStyleTokens(String(parts[7].dropFirst()))
+            let expandedFields = String(parts[7].dropFirst()).split(
+                separator: RemoteTmuxPaneTitleMetadata.fieldSeparator,
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            )
+            labels[paneId] = Self.strippingStyleTokens(String(expandedFields[0]))
+            if expandedFields.count == 2,
+               let metadata = RemoteTmuxPaneTitleMetadata(wireValue: String(expandedFields[1])) {
+                titleMetadata[paneId] = metadata
+            } else {
+                panesWithoutTitleMetadata.insert(paneId)
+            }
         }
         // The reply must cover EVERY pane of the tree it will publish:
         // `patchingLeafRects` leaves unknown leaves untouched, so a partial
@@ -237,6 +253,14 @@ extension RemoteTmuxControlConnection {
                 observers.notifyTopologyChanged()
             }
             return
+        }
+        for (paneId, metadata) in titleMetadata
+        where (paneTitleMetadataLiveRevisionByPane[paneId] ?? 0) <= snapshotRevision {
+            paneTitleMetadataByPane[paneId] = metadata
+        }
+        for paneId in panesWithoutTitleMetadata
+        where (paneTitleMetadataLiveRevisionByPane[paneId] ?? 0) <= snapshotRevision {
+            paneTitleMetadataByPane[paneId] = nil
         }
         for (paneId, label) in labels where paneHeaderLabels[paneId] != label {
             paneHeaderLabels[paneId] = label
@@ -287,7 +311,7 @@ extension RemoteTmuxControlConnection {
             paneIds: published.paneIDsInOrder
         )
         if !windowOrder.contains(windowId) { windowOrder.append(windowId) }
-        prunePaneState(keeping: Set(windowsByID.values.flatMap { $0.paneIDsInOrder }))
+        prunePaneState(keeping: paneIDsForStatePruning())
         observers.notifyTopologyChanged()
         // Publish first so every mirror surface adopts the verified grid before
         // capture-pane repaints the cells that grid growth newly exposed.
@@ -336,6 +360,8 @@ extension RemoteTmuxControlConnection {
         #if DEBUG
         cmuxDebugLog("remote.rects.error @\(windowId) gen=\(generation)")
         #endif
+        let snapshotKey = RemoteTmuxPaneTitleSnapshotKey(windowId: windowId, generation: generation)
+        paneTitleMetadataSnapshotRevisions[snapshotKey] = nil
         guard var pending = pendingLayouts[windowId] else { return }
         pending.inFlight = false
         if pending.generation != generation || pending.dirty {
@@ -360,10 +386,31 @@ extension RemoteTmuxControlConnection {
     }
 
 
-    func prunePaneState(keeping livePanes: Set<Int>) {
-        discardPendingPaneSeeds(keeping: livePanes)
-        paneHeaderLabels = paneHeaderLabels.filter { livePanes.contains($0.key) }
-        paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
-        paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }
+    /// Returns every pane that can still be published by an in-flight topology
+    /// phase. A pane may be absent from the verified windows briefly while its
+    /// layout, initial batch entry, or close-gap snapshot is being resolved.
+    /// Pruning against only `windowsByID` would drop its metadata in that gap.
+    func paneIDsForStatePruning() -> Set<Int> {
+        var paneIDs = Set(windowsByID.values.flatMap { $0.paneIDsInOrder })
+        for pending in pendingLayouts.values {
+            paneIDs.formUnion(pending.node.paneIDsInOrder)
+            if let visibleNode = pending.visibleNode {
+                paneIDs.formUnion(visibleNode.paneIDsInOrder)
+            }
+        }
+        paneIDs.formUnion(initialBatchStaged.values.flatMap { $0.paneIDsInOrder })
+        paneIDs.formUnion(paneIDsRetainedUntilWindowList)
+        return paneIDs
+    }
+
+    func prunePaneState(keeping paneIDs: Set<Int>) {
+        discardPendingPaneSeeds(keeping: paneIDs)
+        paneHeaderLabels = paneHeaderLabels.filter { paneIDs.contains($0.key) }
+        paneTitleMetadataByPane = paneTitleMetadataByPane.filter { paneIDs.contains($0.key) }
+        paneTitleMetadataLiveRevisionByPane = paneTitleMetadataLiveRevisionByPane.filter {
+            paneIDs.contains($0.key)
+        }
+        paneOutputByteCounts = paneOutputByteCounts.filter { paneIDs.contains($0.key) }
+        paneForegroundStates = paneForegroundStates.filter { paneIDs.contains($0.key) }
     }
 }
