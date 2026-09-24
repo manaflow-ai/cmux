@@ -1,0 +1,22 @@
+name: R2 cache prune dry run (experiment branch only)
+on:
+  push:
+    branches: [exp/r2-cache-prune-dry-run-20260924]
+permissions: {}
+jobs:
+  dry-run:
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # No --delete: this lists, reads pointers and reports only.
+      - env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        run: python3 scripts/ci/r2_cache_prune.py --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET"
