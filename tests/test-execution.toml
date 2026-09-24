@@ -432,6 +432,10 @@ path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_macos_xcode_selection.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_required_checks_drift.py"
 lane = "linux-guard"
 
