@@ -1,7 +1,7 @@
 import Bonsplit
 import Foundation
 
-/// Resolves the provider mark for a local terminal tab from the same agent
+/// Resolves a provider mark from the same agent
 /// definitions used by process and hook detection.
 struct TerminalTabAgentIconResolver {
     func assetName(forStatusKey statusKey: String) -> String? {
@@ -22,22 +22,12 @@ struct TerminalTabAgentIconResolver {
 }
 
 extension Workspace {
-    /// Returns the current provider mark for one terminal panel, if known.
+    /// Returns the provider mark for a Cloud terminal tab. The agent runs on
+    /// the remote machine, so its projected resource is the owner. Local
+    /// terminal tabs keep the plain terminal icon.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
-        // A Cloud terminal's agent lives on the remote machine, so local PID
-        // and restore state never see it; the projected resource is its owner.
-        if let remote = cloudProjectedResource(forPanel: panelId), remote.kind == .terminal {
-            return remote.terminalAgentIconAssetName
-        }
-        let resolver = TerminalTabAgentIconResolver()
-        let statusKeys = agentPIDKeysByPanelId[panelId, default: []]
-            .map(agentStatusKey(forAgentPIDKey:))
-            .sorted()
-        if let asset = statusKeys.compactMap(resolver.assetName(forStatusKey:)).first {
-            return asset
-        }
-        guard let restored = restoredAgentSnapshotsByPanelId[panelId] else { return nil }
-        return restored.registration?.iconAssetName ?? resolver.assetName(forStatusKey: restored.kind.rawValue)
+        guard let remote = cloudProjectedResource(forPanel: panelId), remote.kind == .terminal else { return nil }
+        return remote.terminalAgentIconAssetName
     }
 
     /// Reconciles a terminal tab's provider mark after agent lifecycle state changes.
