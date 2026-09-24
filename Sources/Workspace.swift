@@ -637,15 +637,22 @@ extension Workspace {
                             processPresence: agentProcessPresence
                         ) ?? false
                 }
-                guard let effectiveRestorableAgent else { return nil }; if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(snapshot: effectiveRestorableAgent, binding: resumeBinding, processLiveness: matchingObservation?.processLiveness) { return true }
+                guard let effectiveRestorableAgent else { return nil }
+                let matchingObservation = restorableAgentObservation?.matchingAgentSession(
+                    kind: effectiveRestorableAgent.kind.rawValue,
+                    sessionId: effectiveRestorableAgent.sessionId
+                )
+                if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(
+                    snapshot: effectiveRestorableAgent,
+                    binding: resumeBinding,
+                    processLiveness: matchingObservation?.processLiveness
+                ) {
+                    return true
+                }
                 let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
                     for: effectiveRestorableAgent,
                     panelId: panelId,
                     currentProcessIdentity: currentAgentProcessIdentity
-                )
-                let matchingObservation = restorableAgentObservation?.matchingAgentSession(
-                    kind: effectiveRestorableAgent.kind.rawValue,
-                    sessionId: effectiveRestorableAgent.sessionId
                 )
                 return (matchingObservation?.processLiveness ?? .unknown)
                     .wasRunning(
