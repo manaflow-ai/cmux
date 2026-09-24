@@ -1,3 +1,5 @@
+import { ios106MacRequirement } from "./mobile-mac-compat";
+
 /**
  * The remote What's New list served by GET /api/whats-new.
  *
@@ -84,5 +86,34 @@ export const whatsNewList: WhatsNewList = {
   // compatibility floors, and the connection notes. The earlier standalone
   // pairing page is intentionally absent and can never be shown again.
   visibleEntryIds: ["connections.v2", "connections.v1"],
-  announcements: [],
+  announcements: [
+    {
+      id: "ios-1.0.6-connections",
+      minVersion: "1.0.6",
+      maxVersion: "1.0.6",
+      channels: ["beta", "internal"],
+      title: "What's New in 1.0.6",
+      releaseLabel: "1.0.6 · September 2026",
+      features: [
+        {
+          symbol: "network",
+          title: "Updated Mac connections",
+          detail:
+            "This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect.",
+        },
+        {
+          symbol: "arrow.down.circle",
+          title: "Update cmux on your Mac",
+          detail:
+            `Requires cmux ${ios106MacRequirement.stableMinVersion} or later, or NIGHTLY ${ios106MacRequirement.nightly.minBaseVersion}-nightly.${ios106MacRequirement.nightly.minBuild} or later. Enable iOS pairing in Settings > Mobile on each Mac.`,
+        },
+        {
+          symbol: "clock.arrow.circlepath",
+          title: "Need to keep an older Mac build?",
+          detail:
+            "Use cmux BETA 1.0.4 (20260817224846) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service.",
+        },
+      ],
+    },
+  ],
 };

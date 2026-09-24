@@ -17,7 +17,8 @@ import Testing
     private func makeCenter(
         buildType: MobileBuildType,
         payload: String? = nil,
-        acknowledgedEntryID: String? = nil
+        acknowledgedEntryID: String? = nil,
+        appVersion: String = "1.0.5"
     ) -> MobileWhatsNewCenter {
         let suiteName = "MobileWhatsNewChannelGateTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -30,7 +31,7 @@ import Testing
         }
         return MobileWhatsNewCenter(
             apiBaseURL: "https://cmux.test",
-            appVersion: "1.0.5",
+            appVersion: appVersion,
             buildType: buildType,
             defaults: defaults,
             loader: { _ in
@@ -48,6 +49,35 @@ import Testing
         #expect(center.visibleBinaryEntries.isEmpty)
         #expect(center.archivePages.isEmpty)
         #expect(center.unseenPages.isEmpty)
+    }
+
+    @Test func pinpointNoticeOnlyReachesItsVersionAndChannels() async {
+        let payload = #"""
+        {"visibleEntryIds":["connections.v2","connections.v1"],"announcements":[{
+          "id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6",
+          "channels":["beta","internal"],"title":"What's New in 1.0.6",
+          "features":[{"title":"Update your Mac","detail":"Requires cmux 0.64.25."}]
+        }]}
+        """#
+        for channel in [MobileBuildType.beta, .internal, .dev, .prod, .demo] {
+            for appVersion in ["1.0.4", "1.0.5", "1.0.6", "1.0.7"] {
+                let center = makeCenter(
+                    buildType: channel,
+                    payload: payload,
+                    acknowledgedEntryID: "connections.v2",
+                    appVersion: appVersion
+                )
+                await center.refresh()
+                let shouldShow = appVersion == "1.0.6" && (channel == .beta || channel == .internal)
+                #expect(center.unseenPages.map(\.id) == (shouldShow ? ["ios-1.0.6-connections"] : []))
+                if shouldShow {
+                    center.acknowledge(center.unseenPages)
+                    await center.refresh()
+                    #expect(center.unseenPages.isEmpty)
+                    #expect(center.announcementPages.count == 1)
+                }
+            }
+        }
     }
 
     @Test func pairingUpdateAppearsAfterAnOlderPageWasAcknowledged() async {
