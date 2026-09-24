@@ -810,6 +810,27 @@ class OrphanPlanTests(unittest.TestCase):
         self.assertIn("3 run(s) still queued after", summary)
         self.assertNotIn(old[0].run["html_url"], summary)
 
+    def test_ghost_left_to_github_skips_the_label_lookup(self):
+        old = find([make_run(status="queued", age=60 * 24 * 11, branch="sep13", event="pull_request_target")], {})
+        young = find([make_run(status="queued", age=60 * 48, branch="young", event="pull_request_target")], {})
+        self.assertEqual(janitor.orphan_branches(old + young, NOW), ["young"])
+
+    def test_protected_ghost_past_give_up_age_keeps_its_row(self):
+        run = make_run(status="queued", age=60 * 24 * 11, name="Release", path=".github/workflows/release.yml")
+        decisions = orphan_plan(find([run], {}))
+        self.assertEqual([d.action for d in decisions], ["skip"])
+        summary = janitor.render_orphan_summary(decisions, dry_run=False, now=NOW, min_age=dt.timedelta(hours=2))
+        self.assertIn(run["html_url"], summary)
+        self.assertIn("left for a human", summary)
+
+    def test_summary_with_only_ghosts_left_to_github_has_no_table(self):
+        old = find([make_run(status="queued", age=60 * 24 * 11)], {})
+        summary = janitor.render_orphan_summary(orphan_plan(old), dry_run=False, now=NOW,
+                                                min_age=dt.timedelta(hours=2))
+        self.assertIn("1 run(s) still queued after", summary)
+        self.assertNotIn("| Decision |", summary)
+        self.assertNotIn("No orphaned runs found.", summary)
+
     def test_ghost_order_rotates_between_sweeps(self):
         # Runs GitHub refuses to cancel must not hold the cap forever.
         ghosts = self.orphans(4, kind="ghost")
@@ -873,7 +894,7 @@ class OrphanPlanTests(unittest.TestCase):
 
     def test_orphan_pr_branches_are_resolved(self):
         orphans = self.orphans(1, branch="pr-branch") + self.orphans(1, kind="ghost", event="push", branch="exp/x")
-        self.assertEqual(janitor.orphan_branches(orphans), ["pr-branch"])
+        self.assertEqual(janitor.orphan_branches(orphans, NOW), ["pr-branch"])
 
 
 class FakeGitHub(janitor.GitHub):

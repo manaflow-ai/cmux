@@ -817,10 +817,17 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
 PULL_REQUEST_EVENTS = ("pull_request", "pull_request_target")
 
 
-def orphan_branches(orphans: Iterable[Orphan]) -> list[str]:
+def left_to_github(orphan: Orphan, now: dt.datetime) -> bool:
+    """A ghost past GHOST_GIVE_UP_AGE that no human was asked to look at."""
+    return (orphan.job_name is None and orphan.queued_since is not None
+            and now - orphan.queued_since >= GHOST_GIVE_UP_AGE and orphan_protected_reason(orphan.run) is None)
+
+
+def orphan_branches(orphans: Iterable[Orphan], now: dt.datetime) -> list[str]:
     """PR branches whose `no-janitor` label the orphan plan needs."""
     return sorted({str(o.run["head_branch"]) for o in orphans
-                   if o.run.get("event") in PULL_REQUEST_EVENTS and o.run.get("head_branch")})
+                   if o.run.get("event") in PULL_REQUEST_EVENTS and o.run.get("head_branch")
+                   and not left_to_github(o, now)})
 
 
 @dataclasses.dataclass
@@ -844,7 +851,8 @@ def build_orphan_plan(
     pull request's required check or a concurrency group today. Runs stuck in
     `queued` for days follow, in an order that rotates every sweep, so a run
     GitHub refuses to cancel cannot hold the cap forever. Past
-    GHOST_GIVE_UP_AGE a ghost is left to GitHub and never tried again.
+    GHOST_GIVE_UP_AGE a ghost is left to GitHub and never tried again,
+    unless it is protected: that row stays for the human it names.
     """
     lost = sorted((o for o in orphans if o.job_name is not None and o.run["id"] not in exclude_ids),
                   key=lambda o: (o.queued_since or now, o.run["id"]))
@@ -853,7 +861,7 @@ def build_orphan_plan(
     decisions: list[OrphanDecision] = []
     retry: list[Orphan] = []
     for ghost in ghosts:
-        if ghost.queued_since is not None and now - ghost.queued_since >= GHOST_GIVE_UP_AGE:
+        if left_to_github(ghost, now):
             decisions.append(OrphanDecision(ghost, "github-side"))
         else:
             retry.append(ghost)
@@ -1137,7 +1145,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
-        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans)))
+        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now)))
         prs_by_branch = github.pull_requests(branches) if branches else {}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
