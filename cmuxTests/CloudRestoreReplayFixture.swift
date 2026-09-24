@@ -83,6 +83,11 @@ final class CloudRestoreReplayFixture {
 
     func focus() { session.claimGeometry() }
 
+    func seedLocalOutput(_ bytes: Data, marker: String) async throws {
+        surface.processRemoteOutput(bytes)
+        try await waitUntil { self.surface.readText(region: .screen)?.contains(marker) == true }
+    }
+
     func expectInputAfterPendingResponses(marker: String) async throws {
         let bytes = Data(marker.utf8)
         // The marker follows earlier replies on the incoming stream. Once
