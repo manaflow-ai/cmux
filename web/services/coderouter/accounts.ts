@@ -83,8 +83,8 @@ export async function addAccount(
         providerIdentityKey(credential),
         lookup,
       );
-      if (raced) return { accountId: raced.id, alreadyExists: true };
-      throw new Error("coderouter account insert lost a uniqueness race");
+      if (!raced) throw new Error("coderouter account insert lost a uniqueness race");
+      return unwritableImportMatch(raced, ownership, access) ?? { accountId: raced.id, alreadyExists: true };
     }
   } else {
     await replaceAccountCredential({
@@ -104,6 +104,7 @@ export async function addAccount(
  * recognised instead of stored twice, but the member may not change it: an
  * active match comes back unchanged, and an inactive one needs an
  * administrator to replace its credential. Null means the import may write.
+ * An insert that loses the uniqueness race applies this to the winner too.
  */
 function unwritableImportMatch(
   existing: { readonly id: string; readonly state: string; readonly visibility: "private" | "team"; readonly createdBy: string | null } | null,
