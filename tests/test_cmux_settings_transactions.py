@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Production helper transaction tests on owned temporary JSONC files.
 
-The validation seam is injected only for deterministic interleavings. Canonical
-schema rejection is exercised by JSONConfigTransactionTests and CLI doctor tests.
+ConfigTransactionTests inject the validation seam for deterministic
+interleavings. The later classes run the real validation path against a fake
+`cmux config validate`; canonical schema rejection is exercised by
+JSONConfigTransactionTests and CLI doctor tests.
 """
 import argparse
 import contextlib
@@ -35,7 +37,7 @@ class ConfigTransactionTests(unittest.TestCase):
         self.config = self.root / 'cmux.json'
         self.config.write_text('{\n // keep\n "computerUse": {"showInMenuBar": true}\n}\n')
         self.receipt = self.root / 'undo.json'
-        self.validation = patch.object(helper, 'validate_candidate', return_value=True)
+        self.validation = patch.object(helper, 'candidate_issues', return_value=[])
         self.validation.start()
         self.addCleanup(self.validation.stop)
 
@@ -84,8 +86,8 @@ class ConfigTransactionTests(unittest.TestCase):
         external = b'{"computerUse":{"showInMenuBar":true,"enabled":false}}'
         def validate(*_):
             self.config.write_bytes(external)
-            return True
-        with patch.object(helper, 'validate_candidate', side_effect=validate):
+            return []
+        with patch.object(helper, 'candidate_issues', side_effect=validate):
             with self.assertRaises(SystemExit):
                 self.set_value()
         self.assertEqual(self.config.read_bytes(), external)
@@ -96,8 +98,8 @@ class ConfigTransactionTests(unittest.TestCase):
             replacement = self.root / 'replacement'
             replacement.write_bytes(before)
             os.replace(replacement, self.config)
-            return True
-        with patch.object(helper, 'validate_candidate', side_effect=validate):
+            return []
+        with patch.object(helper, 'candidate_issues', side_effect=validate):
             with self.assertRaises(SystemExit):
                 self.set_value()
         self.assertEqual(self.config.read_bytes(), before)
@@ -112,8 +114,8 @@ class ConfigTransactionTests(unittest.TestCase):
         def validate(*_):
             self.config.unlink()
             self.config.symlink_to(other)
-            return True
-        with patch.object(helper, 'validate_candidate', side_effect=validate):
+            return []
+        with patch.object(helper, 'candidate_issues', side_effect=validate):
             with self.assertRaises(SystemExit):
                 self.set_value()
         self.assertEqual(target.read_bytes(), before)
@@ -130,8 +132,10 @@ class ConfigTransactionTests(unittest.TestCase):
 
     def test_malformed_and_rejected_candidate_preserve_bytes(self):
         before = self.config.read_bytes()
-        with patch.object(helper, 'validate_candidate', return_value=False):
-            self.assertEqual(helper.cmd_set(self.args()), 1)
+        rejected = [{'path': '$.computerUse.showInMenuBar', 'message': 'fixture rejection'}]
+        with patch.object(helper, 'introduced_issues', return_value=rejected):
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                helper.cmd_set(self.args())
         self.assertEqual(self.config.read_bytes(), before)
         self.config.write_text('{broken')
         with self.assertRaises(SystemExit):
@@ -293,6 +297,18 @@ class CandidateValidationTests(FakeValidatorTestCase):
         self.assertEqual(self.config.read_bytes(), before)
 
 
+    def test_validator_failure_without_issues_refuses_even_when_baseline_fails_too(self):
+        # An older CLI rejecting a flag, or a crash, fails both runs the same way.
+        (self.root / 'fake-cmux').write_text('#!/bin/sh\necho "error: unknown option --scope" >&2\nexit 2\n')
+        before = self.config.read_bytes()
+        code, stdout, stderr = self.set_value('false')
+        self.assertEqual((code, stdout), (1, ''))
+        payload = json.loads(stderr)
+        self.assertEqual(payload['code'], 'invalid_config')
+        self.assertEqual(payload['issues'], [{'path': '$', 'message': 'error: unknown option --scope'}])
+        self.assertEqual(self.config.read_bytes(), before)
+
+
 class ReceiptAndMessageTests(FakeValidatorTestCase):
 
     def test_existing_receipt_is_a_structured_conflict_and_config_is_unchanged(self):
@@ -311,6 +327,19 @@ class ReceiptAndMessageTests(FakeValidatorTestCase):
         self.assertEqual(payload['message'], helper.mutation_message('receiptExists'))
         self.assertEqual(self.config.read_bytes(), before)
         self.assertEqual(receipt.read_text(), 'keep')
+
+    def test_unwritable_receipt_is_a_structured_conflict_and_config_is_unchanged(self):
+        before = self.config.read_bytes()
+        args = argparse.Namespace(file=str(self.config), key='computerUse.showInMenuBar',
+                                  value='false', scope='global',
+                                  receipt=str(self.root / 'missing' / 'undo.json'))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit):
+            helper.cmd_set(args)
+        payload = json.loads(stderr.getvalue())
+        self.assertEqual(payload['code'], 'receipt_unwritable')
+        self.assertEqual(payload['message'], helper.mutation_message('receiptInvalid'))
+        self.assertEqual(self.config.read_bytes(), before)
 
     def test_every_locale_has_every_message_as_a_complete_sentence(self):
         catalog = json.loads((SCRIPTS / 'config_mutation_messages.json').read_text(encoding='utf-8'))
