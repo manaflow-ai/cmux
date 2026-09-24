@@ -49,7 +49,7 @@ async function readStats(
       throw new Error(`Unexpected mutation: ${path}`);
     }) as typeof fetch,
   });
-  const provider = new FreestyleProvider({ client: () => client, resolveDaemonSource: async () => { throw new Error("Unexpected install"); } });
+  const provider = new FreestyleProvider({ client: () => client });
   const repo = {
     markProviderObservedStatus: ({ status }: { status: string }) => Effect.sync(() => { options.onDestroyed?.(status); return true; }),
     findUserVm: () => Effect.succeed({ provider: "freestyle", providerVmId: "vm-stats", billingTeamId: null, ownerTeamId: "user",

@@ -286,6 +286,10 @@ struct VMSummary {
     /// the WireGuard tunnel); nil for machines created before private networking.
     var addressIPv4: String?
     var addressIPv6: String?
+    /// The image's cmux-tui attach contract from the create receipt
+    /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
+    /// Only the create response carries it; list reads leave it nil.
+    var cmuxTuiContract: String?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -1234,6 +1238,10 @@ actor VMClient {
                 extraHeaders: headers,
                 timeoutSeconds: Self.createTimeoutSeconds
             )
+            #if DEBUG
+            // Per-stage server time for the New Machine critical path.
+            cmuxDebugLog("cloud.vm.create.serverTiming status=\(http.statusCode) \(http.value(forHTTPHeaderField: "Server-Timing") ?? "none")")
+            #endif
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
             guard let id = obj["id"] as? String,
@@ -1254,6 +1262,14 @@ actor VMClient {
             summary.capabilities = VMCapabilities(vmResponse: obj)
             summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // The create receipt names the new machine's private address and
+            // attach contract, so the app can register and dial it without a
+            // fleet re-read or an attach request (see createdMachineAttach).
+            if let address = obj["address"] as? [String: Any] {
+                summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
+            summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             machineCache.record(hasAnyMachine: true)
             return summary
         }
