@@ -624,8 +624,25 @@ def check_global_search_has_dedicated_consumer() -> int:
         print("FAIL: app-host-unit-tests job missing")
         return 1
     job = match.group(1)
-    if "shard: [1, 2, 3, 4, 5, 6, 7]" not in job:
-        print("FAIL: app-host matrix must include the dedicated seventh consumer")
+    # Read each matrix row's exact label: a substring check would let
+    # `macos-15` match inside `blacksmith-6vcpu-macos-15`.
+    rows = {
+        int(shard): runner
+        for shard, runner in re.findall(r"(?m)^\s+- shard: (\d+)\n\s+pr_runner: (\S+)\s*$", job)
+    }
+    missing_shards = [shard for shard in range(1, 8) if shard not in rows]
+    if missing_shards:
+        print(f"FAIL: app-host matrix is missing consumers: {missing_shards}")
+        return 1
+    required_pr_pools = {
+        "blacksmith-6vcpu-macos-15",
+        "blacksmith-6vcpu-macos-26",
+        "macos-15",
+        "macos-26",
+    }
+    missing_pools = sorted(required_pr_pools - set(rows.values()))
+    if missing_pools:
+        print(f"FAIL: pull-request app-host matrix does not span all four macOS pools: {missing_pools}")
         return 1
     if 'CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"' not in job:
         print("FAIL: global search must own consumer 7")
