@@ -194,7 +194,12 @@ while True:
         capture_output=True, timeout=15)
     timed_out = result.returncode != 0 and 'Timed out waiting for a matching event' in result.stderr
     assert result.returncode == 0 or timed_out, ('events CLI', result.returncode, result.stderr)
-    frames = [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
+    assert not any(secret in result.stdout for secret in sentinels), 'CLI stdout leaked test content'
+    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    # Debug-library diagnostics are not event frames. Malformed JSON frames
+    # still fail decoding, and every expected session remains mandatory.
+    frames = [json.loads(line) for line in lines if line.startswith('{')]
+    diagnostic_line_count = sum(not line.startswith('{') for line in lines)
     ours = [frame for frame in frames if frame.get('payload', {}).get('session_id') in expected]
     if {frame['payload']['session_id'] for frame in ours} == set(expected) or time.monotonic() >= deadline:
         break
@@ -234,6 +239,7 @@ for frame in ours:
     assert stored.get(frame['id']) == frame, ('durable event mismatch', frame['payload']['session_id'])
 print(json.dumps({'cases': len(expected), 'stream_frames': len(ours), 'durable_frames': len(stored),
                   'ascii_lengths': [18635, 85], 'unicode_graphemes': 400,
-                  'redaction': 'passed', 'session_surface_association': 'passed'}, sort_keys=True))
+                  'redaction': 'passed', 'session_surface_association': 'passed',
+                  'non_json_stdout_lines': diagnostic_line_count}, sort_keys=True))
 """#
 }
