@@ -43,6 +43,13 @@ workflows are never candidates, whatever their state.
 Everything that decides is a pure function over already-fetched JSON; the
 GitHub client at the bottom only fetches and cancels.
 
+Every sweep can also write what it saw per pool (``--pool-load``): queued and
+running macOS jobs, the oldest queued job's age, and the queued jobs that
+belong to release or nightly runs. ci-queue-janitor.yml uploads it as the
+``macos-pool-load`` artifact, and pr_runner_pool.py reads the newest one to
+pick a pull request run's pool (and, through it, e2e_runner_pool.py an E2E
+run's) without listing every in-flight run's jobs itself.
+
 Orphaned runs are a separate pass (find_orphans): a job the runner scheduler
 lost holds nothing on any pool, so that pass ignores the queue threshold,
 has its own cap, and may end main schedules, nightly and TestFlight runs,
@@ -90,6 +97,11 @@ GHOST_QUEUED_RUN_AGE = dt.timedelta(hours=24)
 # 26-minute median on the most backed-up macOS 15 pool, a 45-minute outlier).
 DEFAULT_ORPHAN_MINUTES = 120
 MIN_ORPHAN_MINUTES = 30
+# A ghost still queued this long has been offered to cancel and force-cancel
+# many times over: the rotation below reaches every ghost within a few hours.
+# What is left is on GitHub's side (the 2026-09-13 set answers 409 to both),
+# so it is reported once, as a count, and no longer costs calls every sweep.
+GHOST_GIVE_UP_AGE = dt.timedelta(hours=72)
 # Orphans burn no runner time, so relieving them is never urgent: a small cap
 # of their own keeps them from spending the backlog cap and bounds the calls
 # a sweep spends on runs GitHub refuses to cancel.
@@ -114,7 +126,8 @@ CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 # The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
 # suite and the reusable-call prefix makes the API name "macos / app-host unit
 # tests (3/6)", so match on the substring. A failed compile admission fails
-# the same `macos` call before any shard starts.
+# the same `macos` call before any shard starts, and so do the changed suites
+# it runs itself (ci-macos.yml inputs.unit_in_admission).
 DOOMED_JOB_NAME = "app-host unit tests"
 
 
@@ -135,7 +148,11 @@ DOOMED_GRACE = dt.timedelta(minutes=10)
 # is not a rule. JANITOR_OPT_OUT_LABEL covers a fix that lives only there.
 DOOMED_INPUT_PREFIXES = ("cmuxTests/", "scripts/ci/workloads/")
 DOOMED_INPUT_MARKERS = ("app-host", "app_host")
-DOOMED_INPUT_FILES = (".github/workflows/ci-macos.yml", "scripts/ci/cmux_unit_test_shard.py")
+DOOMED_INPUT_FILES = (
+    ".github/workflows/ci-macos.yml",
+    "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/enable-xctest-automation-mode.sh",
+)
 JANITOR_OPT_OUT_LABEL = "no-janitor"
 
 PROTECTED_EVENTS = frozenset({"merge_group", "release", "create", "delete", "deployment", "deployment_status"})
@@ -300,6 +317,69 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
         # A failure we cannot time cannot clear the grace window; fail closed.
         decided_by = decided_at = None
     return MacosUsage(queued, running, oldest, compiling, decided_by, decided_at, held_by_pool, queued_by_pool)
+
+
+# Workflows whose queued macOS jobs a pull request must not take a pool from.
+RESERVED_POOL_WORKFLOW = re.compile(r"release|nightly", re.IGNORECASE)
+POOL_QUEUED_JOB_STATUSES = QUEUED_JOB_STATUSES - {"waiting"}
+POOL_LOAD_VERSION = 1
+# Environment variable -> snapshot settings key, for pr_runner_pool.py.
+POOL_SETTINGS_ENV = {
+    "PR_POOL_LANE": "lane",
+    "PR_POOL_OVERFLOW": "overflow",
+    "PR_POOL_ORDER": "order",
+    "PR_POOL_MAX_QUEUED": "max_queued",
+}
+
+
+def pool_load_snapshot(
+    runs: Sequence[Mapping[str, Any]],
+    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
+    *,
+    now: dt.datetime,
+    settings: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Per-pool macOS demand from the jobs this sweep already listed.
+
+    A pool is a job's single runner label when it asked for one, which is
+    every Blacksmith job, so pr_runner_pool.py can look a label up directly.
+    Only jobs waiting for a runner count as queued; a `waiting` job is held
+    by an environment approval and asks no pool for anything yet.
+    `reserved_queued` counts the queued jobs of release and nightly runs; it
+    is what tells a pull request to stay off a pool those runs are waiting on.
+    `settings` carries the pool-choice repository variables, which a fork
+    pull request's run cannot read itself.
+    """
+    pools: dict[str, dict[str, Any]] = {}
+    oldest: dict[str, dt.datetime] = {}
+    for run in runs:
+        reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
+        for job in jobs_by_run.get(run.get("id"), ()):
+            if not is_macos_job(job):
+                continue
+            status = job.get("status")
+            if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
+                continue
+            pool = runner_pool(job)
+            entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
+                                            "oldest_queued_minutes": 0})
+            if status in RUNNING_JOB_STATUSES:
+                entry["running"] += 1
+                continue
+            entry["queued"] += 1
+            if reserved:
+                entry["reserved_queued"] += 1
+            created = parse_time(job.get("created_at"))
+            if created and (pool not in oldest or created < oldest[pool]):
+                oldest[pool] = created
+    for pool, created in oldest.items():
+        pools[pool]["oldest_queued_minutes"] = max(0, int((now - created).total_seconds() // 60))
+    return {
+        "version": POOL_LOAD_VERSION,
+        "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "pools": dict(sorted(pools.items())),
+        "settings": dict(settings or {}),
+    }
 
 
 def touches_doomed_job_inputs(paths: Iterable[str]) -> bool:
@@ -812,16 +892,23 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
 PULL_REQUEST_EVENTS = ("pull_request", "pull_request_target")
 
 
-def orphan_branches(orphans: Iterable[Orphan]) -> list[str]:
+def left_to_github(orphan: Orphan, now: dt.datetime) -> bool:
+    """A ghost past GHOST_GIVE_UP_AGE that no human was asked to look at."""
+    return (orphan.job_name is None and orphan.queued_since is not None
+            and now - orphan.queued_since >= GHOST_GIVE_UP_AGE and orphan_protected_reason(orphan.run) is None)
+
+
+def orphan_branches(orphans: Iterable[Orphan], now: dt.datetime) -> list[str]:
     """PR branches whose `no-janitor` label the orphan plan needs."""
     return sorted({str(o.run["head_branch"]) for o in orphans
-                   if o.run.get("event") in PULL_REQUEST_EVENTS and o.run.get("head_branch")})
+                   if o.run.get("event") in PULL_REQUEST_EVENTS and o.run.get("head_branch")
+                   and not left_to_github(o, now)})
 
 
 @dataclasses.dataclass
 class OrphanDecision:
     orphan: Orphan
-    action: str  # "cancel" or "skip"
+    action: str  # "cancel", "skip" or "github-side" (past GHOST_GIVE_UP_AGE)
     note: str = ""
 
 
@@ -838,17 +925,26 @@ def build_orphan_plan(
     Lost assignments go first, oldest first: they are the ones holding a
     pull request's required check or a concurrency group today. Runs stuck in
     `queued` for days follow, in an order that rotates every sweep, so a run
-    GitHub refuses to cancel cannot hold the cap forever.
+    GitHub refuses to cancel cannot hold the cap forever. Past
+    GHOST_GIVE_UP_AGE a ghost is left to GitHub and never tried again,
+    unless it is protected: that row stays for the human it names.
     """
     lost = sorted((o for o in orphans if o.job_name is not None and o.run["id"] not in exclude_ids),
                   key=lambda o: (o.queued_since or now, o.run["id"]))
     ghosts = sorted((o for o in orphans if o.job_name is None and o.run["id"] not in exclude_ids),
                     key=lambda o: o.run["id"])
+    decisions: list[OrphanDecision] = []
+    retry: list[Orphan] = []
+    for ghost in ghosts:
+        if left_to_github(ghost, now):
+            decisions.append(OrphanDecision(ghost, "github-side"))
+        else:
+            retry.append(ghost)
+    ghosts = retry
     if ghosts:
         offset = int(now.timestamp() // 600) % len(ghosts)
         ghosts = ghosts[offset:] + ghosts[:offset]
 
-    decisions: list[OrphanDecision] = []
     cancels = 0
     for orphan in lost + ghosts:
         run = orphan.run
@@ -958,6 +1054,15 @@ def render_orphan_summary(
     ]
     if not decisions:
         lines.append("No orphaned runs found.")
+        return "\n".join(lines) + "\n"
+    given_up = [d for d in decisions if d.action == "github-side"]
+    decisions = [d for d in decisions if d.action != "github-side"]
+    if given_up:
+        oldest = min(d.orphan.queued_since for d in given_up if d.orphan.queued_since)
+        lines.append(f"{len(given_up)} run(s) still queued after {format_age(GHOST_GIVE_UP_AGE)} are left to "
+                     f"GitHub, which refuses to cancel them; oldest queued {format_age(now - oldest)}.")
+        lines.append("")
+    if not decisions:
         return "\n".join(lines) + "\n"
     lines.append("| Decision | Run | Workflow | Evidence | Queued age |")
     lines.append("| --- | --- | --- | --- | --- |")
@@ -1075,6 +1180,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--max-orphan-cancels", type=int, default=None)
     parser.add_argument("--workflows-dir", type=Path,
                         default=Path(__file__).resolve().parents[2] / ".github" / "workflows")
+    parser.add_argument("--pool-load", type=Path, default=(
+        Path(os.environ["POOL_LOAD_OUT"]) if os.environ.get("POOL_LOAD_OUT") else None),
+        help="write this sweep's per-pool macOS demand here as JSON")
     parser.add_argument("--summary", type=Path, default=(
         Path(os.environ["GITHUB_STEP_SUMMARY"]) if os.environ.get("GITHUB_STEP_SUMMARY") else None))
     args = parser.parse_args(argv)
@@ -1115,11 +1223,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
-        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans)))
+        branches = sorted(set(branches_to_resolve(runs, jobs_by_run)) | set(orphan_branches(orphans, now)))
         prs_by_branch = github.pull_requests(branches) if branches else {}
     except RuntimeError as error:
         print(f"queue-janitor: {error}", file=sys.stderr)
         return 1
+
+    if args.pool_load:
+        # Before any cancellation: pr_runner_pool.py wants the demand a new run
+        # would queue behind, and the janitor's cancels are capped anyway.
+        pool_settings = {key: os.environ.get(name, "") for name, key in POOL_SETTINGS_ENV.items()}
+        args.pool_load.write_text(
+            json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings), indent=2) + "\n",
+            encoding="utf-8")
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,

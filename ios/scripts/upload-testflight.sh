@@ -1053,6 +1053,24 @@ EXPORT_OPTIONS="$OUT_DIR/ExportOptions.plist"
 
 mkdir -p "$OUT_DIR"
 
+# CI caches, both opt-in. CMUX_IOS_SPM_CACHE_DIR reuses cloned Swift packages
+# (the ios-spm- cache test-ios.yml seeds). CMUX_IOS_COMPILATION_CACHE=1 turns
+# on Xcode's compilation cache, stored under $DERIVED_DATA/CompilationCache.noindex
+# so the workflow can restore and save it around this script.
+BUILD_CACHE_ARGS=()
+if [[ -n "${CMUX_IOS_SPM_CACHE_DIR:-}" ]]; then
+  BUILD_CACHE_ARGS+=(
+    -clonedSourcePackagesDirPath "$CMUX_IOS_SPM_CACHE_DIR"
+    -packageCachePath "$CMUX_IOS_SPM_CACHE_DIR/.package-cache"
+  )
+fi
+if [[ "${CMUX_IOS_COMPILATION_CACHE:-0}" == "1" ]]; then
+  BUILD_CACHE_ARGS+=(
+    COMPILATION_CACHE_ENABLE_CACHING=YES
+    COMPILATION_CACHE_LIMIT_SIZE=3221225472
+  )
+fi
+
 XCODE_AUTH_ARGS=()
 if [[ -n "${ASC_API_KEY_ID:-}" && -n "${ASC_API_ISSUER_ID:-}" && -n "${ASC_API_KEY_PATH:-}" ]]; then
   XCODE_AUTH_ARGS=(
@@ -1077,6 +1095,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -destination "generic/platform=iOS" \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
+      ${BUILD_CACHE_ARGS[@]+"${BUILD_CACHE_ARGS[@]}"} \
       -allowProvisioningUpdates \
       ${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
@@ -1103,6 +1122,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       -destination "generic/platform=iOS" \
       -archivePath "$ARCHIVE_PATH" \
       -derivedDataPath "$DERIVED_DATA" \
+      ${BUILD_CACHE_ARGS[@]+"${BUILD_CACHE_ARGS[@]}"} \
       DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
       CMUX_APP_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
       CMUX_HOST_BUNDLE_IDENTIFIER="$PRODUCT_BUNDLE_IDENTIFIER" \
@@ -1231,10 +1251,14 @@ if [[ "$SIGNING" == "automatic" ]]; then
   # naming a profile that isn't installed makes -exportArchive fail.
   plutil -insert signingStyle -string automatic "$EXPORT_OPTIONS"
 else
-  # Manual signing: requires the "Apple Distribution" certificate and the named
+  # Manual signing: requires the distribution certificate and the named
   # provisioning profile to already be present in the local keychain.
+  # IOS_SIGNING_CERTIFICATE selects the certificate TYPE name Xcode matches
+  # against ("Apple Distribution" default; set "iPhone Distribution" when the
+  # keychain only holds an iOS-only distribution cert, whose identity string
+  # uses the legacy prefix).
   plutil -insert signingStyle -string manual "$EXPORT_OPTIONS"
-  plutil -insert signingCertificate -string "Apple Distribution" "$EXPORT_OPTIONS"
+  plutil -insert signingCertificate -string "${IOS_SIGNING_CERTIFICATE:-Apple Distribution}" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
   if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then

@@ -28,6 +28,8 @@ jobs:
         run: |
           sw_vers
           test "$(sw_vers -productVersion | cut -d. -f1)" = 15
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Build only the isolated helper and provider fixture
         run: |
           mkdir -p "$RUNNER_TEMP/plain-paste"

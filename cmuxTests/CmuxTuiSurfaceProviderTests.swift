@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Darwin
 import Foundation
 import Testing
@@ -1245,7 +1247,9 @@ import Testing
 
         await link.disconnect()
 
-        #expect(Darwin.kill(linkPID, 0) == -1 && errno == ESRCH, "disconnect must reap the link child")
+        let killResult = Darwin.kill(linkPID, 0)
+        let killErrno = errno
+        #expect(killResult == -1 && killErrno == ESRCH, "disconnect must reap the link child")
         #expect(!FileManager.default.fileExists(atPath: eventPIDFile.path), "event subscription must not spawn a CLI child")
     }
 

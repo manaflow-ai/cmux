@@ -468,7 +468,16 @@ final class AppDelegateEqualizeSplitsShortcutTests {
     }
 
     @Test
-    func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() {
+    func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            await self.equalizeSplitsShortcutBalancesWorkspaceDividersBody()
+        }
+    }
+
+    /// Body of the above. Split out so the gate wraps exactly one `@MainActor`
+    /// async closure rather than the whole `@Test` attribute surface.
+    @MainActor
+    private func equalizeSplitsShortcutBalancesWorkspaceDividersBody() async {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -516,8 +525,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
 
         workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
-        guard let seededLayoutSnapshot = workspace.tmuxLayoutSnapshot else {
-            XCTFail("Expected cached layout snapshot after seeding split geometry")
+        guard let seededLayoutSnapshot = await shortcutRoutingAwaitPublishedLayout(workspace, until: {
+            $0.panes == workspace.bonsplitController.layoutSnapshot().panes
+        }) else {
+            XCTFail("tmuxLayoutSnapshot never caught up to the seeded 3-pane tree; the geometry publish Task did not run")
             return
         }
         let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
@@ -551,11 +562,18 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
         }
 
-        let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
-        guard let cachedEqualizedLayout = workspace.tmuxLayoutSnapshot else {
-            XCTFail("Expected cached layout snapshot after equalizing split geometry")
+        // Wait for the equalize to be published rather than for the cache to
+        // match the live tree: waiting on equality would make the frame
+        // comparison below true by construction. Waiting for the cache to
+        // leave the seeded geometry keeps that comparison able to fail if the
+        // publish lands the wrong snapshot.
+        guard let cachedEqualizedLayout = await shortcutRoutingAwaitPublishedLayout(workspace, until: {
+            $0.panes != seededLayoutSnapshot.panes
+        }) else {
+            XCTFail("tmuxLayoutSnapshot never left the seeded geometry; the geometry publish Task did not run")
             return
         }
+        let liveEqualizedLayout = workspace.bonsplitController.layoutSnapshot()
         XCTAssertNotEqual(
             shortcutRoutingPaneFramesById(in: seededLayoutSnapshot),
             shortcutRoutingPaneFramesById(in: liveEqualizedLayout)
@@ -6334,7 +6352,15 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             soft: true,
             source: "test.fontBarrier",
             reloadSettingsFromFile: false,
-            commitCompletion: { _ in didCommitGhosttyAppConfig = true }
+            commitCompletion: { committed in
+                didCommitGhosttyAppConfig = committed
+                // Anything published while the barrier held would already
+                // be recorded when the reload finally commits.
+                XCTAssertFalse(
+                    didUpdateGhosttyAppConfig,
+                    "The app config update itself must wait behind font work"
+                )
+            }
         )
         // Held, not merely not yet run: the transaction is parked at the
         // font-work barrier, and giving the main actor turns does not move it.
@@ -6354,11 +6380,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 #endif
         XCTAssertFalse(
             didCommitGhosttyAppConfig,
-            "The app config must not commit before font work finishes"
-        )
-        XCTAssertFalse(
-            didUpdateGhosttyAppConfig,
-            "The app config update itself must wait behind font work"
+            "The reload must be blocked at the font barrier"
         )
         XCTAssertGreaterThan(scheduler.delays.count, 2)
         if scheduler.delays.count > 2 {
@@ -6369,6 +6391,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         // notification is published after its bounded surface fanout, which
         // runs on later main-actor turns.
         await waitWhileSuspended(for: [configUpdated], timeout: 5)
+        XCTAssertTrue(didCommitGhosttyAppConfig)
         XCTAssertTrue(didUpdateGhosttyAppConfig)
     }
 
@@ -8090,6 +8113,34 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
     private func shortcutRoutingPaneFramesById(in snapshot: LayoutSnapshot) -> [String: PixelRect] {
         Dictionary(uniqueKeysWithValues: snapshot.panes.map { ($0.paneId, $0.frame) })
+    }
+
+    /// The recorded `tmuxLayoutSnapshot` once it satisfies `predicate`.
+    ///
+    /// Since a27969a38b the geometry callback hands its work to
+    /// `geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce)`,
+    /// which is `Task { await Task.yield(); action() }` on the MainActor
+    /// executor. The pre-`async` version of this case read
+    /// `tmuxLayoutSnapshot` with no suspension point after the geometry call,
+    /// so it could only ever observe the one-pane value written at workspace
+    /// init. The caller must be `async` and this must suspend.
+    ///
+    /// The deadline bounds the failure path only: a publish that lands
+    /// promptly returns on the first drain.
+    private func shortcutRoutingAwaitPublishedLayout(
+        _ workspace: Workspace,
+        timeout: Duration = .seconds(3),
+        until predicate: (LayoutSnapshot) -> Bool
+    ) async -> LayoutSnapshot? {
+        var published: LayoutSnapshot?
+        let settled = await AppKitTestEventPump().waitUntil(timeout: timeout) {
+            guard let cached = workspace.tmuxLayoutSnapshot, predicate(cached) else {
+                return false
+            }
+            published = cached
+            return true
+        }
+        return settled ? published : nil
     }
 
     private func shortcutRoutingAssertPaneFramesMatch(

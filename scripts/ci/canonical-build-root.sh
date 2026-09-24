@@ -83,8 +83,26 @@ fi
 # --delete makes the copy exact, so a file deleted in the branch cannot
 # survive from a previous job and compile into the product. .git comes along
 # because the product receipt stamps `git rev-parse HEAD` from the build tree.
+#
+# CMUX_CI_MOVE_SOURCE_PACKAGES=1 moves the restored .ci-source-packages
+# instead of copying it: it is most of the bytes, and a caller that never reads
+# the workspace copy again (ci-macos.yml compile admission) should not pay for
+# it twice. The exclusion only keeps rsync from copying it; the old copy is
+# removed below, so the result is as exact as the plain copy.
+rsync_args=(-a --delete)
+move_packages=false
+if [ "${CMUX_CI_MOVE_SOURCE_PACKAGES:-}" = 1 ]; then
+  move_packages=true
+  rsync_args+=(--exclude=/.ci-source-packages)
+fi
 mkdir -p "$src"
-rsync -a --delete "$workspace"/ "$src"/
+rsync "${rsync_args[@]}" "$workspace"/ "$src"/
+if [ "$move_packages" = true ]; then
+  rm -rf "$src/.ci-source-packages"
+  if [ -e "$workspace/.ci-source-packages" ] || [ -L "$workspace/.ci-source-packages" ]; then
+    mv "$workspace/.ci-source-packages" "$src/.ci-source-packages"
+  fi
+fi
 
 if [ ! -d "$src/.git" ] && [ ! -f "$src/.git" ]; then
   echo "canonical-build-root: copied tree has no .git; product stamping needs it" >&2

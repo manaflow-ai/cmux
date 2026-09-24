@@ -27,8 +27,10 @@ introduces fails.
 from __future__ import annotations
 
 import argparse
+import ast
 import os
 import re
+import shlex
 import subprocess
 import sys
 from collections import Counter
@@ -39,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from test_execution_registry import load_registry, parse_registry  # noqa: E402
+import workload_entrypoints  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -53,6 +56,15 @@ SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
 # A workflow that names a test file in a `run:` step executes it directly,
 # which is exactly what the linux-guard lane means.
 DIRECT_RUN_LANE = "linux-guard"
+# A workflow step that runs the shared contributor preflight executes every test
+# its recipe (the CHECKS argv lists in scripts/verify-local.py) names, so those
+# tests are live on linux-guard without the workflow naming them itself.
+SHARED_RECIPE = "scripts/verify-local.py"
+RECIPE_RUN_RE = re.compile(r"\bpython3?\s+scripts/verify-local\.py\b(?P<args>[^\n]*)")
+RECIPE_TEST_RE = re.compile(r"tests/test_[A-Za-z0-9_.-]+\.py")
+RECIPE_STEP_NAME_RE = re.compile(r"\s*(-\s+)?name:")
+# Options that keep the default selection or narrow it only through `--only`.
+RECIPE_VALUE_OPTIONS = {"--only", "--timeout", "--receipt"}
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -76,9 +88,90 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.
     """
-    return "\n".join(
-        workflow.read_text(encoding="utf-8") for workflow in workflow_files(workflows)
-    )
+    texts = [workflow.read_text(encoding="utf-8") for workflow in workflow_files(workflows)]
+    text = "\n".join(texts)
+    # A step that runs a workload profile runs that profile's entrypoint and
+    # everything the entrypoint names. An unresolvable profile adds nothing,
+    # so the tests it would run read as unrun rather than passing unseen.
+    try:
+        profiles = workload_entrypoints.entrypoints(text, workflows.parents[1])
+    except (OSError, UnicodeError, ValueError, KeyError):
+        profiles = []
+    return "\n".join([text, *recipe_tests(texts, workflows), *(script for _, script in profiles)])
+
+
+def recipe_tests(workflow_texts: list[str], workflows: Path = WORKFLOWS) -> list[str]:
+    """Tests the recipe checks run by each executable `python3 scripts/verify-local.py`.
+
+    Only uncommented invocations outside a step `name:` count. An invocation
+    with `--only` runs just the named checks. Any other option (`--affected`,
+    `--list`, `--swift-changed`, an abbreviation argparse would accept) may run
+    fewer checks or none, so it credits nothing.
+    """
+    selections: list[set[str] | None] = []
+    for text in workflow_texts:
+        for line in text.splitlines():
+            command = line.split("#", 1)[0]
+            match = RECIPE_RUN_RE.search(command)
+            if not match or RECIPE_STEP_NAME_RE.match(command):
+                continue
+            try:
+                args = shlex.split(match.group("args"))
+            except ValueError:
+                continue
+            selection = recipe_selection(args)
+            if selection is not False:
+                selections.append(selection)
+    recipe = workflows.parents[1] / SHARED_RECIPE
+    if not selections or not recipe.is_file():
+        return []
+    try:
+        checks = recipe_checks(recipe.read_text(encoding="utf-8"))
+    except (SyntaxError, ValueError):
+        return []
+    return [
+        test
+        for name, argv in checks
+        if any(selected is None or name in selected for selected in selections)
+        for arg in argv
+        for test in RECIPE_TEST_RE.findall(arg)
+    ]
+
+
+def recipe_selection(args: list[str]) -> set[str] | None | bool:
+    """Checks an invocation runs: None for all, a set for `--only`, False if unknown."""
+    only: set[str] = set()
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        flag, has_value, value = arg.partition("=")
+        if flag == "--all" and not has_value:
+            pass
+        elif flag in RECIPE_VALUE_OPTIONS:
+            if not has_value:
+                index += 1
+                if index >= len(args):
+                    return False
+                value = args[index]
+            if flag == "--only":
+                only.add(value)
+        else:
+            # Shell plumbing after the command (`&&`, `|`, a redirect) ends it.
+            if arg in {"&&", "||", "|", ";"} or arg.startswith((">", "2>")):
+                break
+            return False
+        index += 1
+    return only or None
+
+def recipe_checks(source: str) -> list[tuple[str, list[str]]]:
+    """(name, argv) for each entry of the recipe's literal CHECKS tuple."""
+    for node in ast.parse(source).body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "CHECKS" for target in node.targets)
+        ):
+            return [(entry[0], list(entry[-1])) for entry in ast.literal_eval(node.value)]
+    return []
 
 
 def runner_lanes(workflows: Path = WORKFLOWS) -> set[str]:

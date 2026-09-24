@@ -1273,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "Configurazione di cmux. Il file cmux.json globale supporta impostazioni dell’app, scorciatoie, azioni, comandi personalizzati, hook di notifica e layout degli spazi di lavoro. Un file .cmux/cmux.json o cmux.json locale al progetto supporta azioni, comandi, hook di notifica, collegamenti delle azioni dell’interfaccia, override di Agent Chat, agenti del vault, override dei gruppi di spazi di lavoro e configurazione di avvio e pulsanti degli spazi di lavoro.",
         "rightSidebar": "Configurazione legacy e gestita dalle estensioni della barra laterale destra, conservata in cmux.json.",
+        "packs": {
+          "description": "File o directory di pacchetti cmux locali caricati prima di questa configurazione. Le directory vengono risolte in cmux.pack.json. Usa una stringa di percorso o un oggetto con un campo path.",
+          "path": "Percorso di file o directory locale, relativo a questo file di configurazione se non assoluto."
+        },
         "paneBorderColor": "Sovrascrive il colore del divisore dei riquadri cmux negli spazi di lavoro divisi. Influisce sui bordi dei riquadri cmux, non sulle divisioni interne di Ghostty.",
         "activePaneBorderColor": "Colore del bordo opzionale disegnato attorno al riquadro cmux focalizzato negli spazi di lavoro divisi.",
         "automation": {
@@ -1284,6 +1288,7 @@
         "app": {
           "confirmQuit": "Controlla quando cmux chiede conferma prima di uscire. Le build DEV escono sempre immediatamente indipendentemente da questa impostazione. Il vecchio app.warnBeforeQuit è ancora accettato come fallback booleano.",
           "windowTitleTemplate": "Template opzionale per il titolo NSWindow. Se vuoto, conserva il comportamento predefinito esistente del titolo di cmux, incluso il fallback alla directory corrente. Segnaposto supportati: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Nome del display usato solo nelle build DEBUG quando si aprono nuove finestre. Un valore vuoto usa il valore predefinito del sistema.",
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni.",
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
@@ -4052,5 +4057,15 @@
     "organization": "Organizzazione",
     "personalAccount": "account personale",
     "switchAccountButton": "Usa un altro account"
+  },
+  "MobileRelease106": {
+    "title": "Novità di 1.0.6",
+    "releaseLabel": "1.0.6 · Settembre 2026",
+    "connectionTitle": "Connessioni Mac aggiornate",
+    "connectionDetail": "Questo aggiornamento usa il nuovo servizio di connessione e il trasporto Iroh. Le build Mac precedenti richiedono un aggiornamento per connettersi.",
+    "updateTitle": "Aggiorna cmux sul Mac",
+    "updateDetail": "Richiede cmux {stableVersion} o successivo, oppure NIGHTLY {nightlyVersion} o successivo. Abilita l’abbinamento iOS in Impostazioni > Mobile su ogni Mac.",
+    "rollbackTitle": "Devi mantenere una vecchia build Mac?",
+    "rollbackDetail": "Usa cmux BETA 1.0.5 ({rollbackBuild}) da TestFlight > Build precedenti finché è disponibile. Scegli esattamente questa build, perché quelle successive usano un servizio di connessione più recente."
   }
 }
