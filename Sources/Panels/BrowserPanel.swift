@@ -7097,7 +7097,7 @@ extension BrowserPanel {
         let usesOffscreenRenderHost = presentation.usesOffscreenRenderHost
         let timeout = timingBudget.captureLeaseTimeout
 
-        let completeLease: @MainActor (Result<T, Error>) -> Void = { result in
+        let completeLease: @MainActor @Sendable (Result<T, Error>) -> Void = { result in
             guard !didFinish else { return }
             didFinish = true
             timeoutTimer?.invalidate()

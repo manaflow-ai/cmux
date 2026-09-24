@@ -69,8 +69,10 @@ jobs:
       linux_guard_source: ${{ steps.linux_guards.outputs.linux_guard_source }}
       ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
-      unit_suite: ${{ steps.suite.outputs.unit_suite }}
-      unit_selectors: ${{ steps.suite.outputs.unit_selectors }}
+      # A consumer canary (choose_ci_suite.py) only rides on a compile this run
+      # pays for; when either reuse check finds one, it is dropped.
+      unit_suite: ${{ steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true') && 'false' || steps.suite.outputs.unit_suite }}
+      unit_selectors: ${{ !(steps.suite.outputs.unit_canary == 'true' && (steps.unchanged_inputs.outputs.compile_admitted == 'true' || steps.admitted.outputs.compile_admitted == 'true')) && steps.suite.outputs.unit_selectors || '' }}
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
@@ -160,9 +162,10 @@ jobs:
                 || rm -f /tmp/cmux-ci-base-workflow.yml
             fi
             # The changed lines of cmuxTests/, so choose_ci_suite.py can tell
-            # which declarations a test edit touched. Absent reads as "every
-            # line of each changed file".
-            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- cmuxTests \
+            # which declarations a test edit touched, and of ci-macos.yml, so
+            # it can tell whether an edit sits in the app-host shards' job.
+            # Absent reads as "every line of each changed file".
+            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- cmuxTests .github/workflows/ci-macos.yml \
               > /tmp/cmux-ci-tests.diff || rm -f /tmp/cmux-ci-tests.diff
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
@@ -712,7 +715,7 @@ jobs:
       - name: Skip compile when build inputs are unchanged
         id: unchanged_inputs
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.suite.outputs.unit_suite != 'true' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') }}
         env:
           # Both steps are pull-request-only, and the xcode= extra exists so the
           # fingerprint moves when the pinned toolchain does. Read the same lane
@@ -751,7 +754,7 @@ jobs:
       - name: Look for an earlier run that compiled these inputs
         id: admitted
         continue-on-error: true
-        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && steps.suite.outputs.unit_suite != 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
+        if: ${{ steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.head_ref }}
@@ -814,7 +817,8 @@ jobs:
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs
-    # before starting the longer guard, web and macOS stages.
+    # before starting macOS and the other Linux stages. Guards and web run
+    # beside it, because the macOS gate waits for them.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -825,42 +829,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Validate XCStrings catalog structure
-        run: python3 scripts/lint-xcstrings.py
-
-      - name: Validate macOS localization parity
-        run: python3 scripts/localization_catalog.py check
-
-      - name: Validate pbxproj syntax, objectVersion pin and normalization
-        run: |
-          python3 tests/test_normalize_pbxproj.py
-          ./scripts/check-pbxproj.sh
-
-      # Pure source generation check: fail before reserving a Mac, rather than
-      # discovering stale schema after the app-host build's CLI smoke tests.
-      - name: Validate embedded cmux.json schema generation
-        run: python3 scripts/generate-cmux-config-schema.py --check
-
-      - name: Validate Claude launch environment policy generation
-        run: python3 scripts/generate-claude-launch-environment-policy.py --check
-
-      - name: Validate pbxproj test-wiring lint
-        # This also executes tests/test_sync_test_wiring.py, which the script
-        # calls; the execution registry reads workflow text to decide whether a
-        # registered test really runs.
-        run: ./tests/test_ci_pbxproj_test_wiring.sh
-
-      - name: Validate the test-wiring sync tool
-        run: python3 tests/test_sync_test_wiring.py
-
-      - name: Validate workspace SPM package grouping
-        run: python3 scripts/check-workspace-package-groups.py --check
-
-      - name: Validate feature flags (naming, owners, expiry, single use, no reuse)
-        run: python3 scripts/lint-feature-flags.py
+      # The shared recipe executes tests/test_normalize_pbxproj.py and
+      # tests/test_sync_test_wiring.py; retain these execution-registry references.
+      - name: Run the contributor static preflight
+        run: python3 scripts/verify-local.py
 
   guards:
-    needs: [changes, static-preflight]
+    # Not after static-preflight: the guards are the last job
+    # macos-admission-gate waits for (median ~110 s after changes), and the
+    # gate still requires static-preflight, so starting them together opens the
+    # gate ~25 s sooner without admitting macOS on a rejected diff.
+    needs: [changes]
     if: ${{ needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false' }}
     uses: ./.github/workflows/ci-guards.yml
     with:
@@ -922,7 +901,8 @@ jobs:
     uses: ./.github/workflows/cli-pipe-regressions.yml
 
   web:
-    needs: [changes, static-preflight]
+    # Beside static-preflight for the same reason as guards.
+    needs: [changes]
     if: ${{ needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false' }}
     uses: ./.github/workflows/ci-web.yml
     with:
