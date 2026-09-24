@@ -2098,10 +2098,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             // becoming another scripted process owner.
             sshOptions: ["ControlMaster=no"],
             localProxyPort: nil,
-            relayPort: nil,
-            relayID: nil,
-            relayToken: nil,
-            localSocketPath: nil,
+            relayPort: 64036,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh test@hpc.example"
         )
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
@@ -2237,10 +2237,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             // transport keeps ControlMaster resolution out of this fixture's process script.
             sshOptions: ["ControlMaster=no"],
             localProxyPort: nil,
-            relayPort: nil,
-            relayID: nil,
-            relayToken: nil,
-            localSocketPath: nil,
+            relayPort: 64037,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: true
         )
