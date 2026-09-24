@@ -21,13 +21,13 @@ STUB
 chmod +x "$TMP_DIR/bin/xcodebuild" "$TMP_DIR/bin/print-env"
 
 run_env() {
-  env HOME="$TMP_DIR/home" PATH="$TMP_DIR/bin:$PATH" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  env HOME="$TMP_DIR/home-$2" USER="$2" LOGNAME="$2" PATH="$TMP_DIR/bin:$PATH" DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
     GITHUB_RUN_ID="$1" GITHUB_OUTPUT="/tmp/step-$1" CMUX_CI_SWIFTPM_KEEP_ENV="NOT=A-NAME" "$SCRIPT" run print-env
 }
-first="$(run_env 1)"
-second="$(run_env 2)"
-if [ "$first" != "$second" ] || grep -q '^GITHUB_' <<<"$first"; then
-  echo "FAIL: run must drop per-run variables so the manifest cache key is stable"
+first="$(run_env 1 runner)"
+second="$(run_env 2 cmux)"
+if [ "$first" != "$second" ] || grep -qE '^(GITHUB_|HOME=|USER=|LOGNAME=)' <<<"$first"; then
+  echo "FAIL: run must drop per-run and per-account variables so the manifest cache key is stable"
   exit 1
 fi
 if ! grep -Fxq 'PATH=/usr/bin:/bin:/usr/sbin:/sbin' <<<"$first" \

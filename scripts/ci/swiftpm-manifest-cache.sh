@@ -56,21 +56,24 @@ key() {
 # Runs a command under an environment that is the same in every job on a given
 # runner image and Xcode. PATH is fixed because steps before a resolve append
 # to it differently per workflow (Rust, Bun, Zig); the command itself is still
-# found on the caller's PATH. TMPDIR is dropped so Foundation picks the
-# per-user default. CMUX_CI_SWIFTPM_KEEP_ENV names extra variables to keep,
-# for tests whose xcodebuild stub is configured through the environment.
+# found on the caller's PATH. HOME, USER and LOGNAME are dropped too: they
+# name the runner account (runner on Blacksmith, cmux on the glaeda minis), so
+# keeping them split one seed into one per account, and SwiftPM finds the same
+# ~/Library/Caches through the user database without them. TMPDIR is dropped
+# so Foundation picks the per-user default. CMUX_CI_SWIFTPM_KEEP_ENV names
+# extra variables to keep, for tests whose xcodebuild stub is configured
+# through the environment.
 run() {
   local command_path
   command_path="$(command -v "$1")" || { echo "$1: command not found" >&2; return 127; }
   shift
   local -a vars=(
-    "HOME=$HOME"
     "PATH=/usr/bin:/bin:/usr/sbin:/sbin"
     "LANG=en_US.UTF-8"
   )
   local name
   # shellcheck disable=SC2086 # a space-separated list of names
-  for name in USER LOGNAME DEVELOPER_DIR http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
+  for name in DEVELOPER_DIR http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
     [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
     if [ -n "${!name:-}" ]; then
       vars+=("$name=${!name}")
