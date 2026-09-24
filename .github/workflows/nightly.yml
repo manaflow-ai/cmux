@@ -550,10 +550,12 @@ jobs:
 
   refresh-test-compilation-cache:
     needs: decide
-    # The only writer of the Debug compilation cache that ci.yml
-    # `macos-compile-admission` restores. Scheduled, not per push: the seed
-    # mostly saves the package layer, which changes slowly, and a build per
-    # merge would take macOS slots from the pull request queue.
+    # Writes the cold DerivedData seed that ci-macos.yml compile admission
+    # adopts, and the Debug compilation cache. Admission no longer restores
+    # that cache (the app target missed on every file; see
+    # tests/test_ci_test_compilation_cache_seed.sh), so it has no reader on
+    # main today. Scheduled, not per push: a build per merge would take macOS
+    # slots from the pull request queue.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
