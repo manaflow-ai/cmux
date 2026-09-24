@@ -3609,6 +3609,220 @@ def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
     # An unreadable diff runs the unit tests rather than guessing.
     assert wants_unit_suite("pull_request", "compile-only", [], None) is True
 
+def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import changed_unit_selectors, strict_steps
+    from test_impact import affected_suites
+
+    def hunk(path: str, line: int, count: int = 1) -> str:
+        return f"--- a/{path}\n+++ b/{path}\n@@ -{line},{count} +{line},{count} @@\n"
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        tests = root / "cmuxTests"
+        tests.mkdir()
+        (root / ".github/workflows").mkdir(parents=True)
+        (root / ".github/workflows/ci-macos.yml").write_text(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+        files = {
+            # 1 import, 2 class, 3 helper, 4 body, 5 test, 6 body, 7-8 @Test lines, 9 test
+            "AlphaTests.swift": (
+                "import XCTest\n"
+                "final class AlphaTests: XCTestCase {\n"
+                "    static func makeModel() -> Int {\n"
+                "        1\n"
+                "    }\n"
+                "    func testA() { _ = sharedHelper() }\n"
+                "    @Test(\n"
+                "        arguments: [1])\n"
+                "    func modernName(value: Int) {}\n"
+                "}\n"
+            ),
+            "BetaTests.swift": (
+                "import XCTest\n"
+                "final class BetaTests: XCTestCase {\n"
+                "    func testB() { _ = AlphaTests.makeModel() }\n"
+                "}\n"
+            ),
+            "GammaTests.swift": (
+                "import XCTest\n"
+                "final class GammaTests: XCTestCase {\n"
+                "    func testG() { _ = makeModel() }\n"
+                "    func makeModel() -> Int { 2 }\n"
+                "}\n"
+            ),
+            "Helper.swift": "func sharedHelper() -> Int {\n    wrapped()\n}\nfunc wrapped() -> Int { 0 }\n",
+            "UsesHelperTests.swift": (
+                "import XCTest\n"
+                "final class UsesHelperTests: XCTestCase {\n"
+                "    func testU() { _ = sharedHelper() }\n"
+                "}\n"
+            ),
+            "StringExtras.swift": "extension String {\n    var shouted: String { uppercased() }\n}\n",
+            "ShoutTests.swift": (
+                "import XCTest\n"
+                "final class ShoutTests: XCTestCase {\n"
+                "    func testS() { _ = \"a\".shouted }\n"
+                "}\n"
+            ),
+            "Conformances.swift": "extension Int: @retroactive Identifiable {\n    public var id: Int { self }\n}\n",
+            "FeedCoordinatorTests.swift": (
+                "import Testing\n@Suite struct FeedCoordinatorTests {\n    @Test func testF() {}\n}\n"
+            ),
+            "Fixture.json": "{}\n",
+            # 1 class, 2 member, 3 body, 4 close, 5 close, 6 factory
+            "Recorder.swift": (
+                "final class Recorder: IntentRecording {\n"
+                "    func record(_ intent: Int) {\n"
+                "        intents.append(intent)\n"
+                "    }\n"
+                "}\n"
+                "func makeRecorder() -> Recorder { Recorder() }\n"
+            ),
+            "BuildsRecorderTests.swift": (
+                "import XCTest\n"
+                "final class BuildsRecorderTests: XCTestCase {\n"
+                "    func testR() { _ = Recorder() }\n"
+                "}\n"
+            ),
+            "FactoryTests.swift": (
+                "import XCTest\n"
+                "final class FactoryTests: XCTestCase {\n"
+                "    func testF() { makeRecorder().record(1) }\n"
+                "}\n"
+            ),
+            # 1 struct, 2 tearDown, 3 body, 4 close, 5 close
+            "Harness.swift": (
+                "struct Harness {\n"
+                "    func tearDown() {\n"
+                "        stop()\n"
+                "    }\n"
+                "}\n"
+            ),
+            "HarnessTests.swift": (
+                "import XCTest\n"
+                "final class HarnessTests: XCTestCase {\n"
+                "    func testH() { Harness().tearDown() }\n"
+                "}\n"
+            ),
+            # 1 func, 2 close, 3 attribute, 4 func, 5 close
+            "Plain.swift": "func first() -> Int {\n}\n@MainActor\nfunc plain() {\n}\n",
+            "PlainTests.swift": (
+                "import XCTest\n"
+                "final class PlainTests: XCTestCase {\n"
+                "    func testP() { plain() }\n"
+                "}\n"
+            ),
+            "Container.swift": (
+                "enum SettingsSuites {}\n"
+                "extension SettingsSuites {\n"
+                "    @Suite struct ChromeTests {\n"
+                "        @Test func chrome() {}\n"
+                "    }\n"
+                "}\n"
+            ),
+        }
+        for name, text in files.items():
+            (tests / name).write_text(text)
+
+        def affected(path: str, line: int | None = None) -> list[str] | None:
+            full = f"cmuxTests/{path}"
+            return affected_suites(root, [full], None if line is None else hunk(full, line))
+
+        # A test method's edit runs its suite and nothing else, including a
+        # Swift Testing method whose @Test sits above a multi-line argument.
+        assert affected("AlphaTests.swift", 6) == ["cmuxTests/AlphaTests"]
+        assert affected("AlphaTests.swift", 9) == ["cmuxTests/AlphaTests"]
+        # A suite's helper reaches the suites that name the suite, not every
+        # file with a method of the same name.
+        assert affected("AlphaTests.swift", 4) == ["cmuxTests/AlphaTests", "cmuxTests/BetaTests"]
+        # A top-level helper is traced through the helpers that call it.
+        assert affected("Helper.swift", 4) == ["cmuxTests/AlphaTests", "cmuxTests/UsesHelperTests"]
+        # Members added to another type are traced by their names.
+        assert affected("StringExtras.swift", 2) == ["cmuxTests/ShoutTests"]
+        # A conformance has no name to search for.
+        assert affected("Conformances.swift", 2) is None
+        # A helper type's member traces the type: a suite that only builds
+        # the mock for app code to call runs, and so does one that reaches it
+        # through a factory without naming it.
+        assert affected("Recorder.swift", 3) == ["cmuxTests/BuildsRecorderTests", "cmuxTests/FactoryTests"]
+        # A helper's `tearDown()` is a helper, not a hook only XCTest calls.
+        assert affected("Harness.swift", 3) == ["cmuxTests/HarnessTests"]
+        # An attribute line belongs to the declaration below it.
+        assert affected("Plain.swift", 3) == ["cmuxTests/PlainTests"]
+        # Suites nested in a container are named nowhere here: run everything.
+        assert affected("Container.swift", 4) is None
+        # An import is a change to the whole file.
+        assert affected("AlphaTests.swift", 1) == ["cmuxTests/AlphaTests", "cmuxTests/BetaTests"]
+        # Without line information every line of the file counts.
+        assert affected("AlphaTests.swift") == ["cmuxTests/AlphaTests", "cmuxTests/BetaTests"]
+        # Non-Swift inputs run everything; a deleted file leaves nothing.
+        assert affected_suites(root, ["cmuxTests/Fixture.json"], None) is None
+        assert affected_suites(root, ["cmuxTests/GoneTests.swift"], None) == []
+        assert changed_unit_selectors(root, None) == []
+        assert changed_unit_selectors(root, ["cmuxTests/GoneTests.swift"]) == []
+        # A suite a strict step owns runs through that step, on the same worker.
+        feed = ["cmuxTests/FeedCoordinatorTests.swift"]
+        assert changed_unit_selectors(root, feed) == ["cmuxTests/FeedCoordinatorTests"]
+        workflow = MACOS_WORKFLOW.read_text(encoding="utf-8")
+        assert strict_steps(workflow, ["cmuxTests/FeedCoordinatorTests"]) == ["Run Pi Feed ownership regressions"]
+        assert strict_steps(workflow, ["cmuxTests/AlphaTests"]) == []
+
+
+def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> None:
+    workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["app-host-unit-tests"]
+    # The include expression picks one JSON row set: shard 8 alone for a
+    # changed-suites run, the seven numbered consumers otherwise.
+    include = job["strategy"]["matrix"]["include"]
+    assert include.startswith("${{ fromJSON(inputs.unit_selectors != '' && '["), include
+    changed_rows, numbered_rows = (
+        json.loads(literal) for literal in re.findall(r"'(\[.*?\])'", include)
+    )
+    assert [row["shard"] for row in changed_rows] == [8], changed_rows
+    assert [row["shard"] for row in numbered_rows] == [1, 2, 3, 4, 5, 6, 7], numbered_rows
+    # Shard 8 routes like the others: a same-repository PR pool and a
+    # GitHub-hosted label for a fork's own repository.
+    assert {"pr_runner", "hosted_runner"} <= set(changed_rows[0]), changed_rows
+    assert job["env"]["CMUX_APP_HOST_UNIT_SELECTORS"] == "${{ inputs.unit_selectors }}"
+    # Shard 8 must own none of the strict steps the numbered shards run.
+    owners = {key: value for key, value in job["env"].items() if key.endswith("_SHARD")}
+    assert "8" not in owners.values(), owners
+    # Every strict suite has a step, and each such step runs when selected.
+    from choose_ci_suite import strict_steps
+    from cmux_unit_test_shard import FOCUSED_GATE_SELECTORS
+
+    text = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    owners = strict_steps(text, sorted(FOCUSED_GATE_SELECTORS))
+    assert owners, "a strict suite has no step that runs it"
+    for step in job["steps"]:
+        if step.get("name") in owners:
+            assert f"contains(inputs.unit_strict_steps, '|{step['name']}|')" in step["if"], step["name"]
+    assert yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos"]["with"]["unit_strict_steps"] == "${{ needs.changes.outputs.unit_strict_steps }}"
+    ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert ci["jobs"]["macos"]["with"]["unit_selectors"] == "${{ needs.changes.outputs.unit_selectors }}"
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        changed.write_text("cmuxTests/TerminalTabIconRegressionTests.swift\n")
+        labels = Path(directory) / "labels.txt"
+
+        def selectors(label: str) -> str:
+            labels.write_text(label)
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--labels-file", str(labels),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return next(line for line in run.stdout.splitlines() if line.startswith("unit_selectors="))
+
+        assert selectors("") == "unit_selectors=cmuxTests/TerminalTabIconRegressionTests"
+        # An explicit request for every suite is honored.
+        assert selectors("unit-ci\n") == "unit_selectors="
+        assert selectors("full-ci\n") == "unit_selectors="
+
+
 def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import coverage_gap

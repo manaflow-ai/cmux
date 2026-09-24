@@ -216,7 +216,10 @@ Add `full-ci` only when the user or agreed validation plan explicitly calls for
 the broad suite; state which additional lanes are needed and why.
 
 Normal PR CI can already run routed tests, including Swift package and CLI
-wrapper checks, without `full-ci`. The label permits eligible app-host shards,
+wrapper checks, without `full-ci`. A `cmuxTests/` diff runs the suites it
+declares or extends on one app-host worker, with no label. `unit-ci` runs every
+app-host suite across all seven workers; `full-ci` adds the other lanes on top.
+Neither is needed to test the suites you edited. The label permits eligible app-host shards,
 lag builds, and other full-suite lanes; path routing, release routing, and job
 dependencies still apply. It does not request every repository test. Inspect
 actual executed tests on the current SHA: a green skipped job is not coverage.
