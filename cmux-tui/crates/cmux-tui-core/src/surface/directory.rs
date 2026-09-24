@@ -89,6 +89,23 @@ impl Surface {
 }
 
 impl PtyTerminalRuntime {
+    /// A program set the title through OSC 0/2, including an explicit clear.
+    pub(super) fn record_reported_title(&self, title: String) {
+        *self.reported_title.lock().unwrap() = Some(title.clone());
+        *self.title.lock().unwrap() = title;
+    }
+
+    /// A VT replay rebuilt the parser. A replayed title is the program's own
+    /// state, so a non-empty one counts as a report. An empty one means only
+    /// that the replay did not carry a title, so the earlier report (or the
+    /// persisted title) keeps presenting.
+    pub(super) fn record_replayed_title(&self, title: String) {
+        if !title.is_empty() {
+            *self.reported_title.lock().unwrap() = Some(title.clone());
+        }
+        *self.title.lock().unwrap() = title;
+    }
+
     /// Called in the serialized parser stream; publication happens after releasing VT locks.
     /// `None` is a real report too: the VT keeps its pwd across output until the
     /// shell clears it, so a change to `None` must reach the graph like any other.

@@ -209,6 +209,24 @@ restores agents from the current projection table rather than scanning report
 history. Tombstoning a terminal deletes its projection in the same transaction,
 so historical reports cannot resurrect it.
 
+A terminal program's OSC 0/2 title is published as a `terminal` upsert whose
+`title` is the new value, in its own resource revision (operation
+`terminal.title`). Publication is throttled per terminal: the first report
+after a quiet second publishes at once, and reports inside the following
+second collapse into one trailing upsert carrying the latest title, so an
+animated agent title advances the revision at most once per second per
+terminal. Until a report is published, `session.snapshot` already shows the
+live title; the trailing upsert brings event-feed clients to the same value.
+A report equal to the stored title advances nothing.
+
+The last published title is stored with the terminal and survives a daemon
+restart or host reattach whose VT replay carries no title. A terminal's
+`title` is, in order: the latest title its program reported in the current
+runtime, including an explicit empty title; else a non-empty title rebuilt by
+the replay; else the stored title; else empty. An explicit empty OSC title is a
+real report: it clears the title, and the stored empty title keeps the
+terminal untitled after a restart.
+
 `terminal.viewport.scroll` changes the session's compatibility inspection
 viewport. Interactive frontends keep scroll in their own terminal mirror and
 must not call this operation for user scrolling. Its first success returns the

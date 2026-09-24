@@ -1966,7 +1966,8 @@ fn collect_patch_subjects(patch: &ResourcePatch, subjects: &mut BTreeSet<Journal
                 }
             }
             ResourceChange::UpsertTerminal { public_id, .. }
-            | ResourceChange::TombstoneTerminal { public_id, .. } => {
+            | ResourceChange::TombstoneTerminal { public_id, .. }
+            | ResourceChange::SetTerminalTitle { public_id, .. } => {
                 insert_subject(subjects, "terminal", public_id.as_str());
             }
             ResourceChange::UpsertBrowser(browser) => {

@@ -147,11 +147,13 @@ impl Mux {
                 let durable = registry
                     .terminal_record(&host_id)?
                     .context("terminal projection has no durable host")?;
+                let persisted_title = registry.terminal_title(&terminal_id)?;
                 let terminal_value = public_terminal_snapshot(
                     &terminal_id,
                     &durable,
                     Some(terminal.as_ref()),
                     terminal_tab_ids,
+                    persisted_title.as_deref(),
                 )?;
                 let mut deltas = Vec::with_capacity(tabs.len().saturating_add(1));
                 for tab in &tabs {
@@ -662,6 +664,7 @@ impl Mux {
             .into_iter()
             .map(|terminal| (terminal.terminal_id.clone(), terminal))
             .collect::<HashMap<_, _>>();
+        let terminal_titles = registry.live_terminal_titles()?;
         // Local UI mutations can attach resource-identified surfaces before
         // their reverse indexes are populated. Full projection is the
         // reconciliation boundary, so rebuild from the live tree first.
@@ -908,6 +911,7 @@ impl Mux {
                                     durable,
                                     runtime.map(std::sync::Arc::as_ref),
                                     tab_ids,
+                                    terminal_titles.get(id).map(String::as_str),
                                 )?;
                                 public.push(("terminal", id.to_string(), value));
                             }
