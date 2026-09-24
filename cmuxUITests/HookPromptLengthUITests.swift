@@ -87,15 +87,27 @@ final class HookPromptLengthUITests: XCTestCase {
 
     /// `/usr/bin/python3` is an xcrun shim that refuses the XCTest sandbox.
     private func pythonExecutable() throws -> URL {
-        let applications = try FileManager.default.contentsOfDirectory(
-            at: URL(fileURLWithPath: "/Applications"), includingPropertiesForKeys: nil
-        )
-        let candidates = applications.filter { $0.lastPathComponent.hasPrefix("Xcode") }
-            .sorted { $0.path < $1.path }
-            .map { $0.appendingPathComponent("Contents/Developer/usr/bin/python3").resolvingSymlinksInPath() }
-        return try XCTUnwrap(candidates.first {
-            FileManager.default.isExecutableFile(atPath: $0.path)
-        }, "Expected Xcode's Python executable, not the system xcrun shim")
+        let environment = ProcessInfo.processInfo.environment
+        let developerDirectory: String
+        if let selected = environment["DEVELOPER_DIR"], !selected.isEmpty {
+            developerDirectory = selected
+        } else {
+            let selector = Process()
+            let output = Pipe()
+            selector.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
+            selector.arguments = ["-p"]
+            selector.standardOutput = output
+            try selector.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            selector.waitUntilExit()
+            XCTAssertEqual(selector.terminationStatus, 0)
+            developerDirectory = String(decoding: data, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let python = URL(fileURLWithPath: developerDirectory)
+            .appendingPathComponent("usr/bin/python3").resolvingSymlinksInPath()
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: python.path))
+        return python
     }
 
     private static let probe = #"""
