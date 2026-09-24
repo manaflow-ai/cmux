@@ -170,13 +170,11 @@ struct CloudTreeNodeActions {
                 // A daemon view must use the same captured destination as a pool resource.
                 let target = Result { try destination(placement) }
                 run(openingLabel(resource.machine)) { catalog in
-                    let target = try target.get()
                     _ = try await catalog.project(
                         resource,
-                        into: target,
+                        into: try target.get(),
                         focus: true,
                         reuseExisting: reuseExisting,
-                        reuseInWorkspace: resource.kind == .display ? target.workspaceID : nil,
                         remoteView: view
                     )
                 }
