@@ -12,7 +12,17 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 FORK_LINUX_BRANCH = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
-FORK_MACOS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'macos-15'"
+# A fork running CI in its own repository compiles on GitHub-hosted macos-26,
+# the image and Xcode main compiles with, so it can hit main's public caches.
+FORK_MACOS_BRANCH = "github.repository_owner != 'manaflow-ai' && 'macos-26'"
+# Only jobs that need the macOS 15 image itself keep a macos-15 fork branch.
+FORK_MACOS_15_BRANCH = "github.repository_owner != 'manaflow-ai' && 'macos-15'"
+MACOS_15_FORK_JOBS = {
+    # Builds the release Ghostty CLI helper against the macOS 15 SDK.
+    ("ci-macos.yml", "swift-package-tests"),
+    # Exists to exercise the paste worker on macOS 15.
+    ("plain-paste-worker.yml", "macos-15"),
+}
 # A matrix job may instead pick a hosted label per row, e.g. to spread
 # app-host shards over macos-15 and macos-26. Accepted only when every
 # `hosted_runner:` value in the workflow is a GitHub-hosted macOS label.
@@ -83,6 +93,19 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertTrue(roots)
         self.assertGreater(len(graph), len(roots))
 
+    def test_fork_macos_branches_use_macos_26_unless_the_job_needs_macos_15(self) -> None:
+        workflows = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+        wrong = []
+        for path in sorted(workflows.glob("*.yml")):
+            job = None
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+                if match:
+                    job = match.group(1)
+                if FORK_MACOS_15_BRANCH in line and (path.name, job) not in MACOS_15_FORK_JOBS:
+                    wrong.append(f"{path.name}:{number} ({job})")
+        self.assertEqual(wrong, [], "fork branches compile on macos-26 so they can reuse main's caches")
+
     def test_every_fork_exercised_runner_has_a_hosted_path(self) -> None:
         """No fork PR may queue forever on organization-only capacity."""
         saw_linux = 0
@@ -109,6 +132,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 hosted_linux = FORK_LINUX_BRANCH in line or pull_request_linux
                 hosted_macos = (
                     FORK_MACOS_BRANCH in line
+                    or FORK_MACOS_15_BRANCH in line
                     or pull_request_macos
                     or (matrix_hosted and FORK_MACOS_MATRIX_BRANCH in line)
                 )

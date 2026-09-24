@@ -275,6 +275,23 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.label }}
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: Validate Tart canary identity
         if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}
@@ -696,6 +713,23 @@ jobs:
       # instead, which is where the upload step reads from.
       CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: Validate Tart canary identity
         if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}

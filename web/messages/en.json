@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Detected harness configuration",
+    "selectionNotice": "Selecting a provider does not launch or enable these harnesses.",
+    "selectProvider": "Select {provider}",
+    "foundPath": "Found {path}",
+    "foundCommand": "Found command {command}",
+    "installed": "Provider is installed",
+    "missing": "Provider is not installed",
+    "install": "Install with: {command}",
+    "benefitPi": "Compaction, memory, and provider routing",
+    "benefitOpenagent": "Parallel specialists and recovery for OpenCode",
+    "benefitClaude": "Teams and verification for Claude Code",
+    "benefitSuperpowers": "Planning, TDD, subagents, and review"
+  },
   "coderouterAuth": {
     "title": "Authorization received",
     "description": "Return to your terminal to finish setup."
