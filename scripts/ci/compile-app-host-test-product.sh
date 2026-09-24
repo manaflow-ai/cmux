@@ -77,7 +77,8 @@ resolve() {
   local derived_data="$1" source_packages="$2" attempt
   if [ "${CMUX_CI_SWIFTPM_CACHE_EXACT_HIT:-}" = true ]; then
     mkdir -p "$source_packages" "$derived_data"
-    if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -packageCachePath "$source_packages/.package-cache" \
@@ -91,7 +92,8 @@ resolve() {
   fi
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"
-    if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+      xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -packageCachePath "$source_packages/.package-cache" \
