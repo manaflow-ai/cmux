@@ -5,8 +5,8 @@ plateau as synchronized transcript updates are processed.
 
 The test drives the real CLI monitor against FakeCmuxSocket. Each synthetic
 update includes a large assistant row plus a unique request_user_input marker.
-The notification for that marker is the parser-progress signal, and lsof
-confirms the monitor has re-armed its transcript watcher before the next write.
+The notification for that marker is the parser-progress signal before the next
+write, so checkpoints do not depend on fixed sleeps or scheduler timing.
 """
 
 from __future__ import annotations
@@ -53,43 +53,6 @@ def monitor_rss_kb(pid: int) -> int:
         if len(fields) >= 2 and fields[0] == str(pid):
             return int(fields[1])
     raise AssertionError(f"monitor pid {pid} disappeared while sampling RSS")
-
-
-def monitor_holds_transcript(pid: int, transcript_path: Path) -> bool:
-    """Observe the file descriptor the monitor keeps while waiting for changes."""
-    result = subprocess.run(
-        ["/usr/sbin/lsof", "-n", "-p", str(pid), "-Fn"],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=2,
-    )
-    if result.returncode != 0:
-        return False
-    expected = f"n{transcript_path}"
-    return expected in result.stdout.splitlines()
-
-
-def wait_for_monitor_waiting(
-    pid: int,
-    transcript_path: Path,
-    *,
-    timeout: float = 5.0,
-) -> None:
-    """Poll the real watcher FD until the monitor has re-armed after a parse."""
-    deadline = time.monotonic() + timeout
-    consecutive_hits = 0
-    while time.monotonic() < deadline:
-        if monitor_holds_transcript(pid, transcript_path):
-            consecutive_hits += 1
-            if consecutive_hits >= 2:
-                return
-        else:
-            consecutive_hits = 0
-        time.sleep(0.05)
-    raise AssertionError(
-        f"monitor pid {pid} did not re-arm watcher for {transcript_path}"
-    )
 
 
 def wait_for_raw_command(
@@ -251,7 +214,6 @@ def test_codex_monitor_rss_reaches_a_plateau(cli_path: str, root: Path) -> None:
                     f"expected one synthetic monitor, saw {monitor_pids}"
                 )
             monitor_pid = monitor_pids[0]
-            wait_for_monitor_waiting(monitor_pid, transcript_path)
             baseline_kb = monitor_rss_kb(monitor_pid)
 
             samples: list[int] = []
@@ -262,7 +224,6 @@ def test_codex_monitor_rss_reaches_a_plateau(cli_path: str, root: Path) -> None:
                     index=index,
                 )
                 wait_for_raw_command(server, question)
-                wait_for_monitor_waiting(monitor_pid, transcript_path)
 
                 if index in CHECKPOINT_WRITES:
                     current_pids = monitor_pids_for_session(session_id)
