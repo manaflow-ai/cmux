@@ -12,6 +12,31 @@ import Testing
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudRestoreReplayGridTests {
+    @Test(arguments: ["vt-state", "resized"])
+    func replayWithoutSidecarPreservesAuthoredColors(event: String) async throws {
+        let fixture = try CloudRestoreReplayFixture()
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 80, rows: 24)
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        try await fixture.deliver(
+            Data("AUTHORED".utf8), event: "vt-state", marker: "AUTHORED",
+            colors: ["overrides": ["fg": "#123456", "bg": "#654321"]]
+        )
+        try await fixture.expectInputAfterPendingResponses(marker: "COLOR_APPLIED")
+        let before = try #require(fixture.surface.mobileRenderGridFrame(
+            stateSeq: 0, scrollbackLines: 0, includeTheme: true
+        )?.frame)
+        #expect(before.terminalForeground == "#123456")
+        #expect(before.terminalBackground == "#654321")
+        try await fixture.deliver(Data("REPLACEMENT".utf8), event: event, marker: "REPLACEMENT")
+        try await fixture.expectInputAfterPendingResponses(marker: "REPLAY_APPLIED")
+        let after = try #require(fixture.surface.mobileRenderGridFrame(
+            stateSeq: 0, scrollbackLines: 0, includeTheme: true
+        )?.frame)
+        #expect(after.terminalForeground == before.terminalForeground)
+        #expect(after.terminalBackground == before.terminalBackground)
+    }
+
     @Test
     func restoredSnapshotReplacesStaleLocalCells() async throws {
         let fixture = try CloudRestoreReplayFixture()
