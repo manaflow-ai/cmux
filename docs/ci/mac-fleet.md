@@ -100,9 +100,9 @@ Split by pool (`labels[0]` on each job):
 
 `blacksmith-6vcpu-macos-15` was the pull-request lane in this window, because
 `MACOS_RUNNER_PR` was unset and every PR macOS job fell back to it
-(`ci-macos.yml:57,878,2404,2773`). Since 2026-09-24 `MACOS_RUNNER_PR` is
+(`ci-macos.yml:57,878,2404,2773` at the time). Since 2026-09-24 `MACOS_RUNNER_PR` is
 `blacksmith-6vcpu-macos-26`, so re-read `gh variable list` before comparing a
-new measurement against this one. The required/`main` lanes currently point at
+new measurement against this one. The required/`main` lanes then pointed at
 Warp (`MACOS_RUNNER_15=warp-macos-15-arm64-6x`), so PR pain and release pain
 are separate problems and only the first one is in scope here.
 
@@ -415,7 +415,9 @@ Symptoms, in the order they show up:
 Sweep for the last 50 PR runs. The admission metrics step logs its record as
 one sorted JSON line, so match that line: the route step prints its own
 `fallback_reason` JSON, and counting both would double every routed run.
-`persistent_route_unused` means routing never ran for that PR.
+`persistent_route_unused` means the route step was skipped (selector off,
+untrusted author, or a product-reuse hit). An empty reason is a run that
+adopted the persistent product.
 
 ```sh
 gh run list --repo manaflow-ai/cmux --workflow ci.yml --limit 50 \
