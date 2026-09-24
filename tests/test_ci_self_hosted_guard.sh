@@ -2002,8 +2002,13 @@ background_lane_blocking_events() {
 }
 
 strip_background_lane_expr() {
-  awk -v e="vars.MACOS_RUNNER_BACKGROUND || 'macos-15'" '{
+  # Ignore the two sanctioned GitHub-hosted macOS forms before looking for a
+  # stray hosted label: the non-blocking background lane, and the explicit
+  # non-manaflow-ai fork branch used by the normal CI graph.
+  awk -v e="vars.MACOS_RUNNER_BACKGROUND || 'macos-15'" \
+      -v f="github.repository_owner != 'manaflow-ai' && 'macos-15' || " '{
     while ((i = index($0, e)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(e))
+    while ((i = index($0, f)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(f))
     print
   }'
 }
