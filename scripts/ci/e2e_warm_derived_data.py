@@ -101,10 +101,11 @@ def trusted(artifact: dict, repository: str) -> bool:
     return details.get("path") == WORKFLOW_PATH and details.get("event") == "workflow_dispatch"
 
 
-def newest(repository: str, key: str) -> dict | None:
+def candidates(repository: str, key: str):
+    """Trusted DerivedData artifacts for KEY, newest first."""
     listing = api(f"repos/{repository}/actions/artifacts?name={PREFIX}{key}&per_page=20")
-    candidates = sorted(listing.get("artifacts", []), key=lambda a: a.get("created_at", ""), reverse=True)
-    return next((a for a in candidates if trusted(a, repository)), None)
+    ordered = sorted(listing.get("artifacts", []), key=lambda a: a.get("created_at", ""), reverse=True)
+    return (a for a in ordered if trusted(a, repository))
 
 
 def extract(archive: Path, destination: Path) -> None:
@@ -129,12 +130,18 @@ def extract(archive: Path, destination: Path) -> None:
             bundle.extractall(destination)
 
 
-# Changes under these never reach the app host's compiled product. A
-# difference anywhere else, most often in a package every app file imports,
-# recompiles the whole app target on top of adopted DerivedData, so the
-# download only adds its own time (runs 35942257134, 35942449623).
-OUTSIDE_THE_APP_BUILD = ("cmuxTests/", "cmuxUITests/", ".github/", "docs/", "skills/", "tests/", "web/")
+# Changes under these compile nothing into the app host; at most a resource
+# is copied, and replay restamps it. A difference anywhere else, most often in
+# a package every app file imports, recompiles the whole app target on top of
+# adopted DerivedData, so the download only adds its own time (runs
+# 35942257134, 35942449623).
+OUTSIDE_THE_APP_BUILD = (
+    "cmuxTests/", "cmuxUITests/", ".github/", "docs/", "scripts/ci/", "skills/", "tests/", "web/",
+)
 COMPARE_FILE_LIMIT = 300
+# Each candidate costs three API reads; past a few, the newest seeds are all
+# too far away and the build should start.
+CANDIDATE_LIMIT = 4
 
 
 def built_revision(run: dict) -> str | None:
@@ -170,22 +177,37 @@ def tested_revision(workspace: Path) -> str:
     ).stdout.strip()
 
 
-def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
-    repository = os.environ["GITHUB_REPOSITORY"]
-    artifact = newest(repository, key)
-    if artifact is None:
-        return {"hit": "false", "reason": "no-main-derived-data"}
+def near_producer(repository: str, artifact: dict, tested: str) -> tuple[str | None, str]:
+    """The producer's revision and an empty reason if adopting it can save compile time."""
     run = api(f"repos/{repository}/actions/runs/{artifact['workflow_run']['id']}")
     producer = built_revision(run)
-    tested = tested_revision(workspace)
     if producer is None:
-        return {"hit": "false", "reason": "producer-revision-unknown"}
-    if producer != tested:
-        changes = app_build_changes(repository, producer, tested)
-        if changes is None:
-            return {"hit": "false", "reason": "producer-too-far"}
-        if changes:
-            return {"hit": "false", "reason": f"app-build-changed-since-producer ({len(changes)} files, e.g. {changes[0]})"}
+        return None, "producer-revision-unknown"
+    if producer == tested:
+        return producer, ""
+    changes = app_build_changes(repository, producer, tested)
+    if changes is None:
+        return producer, "producer-too-far"
+    if changes:
+        return producer, f"app-build-changed-since-producer ({len(changes)} files, e.g. {changes[0]})"
+    return producer, ""
+
+
+def restore(workspace: Path, derived: Path, key: str) -> dict[str, object]:
+    repository = os.environ["GITHUB_REPOSITORY"]
+    tested = tested_revision(workspace)
+    artifact = producer = None
+    reason = "no-main-derived-data"
+    for index, candidate in enumerate(candidates(repository, key)):
+        if index == CANDIDATE_LIMIT:
+            break
+        # An older seed whose app sources match beats a newer one that differs.
+        producer, reason = near_producer(repository, candidate, tested)
+        if not reason:
+            artifact = candidate
+            break
+    if artifact is None:
+        return {"hit": "false", "reason": reason}
     if int(artifact.get("size_in_bytes") or 0) > transport.MAX_BYTES:
         return {"hit": "false", "reason": "derived-data-too-large"}
     expected = str(artifact.get("digest") or "")
