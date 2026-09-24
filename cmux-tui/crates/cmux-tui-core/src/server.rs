@@ -12923,6 +12923,10 @@ fn handle_command_with_cancellation(
                 .surface(surface_id)
                 .filter(|surface| !surface.is_dead() || retains_exited_terminal(mux, surface))
                 .ok_or_else(|| anyhow::anyhow!("unknown surface {surface_id}"))?;
+            // Retained output has no live PTY to resize. Preserve attachment
+            // bookkeeping while replaying the final geometry unchanged.
+            let initial_size =
+                if retains_exited_terminal(mux, &surface) { None } else { initial_size };
             match (expected_generation, expected_terminal_id) {
                 (Some(generation), Some(terminal)) => {
                     anyhow::ensure!(
@@ -19763,8 +19767,8 @@ mod tests {
                 Command::AttachSurface {
                     surface: Some(id),
                     mode: Some(mode.into()),
-                    cols: None,
-                    rows: None,
+                    cols: Some(100),
+                    rows: Some(30),
                     expected_generation: None,
                     expected_terminal_id: None,
                 },
