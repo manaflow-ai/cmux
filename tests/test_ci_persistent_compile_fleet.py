@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,21 +147,17 @@ class DoctorNextStep(unittest.TestCase):
         self.assertIn("gh auth login", self.next_step(fleet.GitHubState(error="gh is not signed in")))
 
     def test_group_first(self) -> None:
-        self.assertIn("group --apply", self.next_step(self.github(group=False)))
+        self.assertEqual(self.next_step(self.github(group=False)), "scripts/persistent-compile group   (org admin)")
 
-    def test_register_from_off_the_mini(self) -> None:
-        self.assertIn("register --apply", self.next_step(self.github()))
+    def test_up_from_off_the_mini(self) -> None:
+        self.assertIn("on the mini: scripts/persistent-compile up --node-id", self.next_step(self.github()))
 
-    def test_enroll_before_register_on_the_mini(self) -> None:
-        local = enrolled("eligible")
-        local.enrollment = None
-        self.assertIn("glaeda-mini-enroll", self.next_step(self.github(), local))
-
-    def test_finish_acceptance(self) -> None:
-        self.assertIn("glaeda-mini-enroll", self.next_step(self.github(), enrolled("enrolling")))
-
-    def test_register_once_eligible(self) -> None:
-        self.assertIn("register --apply", self.next_step(self.github(), enrolled("eligible")))
+    def test_every_unfinished_mini_state_points_at_up(self) -> None:
+        fresh = enrolled("eligible")
+        fresh.enrollment = None
+        self.assertEqual(self.next_step(self.github(), fresh), "scripts/persistent-compile up --node-id cmux-mac-NNN")
+        self.assertEqual(self.next_step(self.github(), enrolled("enrolling")), "scripts/persistent-compile up")
+        self.assertEqual(self.next_step(self.github(), enrolled("eligible")), "scripts/persistent-compile up")
 
     def test_resume_a_stopped_service(self) -> None:
         local = enrolled("eligible")
@@ -180,6 +178,91 @@ class DoctorNextStep(unittest.TestCase):
 
     def test_no_pilot_suggestion_without_a_healthy_runner(self) -> None:
         self.assertNotIn("pilot", self.next_step(self.github(runners=[runner(status="offline")])) or "")
+
+
+def mini(**changes) -> "fleet.LocalState":
+    local = enrolled("eligible")
+    local.runner_configured = True
+    local.runner_name = "cmux-mac-001-persistent-compile"
+    local.service_loaded = True
+    for key, value in changes.items():
+        setattr(local, key, value)
+    return local
+
+
+class UpPlan(unittest.TestCase):
+    """`up` is one re-runnable command, so each state must map to exactly the remaining steps."""
+
+    def keys(self, local, setup=False, node_id=None, token=False) -> list[str]:
+        return [step.key for step in fleet.up_plan(local, setup, node_id, token)]
+
+    def test_a_fresh_mini_does_everything(self) -> None:
+        local = mini(glaeda=None, enrollment=None, acceptance=False, runner_configured=False,
+                     runner_name=None, service_loaded=None)
+        self.assertEqual(self.keys(local, setup=True, node_id="cmux-mac-002"),
+                         ["clone", "setup", "enroll", "register", "start"])
+
+    def test_a_running_mini_has_nothing_to_do(self) -> None:
+        self.assertEqual(self.keys(mini()), [])
+
+    def test_a_first_enrollment_needs_a_node_id(self) -> None:
+        with self.assertRaisesRegex(fleet.Failure, "--node-id"):
+            fleet.up_plan(mini(enrollment=None), False, None, False)
+
+    def test_resumes_after_a_rejected_acceptance(self) -> None:
+        local = mini(enrollment={"nodeId": "cmux-mac-001", "state": "enrolling"}, acceptance=False,
+                     runner_configured=False, service_loaded=None)
+        self.assertEqual(self.keys(local), ["enroll", "register", "start"])
+
+    def test_a_stopped_service_is_only_started(self) -> None:
+        self.assertEqual(self.keys(mini(service_loaded=False)), ["start"])
+
+    def test_quarantined_and_retired_are_refused(self) -> None:
+        for state in ("quarantined", "retired"):
+            with self.subTest(state=state), self.assertRaisesRegex(fleet.Failure, state):
+                fleet.up_plan(mini(enrollment={"nodeId": "n", "state": state}), False, None, False)
+
+    def test_the_plan_names_the_token_source(self) -> None:
+        local = mini(runner_configured=False, service_loaded=None)
+        texts = [s.text for s in fleet.up_plan(local, False, None, True)]
+        self.assertTrue(any(fleet.TOKEN_ENV in text for text in texts))
+
+
+class MiniSetupReceipt(unittest.TestCase):
+    def test_only_unchanged_and_kept_actions_are_settled(self) -> None:
+        self.assertFalse(fleet.setup_pending({"actions": [{"state": "unchanged"}, {"state": "kept"}]}))
+        self.assertTrue(fleet.setup_pending({"actions": [{"state": "unchanged"}, {"state": "create"}]}))
+
+    def test_human_steps_leave_out_what_up_does_itself(self) -> None:
+        receipt = {"operatorSteps": [
+            {"needs": "sudo", "command": "sudo pmset -c sleep 0", "why": "unattended builds"},
+            {"needs": "operator", "command": "scripts/glaeda-mini-enroll --apply", "why": "enroll"},
+            {"needs": "org admin", "command": "scripts/persistent-compile register --apply", "why": "runner"},
+        ]}
+        self.assertEqual(fleet.human_steps(receipt), ["[sudo] sudo pmset -c sleep 0   (unattended builds)"])
+
+
+class Confirm(unittest.TestCase):
+    def test_yes_skips_the_question(self) -> None:
+        with mock.patch("builtins.print"):
+            self.assertTrue(fleet.confirm(argparse.Namespace(yes=True), ["x"]))
+
+    def test_non_interactive_without_yes_changes_nothing(self) -> None:
+        with mock.patch.object(fleet.sys.stdin, "isatty", return_value=False), mock.patch("builtins.print"):
+            self.assertFalse(fleet.confirm(argparse.Namespace(yes=False), ["x"]))
+
+    def test_yes_is_accepted_before_or_after_the_command(self) -> None:
+        for argv in (["-y", "up"], ["up", "-y"], ["group", "--yes"]):
+            with self.subTest(argv=argv):
+                self.assertTrue(fleet.parser().parse_args(argv).yes)
+        self.assertFalse(fleet.parser().parse_args(["up"]).yes)
+
+    def test_only_y_is_yes(self) -> None:
+        for answer, expected in (("y", True), ("YES", True), ("", False), ("n", False)):
+            with self.subTest(answer=answer), \
+                 mock.patch.object(fleet.sys.stdin, "isatty", return_value=True), \
+                 mock.patch("builtins.input", return_value=answer), mock.patch("builtins.print"):
+                self.assertEqual(fleet.confirm(argparse.Namespace(yes=False), ["x"]), expected)
 
 
 class PilotCohort(unittest.TestCase):

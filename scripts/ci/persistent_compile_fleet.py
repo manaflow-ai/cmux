@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Operate the persistent macOS compile fleet from one command.
+"""Bring up and operate the persistent macOS compile fleet.
 
-    scripts/persistent-compile                 doctor: what is set up, and the next command
-    scripts/persistent-compile group [--apply]         org admin: create or repair the runner group
-    scripts/persistent-compile register [--apply]      on the mini: install the runner as a service
-    scripts/persistent-compile drain [--now]           stop taking jobs (Glaeda state and GitHub)
-    scripts/persistent-compile resume                  take jobs again
-    scripts/persistent-compile unregister [--apply]    remove the runner from this mini
-    scripts/persistent-compile pilot <pr-or-branch>... route only these PRs to the fleet
-    scripts/persistent-compile all | off               route every trusted PR, or none
+    scripts/persistent-compile              where things stand, and the one command to run next
+    scripts/persistent-compile up           on a mini: set up, enroll, register, start. Re-run any time.
+    scripts/persistent-compile group        org admin: create or repair the runner group
+    scripts/persistent-compile token        org admin: a one-hour token for someone else's `up`
+    scripts/persistent-compile pilot <PR>   route only these PRs (numbers or branch names)
+    scripts/persistent-compile all | off    route every trusted PR, or none
+    scripts/persistent-compile drain        on a mini: stop taking jobs once the current one ends
+    scripts/persistent-compile resume       on a mini: take jobs again
+    scripts/persistent-compile unregister   on a mini: remove its runner
 
-Enrollment itself stays with Glaeda (docs/fleet-enrollment.md); this command
-reads its result and refuses to register a runner on a mini that is not
-`eligible`. Everything that talks to GitHub goes through `gh`, so it acts as
-whoever `gh auth status` says, and prints what it would do unless --apply is
-given. Registration tokens are passed to the runner through its environment and
-never printed. See docs/ci/mac-fleet.md for the design this operates.
+Commands that change something show what they will do and ask first; -y skips
+the question. GitHub calls go through `gh` as whoever is signed in. `up` does
+not need an org admin at the mini: an admin runs `token` and the operator runs
+`CMUX_RUNNER_TOKEN=<token> scripts/persistent-compile up`. See
+docs/ci/mac-fleet.md for the design this operates.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[2]
 ORG = "manaflow-ai"
 REPO = "manaflow-ai/cmux"
 GROUP = "cmux-persistent-compile"
@@ -46,6 +47,8 @@ SELECTOR_VARIABLE = "CI_PERSISTENT_MAC_COMPILE"
 COHORT_VARIABLE = "CI_PERSISTENT_MAC_COMPILE_COHORT"
 XCODE_APP = "/Applications/Xcode_26.3.app"
 ROLE = "cmux_macos_native_build"
+GLAEDA_URL = "https://github.com/teamleaderleo/glaeda.git"
+TOKEN_ENV = "CMUX_RUNNER_TOKEN"
 
 RUNNER_VERSION = "2.336.0"
 RUNNER_SHA256 = "8e8839c49b7060b6b2154f4931f815df330c27f167d53ef2239ee3dfce28b079"
@@ -60,6 +63,22 @@ DRAIN_WAIT_SECONDS = 40 * 60
 
 class Failure(Exception):
     pass
+
+
+def confirm(args: argparse.Namespace, steps: list[str]) -> bool:
+    """Show the plan and ask once. -y answers yes; a non-interactive run without -y only plans."""
+    for step in steps:
+        print(f"  - {step}")
+    if getattr(args, "yes", False):
+        return True
+    if not sys.stdin.isatty():
+        print("\nNot a terminal: nothing changed. Re-run with -y to do it.")
+        return False
+    try:
+        answer = input("\nGo ahead? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    return answer in {"y", "yes"}
 
 
 # ---------------------------------------------------------------- paths
@@ -297,15 +316,15 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
             lines.append(Line(False, f"Glaeda enrollment unreadable: {local.enrollment_error}"))
         elif local.enrollment is None:
             lines.append(Line(False, f"Glaeda enrollment ({enrollment_path()})"))
-            nxt.append("in the Glaeda checkout: scripts/glaeda-mini-enroll --cmux-root <this cmux checkout>"
-                       " --node-id cmux-mac-NNN --apply")
+            nxt.append("scripts/persistent-compile up --node-id cmux-mac-NNN")
         else:
             node = local.enrollment.get("nodeId", "?")
             lines.append(Line(state in {"eligible", "draining"}, f"Glaeda node {node} is {state}"))
             if state == "enrolling":
-                nxt.append("in the Glaeda checkout: scripts/glaeda-mini-enroll --cmux-root <this cmux checkout> --apply")
+                nxt.append("scripts/persistent-compile up")
             elif state == "quarantined":
-                nxt.append(f"node is quarantined ({local.enrollment.get('quarantineReason')}); re-enroll through Glaeda")
+                nxt.append(f"node is quarantined ({local.enrollment.get('quarantineReason')}); "
+                           "fix the cause, move it to enrolling in Glaeda, then: scripts/persistent-compile up")
         lines.append(Line(local.acceptance, "acceptance receipt"))
         lines.append(Line(local.glaeda is not None, "Glaeda checkout found" if local.glaeda
                           else "Glaeda checkout (set GLAEDA_ROOT or pass --glaeda-root)"))
@@ -316,20 +335,20 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
             if not local.service_loaded and state == "eligible":
                 nxt.append("scripts/persistent-compile resume")
         elif state == "eligible":
-            nxt.append("scripts/persistent-compile register --apply")
+            nxt.append("scripts/persistent-compile up")
         sections.append(("This mini", lines))
 
     lines = []
     if github.error:
         lines.append(Line(False, github.error))
-        nxt.append("gh auth login && gh auth refresh -s admin:org")
+        nxt.append("gh auth login   (org admins also: gh auth refresh -s admin:org)")
         sections.append(("GitHub", lines))
         return sections, nxt[0] if nxt else None
     lines.append(Line(True, f"signed in as {github.auth}"))
     if github.group_changes:
         for change in github.group_changes:
             lines.append(Line(False, f"runner group {GROUP}: {change}"))
-        nxt.insert(0, "scripts/persistent-compile group --apply   (org admin)")
+        nxt.insert(0, "scripts/persistent-compile group   (org admin)")
     else:
         lines.append(Line(True, f"runner group {GROUP} restricted to the producer workflow"))
     for warning in github.group_warnings:
@@ -340,14 +359,12 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
         if not github.runners:
             lines.append(Line(False, "no runner registered in the group"))
             if local is None:
-                nxt.append("on the mini: scripts/persistent-compile register --apply")
-        healthy = 0
+                nxt.append("on the mini: scripts/persistent-compile up --node-id cmux-mac-NNN")
         for runner in github.runners:
             problems = runner_problems(runner)
             busy = " (busy)" if runner.get("busy") else ""
             lines.append(Line(not problems, f"runner {runner.get('name')}{busy}"
                               + (": " + "; ".join(problems) if problems else "")))
-            healthy += not problems
     if github.variables_error:
         lines.append(Line(False, f"variables: {github.variables_error}"))
     else:
@@ -398,11 +415,8 @@ def cmd_group(args: argparse.Namespace) -> int:
         for warning in github.group_warnings:
             print(f"note: {warning}")
         return 0
-    print(f"{GROUP} needs:")
-    for change in github.group_changes:
-        print(f"  - {change}")
-    if not args.apply:
-        print("\nRe-run with --apply to make these changes (needs org admin).")
+    print(f"runner group {GROUP}:")
+    if not confirm(args, github.group_changes):
         return 0
     repo_id = int(gh_api(f"repos/{REPO}")["id"])
     policy = {
@@ -457,6 +471,8 @@ def install_runner(directory: Path) -> None:
 
 
 def runner_token(kind: str) -> str:
+    if kind == "registration" and os.environ.get(TOKEN_ENV):
+        return os.environ[TOKEN_ENV]
     data = gh_api(f"orgs/{ORG}/actions/runners/{kind}-token", "POST")
     token = (data or {}).get("token")
     if not token:
@@ -469,36 +485,137 @@ def default_runner_name(local: LocalState) -> str:
     return f"{node}-persistent-compile" if node else f"{platform.node().split('.')[0]}-persistent-compile"
 
 
-def cmd_register(args: argparse.Namespace) -> int:
-    require_mac()
-    local = read_local(args.glaeda_root)
-    state = (local.enrollment or {}).get("state")
-    if state != "eligible" and not args.without_enrollment:
-        raise Failure(f"Glaeda enrollment is {state or 'missing'}, not eligible. Enroll and accept this mini "
-                      "first (docs/fleet-enrollment.md), or pass --without-enrollment for a rehearsal.")
-    if not local.xcode:
-        raise Failure(f"{XCODE_APP} is missing; the producer selects exactly that Xcode")
+def worker_running(directory: Path) -> bool:
+    """A Runner.Worker process exists only while this runner holds a job."""
+    result = subprocess.run(["pgrep", "-f", os.fspath(directory / "bin" / "Runner.Worker")],
+                            capture_output=True, check=False)
+    return result.returncode == 0
+
+
+def register_runner(local: LocalState, name: str) -> None:
     directory = runner_dir()
-    name = args.name or local.runner_name or default_runner_name(local)
-    steps = [
-        f"install actions runner {RUNNER_VERSION} (sha256 pinned) in {directory}" if not (directory / "config.sh").is_file()
-        else f"reuse the runner in {directory}",
-        f"register {name} in group {GROUP} with labels {', '.join(LABELS)} (org registration token via gh)",
-        "install and start it as a launchd agent (./svc.sh), so it survives logout and reboot with auto-login",
-    ]
-    print("register:\n" + "\n".join(f"  - {s}" for s in steps))
-    if not args.apply:
-        print("\nRe-run with --apply to do it.")
-        return 0
     install_runner(directory)
     env = dict(os.environ, ACTIONS_RUNNER_INPUT_TOKEN=runner_token("registration"))
+    env.pop(TOKEN_ENV, None)
     run_checked(["./config.sh", "--unattended", "--replace", "--url", f"https://github.com/{ORG}",
                  "--runnergroup", GROUP, "--labels", CUSTOM_LABEL, "--name", name, "--work", "_work"],
                 directory, env)
+
+
+def start_service(directory: Path) -> None:
     if service_label(directory) is None:
         run_checked(["./svc.sh", "install"], directory)
     run_checked(["./svc.sh", "start"], directory)
-    print(f"\n{name} is registered and running. Next: scripts/persistent-compile pilot <your PR number>")
+
+
+# ---------------------------------------------------------------- up
+
+
+@dataclass
+class UpStep:
+    key: str
+    text: str
+
+
+def up_plan(local: LocalState, setup_pending: bool, node_id: str | None, has_token: bool) -> list[UpStep]:
+    """What `up` still has to do on this mini, in order. Pure, so it is tested without a Mac."""
+    steps: list[UpStep] = []
+    if local.glaeda is None:
+        steps.append(UpStep("clone", f"clone Glaeda into {Path.home() / 'glaeda'}"))
+    if setup_pending:
+        steps.append(UpStep("setup", "glaeda-mini-setup: build-host tools, LaunchAgents and cache directories"))
+    state = (local.enrollment or {}).get("state")
+    if local.enrollment is None:
+        if not node_id:
+            raise Failure("this mini is not enrolled yet: pass --node-id, an opaque id such as cmux-mac-002 "
+                          "(not a hostname or serial)")
+        steps.append(UpStep("enroll", f"enroll as {node_id} and run local acceptance "
+                                      "(a cold cmux build, about 13 minutes)"))
+    elif state in {"quarantined", "retired"}:
+        raise Failure(f"Glaeda node {local.enrollment.get('nodeId')} is {state}; "
+                      "resolve that in Glaeda before bringing it up")
+    elif state != "eligible" or not local.acceptance:
+        steps.append(UpStep("enroll", "finish Glaeda enrollment (resumes where it stopped)"))
+    if not local.runner_configured:
+        source = f"the token in ${TOKEN_ENV}" if has_token else "an org registration token from your gh login"
+        steps.append(UpStep("register", f"install actions-runner {RUNNER_VERSION} and register it in {GROUP} "
+                                        f"using {source}"))
+    if not local.service_loaded:
+        steps.append(UpStep("start", "start the runner as a launchd agent"))
+    return steps
+
+
+def glaeda_python(glaeda: Path, script: str, *args: str, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([sys.executable, os.fspath(glaeda / "scripts" / script), *args], cwd=glaeda,
+                          text=True, stdout=subprocess.PIPE if capture else None, check=False)
+
+
+def mini_setup_receipt(glaeda: Path, apply: bool) -> dict[str, Any]:
+    args = ["--output", "json", "--cmux-root", os.fspath(ROOT)] + (["--apply"] if apply else [])
+    result = glaeda_python(glaeda, "glaeda-mini-setup", *args, capture=True)
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        raise Failure("glaeda-mini-setup did not produce a receipt; run it directly to see why") from None
+
+
+def setup_pending(receipt: dict[str, Any]) -> bool:
+    return any(a.get("state") not in {"unchanged", "kept"} for a in receipt.get("actions", []))
+
+
+def human_steps(receipt: dict[str, Any]) -> list[str]:
+    """Operator steps `up` cannot do itself; the enrollment and registration ones it does."""
+    skip = ("glaeda-mini-enroll", "persistent-compile", "rerun with --cmux-root")
+    return [f"[{s['needs']}] {s['command']}   ({s['why']})" for s in receipt.get("operatorSteps", [])
+            if not any(marker in s["command"] for marker in skip)]
+
+
+def cmd_up(args: argparse.Namespace) -> int:
+    require_mac()
+    local = read_local(args.glaeda_root)
+    if not local.xcode:
+        raise Failure(f"install Xcode 26.3 at {XCODE_APP} and run: sudo xcode-select -s {XCODE_APP}")
+    receipt = mini_setup_receipt(local.glaeda, apply=False) if local.glaeda else {}
+    steps = up_plan(local, local.glaeda is None or setup_pending(receipt), args.node_id,
+                    bool(os.environ.get(TOKEN_ENV)))
+    if not steps:
+        print(f"{local.runner_name} is enrolled, registered and running. Nothing to do.")
+        return 0
+    print("up:")
+    if not confirm(args, [step.text for step in steps]):
+        return 0
+    for step in steps:
+        print(f"\n== {step.text}", flush=True)
+        if step.key == "clone":
+            target = Path.home() / "glaeda"
+            run_checked(["git", "clone", GLAEDA_URL, os.fspath(target)], Path.home())
+            local.glaeda = target
+        elif step.key == "setup":
+            receipt = mini_setup_receipt(local.glaeda, apply=True)
+            if not receipt.get("ready"):
+                print("\nglaeda-mini-setup needs these first:")
+                for line in human_steps(receipt) or [", ".join(receipt.get("blocking", []))]:
+                    print(f"  {line}")
+                raise Failure("do the steps above, then run scripts/persistent-compile up again")
+        elif step.key == "enroll":
+            enroll = ["--cmux-root", os.fspath(ROOT), "--apply"] + (["--node-id", args.node_id] if args.node_id else [])
+            if glaeda_python(local.glaeda, "glaeda-mini-enroll", *enroll).returncode:
+                raise Failure("Glaeda enrollment stopped (see above); fix it and run scripts/persistent-compile up again")
+            local = read_local(os.fspath(local.glaeda))
+        elif step.key == "register":
+            name = args.name or default_runner_name(local)
+            register_runner(local, name)
+            local = read_local(os.fspath(local.glaeda))
+        elif step.key == "start":
+            start_service(runner_dir())
+    print(f"\n{local.runner_name or 'the runner'} is up. Check from anywhere: scripts/persistent-compile")
+    return 0
+
+
+def cmd_token(_: argparse.Namespace) -> int:
+    data = gh_api(f"orgs/{ORG}/actions/runners/registration-token", "POST")
+    print(f"Registration token for {GROUP}, valid until {data.get('expires_at')}. On the mini, run:\n")
+    print(f"  {TOKEN_ENV}={data['token']} scripts/persistent-compile up --node-id cmux-mac-NNN")
     return 0
 
 
@@ -518,34 +635,26 @@ def glaeda_transition(local: LocalState, target: str) -> None:
     print(f"Glaeda: {local.enrollment.get('nodeId')} is {target}")
 
 
-def this_runner(local: LocalState) -> dict[str, Any] | None:
-    github = read_github()
-    return next((r for r in github.runners if r.get("name") == local.runner_name), None)
-
-
 def cmd_drain(args: argparse.Namespace) -> int:
     require_mac()
     local = read_local(args.glaeda_root)
+    directory = runner_dir()
     if not local.runner_configured:
-        raise Failure(f"no runner is configured in {runner_dir()}")
+        raise Failure(f"no runner is configured in {directory}")
     # Two control planes: Glaeda's state is what routing reads, the runner
     # service is what GitHub assigns to. Draining one without the other leaves
-    # the mini taking work (docs/ci/mac-fleet.md 3.5).
-    # The runner service is the half that stops GitHub assigning jobs, so a
-    # Glaeda failure must not prevent it.
+    # the mini taking work (docs/ci/mac-fleet.md 3.5). The service is the half
+    # that stops GitHub, so a Glaeda failure must not prevent it.
     glaeda_error = None
     try:
         glaeda_transition(local, "draining")
     except Failure as error:
         glaeda_error = error
     deadline = time.monotonic() + (0 if args.now else DRAIN_WAIT_SECONDS)
-    while True:
-        runner = this_runner(local)
-        if not runner or not runner.get("busy") or time.monotonic() >= deadline:
-            break
-        print(f"{local.runner_name} is running a job; waiting for it to finish (--now to stop immediately)")
+    while worker_running(directory) and time.monotonic() < deadline:
+        print(f"{local.runner_name} is running a job; waiting for it to finish (--now stops it immediately)")
         time.sleep(30)
-    run_checked(["./svc.sh", "stop"], runner_dir())
+    run_checked(["./svc.sh", "stop"], directory)
     print(f"{local.runner_name} is stopped: GitHub will not assign it jobs. Undo: scripts/persistent-compile resume")
     if glaeda_error is not None:
         raise Failure(f"the runner is stopped, but Glaeda was not moved to draining: {glaeda_error}")
@@ -556,9 +665,9 @@ def cmd_resume(args: argparse.Namespace) -> int:
     require_mac()
     local = read_local(args.glaeda_root)
     if not local.runner_configured:
-        raise Failure("no runner is configured here; run: scripts/persistent-compile register --apply")
+        raise Failure("no runner is configured here; run: scripts/persistent-compile up")
     glaeda_transition(local, "eligible")
-    run_checked(["./svc.sh", "start"], runner_dir())
+    start_service(runner_dir())
     print(f"{local.runner_name} is taking jobs again")
     return 0
 
@@ -570,9 +679,9 @@ def cmd_unregister(args: argparse.Namespace) -> int:
     if not local.runner_configured:
         print(f"no runner is configured in {directory}")
         return 0
-    print(f"unregister {local.runner_name}: stop and uninstall its service, remove it from {GROUP}")
-    if not args.apply:
-        print("\nRe-run with --apply to do it.")
+    print("unregister:")
+    if not confirm(args, [f"stop and uninstall the {local.runner_name} service",
+                          f"remove {local.runner_name} from {GROUP} (org removal token from your gh login)"]):
         return 0
     if service_label(directory) is not None:
         run_checked(["./svc.sh", "stop"], directory)
@@ -618,32 +727,34 @@ def cmd_off(_: argparse.Namespace) -> int:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="scripts/persistent-compile", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--glaeda-root", help="Glaeda checkout (default: $GLAEDA_ROOT or ~/glaeda)")
-    sub = p.add_subparsers(dest="command")
-    d = sub.add_parser("doctor", help="show what is set up and the next command (default)")
+    p.add_argument("-y", "--yes", action="store_true", help="do it without asking")
+    p.add_argument("--glaeda-root", help="Glaeda checkout (default: $GLAEDA_ROOT, else ~/glaeda)")
+    # -y works before or after the command; SUPPRESS keeps a subcommand from resetting it.
+    yes = argparse.ArgumentParser(add_help=False)
+    yes.add_argument("-y", "--yes", action="store_true", default=argparse.SUPPRESS, help="do it without asking")
+    sub = p.add_subparsers(dest="command", metavar="command")
+    d = sub.add_parser("doctor", help="where things stand and the next command (the default)")
     d.add_argument("--local", action="store_true", help="also inspect this machine when it is not a Mac")
-    g = sub.add_parser("group", help="create or repair the org runner group (org admin)")
-    g.add_argument("--apply", action="store_true")
-    r = sub.add_parser("register", help="install this mini's runner as a service")
-    r.add_argument("--apply", action="store_true")
-    r.add_argument("--name", help="runner name (default: <Glaeda node id>-persistent-compile)")
-    r.add_argument("--without-enrollment", action="store_true", help="skip the Glaeda eligibility check")
-    dr = sub.add_parser("drain", help="stop taking jobs, after the current one finishes")
-    dr.add_argument("--now", action="store_true", help="do not wait for a running job")
-    sub.add_parser("resume", help="take jobs again")
-    u = sub.add_parser("unregister", help="remove this mini's runner")
-    u.add_argument("--apply", action="store_true")
+    up = sub.add_parser("up", parents=[yes], help="on a mini: set up, enroll, register and start; safe to re-run")
+    up.add_argument("--node-id", help="opaque fleet id for a first enrollment, such as cmux-mac-002")
+    up.add_argument("--name", help="runner name (default: <node id>-persistent-compile)")
+    sub.add_parser("group", parents=[yes], help="org admin: create or repair the runner group")
+    sub.add_parser("token", help="org admin: print a one-hour registration token for another mini")
     pi = sub.add_parser("pilot", help="route only these PR numbers or branch names")
     pi.add_argument("targets", nargs="+")
     sub.add_parser("all", help="route every trusted PR")
     sub.add_parser("off", help="route nothing")
+    dr = sub.add_parser("drain", help="on a mini: stop taking jobs once the current one ends")
+    dr.add_argument("--now", action="store_true", help="do not wait for a running job")
+    sub.add_parser("resume", help="on a mini: take jobs again")
+    sub.add_parser("unregister", parents=[yes], help="on a mini: remove its runner")
     return p
 
 
 COMMANDS = {
-    None: cmd_doctor, "doctor": cmd_doctor, "group": cmd_group, "register": cmd_register,
-    "drain": cmd_drain, "resume": cmd_resume, "unregister": cmd_unregister,
+    None: cmd_doctor, "doctor": cmd_doctor, "up": cmd_up, "group": cmd_group, "token": cmd_token,
     "pilot": cmd_pilot, "all": cmd_all, "off": cmd_off,
+    "drain": cmd_drain, "resume": cmd_resume, "unregister": cmd_unregister,
 }
 
 

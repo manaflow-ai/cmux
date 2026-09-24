@@ -520,25 +520,28 @@ after) and is where that requirement belongs.
 
 ## 5. Rollout
 
-`scripts/persistent-compile` runs every step below that the repository can
-own. With no arguments it reads the runner group, the runners in it, the
-routing variables and, on a Mac, the local Glaeda enrollment and runner
-service, then prints the one command to run next. Commands that change
-anything print their plan and need `--apply`.
+`scripts/persistent-compile` runs every step below that can be scripted. Run
+it with no arguments from anywhere to see what is set up and the one command
+to run next. Commands that change something show their plan and ask first
+(`-y` skips the question).
 
 | Who | Where | Command |
 | --- | --- | --- |
-| Operator | the mini | Glaeda `scripts/glaeda-mini-setup --apply`, then `scripts/glaeda-mini-enroll --cmux-root <cmux> --node-id cmux-mac-NNN --apply` |
-| Org admin | anywhere with `gh` | `scripts/persistent-compile group --apply` |
-| Org admin's `gh` | the mini | `scripts/persistent-compile register --apply` |
+| Org admin | anywhere with `gh` | `scripts/persistent-compile group` |
+| Operator | the mini, in a cmux checkout | `scripts/persistent-compile up --node-id cmux-mac-NNN` |
 | Maintainer | anywhere | `scripts/persistent-compile pilot <PR>`, later `all` |
-| Anyone | anywhere | `scripts/persistent-compile` |
 
-`register` refuses a mini whose Glaeda enrollment is not `eligible`, installs
-the pinned `actions-runner` (sha256 checked) in
-`~/actions-runner-cmux-persistent-compile`, registers it in the group with the
-exact labels in 3.2 using a registration token that is passed through the
-runner's environment and never printed, and starts it as a launchd agent.
+`up` clones Glaeda if needed, then runs `glaeda-mini-setup` and
+`glaeda-mini-enroll`, registers the runner and starts it. It stops at the first
+step that needs sudo or a human, prints that step, and resumes from there when
+run again. It refuses to register a mini whose Glaeda enrollment is not
+`eligible`. The runner is the pinned `actions-runner` (sha256 checked) in
+`~/actions-runner-cmux-persistent-compile`, registered with the exact labels in
+3.2 and run as a launchd agent. The registration token comes from the
+operator's `gh` login. An operator who is not an org admin gets one from an
+admin instead: the admin runs `scripts/persistent-compile token`, and the
+operator runs `CMUX_RUNNER_TOKEN=<token> scripts/persistent-compile up`. The
+token is valid for one hour.
 
 ### Stage 0 - preconditions (maintainer only)
 
