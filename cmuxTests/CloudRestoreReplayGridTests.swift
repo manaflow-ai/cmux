@@ -18,7 +18,7 @@ struct CloudRestoreReplayGridTests {
         defer { fixture.close() }
         try await fixture.setGrid(columns: 80, rows: 24)
         try await fixture.seedLocalOutput(Data("STALE_COMPOSER".utf8), marker: "STALE_COMPOSER")
-        try await fixture.attach(replay: Data("FRESH_COMPOSER".utf8))
+        try await fixture.attach(replay: Data("FRESH_COMPOSER STATUS_READY".utf8))
 
         let screen = try #require(fixture.surface.readText(region: .screen))
         #expect(screen.contains("FRESH_COMPOSER"))
