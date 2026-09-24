@@ -108,6 +108,10 @@ jobs:
       feed_base: ${{ steps.decide.outputs.feed_base }}
       entitlements: ${{ steps.decide.outputs.entitlements }}
       icon_name: ${{ steps.decide.outputs.icon_name }}
+      # Owned Mac pools Glaeda reserved for the two cache-warming jobs
+      # (glaeda#1174), or empty to keep each job's own runner expression.
+      warm_cache_runner: ${{ steps.glaeda-warm-cache.outputs.owned == 'true' && steps.glaeda-warm-cache.outputs.runs-on || '' }}
+      warm_test_cache_runner: ${{ steps.glaeda-warm-test-cache.outputs.owned == 'true' && steps.glaeda-warm-test-cache.outputs.runs-on || '' }}
     steps:
       # The build-input check below classifies changed paths with the same
       # router CI uses, which reads the Xcode project and the package graph.
@@ -394,11 +398,43 @@ jobs:
               ])
               .write();
 
+      # Cache warming is low priority on the owned Macs (glaeda#1174): Glaeda
+      # gives it only idle slots, never ahead of pull request work, and keeps
+      # one slot free for pull requests. Off unless GLAEDA_ROUTE is 1; skipped,
+      # each warming job keeps its own runner expression.
+      - name: Ask Glaeda for an owned Mac to warm the compilation cache
+        id: glaeda-warm-cache
+        if: vars.GLAEDA_ROUTE == '1' && (github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only)
+        continue-on-error: true
+        uses: ./.github/actions/glaeda-route
+        with:
+          enabled: ${{ vars.GLAEDA_ROUTE }}
+          kind: nightly-warm-cache
+          priority: warm
+          xcode: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+          pool-state: ${{ vars.GLAEDA_POOL_STATE }}
+          ledger-app-client-id: ${{ vars.GLAEDA_LEDGER_APP_CLIENT_ID }}
+          ledger-app-private-key: ${{ secrets.GLAEDA_LEDGER_APP_PRIVATE_KEY }}
+
+      - name: Ask Glaeda for an owned Mac to warm the test compilation seed
+        id: glaeda-warm-test-cache
+        if: vars.GLAEDA_ROUTE == '1' && (github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only)
+        continue-on-error: true
+        uses: ./.github/actions/glaeda-route
+        with:
+          enabled: ${{ vars.GLAEDA_ROUTE }}
+          kind: nightly-warm-test-cache
+          priority: warm
+          xcode: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          pool-state: ${{ vars.GLAEDA_POOL_STATE }}
+          ledger-app-client-id: ${{ vars.GLAEDA_LEDGER_APP_CLIENT_ID }}
+          ledger-app-private-key: ${{ secrets.GLAEDA_LEDGER_APP_PRIVATE_KEY }}
+
   refresh-compilation-cache:
     needs: decide
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.warm_cache_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # This job rebuilds the cache after the store drops it, so it runs cold
     # by design; scheduled run 35134963192 was cancelled at 45 minutes.
@@ -568,7 +604,7 @@ jobs:
     # admission job picks for `pull_request`, not the merge-queue one. On the
     # 6 vCPU macOS 26 pool, use its 12 vCPU sibling: same image and Xcode,
     # no pull-request queue (see seed-derived-data.yml).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.warm_test_cache_runner || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     env:

@@ -86,8 +86,11 @@ jobs:
       # once so a run is never split across pools (see pr_runner_pool.py).
       # Empty keeps each job's own MACOS_RUNNER_PR fallback: every event but a
       # pull request, and any uncertainty.
-      macos_pr_runner: ${{ steps.macos-pool.outputs.runner }}
-      macos_pr_xcode_app: ${{ steps.macos-pool.outputs.xcode_app }}
+      # With vars.GLAEDA_ROUTE == '1', Glaeda answers first (an owned Mac pool
+      # it reserved for this run, glaeda#1174); otherwise, or when it says no,
+      # the picker below decides exactly as before.
+      macos_pr_runner: ${{ steps.glaeda-route.outputs.owned == 'true' && steps.glaeda-route.outputs.runs-on || steps.macos-pool.outputs.runner }}
+      macos_pr_xcode_app: ${{ steps.glaeda-route.outputs.owned != 'true' && steps.macos-pool.outputs.xcode_app || '' }}
     permissions:
       actions: read
       contents: read
@@ -98,8 +101,28 @@ jobs:
         with:
           fetch-depth: 2
 
+      # Glaeda owns the owned-Mac route (glaeda#1174): order, capacity,
+      # reservations and rescue live in teamleaderleo/glaeda scripts/glaeda-route.
+      # Off unless GLAEDA_ROUTE is 1. A fork run has no variables or secrets,
+      # so the step is skipped and the picker keeps it on Blacksmith.
+      - name: Ask Glaeda for an owned Mac pool
+        id: glaeda-route
+        if: github.event_name == 'pull_request' && vars.GLAEDA_ROUTE == '1'
+        continue-on-error: true
+        uses: ./.github/actions/glaeda-route
+        with:
+          enabled: ${{ vars.GLAEDA_ROUTE }}
+          kind: ci-macos
+          priority: pr
+          slots: ${{ vars.CI_OWNED_POOL_JOBS_PER_RUN || '3' }}
+          xcode: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          pool-state: ${{ vars.GLAEDA_POOL_STATE }}
+          ledger-app-client-id: ${{ vars.GLAEDA_LEDGER_APP_CLIENT_ID }}
+          ledger-app-private-key: ${{ secrets.GLAEDA_LEDGER_APP_PRIVATE_KEY }}
+
       - name: Choose the pull request macOS pool
         id: macos-pool
+        if: steps.glaeda-route.outputs.owned != 'true'
         # Fail-safe: any error leaves the outputs empty, which is today's route.
         continue-on-error: true
         timeout-minutes: 1

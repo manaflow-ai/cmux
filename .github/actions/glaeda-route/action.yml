@@ -1,0 +1,147 @@
+name: Ask Glaeda for runs-on
+description: >-
+  One route decision from Glaeda (teamleaderleo/glaeda scripts/glaeda-route, glaeda#1174): an owned
+  Mac pool label when a trusted run fits, else the caller's default (Blacksmith). Off unless the
+  caller passes enabled=1. A fork run, a retry, or a missing pool state or credential answers with
+  the default before any call. Every failure answers with the default too.
+
+# Glaeda owns the rule: pool order (std minis, then light minis), capacity, reservations and
+# rescue live in scripts/glaeda-route at the pinned commit below, not here. docs/GLAEDA_ROUTE.md
+# in that repository is the contract. This action only gates, fetches that one file by commit
+# and digest, and runs it.
+
+inputs:
+  enabled:
+    description: "`1` to ask Glaeda; pass vars.GLAEDA_ROUTE. Anything else answers with the default."
+    required: false
+    default: ""
+  kind:
+    description: What is asking, e.g. `ci-macos` or `nightly-warm-cache`. Part of the reservation id, so one per ask in a run.
+    required: true
+  priority:
+    description: "`pr` or `dev` go first; `nightly` and `warm` take only idle owned slots."
+    required: true
+  slots:
+    description: Owned machines the run's jobs use at once (they all land on one pool).
+    required: false
+    default: "1"
+  xcode:
+    description: The Xcode app or version the jobs pin, e.g. vars.CMUX_CI_XCODE_APP_PR. Owned pools are per Xcode.
+    required: false
+    default: ""
+  default:
+    description: runs-on when Glaeda says no. Empty keeps the caller's own expression.
+    required: false
+    default: ""
+  pool-state:
+    description: vars.GLAEDA_POOL_STATE, which Glaeda publishes.
+    required: false
+    default: ""
+  ledger-app-client-id:
+    description: vars.GLAEDA_LEDGER_APP_CLIENT_ID, the App that may write only the reservation ledger repository.
+    required: false
+    default: ""
+  ledger-app-private-key:
+    description: secrets.GLAEDA_LEDGER_APP_PRIVATE_KEY.
+    required: false
+    default: ""
+
+outputs:
+  runs-on:
+    description: The owned pool label Glaeda reserved, or the default.
+    value: ${{ steps.route.outputs.owned == 'true' && steps.route.outputs.runs_on || inputs.default }}
+  owned:
+    description: "`true` only when Glaeda reserved owned machines for this run."
+    value: ${{ steps.route.outputs.owned == 'true' && 'true' || 'false' }}
+  reason:
+    description: Why.
+    value: ${{ steps.route.outputs.reason || steps.gate.outputs.reason || 'the Glaeda route step failed; default' }}
+  reservation:
+    description: The ledger reservation id, when owned.
+    value: ${{ steps.route.outputs.reservation }}
+
+runs:
+  using: composite
+  steps:
+    - name: Decide whether to ask Glaeda
+      id: gate
+      shell: bash
+      env:
+        ENABLED: ${{ inputs.enabled }}
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        REPOSITORY: ${{ github.repository }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+        HAS_STATE: ${{ inputs.pool-state != '' }}
+        HAS_KEY: ${{ inputs.ledger-app-client-id != '' && inputs.ledger-app-private-key != '' }}
+      run: |
+        set -u
+        ask=false
+        if [ "$ENABLED" != "1" ]; then
+          reason="Glaeda routing is off (GLAEDA_ROUTE is not 1)"
+        elif [ "$EVENT_NAME" = "pull_request" ] && [ "$HEAD_REPO" != "$REPOSITORY" ]; then
+          reason="fork pull request; forks never take an owned machine"
+        elif [ "$EVENT_NAME" = "pull_request_target" ]; then
+          reason="pull_request_target never takes an owned machine"
+        elif [ "$RUN_ATTEMPT" != "1" ]; then
+          reason="attempt $RUN_ATTEMPT is a retry; retries run on overflow"
+        elif [ "$HAS_STATE" != "true" ]; then
+          reason="no Glaeda pool state (GLAEDA_POOL_STATE is empty)"
+        elif [ "$HAS_KEY" != "true" ]; then
+          reason="no Glaeda ledger credentials"
+        else
+          ask=true
+          reason=""
+        fi
+        {
+          echo "ask=$ask"
+          echo "reason=$reason"
+        } >> "$GITHUB_OUTPUT"
+        if [ "$ask" != "true" ]; then
+          printf '### Glaeda route\n\n- runs-on: caller default\n- why: %s\n' "$reason" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Mint the ledger token
+      id: token
+      if: steps.gate.outputs.ask == 'true'
+      continue-on-error: true
+      uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+      with:
+        client-id: ${{ inputs.ledger-app-client-id }}
+        private-key: ${{ inputs.ledger-app-private-key }}
+        owner: manaflow-ai
+        repositories: glaeda-route-state
+        permission-contents: write
+
+    - name: Ask Glaeda
+      id: route
+      if: steps.gate.outputs.ask == 'true' && steps.token.outcome == 'success'
+      continue-on-error: true
+      shell: bash
+      env:
+        # scripts/glaeda-route at a reviewed Glaeda commit, checked by digest before it runs.
+        GLAEDA_COMMIT: a7fb452e23891bcadd757925de9d5fb34b508d16
+        GLAEDA_ROUTE_SHA256: 7b7f444b570061de1ceb99077e4c353db2f8e1f233f54fca6aed9c47f10ecd18
+        GLAEDA_POOL_STATE: ${{ inputs.pool-state }}
+        GLAEDA_LEDGER_TOKEN: ${{ steps.token.outputs.token }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        ROUTE_KIND: ${{ inputs.kind }}
+        ROUTE_PRIORITY: ${{ inputs.priority }}
+        ROUTE_SLOTS: ${{ inputs.slots }}
+        ROUTE_XCODE: ${{ inputs.xcode }}
+        ROUTE_DEFAULT: ${{ inputs.default }}
+      run: |
+        set -euo pipefail
+        script="$RUNNER_TEMP/glaeda-route"
+        curl -fsSL --max-time 10 --retry 2 -o "$script" \
+          "https://raw.githubusercontent.com/teamleaderleo/glaeda/$GLAEDA_COMMIT/scripts/glaeda-route"
+        python3 - "$script" "$GLAEDA_ROUTE_SHA256" <<'PY'
+        import hashlib, sys
+        got = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest()
+        if got != sys.argv[2]:
+            sys.exit(f"glaeda-route digest {got} is not the pinned {sys.argv[2]}")
+        PY
+        timeout 30 python3 "$script" route \
+          --kind "$ROUTE_KIND" --priority "$ROUTE_PRIORITY" --slots "$ROUTE_SLOTS" \
+          --xcode "$ROUTE_XCODE" --default "$ROUTE_DEFAULT"

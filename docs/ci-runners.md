@@ -278,6 +278,35 @@ holding one must start with the owner branch, unless the job itself is
 owner-gated or the line is allow-listed there with a reason. The upstream branch still keeps literal Blacksmith fallbacks so deleting
 a repository variable cannot silently change `manaflow-ai/cmux` capacity.
 
+### Glaeda route (owned Macs)
+
+Glaeda owns the owned-Mac route (teamleaderleo/glaeda#1174; contract in
+glaeda `docs/GLAEDA_ROUTE.md`). One composite action,
+`.github/actions/glaeda-route`, asks it for a `runs-on` target and answers
+with the caller's default whenever it says no. It is off unless
+`GLAEDA_ROUTE` is `1`.
+
+- **Order, every job type:** `std` minis (48 GB), then `light` minis (16 GB),
+  then Blacksmith, then GitHub-hosted. Pull request work first; nightly and
+  cache warming only on idle owned slots, never ahead of pull request work.
+- **Where it asks:** `ci.yml`'s `changes` job, before the picker above (a
+  pull request run's macOS jobs, `slots` = `CI_OWNED_POOL_JOBS_PER_RUN`,
+  default 3), and `nightly.yml`'s `decide` job for the two cache-warming jobs.
+  When Glaeda answers with an owned pool, the picker is skipped and every job
+  reads that pool; otherwise the picker decides exactly as before.
+- **Never asks:** a fork run (no variables, no secrets), a retry attempt, or
+  a run without `GLAEDA_POOL_STATE` or the ledger App credentials.
+- **Inputs:** `vars.GLAEDA_POOL_STATE` (published by the Glaeda agent every
+  20 s; older than 60 s means Blacksmith), `vars.GLAEDA_LEDGER_APP_CLIENT_ID`
+  and `secrets.GLAEDA_LEDGER_APP_PRIVATE_KEY` (an App that can write only the
+  private `manaflow-ai/glaeda-route-state` repository, where reservations live).
+- **Rescue** runs in the Glaeda agent, not in a workflow here: a routed job
+  queued 90 s with no runner gets its run cancelled and re-run; the re-run is
+  attempt 2 and lands on Blacksmith.
+- **Do not** turn on `CI_PR_POOL_OWNED` (the stopgap owned pools in the picker)
+  at the same time. Once the Glaeda route has run cleanly, the stopgap's
+  owned-pool code and `ci-owned-pool-rescue.yml` are deleted.
+
 ## Background lane
 
 `MACOS_RUNNER_BACKGROUND` moves macOS work that nobody is waiting on off the
