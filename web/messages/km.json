@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "រកឃើញការកំណត់រចនាសម្ព័ន្ធ harness",
+    "selectionNotice": "ការជ្រើសរើសអ្នកផ្តល់សេវាមិនចាប់ផ្តើម ឬបើកដំណើរការ harness ទាំងនេះទេ។",
+    "selectProvider": "ជ្រើសរើស {provider}",
+    "foundPath": "រកឃើញ {path}",
+    "foundCommand": "រកឃើញពាក្យបញ្ជា {command}",
+    "installed": "អ្នកផ្តល់សេវាត្រូវបានដំឡើង",
+    "missing": "អ្នកផ្តល់សេវាមិនត្រូវបានដំឡើងទេ",
+    "install": "ដំឡើងដោយប្រើ៖ {command}",
+    "benefitPi": "ការបង្រួម បញ្ញាចងចាំ និងការកំណត់ផ្លូវអ្នកផ្តល់សេវា",
+    "benefitOpenagent": "អ្នកជំនាញស្របគ្នា និងការស្តារឡើងវិញសម្រាប់ OpenCode",
+    "benefitClaude": "ក្រុម និងការផ្ទៀងផ្ទាត់សម្រាប់ Claude Code",
+    "benefitSuperpowers": "ការរៀបចំផែនការ TDD ភ្នាក់ងាររង និងការពិនិត្យ"
+  },
   "vmErrors": {
     "guestInstall": {
       "title": "ការរៀបចំ Cloud VM មិនបានបញ្ចប់ទេ",

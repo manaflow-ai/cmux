@@ -486,6 +486,7 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
+        id: swift-package-cache
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
@@ -498,9 +499,16 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
+      # Nothing here reads the workspace package cache after resolve, so it
+      # moves into the canonical root instead of a second copy, and an exact
+      # cache hit resolves without fetching every package remote. See
+      # scripts/ci/canonical-build-root.sh and compile-app-host-test-product.sh.
       - name: Resolve Swift packages
         id: hosted-package-readiness
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        env:
+          CMUX_CI_MOVE_SOURCE_PACKAGES: "1"
+          CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"

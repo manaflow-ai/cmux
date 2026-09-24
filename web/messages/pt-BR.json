@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Configuração de harness detectada",
+    "selectionNotice": "Selecionar um provedor não inicia nem habilita esses harnesses.",
+    "selectProvider": "Selecionar {provider}",
+    "foundPath": "Encontrado {path}",
+    "foundCommand": "Comando {command} encontrado",
+    "installed": "O provedor está instalado",
+    "missing": "O provedor não está instalado",
+    "install": "Instalar com: {command}",
+    "benefitPi": "Compactação, memória e roteamento de provedores",
+    "benefitOpenagent": "Especialistas paralelos e recuperação para OpenCode",
+    "benefitClaude": "Equipes e verificação para Claude Code",
+    "benefitSuperpowers": "Planejamento, TDD, subagentes e revisão"
+  },
   "vmErrors": {
     "guestInstall": {
       "title": "A configuração da Cloud VM não foi concluída",

@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "检测到的 harness 配置",
+    "selectionNotice": "选择提供商不会启动或启用这些 harness。",
+    "selectProvider": "选择 {provider}",
+    "foundPath": "发现 {path}",
+    "foundCommand": "发现命令 {command}",
+    "installed": "提供商已安装",
+    "missing": "提供商未安装",
+    "install": "使用以下命令安装：{command}",
+    "benefitPi": "压缩、记忆和提供商路由",
+    "benefitOpenagent": "OpenCode 的并行专家和恢复能力",
+    "benefitClaude": "Claude Code 的团队协作与验证",
+    "benefitSuperpowers": "规划、TDD、子代理和审查"
+  },
   "vmErrors": {
     "guestInstall": {
       "title": "云端虚拟机设置未完成",
