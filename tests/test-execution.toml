@@ -644,6 +644,14 @@ path = "tests/test_swift_testing_suite_timeout.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_hung_test_watchdog.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_run_with_timeout_process_tree.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_tui_npm_package_artifact.py"
 lane = "linux-guard"
 
@@ -1126,4 +1134,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_video_recording.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_source_enumeration.py"
 lane = "linux-guard"

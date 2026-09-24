@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Обнаружена конфигурация harness",
+    "selectionNotice": "Выбор провайдера не запускает и не включает эти harness.",
+    "selectProvider": "Выбрать {provider}",
+    "foundPath": "Найдено: {path}",
+    "foundCommand": "Найдена команда {command}",
+    "installed": "Провайдер установлен",
+    "missing": "Провайдер не установлен",
+    "install": "Установить с помощью: {command}",
+    "benefitPi": "Сжатие контекста, память и маршрутизация провайдеров",
+    "benefitOpenagent": "Параллельные специалисты и восстановление для OpenCode",
+    "benefitClaude": "Команды и проверка для Claude Code",
+    "benefitSuperpowers": "Планирование, TDD, субагенты и проверка"
+  },
   "vmErrors": {
     "guestInstall": {
       "title": "Настройка Cloud VM не завершена",
