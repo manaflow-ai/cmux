@@ -1004,3 +1004,5 @@ final class CmuxNavigationURLRequestTests: XCTestCase {
         return request.target
     }
 }
+
+// canary: test-only change for the cmuxTests rebuild probe (do not merge)

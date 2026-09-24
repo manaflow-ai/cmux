@@ -593,6 +593,68 @@ jobs:
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
           exit "$status"
 
+      # CANARY (do not merge): why does cmuxTests recompile in full after the
+      # cmux scheme builds, when a cmux-unit null rebuild is cheap?
+      - name: Canary probe cmuxTests rebuild cause
+        if: always() && steps.hosted-compile.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 45
+        run: |
+          set +e -u
+          dd="$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          out="$RUNNER_TEMP/canary"; mkdir -p "$out"
+          probe() {
+            local name="$1" schemes="$2" log="$out/probe-$1.txt" started=$SECONDS
+            CMUX_CI_BUILD_SCHEMES="$schemes" scripts/ci/compile-app-host-test-product.sh canonical-build \
+              "$dd" "$PWD/.ci-source-packages" "$CMUX_COMPILE_ADMISSION_CAS" "$log" > /dev/null 2>&1 \
+              || echo "probe $name build failed"
+            local line="probe $name ($schemes): $((SECONDS - started))s"
+            line+=" cmuxTests=$(grep -cE "^SwiftCompile normal arm64 .*\(in target 'cmuxTests'" "$log")"
+            line+=" cmux=$(grep -cE "^SwiftCompile normal arm64 .*\(in target 'cmux'" "$log")"
+            for f in SwiftDriver SwiftEmitModule Ld; do line+=" $f=$(grep -cE "^$f " "$log")"; done
+            echo "$line"; echo "- $line" >> "$GITHUB_STEP_SUMMARY"
+          }
+          changed_since() {
+            find "$dd/Build" -newer "$1" -type f ! -path '*/Logs/*' ! -path '*/XCBuildData/*' \
+              | sed -E "s|$dd/||; s|/[^/]+$||" | sort | uniq -c | sort -rn > "$2"
+            echo "--- $(wc -l < "$2") dirs changed; top:"; head -40 "$2"
+          }
+          probe unit-null cmux-unit
+          probe unit-null-2 cmux-unit
+          touch "$out/marker-a"; sleep 1
+          probe app-only cmux
+          changed_since "$out/marker-a" "$out/changed-by-app.txt"
+          touch "$out/marker-b"; sleep 1
+          defaults write com.apple.dt.XCBuild EnableBuildDebugging -bool YES
+          probe unit-after-app cmux-unit
+          defaults delete com.apple.dt.XCBuild EnableBuildDebugging
+          changed_since "$out/marker-b" "$out/changed-by-unit.txt"
+          # Which build parameters differ between the schemes: the cmux link
+          # and cmuxTests driver command lines from each build.
+          for n in app-only unit-after-app unit-null; do
+            grep -A3 -E "^(Ld|SwiftDriver) .*\(in target '(cmux|cmuxTests)'" "$out/probe-$n.txt" \
+              | grep -E '^\s+(cd|builtin|/Applications)' | tr ' ' '\n' | sort -u > "$out/args-$n.txt"
+          done
+          echo "--- args only in app-only vs unit-after-app"; comm -23 "$out/args-app-only.txt" "$out/args-unit-after-app.txt" | head -40
+          echo "--- args only in unit-after-app vs app-only"; comm -13 "$out/args-app-only.txt" "$out/args-unit-after-app.txt" | head -40
+          ls -la "$dd/Build/Intermediates.noindex/XCBuildData" | head -20
+          for d in "$dd"/Build/Intermediates.noindex/XCBuildData/buildDebugging*; do [ -e "$d" ] && cp -R "$d" "$out/"; done
+          du -sh "$out"
+          # swift-driver's own record for cmuxTests: build start time and the
+          # external dependencies it will compare against.
+          find "$dd/Build/Intermediates.noindex/cmux.build" -maxdepth 6 -path '*cmuxTests.build*' \( -name '*.priors' -o -name '*master.swiftdeps' -o -name 'output-file-map.json' \) 2>/dev/null | head -5 | while read f; do echo "$f"; stat -f '%Sm' "$f"; done
+          find "$dd/Build/Intermediates.noindex/cmux.build" -maxdepth 6 -path '*cmuxTests.build*' -name '*.priors' 2>/dev/null | head -3 | xargs -I{} cp {} "$out/" 2>/dev/null
+          exit 0
+
+      - name: Upload canary probe logs
+        if: always() && steps.hosted-compile.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-cmuxtests-rebuild-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/canary
+          retention-days: 5
+
       # Adoption sets a per-user Xcode default. Only a build whose inputs were
       # just replayed should ignore inode changes, so a reused runner does not
       # carry it into an unrelated job.

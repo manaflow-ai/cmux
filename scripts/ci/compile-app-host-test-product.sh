@@ -150,6 +150,7 @@ build() {
   [ "${#schemes[@]}" -gt 0 ] || { echo "empty product profile scheme list" >&2; exit 1; }
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
   for scheme in "${schemes[@]}"; do
+    case " ${CMUX_CI_BUILD_SCHEMES:-$scheme} " in *" $scheme "*) ;; *) continue ;; esac
     FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
