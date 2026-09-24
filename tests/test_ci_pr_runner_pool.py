@@ -79,12 +79,30 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual((choice.runner, choice.xcode_app), (SMALL, ""))
 
     def test_macos_15_last_with_its_own_xcode(self):
-        # The measured 2026-09-24 10:08Z backlog, with 12vcpu also full.
-        choice = choose(backlog(small=21, large=5, old=2))
+        # The measured 2026-09-24 10:08Z backlog, with 12vcpu also full: five
+        # queued minutes on 12vcpu beat a cold compile on macOS 15.
+        self.assertEqual(choose(backlog(small=21, large=5, old=2)).runner, LARGE)
+        choice = choose(backlog(small=21, large=15, old=2))
         self.assertEqual((choice.runner, choice.xcode_app), (OLD, XCODE_15))
 
+    def test_the_unseeded_pool_is_never_taken_for_headroom(self):
+        # 2026-09-24 17:25Z to 18:10Z: every PR admission overflowed to macOS 15
+        # at 3 queued and compiled cold for 17 to 25 minutes.
+        self.assertEqual(choose(backlog(small=3, large=3, old=0)).runner, LARGE)
+        self.assertTrue(pool.cold(OLD))
+        self.assertFalse(pool.cold(LARGE) or pool.cold(SMALL) or pool.cold("glaeda-std-xcode-26.6"))
+
     def test_fewest_queued_when_nothing_has_headroom(self):
-        self.assertEqual(choose(backlog(small=21, large=6, old=4)).runner, OLD)
+        # The macOS 15 pool has no seed, so it counts COLD_QUEUE_PENALTY more.
+        self.assertEqual(choose(backlog(small=21, large=6, old=4)).runner, LARGE)
+        self.assertEqual(choose(backlog(small=21, large=20, old=4)).runner, OLD)
+        self.assertIn("counting 12 more", choose(backlog(small=21, large=20, old=4)).reason)
+        self.assertIn("counting 12 more", choose(backlog(small=21, large=6, old=4)).reason)
+        self.assertNotIn("counting", choose(backlog(small=21, large=6, old=9)).reason)
+        # A threshold above the penalty still gives the cold pool no headroom.
+        self.assertEqual(choose(backlog(small=20, large=20, old=0), max_queued="30").runner, LARGE)
+        self.assertEqual(choose(backlog(small=0, large=0), order=OLD).reason.split(" (")[0],
+                         "the only pool this run may take")
         self.assertEqual(choose(backlog(small=5, large=6, old=9)).runner, SMALL)
         # A tie goes to the earlier pool in the order.
         self.assertEqual(choose(backlog(small=7, large=7, old=7)).runner, LARGE)
@@ -96,17 +114,19 @@ class PreferenceOrder(unittest.TestCase):
     def test_order_and_threshold_come_from_variables(self):
         order = f"{SMALL},{OLD}"
         self.assertEqual(choose(backlog(small=2, old=0), order=order).runner, SMALL)
-        self.assertEqual(choose(backlog(small=2, old=0), order=order, max_queued="2").runner, OLD)
+        self.assertEqual(choose(backlog(small=2, old=0), order=order, max_queued="2").runner, SMALL)
+        self.assertEqual(choose(backlog(small=13, old=0), order=order, max_queued="2").runner, OLD)
         self.assertEqual(choose(backlog(small=0, large=0), order=OLD).runner, OLD)
 
     def test_runs_since_the_snapshot_spread_a_burst(self):
-        # 12vcpu has 9 of its 10 slots idle (1 running), 6vcpu 26 is backed
-        # up, macOS 15 is full with nothing queued: pushes after a sweep fill
-        # 12vcpu's idle slots, then its threshold, then queue on macOS 15.
+        # 12vcpu has 9 of its 10 slots idle (1 running), 6vcpu 26 has 6
+        # queued, macOS 15 is full with nothing queued: pushes after a sweep
+        # fill 12vcpu's idle slots and queue there until it is as deep as
+        # 6vcpu 26, then alternate; macOS 15 waits for both to reach 12.
         snap = backlog(small=6, large=0, old=0)
         snap["pools"][OLD]["running"] = pool.POOL_CAPACITY
-        picks = [choose(snap, routed=n).runner for n in range(16)]
-        self.assertEqual(picks, [LARGE] * 12 + [OLD] * 3 + [LARGE])
+        picks = [choose(snap, routed=n).runner for n in range(30)]
+        self.assertEqual(picks, [LARGE] * 16 + [SMALL, LARGE] * 6 + [SMALL, OLD])
         self.assertIn("replaying 4", choose(backlog(small=6), routed=4).reason)
 
     def test_idle_slots_absorb_recent_runs(self):
@@ -136,7 +156,7 @@ class PreferenceOrder(unittest.TestCase):
         self.assertIn("replaying 5", pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).reason)
         # A pool outside the order is ignored rather than trusted.
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={"tart-small": 9}, **args).runner, LARGE)
-        busy = backlog(small=8, large=9, old=0)
+        busy = backlog(small=13, large=14, old=0)
         self.assertEqual(pool.decide(busy, pool.Settings(), **args).runner, OLD)
         self.assertEqual(pool.decide(busy, pool.Settings(), choose_from=(LARGE, SMALL), **args).runner, SMALL)
         reserved = backlog(large_reserved=1)
@@ -171,11 +191,11 @@ class FailSafe(unittest.TestCase):
         # and whatever reached its env is ignored in favour of the snapshot.
         fork = dict(head="someone/cmux", default="", pins={}, overflow="0", order=OLD)
         self.assertEqual(choose(backlog(small=0, large=0), **fork).runner, LARGE)
-        choice = choose(backlog(small=21, large=5, old=0), **fork)
+        choice = choose(backlog(small=21, large=15, old=0), **fork)
         self.assertEqual((choice.runner, choice.xcode_app), (OLD, ""))
         self.assertIn("fork head", choice.reason)
-        copied = dict(FORK_SETTINGS, order=f"{OLD},{SMALL}")
-        self.assertEqual(choose(backlog(small=0, old=0, settings=copied), **fork).runner, OLD)
+        copied = dict(FORK_SETTINGS, order=f"{SMALL},{OLD}")
+        self.assertEqual(choose(backlog(small=21, old=0, settings=copied), **fork).runner, OLD)
         # The kill switch and the lane reach fork runs through the snapshot.
         for off in (dict(FORK_SETTINGS, overflow="0"), dict(FORK_SETTINGS, lane=""),
                     dict(FORK_SETTINGS, lane=OLD), dict(FORK_SETTINGS, order="warp-macos-26-arm64-12x")):

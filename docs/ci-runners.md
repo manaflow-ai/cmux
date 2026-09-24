@@ -132,7 +132,14 @@ reads it: compile admission and its product consumers, `tests-build-and-lag`,
 never split across pools, so the app-host product always meets the Xcode that
 linked it. The run takes the first pool in `CI_PR_POOL_ORDER` with fewer than
 `CI_PR_POOL_MAX_QUEUED` (default 3) jobs queued and no queued release or
-nightly job, or else the pool with the fewest queued jobs.
+nightly job, or else the pool with the fewest queued jobs. The macOS 15 pool
+counts 12 more queued jobs than it has (`COLD_QUEUE_PENALTY`): the DerivedData
+seed exists only for the lane's Xcode, so a run there compiles cold, 10 to 20
+minutes longer, while a queued job on a macOS 26 pool waits about a minute.
+It never has headroom, and it wins the fewest-queued fallback only when both
+macOS 26 pools are queued 12 deeper. From 17:25Z to 18:10Z on 2026-09-24,
+before this rule, every PR admission overflowed there at 3 queued and compiled
+for 17 to 25 minutes against a 321 s seeded median.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
