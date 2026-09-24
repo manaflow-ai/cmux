@@ -914,6 +914,7 @@ jobs:
 
 
       - name: Package prepared candidate
+        id: package_candidate
         if: ${{ !cancelled() && steps.upload.outcome == 'success' && github.event.inputs.prepare_only == 'true' }}
         env:
           FINAL_BUILD_NUMBER: ${{ steps.upload.outputs.final_build_number }}
@@ -939,7 +940,8 @@ jobs:
           PYTHON
 
       - name: Upload prepared candidate artifact
-        if: ${{ !cancelled() && steps.upload.outcome == 'success' && github.event.inputs.prepare_only == 'true' }}
+        id: candidate_artifact
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && steps.package_candidate.outcome == 'success' && github.event.inputs.prepare_only == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-testflight-candidate-${{ github.run_id }}
@@ -1036,15 +1038,23 @@ jobs:
           UPLOAD_DISPLAY_NAME: ${{ steps.distribution.outputs.display_name }}
           UPLOAD_AUDIENCE: ${{ steps.distribution.outputs.audience }}
           UPLOAD_REVIEW_NOTE: ${{ steps.distribution.outputs.review_note }}
+          PREPARATION_RESULT: ${{ steps.package_candidate.outcome || 'not_run' }}
+          CANDIDATE_ARTIFACT_RESULT: ${{ steps.candidate_artifact.outcome || 'not_run' }}
           INPUT_PREPARE_ONLY: ${{ github.event.inputs.prepare_only }}
         run: |
           {
             if [ "${INPUT_PREPARE_ONLY:-false}" = "true" ]; then
-              echo "### Prepared iOS candidate (not uploaded)"
+              echo "### iOS candidate preparation (not uploaded)"
               echo "- source: ${GITHUB_SHA}"
               echo "- bundle: ${UPLOAD_BUNDLE_ID}"
               echo "- build: ${BUILD_NUMBER}"
-              echo "- signed IPA is attached to this run for migration testing"
+              echo "- packaging result: ${PREPARATION_RESULT}"
+              echo "- artifact result: ${CANDIDATE_ARTIFACT_RESULT}"
+              if [ "$CANDIDATE_ARTIFACT_RESULT" = "success" ]; then
+                echo "- signed IPA is attached to this run for migration testing"
+              else
+                echo "- no complete candidate artifact was published"
+              fi
               exit 0
             fi
             echo "### iOS TestFlight upload"
