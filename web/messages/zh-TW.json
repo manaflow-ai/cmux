@@ -1273,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux 設定。全域 cmux.json 支援應用程式設定、快捷鍵、動作、自訂命令、通知 hook 與工作區版面配置。專案本機的 .cmux/cmux.json 或 cmux.json 支援動作、命令、通知 hook、UI 動作綁定、Agent Chat 覆寫、vault 代理、工作區群組覆寫，以及工作區啟動與按鈕設定。",
         "rightSidebar": "保留在 cmux.json 中的舊版及擴充功能所擁有的右側邊欄設定。",
+        "packs": {
+          "description": "在此設定之前載入的本機 cmux 套件檔案或目錄。目錄會解析為 cmux.pack.json。請使用路徑字串或含有 path 欄位的物件。",
+          "path": "本機檔案或目錄路徑。非絕對路徑會相對於此設定檔案。"
+        },
         "paneBorderColor": "覆寫分割工作區中的 cmux 窗格分隔線顏色。此設定影響 cmux 窗格邊界，而不是 Ghostty 的內部分割。",
         "activePaneBorderColor": "在分割工作區中圍繞目前聚焦的 cmux 窗格繪製的選用邊框顏色。",
         "automation": {

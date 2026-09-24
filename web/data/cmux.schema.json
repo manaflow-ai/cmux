@@ -33,6 +33,36 @@
       "descriptionKey": "schemaDescriptions.activePaneBorderColor",
       "description": "Optional border color drawn around the focused cmux pane in split workspaces."
     },
+    "packs": {
+      "title": "packs",
+      "descriptionKey": "schemaDescriptions.packs.description",
+      "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!\\s*$)(?!\\s*[hH][tT][tT][pP][sS]?://).+"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!\\s*$)(?!\\s*[hH][tT][tT][pP][sS]?://).+",
+                "descriptionKey": "schemaDescriptions.packs.path",
+                "description": "Local file or directory path, relative to this configuration file unless absolute."
+              }
+            }
+          }
+        ]
+      },
+      "default": []
+    },
     "actions": {
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",

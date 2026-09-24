@@ -560,8 +560,10 @@ jobs:
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
     # Pull requests are what restore this seed, so track the runner the
-    # admission job picks for `pull_request`, not the merge-queue one.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    # admission job picks for `pull_request`, not the merge-queue one. On the
+    # 6 vCPU macOS 26 pool, use its 12 vCPU sibling: same image and Xcode,
+    # no pull-request queue (see seed-derived-data.yml).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 75
     env:
