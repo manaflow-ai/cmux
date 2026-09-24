@@ -164,6 +164,19 @@ extension SetAutoTitleSocketTests {
         }
     }
 
+    @Test("A local OSC title update keeps the Cloud agent's tab icon")
+    func cloudAgentTabIconSurvivesTitleUpdate() async throws {
+        try await withCloudNameFixture { fixture in
+            var document = try #require(fixture.provider.graph.snapshotObject())
+            document["agents"] = [["terminal_id": "term_a", "state": "working", "source": "hook", "agent": "claude"]]
+            #expect(fixture.provider.install(try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: fixture.provider.machine))))
+            let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(fixture.panelID))
+            #expect(fixture.workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+            _ = fixture.workspace.updatePanelTitle(panelId: fixture.panelID, title: "✳ Claude Code")
+            #expect(fixture.workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+        }
+    }
+
     @Test("A user confirming the same agent text claims the name")
     func cloudSameTextClaimsUserOwnership() async throws {
         try await withCloudNameFixture { fixture in
