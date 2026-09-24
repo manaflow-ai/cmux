@@ -6,6 +6,7 @@ import UIKit
 /// its fixed controls above the scrolling content at either edge.
 struct HorizontalEdgeFadePillBar<Leading: View, Pills: View, Trailing: View>: UIViewControllerRepresentable {
     let contentInsets: UIEdgeInsets
+    let fadesLeadingEdge: Bool
     let accessibilityIdentifier: String
     let leading: Leading
     let pills: Pills
@@ -13,12 +14,14 @@ struct HorizontalEdgeFadePillBar<Leading: View, Pills: View, Trailing: View>: UI
 
     init(
         contentInsets: UIEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8),
+        fadesLeadingEdge: Bool = true,
         accessibilityIdentifier: String,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder pills: () -> Pills,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.contentInsets = contentInsets
+        self.fadesLeadingEdge = fadesLeadingEdge
         self.accessibilityIdentifier = accessibilityIdentifier
         self.leading = leading()
         self.pills = pills()
@@ -28,6 +31,7 @@ struct HorizontalEdgeFadePillBar<Leading: View, Pills: View, Trailing: View>: UI
     func makeUIViewController(context: Context) -> HorizontalEdgeFadePillBarViewController<Leading, Pills, Trailing> {
         HorizontalEdgeFadePillBarViewController(
             contentInsets: contentInsets,
+            fadesLeadingEdge: fadesLeadingEdge,
             accessibilityIdentifier: accessibilityIdentifier,
             leading: leading,
             pills: pills,
@@ -40,6 +44,7 @@ struct HorizontalEdgeFadePillBar<Leading: View, Pills: View, Trailing: View>: UI
         context: Context
     ) {
         viewController.update(
+            fadesLeadingEdge: fadesLeadingEdge,
             leading: leading,
             pills: pills,
             trailing: trailing
