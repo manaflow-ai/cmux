@@ -35,6 +35,7 @@ import {
   normalizeApnsBundle,
   parsePushPayload,
   readBoundedJsonObject,
+  registrationApnsBundle,
 } from "../services/apns/routePolicy";
 
 describe("apns payload", () => {
@@ -493,6 +494,20 @@ describe("apns route policy", () => {
     expect(normalizeApnsBundle("com.example.app")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.bad_topic")).toBeNull();
     expect(normalizeApnsBundle("dev.cmux.ios.-bad")).toBeNull();
+  });
+
+  test("stores sandbox for a production bundle only when the install declares it", () => {
+    const official = normalizeApnsBundle("com.cmux.app")!;
+    // A Simulator or development-signed install only has sandbox tokens.
+    expect(registrationApnsBundle(official, "sandbox")).toEqual({
+      bundleId: "com.cmux.app",
+      environment: "sandbox",
+    });
+    expect(registrationApnsBundle(official, "production")).toEqual(official);
+    expect(registrationApnsBundle(official, undefined)).toEqual(official);
+    expect(registrationApnsBundle(official, "SANDBOX")).toEqual(official);
+    const dev = normalizeApnsBundle("dev.cmux.ios.push1")!;
+    expect(registrationApnsBundle(dev, "production")).toEqual(dev);
   });
 
   test("allows the internal TestFlight bundle id as a production APNs topic", () => {
