@@ -60,7 +60,7 @@ struct CloudHubConnector: Sendable {
 
     /// Runs `attempt(candidate)` for every candidate (each later one delayed by
     /// `fallbackDelay`) and gives each started candidate a new attempt every
-    /// `redialInterval`, up to `maxRedials` times, until the first success.
+    /// `redialInterval`, up to `maxRedials` attempts, until the first success.
     /// Every other in-flight or later success is passed to `discard`. Throws the
     /// last failure (or a timeout) when nothing succeeds within `timeout`.
     ///
@@ -72,9 +72,10 @@ struct CloudHubConnector: Sendable {
     /// burst. A family silent for longer than that may be blackholed, so the
     /// refused one is redialed again, which covers a new machine whose listener
     /// is not open yet while its other family never answers. Once every
-    /// candidate has failed, all of them are redialed. Each candidate keeps its
-    /// own redial timer, so a redial never starts a fallback before its
-    /// `fallbackDelay` ends.
+    /// candidate has failed, all of them are redialed. A skipped tick does not
+    /// count against `maxRedials`, so waiting never spends a refused family's
+    /// redials. Each candidate keeps its own redial timer, so a redial never
+    /// starts a fallback before its `fallbackDelay` ends.
     static func hedged<Value: Sendable>(
         candidates: Int,
         fallbackDelay: Duration,
@@ -90,7 +91,10 @@ struct CloudHubConnector: Sendable {
             var started = Array(repeating: false, count: candidates)
             var inFlight = Array(repeating: 0, count: candidates)
             var failed = Array(repeating: false, count: candidates)
+            // Redial attempts launched, capped by `maxRedials`.
             var redials = Array(repeating: 0, count: candidates)
+            // Redial ticks elapsed since the candidate started, launched or skipped.
+            var ticks = Array(repeating: 0, count: candidates)
             var expired = false
             var lastError: any Error = CloudPortForwardRelay.RelayError.handshakeTimedOut(timeout)
             var winner: Value?
@@ -121,7 +125,7 @@ struct CloudHubConnector: Sendable {
                     guard started[other] else { return true }
                     // Redial ticks measure how long the other family has gone
                     // unanswered; past its head start it may be blackholed.
-                    return inFlight[other] > 0 && !failed[other] && redialInterval * redials[other] < fallbackDelay
+                    return inFlight[other] > 0 && !failed[other] && redialInterval * ticks[other] < fallbackDelay
                 }
             }
 
@@ -162,8 +166,9 @@ struct CloudHubConnector: Sendable {
                     scheduleRedial(index)
                 case .redial(let index):
                     guard winner == nil, !expired, !Task.isCancelled else { continue }
-                    redials[index] += 1
+                    ticks[index] += 1
                     if !(failed[index] && anotherCandidateIsPending(besides: index)) {
+                        redials[index] += 1
                         launch(index)
                     }
                     scheduleRedial(index)
