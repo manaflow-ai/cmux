@@ -45,6 +45,11 @@ on:
         required: false
         default: false
         type: boolean
+      mac_mini:
+        description: With build_only, try an owned Mac mini first and fall back to Blacksmith. Other runs follow the NIGHTLY_MAC_MINI repository variable.
+        required: false
+        default: false
+        type: boolean
       cache_backend:
         description: Cache store for this run. `default` follows the CI_CACHE_BACKEND repository variable.
         required: false
@@ -813,19 +818,126 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  build-nightly-app:
+  # Owned-Mac first, Blacksmith fallback (docs/ci/mac-fleet.md, "Nightly
+  # lane"). NIGHTLY_MAC_MINI=build-only admits unsigned build_only runs;
+  # `all` also admits runs that are signed and published, which is a trust
+  # decision, not a routing one. Unset, this job does not run and nothing
+  # changes. Signing, notarization and publication never leave hosted runners.
+  route-nightly-mini:
     needs: decide
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && (vars.NIGHTLY_MAC_MINI != '' || github.event_name == 'workflow_dispatch' && inputs.mac_mini)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Queue plus execution budget (at most 30 + 240 min in the route script),
+    # plus the product transfer. Being killed mid-wait would strand a mini.
+    timeout-minutes: 290
+    permissions:
+      actions: write
+      contents: read
+    outputs:
+      # True only once the products are re-homed in this run; a failed
+      # transfer is a fallback like any other.
+      use_mini: ${{ steps.rehome.outcome == 'success' && 'true' || 'false' }}
+      fallback_reason: ${{ steps.route.outputs.fallback_reason }}
+    steps:
+      - name: Checkout route script
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.decide.outputs.head_sha }}
+          sparse-checkout: |
+            scripts/ci/nightly_mini_route.py
+            scripts/ci/persistent_mac_route.py
+          sparse-checkout-cone-mode: false
+
+      - name: Dispatch and bound the owned-Mac build
+        id: route
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NIGHTLY_MAC_MINI: ${{ vars.NIGHTLY_MAC_MINI }}
+          QUEUE_SECONDS: ${{ vars.NIGHTLY_MAC_MINI_QUEUE_SECONDS || '300' }}
+          EXECUTION_SECONDS: ${{ vars.NIGHTLY_MAC_MINI_EXECUTION_SECONDS || '2700' }}
+          BUILD_ONLY: ${{ needs.decide.outputs.build_only }}
+          FORCED: ${{ github.event_name == 'workflow_dispatch' && inputs.mac_mini && 'true' || 'false' }}
+          SOURCE_SHA: ${{ needs.decide.outputs.head_sha }}
+          ICON_NAME: ${{ needs.decide.outputs.icon_name }}
+        run: |
+          set -euo pipefail
+          case "$QUEUE_SECONDS$EXECUTION_SECONDS" in *[!0-9]*|'') QUEUE_SECONDS=0 ;; esac
+          python3 scripts/ci/nightly_mini_route.py \
+            --selector "$NIGHTLY_MAC_MINI" \
+            --build-only "$BUILD_ONLY" \
+            --forced "$FORCED" \
+            --repository "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF_NAME" \
+            --source-sha "$SOURCE_SHA" \
+            --icon-name "$ICON_NAME" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --queue-seconds "$QUEUE_SECONDS" \
+            --execution-seconds "$EXECUTION_SECONDS" \
+            --github-output "$GITHUB_OUTPUT"
+
+      # Re-home the producer's products in this run, so the hosted build job
+      # needs no cross-run Actions permission.
+      - name: Download owned-Mac products
+        if: steps.route.outputs.use_mini == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          artifact-ids: ${{ steps.route.outputs.artifact_id }}
+          run-id: ${{ steps.route.outputs.producer_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/nightly-mini
+
+      - name: Upload owned-Mac products to this run
+        id: rehome
+        if: steps.route.outputs.use_mini == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-mini-products
+          path: ${{ runner.temp }}/nightly-mini/nightly-mini-products.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Summarize route
+        if: always()
+        env:
+          USE_MINI: ${{ steps.route.outputs.use_mini }}
+          FALLBACK_REASON: ${{ steps.route.outputs.fallback_reason }}
+          PRODUCER_RUN_ID: ${{ steps.route.outputs.producer_run_id }}
+          QUEUE_SECONDS: ${{ steps.route.outputs.queue_to_start_seconds }}
+          PRODUCER_SECONDS: ${{ steps.route.outputs.producer_seconds }}
+        run: |
+          {
+            echo "### Nightly owned-Mac route"
+            echo
+            echo "- use mini: \`${USE_MINI:-false}\`"
+            echo "- fallback reason: \`${FALLBACK_REASON:-}\`"
+            echo "- producer run: \`${PRODUCER_RUN_ID:-}\`"
+            echo "- queue-to-start seconds: \`${QUEUE_SECONDS:-}\`"
+            echo "- producer seconds: \`${PRODUCER_SECONDS:-}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-nightly-app:
+    needs: [decide, route-nightly-mini]
     outputs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    # The route job is optional and never authoritative: skipped or failed, the
+    # hosted build below runs exactly as before.
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') }}
     # Full runs share the cache warmer's and stable release lane's image and
     # toolchain, which is what the compilation cache is keyed on — OS, arch and
     # toolchain, never instance size, which is deliberately larger here. Fast
     # branch dogfood always uses the dedicated Blacksmith image. A
     # repository-wide runner override may point at a slower shared builder,
     # which defeats the purpose of the one-architecture path.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
+    # When an owned Mac already compiled the app, this job only finishes and
+    # packages it, which the standard macOS 26 machine does as well as the
+    # large one.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.route-nightly-mini.outputs.use_mini == 'true' && (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') || needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The Blacksmith cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
@@ -863,11 +975,65 @@ jobs:
           set -euo pipefail
           echo "toolchain=$(xcodebuild -version | shasum -a 256 | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
+      - name: Download owned-Mac products
+        if: needs.route-nightly-mini.outputs.use_mini == 'true'
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: nightly-mini-products
+          path: ${{ runner.temp }}/nightly-mini
+
+      # Adopt only products built from this exact commit by this exact Xcode.
+      # Anything else, including a missing download, compiles here instead.
+      - name: Adopt owned-Mac products
+        id: adopt
+        if: needs.route-nightly-mini.outputs.use_mini == 'true'
+        env:
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/nightly-mini/nightly-mini-products.tar.gz"
+          staging="$RUNNER_TEMP/nightly-mini/products"
+          adopted=false
+          if [ -f "$archive" ] && mkdir -p "$staging" && tar -xzf "$archive" -C "$staging"; then
+            if HEAD_SHA="$HEAD_SHA" TREE="$(git rev-parse 'HEAD^{tree}')" XCODE="$(xcodebuild -version)" SDK="$(xcrun --sdk macosx --show-sdk-version)" \
+              python3 - "$staging/nightly-mini-product.json" <<'PY'
+          import json
+          import os
+          import sys
+
+          product = json.load(open(sys.argv[1], encoding="utf-8"))
+          checks = {
+              "schema": product.get("schema_version") == 1,
+              "source": product.get("source_sha") == os.environ["HEAD_SHA"],
+              "tree": product.get("source_tree") == os.environ["TREE"],
+              "xcode": product.get("xcode_version") == os.environ["XCODE"],
+              "sdk": product.get("macos_sdk_version") == os.environ["SDK"],
+              "archs": sorted(product.get("archs", [])) == ["arm64", "x86_64"],
+          }
+          failed = [name for name, ok in checks.items() if not ok]
+          if failed:
+              print(f"::warning::owned-Mac products refused ({', '.join(failed)}); compiling hosted")
+              raise SystemExit(1)
+          print(f"adopting owned-Mac products from {product.get('runner_name')} ({product.get('build_seconds')}s build)")
+          PY
+            then
+              [ -d "$staging/Release/cmux.app" ] || { echo "::warning::owned-Mac products lack cmux.app; compiling hosted"; exit 0; }
+              mkdir -p build-universal/Build/Products
+              rm -rf build-universal/Build/Products/Release
+              mv "$staging/Release" build-universal/Build/Products/Release
+              adopted=true
+            fi
+          else
+            echo "::warning::owned-Mac products could not be unpacked; compiling hosted"
+          fi
+          echo "adopted=$adopted" >> "$GITHUB_OUTPUT"
+
       - name: Restore Xcode compilation cache
         id: compilation-cache-restore
         # A cold measurement run skips the restore; every gate below treats the
         # missing output like a cache miss, so the cold build still saves.
-        if: needs.decide.outputs.cold_cache != 'true'
+        if: needs.decide.outputs.cold_cache != 'true' && steps.adopt.outputs.adopted != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -921,6 +1087,7 @@ jobs:
 
       - name: Cache Swift packages
         id: swift-packages-restore
+        if: steps.adopt.outputs.adopted != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -929,6 +1096,7 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
+        if: steps.adopt.outputs.adopted != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
 
       - name: Set up Go for the Cloud tunnel extension
@@ -938,6 +1106,7 @@ jobs:
           cache: false
 
       - name: Build nightly app (Release)
+        if: steps.adopt.outputs.adopted != 'true'
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
@@ -978,6 +1147,7 @@ jobs:
 
       - name: Bound Xcode compilation cache size
         id: compilation-cache-bound
+        if: steps.adopt.outputs.adopted != 'true'
         run: |
           set -euo pipefail
           cache_path="build-universal/CompilationCache.noindex"
@@ -1028,7 +1198,7 @@ jobs:
           key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
 
       - name: Save Swift packages
-        if: steps.swift-packages-restore.outputs.cache-hit != 'true'
+        if: steps.swift-packages-restore.outputs.cache-hit != 'true' && steps.adopt.outputs.adopted != 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -1154,7 +1324,9 @@ jobs:
 
   build-sign-notarize-nightly:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    # Explicit results, not the implicit success(): that also checks
+    # route-nightly-mini, which is skipped whenever NIGHTLY_MAC_MINI is unset.
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' }}
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -1676,7 +1848,8 @@ jobs:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
     needs: [decide, build-nightly-app, build-sign-notarize-nightly]
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    # Explicit results for the same reason as build-sign-notarize-nightly.
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -1895,7 +2068,7 @@ jobs:
 
   close-nightly-failure-issue:
     needs: [decide, publish-nightly]
-    if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success'
+    if: ${{ !cancelled() && needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read

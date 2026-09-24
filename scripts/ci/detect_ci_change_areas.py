@@ -98,6 +98,7 @@ def is_other_workflow_config(path: str) -> bool:
 
 
 CI_CONTROL_PLANE_ONLY = frozenset({
+    "scripts/ci/nightly_mini_route.py",
     "scripts/ci/persistent_mac_route.py",
     "scripts/ci/web_validation.py",
     # Operational helpers: janitors, census and reporting, registry validation,

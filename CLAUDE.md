@@ -18,9 +18,13 @@ retains read-only Actions permission. Its owned runner must live in the
 workflow-restricted `cmux-persistent-compile` runner group pinned to the
 producer workflow on `refs/heads/main`. The required
 `macOS compile admission` job remains the check/log/artifact owner and
-revalidates the producer before adoption. Release, signing, notarization,
-nightly, TestFlight, merge-queue policy, generic agent execution, and every GUI
-or runtime test remain on their existing lanes. The producer receives no
+revalidates the producer before adoption. The nightly app compile may likewise
+run first on an owned Mac through `.github/workflows/nightly-mini-build.yml`
+behind `NIGHTLY_MAC_MINI`, with the hosted nightly job revalidating, signing
+and publishing (`docs/ci/mac-fleet.md`, "Nightly lane"). Release, signing,
+notarization, nightly signing and publication, TestFlight, merge-queue policy,
+generic agent execution, and every GUI or runtime test remain on their existing
+lanes. The producer receives no
 repository secrets, and hosted compile fallback remains live. A successful dev
 build or persistent producer run never replaces the required check.
 
