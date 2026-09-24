@@ -12,6 +12,10 @@
 #      CMUX_CI_XCODE_ALLOW_BELOW_FLOOR=1. The SDK 15 Ghostty CLI helper in
 #      ci-macos.yml's swift-package-tests is the one caller; it needs an Xcode
 #      below the floor and is not a Swift build.
+#      A fork running CI in its own repository (GITHUB_REPOSITORY_OWNER is not
+#      manaflow-ai) also scans, with a warning, when its hosted image lacks the
+#      pool pin: a newer image Xcode costs a fork cache misses, never a failed
+#      job (docs/ci-runners.md, fork contract). The floor still applies.
 #
 # Whatever is selected must be at least the Xcode major in .xcode-version, or
 # the script stops with one ::error:: naming the found and required versions
@@ -214,6 +218,13 @@ if [ -n "$PINNED_DEVELOPER_DIR" ]; then
   exit 0
 fi
 
+# A fork's own CI runs on GitHub-hosted images whose Xcodes move without
+# notice. It keeps working on the newest stable Xcode instead of failing.
+runs_in_fork_repository() {
+  [ -n "${GITHUB_REPOSITORY_OWNER:-}" ] && [ "$GITHUB_REPOSITORY_OWNER" != "manaflow-ai" ]
+}
+
+POOL_DEVELOPER_DIR=""
 if [ "$ALLOW_BELOW_FLOOR" != "1" ]; then
   if ! POOL_MAJOR="$(runner_macos_major)"; then
     echo "::error::Could not read this runner's macOS version (sw_vers), so no Xcode can be chosen from scripts/ci/xcode-pins.txt" >&2
@@ -221,13 +232,24 @@ if [ "$ALLOW_BELOW_FLOOR" != "1" ]; then
   fi
   POOL_VERSION="$(pool_pin_for "$POOL_MAJOR")"
   if [ -z "$POOL_VERSION" ]; then
-    echo "::error::No Xcode is pinned for macOS $POOL_MAJOR runners. Add a line to scripts/ci/xcode-pins.txt, or pin CMUX_CI_XCODE_APP for this job." >&2
-    exit 1
+    if runs_in_fork_repository; then
+      echo "::warning::No Xcode is pinned for macOS $POOL_MAJOR runners in scripts/ci/xcode-pins.txt; this fork uses the newest stable Xcode on its image instead."
+    else
+      echo "::error::No Xcode is pinned for macOS $POOL_MAJOR runners. Add a line to scripts/ci/xcode-pins.txt, or pin CMUX_CI_XCODE_APP for this job." >&2
+      exit 1
+    fi
+  elif ! POOL_DEVELOPER_DIR="$(find_xcode_version "$POOL_VERSION")"; then
+    POOL_DEVELOPER_DIR=""
+    if runs_in_fork_repository; then
+      echo "::warning::This macOS $POOL_MAJOR runner has no Xcode $POOL_VERSION, the version scripts/ci/xcode-pins.txt pins for its pool; this fork uses the newest stable Xcode on its image instead, so it cannot reuse main's compilation caches. Installed: $(installed_xcodes)"
+    else
+      echo "::error::This macOS $POOL_MAJOR runner has no Xcode $POOL_VERSION, the version scripts/ci/xcode-pins.txt pins for its pool. Installed: $(installed_xcodes)" >&2
+      exit 1
+    fi
   fi
-  if ! POOL_DEVELOPER_DIR="$(find_xcode_version "$POOL_VERSION")"; then
-    echo "::error::This macOS $POOL_MAJOR runner has no Xcode $POOL_VERSION, the version scripts/ci/xcode-pins.txt pins for its pool. Installed: $(installed_xcodes)" >&2
-    exit 1
-  fi
+fi
+
+if [ "$ALLOW_BELOW_FLOOR" != "1" ] && [ -n "$POOL_DEVELOPER_DIR" ]; then
   POOL_SDK_VER="$(DEVELOPER_DIR="$POOL_DEVELOPER_DIR" xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
   if [ -z "$POOL_SDK_VER" ]; then
     echo "::error::Pool Xcode developer dir has no usable macOS SDK: $POOL_DEVELOPER_DIR" >&2

@@ -130,8 +130,9 @@ non-zero on a pinned path that is absent.
 
 Same-repository pull-request app-host shards are the exception: they span
 pools whose images carry different Xcodes (26.3 on `macos-15`, 26.6 on
-`macos-26`), so they pin none. Each takes the newest stable Xcode with the
-macOS 26 SDK on its machine, and `app_host_test_products.py restore` accepts
+`macos-26`), so they pin none. Each takes the Xcode that
+`scripts/ci/xcode-pins.txt` pins for the macOS pool it lands on, and
+`app_host_test_products.py restore` accepts
 the compile-admission product under any Xcode of the same major version. It
 still rejects another revision, architecture or major Xcode.
 
@@ -196,9 +197,12 @@ every other owner, Linux jobs use `ubuntu-24.04` and macOS jobs use
 so a fork's own CI can hit main's caches, which anyone can read from
 `https://ci-cache.cmux.com`. Only `swift-package-tests` (the SDK 15 release
 helper) and `plain-paste-worker.yml`'s `macos-15` job keep a `macos-15` fork
-branch, because they need that image. Fork jobs set no Xcode pin and take the
-image's newest stable Xcode, so a newer image Xcode is a cache miss, never a
-failure. The self-hosted guard allows a literal `macos-26` only in this exact
+branch, because they need that image. Fork jobs set no Xcode pin, so they take
+the pool pin from `scripts/ci/xcode-pins.txt` (26.6 on `macos-26`, the Xcode
+main compiles with). When a hosted image no longer carries that Xcode, a fork
+falls back to the image's newest stable Xcode with a warning, so a newer image
+Xcode is a cache miss, never a failure. Runs in `manaflow-ai` fail on a missing
+pool Xcode instead. The self-hosted guard allows a literal `macos-26` only in this exact
 `github.repository_owner != 'manaflow-ai' && 'macos-26'` form, which evaluates
 solely outside `manaflow-ai`, where the fleet's `macos-26` label does not exist.
 

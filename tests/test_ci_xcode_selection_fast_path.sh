@@ -211,6 +211,24 @@ fi
 expect_one_error "$log" "This macOS 26 runner has no Xcode 26.2, the version scripts/ci/xcode-pins.txt pins for its pool. Installed:"
 grep -Fq "Xcode_16.4.app=16.4" "$log" || fail "the error should list the installed Xcodes" "$log"
 [[ ! -s "$env_file" ]] || fail "a failed pool selection must not export an Xcode" "$env_file"
+
+# 13a. A fork's own CI on a hosted image without the pool's Xcode keeps working
+#      on the newest stable Xcode, with a warning instead of an error. The floor
+#      still applies to what it finds.
+log="$tmp_dir/pool-missing-fork.log"
+run_select "$log" GITHUB_REPOSITORY_OWNER=some-fork \
+  || fail "a fork without the pool's Xcode should fall back to the newest stable Xcode" "$log"
+expect_env "$future_developer" "$log"
+grep -Fq "::warning::This macOS 26 runner has no Xcode 26.2" "$log" \
+  || fail "the fork fallback should warn" "$log"
+! grep -Fq "::error::" "$log" || fail "the fork fallback should not error" "$log"
+
+# 13b. manaflow-ai's own runs keep the hard failure.
+log="$tmp_dir/pool-missing-upstream.log"
+if run_select "$log" GITHUB_REPOSITORY_OWNER=manaflow-ai; then
+  fail "manaflow-ai runs without the pool's Xcode should fail" "$log"
+fi
+expect_one_error "$log" "This macOS 26 runner has no Xcode 26.2"
 mv "$tmp_dir/hidden-26.2.app" "$apps_dir/Xcode_26.2.app"
 
 # 14. A macOS major with no line in the pins file fails and says where to add it.
@@ -219,6 +237,12 @@ if run_select "$log" CMUX_TEST_MACOS_VERSION=14.7; then
   fail "a runner with no pool pin should fail" "$log"
 fi
 expect_one_error "$log" "No Xcode is pinned for macOS 14 runners. Add a line to scripts/ci/xcode-pins.txt"
+
+# 14a. A fork on an unpinned macOS major scans instead, still above the floor.
+log="$tmp_dir/pool-unknown-fork.log"
+run_select "$log" CMUX_TEST_MACOS_VERSION=14.7 GITHUB_REPOSITORY_OWNER=some-fork \
+  || fail "a fork on an unpinned macOS should fall back to the scan" "$log"
+expect_env "$future_developer" "$log"
 
 # 15. The SDK 15 helper opts out of the pool and the floor together, and keeps
 #     the scan's required-SDK filter.
