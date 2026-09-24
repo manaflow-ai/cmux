@@ -85,6 +85,23 @@ COMPILE_JOBS = {
 }
 
 
+# Build controls the product contract hashes. Only non-secret values belong
+# here, because the contract is published in the artifact receipt.
+#
+# CMUX_CI_XCODE_APP and CMUX_CI_REQUIRED_MACOS_SDK_MAJOR are left out on
+# purpose. They only tell scripts/select-ci-xcode.sh which Xcode to pick, and
+# the Xcode it picked is already `xcode` and `sdk` in the contract. Hashing the
+# selectors as well split one product into two names: compile admission pins
+# Xcode by path while an E2E dispatch picks the same Xcode by SDK, so neither
+# lane could adopt the other's product.
+CONTRACT_ENVIRONMENT = (
+    "CMUX_SKIP_ZIG_BUILD",
+    "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
+    "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
+    "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS", "ImageOS", "ImageVersion",
+)
+
+
 def read(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
@@ -101,12 +118,7 @@ def contract():
         "os": read("sw_vers", "-buildVersion"),
         "architecture": platform.machine(),
         "tools": versions,
-        # Only non-secret build controls belong in the public artifact receipt.
-        "environment": {k: os.environ.get(k, "") for k in (
-            "CMUX_CI_XCODE_APP", "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR", "CMUX_SKIP_ZIG_BUILD",
-            "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
-            "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
-            "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS", "ImageOS", "ImageVersion")},
+        "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
         "runner": os.environ.get("CMUX_PRODUCT_RUNNER", ""),
     }
 
