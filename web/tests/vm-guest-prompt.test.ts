@@ -257,7 +257,7 @@ print("named", ready.wait(2.0))
     // prompt sync starts. An unanswered list must not fall through to a
     // create: the CLI then waits for the daemon and adds a second workspace.
     const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
-    const run = (listings: string) => spawnSync("python3", ["-c", String.raw`
+    const run = (listings: string, runDir = "") => spawnSync("python3", ["-c", String.raw`
 import importlib.util, importlib.machinery, json, pathlib, sys, threading, types
 sys.dont_write_bytecode = True
 loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
@@ -278,13 +278,40 @@ module.tui = tui
 ready = threading.Event(); ready.set()
 module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
 print(json.dumps([c for c in calls if c.startswith(("terminal list", "workspace create"))]))
-`, script, fixture(), listings], { encoding: "utf8" });
+`, script, fixture(), listings], { encoding: "utf8", env: { ...process.env, CMUX_PROMPT_RUN_DIR: runDir } });
     const adopted = run(JSON.stringify([[1, ""], [1, ""], [0, '{"terminals":[{"terminal_id":"term_adopted"}]}']]));
     expect(adopted.stderr).toBe("");
     expect(JSON.parse(adopted.stdout)).toEqual(["terminal list --json", "terminal list --json", "terminal list --json"]);
     const empty = run(JSON.stringify([[1, ""], [0, '{"terminals":[]}']]));
     expect(empty.stderr).toBe("");
     expect(JSON.parse(empty.stdout)).toEqual(["terminal list --json", "terminal list --json", "workspace create --name Cloud --json"]);
+  });
+
+  test("prompt sync seeds the terminal a warm clone's daemon bound, even before the list shows it", () => {
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const run = path.join(fixture(), "run");
+    mkdirSync(run);
+    writeFileSync(path.join(run, "bound"), "CMUX_TUI_SESSION_ID=session_clone\nCMUX_TUI_TERMINAL_ID=term_adopted\n");
+    const result = spawnSync("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, json, pathlib, sys, threading, types
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+module.time = types.SimpleNamespace(sleep=lambda _: None, monotonic=module.time.monotonic)
+calls = []
+def tui(*args):
+    calls.append(" ".join(args))
+    if args[:2] == ("terminal", "list"):
+        return types.SimpleNamespace(returncode=0, stdout='{"terminals":[]}')
+    return types.SimpleNamespace(returncode=0, stdout='{"terminal_id":"term_created"}')
+module.tui = tui
+ready = threading.Event(); ready.set()
+module.seed_terminal(ready, pathlib.Path(sys.argv[2]))
+print(json.dumps(calls))
+`, script, fixture()], { encoding: "utf8", env: { ...process.env, CMUX_PROMPT_RUN_DIR: run } });
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual(["terminal term_adopted history clear --quiet", "terminal term_adopted keys ctrl+c --quiet"]);
   });
 
   test("the armed template shell waits for its clone binding and replaces the builder's ids", () => {
