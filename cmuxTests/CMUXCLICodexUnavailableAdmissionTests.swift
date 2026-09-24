@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 import Testing
 
 #if canImport(cmux_DEV)
@@ -30,6 +31,14 @@ struct CMUXCLICodexUnavailableAdmissionTests {
             .write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         defer { try? FileManager.default.removeItem(at: root) }
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: checkpointID,
+                transcriptPath: nil,
+                codexHome: codexHome.path
+            ) == .unavailable,
+            "the fixture must exercise unavailable evidence, not a definitive missing result"
+        )
 
         let binding: [String: Any] = [
             "name": "Codex", "kind": "codex", "command": "codex resume \(checkpointID)",
