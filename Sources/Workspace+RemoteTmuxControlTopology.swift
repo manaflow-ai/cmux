@@ -141,7 +141,8 @@ extension Workspace {
     /// though their mirror-owned surface IDs are not stored in the ordinary
     /// remote-terminal set.
     func canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: UUID) -> Bool {
-        guard !isRemoteTerminalSurface(surfaceID) else { return false }
+        guard !isRemoteTerminalSurface(surfaceID),
+              machineOwningSurface(surfaceID)?.isSSH != true else { return false }
         switch remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {
         case .notRemote:
             return true
@@ -155,7 +156,7 @@ extension Workspace {
     func isRemoteTerminalContext(_ surfaceOrPanelID: UUID) -> Bool {
         let surfaceID = surfaceOwnershipTarget(for: surfaceOrPanelID)?.surfaceID
             ?? surfaceOrPanelID
-        if isRemoteTerminalSurface(surfaceID) {
+        if isRemoteTerminalSurface(surfaceID) || machineOwningSurface(surfaceID)?.isSSH == true {
             return true
         }
         if case .pane = remoteTmuxControlSurfaceTarget(surfaceID: surfaceID) {

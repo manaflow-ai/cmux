@@ -113,7 +113,7 @@ export async function organizationsGet(request: Request,
   if (request.headers.has(VM_ID_HEADER) || request.headers.has(ROUTE_TOKEN_HEADER)) {
     const auth = await authenticateRequestRouteToken(request);
     if (!auth.ok) return jsonResponse({ error: auth.reason }, 401);
-    if (!auth.identity.vmId) return jsonResponse({ error: "vm_bound_token_required" }, 403);
+    if (!auth.identity.vmId || auth.identity.machine === "chatmux") return jsonResponse({ error: "vm_bound_token_required" }, 403);
     return jsonResponse({ selectedTeamId: auth.identity.teamId, fixed: true,
       teams: [{ id: auth.identity.teamId, name: auth.identity.teamId, personal: auth.identity.teamId === auth.identity.stackUserId,
         permissions: { use: true, manageAccounts: false } }] });

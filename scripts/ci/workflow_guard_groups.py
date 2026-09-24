@@ -19,6 +19,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+import workload_entrypoints
+
 
 GUARD_WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/ci-guards.yml"
 GUARD_JOB = "workflow-guard-tests"
@@ -34,6 +36,7 @@ GROUPS = (
     "preflight",
     "ci",
     "app-host-execution",
+    "app-host-watchdog",
     "app-host-process",
     "app-host-cache",
     "release-ios",
@@ -49,6 +52,14 @@ GROUPS = (
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+
+    # test_ci_runner_capability_resolver.py reads the capability map, the
+    # resolver it imports, the reusable workflow that publishes the map, and
+    # the one workflow wired to consume it.
+    ".github/runners.json": frozenset(("ci",)),
+    ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
+    ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    "scripts/ci/resolve_runners.py": frozenset(("ci",)),
 
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
@@ -67,6 +78,9 @@ PATH_OWNERS = {
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
+    # validate_test_execution_registry.py reads the recipe for the tests it runs.
+    "scripts/verify-local.py": frozenset(("preflight", "ci")),
+    "scripts/verification_receipt.py": frozenset(("ci",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),
     "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
@@ -84,6 +98,17 @@ PATH_OWNERS = {
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
     "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
+    "scripts/ci/ci_process_tree.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    "scripts/ci/hung_test_watchdog.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    "scripts/ci/run_with_timeout.py": frozenset(("app-host-execution", "app-host-watchdog")),
+    # test_ci_xcodebuild_noninteractive_helper.py loads it by path.
+    "scripts/ci/xcodebuild_noninteractive.py": frozenset(("app-host-watchdog",)),
+    # lint-ios-conventions-diff.sh runs lint-ios-package-conventions.sh, which
+    # runs the namespace linter, which imports the source mask.
+    "scripts/lint_swift_namespaces.py": frozenset(("release-ios",)),
+    "scripts/swift_source_mask.py": frozenset(("release-ios",)),
+    # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
+    "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
     "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
@@ -108,12 +133,12 @@ ROUTING_POLICY_PATHS = frozenset({
     "scripts/ci/detect_ci_change_areas.py",
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
+    "scripts/ci/workload_entrypoints.py",
+    "scripts/ci/cmux-workload-profiles.json",
     "tests/test_ci_change_areas.py",
+    "tests/test_ci_fork_runner_routing.py",
     "tests/test_ci_linux_guard_routing.py",
     "tests/test_ci_guard_workflow_structure.py",
-    "tests/test_ci_app_host_guard_structure.py",
-    "tests/test_ci_quality_guard_structure.py",
-    "tests/test_ci_release_guard_structure.py",
 })
 
 DETERMINISM_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs")
@@ -252,6 +277,19 @@ def step_owners(text: str) -> dict[str, str]:
     return owners
 
 
+def run_paths(run: str) -> list[str]:
+    """Paths a `run:` executes, including through a workload profile."""
+    paths = DIRECT_PATH.findall(run)
+    try:
+        profiles = workload_entrypoints.entrypoints(run)
+    except (OSError, UnicodeError, ValueError, KeyError) as error:
+        raise GuardWorkflowError(f"cannot resolve a workload profile: {error}") from error
+    for entrypoint, script in profiles:
+        paths.append(entrypoint)
+        paths.extend(DIRECT_PATH.findall(script))
+    return paths
+
+
 def direct_path_owners(text: str) -> dict[str, frozenset[str]]:
     """Map each path a group-conditioned step runs directly to its groups."""
     owners: dict[str, set[str]] = {}
@@ -259,7 +297,7 @@ def direct_path_owners(text: str) -> dict[str, frozenset[str]]:
         match = GROUP_CONDITION.fullmatch(step.get("if", ""))
         if match is None:
             continue
-        for path in DIRECT_PATH.findall(step.get("run", "")):
+        for path in run_paths(step.get("run", "")):
             owners.setdefault(path, set()).add(match.group(1))
     return {path: frozenset(groups) for path, groups in owners.items()}
 
@@ -293,7 +331,7 @@ def route_direct_paths(text: str) -> dict[str, frozenset[str]]:
             continue
         paths = routes.setdefault(route, set())
         for step in job_steps(text, job_name):
-            paths.update(DIRECT_PATH.findall(step.get("run", "")))
+            paths.update(run_paths(step.get("run", "")))
     if not routes:
         raise GuardWorkflowError("no job is gated on a workflow input")
     return {route: frozenset(paths) for route, paths in routes.items()}

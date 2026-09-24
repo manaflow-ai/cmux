@@ -173,7 +173,7 @@ exit 97
         outputs = WORKFLOW['jobs']['build']['outputs']
         self.assertEqual(outputs['artifact_id'], '${{ steps.upload-product.outputs.artifact-id }}')
         self.assertEqual(outputs['sha256'], '${{ steps.package.outputs.sha256 }}')
-        self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'build'])
+        self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'runner', 'build'])
 
     def test_the_test_job_verifies_the_product_before_using_it(self):
         # A transport is allowed to miss; it is not allowed to hand over
@@ -203,6 +203,35 @@ exit 97
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(Path(values['CMUX_DERIVED_DATA_PATH']).exists())
         self.assertFalse(Path(values['CMUX_E2E_COMPILATION_CACHE']).exists())
+
+    def prepare_test_job(self):
+        for file in ('env', 'output'):
+            (self.root / file).write_text('')
+        result = self.run_step('Prepare isolated DerivedData', 'test')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return dict(line.split('=', 1) for file in ('env', 'output')
+                    for line in (self.root / file).read_text().splitlines())
+
+    def test_the_test_job_cleans_up_the_product_it_restored(self):
+        # This cleanup runs under `if: always()`, so an ownership pattern that
+        # does not match the job's own prepared path turns a passing test run
+        # red after the tests have already succeeded. The path also has to stay
+        # under RUNNER_TEMP: app-host cleanup refuses to inspect a host whose
+        # DerivedData lives anywhere else.
+        values = self.prepare_test_job()
+        derived = Path(values['CMUX_DERIVED_DATA_PATH'])
+        self.assertTrue(derived.is_relative_to(self.root))
+        self.assertFalse(derived.is_relative_to(self.workspace))
+        self.assertNotIn('CMUX_E2E_COMPILATION_CACHE', values)
+        unrelated = self.root / 'keep'
+        unrelated.mkdir()
+        rejected = self.run_step('Clean owned DerivedData', 'test',
+                                 **dict(values, CMUX_DERIVED_DATA_PATH=str(unrelated)))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertTrue(unrelated.exists())
+        result = self.run_step('Clean owned DerivedData', 'test', **values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(derived.exists())
 
     def test_only_successful_trusted_main_build_can_seed(self):
         values = self.prepare()

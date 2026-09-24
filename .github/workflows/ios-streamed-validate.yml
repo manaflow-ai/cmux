@@ -19,10 +19,10 @@ permissions:
 jobs:
   validate:
     # This end-to-end validation is expensive and is run only on explicit
-    # dispatch. Default to the Blacksmith image the iOS simulator tests use; the
-    # selector below picks its Xcode 26 toolchain. Keep an override for a
-    # future isolated runner migration.
-    runs-on: ${{ vars.MACOS_RUNNER_STREAMED_VALIDATION || 'blacksmith-6vcpu-macos-26' }}
+    # dispatch. It wants the image the iOS simulator tests use, so it reads the
+    # variable that names that pool rather than one named after this lane; the
+    # selector below picks its Xcode 26 toolchain.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     env:
       CMUX_PORT: "3000"

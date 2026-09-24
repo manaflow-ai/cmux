@@ -85,12 +85,15 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk '
+if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
   in_refresh && /if: github\.event_name == '\''schedule'\'' && github\.event\.schedule == '\''17 \*\/6 \* \* \*'\''/ { saw_schedule_gate=1 }
-  in_refresh && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_RELEASE/ { saw_release_runner=1 }
+  # Match the whole expression, not a prefix of it. `.*vars\.NAME` also matches
+  # the ungated form, so this guard would keep passing if somebody dropped the
+  # paid-overflow gate from the lane it exists to pin.
+  in_refresh && index($0, refresh_runner) { saw_release_runner=1 }
   in_refresh && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_release_xcode=1 }
   in_refresh && /select-ci-xcode\.sh/ { saw_xcode_selection=1 }
   in_refresh && /^      - name: Restore Xcode compilation cache/ { saw_lookup=1 }
@@ -168,18 +171,20 @@ if ! awk '
   exit 1
 fi
 
-if ! awk '
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   # Fast branch dogfood pins Blacksmith. Normal Nightly uses the repository
-  # override. Both must retain the macOS 15 helper lane.
-  job == "helper" && /runs-on: \$\{\{ .*vars\.MACOS_RUNNER_15/ { saw_helper_runner=1 }
+  # override. Both must retain the macOS 15 helper lane. Match the whole
+  # expression: a `.*vars\.NAME` prefix would also accept the ungated form.
+  job == "helper" && index($0, helper_runner) { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
   job == "helper" && /name: cmux-nightly-ghostty-cli-helper/ { saw_helper_artifact=1 }
-  job == "app" && /runs-on: \$\{\{ .*vars\.MACOS_RUNNER_26_NIGHTLY_BUILD/ { saw_app_runner=1 }
+  job == "app" && index($0, app_runner) { saw_app_runner=1 }
   job == "app" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_app_xcode=1 }
   job == "app" && /select-ci-xcode\.sh/ { saw_app_selection=1 }
   job == "app" && /name: cmux-nightly-unsigned-app/ { saw_app_artifact=1 }
@@ -481,9 +486,10 @@ if ! awk '
   /^      - name: Move channel release tag to built commit/ { in_move=1; next }
   in_move && /^      - name:/ { in_move=0 }
   in_move && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_move_if=1 }
-  END { exit !saw_move_if }
+  in_move && /scripts\/ci\/update-release-tag\.py/ { saw_api_update=1 }
+  END { exit !(saw_move_if && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: moving the channel release tag must be gated to publishing runs"
+  echo "FAIL: moving the channel release tag must be gated to publishing runs and use the verified API helper"
   exit 1
 fi
 

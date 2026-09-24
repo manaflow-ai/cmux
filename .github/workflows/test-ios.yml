@@ -43,7 +43,7 @@ on:
           - iphone
           - ipad
       runner:
-        description: "macOS runner (auto follows MACOS_RUNNER_IOS; tart-ios uses the isolated VM fleet)"
+        description: "macOS runner (auto follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS; tart-ios uses the isolated VM fleet)"
         required: false
         default: "auto"
         type: choice
@@ -61,7 +61,12 @@ on:
           - r2
           - warp
       seed_cache:
-        description: "On main only, save the iOS SwiftPM and GhosttyKit caches after a successful run."
+        description: "On main only, save the iOS SwiftPM cache after a successful run."
+        required: false
+        default: false
+        type: boolean
+      record_video:
+        description: "Record the selected simulator test for visual verification"
         required: false
         default: false
         type: boolean
@@ -76,7 +81,7 @@ env:
 
 jobs:
   detect-ios-changes:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -178,7 +183,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -209,13 +214,35 @@ jobs:
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
     # Focused runs build the shell and its macros from a cold SwiftPM cache.
     timeout-minutes: ${{ inputs.swift_package != '' && 25 || 10 }}
     env:
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
+      # A hung test otherwise runs to the job ceiling, which GitHub reports as
+      # "cancelled" without naming it. Completed runs of this job on 2026-09-22
+      # and 2026-09-23 never went quiet for more than 45 s, and no single test
+      # took longer than 44 s; three hung runs went quiet for 353-1152 s.
+      TEST_SILENCE_SECONDS: "180"
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
       - name: Validate package selection
         env:
           SELECTED_PACKAGE: ${{ inputs.swift_package }}
@@ -226,7 +253,7 @@ jobs:
           esac
 
       - name: Validate Tart runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        if: ${{ startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -248,21 +275,7 @@ jobs:
           submodules: false
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -z "$XCODE_APP" ]; then
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Run CMUXMobileCore package tests
         if: ${{ inputs.swift_package == '' || inputs.swift_package == 'CMUXMobileCore' }}
@@ -276,7 +289,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CMUXMobileCore-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CMUXMobileCore --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CMUXMobileCore}"
 
       - name: Run CmuxSyncStore package tests
@@ -293,7 +307,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxSyncStore-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxSyncStore --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxSyncStore}"
 
       - name: Run CmuxMobilePairedMac package tests
@@ -308,7 +323,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxMobilePairedMac-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobilePairedMac --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobilePairedMac}"
 
       - name: Run CmuxMobileChanges package tests
@@ -323,7 +339,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxMobileChanges-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileChanges --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileChanges}"
 
       - name: Run CmuxMobileShell package tests
@@ -345,7 +362,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxMobileShell-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileShell --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShell}"
 
       - name: Run CmuxMobileShellModel package tests
@@ -362,7 +380,8 @@ jobs:
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
           log_path="$RUNNER_TEMP/CmuxMobileShellModel-tests.log"
-          swift test "${args[@]}" 2>&1 | tee "$log_path"
+          python3 scripts/ci/hung_test_watchdog.py --silence-seconds "$TEST_SILENCE_SECONDS" \
+            --label CmuxMobileShellModel --log "$log_path" -- swift test "${args[@]}"
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 
   ios-simulator-build:
@@ -376,7 +395,8 @@ jobs:
               || (needs.package-conventions-lint.result == 'skipped'
                   && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && inputs.swift_package == '' }}
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 35
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
@@ -387,8 +407,25 @@ jobs:
       package_seconds: ${{ steps.package-product.outputs.seconds }}
       upload_seconds: ${{ steps.upload-metrics.outputs.seconds }}
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
       - name: Validate Tart runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        if: ${{ startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -410,33 +447,17 @@ jobs:
           submodules: recursive
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -z "$XCODE_APP" ]; then
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
-
-      - name: Capture Ghostty revision
-        id: ghostty-revision
-        run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Prepare shared iOS cache paths
         run: |
           set -euo pipefail
           echo "IOS_SPM_CACHE=$PWD/.ci-ios-source-packages" >> "$GITHUB_ENV"
+          # Not restored or saved: ensure-ghosttykit.sh unpacks and locks
+          # here, so a reused runner keeps nothing in ~/.cache.
           echo "CMUX_GHOSTTYKIT_CACHE_DIR=$RUNNER_TEMP/cmux-ghosttykit-cache" >> "$GITHUB_ENV"
 
       - name: Restore iOS SwiftPM cache
@@ -447,15 +468,6 @@ jobs:
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: |
             ios-spm-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Restore iOS GhosttyKit cache
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ runner.temp }}/cmux-ghosttykit-cache
-          key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
-          restore-keys: |
-            ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Sanitize iOS SwiftPM cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
@@ -489,6 +501,8 @@ jobs:
           xcodebuild -downloadPlatform iOS
           xcrun simctl list runtimes available | grep -Eq '\biOS\b'
 
+      # Not cached: the pinned prebuilt downloads and verifies in 3-4 s, about
+      # what an R2 restore of the unpacked xcframework would take.
       - name: Provision GhosttyKit
         run: |
           # Downloads the prebuilt GhosttyKit.xcframework pinned in
@@ -584,7 +598,7 @@ jobs:
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
           archive="$RUNNER_TEMP/ios-test-product.tar.gz"
           rm -f "$archive"
-          tar -czf "$archive" -C "$IOS_PRODUCT_STAGE" Build/Products
+          COPYFILE_DISABLE=1 tar -cf - -C "$IOS_PRODUCT_STAGE" Build/Products | gzip -1 > "$archive"
           sha256="$(shasum -a 256 "$archive" | awk '{print $1}')"
           bytes="$(stat -f '%z' "$archive")"
           seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
@@ -651,14 +665,6 @@ jobs:
           path: .ci-ios-source-packages
           key: ios-spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.xcode-version') }}-${{ hashFiles('ios/cmux.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
 
-      - name: Save iOS GhosttyKit cache
-        if: ${{ inputs.seed_cache && github.ref == 'refs/heads/main' }}
-        uses: ./.github/actions/cache-save
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ runner.temp }}/cmux-ghosttykit-cache
-          key: ios-ghosttykit-${{ runner.os }}-${{ runner.arch }}-${{ steps.ghostty-revision.outputs.sha }}-${{ hashFiles('scripts/ghosttykit-checksums.txt') }}
-
       - name: Upload producer log
         if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -686,15 +692,32 @@ jobs:
           && needs.ios-simulator-build.result == 'success'
           && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
     timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         family: ${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
       - name: Validate Tart runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        if: ${{ startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-') }}
         env:
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
@@ -716,21 +739,7 @@ jobs:
           submodules: false
 
       - name: Select Xcode
-        run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            if [ -z "$XCODE_APP" ]; then
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Ensure iOS simulator runtime
         env:
@@ -850,6 +859,7 @@ jobs:
         id: simulator-tests
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
+          RECORD_VIDEO: ${{ inputs.record_video }}
           # Bounds one xcodebuild invocation. Generous against the ~2 minutes
           # the non-UI suite actually takes, and well under the job's 35-minute
           # ceiling so a wedge still leaves room for the steps after this one.
@@ -857,7 +867,23 @@ jobs:
         run: |
           set -euo pipefail
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          video_pid=""
+          video_path=""
+          stop_video() {
+            if [[ -n "$video_pid" ]]; then
+              kill -INT "$video_pid" 2>/dev/null || true
+              local recorder_status=0
+              wait "$video_pid" || recorder_status=$?
+              video_pid=""
+              if [[ "$recorder_status" -ne 0 || ! -s "$video_path" ]]; then
+                echo "::error::Requested simulator recording failed (status $recorder_status): $video_path"
+                return 1
+              fi
+            fi
+          }
           record_test_seconds() {
+            local status=$?
+            stop_video || status=1
             local seconds
             seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
           import os, time
@@ -867,6 +893,7 @@ jobs:
             echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
             echo "IOS_BUILD_ONCE_METRIC consumer_test_seconds=$seconds"
             echo "Consumer test time: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
           }
           trap record_test_seconds EXIT
           XCODEBUILD_ARGS=(
@@ -907,6 +934,13 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if [[ "$RECORD_VIDEO" == "true" ]]; then
+              video_path="$IOS_DERIVED_DATA/logs/attempt-${attempt}.mp4"
+              xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force \
+                "$video_path" \
+                >"$IOS_DERIVED_DATA/logs/video-${attempt}.log" 2>&1 &
+              video_pid=$!
+            fi
             # xctest can wedge in teardown once the run is over: it waits on a
             # process termination that never lands, emits nothing further, and
             # the only bound left is the job ceiling (#13918). Bound the
@@ -927,6 +961,7 @@ jobs:
             fi
             if [ "$attempt" -lt 2 ] && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
               echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
+              stop_video
               continue
             fi
             exit "$status"
@@ -963,6 +998,7 @@ jobs:
           path: |
             ${{ env.IOS_DERIVED_DATA }}/Logs/Test/*.xcresult
             ${{ env.IOS_DERIVED_DATA }}/logs/*.log
+            ${{ env.IOS_DERIVED_DATA }}/logs/*.mp4
           retention-days: 7
 
       - name: Remove compatibility simulator
@@ -984,7 +1020,7 @@ jobs:
       - ios-simulator-build
       - ios-simulator
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing

@@ -4,7 +4,7 @@ import Foundation
 
 extension Workspace {
     var surfaceOwnershipPolicy: SurfaceOwnershipPolicy {
-        SurfaceOwnershipPolicy(cloudMachine: cloudVMID.map(SurfaceMachineID.cloud))
+        SurfaceOwnershipPolicy(cloudMachine: cloudVMBinding.map { SurfaceMachineID(rawValue: $0.vmID) } ?? cloudVMID.map(SurfaceMachineID.cloud))
     }
 
     /// A pane's projection or remote transport owns its machine, never its title

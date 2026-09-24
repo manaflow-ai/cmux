@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Oppdaget harness-konfigurasjon",
+    "selectionNotice": "Valg av leverandør starter eller aktiverer ikke disse harnessene.",
+    "selectProvider": "Velg {provider}",
+    "foundPath": "Fant {path}",
+    "foundCommand": "Fant kommandoen {command}",
+    "installed": "Leverandøren er installert",
+    "missing": "Leverandøren er ikke installert",
+    "install": "Installer med: {command}",
+    "benefitPi": "Komprimering, minne og leverandørruting",
+    "benefitOpenagent": "Parallelle spesialister og gjenoppretting for OpenCode",
+    "benefitClaude": "Team og verifisering for Claude Code",
+    "benefitSuperpowers": "Planlegging, TDD, underagenter og gjennomgang"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Oppsettet av Cloud VM ble ikke fullført",
+      "reason": "Gjesteoppsettet for Cloud VM ble ikke fullført.",
+      "message": "cmux kunne ikke fullføre oppsettet av Cloud VM.",
+      "action": "Prøv operasjonen på nytt. Kontakt kundestøtte hvis problemet fortsetter."
+    },
+    "createCleanupPending": {
+      "title": "Opprydding av Cloud VM venter",
+      "message": "Oppsettet av Cloud VM mislyktes, og oppryddingen venter fortsatt.",
+      "action": "Kontakt kundestøtte med sporings-ID-en før du oppretter en ny maskin."
+    },
     "unsupported": {
       "title": "Cloud VM-operasjon er ikke tilgjengelig",
       "reason": "Denne maskintypen tilbyr ikke denne operasjonen.",
@@ -1248,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux-konfigurasjon. Den globale cmux.json støtter appinnstillinger, snarveier, handlinger, egendefinerte kommandoer, varslingshooks og arbeidsområdeoppsett. En prosjektlokal .cmux/cmux.json eller cmux.json støtter handlinger, kommandoer, varslingshooks, kobling av UI-handlinger, overstyringer for Agent Chat, vault-agenter, overstyringer for arbeidsområdegrupper samt konfigurasjon av oppstart og knapper for arbeidsområder.",
         "rightSidebar": "Eldre og utvidelseseid konfigurasjon av høyre sidefelt som bevares i cmux.json.",
+        "packs": {
+          "description": "Lokale cmux-pakkefiler eller mapper som lastes før denne konfigurasjonen. Mapper viser til cmux.pack.json. Bruk en stistreng eller et objekt med et path-felt.",
+          "path": "Lokal fil- eller mappesti, relativ til denne konfigurasjonsfilen med mindre den er absolutt."
+        },
         "paneBorderColor": "Overstyr fargen på cmux-rutedeleren i delte arbeidsområder. Dette påvirker cmux-rutekanter, ikke Ghosttys interne delinger.",
         "activePaneBorderColor": "Valgfri kantfarge som tegnes rundt den fokuserte cmux-ruten i delte arbeidsområder.",
         "automation": {
@@ -1259,6 +1288,7 @@
         "app": {
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Skjermnavn som bare brukes i DEBUG-bygg når nye vinduer åpnes. En tom verdi bruker systemstandarden.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
@@ -1434,6 +1464,7 @@
       "restartNew": "Opprett et nytt workspace (standard)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Slå linjebryting i filredigereren av eller på (Option+Z).",
       "title": "Tastatursnarveier",
       "description": "Alle tastatursnarveier tilgjengelige i cmux, gruppert etter kategori.",
       "metaDescription": "Alle cmux-tastatursnarveier for arbeidsområder, overflater, delte paneler, nettleser, varsler, søk og vindusbehandling på macOS.",

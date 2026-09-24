@@ -134,6 +134,7 @@ import Testing
         #expect(build.detail == "/root/work/app")
         #expect(build.lifecycle == .running)
         #expect(build.agent == SurfaceAgentBadge(state: "working", source: "claude"))
+        #expect(build.terminalAgentIconAssetName == "AgentIcons/Claude")
         #expect(build.remoteWorkspace == SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true))
         #expect(build.remoteViews?.map(\.tabID) == ["tab_1", "tab_4"])
         #expect(build.remoteWorkspaces.map(\.id) == ["ws_main", "ws_api"])
@@ -154,6 +155,15 @@ import Testing
         #expect(detached.remoteViews == [])
         #expect(detached.remoteWorkspaces.isEmpty)
         #expect(detached.lifecycle == .running)
+    }
+
+    @Test func providerAwareAgentFieldResolvesCodexMark() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["agents"] = [["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "hook", "agent": "codex"]]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        let terminal = try #require(resources.first { $0.id.key == "term_build" })
+        #expect(terminal.agent?.agent == "codex")
+        #expect(terminal.terminalAgentIconAssetName == "AgentIcons/Codex")
     }
 
     @Test func userTabNameStaysOnTheIndividualRemoteView() throws {

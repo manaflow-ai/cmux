@@ -439,7 +439,7 @@ import Testing
         renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay"),
         renderGridFrame(surfaceID: surfaceID, seq: 100, text: "fresh-replay"),
     ])
-    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach, replayBarrierToken: replayBarrierToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
     let retryRequested = await router.waitForCount(
         of: "mobile.terminal.replay",
@@ -475,7 +475,7 @@ import Testing
     let transport = try #require(box.get())
 
     await router.holdNextReplayResponses()
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
     let oldReplayInFlight = await router.waitForCount(
         of: "mobile.terminal.replay",
         atLeast: replayCountAfterMount + 1
@@ -542,7 +542,7 @@ import Testing
         renderGridFrame(surfaceID: surfaceID, seq: 98, text: "stale-replay-2"),
         renderGridFrame(surfaceID: surfaceID, seq: 99, text: "stale-replay-3"),
     ])
-    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: replayBarrierToken)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach, replayBarrierToken: replayBarrierToken)
     let exhaustedRetriesSent = await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 3)
     #expect(exhaustedRetriesSent)
     let replaySettled = try await pollUntil {

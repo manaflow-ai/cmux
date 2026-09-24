@@ -47,7 +47,8 @@ extension CmuxTuiSurfaceProvider: SurfaceLayoutTerminalCreating {
             machine: machine,
             socketPath: connected.socketPath,
             commandRunner: commands,
-            initialState: cloudState
+            initialState: cloudState,
+            terminalCommand: request.commandOverride ?? summary.defaultTerminalCommand
         ).run(
             nearTabID: nearTabID,
             splitDirection: splitDirection,

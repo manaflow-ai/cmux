@@ -7,6 +7,9 @@ import UIKit
 /// approach used by the terminal accessory bar.
 final class HorizontalEdgeFadeScrollView: UIScrollView {
     nonisolated static let fadeWidth: CGFloat = 24
+    var fadesLeadingEdge = true {
+        didSet { setNeedsLayout() }
+    }
 
     private let fadeMask: CAGradientLayer = {
         let gradient = CAGradientLayer()
@@ -43,7 +46,7 @@ final class HorizontalEdgeFadeScrollView: UIScrollView {
         let leadingDistance = max(0, contentOffset.x + contentInset.left)
         let maxContentOffsetX = contentSize.width - bounds.width + contentInset.right
         let trailingDistance = max(0, maxContentOffsetX - contentOffset.x)
-        let leadingAlpha = isScrollable ? Self.edgeAlpha(distance: leadingDistance) : 1
+        let leadingAlpha = isScrollable && fadesLeadingEdge ? Self.edgeAlpha(distance: leadingDistance) : 1
         let trailingAlpha = isScrollable ? Self.edgeAlpha(distance: trailingDistance) : 1
         let bandFraction = min(0.5, Self.fadeWidth / bounds.width)
 
