@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
+  CMUX_TUI_HOOK_PROVIDERS,
+  CMUX_TUI_HOOK_PROVIDER_FILES,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiDaemonCommand,
   cmuxTuiAgentHooksInstallCommand,
@@ -106,7 +108,7 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain('"$CMUX_TUI_BIN" --version');
   });
 
-  test("installs the hook helper beside the daemon from the same pin and writes the Claude Code and Codex hooks as the daemon user", () => {
+  test("installs the hook helper beside the daemon from the same pin and writes every shipped agent's hooks as the daemon user", () => {
     const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
     const command = cmuxTuiInstallCommand(source);
     // Beside the binary: the one place `agent hook install` finds it without a PATH search.
@@ -117,7 +119,7 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" 2>/dev/null || true');
     // The hooks are the daemon user's (HOME=/home/cmux), never root's: root's
     // settings are invisible to the terminals the daemon spawns.
-    const install = cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" agent hook install claude codex >/dev/null');
+    const install = cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" agent hook install claude codex opencode pi >/dev/null');
     expect(command).toContain(install);
     expect(command.indexOf('"$CMUX_TUI_BIN" --version')).toBeLessThan(command.indexOf(install));
     // And proven, not assumed: helper installed and byte-equal to the pin,
@@ -125,8 +127,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
     expect(command).toContain('cmp -s "$CMUX_TUI_HOOK_BIN" "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
     // Structured status, not a text grep: a user-edited entry reports partial and is repaired.
-    expect(command).toContain(cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" --json agent hook status claude codex'));
-    expect(command).toContain('all(s.get(i) == "installed" for i in ["claude","codex"])');
+    expect(command).toContain(cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" --json agent hook status claude codex opencode pi'));
+    expect(command).toContain('all(s.get(i) == "installed" for i in ["claude","codex","opencode","pi"])');
     expect(command).not.toContain("grep -q cmux-tui-journal-hook");
   });
 
@@ -139,6 +141,11 @@ describe("cmux-tui install and daemon commands", () => {
       expect(() => cmuxTuiPinnedManifestUrl(COMMIT)).toThrow(/manifest\.json/));
   });
 
+  test("every shipped hook provider names the files the bake proves are the work user's", () => {
+    expect(Object.keys(CMUX_TUI_HOOK_PROVIDER_FILES).sort()).toEqual([...CMUX_TUI_HOOK_PROVIDERS].sort());
+    expect(CMUX_TUI_HOOK_PROVIDERS).toEqual(["claude", "codex", "opencode", "pi"]);
+  });
+
   test("the hooks-only install never touches the daemon binary", () => {
     const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
     const command = cmuxTuiAgentHooksInstallCommand(source);
@@ -147,7 +154,7 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).not.toContain(URL);
     expect(command).not.toContain("ln -sfn");
     expect(command).not.toContain("--version");
-    expect(command).toContain("agent hook install claude codex");
+    expect(command).toContain("agent hook install claude codex opencode pi");
     expect(cmuxTuiHooksReadyCommand()).toContain(cmuxTuiLayoutSelector());
     expect(cmuxTuiHooksReadyCommand()).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
   });

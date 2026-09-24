@@ -91,6 +91,7 @@ import {
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
   CMUX_TUI_HOOK_PROVIDERS,
+  CMUX_TUI_HOOK_PROVIDER_FILES,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
@@ -492,9 +493,10 @@ try {
   await step("guest-resource-reporter", guestResourceReporterInstallCommand());
 
   // The install above also wrote the work user's Claude Code and Codex hooks
-  // (cmux-tui agent hook install), so a Stop, permission request, or question
-  // in either agent reaches the daemon journal and the owner's Mac as a
-  // notification with no per-machine setup. Prove the four artifacts and that
+  // and the OpenCode and pi journal plugins (cmux-tui agent hook install), so
+  // a Stop, permission request, or question in any of them reaches the daemon
+  // journal and the owner's Mac as a notification with no per-machine setup,
+  // and the agent is detected in its terminal. Prove every artifact and that
   // the daemon user's own status verb agrees; then prove the two writers of
   // ~/.codex/config.toml compose: hooks first (bake), then the provider block
   // agent-config.sh adds at the first login that sees a boot env, with the
@@ -505,7 +507,7 @@ try {
       cmuxTuiHooksReadyCommand(),
       `${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json`,
       `node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); const rows = r.providers || []; const by = Object.fromEntries(rows.map((p) => [p.provider, p])); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { if (!by[id] || by[id].state !== "installed") { console.error(id, by[id]); process.exit(1); } }'`,
-      `test "$(stat -c %U ${WORK_HOME}/.claude/settings.json ${WORK_HOME}/.codex/hooks.json ${WORK_HOME}/.codex/config.toml | sort -u)" = ${WORK_USER}`,
+      `test "$(stat -c %U ${Object.values(CMUX_TUI_HOOK_PROVIDER_FILES).flat().map((file) => `${WORK_HOME}/${file}`).join(" ")} | sort -u)" = ${WORK_USER}`,
       `! grep -q '^model_provider = ' ${WORK_HOME}/.codex/config.toml`,
       `rm -rf /tmp/hook-merge-check && mkdir -p /tmp/hook-merge-check/.codex && cp ${WORK_HOME}/.codex/config.toml /tmp/hook-merge-check/.codex/config.toml`,
       `env HOME=/tmp/hook-merge-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true'`,

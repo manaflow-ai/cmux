@@ -3,8 +3,11 @@ const SIGNED_TOKEN = await vmToken("vm-1", "team-1", "stack-user-1");
 import { describe, expect, test } from "bun:test";
 import {
   __test,
+  OPENCODE_PLANE_OPENAI_MODELS,
   openCodeClientConfig,
+  openCodePlaneConfig,
   proxyOpenCodeRequest,
+  type OpenCodePlaneAccounts,
 } from "../services/coderouter/opencodeProxy";
 import { VM_PLACEHOLDER_API_KEY } from "../services/coderouter/routeTokenAuth";
 
@@ -348,5 +351,110 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     expect(response.status).toBe(502);
     expect(configSignal).toBeDefined();
     expect(configSignal?.aborted).toBe(true);
+  });
+});
+
+describe("coderouter OpenCode config without an OpenCode Go account", () => {
+  const CLI_TOKEN = "crt_cli-token";
+  const BOUND_TOKEN = SIGNED_TOKEN;
+  const NONE: OpenCodePlaneAccounts = { responses: [], claude: [] };
+  const CODEX: OpenCodePlaneAccounts = { responses: [{ provider: "codex", state: "active" }], claude: [] };
+
+  function dependencies(accounts: OpenCodePlaneAccounts | Error, seen: string[] = []) {
+    return {
+      authenticate: async (token: string) =>
+        token === CLI_TOKEN || token === BOUND_TOKEN
+          ? { teamId: "team-1", stackUserId: "stack-user-1", vmId: token === BOUND_TOKEN ? "vm-1" : null }
+          : null,
+      select: async () => null,
+      credential: async () => { throw new Error("no account, no credential"); },
+      remoteConfig: async () => { throw new Error("no account, no Go catalog"); },
+      planeAccounts: async (teamId: string) => {
+        seen.push(teamId);
+        if (accounts instanceof Error) throw accounts;
+        return accounts;
+      },
+    };
+  }
+
+  const cliRequest = () => new Request("https://cmux.example/api/coderouter/opencode/config", {
+    headers: { authorization: `Bearer ${CLI_TOKEN}` },
+  });
+
+  test("a team with a Responses account gets OpenCode routed through the /v1 plane", async () => {
+    const seen: string[] = [];
+    const response = await openCodeClientConfig(cliRequest(), dependencies(CODEX, seen));
+    expect(response.status).toBe(200);
+    expect(seen).toEqual(["team-1"]);
+    const body = await response.json() as {
+      model: string;
+      provider: Record<string, { npm: string; options: Record<string, string>; whitelist?: string[]; models?: Record<string, { options: { instructions: string } }> }>;
+    };
+    expect(Object.keys(body.provider)).toEqual(["openai"]);
+    // The built-in id keeps OpenCode's own store:false and max_output_tokens handling.
+    expect(body.provider.openai.npm).toBe("@ai-sdk/openai");
+    expect(body.provider.openai.options).toEqual({ baseURL: "https://cmux.example/v1", apiKey: CLI_TOKEN });
+    expect(body.provider.openai.whitelist).toEqual(OPENCODE_PLANE_OPENAI_MODELS.map((entry) => entry.id));
+    for (const model of Object.values(body.provider.openai.models ?? {})) {
+      expect(model.options.instructions.length).toBeGreaterThan(0);
+    }
+    expect(body.model).toBe(`openai/${OPENCODE_PLANE_OPENAI_MODELS[0].id}`);
+  });
+
+  test("a VM-bound token's plane config carries only the placeholder key", async () => {
+    const response = await openCodeClientConfig(
+      new Request("https://cmux.example/api/coderouter/opencode/config", {
+        headers: {
+          authorization: `Bearer ${VM_PLACEHOLDER_API_KEY}`,
+          "x-cmux-authorization": `Bearer ${BOUND_TOKEN}`,
+          "x-cmux-vm-id": "vm-1",
+        },
+      }),
+      dependencies({ responses: [{ provider: "openai-apikey", state: "active" }], claude: [{ kind: "anthropic_api_key", state: "active", modelIds: {} }] }),
+    );
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).not.toContain(BOUND_TOKEN);
+    const body = JSON.parse(text) as { provider: Record<string, { options: { apiKey: string; baseURL: string } }> };
+    expect(Object.keys(body.provider).sort()).toEqual(["anthropic", "openai"]);
+    expect(body.provider.openai.options.apiKey).toBe(VM_PLACEHOLDER_API_KEY);
+    expect(body.provider.anthropic.options).toEqual({ baseURL: "https://cmux.example/v1", apiKey: VM_PLACEHOLDER_API_KEY });
+  });
+
+  test("a team with no account OpenCode can use gets a definitive, non-retryable answer", async () => {
+    const response = await openCodeClientConfig(cliRequest(), dependencies(NONE));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBeNull();
+    const body = await response.json() as { error: string; retryable: boolean };
+    expect(body).toMatchObject({ error: "no_usable_account", retryable: false });
+  });
+
+  test("an account lookup failure stays retryable", async () => {
+    const response = await openCodeClientConfig(cliRequest(), dependencies(new Error("database down")));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: "provider_unavailable", retryable: true });
+  });
+
+  test("only providers that will serve OpenCode are emitted", () => {
+    // Broken or expired Responses accounts and OAuth-only Claude teams serve nothing.
+    expect(openCodePlaneConfig({
+      responses: [{ provider: "codex", state: "broken" }, { provider: "opencode-go", state: "active" }],
+      claude: [{ kind: "anthropic_oauth", state: "active", modelIds: {} }, { kind: "anthropic_api_key", state: "disabled", modelIds: {} }],
+    }, "key", "https://cmux.example")).toBeNull();
+    // A Bedrock-only team is narrowed to the ids its map (and overrides) knows.
+    const bedrock = openCodePlaneConfig({
+      responses: [],
+      claude: [{ kind: "bedrock", state: "active", modelIds: { "claude-custom": "us.anthropic.claude-custom-v1:0" } }],
+    }, "key", "https://cmux.example") as { model: string; provider: { anthropic: { whitelist: string[] } } };
+    expect(bedrock.provider.anthropic.whitelist).toContain("claude-sonnet-4-5");
+    expect(bedrock.provider.anthropic.whitelist).toContain("claude-custom");
+    expect(bedrock.model).toBe("anthropic/claude-sonnet-4-5");
+    // An Anthropic API key serves every Anthropic model: no whitelist.
+    const apiKey = openCodePlaneConfig({
+      responses: [],
+      claude: [{ kind: "anthropic_api_key", state: "active", modelIds: {} }, { kind: "bedrock", state: "active", modelIds: {} }],
+    }, "key", "https://cmux.example") as { model?: string; provider: { anthropic: { whitelist?: string[] } } };
+    expect(apiKey.provider.anthropic.whitelist).toBeUndefined();
+    expect(apiKey.model).toBeUndefined();
   });
 });

@@ -133,8 +133,22 @@ export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
 export const CMUX_TUI_HOOK_LINUX_TARGET = "cmux-tui-hook-x86_64-unknown-linux-musl";
 /** The marker every cmux-owned coding-agent hook entry carries (agent_hook_install.rs COMMAND_MARKER). */
 export const CMUX_TUI_HOOK_MARKER = "cmux-tui-journal-hook";
-/** Coding agents whose hooks every machine ships with; `cmux-tui agent hook install` names them. */
-export const CMUX_TUI_HOOK_PROVIDERS = ["claude", "codex"] as const;
+/**
+ * Coding agents whose hooks every machine ships with; `cmux-tui agent hook install`
+ * names them. Claude Code and Codex take hook entries in their settings
+ * (codex also a trust table in config.toml); OpenCode and pi take a cmux-owned
+ * plugin file (~/.config/opencode/plugins/cmux-tui-journal.js,
+ * ~/.pi/agent/extensions/cmux-tui-journal.ts). The image ships all four agents.
+ */
+export const CMUX_TUI_HOOK_PROVIDERS = ["claude", "codex", "opencode", "pi"] as const;
+
+/** Files each provider install writes under the daemon user's HOME (agent_hook_install.rs PROVIDERS). */
+export const CMUX_TUI_HOOK_PROVIDER_FILES: Readonly<Record<(typeof CMUX_TUI_HOOK_PROVIDERS)[number], readonly string[]>> = {
+  claude: [".claude/settings.json"],
+  codex: [".codex/hooks.json", ".codex/config.toml"],
+  opencode: [".config/opencode/plugins/cmux-tui-journal.js"],
+  pi: [".pi/agent/extensions/cmux-tui-journal.ts"],
+};
 export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/latest/manifest.json";
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
@@ -301,7 +315,8 @@ function hookHelperInstallSteps(source: CmuxTuiSource): string[] {
 }
 
 /**
- * Writes the Claude Code and Codex hook entries for the daemon user and copies
+ * Writes the hook entries (Claude Code, Codex) and plugin files (OpenCode, pi)
+ * of every CMUX_TUI_HOOK_PROVIDERS agent for the daemon user and copies
  * the helper into that user's data dir, then proves it: the installed helper
  * is byte-equal to the pinned one and every provider config carries the
  * cmux marker. Idempotent (the installer rewrites nothing that already matches).

@@ -2,7 +2,10 @@ import { accountAccessForIdentity, type CoderouterAccountAccess } from "./accoun
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import { authenticateRouteToken, selectAccountForRequest } from "./repository";
+import { authenticateRouteToken, listAccounts, selectAccountForRequest } from "./repository";
+import { listClaudeAccounts, type ClaudeAccountDescription } from "./claudeUpstream";
+import { BEDROCK_MODEL_IDS } from "./bedrock";
+import { RESPONSES_PROVIDERS, type CodeRouterAccountSummary } from "./types";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
 import { captureCoderouterEvent } from "./analytics";
@@ -46,6 +49,14 @@ type OpenCodeDependencies = {
   readonly remoteConfig: (accessToken: string, signal?: AbortSignal) => Promise<Record<string, unknown>>;
   readonly fetch?: typeof fetch;
   readonly resolveProviderURL?: typeof resolveProviderURL;
+  /** The team's Responses and Claude accounts, for the plane fallback catalog. */
+  readonly planeAccounts?: (teamId: string, access: CoderouterAccountAccess, signal?: AbortSignal) => Promise<OpenCodePlaneAccounts>;
+};
+
+/** The subset of the team's coderouter accounts the plane fallback reads. */
+export type OpenCodePlaneAccounts = {
+  readonly responses: readonly Pick<CodeRouterAccountSummary, "provider" | "state">[];
+  readonly claude: readonly Pick<ClaudeAccountDescription, "kind" | "state" | "modelIds">[];
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -67,6 +78,7 @@ const defaultDependencies: OpenCodeDependencies = {
   credential: freshCredential,
   remoteConfig,
   fetch,
+  planeAccounts: defaultPlaneAccounts,
 };
 
 const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
@@ -116,8 +128,9 @@ export async function openCodeClientConfig(
       true,
     );
   }
-  if (!resolved)
-    return Response.json({ error: "no_usable_account" }, { status: 503 });
+  if (!resolved) {
+    return await planeFallbackConfig(request, auth.identity, dependencies, upstreamHeaderDeadlineAt, runtime);
+  }
   let remote: Record<string, unknown>;
   try {
     remote = await withCoderouterOperationDeadline(
@@ -476,6 +489,146 @@ export async function proxyOpenCodeRequest(
     status: upstream.status,
     headers: filteredResponseHeaders(upstream.headers),
   });
+}
+
+/**
+ * The OpenAI models the Responses plane serves to OpenCode when the team has
+ * no OpenCode Go account: the listed (not hidden) slugs of codex's bundled
+ * catalog (codex-rs/models-manager/models.json, codex 0.154). Every Responses
+ * account kind serves them: ChatGPT sign-ins natively, OpenAI keys on the
+ * public API, OpenRouter keys as `openai/<id>` (codexProxy openRouterModelId).
+ */
+export const OPENCODE_PLANE_OPENAI_MODELS: readonly { readonly id: string; readonly name: string }[] = [
+  { id: "gpt-6-astra", name: "GPT-6 Astra" },
+  { id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+  { id: "gpt-5.6-terra", name: "GPT-5.6 Terra" },
+  { id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
+  { id: "gpt-5.5", name: "GPT-5.5" },
+];
+const OPENCODE_PLANE_OPENAI_LIMIT = { context: 272_000, output: 128_000 } as const;
+/**
+ * The ChatGPT codex backend requires a top-level `instructions` field; the
+ * OpenAI SDK sends it only from this provider option. OpenCode's own system
+ * prompt still travels as a system message.
+ */
+const OPENCODE_PLANE_INSTRUCTIONS = "You are OpenCode, an interactive coding agent. Follow the system and developer messages.";
+
+/**
+ * No usable OpenCode Go account: route OpenCode through the planes codex and
+ * Claude Code already use. The built-in `openai` provider id is kept on
+ * purpose: OpenCode then sends `store: false` and drops `max_output_tokens`
+ * (its codex plugin's chat.params), which the ChatGPT backend rejects. The
+ * built-in `anthropic` provider speaks the Anthropic plane (`/v1/messages`).
+ * A provider is emitted only when the team holds an account that serves it;
+ * the same placeholder-key rule as the Go rewrite applies.
+ */
+async function planeFallbackConfig(
+  request: Request,
+  identity: RouteTokenIdentity,
+  dependencies: OpenCodeDependencies,
+  upstreamHeaderDeadlineAt: number,
+  runtime: OpenCodeProxyRuntime,
+): Promise<Response> {
+  let accounts: OpenCodePlaneAccounts;
+  try {
+    accounts = await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => (dependencies.planeAccounts ?? defaultPlaneAccounts)(identity.teamId, accountAccessForIdentity(identity), signal),
+    );
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    if (!(error instanceof CoderouterOperationDeadlineError)) {
+      reportCoderouterFailure("rds", error, {
+        provider: "opencode-go",
+        operation: "list_plane_accounts",
+        request_id: currentCoderouterRequestId(),
+      });
+    }
+    return apiError(
+      "provider_unavailable",
+      "coderouter could not load the team's accounts. Retry shortly.",
+      503,
+      true,
+    );
+  }
+  const config = openCodePlaneConfig(
+    accounts,
+    identity.vmId === null ? identity.token : VM_PLACEHOLDER_API_KEY,
+    new URL(request.url).origin,
+  );
+  if (!config) {
+    return apiError(
+      "no_usable_account",
+      "The team has no coderouter account OpenCode can use (OpenCode Go, Codex, OpenAI, OpenRouter, Anthropic API key, or Bedrock). Add one with `cr add`.",
+      503,
+      false,
+    );
+  }
+  return Response.json(config, { headers: { "cache-control": "no-store" } });
+}
+
+/** Pure: the OpenCode config document for the plane fallback, or null when nothing can serve it. */
+export function openCodePlaneConfig(
+  accounts: OpenCodePlaneAccounts,
+  apiKey: string,
+  origin: string,
+): { provider: Record<string, unknown>; model?: string } | null {
+  const provider: Record<string, unknown> = {};
+  let model: string | null = null;
+  const responses = accounts.responses.some((account) =>
+    RESPONSES_PROVIDERS.includes(account.provider) && (account.state === "active" || account.state === "refreshing"));
+  if (responses) {
+    provider.openai = {
+      name: "OpenAI (cmux)",
+      npm: "@ai-sdk/openai",
+      options: { baseURL: `${origin}/v1`, apiKey },
+      whitelist: OPENCODE_PLANE_OPENAI_MODELS.map((entry) => entry.id),
+      models: Object.fromEntries(OPENCODE_PLANE_OPENAI_MODELS.map((entry) => [entry.id, {
+        name: entry.name,
+        reasoning: true,
+        tool_call: true,
+        attachment: true,
+        temperature: false,
+        modalities: { input: ["text", "image"], output: ["text"] },
+        limit: OPENCODE_PLANE_OPENAI_LIMIT,
+        options: { instructions: OPENCODE_PLANE_INSTRUCTIONS },
+      }])),
+    };
+    model = `openai/${OPENCODE_PLANE_OPENAI_MODELS[0].id}`;
+  }
+  // Anthropic OAuth tokens serve Claude Code only, so an OAuth-only team gets
+  // no anthropic provider. API keys serve every Anthropic model; Bedrock
+  // serves only the ids its map knows, so a Bedrock-only team is narrowed.
+  const claude = accounts.claude.filter((account) => account.state === "active");
+  const apiKeyClaude = claude.some((account) => account.kind === "anthropic_api_key");
+  const bedrock = claude.filter((account) => account.kind === "bedrock");
+  if (apiKeyClaude || bedrock.length > 0) {
+    const bedrockModels = [...new Set([
+      ...Object.keys(BEDROCK_MODEL_IDS),
+      ...bedrock.flatMap((account) => Object.keys(account.modelIds)),
+    ])].sort();
+    provider.anthropic = {
+      name: "Anthropic (cmux)",
+      npm: "@ai-sdk/anthropic",
+      options: { baseURL: `${origin}/v1`, apiKey },
+      ...(apiKeyClaude ? {} : { whitelist: bedrockModels }),
+    };
+    model ??= apiKeyClaude ? null : `anthropic/${bedrockModels.includes("claude-sonnet-4-5") ? "claude-sonnet-4-5" : bedrockModels[0]}`;
+  }
+  if (Object.keys(provider).length === 0) return null;
+  return model ? { provider, model } : { provider };
+}
+
+async function defaultPlaneAccounts(
+  teamId: string,
+  access: CoderouterAccountAccess,
+  signal?: AbortSignal,
+): Promise<OpenCodePlaneAccounts> {
+  const [responses, claude] = await Promise.all([listAccounts(teamId, access), listClaudeAccounts(teamId, access)]);
+  throwIfAborted(signal);
+  return { responses, claude };
 }
 
 async function openCodeAccount(

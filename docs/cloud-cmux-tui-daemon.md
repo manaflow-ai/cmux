@@ -700,21 +700,27 @@ exists. See docs/vm-identity-edge-auth.md.
 
 ## Coding-agent hooks on a machine
 
-Every machine ships the cmux-tui hooks for Claude Code and Codex, installed
-for the daemon user (`/home/cmux`): the bake and the create-time install both
-run `cmux-tui agent hook install claude codex` right after the binary
-(`cmuxTuiInstallCommand`), with the `cmux-tui-hook` helper downloaded from the
-same manifest commit as the daemon and placed beside it. A machine whose daemon
-is healthy but predates this gets the hooks on attach (`ensureAgentHooks` in
-`freestyle.ts`), using the helper of the commit in `/etc/cmux/cmux-tui-pin`;
-the daemon keeps running because it already exports `CMUX_TUI_HOOK` into
-every pane. The readiness probe (`cmuxTuiHooksReadyCommand`) requires the
-installed helper to be byte-equal to the pinned one and the cmux marker in
-`~/.claude/settings.json`, `~/.codex/hooks.json`, and the `[hooks]` trust
-table in `~/.codex/config.toml`. `agent-config.sh` adds the codex model
-provider around that trust table at the first login that sees a boot env, so
-the two writers of `config.toml` compose in either order. The bake's
-`agent-hooks` step proves all of it on the snapshot.
+Every machine ships the cmux-tui hooks for Claude Code, Codex, OpenCode, and
+pi, installed for the daemon user (`/home/cmux`): the bake runs
+`cmux-tui agent hook install claude codex opencode pi` right after the binary
+(`cmuxTuiInstallCommand`, list in `CMUX_TUI_HOOK_PROVIDERS`), with the
+`cmux-tui-hook` helper downloaded from the same manifest commit as the daemon
+and placed beside it. Claude Code and Codex get hook entries; OpenCode and pi
+get a cmux-owned plugin (`~/.config/opencode/plugins/cmux-tui-journal.js`,
+`~/.pi/agent/extensions/cmux-tui-journal.ts`). These hooks are the only way the
+daemon detects an agent in a terminal, so an agent without them is shown as a
+plain shell. The Freestyle driver never installs or repairs anything on create
+or attach (see the NO-WORK invariant in `freestyle.ts`), so a machine gets a
+new provider only from a rebaked snapshot; `cmuxTuiAgentHooksInstallCommand` is
+the hooks-only install for an explicit operator repair of an existing machine.
+The readiness probe (`cmuxTuiHooksReadyCommand`) requires the installed helper
+to be byte-equal to the pinned one and the installer's own status to report
+every provider `installed` (marker in `~/.claude/settings.json` and
+`~/.codex/hooks.json`, the `[hooks]` trust table in `~/.codex/config.toml`,
+and the current plugin files). `agent-config.sh` adds the codex model provider
+around that trust table at the first login that sees a boot env, so the two
+writers of `config.toml` compose in either order. The bake's `agent-hooks`
+step proves all of it on the snapshot.
 
 ## Notifications from a machine
 

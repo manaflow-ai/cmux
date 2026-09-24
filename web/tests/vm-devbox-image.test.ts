@@ -1061,7 +1061,7 @@ describe("devbox image template", () => {
     });
     try {
       const configPath = path.join(home, ".config/opencode/opencode.json");
-      // 503 no_usable_account: nothing written, the shell exits clean.
+      // A retryable 503 (no `retryable: false`): nothing written, launch refused for now.
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
       // An empty catalog is not persisted either (it would block retries).
@@ -1070,6 +1070,53 @@ describe("devbox image template", () => {
       status = 200;
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a definitive no-account answer launches OpenCode without cmux configuration", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-final-"));
+    let requests = 0;
+    let status = 503;
+    let body: unknown = { error: "no_usable_account", message: "Add one with `cr add`.", retryable: false };
+    const server = await listen((_request, response) => {
+      requests += 1;
+      response.statusCode = status;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify(body));
+    });
+    try {
+      const configPath = path.join(home, ".config/opencode/opencode.json");
+      // Exit 0: the wrapper goes on to exec OpenCode, with no config written.
+      await sourceAgentConfig(home, server.origin, true);
+      expect(existsSync(configPath)).toBe(false);
+      // Nothing is cached: the next launch asks again and gets the new catalog.
+      status = 200;
+      body = { provider: { openai: { options: { baseURL: `${server.origin}/v1`, apiKey: "cmux-vm-edge-placeholder" } } }, model: "openai/gpt-5.5" };
+      await sourceAgentConfig(home, server.origin, true);
+      expect(requests).toBe(2);
+      expect(JSON.parse(readFileSync(configPath, "utf8"))).toEqual({
+        provider: { openai: { options: { baseURL: `${server.origin}/v1`, apiKey: "{env:OPENAI_API_KEY}" } } },
+        model: "openai/gpt-5.5",
+      });
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a rejected machine credential launches OpenCode without cmux configuration", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-401-"));
+    const server = await listen((_request, response) => {
+      response.statusCode = 401;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: "unauthorized", message: "Run `cr login` and retry.", retryable: false }));
+    });
+    try {
+      await sourceAgentConfig(home, server.origin, true);
+      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
     } finally {
       await server.close();
       rmSync(home, { recursive: true, force: true });
