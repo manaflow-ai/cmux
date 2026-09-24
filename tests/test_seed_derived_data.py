@@ -252,6 +252,36 @@ class SeedDerivedData(unittest.TestCase):
         self.assertEqual(restored[0][2:], ("p-c9", "p-"))
         self.assertIn("seed_distance=\n", output.read_text())
 
+    def test_seed_keys_name_the_swift_job_width(self):
+        """Swift Build passes the runner's CPU count to every swift-driver
+        invocation as -j<n>, so a seed built on 12 vCPU reruns every
+        SwiftDriver task and re-emits every module on 6 vCPU (run 36043267820:
+        94 and 62 at seed distance 0). A seed names the width it was built at."""
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+        self.assertEqual(seed.scoped("p-"), "p-j6-")
+        self.assertEqual(seed.scoped("p-", 12), "p-j12-")
+        output = self.root / "scope"
+        with mock.patch.object(seed.sys, "stdout", new=output.open("w")) as stream:
+            self.assertEqual(seed.main(["seed", "scope", "p-"]), 0)
+            stream.close()
+        self.assertEqual(output.read_text().strip(), "p-j6-")
+
+    def test_adopt_prefers_its_own_width_and_falls_back_to_another(self):
+        """A seed of the other width still beats a cold build, so it is the
+        fallback, never the first choice."""
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+        published = set()
+        exists = lambda key: key in published  # noqa: E731
+        with mock.patch.object(seed, "lineage", return_value=["c4", "c3"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=exists):
+            published.update({"p-j12-c4", "p-j6-c3"})
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c3", 1))
+            published.clear()
+            published.add("p-j12-c4")
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j12-c4", 0))
+            published.clear()
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
+
     def test_seed_probe_names_itself_and_treats_any_error_as_a_miss(self):
         os.environ["CI_CACHE_R2_PUBLIC_URL"] = "https://cache.example/"
         os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"] = "macOS", "ARM64"
@@ -525,6 +555,36 @@ class Wiring(unittest.TestCase):
         _, seed_spm = named(seeder, "Cache Swift packages")
         _, admission_spm = named(steps("ci-macos.yml", "macos-compile-admission"), "Cache Swift packages")
         self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
+
+    def test_every_pool_admission_compiles_on_gets_a_seed_of_its_width(self):
+        """Pull-request admission runs on the 6 or 12 vCPU macOS 26 pool, and a
+        seed only serves the width it was built at, so both pools seed."""
+        job = load("seed-derived-data.yml")["jobs"]["seed"]
+        self.assertEqual(job["runs-on"], "${{ matrix.pool }}")
+        self.assertIs(job["strategy"]["fail-fast"], False)
+        context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
+        pools = {evaluate(pool, context) for pool in job["strategy"]["matrix"]["pool"]}
+        self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"})
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
+        self.assertIn(evaluate(admission, github_context("pull_request", ref="refs/pull/1/merge",
+                                                         MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")), pools)
+        # Each pool queues on its own, so a slow 6 vCPU seed never holds the
+        # 12 vCPU one back, and neither cancels a running seed.
+        self.assertIn("matrix.pool", job["concurrency"]["group"])
+        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
+
+        # Both writers save under the width they built at.
+        seeder = job["steps"]
+        _, key = named(seeder, "Compute seed key")
+        self.assertIn("seed_derived_data.py scope", key["run"])
+        _, save = named(seeder, "Save seed")
+        self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
+        nightly = steps("nightly.yml", "refresh-test-compilation-cache")
+        scope_at, scope = named(nightly, "Scope DerivedData seed key")
+        save_at, nightly_save = named(nightly, "Save DerivedData seed")
+        self.assertLess(scope_at, save_at)
+        self.assertIn("seed_derived_data.py scope", scope["run"])
+        self.assertTrue(nightly_save["with"]["key"].startswith("${{ steps.derived-data-seed-key.outputs.scoped }}"))
 
     def test_the_seed_pool_differs_from_admission_only_in_runner_size(self):
         # Seeds used to queue behind pull requests on admission's own pool.
