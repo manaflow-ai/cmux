@@ -4181,13 +4181,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// anything else and never allocates. Modified keys are rejected here
     /// rather than in the engine: Ctrl+A arrives carrying text "a", which is a
     /// chord, not a character.
-    private func recordPredictedEchoInput(_ keyEvent: ghostty_input_key_s) {
+    private func recordPredictedEchoInput(
+        _ keyEvent: ghostty_input_key_s,
+        surface: ghostty_surface_t
+    ) {
         guard TerminalPredictionCenter.shared.isPredictionEnabled,
               let surfaceID = terminalSurface?.id else { return }
+        if Self.isPlainBackspace(keyEvent, surface: surface) {
+            TerminalPredictionCenter.shared.typedBackspace(surfaceID: surfaceID)
+            return
+        }
         TerminalPredictionCenter.shared.typed(
             printableASCII: Self.predictedEchoByte(for: keyEvent),
             surfaceID: surfaceID
         )
+    }
+
+    /// Whether this is Backspace reaching the PTY as a lone DEL or BS.
+    ///
+    /// Matched on the key, not the text: AppKit's DEL is a control character,
+    /// so the key event carries no text and ghostty's encoder picks the byte.
+    /// Either byte means erase-one-back to a line editor. Any modifier makes
+    /// it a different key (Option+Backspace deletes a word); a composing
+    /// Backspace edits the IME's marked text instead; and a keybinding may
+    /// send something else entirely, so each of those withdraws instead.
+    private static func isPlainBackspace(
+        _ keyEvent: ghostty_input_key_s,
+        surface: ghostty_surface_t
+    ) -> Bool {
+        guard keyEvent.keycode == UInt32(kVK_Delete), !keyEvent.composing else { return false }
+        let anyMods = GHOSTTY_MODS_SHIFT.rawValue
+            | GHOSTTY_MODS_CTRL.rawValue
+            | GHOSTTY_MODS_ALT.rawValue
+            | GHOSTTY_MODS_SUPER.rawValue
+        guard keyEvent.mods.rawValue & anyMods == 0 else { return false }
+        var bindingFlags = ghostty_binding_flags_e(0)
+        return !ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags)
     }
 
     /// The single printable byte a key sends, or `nil` when its effect on the
@@ -7072,7 +7101,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         if handled, keyEvent.action != GHOSTTY_ACTION_RELEASE {
             terminalSurface?.didAcceptExplicitInput()
-            recordPredictedEchoInput(keyEvent)
+            recordPredictedEchoInput(keyEvent, surface: surface)
         }
         return handled
     }

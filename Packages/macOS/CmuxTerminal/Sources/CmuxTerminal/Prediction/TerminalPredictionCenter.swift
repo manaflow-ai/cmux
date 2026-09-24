@@ -155,6 +155,16 @@ public final class TerminalPredictionCenter {
         scheduleExpiry(surfaceID: surfaceID)
     }
 
+    /// A Backspace, whichever byte the key sends. Retracts the newest glyph
+    /// the remote has not echoed, or withdraws when there is none.
+    public func typedBackspace(surfaceID: UUID) {
+        guard isEnabled, engines[surfaceID] != nil else { return }
+        if engines[surfaceID]?.typedBackspace(at: now) == true {
+            redrawHandlers[surfaceID]?()
+        }
+        scheduleExpiry(surfaceID: surfaceID)
+    }
+
     /// Raw PTY output, from libghostty's tee on the IO read thread.
     ///
     /// nonisolated because the tee cannot hop: it runs ahead of the VT parser

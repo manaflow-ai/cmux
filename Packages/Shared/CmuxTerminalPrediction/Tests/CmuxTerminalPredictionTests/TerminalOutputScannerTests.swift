@@ -97,6 +97,19 @@ struct TerminalOutputScannerTests {
         #expect(scan("\u{1B}[H") == [.disruptive])
     }
 
+    @Test func oneCellEraseHalvesAreReportedForTheEngineToJudge() {
+        // A line editor erasing one character moves left, then clears.
+        #expect(scan("\u{8}") == [.cursorLeft])
+        #expect(scan("\u{1B}[D\u{1B}[1D") == [.cursorLeft, .cursorLeft])
+        #expect(scan("\u{1B}[K\u{1B}[0K\u{1B}[P\u{1B}[1P") == [
+            .clearAtCursor, .clearAtCursor, .clearAtCursor, .clearAtCursor
+        ])
+        // Wider counts, other erase modes and selective erase are redraws.
+        #expect(scan("\u{1B}[2D\u{1B}[1K\u{1B}[2P\u{1B}[?K") == [
+            .disruptive, .disruptive, .disruptive, .disruptive
+        ])
+    }
+
     @Test func aSequenceSplitAcrossChunksIsStillOneSignal() {
         // libghostty delivers whatever the read returned, so a sequence can
         // arrive a byte at a time. Re-synchronising per chunk would read this

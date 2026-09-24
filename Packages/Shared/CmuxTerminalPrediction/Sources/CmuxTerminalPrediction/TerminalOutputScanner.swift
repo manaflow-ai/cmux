@@ -12,6 +12,14 @@ public enum TerminalOutputSignal: Sendable, Equatable {
     case ignorable
     /// Entered (`true`) or left (`false`) the alternate screen.
     case alternateScreen(Bool)
+    /// Moved the cursor exactly one cell left: BS, `CSI D` or `CSI 1 D`.
+    ///
+    /// Disruptive unless the engine is waiting for the erase of a glyph the
+    /// user backspaced over; this is the first half of every common form.
+    case cursorLeft
+    /// Cleared the cell under the cursor without moving it: `CSI K`,
+    /// `CSI 0 K`, `CSI P` or `CSI 1 P`. The same caveat as `cursorLeft`.
+    case clearAtCursor
     /// Anything else. Cursor motion, erases, newlines, unknown escapes: the
     /// screen moved in a way we did not predict.
     case disruptive
@@ -82,6 +90,7 @@ public struct TerminalOutputScanner: Sendable {
             if (0x20...0x7E).contains(byte) {
                 return .printable(byte)
             }
+            if byte == 0x08 { return .cursorLeft }
             // C1 and the rest of C0 (newline, carriage return, bell, tab) all
             // move the cursor or the screen.
             return .disruptive
@@ -175,6 +184,20 @@ public struct TerminalOutputScanner: Sendable {
         // they are echoing. Treating it as disruptive would withdraw a correct
         // prediction on every syntax-highlighted keystroke.
         if final == UInt8(ascii: "m") { return .ignorable }
+
+        // The halves of a line editor erasing one character. Only the counts
+        // that mean one cell qualify; anything wider is a redraw. An
+        // overflowed list holds the capped bytes, so it never matches.
+        let isDefaultOrOne = parameters.isEmpty || parameters.elementsEqual("1".utf8)
+        let isDefaultOrZero = parameters.isEmpty || parameters.elementsEqual("0".utf8)
+        switch final {
+        case UInt8(ascii: "D") where isDefaultOrOne:
+            return .cursorLeft
+        case UInt8(ascii: "P") where isDefaultOrOne, UInt8(ascii: "K") where isDefaultOrZero:
+            return .clearAtCursor
+        default:
+            break
+        }
 
         guard final == UInt8(ascii: "h") || final == UInt8(ascii: "l") else { return .disruptive }
         // A truncated parameter list could spuriously match a mode below, and
