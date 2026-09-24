@@ -86,6 +86,7 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     ///   - workspaceID: The Mac-local workspace identifier.
     ///   - descriptors: The current browser panel descriptors.
     public func replacePanels(in workspaceID: String, with descriptors: [MobileBrowserPanelDescriptor]) {
+        let previousIDs = Set((descriptorsByWorkspace[workspaceID] ?? []).map(\.panelID))
         descriptorsByWorkspace[workspaceID] = descriptors
         panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0] &+= 1
         let currentIDs = Set(descriptors.map(\.panelID))
@@ -104,6 +105,9 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         }
         if let active = activePanelByWorkspace[workspaceID], !currentIDs.contains(active) {
             activePanelByWorkspace[workspaceID] = nil
+        }
+        for panelID in previousIDs.subtracting(currentIDs) where !isDiscoveredInAnyWorkspace(panelID) {
+            retirePanel(panelID)
         }
     }
 
@@ -219,7 +223,8 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     /// Resets decoder and display sequencing for a new subscription.
     /// - Parameter panelID: The Mac browser panel identifier.
     public func browserStreamWillStart(panelID: String) async {
-        statesByPanel[panelID]?.prepareForStreamStart()
+        guard let state = statesByPanel[panelID] else { return }
+        state.prepareForStreamStart()
         recoveryChecksByPanel[panelID]?.cancel()
         recoveryPoliciesByPanel[panelID]?.reset()
         await decoder(for: panelID).reset()
@@ -256,6 +261,7 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
             return nil
         }
         acknowledgeFrame = acknowledge
+        guard statesByPanel[event.panelID] != nil else { return event.panelID }
         Task { await decoder(for: event.panelID).submit(event) }
         return event.panelID
     }
@@ -330,14 +336,8 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     public func receiveBrowserClosedPayload(_ payload: Data) -> String? {
         guard let event = try? JSONDecoder().decode(MobileBrowserClosedEvent.self, from: payload) else { return nil }
         statesByPanel[event.panelID]?.streamStatus = .closed
-        pendingDialogsByPanel[event.panelID] = nil
-        lastResolvedDialogIDByPanel[event.panelID] = nil
-        viewportByPanel[event.panelID] = nil
         if let dialogID = statesByPanel[event.panelID]?.pendingDialog?.dialogID {
             statesByPanel[event.panelID]?.resolveDialog(dialogID: dialogID)
-        }
-        for (workspaceID, panelID) in activePanelByWorkspace where panelID == event.panelID {
-            activePanelByWorkspace[workspaceID] = nil
         }
         for (workspaceID, descriptors) in descriptorsByWorkspace {
             let filtered = descriptors.filter { $0.panelID != event.panelID }
@@ -345,7 +345,28 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
             descriptorsByWorkspace[workspaceID] = filtered
             panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0] &+= 1
         }
+        retirePanel(event.panelID)
         return event.panelID
+    }
+
+    private func isDiscoveredInAnyWorkspace(_ panelID: String) -> Bool {
+        descriptorsByWorkspace.values.contains { descriptors in
+            descriptors.contains { $0.panelID == panelID }
+        }
+    }
+
+    private func retirePanel(_ panelID: String) {
+        for (workspaceID, activePanelID) in activePanelByWorkspace where activePanelID == panelID {
+            activePanelByWorkspace[workspaceID] = nil
+        }
+        frameTasksByPanel.removeValue(forKey: panelID)?.cancel()
+        recoveryChecksByPanel.removeValue(forKey: panelID)?.cancel()
+        recoveryPoliciesByPanel[panelID] = nil
+        decodersByPanel[panelID] = nil
+        statesByPanel[panelID] = nil
+        pendingDialogsByPanel[panelID] = nil
+        lastResolvedDialogIDByPanel[panelID] = nil
+        viewportByPanel[panelID] = nil
     }
 
     private func upsertPanel(_ descriptor: MobileBrowserPanelDescriptor) {

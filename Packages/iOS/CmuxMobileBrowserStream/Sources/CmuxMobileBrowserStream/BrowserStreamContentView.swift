@@ -85,20 +85,20 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
         localPanGesture.delegate = self
         addGestureRecognizer(localPanGesture)
         updateGestureModes()
-        startDisplayLink()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
     }
 
-    // No deinit: the display-link proxy self-invalidates once its weak target
-    // (this view) deallocates, and `didMoveToWindow` pauses the link while the
-    // view is detached, so nonisolated deinit never has to touch CADisplayLink.
-
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        displayLink?.isPaused = window == nil
+        if window == nil {
+            displayLink?.invalidate()
+            displayLink = nil
+        } else if displayLink == nil {
+            startDisplayLink()
+        }
         recordViewportIfPossible()
     }
 
