@@ -835,6 +835,12 @@ jobs:
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
 
+      - name: Validate errno is captured before Swift test assertions
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: |
+          python3 tests/test_lint_errno_in_test_assertions.py
+          python3 scripts/lint-errno-in-test-assertions.py
+
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}
         run: |

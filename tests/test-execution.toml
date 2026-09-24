@@ -556,6 +556,10 @@ path = "tests/test_lint_feature_flags_scope.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_lint_errno_in_test_assertions.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_lint_stored_dispatch_work_items.py"
 lane = "linux-guard"
 
