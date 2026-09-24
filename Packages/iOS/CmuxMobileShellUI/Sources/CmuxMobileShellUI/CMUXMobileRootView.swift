@@ -1128,9 +1128,13 @@ struct CMUXMobileRootView: View {
             guard allowRetry, !didReconnect, !Task.isCancelled else { return }
             startupReconnectRetryTask?.cancel()
             startupReconnectRetryTask = Task { @MainActor in
-                try? await ContinuousClock().sleep(for: .seconds(1))
+                // Mark the retry as reconnecting before its first await. A
+                // delayed root-level retry leaves the global status at
+                // Not Connected while the same Mac is already being retried.
                 guard !Task.isCancelled else { return }
-                reconnectStoredMacIfNeeded(allowRetry: false)
+                _ = await store.retryActiveMacReconnect(
+                    stackUserID: stackUserID
+                )
             }
         }
     }
