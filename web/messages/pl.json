@@ -1,5 +1,16 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Konfiguracja Cloud VM nie została ukończona",
+      "reason": "Konfiguracja gościa Cloud VM nie została ukończona.",
+      "message": "cmux nie może ukończyć konfiguracji Cloud VM.",
+      "action": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą techniczną."
+    },
+    "createCleanupPending": {
+      "title": "Oczekiwanie na usunięcie pozostałości maszyny Cloud VM",
+      "message": "Konfiguracja maszyny Cloud VM nie powiodła się, a usuwanie pozostałości nadal oczekuje.",
+      "action": "Przed utworzeniem kolejnej maszyny skontaktuj się z pomocą techniczną, podając identyfikator śledzenia."
+    },
     "unsupported": {
       "title": "Operacja Cloud VM jest niedostępna",
       "reason": "Ten typ maszyny nie udostępnia tej operacji.",
