@@ -9,6 +9,8 @@ import Foundation
 enum CmuxTUIWireValue: Encodable, Sendable {
     case string(String)
     case int(Int)
+    case uint(UInt64)
+    case double(Double)
     case bool(Bool)
     case strings([String])
     case object([String: CmuxTUIWireValue])
@@ -18,6 +20,8 @@ enum CmuxTUIWireValue: Encodable, Sendable {
         switch self {
         case .string(let value): try container.encode(value)
         case .int(let value): try container.encode(value)
+        case .uint(let value): try container.encode(value)
+        case .double(let value): try container.encode(value)
         case .bool(let value): try container.encode(value)
         case .strings(let value): try container.encode(value)
         case .object(let value): try container.encode(value)
@@ -128,14 +132,36 @@ struct CmuxTUITreeWire: Decodable {
         var dead: Bool?
         var terminal_id: String?
         var terminal_resource_id: String?
+        var content_resource_id: String?
+        var url: String?
+        var browser_status: String?
+        var browser_error: String?
+        var browser_frames_stalled: Bool?
     }
     var workspaces: [Workspace]
 
     var model: [CmuxTUIWorkspace] {
         workspaces.map { workspace in
             var terminals: [CmuxTUITerminal] = []
+            var browsers: [CmuxTUIBrowserTab] = []
             for screen in workspace.screens ?? [] {
                 for pane in screen.panes ?? [] {
+                    for tab in pane.tabs ?? [] where tab.kind == "browser" {
+                        browsers.append(CmuxTUIBrowserTab(
+                            surface: tab.surface,
+                            pane: pane.id,
+                            screen: screen.id,
+                            resourceID: tab.content_resource_id,
+                            url: tab.url,
+                            title: tab.title ?? "",
+                            status: tab.browser_status.flatMap(CmuxTUIBrowserStatus.init(rawValue:)),
+                            error: tab.browser_error,
+                            framesStalled: tab.browser_frames_stalled ?? false,
+                            cols: tab.size?.cols,
+                            rows: tab.size?.rows,
+                            dead: tab.dead ?? false
+                        ))
+                    }
                     for tab in pane.tabs ?? [] where tab.kind == "pty" {
                         terminals.append(CmuxTUITerminal(
                             surface: tab.surface,
@@ -158,7 +184,8 @@ struct CmuxTUITreeWire: Decodable {
                 resourceID: workspace.resource_id,
                 name: workspace.name,
                 active: workspace.active,
-                terminals: terminals
+                terminals: terminals,
+                browsers: browsers
             )
         }
     }

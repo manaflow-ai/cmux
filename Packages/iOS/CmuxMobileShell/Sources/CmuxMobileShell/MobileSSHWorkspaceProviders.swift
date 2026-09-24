@@ -7,6 +7,59 @@ struct MobileSSHWorkspace: Equatable, Sendable {
     var id: String
     var name: String
     var terminals: [MobileSSHTerminal]
+    /// Streamable browser tabs (cmux-tui with a `cmux-browser` provider only).
+    var browsers: [MobileSSHBrowser] = []
+}
+
+/// One browser tab on an SSH computer, in host-local ids.
+struct MobileSSHBrowser: Equatable, Sendable {
+    var id: String
+    var title: String
+    var url: String?
+    /// Server-side cell grid, used to estimate the page size before the
+    /// first frame arrives.
+    var columns: Int?
+    var rows: Int?
+}
+
+/// Output from a browser attachment, in order.
+enum MobileSSHBrowserEvent: Sendable {
+    /// Page metadata. `failure` carries raw runtime text when the browser failed.
+    case state(url: String?, title: String, isLoading: Bool, failure: String?)
+    /// One PNG bitmap. Page size is in CSS pixels (pointer coordinate space).
+    case frame(sequence: UInt64, pageWidth: Double, pageHeight: Double, pixelWidth: Int, pixelHeight: Int, base64PNG: String)
+    /// The stream ended (tab closed, transport lost, or detached).
+    case ended
+}
+
+/// A live browser attachment: input, navigation, and presentation acks.
+/// Coordinates are page CSS pixels, the space frames report.
+@MainActor
+protocol MobileSSHAttachedBrowser: AnyObject {
+    /// Called once a frame's pixels are on screen; unlocks pointer input.
+    func frameDisplayed(sequence: UInt64) async throws
+    func click(x: Double, y: Double, clickCount: Int) async throws
+    func pointer(down: Bool, x: Double, y: Double, clickCount: Int) async throws
+    func scroll(x: Double, y: Double, deltaY: Double) async throws
+    func key(_ token: String, modifiers: [String]) async throws
+    func text(_ text: String) async throws
+    func navigate(_ url: String) async throws
+    func back() async throws
+    func forward() async throws
+    func reload() async throws
+    /// Reports the phone's viewport in points.
+    func viewport(width: Int, height: Int) async throws
+    func detach() async
+}
+
+/// Providers whose workspaces can contain streamable browser tabs.
+@MainActor
+protocol MobileSSHBrowserProviding: AnyObject {
+    func attachBrowser(
+        browserID: String,
+        viewport: (width: Int, height: Int)?,
+        events: @escaping @MainActor (MobileSSHBrowserEvent) -> Void
+    ) async throws -> any MobileSSHAttachedBrowser
 }
 
 struct MobileSSHTerminal: Equatable, Sendable {

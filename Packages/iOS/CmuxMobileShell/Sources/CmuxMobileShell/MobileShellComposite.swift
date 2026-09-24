@@ -201,6 +201,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if connectionState == .connected {
                 restartTerminalLanesForMountedSurfaces()
                 browserStreamEvents?.setBrowserStreamConnectionStatus(.connected)
+                reassertSSHBrowserStreamConnectionStatus()
                 simulatorStreamStore?.setSimulatorStreamConnectionStatus(.connected)
                 restartActiveMobileBrowserStreams()
                 restartActiveMobileSimulatorStreams()
@@ -220,6 +221,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 browserStreamEvents?.setBrowserStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )
+                reassertSSHBrowserStreamConnectionStatus()
                 simulatorStreamStore?.setSimulatorStreamConnectionStatus(
                     macConnectionStatus == .reconnecting ? .reconnecting : .disconnected
                 )

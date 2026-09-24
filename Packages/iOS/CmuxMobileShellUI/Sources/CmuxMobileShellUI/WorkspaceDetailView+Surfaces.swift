@@ -227,7 +227,7 @@ extension WorkspaceDetailView {
                 reload: { await store.reloadMobileBrowser(panelID: $0) },
                 respondToDialog: { await store.respondToMobileBrowserDialog($0) }
             ),
-            reconnect: { Task { await store.reconnectOrRefresh() } }
+            reconnect: { Task { await store.reconnectBrowserStream(panelID: browser.id) } }
         )
         .id(browser.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

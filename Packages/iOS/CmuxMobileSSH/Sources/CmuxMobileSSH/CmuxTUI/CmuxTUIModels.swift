@@ -57,8 +57,8 @@ public struct CmuxTUIServerInfo: Sendable, Equatable {
     public var buildCommit: String?
 }
 
-/// A workspace and the PTY terminals placed in it, flattened across screens
-/// and panes in layout order. Browser tabs are omitted.
+/// A workspace and the PTY terminals and browser tabs placed in it, each
+/// flattened across screens and panes in layout order.
 public struct CmuxTUIWorkspace: Sendable, Equatable, Identifiable {
     /// Numeric id; valid for this daemon generation only.
     public var id: Int
@@ -69,6 +69,9 @@ public struct CmuxTUIWorkspace: Sendable, Equatable, Identifiable {
     public var name: String
     public var active: Bool
     public var terminals: [CmuxTUITerminal]
+    /// Browser tabs. Present only when the server runs a `cmux-browser`
+    /// provider (cmux-tui never launches Chrome itself).
+    public var browsers: [CmuxTUIBrowserTab] = []
 }
 
 /// One PTY tab view of a session-owned terminal.

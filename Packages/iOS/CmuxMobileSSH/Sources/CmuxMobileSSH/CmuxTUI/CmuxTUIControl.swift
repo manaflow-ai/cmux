@@ -16,7 +16,9 @@ public actor CmuxTUIControl {
     /// Capabilities the client requires from the server.
     public static let requiredCapabilities: Set<String> = ["workspace-registry-v1", "attach-initial-size"]
     /// Client capabilities echoed through `set-client-info` when offered.
-    static let clientCapabilities = ["view-attachment-lease-v1", "view-attachment-detach-v1"]
+    static let clientCapabilities = ["view-attachment-lease-v1", "view-attachment-detach-v1", browserPointerGuardCapability]
+    /// Required on both peers before a browser surface can be attached.
+    public static let browserPointerGuardCapability = "browser-pointer-frame-guard-v1"
 
     public nonisolated let session: String
     private let channel: SSHSessionChannel
@@ -25,6 +27,7 @@ public actor CmuxTUIControl {
     private var nextRequest = 0
     private var pending: [String: CheckedContinuation<Data, any Error>] = [:]
     private var attachments: [Int: AsyncStream<CmuxTUIAttachEvent>.Continuation] = [:]
+    private var browserAttachments: [Int: AsyncStream<CmuxTUIBrowserEvent>.Continuation] = [:]
     private var subscription: AsyncStream<CmuxTUIControlEvent>.Continuation?
     private var lines = CmuxTUILineBuffer()
     private var stderrTail = Data()
@@ -217,18 +220,143 @@ public actor CmuxTUIControl {
     /// frozen at its current size until a new attachment claims it.
     public func detach(_ attachment: CmuxTUIAttachment) async throws {
         guard attachments[attachment.surface] != nil else { return }
-        if let lease = attachment.lease, server.capabilities.contains("view-attachment-detach-v1") {
+        try await detachView(surface: attachment.surface, lease: attachment.lease)
+    }
+
+    private func detachView(surface: Int, lease: String?) async throws {
+        if let lease, server.capabilities.contains("view-attachment-detach-v1") {
             // The response is a cleanup fence: no frames for this stream follow it.
             _ = try await request(
                 "detach-attached-view",
-                ["surface": .int(attachment.surface), "lease": .string(lease)],
+                ["surface": .int(surface), "lease": .string(lease)],
                 as: CmuxTUIOutcomeWire.self
             )
-            finishAttachment(attachment.surface, with: nil)
+            finishAttachment(surface, with: nil)
+            finishBrowserAttachment(surface, with: nil)
         } else {
             // Without targeted detach the transport is the only cleanup fence.
             await close()
         }
+    }
+
+    // MARK: - Browsers
+
+    /// Whether the server can stream browser surfaces to this client.
+    public var supportsBrowserAttach: Bool {
+        server.capabilities.contains(Self.browserPointerGuardCapability)
+    }
+
+    /// Attaches to a browser surface. The stream starts with `.state`
+    /// carrying the latest frame (if any), then `.state`/`.frame` updates.
+    /// `cols`/`rows` report this view's size (browsers use the smallest
+    /// reported grid); pass `nil` to leave the size alone.
+    public func attachBrowser(surface: Int, cols: Int? = nil, rows: Int? = nil) async throws -> CmuxTUIBrowserAttachment {
+        guard supportsBrowserAttach else { throw CmuxTUIError.missingCapability(Self.browserPointerGuardCapability) }
+        guard browserAttachments[surface] == nil else { throw CmuxTUIError.alreadyAttached(surface) }
+        // Frames are superseding pixels; a bounded buffer drops the oldest.
+        let (stream, continuation) = AsyncStream<CmuxTUIBrowserEvent>.makeStream(bufferingPolicy: .bufferingNewest(32))
+        browserAttachments[surface] = continuation
+        var params: [String: CmuxTUIWireValue] = ["surface": .int(surface), "mode": .string("bytes")]
+        if let cols, let rows {
+            params["cols"] = .int(max(1, cols))
+            params["rows"] = .int(max(1, rows))
+        }
+        do {
+            let result = try await request("attach-surface", params, as: CmuxTUIAttachResultWire.self)
+            return CmuxTUIBrowserAttachment(control: self, surface: surface, lease: result.lease, events: stream)
+        } catch {
+            finishBrowserAttachment(surface, with: nil)
+            throw error
+        }
+    }
+
+    /// Ends one browser attach stream and releases its size report.
+    public func detach(_ attachment: CmuxTUIBrowserAttachment) async throws {
+        guard browserAttachments[attachment.surface] != nil else { return }
+        try await detachView(surface: attachment.surface, lease: attachment.lease)
+    }
+
+    /// Tells the server the bitmap carrying pointer `token` is on screen,
+    /// which authorizes guarded pointer input against it.
+    public func presentBrowserFrame(surface: Int, token: UInt64) async throws {
+        try await request("browser-frame-presented", ["surface": .int(surface), "frame_seq": .uint(token)], as: CmuxTUIEmpty.self)
+    }
+
+    /// Sends a guarded mouse event at page CSS-pixel coordinates.
+    public func browserMouse(
+        surface: Int,
+        kind: CmuxTUIBrowserMouseKind,
+        x: Double,
+        y: Double,
+        button: String? = "left",
+        clickCount: Int? = 1,
+        token: UInt64
+    ) async throws {
+        var params: [String: CmuxTUIWireValue] = [
+            "surface": .int(surface),
+            "kind": .string(kind.rawValue),
+            "x_px": .double(x),
+            "y_px": .double(y),
+            "frame_seq": .uint(token),
+        ]
+        if let button { params["button"] = .string(button) }
+        if let clickCount { params["click_count"] = .int(clickCount) }
+        try await request("browser-mouse-guarded", params, as: CmuxTUIEmpty.self)
+    }
+
+    /// Sends a guarded vertical wheel event (positive `deltaY` scrolls down).
+    public func browserWheel(surface: Int, x: Double, y: Double, deltaY: Double, token: UInt64) async throws {
+        try await request(
+            "browser-wheel-guarded",
+            ["surface": .int(surface), "x_px": .double(x), "y_px": .double(y), "delta_y_px": .double(deltaY), "frame_seq": .uint(token)],
+            as: CmuxTUIEmpty.self
+        )
+    }
+
+    /// Inserts committed text at the page's focused element.
+    public func browserInsertText(surface: Int, text: String) async throws {
+        try await request("browser-insert-text", ["surface": .int(surface), "text": .string(text)], as: CmuxTUIEmpty.self)
+    }
+
+    /// Presses and releases one key.
+    public func browserKeyPress(surface: Int, key: CmuxTUIBrowserKey) async throws {
+        var params: [String: CmuxTUIWireValue] = [
+            "surface": .int(surface),
+            "key": .string(key.key),
+            "code": .string(key.code),
+            "windows_virtual_key_code": .int(key.windowsVirtualKeyCode),
+            "modifiers": .int(key.modifiers),
+        ]
+        if let text = key.text { params["text"] = .string(text) }
+        try await request("browser-key-press", params, as: CmuxTUIEmpty.self)
+    }
+
+    /// Navigates to a URL (normalized by the browser runtime).
+    public func browserNavigate(surface: Int, url: String) async throws {
+        try await request("browser-navigate", ["surface": .int(surface), "url": .string(url)], as: CmuxTUIEmpty.self)
+    }
+
+    public func browser(_ navigation: CmuxTUIBrowserNavigation, surface: Int) async throws {
+        try await request(navigation.rawValue, ["surface": .int(surface)], as: CmuxTUIEmpty.self)
+    }
+
+    /// Reports this view's cell grid for a browser. Returns whether the
+    /// server applied or queued a resize (completion arrives as state).
+    @discardableResult
+    public func resizeBrowser(surface: Int, cols: Int, rows: Int) async throws -> Bool {
+        let result = try await request(
+            "resize-surface",
+            ["surface": .int(surface), "cols": .int(max(1, cols)), "rows": .int(max(1, rows))],
+            as: CmuxTUIOutcomeWire.self
+        )
+        return result.accepted == true
+    }
+
+    /// The session's cell size in pixels. A browser's CSS viewport is its
+    /// cell grid times this size; use it to turn a pixel viewport into cells.
+    public func cellPixels() async throws -> (width: Int, height: Int) {
+        let result = try await request("get-cell-pixels", as: CmuxTUICellPixelsWire.self)
+        return (max(1, result.width_px), max(1, result.height_px))
     }
 
     /// Starts session-wide notifications (tree, titles, exits). Call once per
@@ -380,6 +508,10 @@ public actor CmuxTUIControl {
         guard let envelope = try? JSONDecoder().decode(CmuxTUIRoutingEnvelope.self, from: line) else { return }
         if let id = envelope.id {
             pending.removeValue(forKey: id)?.resume(returning: line)
+        } else if envelope.event == "browser-state" || envelope.event == "frame" {
+            // Browser lines carry large base64 PNGs; decode them once.
+            guard let decoded = CmuxTUIBrowserWire.event(from: line) else { return }
+            browserAttachments[decoded.surface]?.yield(decoded.event)
         } else if envelope.event != nil, let event = try? JSONDecoder().decode(CmuxTUIEventWire.self, from: line) {
             dispatch(event, line: line)
         }
@@ -409,6 +541,7 @@ public actor CmuxTUIControl {
         case "detached":
             guard let surface = event.surface else { return }
             finishAttachment(surface, with: .exited)
+            finishBrowserAttachment(surface, with: .ended)
         case "tree-changed":
             subscription?.yield(.treeChanged)
         case "title-changed":
@@ -440,6 +573,12 @@ public actor CmuxTUIControl {
         attachment.finish()
     }
 
+    fileprivate func finishBrowserAttachment(_ surface: Int, with last: CmuxTUIBrowserEvent?) {
+        guard let attachment = browserAttachments.removeValue(forKey: surface) else { return }
+        if let last { attachment.yield(last) }
+        attachment.finish()
+    }
+
     private func transportClosed() {
         guard !closed else { return }
         closed = true
@@ -447,6 +586,7 @@ public actor CmuxTUIControl {
         for continuation in pending.values { continuation.resume(throwing: CmuxTUIError.closed) }
         pending.removeAll()
         for surface in Array(attachments.keys) { finishAttachment(surface, with: .disconnected) }
+        for surface in Array(browserAttachments.keys) { finishBrowserAttachment(surface, with: .disconnected) }
         subscription?.yield(.disconnected)
         subscription?.finish()
         subscription = nil
@@ -479,4 +619,39 @@ public struct CmuxTUIAttachment: Sendable {
 
 struct CmuxTUIEmptyMutationWire: Decodable {
     var replayed: Bool?
+}
+
+/// A browser attach stream for one surface on one control connection.
+public struct CmuxTUIBrowserAttachment: Sendable {
+    public let control: CmuxTUIControl
+    public let surface: Int
+    public let lease: String?
+    /// Ordered events; finishes after `.ended`, `.disconnected`, or `detach()`.
+    public let events: AsyncStream<CmuxTUIBrowserEvent>
+
+    public func detach() async throws {
+        try await control.detach(self)
+    }
+}
+
+// MARK: - Idle close (PRD D13)
+
+extension CmuxTUIControl {
+    /// Server capability for `set-terminal-idle-policy`.
+    public static let idleCloseCapability = "terminal-idle-close-v1"
+
+    /// Stores the idle-close policy of the terminal behind `surface`: the
+    /// server closes it once it has had no attached view for `seconds`;
+    /// `nil` clears the policy so it is never closed for idleness. The policy
+    /// is durable on the server. Returns `false` without sending anything
+    /// when the server predates `terminal-idle-close-v1`.
+    @discardableResult
+    public func setIdlePolicy(surface: Int, seconds: Int?) async throws -> Bool {
+        guard server.capabilities.contains(Self.idleCloseCapability) else { return false }
+        var params: [String: CmuxTUIWireValue] = ["surface": .int(surface)]
+        // An omitted `idle_close_seconds` clears the policy.
+        if let seconds { params["idle_close_seconds"] = .int(seconds) }
+        try await request("set-terminal-idle-policy", params, as: CmuxTUIEmpty.self)
+        return true
+    }
 }

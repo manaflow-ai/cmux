@@ -1,3 +1,4 @@
+import CMUXMobileCore
 @testable import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSSH
@@ -150,6 +151,10 @@ final class RecordingSSHSink: MobileSSHComputersSink {
     func sshDeliver(_ bytes: Data, surfaceID: String) {
         outputs[surfaceID, default: ""] += String(decoding: bytes, as: UTF8.self)
     }
+    func sshReplaceBrowserPanels(workspaceID: String, with descriptors: [MobileBrowserPanelDescriptor]) {}
+    func sshDeliverBrowserFrame(_ event: MobileBrowserFrameEvent) {}
+    func sshDeliverBrowserState(_ event: MobileBrowserStateEvent) {}
+    func sshBrowserStreamEnded(panelID: String, retry: Bool) {}
 
     func waitForOutput(_ surfaceID: String, timeout: Duration = .seconds(15), until predicate: (String) -> Bool) async throws {
         let deadline = ContinuousClock.now + timeout

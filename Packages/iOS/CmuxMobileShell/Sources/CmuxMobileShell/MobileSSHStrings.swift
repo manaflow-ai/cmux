@@ -21,4 +21,10 @@ enum L10nSSH {
     static var installingCmuxTUI: String {
         L10n.string("mobile.ssh.cmuxtui.installing", defaultValue: "Installing cmux-tui on this computer…")
     }
+    static var browserUntitled: String {
+        L10n.string("mobile.ssh.browser.untitled", defaultValue: "Browser")
+    }
+    static var browserFailed: String {
+        L10n.string("mobile.ssh.browser.failed", defaultValue: "Browser unavailable")
+    }
 }

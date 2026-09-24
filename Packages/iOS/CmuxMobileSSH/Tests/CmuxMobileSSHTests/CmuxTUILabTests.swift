@@ -47,6 +47,22 @@ struct CmuxTUILabTests {
         await ssh.close()
     }
 
+    /// PRD D13: the idle-close policy is sent only to servers that advertise
+    /// `terminal-idle-close-v1`; older servers get nothing and report `false`.
+    @Test(.timeLimit(.minutes(1))) func idlePolicyIsGatedOnTheServerCapability() async throws {
+        let session = "cmux-lab-\(UUID().uuidString.lowercased())"
+        defer { cleanUp(session: session) }
+        let ssh = try await connect()
+        let control = try await CmuxTUIRemote(binaryPath: binary).connect(on: ssh, session: session)
+        let supported = await control.server.capabilities.contains(CmuxTUIControl.idleCloseCapability)
+        let created = try await control.createWorkspace(name: "idle", cols: 80, rows: 24)
+        let surface = try #require(created.terminal?.surface)
+        #expect(try await control.setIdlePolicy(surface: surface, seconds: 3_600) == supported)
+        #expect(try await control.setIdlePolicy(surface: surface, seconds: nil) == supported)
+        await control.close()
+        await ssh.close()
+    }
+
     @Test(.timeLimit(.minutes(2))) func workspaceLifecyclePersistenceAndGeometry() async throws {
         let session = "cmux-lab-\(UUID().uuidString.lowercased())"
         let remote = CmuxTUIRemote(binaryPath: binary)
