@@ -16,4 +16,8 @@ actor IrxAsyncLatch {
         waiters.removeAll()
         pending.forEach { $0.resume() }
     }
+
+    func isSignaled() -> Bool {
+        signaled
+    }
 }
