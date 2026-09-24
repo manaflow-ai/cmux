@@ -332,6 +332,7 @@ struct CLIHookNoResponseTests {
                 return
             }
             defer { Darwin.close(clientFD) }
+            ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
 
             readLines(from: clientFD) { line in
                 state.append(line)
@@ -383,6 +384,7 @@ struct CLIHookNoResponseTests {
                     return
                 }
                 accepted += 1
+                ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
 
                 DispatchQueue.global(qos: .userInitiated).async {
                     defer { Darwin.close(clientFD) }

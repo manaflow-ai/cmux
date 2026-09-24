@@ -234,6 +234,7 @@ final class CMUXOpenHTMLFocusTests {
                 Darwin.close(clientFD)
                 handled.signal()
             }
+            ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD)
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
