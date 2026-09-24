@@ -52,15 +52,44 @@ UNGATED_BLACKSMITH_ALLOWED = {
 }
 # (workflow, dispatch input) -> why its Blacksmith default and choices may be
 # read before the fork branch.
-UNTRANSLATED_DISPATCH_INPUTS = {
-    ("cloud-command-deadlines.yml", "runner"): (
-        "a fork's own dispatch still defaults to Blacksmith here; the runs-on that reads "
-        "it is rewritten together with the fork pull-request clause (#14107)"
-    ),
-}
+UNTRANSLATED_DISPATCH_INPUTS: dict[tuple[str, str], str] = {}
 LOCAL_WORKFLOW_CALL = re.compile(
     r"uses:\s+\./\.github/workflows/([A-Za-z0-9_.-]+\.ya?ml)"
 )
+
+# A fork pull request into manaflow-ai runs with repository_owner ==
+# 'manaflow-ai', so the owner branches above do not catch it. Before any
+# repository variable or pool picker output can pick a runner, it must take
+# this branch to a Blacksmith or GitHub-hosted label, because the
+# MACOS_RUNNER_* variables, and any pool pr_runner_pool.py may learn later,
+# may name owned self-hosted Macs. The branch either names a label or keeps
+# the picker's choice only when it is a Blacksmith label (the picker already
+# limits forks to ephemeral pools; this restates that where the runner is
+# picked). Comparing full_name instead of reading head.repo.fork also covers a
+# deleted head repository (head.repo is null).
+FORK_PULL_REQUEST_CLAUSE = re.compile(
+    r"github\.event_name == 'pull_request'"
+    r" && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
+    r" && (?:'(?:blacksmith-\d+vcpu-macos-\d+|macos-\d+)'"
+    r"|\(startsWith\((?P<picked>[A-Za-z0-9_.]+), 'blacksmith-'\) && (?P=picked)"
+    r" \|\| 'blacksmith-\d+vcpu-macos-\d+'\))"
+)
+# Values that can resolve to an owned self-hosted macOS label. A variable
+# counts on any line (env mirrors such as CMUX_PRODUCT_RUNNER must agree with
+# runs-on); a matrix pool or the pull request pool picker's output only where
+# it picks the runner.
+OWNED_MACOS_VARIABLE = re.compile(r"vars\.MACOS_RUNNER_\w+")
+OWNED_MACOS_SELECTOR = re.compile(
+    r"vars\.MACOS_RUNNER_\w+|matrix\.pr_runner|inputs\.pr_runner|needs\.changes\.outputs\.macos_pr_runner"
+)
+# (workflow, stripped line) -> why a MACOS_RUNNER_* read there picks no runner.
+FORK_GATE_EXEMPT = {
+    ("ci.yml", "DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}"): (
+        "pr_runner_pool.py's input: it compares the lane with its default and "
+        "ignores it for a fork head, and every runs-on reading its output takes "
+        "the fork branch first"
+    ),
+}
 
 
 def pull_request_workflows() -> list[Path]:
@@ -70,6 +99,19 @@ def pull_request_workflows() -> list[Path]:
         if re.search(r"(?m)^  pull_request:\s*(?:$|\[|\{)", text):
             result.append(path)
     return result
+
+
+def fork_pull_request_gate_error(line: str) -> str | None:
+    """Why a fork PR into manaflow-ai could reach an owned macOS label, if it can."""
+    selector = OWNED_MACOS_SELECTOR.search(line)
+    if not selector:
+        return None
+    gate = FORK_PULL_REQUEST_CLAUSE.search(line)
+    if not gate:
+        return "has no fork pull-request branch"
+    if gate.start() > selector.start():
+        return f"checks {selector.group(0)} before the fork pull-request branch"
+    return None
 
 
 def fork_exercised_workflows() -> list[Path]:
@@ -204,6 +246,112 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         self.assertTrue(pull_request_selects(selected, "ubuntu"))
         self.assertFalse(pull_request_selects(inverted, "macos"))
         self.assertFalse(pull_request_selects(inverted_linux, "ubuntu"))
+
+    def test_fork_pull_request_gate_must_precede_every_owned_selector(self) -> None:
+        clause = (
+            "github.event_name == 'pull_request'"
+            " && github.event.pull_request.head.repo.full_name != github.repository"
+        )
+        gated = (
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ("
+            + clause
+            + " && 'blacksmith-6vcpu-macos-15' || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}"
+        )
+        ungated = (
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26'"
+            " || (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}"
+        )
+        late = (
+            "runs-on: ${{ vars.MACOS_RUNNER_PR || "
+            + clause
+            + " && 'blacksmith-6vcpu-macos-15' || 'blacksmith-6vcpu-macos-15' }}"
+        )
+        # head.repo.fork is false-y when the head repository was deleted.
+        null_unsafe = (
+            "runs-on: ${{ github.event.pull_request.head.repo.fork && 'blacksmith-6vcpu-macos-15'"
+            " || matrix.pr_runner }}"
+        )
+        # The fork branch must pick a hosted label, not another variable.
+        to_variable = (
+            "runs-on: ${{ " + clause + " && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}"
+        )
+        # The picker's choice may stand for a fork only when it is Blacksmith.
+        picked = (
+            "runs-on: ${{ " + clause + " && (startsWith(inputs.pr_runner, 'blacksmith-')"
+            " && inputs.pr_runner || 'blacksmith-6vcpu-macos-15')"
+            " || github.event_name == 'pull_request' && (inputs.pr_runner || vars.MACOS_RUNNER_PR"
+            " || 'blacksmith-6vcpu-macos-15') }}"
+        )
+        picked_unchecked = (
+            "runs-on: ${{ " + clause + " && (inputs.pr_runner || 'blacksmith-6vcpu-macos-15')"
+            " || vars.MACOS_RUNNER_PR }}"
+        )
+        picked_mismatch = (
+            "runs-on: ${{ " + clause + " && (startsWith(inputs.pr_runner, 'blacksmith-')"
+            " && vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_PR }}"
+        )
+        picker_first = (
+            "runs-on: ${{ needs.changes.outputs.macos_pr_runner || "
+            + clause
+            + " && 'blacksmith-6vcpu-macos-15' || 'blacksmith-6vcpu-macos-15' }}"
+        )
+        self.assertIsNone(fork_pull_request_gate_error(picked))
+        self.assertIsNotNone(fork_pull_request_gate_error(picked_unchecked))
+        self.assertIsNotNone(fork_pull_request_gate_error(picked_mismatch))
+        self.assertIsNotNone(fork_pull_request_gate_error(picker_first))
+        self.assertIsNone(fork_pull_request_gate_error(gated))
+        self.assertIsNone(fork_pull_request_gate_error("runs-on: macos-15"))
+        self.assertIsNotNone(fork_pull_request_gate_error(ungated))
+        self.assertIsNotNone(fork_pull_request_gate_error(late))
+        self.assertIsNotNone(fork_pull_request_gate_error(null_unsafe))
+        self.assertIsNotNone(fork_pull_request_gate_error(to_variable))
+
+    def test_fork_pull_requests_into_manaflow_ai_never_reach_an_owned_macos_label(self) -> None:
+        """MACOS_RUNNER_* may name self-hosted Macs; fork PR code must not run there."""
+        checked = 0
+        failures = []
+        for path in fork_exercised_workflows():
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if line.lstrip().startswith("#"):
+                    continue
+                if not (
+                    OWNED_MACOS_VARIABLE.search(line)
+                    or ("runs-on:" in line and OWNED_MACOS_SELECTOR.search(line))
+                ):
+                    continue
+                # A selector split across lines would hide the gate from
+                # this line-based check.
+                if "${{" in line and "}}" not in line:
+                    failures.append(f"{path.name}:{number} spans lines; keep runner expressions on one line")
+                    continue
+                if (path.name, line.strip()) in FORK_GATE_EXEMPT:
+                    continue
+                checked += 1
+                error = fork_pull_request_gate_error(line)
+                if error:
+                    failures.append(f"{path.name}:{number} {error}: {line.strip()}")
+        self.assertEqual(failures, [])
+        self.assertGreater(checked, 0)
+
+    def test_pull_request_xcode_pin_follows_the_same_repository_lane(self) -> None:
+        """A fork PR leaves MACOS_RUNNER_PR, so it must leave its Xcode pin too.
+
+        select-ci-xcode.sh fails on a pinned Xcode the image does not carry, so a
+        fork PR routed to the macOS 15 default while still reading
+        CMUX_CI_XCODE_APP_PR would fail at Xcode selection.
+        """
+        same_repository = "github.event.pull_request.head.repo.full_name == github.repository"
+        checked = 0
+        failures = []
+        for path in fork_exercised_workflows():
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                if line.lstrip().startswith("#") or not re.search(r"vars\.CMUX_(?:CI|CI_HELPER)_XCODE_APP_PR\b", line):
+                    continue
+                checked += 1
+                if same_repository not in line:
+                    failures.append(f"{path.name}:{number}: {line.strip()}")
+        self.assertEqual(failures, [])
+        self.assertGreater(checked, 0)
 
     def test_pull_request_graph_is_nonempty_and_includes_reusable_workflows(self) -> None:
         roots = pull_request_workflows()

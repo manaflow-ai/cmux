@@ -165,6 +165,66 @@ follow those: `CI_PR_POOL_OVERFLOW=0` or a lane other than
 before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
 26 Xcode) and only use ephemeral `blacksmith-*` pools.
 
+Owned Mac minis (fleet RFC cmuxterm-hq#573) join as class pools keyed by the
+label glaeda issues to a dedicated member once it has verified the pinned
+Xcode build: `glaeda-<class>-xcode-<version>`, today `glaeda-std-xcode-26.6`.
+The version comes from `CMUX_CI_XCODE_APP_PR`, so moving that pin moves the
+pool, and no machine carries the new label until glaeda has verified the new
+Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
+`glaeda-std-xcode-<version>` (48 GB minis), then `glaeda-light-xcode-<version>`
+(16 GB), then the Blacksmith pools as overflow. An owned pool's capacity is its entry in
+`CI_OWNED_POOL_SLOTS`, and the janitor's snapshot counts the jobs queued and
+running on that label. A pull request run puts several macOS jobs on its pool
+at once, so a run takes the owned pool only when `CI_OWNED_POOL_JOBS_PER_RUN`
+machines (default 3) are still free after the jobs already there and the runs
+created since the snapshot. It is skipped when the snapshot is older than 20
+minutes or the label has no slots, and it is never the fewest-queued fallback.
+Fork runs and retry attempts never take it. While `CI_PR_POOL_OWNED` is off,
+owned labels in `CI_PR_POOL_ORDER` are dropped and the rest of the order is
+used; an owned label for another Xcode than the lane's pin is dropped the same
+way and named in the `changes` summary. An order left empty by that turns the
+preference off. A pin path that is not `/Applications/Xcode_<version>.app`
+names no owned pool.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 11, "glaeda-light-xcode-26.6": 2}` |
+| `CI_OWNED_POOL_JOBS_PER_RUN` | `3` | machines a run needs free to take an owned pool (1 to 10) |
+
+An owned pool is persistent, which needs one more rule because GitHub never
+re-routes a queued job: one queued there waits for that pool however long it
+stays busy. An offline mini still counts as a slot, and the snapshot can be
+minutes old. When the picker chooses a persistent pool, `changes`
+uploads a `macos-pool-persistent-<run>-<attempt>` marker, and
+`ci-owned-pool-rescue.yml` (from `main`, with Actions write) watches that run.
+If one of its jobs waits for a persistent runner longer than
+`CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600), the watcher confirms the
+pull request head has not moved, cancels the run, and re-runs it. A retry
+attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
+whole, and so does any manual re-run after a job failed on an owned Mac.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CI_OWNED_POOL_RESCUE` | unset (on while `CI_PR_POOL_OWNED` is 1) | `0` turns the watcher off |
+| `CI_OWNED_POOL_RESCUE_SECONDS` | `90` | how long a job may wait for a persistent runner before the run moves to Blacksmith |
+
+The watcher makes no API request while owned pools are off. A run on an
+ephemeral pool costs it a few jobs listings until `changes` finishes, plus one
+artifact listing.
+
+The guard keeps the picker the only way onto an owned pool.
+`check_no_self_hosted_fleet_runners` refuses any `glaeda-*` label in workflow
+text, and `runner_label_policy.py` refuses one in any `*RUNNER*` variable, so
+neither a workflow edit nor `MACOS_RUNNER_PR` can send a job there.
+`check_owned_pools_route_through_picker` requires the picked label to reach
+jobs only as `pr_runner` or on a `pull_request` `runs-on` branch.
+`CI_PR_POOL_ORDER` is the one variable that may name owned labels (the guard's
+`owned` pattern, which must match `pr_runner_pool.OWNED_LABEL`), and the CI
+health report checks every other entry in it against the workflow policy.
+Owned pools stay off until `CI_PR_POOL_OWNED`, `CI_OWNED_POOL_SLOTS` and
+`CI_PR_POOL_ORDER` are all set.
+
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
 non-zero on a pinned path that is absent.
@@ -447,12 +507,10 @@ There is no automatic overflow for the runner variables. If the Tart pool is
 unavailable or its queue is too long, set the affected variable to a paid
 provider.
 
-The two owned-Mac producer lanes are the exception, because they never own a
-result: the persistent compile route and the nightly route
-(`scripts/ci/nightly_mini_route.py`) wait a bounded time for a mini and fall
-back to the hosted build automatically on a queue timeout, an overrun, a
-producer failure or a refused product. Restore Tart after the
-fleet recovers.
+The persistent compile route is the exception, because it never owns a result:
+it waits a bounded time for a mini and falls back to the hosted build
+automatically on a queue timeout, an overrun, a producer failure or a refused
+product. Restore Tart after the fleet recovers.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
 read through a second switch that lives in this repository rather than in
@@ -585,10 +643,6 @@ The sole direct-host exception is the dispatch-only
 workflow-restricted `cmux-persistent-compile` runner group and
 `cmux-persistent-macos-compile` label. It performs compile-only Debug work,
 carries no repository secrets, and grants its hot state zero result authority.
-The second is the dispatch-only nightly producer (`nightly-mini-build.yml`,
-`cmux-nightly-mini` group, `cmux-nightly-mini-build` label), which compiles the
-unsigned nightly app for a hosted job that revalidates and signs it; see
-[mac-fleet.md, Nightly lane](ci/mac-fleet.md#nightly-lane).
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` enforces that exact exception and rejects

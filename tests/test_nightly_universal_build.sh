@@ -172,7 +172,7 @@ if ! awk '
 fi
 
 if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}" \
-       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.route-nightly-mini.outputs.use_mini == 'true' && (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') || needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_26_LARGE || 'blacksmith-12vcpu-macos-26') }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
@@ -540,13 +540,10 @@ job_if() {
   ' "$WORKFLOW_FILE"
 }
 PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
-# route-nightly-mini is skipped unless the owned-Mac lane is selected, so the
-# jobs after it state their status function and upstream results explicitly
-# (tests/test_ci_self_hosted_guard.sh, check_nightly_mini_lane).
-if [ "$(job_if build-nightly-app)" != "    if: \${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE }}" ] \
+if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: \${{ !cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' }}" ] \
-  || [ "$(job_if publish-nightly)" != "    if: \${{ !cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE }}" ]; then
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi
@@ -571,7 +568,7 @@ if ! awk '
   job == "app" && /^      - name: Restore Xcode compilation cache/ { step="restore"; next }
   job == "app" && /^      - name: Upload dSYMs to Sentry/ { step="dsym"; next }
   job == "app" && /^      - name:/ { step="" }
-  step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\'' && steps\.adopt\.outputs\.adopted != '\''true'\''$/ { saw_cold_gate=1 }
+  step == "restore" && /^        if: needs\.decide\.outputs\.cold_cache != '\''true'\''$/ { saw_cold_gate=1 }
   step == "dsym" && /^        if: needs\.decide\.outputs\.build_only != '\''true'\''$/ { saw_dsym_gate=1 }
   END { exit !(saw_cold_gate && saw_dsym_gate) }
 ' "$WORKFLOW_FILE"; then

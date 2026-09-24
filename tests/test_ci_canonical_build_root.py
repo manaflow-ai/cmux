@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -250,7 +251,25 @@ class CanonicalRecipeTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
             records = [json.loads(line) for line in calls.read_text().splitlines()]
-            self.assertEqual(len(records), 5)
+            # Derive the expected calls from the recipe rather than pinning a
+            # count: one version probe, one resolve, then one build per scheme.
+            # A hardcoded total silently breaks whenever a scheme is added --
+            # cmux-cli-tests did exactly that.
+            schemes = re.findall(
+                r"for scheme in ([^;]+); do",
+                SCRIPT.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(len(schemes), 1, "expected one scheme loop in the recipe")
+            expected_schemes = schemes[0].split()
+            self.assertEqual(len(records), 2 + len(expected_schemes))
+            # resolve() also passes -scheme (cmux-unit) alongside
+            # -resolvePackageDependencies; only the build invocations count.
+            built = [
+                args[args.index("-scheme") + 1]
+                for _cwd, args in records
+                if "-scheme" in args and "-resolvePackageDependencies" not in args
+            ]
+            self.assertEqual(built, expected_schemes)
             for cwd, args in records:
                 self.assertEqual(cwd, str(root / "src"))
                 if '-clonedSourcePackagesDirPath' in args:

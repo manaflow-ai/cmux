@@ -371,7 +371,7 @@ class ReuseProducts(TestProductHandoff):
         workflow = (root / ".github/workflows/ci-macos.yml").read_text()
         e2e_workflow = (root / ".github/workflows/test-e2e.yml").read_text()
         source = f"100644 blob {'1' * 40}\tSources/App.swift"
-        helper = "scripts/ci/e2e_warm_derived_data.py"
+        helper = "scripts/ci/seed_derived_data.py"
         base = identity.identity_from_tree_lines([source, f"100644 blob {'2' * 40}\t{helper}"], workflow, e2e_workflow)
         edited = identity.identity_from_tree_lines([source, f"100644 blob {'3' * 40}\t{helper}"], workflow, e2e_workflow)
 
