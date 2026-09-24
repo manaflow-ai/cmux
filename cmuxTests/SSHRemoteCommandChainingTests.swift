@@ -217,6 +217,8 @@ struct SSHRemoteCommandChainingTests {
                 destination: "dev@example.com",
                 sshOptions: testCase.options,
                 preserveAfterTerminalExit: true,
+                // Legacy restore path: a bootstrapping SSH snapshot restores through cmux-tui since 5f0d2227241.
+                skipDaemonBootstrap: true,
                 relayPort: 64_123,
                 persistentDaemonSlot: "ssh-restore-slot"
             )

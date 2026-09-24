@@ -18,6 +18,7 @@ struct RemotePTYReconnectLifecycleTests {
     func reconnectRestartsControllerWhenPresentationIsConnectingButOwnerIsGone() async throws {
         let workspace = Workspace()
         workspace.remoteSessionProcessRunnerOverrideForTesting = ImmediateRemoteSessionFailureRunner()
+        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let configuration = WorkspaceRemoteConfiguration(
             destination: "tiny@remote-only",
             port: 22,
@@ -30,7 +31,8 @@ struct RemotePTYReconnectLifecycleTests {
             localSocketPath: nil,
             terminalStartupCommand: "ssh tiny@remote-only",
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "remote-pty-reconnect-test"
+            persistentDaemonSlot: "remote-pty-reconnect-test",
+            skipDaemonBootstrap: true
         )
 
         #expect(workspace.configureRemoteConnection(configuration, autoConnect: false))

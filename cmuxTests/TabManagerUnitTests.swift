@@ -318,6 +318,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         }
 
         workspace.configureRemoteConnection(
+            // Legacy Workspace path: an SSH config that bootstraps the daemon goes to cmux-tui.
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -328,7 +329,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 relayID: String(repeating: "a", count: 16),
                 relayToken: String(repeating: "b", count: 64),
                 localSocketPath: "/tmp/cmux-debug-test.sock",
-                terminalStartupCommand: "ssh cmux-macmini"
+                terminalStartupCommand: "ssh cmux-macmini",
+                skipDaemonBootstrap: true
             ),
             autoConnect: false
         )
@@ -357,6 +359,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         }
 
         workspace.configureRemoteConnection(
+            // Legacy Workspace path: an SSH config that bootstraps the daemon goes to cmux-tui.
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -367,7 +370,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 relayID: String(repeating: "a", count: 16),
                 relayToken: String(repeating: "b", count: 64),
                 localSocketPath: "/tmp/cmux-debug-test.sock",
-                terminalStartupCommand: "ssh cmux-macmini"
+                terminalStartupCommand: "ssh cmux-macmini",
+                skipDaemonBootstrap: true
             ),
             autoConnect: false
         )
@@ -646,6 +650,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         }
 
         workspace.configureRemoteConnection(
+            // Legacy Workspace path: an SSH config that bootstraps the daemon goes to cmux-tui.
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -658,7 +663,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 localSocketPath: "/tmp/cmux-debug-attach-end-test.sock",
                 terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
                 preserveAfterTerminalExit: true,
-                persistentDaemonSlot: "ssh-child-exit-after-attach-end"
+                persistentDaemonSlot: "ssh-child-exit-after-attach-end",
+                skipDaemonBootstrap: true
             ),
             autoConnect: false
         )
@@ -702,6 +708,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         }
 
         workspace.configureRemoteConnection(
+            // Legacy Workspace path: an SSH config that bootstraps the daemon goes to cmux-tui.
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -714,7 +721,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 localSocketPath: "/tmp/cmux-debug-split-test.sock",
                 terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
                 preserveAfterTerminalExit: true,
-                persistentDaemonSlot: "ssh-child-exit-split-test"
+                persistentDaemonSlot: "ssh-child-exit-split-test",
+                skipDaemonBootstrap: true
             ),
             autoConnect: false
         )
@@ -820,6 +828,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         }
 
         workspace.configureRemoteConnection(
+            // Legacy Workspace path: an SSH config that bootstraps the daemon goes to cmux-tui.
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: nil,
@@ -830,7 +839,8 @@ final class TabManagerChildExitCloseTests: XCTestCase {
                 relayID: String(repeating: "a", count: 16),
                 relayToken: String(repeating: "b", count: 64),
                 localSocketPath: "/tmp/cmux-debug-test.sock",
-                terminalStartupCommand: "ssh cmux-macmini"
+                terminalStartupCommand: "ssh cmux-macmini",
+                skipDaemonBootstrap: true
             ),
             autoConnect: false
         )

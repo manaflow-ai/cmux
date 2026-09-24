@@ -1282,6 +1282,7 @@ final class TerminalControllerSocketSecurityTests {
             appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
         }
 
+        // Legacy Workspace path: an SSH config that bootstraps the daemon goes to cmux-tui.
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1292,7 +1293,8 @@ final class TerminalControllerSocketSecurityTests {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini"
+            terminalStartupCommand: "ssh cmux-macmini",
+            skipDaemonBootstrap: true
         )
         sourceWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let surfaceID = try #require(sourceWorkspace.focusedTerminalPanel?.id)
@@ -1378,6 +1380,7 @@ final class TerminalControllerSocketSecurityTests {
         )
         try waitForSocket(at: socketPath)
 
+        // Legacy Workspace path: an SSH config that bootstraps the daemon goes to cmux-tui.
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1388,7 +1391,8 @@ final class TerminalControllerSocketSecurityTests {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: socketPath,
-            terminalStartupCommand: "ssh cmux-macmini"
+            terminalStartupCommand: "ssh cmux-macmini",
+            skipDaemonBootstrap: true
         )
         workspace.configureRemoteConnection(configuration, autoConnect: false)
         let surfaceID = try #require(workspace.focusedTerminalPanel?.id)

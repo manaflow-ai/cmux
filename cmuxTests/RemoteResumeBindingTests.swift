@@ -304,7 +304,8 @@ struct RemoteResumeBindingTests {
         TerminalController.shared.setActiveTabManager(manager)
 
         let workspace = try #require(manager.selectedWorkspace)
-        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        // Legacy Workspace path: a VM-baked daemon keeps relay owner scoping.
+        workspace.configureRemoteConnection(remoteConfiguration(skipDaemonBootstrap: true), autoConnect: false)
         workspace.activeRemoteSessionControllerID = UUID()
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
         let request: [String: Any] = [
@@ -558,7 +559,8 @@ struct RemoteResumeBindingTests {
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
         let remoteSurfaceID = UUID()
-        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        // Legacy Workspace path: a VM-baked daemon keeps relay owner scoping.
+        workspace.configureRemoteConnection(remoteConfiguration(skipDaemonBootstrap: true), autoConnect: false)
         workspace.activeRemoteSessionControllerID = UUID()
         workspace.trackRemoteTerminalSurface(surfaceID)
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)

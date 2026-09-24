@@ -855,6 +855,10 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
     }
 
+    /// These tests cover the legacy Workspace remote badge path. Since 5f0d2227241
+    /// an SSH terminal config that bootstraps the daemon is owned by cmux-tui
+    /// (`configureSSHTuiConnection`), so the fixture uses a VM-baked daemon,
+    /// which still takes the legacy path.
     private func remoteConfiguration(
         preserveAfterTerminalExit: Bool,
         relayPort: Int = 64007
@@ -870,7 +874,8 @@ final class WorkspaceRemoteBadgeTruthTests: XCTestCase {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh-pty-attach",
-            preserveAfterTerminalExit: preserveAfterTerminalExit
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            skipDaemonBootstrap: true
         )
     }
 

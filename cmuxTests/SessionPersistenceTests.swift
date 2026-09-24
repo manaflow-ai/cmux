@@ -90,7 +90,9 @@ final class SessionPersistenceTests: XCTestCase {
             relayID: "relay-test",
             relayToken: String(repeating: "c", count: 64),
             localSocketPath: "/tmp/cmux-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini"
+            terminalStartupCommand: "ssh cmux-macmini",
+            // Legacy Workspace path: a bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
+            skipDaemonBootstrap: true
         )
 
         workspace.configureRemoteConnection(configuration, autoConnect: false)

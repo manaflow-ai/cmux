@@ -2270,7 +2270,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             relayToken: String(repeating: "d", count: 64),
             localSocketPath: "/tmp/cmux-restore-test.sock",
             terminalStartupCommand: "ssh dev@example.com",
-            agentSocketPath: originalAgentSocketPath
+            agentSocketPath: originalAgentSocketPath,
+            // Legacy Workspace path: a bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
+            skipDaemonBootstrap: true
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)

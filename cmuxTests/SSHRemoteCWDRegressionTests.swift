@@ -196,6 +196,10 @@ struct SSHRemoteCWDRegressionTests {
         #expect(captured == [secondWorkingDirectory.path, firstWorkingDirectory.path])
     }
 
+    /// These tests cover the legacy Workspace remote cwd path. Since 5f0d2227241
+    /// an SSH terminal config that bootstraps the daemon is owned by cmux-tui
+    /// (`configureSSHTuiConnection`), so the fixture uses a VM-baked daemon,
+    /// which still takes the legacy path.
     @MainActor
     private func makeRemoteWorkspace(relayPort: Int) -> Workspace {
         let workspace = Workspace()
@@ -203,7 +207,8 @@ struct SSHRemoteCWDRegressionTests {
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini", port: nil, identityFile: nil, sshOptions: [], localProxyPort: nil,
                 relayPort: relayPort, relayID: String(repeating: "a", count: 16), relayToken: String(repeating: "b", count: 64),
-                localSocketPath: "/tmp/cmux-debug-test.sock", terminalStartupCommand: "ssh-pty-attach", preserveAfterTerminalExit: true
+                localSocketPath: "/tmp/cmux-debug-test.sock", terminalStartupCommand: "ssh-pty-attach", preserveAfterTerminalExit: true,
+                skipDaemonBootstrap: true
             ),
             autoConnect: false
         )

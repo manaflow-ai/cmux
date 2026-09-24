@@ -87,7 +87,7 @@ struct RemoteSessionParkedReconnectTests {
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.selectedWorkspace)
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.configureRemoteConnection(Self.configuration(), autoConnect: false)
+        workspace.configureRemoteConnection(Self.configuration(skipDaemonBootstrap: true), autoConnect: false)
         workspace.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64012",
@@ -177,7 +177,11 @@ struct RemoteSessionParkedReconnectTests {
         #expect((error["message"] as? String)?.isEmpty == false)
     }
 
-    private static func configuration() -> WorkspaceRemoteConfiguration {
+    /// `skipDaemonBootstrap` selects the legacy Workspace path. Since
+    /// 5f0d2227241 an SSH terminal config that bootstraps the daemon is owned by
+    /// cmux-tui (`configureSSHTuiConnection`), while a VM-baked daemon still
+    /// takes the legacy path.
+    private static func configuration(skipDaemonBootstrap: Bool = false) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -190,7 +194,8 @@ struct RemoteSessionParkedReconnectTests {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ssh-parked-reconnect"
+            persistentDaemonSlot: "ssh-parked-reconnect",
+            skipDaemonBootstrap: skipDaemonBootstrap
         )
     }
 
