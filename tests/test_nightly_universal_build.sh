@@ -360,6 +360,25 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
+# The resolver deepens the shallow clone, which took 1.5 to 11 minutes. It runs
+# in its own job beside the Xcode compile, never after it in build-nightly-app,
+# and every sign variant installs that one commit before thinning.
+if ! awk '
+  /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
+  job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /cmux_tui_commit="\$\(\.\/scripts\/ci\/resolve-cmux-tui-client-commit\.sh --max-fallback 5\)"/ { resolver=1 }
+  job == "build-sign-notarize-nightly:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
+  job == "build-sign-notarize-nightly:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
+  job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  job == "build-sign-notarize-nightly:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
+  job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
+  END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && install_line && thin_line && install_line < thin_line && reported) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must resolve the cmux-tui commit beside the compile and install it in every sign variant before thinning"
+  exit 1
+fi
+
 for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   if grep -Fq 'signing will use the wg-quick fallback' "$workflow"; then
     echo "FAIL: $(basename "$workflow") must not ship without the Network Extension"
