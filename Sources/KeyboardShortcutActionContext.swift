@@ -105,7 +105,9 @@ extension KeyboardShortcutSettings.Action {
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
                 focusedSimulatorPanel: context.shortcutContext.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
-                focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
+                focusedFilePreviewTextEditor: self == .filePreviewTextEditor
+                    ? context.fileEditorFocused
+                    : context.filePreviewTextEditorFocused,
                 rightSidebarFocused: context.rightSidebarFocused,
                 workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             )
