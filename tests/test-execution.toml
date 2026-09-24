@@ -724,10 +724,6 @@ path = "tests/test_ci_workflow_path_filter_parity.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_ubuntu_apt_https.py"
-lane = "legacy"
-
-[[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
 
