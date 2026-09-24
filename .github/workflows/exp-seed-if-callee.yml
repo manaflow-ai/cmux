@@ -1,0 +1,33 @@
+name: exp seed-if callee
+on:
+  workflow_call:
+    inputs:
+      cache_backend:
+        required: false
+        default: ""
+        type: string
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: values
+        id: values
+        env:
+          V_SEED: ${{ toJSON(vars.CI_ADMISSION_SEED_DERIVED_DATA) }}
+          V_BACKEND_VAR: ${{ toJSON(vars.CI_CACHE_BACKEND) }}
+          V_INPUT: ${{ toJSON(inputs.cache_backend) }}
+          V_EXPR: ${{ toJSON(inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') }}
+          V_T_SEED: ${{ vars.CI_ADMISSION_SEED_DERIVED_DATA != '0' }}
+          V_T_BACKEND: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2' }}
+        run: env | grep '^V_' | sort
+      - name: step-if seed var term
+        if: vars.CI_ADMISSION_SEED_DERIVED_DATA != '0'
+        run: echo ran
+      - name: step-if backend term
+        if: (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        run: echo ran
+      - name: step-if full condition minus event
+        if: steps.values.outputs.hit != 'true' && steps.values.outputs.hit != 'true' && vars.CI_ADMISSION_SEED_DERIVED_DATA != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        run: echo ran

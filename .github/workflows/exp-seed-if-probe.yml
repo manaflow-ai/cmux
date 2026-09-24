@@ -1,0 +1,18 @@
+name: exp seed-if probe
+on:
+  push:
+    branches: [exp/seed-if-probe]
+  workflow_dispatch:
+    inputs:
+      cache_backend:
+        required: false
+        default: default
+        type: choice
+        options: [default, github, r2]
+permissions:
+  contents: read
+jobs:
+  caller:
+    uses: ./.github/workflows/exp-seed-if-callee.yml
+    with:
+      cache_backend: ${{ inputs.cache_backend }}
