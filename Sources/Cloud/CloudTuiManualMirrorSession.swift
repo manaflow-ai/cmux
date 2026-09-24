@@ -825,7 +825,7 @@ final class CloudTuiManualMirrorSession {
                 transitionToDisconnected(reason: .rejected("attachment superseded"))
                 return
             }
-            if outcome == "passive" || accepted == false {
+            if outcome == "passive" {
                 // Another view owns this terminal's geometry. Keep the local
                 // sample, but make the explicit claim the next operation so a
                 // focused pane can take authority back deterministically.
