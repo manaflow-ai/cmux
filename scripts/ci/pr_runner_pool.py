@@ -65,8 +65,9 @@ idle minis with 2 busy went to Blacksmith entirely and queued there. With it,
 when no owned pool fits the whole run, the run takes the owned pool with the
 most free machines (at least one), and `owned_jobs` names the jobs that fit,
 in priority order (priority()): compile admission first (the heavy compile,
-and a mini keeps its warm DerivedData), then the light jobs
-(cli-product-tests, the CLI pipe, remote daemon and Claude wrapper lanes).
+and a mini keeps its warm DerivedData), then the GUI jobs (app-host shards by
+index, tests-build-and-lag), which queue longest on Blacksmith, then the light
+jobs (cli-product-tests, the CLI pipe, remote daemon and Claude wrapper lanes).
 Each job counts one machine; the jobs after admission reuse its machine.
 Every other job of attempt 1 takes
 `retry_runner`, the Blacksmith pool on the lane's Xcode. The shards and
@@ -81,12 +82,13 @@ The marker's `<jobs>` is the owned machines the run holds at its peak, so the
 janitor's `committed` counts only the owned jobs actually placed. With the
 split off, a run takes an owned pool only when all its owned-eligible jobs fit.
 
-GUI jobs (app-host shards, tests-build-and-lag) never take an owned pool, in
-either mode: the minis have no console session, so XCTest app-host runs fail
-there (exit 65, job 107862186541). They take `retry_runner`, and ci.yml turns
-off `unit_in_admission` for a persistent pick, so the changed suites a
-compile admission would run itself move to a Blacksmith shard. A run's owned
-peak (`jobs`, and the marker's) counts only the jobs that may take the pool.
+GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
+`vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
+the logged-in user's Aqua session, and each mini runs one job at a time. With
+it 0 they take `retry_runner`, and ci.yml turns off `unit_in_admission` for a
+persistent pick (output `owned_gui`), so the changed suites a compile
+admission would run itself move to a Blacksmith shard. A run's owned peak
+(`jobs`, and the marker's) counts only the jobs that may take the pool.
 
 The queue comes from the queue janitor, which lists every in-flight run's
 jobs each sweep and publishes what it saw as the `macos-pool-load` artifact.
@@ -158,6 +160,7 @@ XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
+GUI_VARIABLE = "CI_PR_POOL_OWNED_GUI"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # A pull request run holds several macOS machines at once, each job on its
 # own. Beside compile admission run the Claude wrapper, CLI pipe and remote
@@ -341,30 +344,40 @@ def run_jobs(**routing: str | None) -> int:
     return run_plan(**routing).peak
 
 
-# The jobs that may take an owned pool, in placement priority: the heavy
-# compile, then light jobs. GUI jobs (shard-N, lag) never do: the minis have
-# no console session for XCTest app-host runs.
+# Owned placement priority: the heavy compile, then GUI jobs (the longest
+# Blacksmith queues), then light jobs. GUI jobs need the mini's console
+# session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
 LIGHT_JOBS = ("cli-product", "cli-pipe", "remote-daemon", "claude-wrapper")
-OWNED_ELIGIBLE = (ADMISSION_JOB, *LIGHT_JOBS)
 
 
-def priority(key: str) -> int:
-    return OWNED_ELIGIBLE.index(key)
+def gui_job(key: str) -> bool:
+    return key == "lag" or key.startswith("shard-")
 
 
-def owned_peak(plan: RunJobs) -> int:
+def priority(key: str) -> tuple[int, int]:
+    if key == ADMISSION_JOB:
+        return 0, 0
+    if key.startswith("shard-"):
+        return 1, int(key.removeprefix("shard-"))
+    if key == "lag":
+        return 2, 0
+    return 3, LIGHT_JOBS.index(key)
+
+
+def owned_peak(plan: RunJobs, gui: bool = True) -> int:
     """The machines a run holds on an owned pool when every job that may take one does."""
-    return place(plan, plan.peak)[1]
+    return place(plan, plan.peak, gui)[1]
 
 
-def place(plan: RunJobs, budget: int) -> tuple[tuple[str, ...], int]:
+def place(plan: RunJobs, budget: int, gui: bool = True) -> tuple[tuple[str, ...], int]:
     """The jobs that take the owned pool with `budget` machines free, and the machines they hold at peak.
 
     Jobs are taken in priority() order while the run's owned peak stays within
     `budget`: the side lanes (beside admission) plus the larger of admission
     and the jobs after it, which reuse its machine. A job that does not fit is
     skipped, and a later one that does is still taken. Admission comes first,
-    so a run whose admission is not placed places nothing after it.
+    so a run whose admission is not placed places nothing after it. Without
+    `gui`, GUI jobs (gui_job()) are never placed.
     """
     chosen: list[str] = []
 
@@ -374,7 +387,7 @@ def place(plan: RunJobs, budget: int) -> tuple[tuple[str, ...], int]:
         return side + (max(1, after) if ADMISSION_JOB in keys else after)
 
     keys = ((ADMISSION_JOB,) if plan.admission else ()) + plan.after + plan.side
-    for key in sorted((key for key in keys if key in OWNED_ELIGIBLE), key=priority):
+    for key in sorted((key for key in keys if gui or not gui_job(key)), key=priority):
         if key in plan.after and ADMISSION_JOB not in chosen:
             continue
         if held([*chosen, key]) <= max(0, budget):
@@ -979,8 +992,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
         unit_selectors=env.get("RUN_UNIT_SELECTORS"))
     # What an owned pool must have free for the whole run: its owned-eligible
-    # jobs at their peak (GUI jobs never take one).
-    jobs = owned_peak(plan)
+    # jobs at their peak.
+    gui = (env.get("POOL_OWNED_GUI") or "").strip() != "0"
+    jobs = owned_peak(plan, gui)
     choice, snapshot = choose(
         event=env.get("EVENT_NAME") or "",
         repo=repo,
@@ -1005,7 +1019,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         print(f"::warning title={SLOTS_VARIABLE}::{problem}")
     # A persistent pick names the jobs that take it; every other job of the
     # run takes retry_runner. The marker's jobs are the owned machines held.
-    owned_jobs, held = place(plan, choice.owned_budget) if persistent(choice.runner) else ((), plan.peak)
+    owned_jobs, held = place(plan, choice.owned_budget, gui) if persistent(choice.runner) else ((), plan.peak)
     text = summary(choice, snapshot, now=now, owned_slots=slots(env.get("OWNED_SLOTS")), problems=problems,
                    owned_jobs=owned_jobs)
     print(text)
@@ -1017,6 +1031,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n"
                          f"persistent={'true' if persistent(choice.runner) else 'false'}\n"
                          f"retry_runner={choice.retry_runner}\njobs={held}\n"
+                         # Whether compile admission may run app-host suites on the pool.
+                         f"owned_gui={'true' if gui else 'false'}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.
                          f"owned_jobs={' ' + ' '.join(owned_jobs) + ' ' if owned_jobs else ''}\n")

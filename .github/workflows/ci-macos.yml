@@ -1240,9 +1240,9 @@ jobs:
     # every pool involved must carry the admission's exact Xcode; the
     # restore step refuses an older one with both versions named.
     # When compile admission ran on an owned pool, a shard the picker did not
-    # place there (none today: the minis have no console session for app-host
-    # tests), and a re-run of failed shards, take pr_retry_runner: Blacksmith
-    # on the lane's Xcode, which is the Xcode the owned label names.
+    # place there (no machine left, or CI_PR_POOL_OWNED_GUI=0), and a re-run
+    # of failed shards, take pr_retry_runner: Blacksmith on the lane's Xcode,
+    # which is the Xcode the owned label names.
     runs-on: ${{ (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:

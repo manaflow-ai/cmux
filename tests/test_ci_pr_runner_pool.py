@@ -283,7 +283,7 @@ class FailSafe(unittest.TestCase):
             finally:
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
-                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nowned_jobs=\n")
+                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nowned_gui=true\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -728,16 +728,27 @@ class PerJobPlacement(unittest.TestCase):
         self.assertEqual(routing(unit_suite="true", unit_in_admission="true", unit_selectors="Suite").after, ())
         self.assertEqual(routing(macos="false", cli="true").side, ("cli-pipe",))
 
-    def test_admission_then_light_jobs_and_never_gui_jobs(self):
+    def test_admission_then_gui_jobs_then_light_jobs(self):
         plan = routing(**FULL)
+        shards = tuple(f"shard-{index}" for index in range(1, 8))
         self.assertEqual(pool.place(plan, 0), ((), 0))
-        self.assertEqual(pool.place(plan, 1), (("admission", "cli-product"), 1))
-        self.assertEqual(pool.place(plan, 2), (("admission", "cli-product", "cli-pipe"), 2))
+        # Shards reuse admission's machine once it finishes.
+        self.assertEqual(pool.place(plan, 1), (("admission", "shard-1"), 1))
+        self.assertEqual(pool.place(plan, 3), (("admission", "shard-1", "shard-2", "shard-3"), 3))
+        self.assertEqual(pool.place(plan, 9), (("admission", *shards, "lag", "cli-product"), 9))
+        self.assertEqual(pool.place(plan, 12), (("admission", *shards, "lag", "cli-product", "cli-pipe",
+                                                 "remote-daemon", "claude-wrapper"), 12))
+        self.assertEqual(pool.owned_peak(plan), 12)
+        self.assertEqual(pool.place(routing(unit_suite="true", unit_selectors="Suite"), 1),
+                         (("admission", "shard-8"), 1))
+
+    def test_gui_jobs_stay_off_when_switched_off(self):
+        plan = routing(**FULL)
+        self.assertEqual(pool.place(plan, 1, gui=False), (("admission", "cli-product"), 1))
+        self.assertEqual(pool.place(plan, 2, gui=False), (("admission", "cli-product", "cli-pipe"), 2))
         everything = ("admission", "cli-product", "cli-pipe", "remote-daemon", "claude-wrapper")
-        self.assertEqual(pool.place(plan, 4), (everything, 4))
-        # More machines never place a shard or tests-build-and-lag.
-        self.assertEqual(pool.place(plan, 12), (everything, 4))
-        self.assertEqual(pool.owned_peak(plan), 4)
+        self.assertEqual(pool.place(plan, 12, gui=False), (everything, 4))
+        self.assertEqual(pool.owned_peak(plan, gui=False), 4)
         # A run without admission places its side lanes alone.
         self.assertEqual(pool.place(routing(macos="false", remote_daemon="true"), 1), (("remote-daemon",), 1))
 
@@ -772,7 +783,7 @@ class PerJobPlacement(unittest.TestCase):
         for value in ("", "0", "true"):
             self.assertEqual(owned_choice(fleet(busy=9), split=value).runner, LARGE, value)
 
-    def output(self, *, busy, split="1", **routing_env):
+    def output(self, *, busy, split="1", gui="", **routing_env):
         with tempfile.TemporaryDirectory() as tmp:
             snapshot = Path(tmp, "snap.json")
             fresh = fleet(busy=busy)
@@ -781,7 +792,7 @@ class PerJobPlacement(unittest.TestCase):
             out = Path(tmp, "out")
             env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                    "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_OWNED": "1",
-                   "POOL_OWNED_SPLIT": split, "OWNED_SLOTS": json.dumps({MINI: 11}),
+                   "POOL_OWNED_SPLIT": split, "POOL_OWNED_GUI": gui, "OWNED_SLOTS": json.dumps({MINI: 11}),
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true",
                    **routing_env}
@@ -791,17 +802,22 @@ class PerJobPlacement(unittest.TestCase):
 
     def test_main_names_the_owned_jobs_and_marks_their_peak(self):
         full = {"RUN_FULL_SUITE": "true", "RUN_CLI": "true", "RUN_REMOTE_DAEMON": "true"}
-        partial = self.output(busy=9, **full)
+        partial = self.output(busy=8, **full)
         self.assertEqual((partial["runner"], partial["retry_runner"]), (MINI, LARGE))
-        self.assertEqual(partial["owned_jobs"], " admission cli-product cli-pipe ")
+        self.assertEqual(partial["owned_jobs"], " admission shard-1 shard-2 shard-3 ")
         # The marker (and so the janitor) counts the owned machines placed.
-        self.assertEqual(partial["jobs"], "2")
-        whole = self.output(busy=0, **full)
-        self.assertEqual(whole["owned_jobs"], " admission cli-product cli-pipe remote-daemon claude-wrapper ")
-        self.assertEqual(whole["jobs"], "4")
+        self.assertEqual((partial["jobs"], partial["owned_gui"]), ("3", "true"))
+        # 11 machines for a 12-machine run: the last light job overflows.
+        most = self.output(busy=0, **full)
+        self.assertEqual(most["owned_jobs"].split()[-3:], ["cli-product", "cli-pipe", "remote-daemon"])
+        self.assertEqual(most["jobs"], "11")
+        # GUI jobs off: only admission and the light jobs, and owned_gui says so.
+        light = self.output(busy=9, gui="0", **full)
+        self.assertEqual((light["owned_jobs"], light["jobs"], light["owned_gui"]),
+                         (" admission cli-product cli-pipe ", "2", "false"))
         # Split off: the whole-run rule over the owned-eligible jobs only.
-        self.assertEqual(self.output(busy=7, split="", **full)["runner"], MINI)
-        off = self.output(busy=8, split="", **full)
+        self.assertEqual(self.output(busy=7, split="", gui="0", **full)["runner"], MINI)
+        off = self.output(busy=8, split="", gui="0", **full)
         self.assertEqual((off["runner"], off["owned_jobs"]), (LARGE, ""))
 
 

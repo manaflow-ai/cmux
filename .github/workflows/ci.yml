@@ -76,10 +76,10 @@ jobs:
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
       # Only ever true for a changed-suites run the diff selected, which never
       # takes the canary drop above.
-      # A compile admission on an owned Mac (a persistent pick) cannot run
-      # app-host suites: the minis have no console session. The changed suites
-      # then run on the one Blacksmith shard instead (pr_runner_pool.py).
-      unit_in_admission: ${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}
+      # With GUI jobs kept off the owned Macs (CI_PR_POOL_OWNED_GUI=0), a
+      # compile admission there does not run app-host suites; the changed
+      # suites run on the one Blacksmith shard instead (pr_runner_pool.py).
+      unit_in_admission: ${{ (steps.macos-pool.outputs.persistent != 'true' || steps.macos-pool.outputs.owned_gui == 'true') && steps.suite.outputs.unit_in_admission || 'false' }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
@@ -600,6 +600,8 @@ jobs:
           # 1 lets a run take the owned machines that are free and send its
           # other jobs to Blacksmith, instead of all or nothing (off unless 1).
           POOL_OWNED_SPLIT: ${{ vars.CI_PR_POOL_OWNED_SPLIT }}
+          # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
+          POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}

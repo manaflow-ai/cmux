@@ -31,7 +31,7 @@ not moved, cancels the run if it is still going, and re-runs its failed jobs.
 That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
 retry_runner, the Blacksmith pool the picker named, and what already passed
 (compile admission, say) is kept. A run on an owned pool is split across pools
-anyway (per-job placement, and GUI jobs never take an owned pool), which is
+anyway (per-job placement, CI_PR_POOL_OWNED_SPLIT), which is
 sound only because both sides run the same Xcode: retry_runner is a macOS
 26 pool on the lane's pin, the pin the owned label names, and on 2026-09-24
 both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
