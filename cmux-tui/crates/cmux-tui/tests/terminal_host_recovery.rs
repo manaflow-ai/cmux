@@ -4523,9 +4523,9 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
             continue;
         }
         if path.is_dir() {
-            fs::remove_dir_all(&path).unwrap()
+            fs::remove_dir_all(&path).unwrap();
         } else {
-            fs::remove_file(&path).unwrap()
+            fs::remove_file(&path).unwrap();
         }
     }
     let _ = fs::remove_file(&harness.socket);
@@ -4572,14 +4572,12 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     assert_ne!(after.2, before.2, "session id carried over from the template");
     // The warm shell learns its new identity from the bound file.
     let bound = fs::read_to_string(harness.dir.join("bound")).unwrap();
-    let term = workspaces["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["content_resource_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert_eq!(
-        bound,
-        format!("CMUX_TUI_SESSION_ID={}\nCMUX_TUI_TERMINAL_ID={term}\n", after.2),
-    );
+    let term =
+        workspaces["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0]["content_resource_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+    assert_eq!(bound, format!("CMUX_TUI_SESSION_ID={}\nCMUX_TUI_TERMINAL_ID={term}\n", after.2),);
 
     let typed = format!("after-template-{}", std::process::id());
     request(
