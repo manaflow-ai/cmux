@@ -237,9 +237,20 @@ extension TerminalController {
                     .mapValues(\.foundationObject)
             )
         } catch is CancellationError {
-            return .err(code: "cancelled", message: "Request was cancelled", data: nil)
+            return .err(
+                code: "cancelled",
+                message: String(localized: "socket.request.cancelled", defaultValue: "Request was cancelled"),
+                data: nil
+            )
         } catch {
-            return .err(code: "request_error", message: "Request failed before returning a result", data: nil)
+            return .err(
+                code: "request_error",
+                message: String(
+                    localized: "socket.request.failedBeforeResult",
+                    defaultValue: "Request failed before returning a result"
+                ),
+                data: nil
+            )
         }
     }
 }
