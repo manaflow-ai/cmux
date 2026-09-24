@@ -169,7 +169,15 @@ workflows reached through `workflow_call` — has an explicit repository-owner
 branch before runner variables are consulted. On `manaflow-ai/cmux`, existing
 repository variables and their Blacksmith fallbacks behave exactly as above. On
 every other owner, Linux jobs use `ubuntu-24.04` and macOS jobs use
-`macos-15` from GitHub Actions.
+`macos-26` from GitHub Actions: the image and Xcode (26.6) main compiles with,
+so a fork's own CI can hit main's caches, which anyone can read from
+`https://ci-cache.cmux.com`. Only `swift-package-tests` (the SDK 15 release
+helper) and `plain-paste-worker.yml`'s `macos-15` job keep a `macos-15` fork
+branch, because they need that image. Fork jobs set no Xcode pin and take the
+image's newest stable Xcode, so a newer image Xcode is a cache miss, never a
+failure. The self-hosted guard allows a literal `macos-26` only in this exact
+`github.repository_owner != 'manaflow-ai' && 'macos-26'` form, which evaluates
+solely outside `manaflow-ai`, where the fleet's `macos-26` label does not exist.
 
 That is the fork contract: **a fork needs zero runner variables and zero runner
 provider setup to run its pull-request workflows.** Blacksmith is an

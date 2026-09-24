@@ -86,7 +86,7 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
-  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
+  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
@@ -1174,6 +1174,11 @@ check_no_self_hosted_fleet_runners() {
   # this guard only inspects runner-selection lines, not its input description.
   local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
+  # A fork running CI in its own repository has no fleet, so its hosted
+  # branch may name GitHub's macos-26 image. Only this exact short-circuit is
+  # exempt: it evaluates solely where the repository owner is not manaflow-ai.
+  # Workflow text only; a variable holding macos-26 is still refused.
+  local fork_branch="github\\.repository_owner != 'manaflow-ai' && 'macos-26'"
 
   # Bare self-hosted/macOS/ARM64 targeting (inline array or multi-line list).
   # Case-sensitive: GitHub's auto labels are `macOS`/`ARM64`, distinct from the
@@ -1203,6 +1208,19 @@ check_no_self_hosted_fleet_runners() {
                '- blacksmith-4vcpu-ubuntu-2404'; do
     if printf '%s\n' "$probe" | sed -E "s/($allowed)//g" | grep -Eq "($forbidden)"; then
       echo "FAIL: fleet-runner guard self-test false-positived a cloud label: $probe"
+      exit 1
+    fi
+  done
+
+  probe="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-26' }}"
+  if printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/($allowed)//g" | grep -Eq "($forbidden)"; then
+    echo "FAIL: fleet-runner guard self-test refused the hosted fork branch: $probe"
+    exit 1
+  fi
+  for probe in "runs-on: \${{ github.repository_owner == 'manaflow-ai' && 'macos-26' }}" \
+               "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'blacksmith-6vcpu-macos-15' || 'macos-26' }}"; do
+    if ! printf '%s\n' "$probe" | sed -E "s/$fork_branch//g; s/($allowed)//g" | grep -Eq "($forbidden)"; then
+      echo "FAIL: fleet-runner guard self-test let macos-26 through outside the fork branch: $probe"
       exit 1
     fi
   done
@@ -1252,7 +1270,7 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
-    content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/($allowed)//g")"
+    content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     if [[ "$line" == "$PERSISTENT_COMPILE_FILE:"* ]] && \
        { [[ "$content" == '      group: cmux-persistent-compile' ]] || \
          [[ "$content" == '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' ]]; }; then
@@ -2004,13 +2022,16 @@ background_lane_blocking_events() {
 }
 
 strip_background_lane_expr() {
-  # Ignore the two sanctioned GitHub-hosted macOS forms before looking for a
+  # Ignore the sanctioned GitHub-hosted macOS forms before looking for a
   # stray hosted label: the non-blocking background lane, and the explicit
-  # non-manaflow-ai fork branch used by the normal CI graph.
+  # non-manaflow-ai fork branch used by the normal CI graph (macos-26, or
+  # macos-15 for the jobs that need that image).
   awk -v e="vars.MACOS_RUNNER_BACKGROUND || 'macos-15'" \
-      -v f="github.repository_owner != 'manaflow-ai' && 'macos-15' || " '{
+      -v f="github.repository_owner != 'manaflow-ai' && 'macos-15' || " \
+      -v g="github.repository_owner != 'manaflow-ai' && 'macos-26' || " '{
     while ((i = index($0, e)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(e))
     while ((i = index($0, f)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(f))
+    while ((i = index($0, g)) > 0) $0 = substr($0, 1, i - 1) substr($0, i + length(g))
     print
   }'
 }
