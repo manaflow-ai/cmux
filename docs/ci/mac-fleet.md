@@ -98,9 +98,11 @@ Split by pool (`labels[0]` on each job):
 | `warp-macos-26-arm64-12x` | 9 | 448 | 0.67 | 4 |
 | `blacksmith-6vcpu-macos-26` | 11 | 443 | 0.58 | 5 |
 
-`blacksmith-6vcpu-macos-15` is the pull-request lane, because `MACOS_RUNNER_PR`
-is unset and every PR macOS job falls back to it
-(`ci-macos.yml:57,878,2404,2773`). The required/`main` lanes currently point at
+`blacksmith-6vcpu-macos-15` was the pull-request lane in this window, because
+`MACOS_RUNNER_PR` was unset and every PR macOS job fell back to it
+(`ci-macos.yml:57,878,2404,2773`). Since 2026-09-24 `MACOS_RUNNER_PR` is
+`blacksmith-6vcpu-macos-26`, so re-read `gh variable list` before comparing a
+new measurement against this one. The required/`main` lanes currently point at
 Warp (`MACOS_RUNNER_15=warp-macos-15-arm64-6x`), so PR pain and release pain
 are separate problems and only the first one is in scope here.
 
@@ -410,13 +412,17 @@ Symptoms, in the order they show up:
 | `Xcode identity mismatch` in revalidation | hosted job log | toolchain drift; see 3.3 |
 | Producer queued > `CI_PERSISTENT_MAC_QUEUE_SECONDS` | router summary | fleet is undersized or wedged |
 
-Sweep for the last 50 PR runs:
+Sweep for the last 50 PR runs. The admission metrics step logs its record as
+one sorted JSON line, so match that line: the route step prints its own
+`fallback_reason` JSON, and counting both would double every routed run.
+`persistent_route_unused` means routing never ran for that PR.
 
 ```sh
 gh run list --repo manaflow-ai/cmux --workflow ci.yml --limit 50 \
   --json databaseId --jq '.[].databaseId' | while read -r id; do
   gh run view "$id" --repo manaflow-ai/cmux --log 2>/dev/null |
-    grep -o 'fallback_reason=[a-z_]*' || true
+    grep -F '{"artifact_publication_seconds"' |
+    grep -oE '"fallback_reason": "[a-z_]*"' || true
 done | sort | uniq -c | sort -rn
 ```
 
@@ -578,11 +584,14 @@ token is valid for one hour.
 ### Stage 1 - canary, one mini, one lane, one PR
 
 ```sh
-scripts/persistent-compile pilot 13198
+scripts/persistent-compile pilot <PR number or head branch>
 ```
 
 That sets `CI_PERSISTENT_MAC_COMPILE=pilot` and
-`CI_PERSISTENT_MAC_COMPILE_COHORT=13198`.
+`CI_PERSISTENT_MAC_COMPILE_COHORT` to the value given. The cohort must name an
+open same-repository pull request by an org `MEMBER` or `OWNER` whose CI
+touches macOS. #13198 is the RFC issue, not a pull request, so no run can match
+it.
 
 `pilot` + a cohort restricts routing to matching PR numbers or head branch
 names. Every other PR is untouched. Leave it here for at least 20 routed runs.
