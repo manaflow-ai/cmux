@@ -27,7 +27,9 @@ pull request CI reads (only a copy uploaded by a run on main counts). Runs
 created since the snapshot are replayed before choosing, one job each:
 in-flight E2E runs on the pool their title names ("<filter> on <runner> @
 <ref>"), and in-flight pull request CI runs through the pull request rule
-over its whole order. A 6vcpu `auto` run started from the Actions UI is
+over its whole order (or on their lane, when the snapshot's copied settings
+show pull request routing off). The replay treats macOS 15 as usable without
+checking its Xcode pin, so it can lean slightly toward macOS 26 headroom. A 6vcpu `auto` run started from the Actions UI is
 titled with the default (run-name cannot read job outputs), so it counts
 there wherever it landed; run-e2e.sh names its pool, so its titles are exact.
 
@@ -143,11 +145,33 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
     pools = [label for label in limits.order if label in E2E_POOLS]
     if not pools:
         return pr_runner_pool.Choice("", "", f"{ORDER_VARIABLE} names no macOS 26 pool")
+    placed, routed = dict(load.e2e_since), load.pull_requests_since
+    lane = pr_routing_off(load.snapshot)
+    if lane is not None:
+        # Pull request runs are not being routed, so each stays on its lane.
+        placed[lane] = placed.get(lane, 0) + routed
+        routed = 0
     return pr_runner_pool.decide(
         load.snapshot, limits, now=now, xcode_pins={},
-        routed_since=load.pull_requests_since, auto_xcode=True,
-        placed=load.e2e_since, choose_from=pools,
+        routed_since=routed, auto_xcode=True,
+        placed=placed, choose_from=pools,
     )
+
+
+def pr_routing_off(snapshot: Mapping[str, Any]) -> str | None:
+    """The lane pull request runs stay on when the janitor saw their routing off, else None.
+
+    The janitor copies MACOS_RUNNER_PR and the CI_PR_POOL_* variables into the
+    snapshot. Routing is off when the kill switch is 0 or the lane is not the
+    6vcpu macOS 26 pool; the runs then use the lane (or its 6vcpu fallback).
+    """
+    copied = snapshot.get("settings")
+    if not isinstance(copied, Mapping):
+        return None
+    lane = str(copied.get("lane") or "").strip()
+    if (str(copied.get("overflow") or "").strip() == "0") or (lane and lane != SMALL_RUNNER):
+        return lane or SMALL_RUNNER
+    return None
 
 
 def auto_runner(
@@ -179,14 +203,14 @@ def auto_runner(
         return default
     try:
         load = measure()
+        choice = decide(load, limits, now=now)
+        if not choice.runner:
+            log(f"{choice.reason}; staying on {SMALL_RUNNER}")
+            return default
+        queue = "; ".join(pr_runner_pool.describe(load.snapshot, label) for label in E2E_POOLS)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {SMALL_RUNNER}")
         return default
-    choice = decide(load, limits, now=now)
-    if not choice.runner:
-        log(f"{choice.reason}; staying on {SMALL_RUNNER}")
-        return default
-    queue = "; ".join(pr_runner_pool.describe(load.snapshot, label) for label in E2E_POOLS)
     log(f"{choice.reason} -> {choice.runner} (janitor saw {queue})")
     return choice.runner
 

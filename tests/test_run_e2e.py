@@ -1138,9 +1138,33 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         state["e2e_runs"][0]["status"] = "completed"
         load = self.pool.measure_load(FakeActions(state), now=NOW, exclude_run_id=501)
         self.assertEqual(dict(load.e2e_since), {})
-        # A replayed pull request run can land on macOS 15 and not count on macOS 26.
-        crowded = queue(large=2, small=2, old=0, old_running=0, pr_since=8)
+        # Replayed pull request runs spill to an idle macOS 15 pool, as they
+        # would for real. Replayed over macOS 26 alone they would push 12vcpu
+        # to 5 queued against 6vcpu's 4 and send E2E to 6vcpu.
+        crowded = queue(large=3, small=4, old=0, old_running=0, pr_since=2)
         self.assertEqual(self.decide(crowded)[0], LARGE)
+
+    def test_pull_request_runs_stay_on_their_lane_when_routing_is_off(self):
+        pr = self.pool.pr_runner_pool
+        snap = snapshot_of(queue(large_running=8))
+        load = self.pool.PoolLoad(snap, {}, 5)
+        self.assertEqual(self.pool.decide(load, pr.Settings(), now=NOW).runner, SMALL)
+        for settings in ({"lane": SMALL, "overflow": "0"}, {"lane": OLD, "overflow": ""}):
+            with self.subTest(settings=settings):
+                load = self.pool.PoolLoad({**snap, "settings": settings}, {}, 5)
+                self.assertEqual(self.pool.decide(load, pr.Settings(), now=NOW).runner, LARGE)
+
+    def test_a_malformed_snapshot_keeps_the_default_instead_of_failing(self):
+        state = queue()
+        bad = dict(snapshot_of(state), generated_at="2026-09-24T11:55:00")  # no zone
+
+        class Client(FakeActions):
+            def snapshot(self, *, now):
+                return bad
+
+        label = self.pool.resolve("auto", "", overflow="", order="", max_queued="",
+                                  measure=lambda: self.pool.measure_load(Client(state), now=NOW), now=NOW)
+        self.assertEqual(label, SMALL)
 
     def test_the_dispatcher_reads_the_queue_through_the_pull_request_client(self):
         # One rule, one client shape: run-e2e.sh subclasses pull request CI's
