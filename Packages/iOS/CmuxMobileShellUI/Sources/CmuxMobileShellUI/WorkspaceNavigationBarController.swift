@@ -10,7 +10,10 @@ final class WorkspaceNavigationBarController: UIViewController {
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
     private var leadingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
-    private var trailingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
+    private var trailingGroups: [UIBarButtonItemGroup] = []
+    private let trailingRepresentative = UIBarButtonItem(
+        image: UIImage(systemName: "ellipsis"), style: .plain, target: nil, action: nil
+    )
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
 
@@ -78,11 +81,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         let nextTrailingIDs = trailingItems.map(\.id)
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs
-            // Pin essential actions so the native bar compresses its title first.
-            trailingGroup = UIBarButtonItemGroup(
-                barButtonItems: trailingIDs.compactMap { controls[$0]?.button },
-                representativeItem: nil
-            )
+            trailingGroups = makeTrailingGroups(for: trailingIDs)
         }
         let visibleIDs = Set((leadingItems + trailingItems).map(\.id))
         controls = controls.filter { visibleIDs.contains($0.key) }
@@ -112,7 +111,7 @@ final class WorkspaceNavigationBarController: UIViewController {
                 visualOffset: isLandscape ? -2 : 0
             )
         }
-        for value in trailingGroup.barButtonItems {
+        for value in trailingGroups.flatMap(\.barButtonItems) {
             (value.customView as? WorkspaceNavigationControlView)?.update(
                 placement: .trailing,
                 isLandscape: isLandscape,
@@ -128,9 +127,36 @@ final class WorkspaceNavigationBarController: UIViewController {
         if !item.leadingItemGroups.elementsEqual(desiredLeadingGroups, by: { $0 === $1 }) {
             item.leadingItemGroups = desiredLeadingGroups
         }
-        if item.pinnedTrailingGroup !== trailingGroup {
-            item.pinnedTrailingGroup = trailingGroup
+        if !item.trailingItemGroups.elementsEqual(trailingGroups, by: { $0 === $1 }) {
+            item.trailingItemGroups = trailingGroups
         }
+        if item.pinnedTrailingGroup != nil {
+            item.pinnedTrailingGroup = nil
+        }
+    }
+
+    private func makeTrailingGroups(
+        for ids: [WorkspaceNavigationBar.Item.ID]
+    ) -> [UIBarButtonItemGroup] {
+        let warning = ids.first(where: { $0 == .alternateScreen }).flatMap { controls[$0]?.button }
+        let collapsible = ids.filter { $0 != .alternateScreen }.compactMap { controls[$0]?.button }
+        var groups: [UIBarButtonItemGroup] = []
+        if let warning {
+            groups.append(UIBarButtonItemGroup(barButtonItems: [warning], representativeItem: nil))
+        }
+        if !collapsible.isEmpty {
+            trailingRepresentative.accessibilityIdentifier = "OverflowBarButtonItem"
+            trailingRepresentative.accessibilityLabel = "More"
+            if #available(iOS 26.0, *) {
+                trailingRepresentative.sharesBackground = true
+                warning?.sharesBackground = true
+            }
+            groups.append(UIBarButtonItemGroup(
+                barButtonItems: collapsible,
+                representativeItem: trailingRepresentative
+            ))
+        }
+        return groups
     }
 
     private func trailingVisualOffset(for value: UIBarButtonItem) -> CGFloat {
@@ -153,8 +179,11 @@ final class WorkspaceNavigationBarController: UIViewController {
         if item.leadingItemGroups.elementsEqual([leadingGroup], by: { $0 === $1 }) {
             item.leadingItemGroups = originalItem.leadingGroups
         }
-        if item.pinnedTrailingGroup === trailingGroup {
-            item.pinnedTrailingGroup = originalItem.trailingGroup
+        if item.trailingItemGroups.elementsEqual(trailingGroups, by: { $0 === $1 }) {
+            item.trailingItemGroups = originalItem.trailingGroups
+        }
+        if item.pinnedTrailingGroup == nil, let trailingGroup = originalItem.trailingGroup {
+            item.pinnedTrailingGroup = trailingGroup
         }
         self.owner = nil
         self.originalItem = nil
@@ -170,6 +199,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         let style: UINavigationItem.ItemStyle
         let largeTitleDisplayMode: UINavigationItem.LargeTitleDisplayMode
         let leadingGroups: [UIBarButtonItemGroup]
+        let trailingGroups: [UIBarButtonItemGroup]
         let trailingGroup: UIBarButtonItemGroup?
 
         init(item: UINavigationItem) {
@@ -177,6 +207,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             style = item.style
             largeTitleDisplayMode = item.largeTitleDisplayMode
             leadingGroups = item.leadingItemGroups
+            trailingGroups = item.trailingItemGroups
             trailingGroup = item.pinnedTrailingGroup
         }
     }
