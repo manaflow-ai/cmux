@@ -18,6 +18,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from typing import Optional
 
 import product_input_identity as product_inputs
 
@@ -26,11 +27,13 @@ def fingerprint(
     tree_lines: list[str],
     workflow: str,
     extra: list[str],
+    e2e_workflow: Optional[str] = None,
 ) -> str:
     value = {
         "product_inputs": product_inputs.identity_from_tree_lines(
             tree_lines,
             workflow,
+            e2e_workflow,
         ),
         "extra": list(extra),
     }
@@ -51,7 +54,11 @@ def local_fingerprint(revision: str, extra: list[str]) -> str:
         ["git", "show", f"{revision}:{product_inputs.CI_WORKFLOW}"],
         text=True,
     )
-    return fingerprint(tree_lines, workflow, extra)
+    e2e_workflow = subprocess.check_output(
+        ["git", "show", f"{revision}:{product_inputs.E2E_WORKFLOW}"],
+        text=True,
+    )
+    return fingerprint(tree_lines, workflow, extra, e2e_workflow)
 
 
 def main(argv: list[str]) -> int:
