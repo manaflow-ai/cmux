@@ -235,7 +235,9 @@ struct TerminalPredictionEngineTests {
             session.type("s")
             #expect(session.drawn == "s")
             session.remote("x")
-            // Re-arm for the next cycle.
+            // Re-arm for the next cycle, once the dropped keystroke's echo
+            // could no longer be in flight.
+            session.advance(.milliseconds(200))
             session.type("l")
             session.remote("l")
         }
@@ -613,13 +615,32 @@ extension TerminalPredictionEngineTests {
             session.remote("sa\r\u{1B}[K$ s")
             #expect(session.drawn == "")
             #expect(session.engine.status(at: session.clock) != .suspended)
-            // Re-arm for the next cycle.
+            // Re-arm for the next cycle, once the dropped keystrokes' echo
+            // could no longer be in flight.
+            session.advance(.milliseconds(300))
             session.type("l")
             session.remote("l")
             session.advance(.milliseconds(5))
             session.engine.presentedFrame(at: session.clock)
         }
         #expect(session.engine.status(at: session.clock) == .predicting)
+    }
+
+    @Test func anEchoThatMovesTheCursorUnderADrawnGlyphAsksForARedraw() {
+        // "a" goes out before the run arms, so it is never drawn; "b" is.
+        // The echo of "a" changes nothing drawn but moves the cursor "b" is
+        // measured from, and the host re-anchors only when asked.
+        var session = Session()
+        session.type("l")
+        session.type("a", after: .milliseconds(5))
+        session.remote("l")
+        session.type("b", after: .milliseconds(5))
+        #expect(session.engine.glyphs.map(\.offset) == [1])
+
+        session.advance(.milliseconds(10))
+        let redraw = session.engine.observedOutput(Array("a".utf8), at: session.clock)
+        #expect(redraw)
+        #expect(session.engine.glyphs.map(\.offset) == [0])
     }
 
     @Test func anEraseTheRemoteNeverSendsIsWithdrawn() {
