@@ -383,6 +383,66 @@ class Rescuing(unittest.TestCase):
         self.assertIn("did not finish", summary)
 
 
+def e2e_event(**overrides):
+    return event(**{"path": ".github/workflows/test-e2e.yml", "event": "workflow_dispatch",
+                     "pull_requests": [], **overrides})
+
+
+def e2e_runner(done_at=30):
+    return lambda seconds: job("runner", status="completed" if seconds >= done_at else "in_progress")
+
+
+class E2E(unittest.TestCase):
+    def test_only_attempt_1_of_a_same_repository_dispatch(self):
+        cases = {
+            "not a dispatch": e2e_event(event="push"),
+            "fork head": e2e_event(head_repository={"full_name": "someone/cmux"}),
+            "attempt 2": e2e_event(run_attempt=2),
+        }
+        for why, payload in cases.items():
+            self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+        target = rescue.target_from_event(e2e_event(), "manaflow-ai/cmux")
+        self.assertEqual((target.run_id, target.pr_number, target.e2e, target.picker_job),
+                         (RUN_ID, 0, True, "runner"))
+        self.assertEqual(target.watch_limit, rescue.E2E_WATCH_LIMIT_SECONDS)
+
+    def test_ephemeral_e2e_run_stops_after_the_marker_check(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
+        self.assertIn("an E2E dispatch", summary)
+
+    def test_a_stuck_e2e_job_reruns_only_what_failed_without_a_pull_request(self):
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("build", labels=[MINI], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("pull", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+
+    def test_a_refused_e2e_job_is_rerun(self):
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 60:
+                found.append(refused_job("build"))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn("refused", summary)
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")
@@ -396,10 +456,13 @@ class Workflow(unittest.TestCase):
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
     def test_runs_whenever_owned_pools_are_on(self):
-        self.assertEqual(self.doc[True]["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
+        self.assertEqual(self.doc[True]["workflow_run"],
+                         {"workflows": ["CI", "E2E test with video recording"], "types": ["requested"]})
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
-                     "github.event.workflow_run.event == 'pull_request'",
+                     "(github.event.workflow_run.event == 'pull_request' || "
+                     "github.event.workflow_run.path == '.github/workflows/test-e2e.yml' && "
+                     "github.event.workflow_run.event == 'workflow_dispatch')",
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event.workflow_run.run_attempt == 1"):
             self.assertIn(part, condition)
@@ -420,7 +483,8 @@ class Workflow(unittest.TestCase):
             self.assertIs(step.get("continue-on-error"), True, name)
 
     def test_job_timeout_covers_the_watch_and_the_cancel_wait(self):
-        limit = (rescue.WATCH_LIMIT_SECONDS + rescue.CANCEL_WAIT_SECONDS + rescue.FIRST_LOOK_SECONDS) / 60
+        watch = max(rescue.WATCH_LIMIT_SECONDS, rescue.E2E_WATCH_LIMIT_SECONDS)
+        limit = (watch + rescue.CANCEL_WAIT_SECONDS + rescue.FIRST_LOOK_SECONDS) / 60
         self.assertGreater(self.doc["jobs"]["rescue"]["timeout-minutes"], limit)
 
 

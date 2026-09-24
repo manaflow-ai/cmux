@@ -38,6 +38,16 @@ both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
 here instead (rescue with failed_only=False).
 
+E2E runs (test-e2e.yml) are watched the same way. Its `runner` job runs
+e2e_runner_pool.py, which may pick an owned pool, and uploads the same marker
+(with 1 job). An E2E run is a workflow_dispatch, not a pull request, so there
+is no head to re-check, and its build and test jobs are not a split that can
+break: from attempt 2 on both take the runner job's retry_label, a macOS 26
+Blacksmith pool on the same Xcode build. So a stuck or refused E2E job always
+gets its failed and cancelled jobs re-run, keeping a build that passed. Its
+watch lasts E2E_WATCH_LIMIT_SECONDS, since its test job queues only after a
+sibling wait and a build.
+
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
 were met can never count as already past the budget.
@@ -77,8 +87,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import persistent  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
+E2E_WORKFLOW_PATH = ".github/workflows/test-e2e.yml"
 # ci.yml's job that runs the pool picker; its jobs-API name (no `name:` override).
 PICKER_JOB = "changes"
+# test-e2e.yml's job that runs e2e_runner_pool.py.
+E2E_PICKER_JOB = "runner"
 DEFAULT_BUDGET_SECONDS = 90
 MIN_BUDGET_SECONDS = 30
 MAX_BUDGET_SECONDS = 600
@@ -87,6 +100,8 @@ POLL_SECONDS = 20
 IDLE_POLL_SECONDS = 120
 # Long enough for a compile-only pull request run and its consumers to queue.
 WATCH_LIMIT_SECONDS = 60 * 60
+# An E2E test job queues after a sibling wait (up to 35 min) and a build.
+E2E_WATCH_LIMIT_SECONDS = 150 * 60
 READ_ATTEMPTS = 3
 READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
@@ -156,8 +171,8 @@ def refused(job: Mapping[str, Any]) -> bool:
                    for step in steps)
 
 
-def picker_finished(jobs: Sequence[Mapping[str, Any]]) -> bool:
-    picker = [job for job in jobs if job.get("name") == PICKER_JOB]
+def picker_finished(jobs: Sequence[Mapping[str, Any]], picker_job: str = PICKER_JOB) -> bool:
+    picker = [job for job in jobs if job.get("name") == picker_job]
     return bool(picker) and all(job.get("status") == "completed" for job in picker)
 
 
@@ -256,22 +271,36 @@ class Target:
     run_id: int
     attempt: int
     head_sha: str
-    pr_number: int
+    pr_number: int  # 0 for an E2E dispatch, which has no pull request
+    e2e: bool = False
+
+    @property
+    def picker_job(self) -> str:
+        return E2E_PICKER_JOB if self.e2e else PICKER_JOB
+
+    @property
+    def watch_limit(self) -> int:
+        return E2E_WATCH_LIMIT_SECONDS if self.e2e else WATCH_LIMIT_SECONDS
 
 
 def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str:
-    """The CI run to watch, or why this event is not one."""
+    """The CI or E2E run to watch, or why this event is not one."""
     run = event.get("workflow_run") or {}
-    if run.get("path") != CI_WORKFLOW_PATH:
-        return f"started by {run.get('path') or 'an unknown workflow'}, not {CI_WORKFLOW_PATH}"
-    if run.get("event") != "pull_request":
-        return f"a {run.get('event') or 'unknown'} run, not a pull request"
+    path = run.get("path")
+    if path not in (CI_WORKFLOW_PATH, E2E_WORKFLOW_PATH):
+        return f"started by {path or 'an unknown workflow'}, not {CI_WORKFLOW_PATH} or {E2E_WORKFLOW_PATH}"
+    e2e = path == E2E_WORKFLOW_PATH
+    expected = "workflow_dispatch" if e2e else "pull_request"
+    if run.get("event") != expected:
+        return f"a {run.get('event') or 'unknown'} run of {path}, not a {expected}"
     head = (run.get("head_repository") or {}).get("full_name") or ""
     if head.casefold() != repository.casefold():
         return "a fork head; forks never take a persistent pool"
     attempt = int(run.get("run_attempt") or 0)
     if attempt != 1:
         return f"attempt {attempt}; a retry attempt never takes a persistent pool"
+    if e2e:
+        return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True)
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
@@ -312,7 +341,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         if not on_persistent:
-            if picker_finished(jobs):
+            if picker_finished(jobs, target.picker_job):
                 if not read(lambda: api.has_artifact(target.run_id, marker_name(target)), sleep, log):
                     return "stop", "the run is on an ephemeral pool"
                 on_persistent = True
@@ -337,7 +366,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 return look.action, look.reason
             if not look.waiting:
                 interval = IDLE_POLL_SECONDS
-        if (now() - started).total_seconds() >= WATCH_LIMIT_SECONDS:
+        if (now() - started).total_seconds() >= target.watch_limit:
             return "stop", "watch limit reached"
         sleep(interval)
 
@@ -345,6 +374,8 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
     """Why the pull request no longer wants this run, or "" when it still does."""
+    if target.e2e:
+        return ""  # a dispatch has no head to move; a newer one cancels it by concurrency
     pull = read(lambda: api.pull(target.pr_number), sleep, log)
     if pull.get("state") != "open":
         return "the pull request is closed"
@@ -434,13 +465,17 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if isinstance(target, str):
         return finish(f"not watched: {target}")
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
-    log(f"watching run {target.run_id} of pull request #{target.pr_number} (budget {seconds}s)")
+    subject = "an E2E dispatch" if target.e2e else f"pull request #{target.pr_number}"
+    log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")
     try:
         outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log)
         if outcome not in ("rescue", "refused"):
             return finish(f"stopped: {reason}")
         log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
-        return finish(rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=outcome == "refused"))
+        # An E2E run's jobs may split across pools (see the module docstring),
+        # so it keeps a build that passed.
+        failed_only = outcome == "refused" or target.e2e
+        return finish(rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it.
         finish(f"gave up: {error}")

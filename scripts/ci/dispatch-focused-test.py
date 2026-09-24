@@ -40,6 +40,9 @@ VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
 OVERFLOW_ENV = "CMUX_" + pool.OVERFLOW_VARIABLE
 ORDER_ENV = "CMUX_" + pool.ORDER_VARIABLE
 MAX_QUEUED_ENV = "CMUX_" + pool.MAX_QUEUED_VARIABLE
+OWNED_ENV = "CMUX_" + pool.OWNED_VARIABLE
+SLOTS_ENV = "CMUX_" + pool.SLOTS_VARIABLE
+PR_XCODE_ENV = "CMUX_" + pool.PR_XCODE_VARIABLE
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -54,6 +57,7 @@ RUNNERS = (
     "blacksmith-6vcpu-macos-26",
     "blacksmith-12vcpu-macos-26",
     "blacksmith-6vcpu-macos-latest",
+    "glaeda-std-xcode-26.6",
     "tart-canary",
     "tart-dual",
     "tart-small",
@@ -62,7 +66,8 @@ RUNNERS = (
 # preference and queue depth. The rule lives in e2e_runner_pool.py, which
 # test-e2e.yml runs too. Because the choice depends on the queue at dispatch
 # time, not on the commit, the in-flight guards below look on both pools.
-OVERFLOW_POOLS = pool.E2E_POOLS
+OVERFLOW_POOLS = pool.E2E_POOLS + tuple(
+    label for label in RUNNERS if pool.pr_runner_pool.persistent(label))
 # GitHub rejects a concurrency group longer than this as a workflow file
 # issue: the run is created with no jobs and no message saying why.
 MAX_CONCURRENCY_GROUP = 400
@@ -381,10 +386,13 @@ def routed_runner(default: str | None) -> str | None:
         limits=pool.settings(
             repository_variable(pool.ORDER_VARIABLE, ORDER_ENV),
             repository_variable(pool.MAX_QUEUED_VARIABLE, MAX_QUEUED_ENV),
+            repository_variable(pool.OWNED_VARIABLE, OWNED_ENV),
+            repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
         ),
         measure=lambda: pool.measure_load(GhApi(), now=now),
         now=now,
         log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
+        owned_slots=pool.pr_runner_pool.slots(repository_variable(pool.SLOTS_VARIABLE, SLOTS_ENV)),
     )
 
 
@@ -392,7 +400,8 @@ def candidate_runners(runner: str | None, pinned: bool) -> tuple[str, ...]:
     """Every pool a dispatch with this runner could land on.
 
     A pinned runner is exact. An unpinned dispatch on the 6vcpu default may
-    overflow to the 12vcpu pool, so a run on either one already answers it.
+    overflow to the 12vcpu pool or an owned Mac, so a run on any of them
+    already answers it.
     Empty means the default could not be established.
     """
     if runner is None:

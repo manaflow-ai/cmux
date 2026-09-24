@@ -43,6 +43,17 @@ or malformed snapshot, an order with no macOS 26 pool, or an invalid setting.
 `vars.CI_E2E_LARGE_POOL_OVERFLOW == '0'` turns the choice off without reading
 the queue. An explicit runner, or a variable naming any other pool, is never
 rerouted.
+
+Owned Macs (glaeda-<class>-xcode-<version>, pr_runner_pool.persistent) join
+the choice exactly as they do for pull requests: only when
+`vars.CI_PR_POOL_OWNED == '1'`, only the labels for the lane's Xcode pin
+(vars.CMUX_CI_XCODE_APP_PR), ahead of Blacksmith, and only while
+vars.CI_OWNED_POOL_SLOTS leaves a machine free on a snapshot younger than
+pr_runner_pool.OWNED_MAX_AGE_MINUTES. An E2E run holds one machine at a time
+(build, then test), so it needs one free machine. An owned pool is never the
+fewest-queued fallback: with no free machine the run takes Blacksmith. A job
+that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
+ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner().
 """
 from __future__ import annotations
 
@@ -61,15 +72,21 @@ import pr_runner_pool  # noqa: E402
 
 SMALL_RUNNER = pr_runner_pool.DEFAULT_RUNNER
 LARGE_RUNNER = pr_runner_pool.LARGE_RUNNER
-# The pools E2E may take, all macOS 26.
+# The Blacksmith pools E2E may take, all macOS 26. Owned pools for the lane's
+# Xcode pin join them when CI_PR_POOL_OWNED is 1 (e2e_pool()).
 E2E_POOLS = (LARGE_RUNNER, SMALL_RUNNER)
 E2E_WORKFLOW = "test-e2e.yml"
+# Most machines one E2E run holds at once: the build job, then the test job.
+E2E_JOBS = 1
 
 # Repository variables. The kill switch turns the choice off when set to "0";
 # the order and threshold are pull request CI's own.
 OVERFLOW_VARIABLE = "CI_E2E_LARGE_POOL_OVERFLOW"
 ORDER_VARIABLE = pr_runner_pool.ORDER_VARIABLE
 MAX_QUEUED_VARIABLE = pr_runner_pool.MAX_QUEUED_VARIABLE
+OWNED_VARIABLE = pr_runner_pool.OWNED_VARIABLE
+SLOTS_VARIABLE = pr_runner_pool.SLOTS_VARIABLE
+PR_XCODE_VARIABLE = pr_runner_pool.PR_XCODE_VARIABLE
 
 # The whole API budget of one decision; see the module docstring.
 MAX_API_CALLS = 4
@@ -100,9 +117,24 @@ def enabled(value: str | None) -> bool:
     return (value or "").strip() != "0"
 
 
-def settings(order: str | None, max_queued: str | None) -> pr_runner_pool.Settings | None:
-    """Pull request CI's order and threshold; None when either is invalid."""
-    return pr_runner_pool.settings(None, order, max_queued)
+def settings(order: str | None, max_queued: str | None, owned: str | None = None,
+             pr_xcode_app: str | None = None) -> pr_runner_pool.Settings | None:
+    """Pull request CI's order and threshold; None when either is invalid.
+
+    Owned pools stay in the order only when `owned` is "1", and only for the
+    lane's Xcode pin, exactly as for pull requests.
+    """
+    return pr_runner_pool.settings(None, order, max_queued, owned, pr_xcode_app)
+
+
+def e2e_pool(label: str) -> bool:
+    """A pool an E2E run may take: a macOS 26 Blacksmith pool or an owned one."""
+    return label in E2E_POOLS or pr_runner_pool.persistent(label)
+
+
+def retry_runner(label: str) -> str:
+    """The pool a re-run attempt takes: never an owned one, which may be why it is re-run."""
+    return SMALL_RUNNER if pr_runner_pool.persistent(label) else label
 
 
 def title_runner(run: Mapping[str, Any]) -> str | None:
@@ -138,11 +170,12 @@ def measure_load(client: ApiClient, *, now: dt.datetime, exclude_run_id: int | N
     )
 
 
-def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.datetime) -> pr_runner_pool.Choice:
-    """The pull request rule over the macOS 26 pools. An empty runner keeps the default."""
+def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.datetime,
+           owned_slots: Mapping[str, int] | None = None) -> pr_runner_pool.Choice:
+    """The pull request rule over the macOS 26 and owned pools. An empty runner keeps the default."""
     if load is None:
         return pr_runner_pool.Choice("", "", "no readable pool snapshot")
-    pools = [label for label in limits.order if label in E2E_POOLS]
+    pools = [label for label in limits.order if e2e_pool(label)]
     if not pools:
         return pr_runner_pool.Choice("", "", f"{ORDER_VARIABLE} names no macOS 26 pool")
     placed, routed = dict(load.e2e_since), load.pull_requests_since
@@ -155,6 +188,7 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
         load.snapshot, limits, now=now, xcode_pins={},
         routed_since=routed, auto_xcode=True,
         placed=placed, choose_from=pools,
+        owned_slots=owned_slots or {}, jobs=E2E_JOBS,
     )
 
 
@@ -182,6 +216,7 @@ def auto_runner(
     measure: Callable[[], PoolLoad | None],
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
+    owned_slots: Mapping[str, int] | None = None,
 ) -> str | None:
     """The pool an unpinned run lands on, given what `auto` means.
 
@@ -198,16 +233,17 @@ def auto_runner(
     if limits is None:
         log(f"invalid {ORDER_VARIABLE} or {MAX_QUEUED_VARIABLE}; staying on {SMALL_RUNNER}")
         return default
-    if not any(label in E2E_POOLS for label in limits.order):
+    if not any(e2e_pool(label) for label in limits.order):
         log(f"{ORDER_VARIABLE} names no macOS 26 pool; staying on {SMALL_RUNNER}")
         return default
     try:
         load = measure()
-        choice = decide(load, limits, now=now)
+        choice = decide(load, limits, now=now, owned_slots=owned_slots)
         if not choice.runner:
             log(f"{choice.reason}; staying on {SMALL_RUNNER}")
             return default
-        queue = "; ".join(pr_runner_pool.describe(load.snapshot, label) for label in E2E_POOLS)
+        shown = [label for label in limits.order if pr_runner_pool.persistent(label)] + list(E2E_POOLS)
+        queue = "; ".join(pr_runner_pool.describe(load.snapshot, label, owned_slots) for label in shown)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {SMALL_RUNNER}")
         return default
@@ -225,6 +261,9 @@ def resolve(
     measure: Callable[[], PoolLoad | None],
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
+    owned: str | None = None,
+    owned_slots: str | None = None,
+    pr_xcode_app: str | None = None,
 ) -> str:
     """The runner label for a workflow run, from its inputs and variables."""
     requested = (requested or "").strip()
@@ -234,10 +273,11 @@ def resolve(
     return auto_runner(
         default,
         enabled=enabled(overflow),
-        limits=settings(order, max_queued),
+        limits=settings(order, max_queued, owned, pr_xcode_app),
         measure=measure,
         now=now,
         log=log,
+        owned_slots=pr_runner_pool.slots(owned_slots),
     ) or SMALL_RUNNER
 
 
@@ -249,7 +289,14 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--overflow", default="", help=f"vars.{OVERFLOW_VARIABLE}")
     parser.add_argument("--order", default="", help=f"vars.{ORDER_VARIABLE}")
     parser.add_argument("--max-queued", default="", help=f"vars.{MAX_QUEUED_VARIABLE}")
+    parser.add_argument("--owned", default="", help=f"vars.{OWNED_VARIABLE}")
+    parser.add_argument("--owned-slots", default="", help=f"vars.{SLOTS_VARIABLE}")
+    parser.add_argument("--pr-xcode-app", default="", help=f"vars.{PR_XCODE_VARIABLE}")
+    parser.add_argument("--retry-of", help="print the pool a re-run of this label takes, and nothing else")
     args = parser.parse_args(argv)
+    if args.retry_of is not None:
+        print(retry_runner(args.retry_of.strip()))
+        return 0
 
     repo = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
     token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN")
@@ -265,6 +312,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     print(resolve(
         args.requested, args.variable,
         overflow=args.overflow, order=args.order, max_queued=args.max_queued,
+        owned=args.owned, owned_slots=args.owned_slots, pr_xcode_app=args.pr_xcode_app,
         measure=measure, now=now,
         log=lambda message: print(message, file=sys.stderr),
     ))
