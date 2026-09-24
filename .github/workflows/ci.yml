@@ -354,11 +354,17 @@ jobs:
               # The router derives macOS's local-package closure from the Xcode
               # project and every Package.swift. Without them it keeps all iOS
               # package edits macOS-relevant and compiles the app for nothing.
+              # One archive instead of a mkdir and git show per file: about 80
+              # manifests made this copy most of the trusted router's runtime.
               if [ "$trusted_ok" = true ]; then
+                trusted_inputs=()
                 while IFS= read -r trusted_path; do
-                  mkdir -p "$trusted_root/$(dirname "$trusted_path")"
-                  git show "$trusted_base:$trusted_path" > "$trusted_root/$trusted_path" || true
+                  trusted_inputs+=("$trusted_path")
                 done < <(git ls-tree -r --name-only "$trusted_base" -- cmux.xcodeproj/project.pbxproj Packages | grep -E '(^cmux\.xcodeproj/project\.pbxproj$|^Packages/[^/]+/[^/]+/Package\.swift$)')
+                if [ "${#trusted_inputs[@]}" -gt 0 ]; then
+                  git --literal-pathspecs archive "$trusted_base" -- "${trusted_inputs[@]}" \
+                    | tar -x -C "$trusted_root" || true
+                fi
               fi
               if [ "$trusted_ok" != true ]; then
                 echo "Could not load trusted base router; running all CI areas." >&2
