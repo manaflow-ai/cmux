@@ -28,7 +28,7 @@ final class BrowserStreamContentView: UIView, UIScrollViewDelegate, UIGestureRec
     private var viewportOffset = CGPoint.zero
     private var pinchStartScale: CGFloat = 1
     private var panStartOffset = CGPoint.zero
-    private var displayLink: CADisplayLink?
+    private(set) var displayLink: CADisplayLink?
     private var viewportPolicy = BrowserStreamViewportEmissionPolicy()
     private var tapClickCounter = BrowserStreamTapClickCounter()
 
