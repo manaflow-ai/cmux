@@ -9,6 +9,9 @@ extension Workspace {
     func installTerminalVisualBellRouting(for terminalPanel: TerminalPanel) {
         terminalPanel.surface.onExplicitInput = { [weak self, weak terminalPanel] in
             guard let self, let terminalPanel else { return }
+            // The user (or a socket client) took over the pane: never replay a
+            // lost restore selector into a line they are typing.
+            self.restoredAgentLifecycle.clearStartupInput(panelId: terminalPanel.id)
             self.owningTabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: self.id,
                 surfaceId: terminalPanel.id

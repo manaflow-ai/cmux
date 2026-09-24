@@ -19,18 +19,21 @@ import Foundation
 /// route change additionally triggers one immediate out-of-cadence beat, so
 /// the presence service can push the fresh port/IP to subscribed phones live.
 ///
-/// Offline is explicit on the server: a clean quit sends a `stopping: true`
-/// goodbye; a crash or sleep is caught by the service's missed-heartbeat alarm
-/// (45s), so this client never needs a watchdog of its own.
+/// Offline is explicit on the server while iOS pairing stays enabled: a clean
+/// quit sends a `stopping: true` goodbye; a crash, sleep, or pairing opt-out is
+/// caught by the service's missed-heartbeat alarm (45s), so disabling iOS
+/// pairing never makes one last backend request.
 @MainActor
 final class PresenceHeartbeatClient {
     static let shared = PresenceHeartbeatClient()
 
     private let session: URLSession = .shared
+    private let retryAfterGate = CmxRetryAfterGate()
     private var auth: AuthCoordinator?
     private var loopTask: Task<Void, Never>?
     private var routesObserveTask: Task<Void, Never>?
     private var defaultsObserver: NSObjectProtocol?
+    private var teamScopeObserver: NSObjectProtocol?
     /// Cadence between heartbeats; server-owned, seeded with the service default.
     private var intervalMs: Int = 15_000
     /// The attach routes most recently advertised by ``MobileHostService``,
@@ -44,11 +47,10 @@ final class PresenceHeartbeatClient {
     /// once at the composition root, alongside ``DeviceRegistryClient``.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        startObservingRoutes()
         if defaultsObserver == nil {
-            // Re-evaluate when the flag or URL flips, so enabling presence in a
-            // running app starts the loop without a relaunch (and disabling
-            // stops it and says goodbye).
+            // Re-evaluate when the pairing flag, presence flag, or URL flips,
+            // so enabling iOS pairing in a running app starts the loop without
+            // a relaunch and disabling it stops all network contact.
             defaultsObserver = NotificationCenter.default.addObserver(
                 forName: UserDefaults.didChangeNotification,
                 object: UserDefaults.standard,
@@ -59,16 +61,28 @@ final class PresenceHeartbeatClient {
                 }
             }
         }
+        if teamScopeObserver == nil {
+            teamScopeObserver = NotificationCenter.default.addObserver(
+                forName: .cmuxCloudTeamScopeDidChange,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.loopTask != nil else { return }
+                    Task { await self.sendHeartbeat(stopping: false) }
+                }
+            }
+        }
         evaluate()
     }
 
     /// Cancel the loop and send a best-effort goodbye. Called from
     /// `applicationWillTerminate`; the process may exit before the request
     /// lands, which is fine: the service's missed-heartbeat timeout covers
-    /// every unclean path, the goodbye only makes clean quits flip offline
-    /// immediately instead of within 45s.
+    /// every unclean path. Pairing opt-out suppresses this goodbye so the
+    /// setting's off state remains network-silent.
     func appWillTerminate() {
-        guard loopTask != nil else { return }
+        guard loopTask != nil, isEnabled else { return }
         stopLoop()
         Task { await self.sendHeartbeat(stopping: true) }
     }
@@ -107,7 +121,7 @@ final class PresenceHeartbeatClient {
     /// Resolved service base URL: env override first (dev/tagged builds), then
     /// the defaults key, then the Debug-build dev-instance default. Nil
     /// disables the client entirely.
-    static func resolvedServiceURL(
+    nonisolated static func resolvedServiceURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) -> URL? {
@@ -144,13 +158,17 @@ final class PresenceHeartbeatClient {
 
     private func evaluate() {
         let shouldRun = auth != nil && isEnabled && Self.resolvedServiceURL() != nil
+        if shouldRun, routesObserveTask == nil {
+            startObservingRoutes()
+        } else if !shouldRun {
+            routesObserveTask?.cancel()
+            routesObserveTask = nil
+            currentRoutes = []
+        }
         if shouldRun && loopTask == nil {
             startLoop()
         } else if !shouldRun, loopTask != nil {
             stopLoop()
-            // Flag turned off while running: announce the disappearance instead
-            // of leaving the instance to time out.
-            Task { await self.sendHeartbeat(stopping: true) }
         }
     }
 
@@ -177,6 +195,10 @@ final class PresenceHeartbeatClient {
     // MARK: - Heartbeat
 
     private func sendHeartbeat(stopping: Bool) async {
+        // Cadence, route-change, and shutdown triggers share one server-owned
+        // floor so an immediate trigger cannot reopen a rate-limited endpoint.
+        guard (try? await retryAfterGate.wait()) != nil else { return }
+        guard isEnabled else { return }
         guard let auth, let baseURL = Self.resolvedServiceURL() else { return }
         // Await tokens first, mirroring DeviceRegistryClient: gates on "signed
         // in" and on launch auth bootstrap so the team header resolves from a
@@ -187,6 +209,7 @@ final class PresenceHeartbeatClient {
         } catch {
             return // not signed in -> nothing to announce
         }
+        guard isEnabled || stopping else { return }
         let teamID = auth.resolvedTeamID
 
         guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }
@@ -215,7 +238,16 @@ final class PresenceHeartbeatClient {
 
         do {
             let (data, response) = try await session.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else { return }
+            if http.statusCode == 429 {
+                let seconds = CmxRetryAfterPolicy().seconds(
+                    from: http,
+                    defaultSeconds: CmxRetryAfterPolicy().defaultRateLimitSeconds
+                ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
+                await retryAfterGate.extend(by: seconds)
+                return
+            }
+            guard (200...299).contains(http.statusCode) else {
                 return // best-effort; retry happens on the next cadence tick
             }
             // Mirrors the JSONSerialization encode above; a typed Decodable
@@ -232,8 +264,9 @@ final class PresenceHeartbeatClient {
 
     /// Build the heartbeat JSON body. Routes are always present (the wire
     /// treats an absent field as "unchanged", but this client knows the full
-    /// current set on every beat, so it always states it — an empty array
-    /// accurately means "no routes", e.g. mobile pairing off). Pure and
+    /// current set on every beat, so it always states it. An empty array means
+    /// the enabled host currently has no routes; pairing opt-out suppresses the
+    /// heartbeat entirely. Pure and
     /// nonisolated for tests.
     nonisolated static func heartbeatBody(
         deviceID: String,

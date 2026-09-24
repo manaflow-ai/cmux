@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CMUXMobileCore
 import Foundation
 
 extension URLError.Code {
@@ -32,60 +33,8 @@ extension URLError.Code {
     }
 }
 
-enum VMClientError: Error, CustomStringConvertible {
-    case notSignedIn
-    case sessionRefreshFailed
-    case backendUnreachable(url: String, detail: String)
-    case httpStatus(Int, String)
-    case malformedResponse(String)
 
-    var description: String {
-        switch self {
-        case .notSignedIn:
-            return """
-                You are not signed in to cmux.
-
-                What to do:
-                  cmux auth login
-                  cmux auth status
-                """
-        case .sessionRefreshFailed:
-            return """
-                You are signed in, but cmux could not refresh your session (network or server issue).
-
-                What to do:
-                  Retry in a moment.
-                  If it keeps failing, run `cmux auth status` to check your session.
-                """
-        case .backendUnreachable(let url, let detail):
-            return """
-                Cannot reach the cmux Cloud VM service at \(url).
-
-                What to do:
-                  Start the cmux web server, then retry.
-                  If you are using a local development build, check its Cloud VM service URL before launching cmux.
-
-                Details:
-                  \(detail)
-                """
-        case .httpStatus(let code, let body):
-            return formattedCloudVMHTTPError(status: code, body: body)
-        case .malformedResponse(let message):
-            return """
-                The cmux Cloud VM backend returned a response this client could not read.
-
-                What to do:
-                  Update cmux to the latest build and retry.
-                  If this keeps happening, copy the details below and contact support.
-
-                Details:
-                  \(message)
-                """
-        }
-    }
-}
-
-private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
+func formattedCloudVMHTTPError(status: Int, body: String) -> String {
     let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
     guard let data = trimmedBody.data(using: .utf8),
           let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
@@ -93,10 +42,10 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
             Cloud VM request failed (HTTP \(status)).
 
             What to do:
-              Retry the command. If it keeps failing, copy the response body and contact support.
+              Retry the command. If it keeps failing, copy the HTTP status and contact support.
 
             Response body:
-              \(limitedSingleLine(trimmedBody.isEmpty ? "<empty>" : trimmedBody))
+              <unreadable response omitted>
             """
     }
 
@@ -108,7 +57,7 @@ private func formattedCloudVMHTTPError(status: Int, body: String) -> String {
         ?? defaultCloudVMMessage(status: status)
     let displayMessage = cloudVMString(ui?["message"]) ?? message
     let action = cloudVMString(object["action"])
-        ?? defaultCloudVMAction(status: status, errorCode: errorCode)
+        ?? defaultCloudVMAction(status: status, errorCode: errorCode, response: object)
     let retryAfterSeconds = cloudVMInt(object["retryAfterSeconds"])
         ?? cloudVMInt(ui?["retryAfterSeconds"])
     let details = cloudVMDetails(from: object)
@@ -167,7 +116,7 @@ private func defaultCloudVMMessage(status: Int) -> String {
     }
 }
 
-private func defaultCloudVMAction(status: Int, errorCode: String) -> String {
+func defaultCloudVMAction(status: Int, errorCode: String, response: [String: Any] = [:]) -> String {
     switch errorCode {
     case "vm_active_limit_exceeded":
         return "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before retrying."
@@ -178,8 +127,23 @@ private func defaultCloudVMAction(status: Int, errorCode: String) -> String {
     case "vm_requires_pro":
         return String(
             localized: "cloudVM.error.requiresPro.action",
-            defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing to create Cloud VMs."
+            defaultValue: "Upgrade to cmux Pro at https://cmux.com/pricing?cmux_source=mac_vm_requires_pro_error&cmux_client=mac to create Cloud VMs."
         )
+    case "vm_memory_requires_plan":
+        let details = response["details"] as? [String: Any]
+        let planId = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) ?? "max"
+        let plan: CheckoutPlan = planId == CheckoutPlan.pro.rawValue ? .pro : .max
+        let checkout = ProUpgradePresenter.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
+        if plan == .pro {
+            return String(format: String(
+                localized: "cloudVM.error.memoryRequiresPlan.proAction",
+                defaultValue: "Larger machines need cmux Pro. Upgrade at %@, or choose a smaller machine."
+            ), checkout.absoluteString)
+        }
+        return String(format: String(
+            localized: "cloudVM.error.memoryRequiresPlan.action",
+            defaultValue: "Larger machines need cmux Max. Upgrade at %@, or choose a smaller machine."
+        ), checkout.absoluteString)
     case "vm_create_credits_insufficient":
         return "Ask a team admin to upgrade the plan or grant more Cloud VM create credits, then retry."
     default:
@@ -306,11 +270,9 @@ struct VMSummary {
     let image: String
     let createdAt: Int64
     let base: VMBaseSummary?
-    /// The backend's `kind` (desktop/base) when it reports one; older control
-    /// planes omit it and ``resolvedKind`` infers it from the image id.
+    /// The backend's `kind` (desktop/base); when omitted, ``resolvedKind`` infers it from the image id.
     var kind: VMMachineKind? = nil
-    /// Verbs the machine's provider can honor (`GET /api/vm` → `capabilities`); an older
-    /// control plane that sends none is treated as supporting everything.
+    /// Verbs the provider can honor (`GET /api/vm` → `capabilities`); none sent means everything.
     var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
@@ -325,6 +287,10 @@ struct VMSummary {
     /// the WireGuard tunnel); nil for machines created before private networking.
     var addressIPv4: String?
     var addressIPv6: String?
+    /// The image's cmux-tui attach contract from the create receipt
+    /// (`"snapshot-v2"`: baked daemon, trusted private-network listener).
+    /// Only the create response carries it; list reads leave it nil.
+    var cmuxTuiContract: String?
 
     /// The name to show people: the label when set, else the generated slug,
     /// else the machine id.
@@ -353,37 +319,24 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Memory sizes the server accepts for new base machines, in MB.
+    /// Memory sizes the server accepts for new machines, in MB.
     var memoryOptionsMb: [Int] = []
-    /// Legacy compatibility data for older clients. The current New Machine
-    /// sheet always creates one base kind and does not display this field.
+    /// Ladder sizes the plan cannot start (`[32768, 65536]` on Pro, `[]` on
+    /// Max); nil when the control plane predates the field and the client
+    /// mirror decides.
+    var lockedMemoryOptionsMb: [Int]? = nil
+    /// The plan that sells the locked sizes ("max"); nil when nothing is locked.
+    var memoryUpgradePlanId: String? = nil
+    var memoryUpgradePlansByMb: [String: String]? = nil
+    var activeVmCount: Int? = nil
+    /// The kinds the default provider can serve and the image each resolves to;
+    /// informational (`vm.limits` echoes it): one snapshot serves every kind.
     var imageKinds: [VMImageKindOption] = []
 }
 
 struct VMListPage {
     let vms: [VMSummary]
     let limits: VMPlanLimits?
-}
-
-/// A point-in-time reading of one machine, as `GET /api/vm/{id}/stats` reports it.
-/// Sleeping machines are never woken for a reading: they come back `asleep` with
-/// only their provisioned memory.
-struct VMStats: Equatable {
-    enum State: String, Equatable {
-        case awake
-        case asleep
-        case unknown
-    }
-
-    let state: State
-    let sampledAt: Date
-    let cpus: Int?
-    let cpuPercent: Double?
-    let loadAverage1m: Double?
-    let memoryTotalMb: Int?
-    let memoryUsedMb: Int?
-    let diskTotalMb: Int?
-    let diskUsedMb: Int?
 }
 
 struct VMBaseSummary {
@@ -397,42 +350,6 @@ struct VMExecResult: Sendable {
     let exitCode: Int
     let stdout: String
     let stderr: String
-}
-
-/// What a machine's provider can do; the app offers only verbs that can succeed
-/// (Checkpoint/Fork disappear from menus when false — a verb that answers 502
-/// "not implemented" is not a verb).
-struct VMCapabilities: Equatable, Sendable {
-    var snapshot: Bool
-    var restore: Bool
-    var fork: Bool
-    /// The provider can mint a browser preview URL for a machine port.
-    var ports: Bool
-
-    static let all = VMCapabilities(snapshot: true, restore: true, fork: true, ports: true)
-
-    init(snapshot: Bool, restore: Bool, fork: Bool, ports: Bool = true) {
-        self.snapshot = snapshot
-        self.restore = restore
-        self.fork = fork
-        self.ports = ports
-    }
-
-    /// `{snapshot, restore, fork, ports}`; a missing object or flag reads as supported.
-    init(json: Any?) {
-        let dict = json as? [String: Any]
-        func flag(_ key: String) -> Bool {
-            if let value = dict?[key] as? Bool { return value }
-            if let number = dict?[key] as? NSNumber { return number.boolValue }
-            return true
-        }
-        self.init(
-            snapshot: flag("snapshot"),
-            restore: flag("restore"),
-            fork: flag("fork"),
-            ports: flag("ports")
-        )
-    }
 }
 
 struct VMOpenPortEndpoint {
@@ -564,11 +481,20 @@ struct VMPublicationDomain: Equatable, Sendable {
     }
 }
 
-
-struct VMSnapshotResult {
+/// One row of `GET /api/vm/<id>/snapshots`: the provider snapshot id, its display name
+/// when one was given, and the creation time as the ISO-8601 string the server sent.
+struct VMSnapshotSummary: Sendable, Equatable {
     let id: String
     let name: String?
-    let createdAt: Int64
+    let createdAt: String
+}
+
+struct VMSCPEndpoint: Sendable {
+    let host: String
+    let port: Int
+    let username: String
+    let hostPublicKey: String
+    let expiresAtUnix: Int
 }
 
 struct VMSSHEndpoint {
@@ -700,14 +626,19 @@ actor VMClient {
     @MainActor private(set) static var shared: VMClient!
 
     /// Build the shared client with its injected auth dependency. Call once at
-    /// the composition root. `privateNetwork` is used only for Cloud webviews.
+    /// the composition root.
     @MainActor
-    static func bootstrap(
-        auth: AuthCoordinator,
-        session: URLSession = .shared,
-        privateNetwork: any CloudPrivateNetworkGate = CloudPrivateNetworkNoopGate()
-    ) {
-        shared = VMClient(session: session, auth: auth, privateNetwork: privateNetwork)
+    @discardableResult
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil) -> CloudReadRequestCoordinator {
+        let reads = CloudReadRequestCoordinator(onNetworkChange: { online in
+            await MainActor.run {
+                NotificationCenter.default.post(name: .cmuxCloudReadNetworkChanged, object: nil, userInfo: ["isOnline": online])
+                if online { NotificationCenter.default.post(name: .cmuxCloudReadNetworkRecovered, object: nil) }
+            }
+        })
+        shared = VMClient(session: session, auth: auth, resourceStats: VMResourceStatsStore(), checkpointRenames: SurfaceCatalog.shared.cloudRenameCoordinator, operations: operations, readRequests: reads, isCloudEnabled: { CloudMachinesFeature.offMainIsEnabled() })
+        Task { await reads.observeNetwork(CloudReadNetworkMonitor()) }
+        return reads
     }
 
     /// Revoke endpoint credentials issued by the Cloud VM service during sign-out.
@@ -746,133 +677,179 @@ actor VMClient {
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
-    /// The browser-only private-network gate. Terminal and metadata traffic
-    /// uses the separate user-space WireGuard hub.
-    private let privateNetwork: any CloudPrivateNetworkGate
+    nonisolated let operations: CloudOperationRecorder?
+    nonisolated let resourceStats: VMResourceStatsStore
+    private let machineCache: CloudMachineCache
+    private let readRequests: CloudReadRequestCoordinator
+    private let isCloudEnabled: @Sendable () -> Bool
+    private let isDisabledByManagedPolicy: (@Sendable () -> Bool)?
 
     init(
         session: URLSession = .shared,
         auth: AuthCoordinator,
+        resourceStats: VMResourceStatsStore,
+        checkpointRenames: CloudRenameCoordinator,
         telemetry: VMClientTelemetry = .shared,
-        privateNetwork: any CloudPrivateNetworkGate = CloudPrivateNetworkNoopGate()
+        operations: CloudOperationRecorder? = nil,
+        machineCache: CloudMachineCache = CloudMachineCache(),
+        isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
+        readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true }
     ) {
         self.session = session
         self.auth = auth
+        self.resourceStats = resourceStats
+        self.checkpointRenames = checkpointRenames
         self.telemetry = telemetry
-        self.privateNetwork = privateNetwork
-    }
-
-    /// Do not let a Cloud webview navigate until the browser tunnel is ready.
-    /// Direct private URLs call this without a control-plane request.
-    func requireCloudBrowserAccess(machineID: String) async throws {
-        try await privateNetwork.requirePrivateNetworkUse(
-            CloudPrivateNetworkUse(machineID: machineID, purpose: .openPort)
-        )
+        self.operations = operations
+        self.machineCache = machineCache
+        self.readRequests = readRequests
+        self.isCloudEnabled = isCloudEnabled
+        self.isDisabledByManagedPolicy = isDisabledByManagedPolicy
     }
 
     func list() async throws -> [VMSummary] {
-        try await listPage().vms
+        return try await withOperation(.list, foreground: false) {
+            try await listPage().vms
+        }
+    }
+
+    /// Typed reachability changes for scoped Cloud owners such as the machines
+    /// panel. The request coordinator remains the single reachability owner;
+    /// consumers subscribe to its stream instead of observing a process-wide
+    /// notification and maintaining a second state machine.
+    func networkChanges() async -> AsyncStream<Bool> {
+        await readRequests.networkChanges()
     }
 
     func listPage() async throws -> VMListPage {
-        let (data, http) = try await request("GET", path: "/api/vm")
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        guard let items = obj["vms"] as? [[String: Any]] else {
-            throw VMClientError.malformedResponse("missing `vms` array")
+        let (retentionToken, listIdentity, listTeamID) = await MainActor.run { [auth, resourceStats] in
+            (resourceStats.beginRetention(), auth.authenticatedSessionIdentity, auth.resolvedTeamID)
         }
-        var limits: VMPlanLimits?
-        if let rawLimits = obj["limits"] as? [String: Any],
-           let planId = rawLimits["planId"] as? String {
-            // Absent or null means the plan has no active-machine cap.
-            let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue
-            let freeAccessWindowDays = (rawLimits["freeAccessWindowDays"] as? Int)
-                ?? (rawLimits["freeAccessWindowDays"] as? NSNumber)?.intValue
-                ?? 0
-            limits = VMPlanLimits(
-                maxActiveVms: maxActiveVms,
-                planId: planId,
-                freeAccessWindowDays: freeAccessWindowDays,
-                freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
-                memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
-                imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
-            )
+        return try await withOperation(.list, foreground: false) {
+            let (data, http) = try await request("GET", path: "/api/vm", timeoutSeconds: 15)
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let items = obj["vms"] as? [[String: Any]] else {
+                throw VMClientError.malformedResponse("missing `vms` array")
+            }
+            var limits: VMPlanLimits?
+            if let rawLimits = obj["limits"] as? [String: Any],
+               let planId = rawLimits["planId"] as? String {
+                // Absent or null means the plan has no active-machine cap.
+                let maxActiveVms = (rawLimits["maxActiveVms"] as? Int) ?? (rawLimits["maxActiveVms"] as? NSNumber)?.intValue
+                let freeAccessWindowDays = (rawLimits["freeAccessWindowDays"] as? Int)
+                    ?? (rawLimits["freeAccessWindowDays"] as? NSNumber)?.intValue
+                    ?? 0
+                limits = VMPlanLimits(
+                    maxActiveVms: maxActiveVms,
+                    planId: planId,
+                    freeAccessWindowDays: freeAccessWindowDays,
+                    freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                    memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
+                    lockedMemoryOptionsMb: (rawLimits["lockedMemoryOptionsMb"] as? [Any]).map { Self.decodeIntArray($0) },
+                    memoryUpgradePlanId: (rawLimits["memoryUpgradePlanId"] as? String)
+                        .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 },
+                    memoryUpgradePlansByMb: rawLimits["memoryUpgradePlansByMb"] as? [String: String],
+                    activeVmCount: rawLimits["activeVmCount"] as? Int,
+                    imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
+                )
+            }
+            let vms = try items.enumerated().map { index, dict -> VMSummary in
+                guard let id = dict["id"] as? String, !id.isEmpty else {
+                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+                }
+                guard let provider = dict["provider"] as? String, !provider.isEmpty else {
+                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+                }
+                guard let image = dict["image"] as? String, !image.isEmpty else {
+                    throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
+                }
+                let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+                let createdAt = (dict["createdAt"] as? Int64)
+                    ?? Int64((dict["createdAt"] as? Double) ?? 0)
+                var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+                summary.kind = Self.decodeKind(dict["kind"])
+                summary.capabilities = VMCapabilities(vmResponse: dict)
+                if let label = dict["displayName"] as? String, !label.isEmpty {
+                    summary.displayName = label
+                }
+                summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
+                if let address = dict["address"] as? [String: Any] {
+                    summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                }
+                return summary
+            }
+            machineCache.record(hasAnyMachine: !vms.isEmpty)
+            // Background discovery also reads resource stats. Register its
+            // complete fleet before returning, but only when the auth account
+            // and team are still the ones that produced this response. The
+            // store token fences reset and out-of-order list responses.
+            let machineIDs = Set(vms.map(\.id))
+            await MainActor.run { [auth, resourceStats] in
+                guard !Task.isCancelled, let listIdentity,
+                      auth.authenticatedSessionIdentity == listIdentity,
+                      auth.resolvedTeamID == listTeamID else { return }
+                resourceStats.retain(machineIDs: machineIDs, token: retentionToken)
+            }
+            return VMListPage(vms: vms, limits: limits)
         }
-        let vms = try items.enumerated().map { index, dict -> VMSummary in
-            guard let id = dict["id"] as? String, !id.isEmpty else {
-                throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-            }
-            guard let provider = dict["provider"] as? String, !provider.isEmpty else {
-                throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-            }
-            guard let image = dict["image"] as? String, !image.isEmpty else {
-                throw VMClientError.malformedResponse("Cloud VM list response was missing required fields for item \(index).")
-            }
-            let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
-            let createdAt = (dict["createdAt"] as? Int64)
-                ?? Int64((dict["createdAt"] as? Double) ?? 0)
-            var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
-            summary.kind = Self.decodeKind(dict["kind"])
-            summary.capabilities = VMCapabilities(json: dict["capabilities"])
-            if let label = dict["displayName"] as? String, !label.isEmpty {
-                summary.displayName = label
-            }
-            summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
-            if let address = dict["address"] as? [String: Any] {
-                summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            }
-            return summary
-        }
-        return VMListPage(vms: vms, limits: limits)
     }
 
     func listPublications() async throws -> [VMPublication] {
-        let (data, http) = try await request("GET", path: "/api/vm/publications")
-        try ensureOK(http, data: data)
-        let object = try decodeJSONObject(data)
-        guard let items = (object["publications"] as? [[String: Any]])
-            ?? (object["items"] as? [[String: Any]]) else {
-            throw VMClientError.malformedResponse(String(
-                localized: "cloudVM.publication.error.missingList",
-                defaultValue: "Cloud VM publication list response was missing `publications`."
-            ))
+        return try await withOperation(.publication, foreground: true) {
+            let (data, http) = try await request("GET", path: "/api/vm/publications")
+            try ensureOK(http, data: data)
+            let object = try decodeJSONObject(data)
+            guard let items = (object["publications"] as? [[String: Any]])
+                ?? (object["items"] as? [[String: Any]]) else {
+                throw VMClientError.malformedResponse(String(
+                    localized: "cloudVM.publication.error.missingList",
+                    defaultValue: "Cloud VM publication list response was missing `publications`."
+                ))
+            }
+            return try items.map(Self.decodePublication)
         }
-        return try items.map(Self.decodePublication)
     }
 
     func listPublicationDomains() async throws -> [VMPublicationDomain] {
-        let (data, http) = try await request("GET", path: "/api/vm/domains")
-        try ensureOK(http, data: data)
-        let object = try decodeJSONObject(data)
-        guard let items = object["domains"] as? [[String: Any]] else {
-            throw VMClientError.malformedResponse(String(
-                localized: "cloudVM.publication.error.missingDomainList",
-                defaultValue: "Cloud VM domain list response was missing `domains`."
-            ))
+        return try await withOperation(.domain, foreground: true) {
+            let (data, http) = try await request("GET", path: "/api/vm/domains")
+            try ensureOK(http, data: data)
+            let object = try decodeJSONObject(data)
+            guard let items = object["domains"] as? [[String: Any]] else {
+                throw VMClientError.malformedResponse(String(
+                    localized: "cloudVM.publication.error.missingDomainList",
+                    defaultValue: "Cloud VM domain list response was missing `domains`."
+                ))
+            }
+            return try items.map(Self.decodePublicationDomain)
         }
-        return try items.map(Self.decodePublicationDomain)
     }
 
     /// Verify a zone by name; a publication hostname or id resolves to its zone server-side.
     func verifyPublicationDomain(name: String) async throws -> VMPublicationDomain {
-        let encodedName = try pathSegment(name, fieldName: "domain")
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/domains/\(encodedName)/verify"
-        )
-        try ensureOK(http, data: data)
-        let object = try decodeJSONObject(data)
-        guard let domain = object["domain"] as? [String: Any] else {
-            throw VMClientError.malformedResponse(String(
-                localized: "cloudVM.publication.error.missingDomain",
-                defaultValue: "Cloud VM domain verification response was missing `domain`."
-            ))
+        return try await withOperation(.domain, foreground: true) {
+            let encodedName = try pathSegment(name, fieldName: "domain")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/domains/\(encodedName)/verify"
+            )
+            try ensureOK(http, data: data)
+            let object = try decodeJSONObject(data)
+            guard let domain = object["domain"] as? [String: Any] else {
+                throw VMClientError.malformedResponse(String(
+                    localized: "cloudVM.publication.error.missingDomain",
+                    defaultValue: "Cloud VM domain verification response was missing `domain`."
+                ))
+            }
+            return try Self.decodePublicationDomain(domain)
         }
-        return try Self.decodePublicationDomain(domain)
     }
 
     func createPublication(
@@ -884,32 +861,36 @@ actor VMClient {
         organizationSlug: String? = nil,
         confirmPublic: Bool = false
     ) async throws -> VMPublication {
-        var body: [String: Any] = [
-            "vmId": vmID,
-            "port": port,
-            "confirmPublic": confirmPublic,
-        ]
-        if let accessMode { body["accessMode"] = accessMode.rawValue }
-        if let organizationSlug { body["organizationSlug"] = organizationSlug }
-        if let hostname, !hostname.isEmpty { body["hostname"] = hostname }
-        if let teamID, !teamID.isEmpty { body["teamId"] = teamID }
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/publications",
-            jsonBody: body
-        )
-        try ensureOK(http, data: data)
-        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+        return try await withOperation(.publication, foreground: true) {
+            var body: [String: Any] = [
+                "vmId": vmID,
+                "port": port,
+                "confirmPublic": confirmPublic,
+            ]
+            if let accessMode { body["accessMode"] = accessMode.rawValue }
+            if let organizationSlug { body["organizationSlug"] = organizationSlug }
+            if let hostname, !hostname.isEmpty { body["hostname"] = hostname }
+            if let teamID, !teamID.isEmpty { body["teamId"] = teamID }
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/publications",
+                jsonBody: body
+            )
+            try ensureOK(http, data: data)
+            return try Self.decodePublicationMutation(try decodeJSONObject(data))
+        }
     }
 
     func verifyPublication(id: String) async throws -> VMPublication {
-        let encodedID = try pathSegment(id, fieldName: "publication id")
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/publications/\(encodedID)/verify"
-        )
-        try ensureOK(http, data: data)
-        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+        return try await withOperation(.publication, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "publication id")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/publications/\(encodedID)/verify"
+            )
+            try ensureOK(http, data: data)
+            return try Self.decodePublicationMutation(try decodeJSONObject(data))
+        }
     }
 
     func updatePublicationAccess(
@@ -918,36 +899,42 @@ actor VMClient {
         teamID: String?,
         confirmPublic: Bool = false
     ) async throws -> VMPublication {
-        let encodedID = try pathSegment(id, fieldName: "publication id")
-        let body: [String: Any] = [
-            "accessMode": accessMode.rawValue,
-            "confirmPublic": confirmPublic,
-            // An explicit null clears a team left over from a previous team publication.
-            "teamId": teamID.map { $0 as Any } ?? NSNull(),
-        ]
-        let (data, http) = try await request(
-            "PATCH",
-            path: "/api/vm/publications/\(encodedID)",
-            jsonBody: body
-        )
-        try ensureOK(http, data: data)
-        return try Self.decodePublicationMutation(try decodeJSONObject(data))
+        return try await withOperation(.publication, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "publication id")
+            let body: [String: Any] = [
+                "accessMode": accessMode.rawValue,
+                "confirmPublic": confirmPublic,
+                // An explicit null clears a team left over from a previous team publication.
+                "teamId": teamID.map { $0 as Any } ?? NSNull(),
+            ]
+            let (data, http) = try await request(
+                "PATCH",
+                path: "/api/vm/publications/\(encodedID)",
+                jsonBody: body
+            )
+            try ensureOK(http, data: data)
+            return try Self.decodePublicationMutation(try decodeJSONObject(data))
+        }
     }
 
     func publicationGrants(id: String, method: String, email: String?, expiresAt: String?) async throws -> Data {
-        let encodedID = try pathSegment(id, fieldName: "publication id")
-        var body: [String: Any] = [:]
-        if let email { body["email"] = email }
-        if let expiresAt { body["expiresAt"] = expiresAt }
-        let (data, http) = try await request(method, path: "/api/vm/publications/\(encodedID)/grants", jsonBody: method == "GET" ? nil : body)
-        try ensureOK(http, data: data)
-        return data
+        return try await withOperation(.publication, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "publication id")
+            var body: [String: Any] = [:]
+            if let email { body["email"] = email }
+            if let expiresAt { body["expiresAt"] = expiresAt }
+            let (data, http) = try await request(method, path: "/api/vm/publications/\(encodedID)/grants", jsonBody: method == "GET" ? nil : body)
+            try ensureOK(http, data: data)
+            return data
+        }
     }
 
     func deletePublication(id: String) async throws {
-        let encodedID = try pathSegment(id, fieldName: "publication id")
-        let (data, http) = try await request("DELETE", path: "/api/vm/publications/\(encodedID)")
-        try ensureOK(http, data: data)
+        return try await withOperation(.publication, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "publication id")
+            let (data, http) = try await request("DELETE", path: "/api/vm/publications/\(encodedID)")
+            try ensureOK(http, data: data)
+        }
     }
 
     private nonisolated static func decodePublicationMutation(_ object: [String: Any]) throws -> VMPublication {
@@ -1160,58 +1147,91 @@ actor VMClient {
 
     /// Creates a machine. `kind` asks the backend for its desktop or shell image;
     /// `image` is the explicit override (`vm new --image`) and wins server-side.
-    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
-        var body: [String: Any] = [:]
-        if let image { body["image"] = image }
-        if let kind { body["kind"] = kind.rawValue }
-        if let provider { body["provider"] = provider }
-        if persistentHome { body["persistentHome"] = true }
-        if perMachineHome { body["perMachineHome"] = true }
-        if let memoryMb { body["memoryMb"] = memoryMb }
-        // The CLI owns key stability across command retries. VMClient only forwards the
-        // key so the backend can short-circuit duplicate paid provider creates.
-        let headers = ["Idempotency-Key": idempotencyKey]
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm",
-            jsonBody: body,
-            extraHeaders: headers,
-            timeoutSeconds: Self.createTimeoutSeconds
-        )
+    /// Creates a payment confirmation URL for the signed-in app account.
+    func billingCheckout(plan: String) async throws -> [String: Any] {
+        let (data, http) = try await request("POST", path: "/api/billing/checkout", jsonBody: [
+            "plan": plan
+        ])
         try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        guard let id = obj["id"] as? String,
-              let providerValue = obj["provider"] as? String,
-              let imageValue = obj["image"] as? String
-        else {
-            throw VMClientError.malformedResponse("Cloud VM create response was missing required fields.")
+        let result = try decodeJSONObject(data)
+        guard let rawURL = result["url"] as? String,
+              let url = URL(string: rawURL),
+              url.scheme == "https",
+              url.host?.isEmpty == false else {
+            throw VMClientError.malformedResponse("Checkout URL is missing. Open https://cmux.com/pricing.")
         }
-        // Prefer the server-supplied createdAt. Using the local wall clock caused two
-        // visible bugs: (1) creation time was wrong under clock skew, (2) idempotent
-        // retries that short-circuited to an existing VM on the server still stamped
-        // "now" on the mac side, so the client saw a fresh timestamp for a replayed
-        // create (Codex P2). Fall back to the local clock only if the server omits it.
-        let serverCreatedAt = (obj["createdAt"] as? Int64)
-            ?? Int64((obj["createdAt"] as? Double) ?? 0)
-        let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
-        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
-        var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
-        summary.kind = Self.decodeKind(obj["kind"])
-        summary.capabilities = VMCapabilities(json: obj["capabilities"])
-        summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return summary
+        return result
+    }
+
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
+        return try await withOperation(.create, foreground: true) {
+            var body: [String: Any] = [:]
+            if let image { body["image"] = image }
+            if let kind { body["kind"] = kind.rawValue }
+            if let provider { body["provider"] = provider }
+            if persistentHome { body["persistentHome"] = true }
+            if perMachineHome { body["perMachineHome"] = true }
+            if let memoryMb { body["memoryMb"] = memoryMb }
+            if let displayName { body["displayName"] = displayName }
+            // The CLI owns key stability across command retries. VMClient only forwards the
+            // key so the backend can short-circuit duplicate paid provider creates.
+            let headers = ["Idempotency-Key": idempotencyKey]
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm",
+                jsonBody: body,
+                extraHeaders: headers,
+                timeoutSeconds: Self.createTimeoutSeconds
+            )
+            #if DEBUG
+            // Per-stage server time for the New Machine critical path.
+            cmuxDebugLog("cloud.vm.create.serverTiming status=\(http.statusCode) \(http.value(forHTTPHeaderField: "Server-Timing") ?? "none")")
+            #endif
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let id = obj["id"] as? String,
+                  let providerValue = obj["provider"] as? String,
+                  let imageValue = obj["image"] as? String
+            else {
+                throw VMClientError.malformedResponse("Cloud VM create response was missing required fields.")
+            }
+            // Preserve the server timestamp on idempotent replays and under local clock skew.
+            // Fall back to the local clock only for older servers that omit it.
+            let serverCreatedAt = (obj["createdAt"] as? Int64)
+                ?? Int64((obj["createdAt"] as? Double) ?? 0)
+            let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
+            let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
+            var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
+            summary.kind = Self.decodeKind(obj["kind"])
+            summary.capabilities = VMCapabilities(vmResponse: obj)
+            summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            // The create receipt names the new machine's private address and
+            // attach contract, so the app can register and dial it without a
+            // fleet re-read or an attach request (see createdMachineAttach).
+            if let address = obj["address"] as? [String: Any] {
+                summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
+            summary.cmuxTuiContract = (obj["cmuxTuiContract"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            machineCache.record(hasAnyMachine: true)
+            return summary
+        }
     }
 
     /// Opens (creating on first use) the persistent Base machine. `kind` only
     /// matters when Base does not exist yet; an existing Base keeps its image.
     func openBase(name: String? = nil, kind: VMMachineKind? = nil) async throws -> VMSummary {
-        try await baseRequest(path: "/api/vm/base/open", name: name, kind: kind, reason: nil)
+        return try await withOperation(.base, foreground: true) {
+            try await baseRequest(path: "/api/vm/base/open", name: name, kind: kind, reason: nil)
+        }
     }
 
     func resetBase(name: String? = nil, kind: VMMachineKind? = nil, reason: String? = nil) async throws -> VMSummary {
-        try await baseRequest(path: "/api/vm/base/reset", name: name, kind: kind, reason: reason)
+        return try await withOperation(.base, foreground: true) {
+            try await baseRequest(path: "/api/vm/base/reset", name: name, kind: kind, reason: reason)
+        }
     }
 
     private func baseRequest(path: String, name: String?, kind: VMMachineKind?, reason: String?) async throws -> VMSummary {
@@ -1244,154 +1264,296 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
-        summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        summary.capabilities = VMCapabilities(vmResponse: obj)
+        machineCache.record(hasAnyMachine: true)
         return summary
     }
 
     func status(id: String) async throws -> VMSummary {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)")
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        guard let id = obj["id"] as? String,
-              let provider = obj["provider"] as? String,
-              let image = obj["image"] as? String
-        else {
-            throw VMClientError.malformedResponse("Cloud VM status response was missing required fields.")
+        return try await withOperation(.status, foreground: false) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)")
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let id = obj["id"] as? String, let provider = obj["provider"] as? String, let image = obj["image"] as? String else {
+                throw VMClientError.malformedResponse("Cloud VM status response was missing required fields.")
+            }
+            let createdAt = (obj["createdAt"] as? Int64) ?? Int64((obj["createdAt"] as? Double) ?? 0)
+            let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+            var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+            summary.kind = Self.decodeKind(obj["kind"])
+            summary.capabilities = VMCapabilities(vmResponse: obj)
+            if let label = obj["displayName"] as? String, !label.isEmpty {
+                summary.displayName = label
+            }
+            summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let address = obj["address"] as? [String: Any] {
+                summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            }
+            return summary
         }
-        let createdAt = (obj["createdAt"] as? Int64)
-            ?? Int64((obj["createdAt"] as? Double) ?? 0)
-        let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
-        var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
-        summary.kind = Self.decodeKind(obj["kind"])
-        summary.capabilities = VMCapabilities(json: obj["capabilities"])
-        if let label = obj["displayName"] as? String, !label.isEmpty {
-            summary.displayName = label
-        }
-        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return summary
     }
 
     /// Sets or clears the machine's user-facing label via PATCH /api/vm/{id}.
     /// Returns the stored label (nil when cleared).
     func rename(id: String, displayName: String?) async throws -> String? {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let body: [String: Any] = ["displayName": displayName ?? NSNull()]
-        let (data, http) = try await request(
-            "PATCH",
-            path: "/api/vm/\(encodedID)",
-            jsonBody: body
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        let stored = obj["displayName"] as? String
-        return stored?.isEmpty == false ? stored : nil
+        return try await withOperation(.rename, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let body: [String: Any] = ["displayName": displayName ?? NSNull()]
+            let (data, http) = try await request(
+                "PATCH",
+                path: "/api/vm/\(encodedID)",
+                jsonBody: body
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            let stored = obj["displayName"] as? String
+            return stored?.isEmpty == false ? stored : nil
+        }
     }
 
     func destroy(id: String) async throws {
+        return try await withOperation(.delete, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
+            try ensureOK(http, data: data)
+            // Whether any machine remains is only known after the next list; a tunnel start
+            // meanwhile asks the control plane, not a marker that may describe this machine.
+            machineCache.clear()
+        }
+    }
+
+    /// `POST /api/vm/<id>/pause`: park the machine — compute stops (and stops billing), the
+    /// volume, workspaces and terminal history stay. Returns the status the control plane
+    /// now reports. A provider that cannot pause answers 501 `vm_pause_unsupported`.
+    func pause(id: String) async throws -> String {
+        return try await withOperation(.pause, foreground: true) {
+            try await lifecycleTransition(id: id, action: "pause")
+        }
+    }
+
+    /// `POST /api/vm/<id>/resume`: wake a paused machine; the daemon, its terminals and
+    /// files come back. Plan limits apply exactly as they do to an implicit wake.
+    func resume(id: String) async throws -> String {
+        return try await withOperation(.resume, foreground: true) {
+            try await lifecycleTransition(id: id, action: "resume")
+        }
+    }
+
+    private func lifecycleTransition(id: String, action: String) async throws -> String {
         let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/\(action)",
+            jsonBody: [:],
+            timeoutSeconds: Self.createTimeoutSeconds
+        )
+        if http.statusCode == 501 {
+            throw VMClientError.lifecycleUnsupported(action: action)
+        }
         try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let status = obj["status"] as? String, !status.isEmpty else {
+            throw VMClientError.malformedResponse("Cloud VM \(action) response was missing `status`.")
+        }
+        return status
+    }
+
+    /// `GET /api/vm/<id>/reflection[/<path>]`: the machine's identity as the platform sees
+    /// it — the same payloads a process inside the machine reads from `cmux self` (index,
+    /// `owner`, `machine`, `peers`, `integrations`) — through the signed-in user's session,
+    /// so no shell is started on the machine. `path` is already normalized (no leading or
+    /// trailing slash; nil for the index). Unknown paths come back as a 404 result rather
+    /// than an error; every other non-2xx is thrown like any Cloud VM call.
+    func reflection(id: String, path: String?) async throws -> VMReflectionResult {
+        return try await withOperation(.file, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            var requestPath = "/api/vm/\(encodedID)/reflection"
+            if let path, !path.isEmpty {
+                let segments = try path.split(separator: "/").map { try pathSegment(String($0), fieldName: "reflection path") }
+                requestPath += "/" + segments.joined(separator: "/")
+            }
+            let (data, http) = try await request("GET", path: requestPath)
+            if http.statusCode == 404,
+               let object = try? decodeJSONObject(data),
+               (object["error"] as? String) == "not_found" {
+                return VMReflectionResult(statusCode: 404, body: data)
+            }
+            try ensureOK(http, data: data)
+            _ = try decodeJSONObject(data)
+            return VMReflectionResult(statusCode: http.statusCode, body: data)
+        }
+    }
+
+    /// `GET /api/vm/<id>/snapshots`: this machine's snapshots, newest first. A provider
+    /// without the operation answers 501 `vm_operation_unsupported`; that HTTP failure is
+    /// passed through (the socket layer attaches `backend_code`, the CLI words it).
+    func listSnapshots(id: String) async throws -> [VMSnapshotSummary] {
+        return try await withOperation(.snapshot, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/snapshots")
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let rows = obj["snapshots"] as? [[String: Any]] else {
+                throw VMClientError.malformedResponse("Cloud VM snapshot list response was missing `snapshots`.")
+            }
+            return try rows.map { row in
+                guard let snapshotID = row["id"] as? String, !snapshotID.isEmpty else {
+                    throw VMClientError.malformedResponse("Cloud VM snapshot list response had a snapshot without an `id`.")
+                }
+                let name = (row["name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                let createdAt = (row["createdAt"] as? String) ?? (row["created_at"] as? String) ?? ""
+                return VMSnapshotSummary(id: snapshotID, name: name, createdAt: createdAt)
+            }
+        }
+    }
+
+    /// `DELETE /api/vm/<id>/snapshots/<snapshotId>` → true. 404 `vm_snapshot_not_found`
+    /// (not this machine's, or unknown) and 501 `vm_operation_unsupported` pass through
+    /// as HTTP failures for the CLI to word.
+    func deleteSnapshot(id: String, snapshotId: String) async throws -> Bool {
+        return try await withOperation(.snapshot, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let encodedSnapshotID = try pathSegment(snapshotId, fieldName: "snapshot id")
+            let (data, http) = try await request(
+                "DELETE",
+                path: "/api/vm/\(encodedID)/snapshots/\(encodedSnapshotID)",
+                timeoutSeconds: Self.createTimeoutSeconds
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            return (obj["deleted"] as? Bool) ?? true
+        }
     }
 
     func snapshot(id: String, name: String? = nil) async throws -> VMSnapshotResult {
-        var body: [String: Any] = [:]
-        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["name"] = name
+        return try await withOperation(.snapshot, foreground: true) {
+            try await checkpointRenames.waitForPendingRenames(on: .cloud(id))
+            var body: [String: Any] = [:]
+            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["name"] = name
+            }
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/snapshot",
+                jsonBody: body,
+                timeoutSeconds: Self.createTimeoutSeconds
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let snapshotID = (obj["snapshotId"] as? String) ?? (obj["id"] as? String),
+                  !snapshotID.isEmpty
+            else {
+                throw VMClientError.malformedResponse("Cloud VM snapshot response was missing `snapshotId`.")
+            }
+            let createdAt = (obj["createdAt"] as? Int64)
+                ?? Int64((obj["createdAt"] as? Double) ?? 0)
+            let nameValue = obj["name"] as? String
+            return VMSnapshotResult(id: snapshotID, name: nameValue, createdAt: createdAt)
         }
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/\(encodedID)/snapshot",
-            jsonBody: body,
-            timeoutSeconds: Self.createTimeoutSeconds
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        guard let snapshotID = (obj["snapshotId"] as? String) ?? (obj["id"] as? String),
-              !snapshotID.isEmpty
-        else {
-            throw VMClientError.malformedResponse("Cloud VM snapshot response was missing `snapshotId`.")
-        }
-        let createdAt = (obj["createdAt"] as? Int64)
-            ?? Int64((obj["createdAt"] as? Double) ?? 0)
-        let nameValue = obj["name"] as? String
-        return VMSnapshotResult(id: snapshotID, name: nameValue, createdAt: createdAt)
     }
 
     func fork(id: String, name: String? = nil, idempotencyKey: String) async throws -> (snapshot: VMSnapshotResult?, vm: VMSummary) {
-        var body: [String: Any] = [:]
-        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["name"] = name
+        return try await withOperation(.fork, foreground: true) {
+            try await checkpointRenames.waitForPendingRenames(on: .cloud(id))
+            var body: [String: Any] = [:]
+            if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["name"] = name
+            }
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/fork",
+                jsonBody: body,
+                extraHeaders: ["Idempotency-Key": idempotencyKey],
+                timeoutSeconds: Self.createTimeoutSeconds * 2
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let vmID = obj["id"] as? String,
+                  let provider = obj["provider"] as? String,
+                  let image = obj["image"] as? String
+            else {
+                throw VMClientError.malformedResponse("Cloud VM fork response was missing required fields.")
+            }
+            let createdAt = (obj["createdAt"] as? Int64)
+                ?? Int64((obj["createdAt"] as? Double) ?? 0)
+            let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let snapshotID = obj["snapshotId"] as? String
+            var forked = VMSummary(
+                id: vmID,
+                provider: provider,
+                status: status?.isEmpty == false ? status! : "running",
+                image: image,
+                createdAt: createdAt,
+                base: nil
+            )
+            forked.capabilities = VMCapabilities(vmResponse: obj)
+            machineCache.record(hasAnyMachine: true)
+            return (
+                snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
+                vm: forked
+            )
         }
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/\(encodedID)/fork",
-            jsonBody: body,
-            extraHeaders: ["Idempotency-Key": idempotencyKey],
-            timeoutSeconds: Self.createTimeoutSeconds * 2
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        guard let vmID = obj["id"] as? String,
-              let provider = obj["provider"] as? String,
-              let image = obj["image"] as? String
-        else {
-            throw VMClientError.malformedResponse("Cloud VM fork response was missing required fields.")
-        }
-        let createdAt = (obj["createdAt"] as? Int64)
-            ?? Int64((obj["createdAt"] as? Double) ?? 0)
-        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let snapshotID = obj["snapshotId"] as? String
-        var forked = VMSummary(
-            id: vmID,
-            provider: provider,
-            status: status?.isEmpty == false ? status! : "running",
-            image: image,
-            createdAt: createdAt,
-            base: nil
-        )
-        forked.capabilities = VMCapabilities(json: obj["capabilities"])
-        return (
-            snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
-            vm: forked
-        )
     }
 
     func restore(snapshotID: String, provider: String? = nil, idempotencyKey: String) async throws -> VMSummary {
-        var body: [String: Any] = ["snapshotId": snapshotID]
-        if let provider { body["provider"] = provider }
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/restore",
-            jsonBody: body,
-            extraHeaders: ["Idempotency-Key": idempotencyKey],
-            timeoutSeconds: Self.createTimeoutSeconds
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        guard let id = obj["id"] as? String,
-              let providerValue = obj["provider"] as? String,
-              let image = obj["image"] as? String
-        else {
-            throw VMClientError.malformedResponse("Cloud VM restore response was missing required fields.")
+        return try await withOperation(.restore, foreground: true) {
+            var body: [String: Any] = ["snapshotId": snapshotID]
+            if let provider { body["provider"] = provider }
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/restore",
+                jsonBody: body,
+                extraHeaders: ["Idempotency-Key": idempotencyKey],
+                timeoutSeconds: Self.createTimeoutSeconds
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let id = obj["id"] as? String,
+                  let providerValue = obj["provider"] as? String,
+                  let image = obj["image"] as? String
+            else {
+                throw VMClientError.malformedResponse("Cloud VM restore response was missing required fields.")
+            }
+            let createdAt = (obj["createdAt"] as? Int64)
+                ?? Int64((obj["createdAt"] as? Double) ?? 0)
+            let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+            restored.capabilities = VMCapabilities(vmResponse: obj)
+            machineCache.record(hasAnyMachine: true)
+            return restored
         }
-        let createdAt = (obj["createdAt"] as? Int64)
-            ?? Int64((obj["createdAt"] as? Double) ?? 0)
-        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
-        restored.capabilities = VMCapabilities(json: obj["capabilities"])
-        return restored
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/ssh-endpoint", jsonBody: [:])
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        return try decodeSSHEndpoint(obj)
+        return try await withOperation(.open, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/ssh-endpoint", jsonBody: [:])
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            return try decodeSSHEndpoint(obj)
+        }
+    }
+
+    func prepareSCP(id: String, publicKey: String) async throws -> VMSCPEndpoint {
+        try await withOperation(.open, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("POST", path: "/api/vm/\(encodedID)/scp-endpoint", jsonBody: ["publicKey": publicKey])
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let host = obj["host"] as? String, IPNetworkPrefix.isPrivateAddress(host),
+                  let port = obj["port"] as? Int, port == 22,
+                  let username = obj["username"] as? String, username == "cmux",
+                  let hostPublicKey = obj["hostPublicKey"] as? String,
+                  let expiresAtUnix = obj["expiresAtUnix"] as? Int else {
+                throw VMClientError.malformedResponse("Cloud SCP response was missing its private route or host key.")
+            }
+            return VMSCPEndpoint(host: host, port: port, username: username, hostPublicKey: hostPublicKey, expiresAtUnix: expiresAtUnix)
+        }
     }
 
     func openAttach(
@@ -1401,27 +1563,29 @@ actor VMClient {
         attachmentId: String? = nil,
         title: String? = nil
     ) async throws -> VMAttachEndpoint {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        var body: [String: Any] = ["requireDaemon": requireDaemon]
-        if let sessionId, !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["sessionId"] = sessionId
+        return try await withOperation(.open, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            var body: [String: Any] = ["requireDaemon": requireDaemon]
+            if let sessionId, !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["sessionId"] = sessionId
+            }
+            if let attachmentId, !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["attachmentId"] = attachmentId
+            }
+            if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["title"] = title
+            }
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/attach-endpoint",
+                jsonBody: body,
+                timeoutSeconds: Self.attachTimeoutSeconds,
+                retryTransientServiceUnavailable: true
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            return try decodeAttachEndpoint(obj)
         }
-        if let attachmentId, !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["attachmentId"] = attachmentId
-        }
-        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["title"] = title
-        }
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/\(encodedID)/attach-endpoint",
-            jsonBody: body,
-            timeoutSeconds: Self.attachTimeoutSeconds,
-            retryTransientServiceUnavailable: true
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        return try decodeAttachEndpoint(obj)
     }
 
     /// Transport capabilities a cmux-tui client may advertise (`remote-probe --json` →
@@ -1446,66 +1610,67 @@ actor VMClient {
         deviceFingerprint: String? = nil,
         clientCapabilities: [String] = []
     ) async throws -> VMCmuxRemoteEndpoint {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        var body: [String: Any] = ["transport": "cmux-remote"]
-        if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["deviceFingerprint"] = deviceFingerprint
-        }
-        let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
-        if !capabilities.isEmpty {
-            body["clientCapabilities"] = capabilities
-        }
-        // Terminal and metadata traffic uses the user-space WireGuard hub.
-        // Do not start or require the browser Network Extension here.
-        let obj = try await {
-            let (data, http) = try await request(
-                "POST",
-                path: "/api/vm/\(encodedID)/attach-endpoint",
-                jsonBody: body,
-                timeoutSeconds: Self.attachTimeoutSeconds,
-                retryTransientServiceUnavailable: true
-            )
-            try ensureOK(http, data: data)
-            return try decodeJSONObject(data)
-        }()
-        guard (obj["transport"] as? String) == "cmux-remote",
-              let route = obj["route"] as? String, !route.isEmpty,
-              let token = obj["token"] as? String,
-              let session = obj["session"] as? String else {
-            throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
-        }
-        let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
-        // Absent on a control plane older than the trusted listener: such a
-        // daemon would still expect enrollment, which this build no longer does.
-        let trustedCarrier = (obj["trustedCarrier"] as? Bool) ?? false
-        var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
-        if let raw = obj["daemonBuild"] as? [String: Any] {
-            daemonBuild = .init(
-                commit: raw["commit"] as? String,
-                remoteProtocol: (raw["remoteProtocol"] as? Int) ?? (raw["remoteProtocol"] as? Double).map(Int.init),
-                version: raw["version"] as? String
-            )
-        }
-        var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
-        // The HTTP API uses camelCase. The local control socket uses the
-        // snake_case wire contract. Accept both at this boundary so a proxy
-        // or an older app cannot silently drop the address metadata.
-        if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
-            let ipv4 = raw["ipv4"] as? String
-            let ipv6 = raw["ipv6"] as? String
-            if ipv4 != nil || ipv6 != nil {
-                networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
+        return try await withOperation(.open, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            var body: [String: Any] = ["transport": "cmux-remote"]
+            if let deviceFingerprint, !deviceFingerprint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["deviceFingerprint"] = deviceFingerprint
             }
+            let capabilities = Self.sanitizedClientCapabilities(clientCapabilities)
+            if !capabilities.isEmpty {
+                body["clientCapabilities"] = capabilities
+            }
+            // Terminal and metadata traffic uses the user-space WireGuard hub.
+            // Do not start or require the browser Network Extension here.
+            let obj = try await {
+                let (data, http) = try await request(
+                    "POST",
+                    path: "/api/vm/\(encodedID)/attach-endpoint",
+                    jsonBody: body,
+                    timeoutSeconds: 20
+                )
+                try ensureOK(http, data: data)
+                return try decodeJSONObject(data)
+            }()
+            guard (obj["transport"] as? String) == "cmux-remote",
+                  let route = obj["route"] as? String, !route.isEmpty,
+                  let token = obj["token"] as? String,
+                  let session = obj["session"] as? String else {
+                throw VMClientError.malformedResponse("Cloud VM cmux-remote attach response was missing required fields.")
+            }
+            let expiresAtUnix = (obj["expiresAtUnix"] as? Int64) ?? Int64((obj["expiresAtUnix"] as? Double) ?? 0)
+            // Absent on a control plane older than the trusted listener: such a
+            // daemon would still expect enrollment, which this build no longer does.
+            let trustedCarrier = (obj["trustedCarrier"] as? Bool) ?? false
+            var daemonBuild: VMCmuxRemoteEndpoint.DaemonBuild?
+            if let raw = obj["daemonBuild"] as? [String: Any] {
+                daemonBuild = .init(
+                    commit: raw["commit"] as? String,
+                    remoteProtocol: (raw["remoteProtocol"] as? Int) ?? (raw["remoteProtocol"] as? Double).map(Int.init),
+                    version: raw["version"] as? String
+                )
+            }
+            var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+            // The HTTP API uses camelCase. The local control socket uses the
+            // snake_case wire contract. Accept both at this boundary so a proxy
+            // or an older app cannot silently drop the address metadata.
+            if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
+                let ipv4 = raw["ipv4"] as? String
+                let ipv6 = raw["ipv6"] as? String
+                if ipv4 != nil || ipv6 != nil {
+                    networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
+                }
+            }
+            return VMCmuxRemoteEndpoint(
+                route: route,
+                token: token,
+                expiresAtUnix: expiresAtUnix,
+                session: session,
+                trustedCarrier: trustedCarrier,
+                networkAddresses: networkAddresses,
+                daemonBuild: daemonBuild
+            )
         }
-        return VMCmuxRemoteEndpoint(
-            route: route,
-            token: token,
-            expiresAtUnix: expiresAtUnix,
-            session: session,
-            trustedCarrier: trustedCarrier,
-            networkAddresses: networkAddresses,
-            daemonBuild: daemonBuild
-        )
     }
 
     /// Enroll (or refresh) this Mac's WireGuard tunnel into the user's private
@@ -1524,43 +1689,48 @@ actor VMClient {
         cmuxBuild: String? = nil,
         cmuxChannel: String? = nil
     ) async throws -> VMTunnelEndpoint {
-        var body: [String: Any] = [
-            "clientPublicKey": clientPublicKey,
-            "deviceId": deviceID,
-            "deviceFingerprint": deviceFingerprint,
-            "tunnelPurpose": tunnelPurpose,
-        ]
-        if let deviceName, !deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["deviceName"] = deviceName
+        return try await withOperation(.tunnel, foreground: true) {
+            var body: [String: Any] = [
+                "clientPublicKey": clientPublicKey,
+                "deviceId": deviceID,
+                "deviceFingerprint": deviceFingerprint,
+                "tunnelPurpose": tunnelPurpose,
+            ]
+            if let deviceName, !deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["deviceName"] = deviceName
+            }
+            for (key, value) in [
+                ("modelIdentifier", modelIdentifier),
+                ("osVersion", osVersion),
+                ("architecture", architecture),
+                ("cmuxVersion", cmuxVersion),
+                ("cmuxBuild", cmuxBuild),
+                ("cmuxChannel", cmuxChannel),
+            ] where value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                body[key] = value
+            }
+            let (data, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body)
+            try ensureOK(http, data: data)
+            return try Self.decodeTunnelEndpoint(
+                decodeJSONObject(data),
+                fallbackPurpose: tunnelPurpose
+            )
         }
-        for (key, value) in [
-            ("modelIdentifier", modelIdentifier),
-            ("osVersion", osVersion),
-            ("architecture", architecture),
-            ("cmuxVersion", cmuxVersion),
-            ("cmuxBuild", cmuxBuild),
-            ("cmuxChannel", cmuxChannel),
-        ] where value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-            body[key] = value
-        }
-        let (data, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body)
-        try ensureOK(http, data: data)
-        return try Self.decodeTunnelEndpoint(
-            decodeJSONObject(data),
-            fallbackPurpose: tunnelPurpose
-        )
     }
 
     /// Unenroll this Mac. The server deletes the provider-side tunnel, so any
     /// config still on disk stops working immediately.
     func revokeCloudAccess(deviceID: String) async throws {
-        let revocation = Self.cloudAccessRevocationRequest(deviceID: deviceID)
-        let (data, http) = try await request(
-            "DELETE",
-            path: revocation.path,
-            jsonBody: revocation.body
-        )
-        try ensureOK(http, data: data)
+        return try await withOperation(.tunnel, foreground: true) {
+            let revocation = Self.cloudAccessRevocationRequest(deviceID: deviceID)
+            let (data, http) = try await request(
+                "DELETE",
+                path: revocation.path,
+                jsonBody: revocation.body,
+                allowedUnderManagedPolicy: true
+            )
+            try ensureOK(http, data: data)
+        }
     }
 
     struct CloudAccessRevocationRequest: Sendable {
@@ -1618,12 +1788,14 @@ actor VMClient {
     }
 
     func listSessions(id: String) async throws -> [VMCloudSession] {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/sessions")
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        let rawSessions = obj["sessions"] as? [[String: Any]] ?? []
-        return try rawSessions.map(decodeCloudSession)
+        return try await withOperation(.session, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/sessions")
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            let rawSessions = obj["sessions"] as? [[String: Any]] ?? []
+            return try rawSessions.map(decodeCloudSession)
+        }
     }
 
     func openSession(
@@ -1632,30 +1804,32 @@ actor VMClient {
         attachmentId: String? = nil,
         title: String? = nil
     ) async throws -> VMCloudSessionAttach {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        var body: [String: Any] = [:]
-        if let sessionId, !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["sessionId"] = sessionId
+        return try await withOperation(.session, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            var body: [String: Any] = [:]
+            if let sessionId, !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["sessionId"] = sessionId
+            }
+            if let attachmentId, !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["attachmentId"] = attachmentId
+            }
+            if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                body["title"] = title
+            }
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/sessions",
+                jsonBody: body,
+                timeoutSeconds: Self.attachTimeoutSeconds
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let endpointObject = obj["endpoint"] as? [String: Any] else {
+                throw VMClientError.malformedResponse("Cloud VM session response was missing endpoint.")
+            }
+            let session = (obj["session"] as? [String: Any]).flatMap { try? decodeCloudSession($0) }
+            return VMCloudSessionAttach(endpoint: try decodeAttachEndpoint(endpointObject), session: session)
         }
-        if let attachmentId, !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["attachmentId"] = attachmentId
-        }
-        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            body["title"] = title
-        }
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/\(encodedID)/sessions",
-            jsonBody: body,
-            timeoutSeconds: Self.attachTimeoutSeconds
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        guard let endpointObject = obj["endpoint"] as? [String: Any] else {
-            throw VMClientError.malformedResponse("Cloud VM session response was missing endpoint.")
-        }
-        let session = (obj["session"] as? [String: Any]).flatMap { try? decodeCloudSession($0) }
-        return VMCloudSessionAttach(endpoint: try decodeAttachEndpoint(endpointObject), session: session)
     }
 
     private func decodeAttachEndpoint(_ obj: [String: Any]) throws -> VMAttachEndpoint {
@@ -1714,102 +1888,42 @@ actor VMClient {
     }
 
     func exec(id: String, command: String, timeoutMs: Int = 30_000) async throws -> VMExecResult {
-        let body: [String: Any] = ["command": command, "timeoutMs": timeoutMs]
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/\(encodedID)/exec",
-            jsonBody: body,
-            timeoutSeconds: max(1, Double(timeoutMs) / 1000.0 + 5.0)
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        let exitCode = (obj["exitCode"] as? Int) ?? ((obj["exitCode"] as? Double).map(Int.init) ?? -1)
-        let stdout = (obj["stdout"] as? String) ?? ""
-        let stderr = (obj["stderr"] as? String) ?? ""
-        return VMExecResult(exitCode: exitCode, stdout: stdout, stderr: stderr)
-    }
-
-    func stats(id: String) async throws -> VMStats {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/stats", timeoutSeconds: 30)
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
-        func int(_ key: String) -> Int? {
-            if let v = obj[key] as? Int { return v }
-            if let v = obj[key] as? Double { return Int(v) }
-            return nil
+        return try await withOperation(.exec, foreground: true) {
+            let body: [String: Any] = ["command": command, "timeoutMs": timeoutMs]
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/exec",
+                jsonBody: body,
+                timeoutSeconds: max(1, Double(timeoutMs) / 1000.0 + 5.0)
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            let exitCode = (obj["exitCode"] as? Int) ?? ((obj["exitCode"] as? Double).map(Int.init) ?? -1)
+            let stdout = (obj["stdout"] as? String) ?? ""
+            let stderr = (obj["stderr"] as? String) ?? ""
+            return VMExecResult(exitCode: exitCode, stdout: stdout, stderr: stderr)
         }
-        func double(_ key: String) -> Double? {
-            if let v = obj[key] as? Double { return v }
-            if let v = obj[key] as? Int { return Double(v) }
-            return nil
-        }
-        let sampledAtMs = double("sampledAt") ?? Date().timeIntervalSince1970 * 1000
-        return VMStats(
-            state: state,
-            sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
-            cpus: int("cpus"),
-            cpuPercent: double("cpuPercent"),
-            loadAverage1m: double("loadAverage1m"),
-            memoryTotalMb: int("memoryTotalMb"),
-            memoryUsedMb: int("memoryUsedMb"),
-            diskTotalMb: int("diskTotalMb"),
-            diskUsedMb: int("diskUsedMb")
-        )
-    }
-
-    /// Grow a machine's disk and return the provider's post-resize reading.
-    func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/\(encodedID)/resize",
-            jsonBody: ["storageMb": diskMb],
-            timeoutSeconds: 120
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
-        func int(_ key: String) -> Int? {
-            if let v = obj[key] as? Int { return v }
-            if let v = obj[key] as? Double { return Int(v) }
-            return nil
-        }
-        let sampledAtMs = (obj["sampledAt"] as? Double)
-            ?? (obj["sampledAt"] as? Int).map(Double.init)
-            ?? Date().timeIntervalSince1970 * 1000
-        return VMStats(
-            state: state,
-            sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
-            cpus: int("cpus"),
-            cpuPercent: nil,
-            loadAverage1m: nil,
-            memoryTotalMb: int("memoryTotalMb"),
-            memoryUsedMb: int("memoryUsedMb"),
-            diskTotalMb: int("diskTotalMb"),
-            diskUsedMb: int("diskUsedMb")
-        )
     }
 
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
-        let encodedID = try pathSegment(id, fieldName: "vm id")
-        try await requireCloudBrowserAccess(machineID: id)
-        let (data, http) = try await request(
-            "POST",
-            path: "/api/vm/\(encodedID)/open-port",
-            jsonBody: ["port": port],
-            timeoutSeconds: 60
-        )
-        try ensureOK(http, data: data)
-        let obj = try decodeJSONObject(data)
-        guard let url = obj["url"] as? String,
-              let token = obj["token"] as? String,
-              let openUrl = obj["openUrl"] as? String else {
-            throw VMClientError.malformedResponse("Cloud VM open-port response was missing required fields.")
+        return try await withOperation(.port, foreground: true) {
+            let encodedID = try pathSegment(id, fieldName: "vm id")
+            let (data, http) = try await request(
+                "POST",
+                path: "/api/vm/\(encodedID)/open-port",
+                jsonBody: ["port": port],
+                timeoutSeconds: 120
+            )
+            try ensureOK(http, data: data)
+            let obj = try decodeJSONObject(data)
+            guard let url = obj["url"] as? String,
+                  let token = obj["token"] as? String,
+                  let openUrl = obj["openUrl"] as? String else {
+                throw VMClientError.malformedResponse("Cloud VM open-port response was missing required fields.")
+            }
+            return VMOpenPortEndpoint(url: url, token: token, openUrl: openUrl)
         }
-        return VMOpenPortEndpoint(url: url, token: token, openUrl: openUrl)
     }
 
     /// Best-effort native sign-out tail. This deliberately does not read the
@@ -1868,26 +1982,95 @@ actor VMClient {
         do {
             _ = try await session.data(for: request)
         } catch {
-            // Local key deletion still ends access from this Mac. A remote
-            // revoke remains available on cmux.com if the provider is offline.
         }
     }
 
-    // MARK: - HTTP
+    func withOperation<T>(
+        _ kind: CloudOperationKind, foreground: Bool,
+        _ work: () async throws -> T
+    ) async rethrows -> T {
+        guard CloudOperationContext.current == nil, let operations else { return try await work() }
+        return try await operations.perform(kind, foreground: foreground, work)
+    }
 
-    /// Every Cloud VM API call goes through here. Mints the trace context,
-    /// sends the client identity headers, measures wall-clock latency and
-    /// records the outcome (success, HTTP error with the server's code and
-    /// trace id, or transport failure) with `VMClientTelemetry`.
-    private func request(
+    func request(
         _ method: String,
         path: String,
         jsonBody: [String: Any]? = nil,
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
-        retryTransientServiceUnavailable: Bool = false
+        retryTransientServiceUnavailable: Bool = false,
+        allowedUnderManagedPolicy: Bool = false
     ) async throws -> (Data, HTTPURLResponse) {
-        let trace = VMRequestTraceContext.mint()
+        let work = {
+            let isSharedRead = method == "GET"
+                && jsonBody == nil
+                && extraHeaders.isEmpty
+                && !retryTransientServiceUnavailable
+                && !allowedUnderManagedPolicy
+                && (path == "/api/vm" || path.hasSuffix("/stats"))
+            if !isSharedRead {
+                return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
+                    timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+                    allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            }
+            try Task.checkCancellation()
+            try self.checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            let context = CloudOperationContext.current
+            let elapsed = context.map { $0.operation == .list || $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero
+            let deadline = self.readRequests.makeDeadline(elapsed: elapsed)
+            let identity = await self.auth.authenticatedSessionIdentity
+            guard let identity else {
+                let isAuthenticated = await self.auth.isAuthenticated
+                let isRestoringSession = await self.auth.isRestoringSession
+                if isAuthenticated || isRestoringSession {
+                    throw VMClientError.sessionRefreshFailed
+                }
+                throw VMClientError.notSignedIn
+            }
+            let teamID = await self.auth.resolvedTeamID
+            let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
+                generation: identity.generation, teamID: teamID)
+            let value = try await self.readRequests.read(key, deadline: deadline) {
+                try await CloudOperationContext.withCurrent(context) {
+                    let (data, http) = try await self.requestMeasured(method, path: path, timeoutSeconds: timeoutSeconds)
+                    return CloudReadRequestCoordinator.Response(data: data, http: http)
+                }
+            }
+            try Task.checkCancellation()
+            guard await self.auth.isAuthenticatedSessionIdentityCurrent(identity),
+                  await self.auth.resolvedTeamID == teamID else { throw CancellationError() }
+            try self.checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+            return (value.data, value.http)
+        }
+        if CloudOperationContext.current != nil || operations == nil { return try await work() }
+        let kind: CloudOperationKind = path == "/api/vm" ? (method == "GET" ? .list : .create) : .resolve(path)
+        return try await operations!.perform(kind, foreground: method != "GET", work)
+    }
+
+    private func checkCloudAccess(allowedUnderManagedPolicy: Bool) throws {
+        if !allowedUnderManagedPolicy, isDisabledByManagedPolicy?() == true {
+            throw VMClientError.disabledByManagedPolicy
+        }
+        if !allowedUnderManagedPolicy, !isCloudEnabled() {
+            throw VMClientError.cloudMachinesDisabled
+        }
+    }
+
+    private func requestMeasured(
+        _ method: String,
+        path: String,
+        jsonBody: [String: Any]? = nil,
+        extraHeaders: [String: String] = [:],
+        timeoutSeconds: TimeInterval? = nil,
+        retryTransientServiceUnavailable: Bool = false,
+        allowedUnderManagedPolicy: Bool = false
+    ) async throws -> (Data, HTTPURLResponse) {
+        try checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
+        let minted = VMRequestTraceContext.mint()
+        let trace = CloudOperationContext.current.map {
+            VMRequestTraceContext(traceId: $0.traceID, spanId: $0.spanID, clientRequestId: minted.clientRequestId)
+        } ?? minted
         let route = VMClientTelemetry.normalizedRoute(path: path)
         let startedAt = DispatchTime.now().uptimeNanoseconds
         var retryCount = 0
@@ -1906,6 +2089,10 @@ actor VMClient {
         }
         var headers = VMClientTelemetry.clientIdentityHeaders()
         headers.merge(trace.headers) { _, new in new }
+        if let context = CloudOperationContext.current {
+            headers["X-Cmux-Operation-Id"] = context.operationID.uuidString.lowercased()
+        }
+        headers["X-Cmux-App-Revision"] = Bundle.main.object(forInfoDictionaryKey: "CMUXCommit") as? String
         headers.merge(extraHeaders) { _, new in new }
         do {
             let (data, http) = try await performRequest(
@@ -1915,6 +2102,7 @@ actor VMClient {
                 extraHeaders: headers,
                 timeoutSeconds: timeoutSeconds,
                 retryTransientServiceUnavailable: retryTransientServiceUnavailable,
+                allowedWhenCloudDisabled: allowedUnderManagedPolicy,
                 onRetry: { retryCount += 1 }
             )
             record(.response(
@@ -1944,7 +2132,7 @@ actor VMClient {
         case .sessionRefreshFailed: return .sessionRefreshFailed
         case .backendUnreachable: return .backendUnreachable
         case .malformedResponse: return .malformedResponse
-        case .httpStatus: return .unknown
+        case .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return .unknown
         }
     }
 
@@ -1952,11 +2140,10 @@ actor VMClient {
         switch error {
         case .backendUnreachable(let url, let detail): return "\(url): \(detail)"
         case .malformedResponse(let message): return message
-        case .notSignedIn, .sessionRefreshFailed, .httpStatus: return ""
+        case .notSignedIn, .sessionRefreshFailed, .httpStatus, .lifecycleUnsupported, .disabledByManagedPolicy, .cloudMachinesDisabled: return ""
         }
     }
 
-    /// The server's `x-cmux-vm-error` header, else the body's `error` field.
     private static func cloudVMErrorCode(http: HTTPURLResponse, data: Data) -> String? {
         if let header = http.value(forHTTPHeaderField: "x-cmux-vm-error"), !header.isEmpty {
             return header
@@ -1988,6 +2175,7 @@ actor VMClient {
         extraHeaders: [String: String],
         timeoutSeconds: TimeInterval?,
         retryTransientServiceUnavailable: Bool,
+        allowedWhenCloudDisabled: Bool,
         onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
         // Bind every control-plane request to the currently published auth
@@ -1996,19 +2184,21 @@ actor VMClient {
         let sessionIdentity = await auth.authenticatedSessionIdentity
         let isAuthenticated = await auth.isAuthenticated
         let isRestoringSession = await auth.isRestoringSession
+        let requestedTeamID = await auth.resolvedTeamID
         guard isAuthenticated || isRestoringSession else {
             throw VMClientError.notSignedIn
         }
         let tokens: (accessToken: String, refreshToken: String)
         do {
-            tokens = try await auth.currentTokens()
-        } catch AuthError.networkError {
+            tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw VMClientError.sessionRefreshFailed
         } catch {
             throw VMClientError.notSignedIn
         }
-        let teamID = await auth.resolvedTeamID
-
+        let teamID = requestedTeamID
         guard var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
         }
@@ -2016,7 +2206,6 @@ actor VMClient {
         guard let resolved = url.url else {
             throw VMClientError.malformedResponse("could not build URL for \(path)")
         }
-
         var req = URLRequest(url: resolved)
         req.httpMethod = method
         if let timeoutSeconds {
@@ -2034,18 +2223,37 @@ actor VMClient {
         for (key, value) in extraHeaders {
             req.setValue(value, forHTTPHeaderField: key)
         }
-
         // HTTP 429 from the VM API is an upstream auth throttle rejected before any work
         // happened (rate_limited in services/vms/authErrors.ts), so every verb is safe to
         // retry. Waiting out Retry-After here turns a transient throttle into a short pause
         // instead of a dead-end error dialog.
         var retriesLeft = 2
         while true {
+            try Task.checkCancellation()
+            guard await auth.resolvedTeamID == requestedTeamID else {
+                throw VMClientError.notSignedIn
+            }
+            if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             let data: Data
             let response: URLResponse
+            let attempt = 3 - retriesLeft
+            let requestSpan: CloudOperationContext?
+            if let context = CloudOperationContext.current {
+                requestSpan = await context.recorder.beginChild(of: context, phase: .request, attempt: attempt)
+            } else { requestSpan = nil }
+            if let requestSpan { req.setValue(requestSpan.traceparent, forHTTPHeaderField: "traceparent") }
+            let progressTask: Task<Void, Never>?
+            if let requestSpan, method != "GET" {
+                let progressRequest = req
+                progressTask = Task { await self.pollOperationProgress(context: requestSpan, request: progressRequest) }
+            } else { progressTask = nil }
+            defer { progressTask?.cancel() }
             do {
                 (data, response) = try await session.data(for: req)
-            } catch let error as URLError {
+                if let requestSpan { await requestSpan.recorder.finish(requestSpan, httpStatus: (response as? HTTPURLResponse)?.statusCode) }
+            } catch {
+                if let requestSpan { await requestSpan.recorder.finish(requestSpan, error: error) }
+                guard let error = error as? URLError else { throw error }
                 // Surface unreachable-backend errors as a human-readable message with recovery steps
                 // instead of the verbose NSURLErrorDomain payload.
                 if error.code.isCloudBackendTransportFailure {
@@ -2054,15 +2262,25 @@ actor VMClient {
                 }
                 throw error
             }
+            try Task.checkCancellation()
+            if !allowedWhenCloudDisabled, !isCloudEnabled() { throw VMClientError.cloudMachinesDisabled }
             guard let http = response as? HTTPURLResponse else {
                 throw VMClientError.malformedResponse("non-HTTP response")
+            }
+            if http.statusCode == 429, let read = CloudReadRequestCoordinator.current, let owner = read.owner {
+                let seconds = Self.retryDelaySeconds(statusCode: 429, retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")) ?? 60
+                let canRetry = await owner.noteRetryAfter(read.key, seconds: seconds,
+                    response: .init(data: data, http: http))
+                if !canRetry { return (data, http) }
             }
             if http.statusCode == 429, retriesLeft > 0 {
                 retriesLeft -= 1
                 onRetry()
-                let retryAfterSeconds = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(Double.init)
-                let delaySeconds = min(max(retryAfterSeconds ?? 2, 1), 10)
-                try await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                let delaySeconds = Self.retryDelaySeconds(
+                    statusCode: http.statusCode,
+                    retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+                ) ?? 2
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
                 continue
             }
             if retryTransientServiceUnavailable,
@@ -2070,9 +2288,19 @@ actor VMClient {
                let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
                 retriesLeft -= 1
                 onRetry()
-                try await Task.sleep(
-                    nanoseconds: UInt64(delaySeconds.components.seconds) * 1_000_000_000
-                )
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
+                continue
+            }
+            // The private gateway has not forwarded this request yet. Every
+            // verb is safe to retry while its tagged backend is starting.
+            if http.statusCode == 503, retriesLeft > 0,
+               resolved.host == "cmux-dev-backend-1.tail137216.ts.net",
+               Self.cloudVMErrorCode(http: http, data: data) == "dev_backend_starting" {
+                retriesLeft -= 1
+                onRetry()
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
+                    try await CmxRetryAfterPolicy().sleep(seconds: 2)
+                }
                 continue
             }
             if let sessionIdentity {
@@ -2087,7 +2315,40 @@ actor VMClient {
                     throw VMClientError.notSignedIn
                 }
             }
+            if let requestedTeamID {
+                guard await auth.resolvedTeamID == requestedTeamID else {
+                    throw VMClientError.notSignedIn
+                }
+            }
+            if method != "GET", (200...299).contains(http.statusCode) {
+                await readRequests.invalidate(CloudReadMutation(method: method, scope: .init(
+                    path: path, accountID: sessionIdentity?.accountID,
+                    generation: sessionIdentity?.generation, teamID: requestedTeamID
+                ), responseData: data))
+            }
             return (data, http)
+        }
+    }
+    private func pollOperationProgress(context: CloudOperationContext, request: URLRequest) async {
+        struct ProgressResponse: Decodable { let steps: [CloudRemoteOperationStep] }
+        var progress = request
+        progress.url = AuthEnvironment.vmAPIBaseURL.appendingPathComponent("api/observability/cloud/operations/\(context.operationID.uuidString.lowercased())")
+        progress.httpMethod = "GET"
+        progress.httpBody = nil
+        progress.timeoutInterval = 5
+        progress.setValue(nil, forHTTPHeaderField: "traceparent")
+        progress.setValue(nil, forHTTPHeaderField: "X-Cmux-Operation-Id")
+        // Fast requests make no progress reads. Slow requests expose actual server steps.
+        do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        while !Task.isCancelled, isCloudEnabled() {
+            guard let identity = context.identity, await auth.isAuthenticatedSessionIdentityCurrent(identity) else { return }
+            do {
+                let (data, response) = try await session.data(for: progress)
+                guard !Task.isCancelled, let response = response as? HTTPURLResponse, response.statusCode == 200 else { return }
+                let value = try JSONDecoder().decode(ProgressResponse.self, from: data)
+                await context.recorder.applyRemoteSteps(value.steps, context: context)
+            } catch { return }
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
         }
     }
 
@@ -2103,7 +2364,18 @@ actor VMClient {
         let error = object["error"] as? String
         guard retryable || error == "vm_cloud_service_unavailable" else { return nil }
         let requested = cloudVMInt(object["retryAfterSeconds"]) ?? 2
-        return .seconds(min(max(requested, 1), 10))
+        return .seconds(max(requested, 1))
+    }
+
+    nonisolated static func retryDelaySeconds(
+        statusCode: Int,
+        retryAfterHeader: String?
+    ) -> TimeInterval? {
+        guard statusCode == 429 else { return nil }
+        return TimeInterval(
+            CmxRetryAfterPolicy().seconds(from: retryAfterHeader)
+                ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
+        )
     }
 
     private func decodeWebSocketDaemonEndpoint(_ value: Any?) throws -> VMWebSocketDaemonEndpoint? {
@@ -2160,14 +2432,14 @@ actor VMClient {
         )
     }
 
-    private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
+    func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "<binary>"
             throw VMClientError.httpStatus(http.statusCode, body)
         }
     }
 
-    private func decodeJSONObject(_ data: Data) throws -> [String: Any] {
+    func decodeJSONObject(_ data: Data) throws -> [String: Any] {
         let parsed = try JSONSerialization.jsonObject(with: data, options: [])
         guard let obj = parsed as? [String: Any] else {
             throw VMClientError.malformedResponse("expected JSON object, got \(type(of: parsed))")
@@ -2212,7 +2484,7 @@ actor VMClient {
         )
     }
 
-    private func pathSegment(_ value: String, fieldName: String) throws -> String {
+    func pathSegment(_ value: String, fieldName: String) throws -> String {
         var allowed = CharacterSet.urlPathAllowed
         allowed.remove(charactersIn: "/?#")
         guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed),
@@ -2263,63 +2535,6 @@ actor VMClient {
 
 // MARK: - Per-machine coderouter usage
 
-/// Token and spend totals for one machine over the usage window, as
-/// `GET /api/coderouter/vm-usage/team` reports them.
-struct MachineUsageTotals: Equatable, Sendable {
-    let inputTokens: Int
-    let cachedInputTokens: Int
-    let outputTokens: Int
-    let totalTokens: Int
-    /// What the same traffic would have cost at list API prices.
-    let apiEquivalentUsd: Double
-
-    /// Nothing to show for a machine that has not routed a single token.
-    var isEmpty: Bool { totalTokens <= 0 && apiEquivalentUsd <= 0 }
-}
-
-/// One machine's usage readout: the row shows `totals` labeled with
-/// `periodDays`. `vmID` is the id `GET /api/vm` returns as the machine id, so
-/// it matches ``MachineSnapshot/id`` directly.
-struct MachineUsageSnapshot: Equatable, Sendable {
-    let vmID: String
-    /// The provider machine id, the `id` that `GET /api/vm` lists. Rows key
-    /// on it when present because `vmID` is the backend's own uuid.
-    let providerVmID: String?
-    let displayName: String?
-    let periodDays: Int
-    let asOf: Date?
-    let totals: MachineUsageTotals
-}
-
-/// The team-wide usage payload. `kind == .unavailable` means the backend has no
-/// usage store for this team (no rows are rendered, no error is surfaced).
-struct TeamMachineUsage: Equatable, Sendable {
-    enum Kind: String, Sendable {
-        case ready
-        case unavailable
-    }
-
-    let teamID: String
-    let periodDays: Int
-    let kind: Kind
-    let asOf: Date?
-    let machines: [MachineUsageSnapshot]
-
-    /// The lookup the machines panel keys rows by. Empty when the backend says
-    /// usage is unavailable; blank ids are dropped; the first entry wins when
-    /// the backend repeats a machine.
-    var byMachineID: [String: MachineUsageSnapshot] {
-        guard kind == .ready else { return [:] }
-        var result: [String: MachineUsageSnapshot] = [:]
-        for machine in machines {
-            for key in [machine.providerVmID ?? "", machine.vmID] where !key.isEmpty && result[key] == nil {
-                result[key] = machine
-            }
-        }
-        return result
-    }
-}
-
 enum MachineUsageClientError: Error, CustomStringConvertible {
     case notSignedIn
     case sessionRefreshFailed
@@ -2352,24 +2567,64 @@ actor MachineUsageClient {
     @MainActor private(set) static var shared: MachineUsageClient?
 
     @MainActor
-    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
-        shared = MachineUsageClient(session: session, auth: auth)
+    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared, operations: CloudOperationRecorder? = nil,
+                          readRequests: CloudReadRequestCoordinator? = nil) {
+        shared = MachineUsageClient(session: session, auth: auth, operations: operations,
+                                    readRequests: readRequests ?? CloudReadRequestCoordinator(budget: .seconds(15)))
     }
 
     private let session: URLSession
     private let auth: AuthCoordinator
+    private let readRequests: CloudReadRequestCoordinator
+    nonisolated let operations: CloudOperationRecorder?
 
-    init(session: URLSession = .shared, auth: AuthCoordinator) {
+    init(session: URLSession = .shared, auth: AuthCoordinator, operations: CloudOperationRecorder? = nil,
+         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(budget: .seconds(15))) {
         self.session = session
         self.auth = auth
+        self.operations = operations
+        self.readRequests = readRequests
+    }
+
+    private func withOperation<T>(_ kind: CloudOperationKind, foreground: Bool, _ work: () async throws -> T) async rethrows -> T {
+        guard CloudOperationContext.current == nil, let operations else { return try await work() }
+        return try await operations.perform(kind, foreground: foreground, work)
     }
 
     func teamUsage(teamID: String? = nil) async throws -> TeamMachineUsage {
-        let (data, http) = try await request("GET", path: "/api/coderouter/vm-usage/team", teamID: teamID)
-        guard (200...299).contains(http.statusCode) else {
-            throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+        return try await withOperation(.stats, foreground: false) {
+            let context = CloudOperationContext.current
+            let deadline = readRequests.makeDeadline(elapsed: context.map { $0.operation == .stats ? $0.clock.duration(to: .now) : .zero } ?? .zero, limit: .seconds(15))
+            let identity = await auth.authenticatedSessionIdentity
+            guard let identity else {
+                let isAuthenticated = await auth.isAuthenticated
+                let isRestoringSession = await auth.isRestoringSession
+                if isAuthenticated || isRestoringSession {
+                    throw MachineUsageClientError.sessionRefreshFailed
+                }
+                throw MachineUsageClientError.notSignedIn
+            }
+            let selectedTeam = await auth.resolvedTeamID
+            let explicitTeam = teamID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = CloudReadRequestCoordinator.Key(path: "/api/coderouter/vm-usage/team", accountID: identity.accountID,
+                generation: identity.generation, teamID: explicitTeam?.isEmpty == false ? explicitTeam : selectedTeam)
+            let response = try await readRequests.read(key, deadline: deadline) {
+                try await CloudOperationContext.withCurrent(context) {
+                    let (data, http) = try await self.request("GET", path: key.path, teamID: teamID)
+                    return CloudReadRequestCoordinator.Response(data: data, http: http)
+                }
+            }
+            guard await auth.isAuthenticatedSessionIdentityCurrent(identity) else { throw CancellationError() }
+            if explicitTeam?.isEmpty != false,
+               await auth.resolvedTeamID != selectedTeam {
+                throw CancellationError()
+            }
+            let (data, http) = (response.data, response.http)
+            guard (200...299).contains(http.statusCode) else {
+                throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
+            return try Self.decodeTeamUsage(data)
         }
-        return try Self.decodeTeamUsage(data)
     }
 
     /// Decodes the wire payload. Pure and nonisolated so tests can pin the
@@ -2424,7 +2679,6 @@ actor MachineUsageClient {
         if let value = raw as? Double, value.isFinite { return Int(exactly: value.rounded(.towardZero)) }
         return nil
     }
-
     private nonisolated static func doubleValue(_ raw: Any?) -> Double? {
         if let value = raw as? Double, value.isFinite { return value }
         if let value = raw as? Int { return Double(value) }
@@ -2432,16 +2686,16 @@ actor MachineUsageClient {
         return nil
     }
 
+    // Date.ISO8601FormatStyle is Sendable, so these can be nonisolated
+    // constants; ISO8601DateFormatter is not and warned here.
+    private nonisolated static let iso8601WithFractions = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private nonisolated static let iso8601 = Date.ISO8601FormatStyle()
+
     /// `null`/absent is nil; an unparseable string is nil too, since the date
     /// only labels the readout and must never fail the whole payload.
     private nonisolated static func dateValue(_ raw: Any?) -> Date? {
         guard let text = raw as? String, !text.isEmpty else { return nil }
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: text) { return date }
-        let wholeSeconds = ISO8601DateFormatter()
-        wholeSeconds.formatOptions = [.withInternetDateTime]
-        return wholeSeconds.date(from: text)
+        return (try? Date(text, strategy: iso8601WithFractions)) ?? (try? Date(text, strategy: iso8601))
     }
 
     private func request(
@@ -2451,12 +2705,15 @@ actor MachineUsageClient {
     ) async throws -> (Data, HTTPURLResponse) {
         let tokens: (accessToken: String, refreshToken: String)
         do {
-            tokens = try await auth.currentTokens()
-        } catch AuthError.networkError {
+            tokens = try await CloudOperationContext.phase(.authentication) { try await auth.currentTokens() }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch AuthError.networkError, AuthError.timedOut {
             throw MachineUsageClientError.sessionRefreshFailed
         } catch {
             throw MachineUsageClientError.notSignedIn
         }
+        try Task.checkCancellation()
         let resolvedTeamID = await auth.resolvedTeamID
 
         guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
@@ -2477,22 +2734,32 @@ actor MachineUsageClient {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: req)
-        } catch let error as URLError {
-            switch error.code {
-            case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
-                let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
-                throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
-            default:
-                throw error
+        return try await CloudOperationContext.phase(.request) {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: req)
+            } catch let error as URLError {
+                switch error.code {
+                case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                    let base = "\(AuthEnvironment.vmAPIBaseURL.scheme ?? "http")://\(AuthEnvironment.vmAPIBaseURL.host ?? "?"):\(AuthEnvironment.vmAPIBaseURL.port ?? -1)"
+                    throw MachineUsageClientError.backendUnreachable(url: base, detail: error.localizedDescription)
+                default:
+                    throw error
+                }
             }
-        }
-        guard let http = response as? HTTPURLResponse else {
-            throw MachineUsageClientError.malformedResponse("non-HTTP response")
-        }
+            guard let http = response as? HTTPURLResponse else {
+                throw MachineUsageClientError.malformedResponse("non-HTTP response")
+            }
+            if http.statusCode == 429, let read = CloudReadRequestCoordinator.current, let owner = read.owner {
+                let retryAfter = CmxRetryAfterPolicy()
+                let seconds = TimeInterval(retryAfter.seconds(from: http) ?? retryAfter.defaultRateLimitSeconds)
+                _ = await owner.noteRetryAfter(read.key, seconds: seconds, response: .init(data: data, http: http))
+            }
+            guard (200...299).contains(http.statusCode) else {
+                throw MachineUsageClientError.httpStatus(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+            }
         return (data, http)
     }
+}
 }

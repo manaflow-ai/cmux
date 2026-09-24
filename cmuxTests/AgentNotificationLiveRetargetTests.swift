@@ -7,7 +7,6 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
-
 /// Regression tests for https://github.com/manaflow-ai/cmux/issues/7939 /
 /// https://github.com/manaflow-ai/cmux/issues/5781: a notification addressed
 /// with a stale workspace id but a live surface id must be retargeted to the
@@ -24,21 +23,21 @@ extension AgentNotificationRegressionTests {
         let panelId: UUID
         let restore: () -> Void
     }
-
     private func makeLiveRetargetFixture() throws -> LiveRetargetFixture {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = appDelegate.tabManager ?? TabManager()
-
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalControllerTabManager = TerminalController.shared.activeTabManagerForCallerNotification()
 
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
+        TerminalController.shared.setActiveTabManager(manager)
         AppFocusState.overrideIsFocused = false
 
         let claimedWorkspace = manager.addWorkspace(select: false)
@@ -54,6 +53,7 @@ extension AgentNotificationRegressionTests {
             store.resetSuppressedNotificationFeedbackHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
+            TerminalController.shared.setActiveTabManager(originalControllerTabManager)
             AppFocusState.overrideIsFocused = originalAppFocusOverride
         }
         return LiveRetargetFixture(
@@ -200,12 +200,15 @@ extension AgentNotificationRegressionTests {
         fixture.owningWorkspace.trackRemoteTerminalSurface(fixture.panelId)
         fixture.claimedWorkspace.registerReportedSurfaceTTYName("0", panelId: siblingPanelID)
         fixture.owningWorkspace.registerReportedSurfaceTTYName("0", panelId: fixture.panelId)
+        let connectionID = UUID()
+        fixture.owningWorkspace.activeRemoteSessionControllerID = connectionID
 
         let result = TerminalController.shared.v2AgentResolveDeliveryTarget(params: [
             "tty_name": "0",
             "tty_resolution": "reported_tty",
             "workspace_id": fixture.claimedWorkspace.id.uuidString,
             "_cmux_remote_workspace_id": fixture.owningWorkspace.id.uuidString,
+            WorkspaceRemoteRelayCommandRewriter.connectionIDKey: connectionID.uuidString,
         ])
         guard case .ok(let payload) = result,
               let target = payload as? [String: Any] else {
@@ -375,6 +378,35 @@ extension AgentNotificationRegressionTests {
         let recorded = fixture.store.notifications.filter { $0.title == "Caller notify" }
         #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
         #expect(recorded.first?.surfaceId == fixture.panelId)
+    }
+
+    @Test
+    func testMobileTerminalResolutionFollowsMovedSurface() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        // The reply relay carries the workspace captured when the notification
+        // was created, but the surface may have moved (or the workspace may
+        // have been recreated) before the Mac sweeps the inbox. The stable
+        // surface identity must select its current workspace.
+        let routed = fixture.appDelegate.phoneReplyTerminalInputParams([
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+        ], retargetsToLiveSurfaceOwner: true)
+
+        #expect(
+            routed?["workspace_id"] as? String == fixture.owningWorkspace.id.uuidString
+        )
+        #expect(routed?["surface_id"] as? String == fixture.panelId.uuidString)
+
+        let confined = fixture.appDelegate.phoneReplyTerminalInputParams([
+            "workspace_id": fixture.claimedWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+        ], retargetsToLiveSurfaceOwner: false)
+        #expect(
+            confined?["workspace_id"] as? String == fixture.claimedWorkspace.id.uuidString,
+            "A workspace-confined reply must not follow a moved surface"
+        )
     }
 
     @Test

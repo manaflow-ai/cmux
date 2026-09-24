@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxMobileRPC
 import Foundation
 import Testing
 import UserNotifications
@@ -252,6 +253,39 @@ private final class LifecyclePushURLProtocol: URLProtocol,
 }
 
 @Suite struct MobilePushCoordinatorLifecycleTests {
+    @MainActor
+    @Test func readinessForwardsSecurePushSetupFailure() async {
+        let registration = LifecyclePushRegistration(snapshot: PushRegistrationSnapshot(
+            isEnabled: true,
+            hasDeviceToken: true,
+            backendState: .registered
+        ))
+        let suiteName = "push-coordinator-secure-setup-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "cmux.notifications.pushEnabled")
+        let coordinator = MobilePushCoordinator(
+            registration: registration,
+            phoneAPIOrigin: "https://cmux.com",
+            defaults: defaults,
+            authorizationStatus: { .authorized }
+        )
+        await coordinator.refreshReadiness()
+        let mac = MobileHostPhonePushStatus(
+            forwardingEnabled: true,
+            mode: .always,
+            admission: .allowed,
+            queuePersistence: .healthy,
+            apiOrigin: "https://cmux.com",
+            accountScope: .verifiedSameAccount
+        )
+
+        #expect(coordinator.readiness(macStatus: mac) == .ready(mode: .always))
+        let failed = coordinator.readiness(macStatus: mac, securePushSetupFailed: true)
+        #expect(failed == .blocked(.securePushSetupFailed))
+        #expect(failed.repair == .retrySecurePushSetup)
+    }
+
     @MainActor
     @Test func callbackFailureOffersRetryAndSuccessfulTokenRecoversReadiness() async {
         let registration = LifecyclePushRegistration()

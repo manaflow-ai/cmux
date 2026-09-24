@@ -3,20 +3,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
 
 const linkPrefetch = new Map<string, boolean | undefined>();
-
-mock.module("../app/[locale]/dashboard/dashboard-account-menu", () => ({
-  DashboardAccountMenu: () => <span data-testid="account-control" />,
-}));
+const accountControl = <span data-testid="account-control" />;
 
 mock.module("next-intl", () => ({
   NextIntlClientProvider: ({ children }: { children: React.ReactNode }) =>
     children,
   useLocale: () => "en",
   useTranslations: () => (key: string) => key,
-}));
-
-mock.module("@/app/[locale]/theme", () => ({
-  ThemeToggle: () => <span data-testid="theme-control" />,
 }));
 
 mock.module("@/i18n/navigation", () => ({
@@ -40,15 +33,16 @@ const { DashboardShell } = await import(
 );
 
 describe("dashboard shell", () => {
-  test("mounts one account control and one theme control across responsive layouts", () => {
+  test("mounts one account control across responsive layouts", () => {
     const html = renderToStaticMarkup(
-      <DashboardShell vaultEnabled>
+      <DashboardShell vaultEnabled account={accountControl}>
         <p>Dashboard content</p>
       </DashboardShell>,
     );
 
     expect(html.match(/data-testid="account-control"/g)).toHaveLength(1);
-    expect(html.match(/data-testid="theme-control"/g)).toHaveLength(1);
+    // The theme toggle lives inside the account menu, not in the shell footer.
+    expect(html).not.toContain("theme-control");
     expect(html).toContain('href="/dashboard/coderouter"');
     const billingIndex = html.indexOf('href="/dashboard/billing"');
     const teamIndex = html.indexOf('href="/dashboard/team"');
@@ -68,7 +62,7 @@ describe("dashboard shell", () => {
 
   test("removes every Vault navigation entry when the release flag is off", () => {
     const html = renderToStaticMarkup(
-      <DashboardShell vaultEnabled={false}>
+      <DashboardShell vaultEnabled={false} account={accountControl}>
         <p>Dashboard content</p>
       </DashboardShell>,
     );
@@ -79,25 +73,28 @@ describe("dashboard shell", () => {
     expect(html).toContain('href="/dashboard/coderouter"');
   });
 
-  test("renders iOS TestFlight in its own section below coderouter", () => {
+  test("renders remote control devices and TestFlight together below coderouter", () => {
     linkPrefetch.clear();
     const html = renderToStaticMarkup(
-      <DashboardShell vaultEnabled>
+      <DashboardShell vaultEnabled account={accountControl}>
         <p>Dashboard content</p>
       </DashboardShell>,
     );
 
     expect(html).toContain('href="/dashboard/testflight"');
-    expect(html).toContain("iosGroup");
-    // iOS section sits on its own, below coderouter and above the account group.
+    expect(html).toContain("remoteControlGroup");
+    // Remote control sits below coderouter and above the account group.
     const coderouterIndex = html.indexOf('href="/dashboard/coderouter"');
+    const mobileDevicesIndex = html.indexOf('href="/dashboard/mobile-devices"');
     const testflightIndex = html.indexOf('href="/dashboard/testflight"');
     const billingIndex = html.indexOf('href="/dashboard/billing"');
     expect(coderouterIndex).toBeGreaterThan(-1);
-    expect(testflightIndex).toBeGreaterThan(coderouterIndex);
+    expect(mobileDevicesIndex).toBeGreaterThan(coderouterIndex);
+    expect(testflightIndex).toBeGreaterThan(mobileDevicesIndex);
     expect(billingIndex).toBeGreaterThan(testflightIndex);
-    // Auth-dependent pages must not be prefetched into a client snapshot.
-    expect(linkPrefetch.get("/dashboard/coderouter")).toBe(false);
-    expect(linkPrefetch.get("/dashboard/testflight")).toBe(false);
+    // Every page prefetches its static shell; private data streams behind
+    // Suspense and is never part of a prefetch, so no link opts out.
+    expect(linkPrefetch.get("/dashboard/coderouter")).toBeUndefined();
+    expect(linkPrefetch.get("/dashboard/testflight")).toBeUndefined();
   });
 });

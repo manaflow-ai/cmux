@@ -67,6 +67,10 @@ struct WindowKeyDownReplayGuardTests {
     private final class EditableUndoProbeTextView: NSTextView {
         private(set) var undoCallCount = 0
 
+        override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            item.action == #selector(undo(_:)) || super.validateUserInterfaceItem(item)
+        }
+
         @objc func undo(_ sender: Any?) {
             undoCallCount += 1
         }
@@ -209,7 +213,10 @@ struct WindowKeyDownReplayGuardTests {
         return previousMenu
     }
 
-    private func installResponderChainUndoMenu() -> NSMenu? {
+    /// Installs a Cmd+Z menu item. A nil target exercises AppKit responder-chain
+    /// resolution; tests whose contract is cmux routing can pass an explicit
+    /// editable responder so headless app activation does not decide the result.
+    private func installResponderChainUndoMenu(target: AnyObject? = nil) -> NSMenu? {
         let previousMenu = NSApp.mainMenu
         let menu = NSMenu(title: "Main")
         let undoItem = NSMenuItem(
@@ -217,6 +224,7 @@ struct WindowKeyDownReplayGuardTests {
             action: #selector(EditableUndoProbeTextView.undo(_:)),
             keyEquivalent: "z"
         )
+        undoItem.target = target
         undoItem.keyEquivalentModifierMask = [.command]
         menu.addItem(undoItem)
         NSApp.mainMenu = menu
@@ -421,14 +429,19 @@ struct WindowKeyDownReplayGuardTests {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
-        let previousMenu = installResponderChainUndoMenu()
+        let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder()
+        // This assertion is about cmux routing ownership. AppKit's nil-target
+        // lookup depends on NSApp.keyWindow, which headless test hosts may lack.
+        let previousMenu = installResponderChainUndoMenu(target: textView)
         defer { NSApp.mainMenu = previousMenu }
 
-        let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder()
         defer {
             window.orderOut(nil)
             window.close()
         }
+
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
 
         guard let event = makeCommandZKeyDownEvent(modifiers: [.command], windowNumber: window.windowNumber) else {
             Issue.record("Failed to construct Undo key event")

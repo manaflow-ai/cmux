@@ -26,6 +26,8 @@ struct MacAuthComposition {
     let browserAppSession: BrowserAppSessionController
     /// Shared observable account projection used by Settings and sidebar UI.
     let accountFlow: HostAccountFlow
+    /// Reconciles Cloud transports with the coordinator's selected team.
+    let cloudTeamScopeObserver: CloudTeamScopeObserver
 
     /// Build the auth graph.
     /// - Parameters:
@@ -145,6 +147,7 @@ struct MacAuthComposition {
                 browserAppSessionSignInRelay.sessionWillTransition()
             },
             onSignedIn: {
+                await CmuxTuiSurfaceProviderRegistry.shared.resumeAfterSignIn()
                 await browserAppSessionSignInRelay.signedIn()
             }
         )
@@ -184,12 +187,16 @@ struct MacAuthComposition {
                 // usable remote surface.
                 AppDelegate.shared?.prepareCloudVMAccessForSignOut()
                 browserAppSession.beginAuthTransition()
-                MobileHostIrohRuntime.shared.beginSignOutPreparation()
+                DeviceRegistryClient.shared.beginSignOut()
+                MobileHostIrxRuntime.shared.beginSignOutPreparation()
             },
             localSignOut: {
                 await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
+                await DeviceRegistryClient.shared.withdrawForSignOut(
+                    accessToken: accessToken, refreshToken: refreshToken
+                )
                 await VMClient.revokeCloudAccess(
                     deviceID: MobileHostIdentity.deviceID(),
                     accessToken: accessToken,
@@ -202,10 +209,6 @@ struct MacAuthComposition {
                     accessToken: accessToken,
                     refreshToken: refreshToken
                 )
-                await MobileHostIrohRuntime.shared.revokeAfterSignOut(
-                    accessToken: accessToken,
-                    refreshToken: refreshToken
-                )
             }
         )
         self.browserSignIn = browserSignIn
@@ -213,11 +216,15 @@ struct MacAuthComposition {
             coordinator: coordinator,
             browserSignIn: browserSignIn
         )
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        }
     }
 
     /// Begin asynchronous session restore. Call once after construction, at
     /// the composition root.
     func start() {
+        cloudTeamScopeObserver.start()
         coordinator.start()
     }
 

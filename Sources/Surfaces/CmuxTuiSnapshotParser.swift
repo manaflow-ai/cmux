@@ -1,6 +1,6 @@
+import CmuxCore
 import CoreFoundation
 import Foundation
-
 /// Maps a cmux-tui public session snapshot (`session current snapshot --json`) onto
 /// ``SurfaceResource`` values for one cloud machine. Pure and total: unknown keys are
 /// ignored, a malformed entry drops that entry, never the machine.
@@ -20,7 +20,6 @@ struct CloudVMStateDeltaImpact: Hashable, Sendable {
     /// rebuild path instead of risking a partial placement update.
     var requiresFullResourceRebuild = false
 }
-
 struct CloudVMStateDeltaApplication: Sendable {
     let state: CloudVMState
     let impact: CloudVMStateDeltaImpact
@@ -111,10 +110,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         } else {
             cursor = nil
         }
-        guard identityCollectionsAreUnique(in: snapshot),
-              requiredGraphCollectionsArePresent(in: snapshot),
-              snapshotRelationshipsAreConsistent(in: snapshot)
-        else { return nil }
+        guard authoritativeGraphIsValid(snapshot) else { return nil }
         let document = CloudVMStateDocument(snapshot: snapshot)
         guard let rawSnapshot = document.data() else { return nil }
 
@@ -139,18 +135,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             )
         }
         let tabs = ((snapshot["tabs"] as? [[String: Any]]) ?? []).enumerated().compactMap { index, raw -> CloudVMTabState? in
-            guard let id = nonEmptyString(raw["id"]), let paneID = nonEmptyString(raw["pane_id"]) else { return nil }
-            guard let contentKind = nonEmptyString(raw["content_kind"]), let contentID = nonEmptyString(raw["content_id"]) else { return nil }
-            let name = nonEmptyString(raw["name"])
-            return CloudVMTabState(
-                id: id,
-                paneID: paneID,
-                name: name,
-                index: integer(raw["index"]) ?? index,
-                focused: raw["focused"] as? Bool ?? false,
-                contentKind: contentKind,
-                contentID: contentID
-            )
+            tabState(from: raw, fallbackIndex: index)
         }
         // The public daemon schema puts the relationship on `tabs[].pane_id`.
         // `panes[].tab_ids` is not part of that schema, so reading it would make
@@ -206,7 +191,16 @@ struct CmuxTuiSnapshotParser: Sendable {
         }
         let agents = ((snapshot["agents"] as? [[String: Any]]) ?? []).compactMap { raw -> CloudVMAgentState? in
             guard let terminalID = nonEmptyString(raw["terminal_id"]), let state = nonEmptyString(raw["state"]) else { return nil }
-            return CloudVMAgentState(id: nonEmptyString(raw["id"]), terminalID: terminalID, state: state, source: nonEmptyString(raw["source"]))
+            return CloudVMAgentState(
+                id: nonEmptyString(raw["id"]),
+                terminalID: terminalID,
+                state: state,
+                source: nonEmptyString(raw["source"]),
+                agent: nonEmptyString((raw["extra"] as? [String: Any])?["agent"])
+                    ?? nonEmptyString(raw["agent"])
+                    ?? nonEmptyString(raw["agent_type"])
+                    ?? nonEmptyString(raw["provider"])
+            )
         }
 
         return CloudVMState(
@@ -286,6 +280,13 @@ struct CmuxTuiSnapshotParser: Sendable {
             }
         }
         return true
+    }
+
+    /// The same identity and foreign-key contract gates accepted state and mutations.
+    static func authoritativeGraphIsValid(_ snapshot: [String: Any]) -> Bool {
+        identityCollectionsAreUnique(in: snapshot)
+            && requiredGraphCollectionsArePresent(in: snapshot)
+            && snapshotRelationshipsAreConsistent(in: snapshot)
     }
 
     /// A session snapshot is an authoritative cut of the daemon graph. The
@@ -389,12 +390,26 @@ struct CmuxTuiSnapshotParser: Sendable {
         return values.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
+    /// The panes of one screen in layout order, read from its `layout` document
+    /// (`screens[].layout`): depth-first over the split tree with the first child
+    /// before the second, stacked panes in their listed order, viewport columns
+    /// left to right. Panes the document does not mention, and an unreadable
+    /// document, get no position, so callers fall back to arrival order.
+    static func layoutPaneOrder(fromLayout layout: Any?) -> [String: Int] {
+        RemoteWorkspacePaneOrder(document: layout).positions
+    }
+
+    /// The same order read from a screen state's opaque layout data (the delta path).
+    static func layoutPaneOrder(fromLayoutData data: Data?) -> [String: Int] {
+        RemoteWorkspacePaneOrder(data: data).positions
+    }
+
     /// Orders wire rows by their semantic index when one is present. The
     /// daemon's older snapshots omit indexes on some rows, so their original
     /// order remains the compatibility fallback. An explicit index wins over
     /// an omitted one, and equal explicit indexes use the stable id before the
     /// transport offset as a deterministic tie-break.
-    private static func orderedSnapshotRows(
+    static func orderedSnapshotRows(
         _ rows: [[String: Any]],
         focusedFirst: Bool = false
     ) -> [(offset: Int, element: [String: Any])] {
@@ -483,18 +498,30 @@ struct CmuxTuiSnapshotParser: Sendable {
             )
         }
 
+        // One layout-order read per screen for this delta, not one per row.
+        var paneOrderByScreen: [String: [String: Int]] = [:]
+        func paneIndex(on screen: CloudVMScreenState, paneID: String) -> Int? {
+            if let order = paneOrderByScreen[screen.id] { return order[paneID] }
+            let order = layoutPaneOrder(fromLayoutData: screen.layout)
+            paneOrderByScreen[screen.id] = order
+            return order[paneID]
+        }
+
         func view(for tab: CloudVMTabState) -> SurfaceRemoteView? {
             guard let workspace = workspace(for: tab) else { return nil }
+            let screen = state.lookupIndex.pane(id: tab.paneID).flatMap {
+                state.lookupIndex.screen(id: $0.screenID)
+            }
             return SurfaceRemoteView(
                 tabID: tab.id,
                 workspace: workspace,
-                screenID: state.lookupIndex.pane(id: tab.paneID).flatMap {
-                    state.lookupIndex.screen(id: $0.screenID)?.id
-                },
+                screenID: screen?.id,
                 paneID: tab.paneID,
                 name: tab.name,
                 index: tab.index,
-                focused: tab.focused
+                focused: tab.focused,
+                screenIndex: screen?.index,
+                paneIndex: screen.flatMap { paneIndex(on: $0, paneID: tab.paneID) }
             )
         }
 
@@ -518,7 +545,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                     lifecycle: SurfaceLifecycle(rawValue: terminal.lifecycle)
                         ?? (terminal.running == true ? .running : .exited),
                     agent: state.lookupIndex.agent(terminalID: terminal.id).map {
-                        SurfaceAgentBadge(state: $0.state, source: $0.source)
+                        SurfaceAgentBadge(state: $0.state, source: $0.source, agent: $0.agent)
                     },
                     remoteWorkspace: nil,
                     port: nil,
@@ -556,8 +583,6 @@ struct CmuxTuiSnapshotParser: Sendable {
                 resource.remoteViews = views
                 resource.remoteWorkspace = views.first?.workspace
                 resources.append(resource)
-            default:
-                continue
             }
         }
         return resources.sorted(by: resourceComesBefore)
@@ -576,27 +601,44 @@ struct CmuxTuiSnapshotParser: Sendable {
         applyingWithImpact(deltaPayload: deltaPayload, cursor: cursor, to: state)?.state
     }
 
+    /// Debug-only breadcrumb for a rejected delta. Every rejection is a
+    /// synchronization barrier that costs one snapshot, so the reason must be
+    /// visible in the debug log instead of inferred from recovery cadence.
+    private static func rejectDelta(_ reason: String) -> CloudVMStateDeltaApplication? {
+        #if DEBUG
+        cmuxDebugLog("cloud.state.deltaRejectReason reason=\(reason)")
+        #endif
+        return nil
+    }
+
     static func applyingWithImpact(
         deltaPayload: Data,
         cursor: CloudVMCursor,
         to state: CloudVMState
     ) -> CloudVMStateDeltaApplication? {
-        guard let currentCursor = state.cursor,
-              let delta = try? JSONSerialization.jsonObject(with: deltaPayload) as? [String: Any],
-              let changes = delta["changes"] as? [[String: Any]],
-              currentCursor.generation == cursor.generation,
-              currentCursor.revision < UInt64.max,
-              cursor.revision == currentCursor.revision + 1,
-              deltaEnvelopeMatches(delta, cursor: cursor, previousRevision: currentCursor.revision),
-              deltaSequencesAreValid(changes)
-        else { return nil }
+        guard let currentCursor = state.cursor else { return rejectDelta("noCurrentCursor") }
+        guard let delta = try? JSONSerialization.jsonObject(with: deltaPayload) as? [String: Any]
+        else { return rejectDelta("payloadNotObject") }
+        guard let changes = delta["changes"] as? [[String: Any]] else { return rejectDelta("noChanges") }
+        guard currentCursor.generation == cursor.generation else {
+            return rejectDelta("generation current=\(currentCursor.generation) delta=\(cursor.generation)")
+        }
+        guard currentCursor.revision < UInt64.max, cursor.revision == currentCursor.revision + 1 else {
+            return rejectDelta("revision current=\(currentCursor.revision) delta=\(cursor.revision)")
+        }
+        guard deltaEnvelopeMatches(delta, cursor: cursor, previousRevision: currentCursor.revision) else {
+            return rejectDelta("envelope kind=\(delta["kind"] ?? "nil") cursor=\(delta["cursor"] ?? "nil") previous=\(delta["previous_revision"] ?? "nil") revision=\(delta["revision"] ?? "nil")")
+        }
+        guard deltaSequencesAreValid(changes) else {
+            return rejectDelta("sequences \(changes.map { String(describing: $0["sequence"] ?? "nil") })")
+        }
 
         var document = state.document
         for change in changes {
             guard let kind = nonEmptyString(change["kind"]),
                   let resource = nonEmptyString(change["resource"]),
                   let storage = deltaStorage(for: resource)
-            else { return nil }
+            else { return rejectDelta("applyingWithImpact#2") }
 
             // Agent ids were not present in the first public snapshot schema. Use the
             // terminal relationship as the compatibility identity when an old daemon omits
@@ -608,13 +650,13 @@ struct CmuxTuiSnapshotParser: Sendable {
                let explicitID,
                let valueID = value.flatMap({ nonEmptyString($0["id"]) }),
                valueID != explicitID {
-                return nil
+                return rejectDelta("W-ml#1")
             }
             if resource == "agent",
                let changeTerminalID = nonEmptyString(change["terminal_id"]),
                let valueTerminalID,
                changeTerminalID != valueTerminalID {
-                return nil
+                return rejectDelta("W-ml#2")
             }
             let compatibilityID: String? = if resource == "agent" {
                 explicitID
@@ -623,16 +665,16 @@ struct CmuxTuiSnapshotParser: Sendable {
             } else {
                 explicitID
             }
-            guard let id = compatibilityID else { return nil }
+            guard let id = compatibilityID else { return rejectDelta("applyingWithImpact#3") }
 
             switch kind {
             case "upsert":
                 guard let value,
                       resource == "agent" || nonEmptyString(value["id"]) == id
-                else { return nil }
+                else { return rejectDelta("applyingWithImpact#4") }
                 switch storage {
                 case .single(let key):
-                    guard document.replaceSingleton(key: key, value: value) else { return nil }
+                    guard document.replaceSingleton(key: key, value: value) else { return rejectDelta("applyingWithImpact#5") }
                 case .collection(let key):
                     let alternate = resource == "agent"
                         ? valueTerminalID.map { (name: "terminal_id", value: $0) }
@@ -643,7 +685,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                         id: id,
                         value: value,
                         alternateField: alternate
-                    ) else { return nil }
+                    ) else { return rejectDelta("applyingWithImpact#6") }
                 }
             case "delete":
                 switch storage {
@@ -652,8 +694,8 @@ struct CmuxTuiSnapshotParser: Sendable {
                     // snapshot. Their deletion ends the document, so applying
                     // an NSNull tombstone would create a fake, partially valid
                     // graph. Force a full snapshot instead.
-                    guard key != "machine", key != "session" else { return nil }
-                    guard document.removeSingleton(key: key, id: id) else { return nil }
+                    guard key != "machine", key != "session" else { return rejectDelta("applyingWithImpact#7") }
+                    guard document.removeSingleton(key: key, id: id) else { return rejectDelta("applyingWithImpact#8") }
                 case .collection(let key):
                     let terminalID = resource == "agent"
                         ? (nonEmptyString(change["terminal_id"]) ?? valueTerminalID)
@@ -663,20 +705,20 @@ struct CmuxTuiSnapshotParser: Sendable {
                         collectionKey: key,
                         id: id,
                         alternateField: alternate
-                    ) else { return nil }
+                    ) else { return rejectDelta("applyingWithImpact#9") }
                 }
             default:
-                return nil
+                return rejectDelta("W-ml#3")
             }
         }
-        guard document.setCursor(cursor) else { return nil }
+        guard document.setCursor(cursor) else { return rejectDelta("applyingWithImpact#10") }
         guard let next = Self.applyingTypedDelta(
                   changes,
                   to: state,
                   cursor: cursor,
                   document: document
               )
-        else { return nil }
+        else { return rejectDelta("applyingWithImpact#11") }
         return CloudVMStateDeltaApplication(
             state: next,
             impact: deltaImpact(changes, previous: state, next: next)
@@ -688,6 +730,13 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// remains the authority. Typed rows are changed only for entities named by
     /// this batch; relationship checks then cover those rows and their immediate
     /// edges.
+    private static func rejectTyped(_ reason: String) -> CloudVMState? {
+        #if DEBUG
+        cmuxDebugLog("cloud.state.deltaRejectReason reason=\(reason)")
+        #endif
+        return nil
+    }
+
     private static func applyingTypedDelta(
         _ changes: [[String: Any]],
         to state: CloudVMState,
@@ -705,7 +754,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             guard let resource = nonEmptyString(change["resource"]),
                   let operation = nonEmptyString(change["kind"]),
                   let id = deltaIdentity(change, resource: resource)
-            else { return nil }
+            else { return rejectTyped("applyingTypedDelta#1") }
             let value = change["value"] as? [String: Any]
 
             switch (resource, operation) {
@@ -714,7 +763,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 let fallbackIndex = existingIndex.map { next.workspaces[$0].index } ?? next.workspaces.count
                 guard let value,
                       let decoded = workspaceState(from: value, fallbackIndex: fallbackIndex)
-                else { return nil }
+                else { return rejectTyped("applyingTypedDelta#2") }
                 if let existingIndex {
                     next.workspaces[existingIndex] = decoded
                 } else {
@@ -726,7 +775,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 let fallbackIndex = existingIndex.map { next.screens[$0].index } ?? next.screens.count
                 guard let value,
                       let decoded = screenState(from: value, fallbackIndex: fallbackIndex)
-                else { return nil }
+                else { return rejectTyped("applyingTypedDelta#3") }
                 if let existingIndex {
                     next.screens[existingIndex] = decoded
                 } else {
@@ -739,7 +788,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                           from: value,
                           fallbackTabIDs: next.panes.first(where: { $0.id == id })?.tabIDs ?? []
                       )
-                else { return nil }
+                else { return rejectTyped("applyingTypedDelta#4") }
                 if let index = next.panes.firstIndex(where: { $0.id == id }) {
                     next.panes[index] = decoded
                 } else {
@@ -752,7 +801,7 @@ struct CmuxTuiSnapshotParser: Sendable {
                 let fallbackIndex = old?.index ?? next.tabs.count
                 guard let value,
                       let decoded = tabState(from: value, fallbackIndex: fallbackIndex)
-                else { return nil }
+                else { return rejectTyped("applyingTypedDelta#5") }
                 if let old {
                     if old.paneID != decoded.paneID {
                         changedPaneIDs.insert(old.paneID)
@@ -777,7 +826,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             case ("terminal", "upsert"):
                 guard let value,
                       let decoded = terminalState(from: value)
-                else { return nil }
+                else { return rejectTyped("applyingTypedDelta#6") }
                 changedTerminalIDs.insert(id)
                 if let index = next.terminals.firstIndex(where: { $0.id == id }) {
                     next.terminals[index] = decoded
@@ -788,7 +837,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             case ("browser", "upsert"):
                 guard let value,
                       let decoded = browserState(from: value)
-                else { return nil }
+                else { return rejectTyped("applyingTypedDelta#7") }
                 if let index = next.browsers.firstIndex(where: { $0.id == id }) {
                     next.browsers[index] = decoded
                 } else {
@@ -796,8 +845,8 @@ struct CmuxTuiSnapshotParser: Sendable {
                 }
                 next.lookupIndex.upsertBrowser(decoded)
             case ("agent", "upsert"):
-                guard let value else { return nil }
-                guard applyAgentUpsert(value: value, change: change, to: &next) else { return nil }
+                guard let value else { return rejectTyped("applyingTypedDelta#8") }
+                guard applyAgentUpsert(value: value, change: change, to: &next) else { return rejectTyped("applyingTypedDelta#9") }
             case (_, "upsert") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
                 // The canonical document was already updated above. Opaque
                 // entities are a read projection of that document, so no
@@ -832,11 +881,11 @@ struct CmuxTuiSnapshotParser: Sendable {
                 next.browsers.removeAll { $0.id == id }
                 next.lookupIndex.removeBrowser(id: id)
             case ("agent", "delete"):
-                guard applyAgentDelete(change: change, to: &next) else { return nil }
+                guard applyAgentDelete(change: change, to: &next) else { return rejectTyped("applyingTypedDelta#10") }
             case (_, "delete") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
                 break
             default:
-                return nil
+                return rejectTyped("applyingTypedDelta.default")
             }
         }
 
@@ -863,7 +912,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             next.panes[index].tabIDs = tabIDs
             next.lookupIndex.setPaneTabIDs(tabIDs, paneID: paneID)
         }
-        guard deltaRelationshipsAreConsistent(changes, previous: state, next: next) else { return nil }
+        guard deltaRelationshipsAreConsistent(changes, previous: state, next: next) else { return rejectTyped("applyingTypedDelta#11") }
         return next
     }
 
@@ -928,7 +977,8 @@ struct CmuxTuiSnapshotParser: Sendable {
             index: integer(value["index"]) ?? fallbackIndex,
             focused: value["focused"] as? Bool ?? false,
             contentKind: contentKind,
-            contentID: contentID
+            contentID: contentID,
+            nameAuthority: CloudTabNameAuthority(snapshot: value)
         )
     }
 
@@ -978,7 +1028,11 @@ struct CmuxTuiSnapshotParser: Sendable {
             id: nonEmptyString(value["id"]),
             terminalID: terminalID,
             state: state,
-            source: nonEmptyString(value["source"])
+            source: nonEmptyString(value["source"]),
+            agent: nonEmptyString((value["extra"] as? [String: Any])?["agent"])
+                    ?? nonEmptyString(value["agent"])
+                ?? nonEmptyString(value["agent_type"])
+                ?? nonEmptyString(value["provider"])
         )
     }
 
@@ -1336,6 +1390,18 @@ struct CmuxTuiSnapshotParser: Sendable {
                 workspaceOfScreen[id] = workspaceID
             }
         }
+        // Layout coordinates for every view: the screen's index and the pane's
+        // position in that screen's layout document, so rows can follow the layout
+        // rather than tab arrival order.
+        var indexOfScreen: [String: Int] = [:]
+        var paneOrderOfPane: [String: Int] = [:]
+        for (screenOffset, screen) in screensRaw.enumerated() {
+            guard let id = screen["id"] as? String else { continue }
+            indexOfScreen[id] = integer(screen["index"]) ?? screenOffset
+            for (paneID, position) in layoutPaneOrder(fromLayout: screen["layout"]) {
+                paneOrderOfPane[paneID] = position
+            }
+        }
         var screenOfPane: [String: String] = [:]
         for pane in panesRaw {
             if let id = pane["id"] as? String, let screenID = pane["screen_id"] as? String {
@@ -1348,7 +1414,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         var nameOfTab: [String: String] = [:]
         var indexOfTab: [String: Int] = [:]
         var focusedOfTab: [String: Bool] = [:]
-        for tab in tabsRaw {
+        for (tabOffset, tab) in tabsRaw.enumerated() {
             guard let id = tab["id"] as? String else { continue }
             if let paneID = tab["pane_id"] as? String {
                 paneOfTab[id] = paneID
@@ -1362,13 +1428,20 @@ struct CmuxTuiSnapshotParser: Sendable {
             if let name = (tab["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
                 nameOfTab[id] = name
             }
-            indexOfTab[id] = integer(tab["index"])
+            indexOfTab[id] = integer(tab["index"]) ?? tabOffset
             focusedOfTab[id] = tab["focused"] as? Bool
         }
         var agentByTerminal: [String: SurfaceAgentBadge] = [:]
         for agent in agentsRaw {
             guard let terminalID = agent["terminal_id"] as? String, let state = agent["state"] as? String else { continue }
-            agentByTerminal[terminalID] = SurfaceAgentBadge(state: state, source: agent["source"] as? String)
+            agentByTerminal[terminalID] = SurfaceAgentBadge(
+                state: state,
+                source: agent["source"] as? String,
+                agent: (agent["extra"] as? [String: Any])?["agent"] as? String
+                    ?? (agent["agent"] as? String)
+                    ?? (agent["agent_type"] as? String)
+                    ?? (agent["provider"] as? String)
+            )
         }
 
         let workspaces = Self.workspaces(fromSnapshot: snapshot)
@@ -1411,7 +1484,9 @@ struct CmuxTuiSnapshotParser: Sendable {
                     paneID: paneID,
                     name: nameOfTab[tabID],
                     index: indexOfTab[tabID],
-                    focused: focusedOfTab[tabID]
+                    focused: focusedOfTab[tabID],
+                    screenIndex: indexOfScreen[screenID],
+                    paneIndex: paneOrderOfPane[paneID]
                 )
             }
             terminal.remoteWorkspace = terminal.remoteViews?.first?.workspace
@@ -1439,7 +1514,9 @@ struct CmuxTuiSnapshotParser: Sendable {
                     paneID: paneID,
                     name: nameOfTab[tabID],
                     index: indexOfTab[tabID],
-                    focused: focusedOfTab[tabID]
+                    focused: focusedOfTab[tabID],
+                    screenIndex: indexOfScreen[screenID],
+                    paneIndex: paneOrderOfPane[paneID]
                 )]
             }
             var browser = SurfaceResource(
@@ -1477,7 +1554,9 @@ struct CmuxTuiSnapshotParser: Sendable {
                 paneID: paneID,
                 name: nameOfTab[tabID],
                 index: indexOfTab[tabID],
-                focused: focusedOfTab[tabID]
+                focused: focusedOfTab[tabID],
+                screenIndex: indexOfScreen[screenID],
+                paneIndex: paneOrderOfPane[paneID]
             ))
         }
         for contentID in displayOrder {
@@ -1596,6 +1675,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     struct CreatedTerminalPath: Equatable, Sendable {
+        var attachment: CloudCreationAttachment? = nil
         let terminalID: String
         let workspaceID: String?
         let screenID: String?
@@ -1616,7 +1696,12 @@ struct CmuxTuiSnapshotParser: Sendable {
         func optionalID(_ key: String) -> String? {
             (path[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
         }
+        let cursor = mutationCursor(fromResult: result)
+        let attachment = cursor.map {
+            CloudCreationAttachment(generation: $0.generation, terminalID: terminalID)
+        }
         return CreatedTerminalPath(
+            attachment: attachment,
             terminalID: terminalID,
             workspaceID: optionalID("workspace_id"),
             screenID: optionalID("screen_id"),
@@ -1661,7 +1746,9 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The workspace a `workspace create` mutation created.
     static func createdWorkspace(fromResult result: [String: Any]) -> String? {
         let path = (result["value"] as? [String: Any]) ?? result
-        let id = (path["workspace_id"] as? String) ?? (path["id"] as? String)
+        let id = (path["workspace_id"] as? String)
+            ?? (path["workspace"] as? String)
+            ?? (path["id"] as? String)
         return id.flatMap { $0.isEmpty ? nil : $0 }
     }
 
@@ -1682,8 +1769,14 @@ struct CmuxTuiSnapshotParser: Sendable {
         Set(listeningPortBindings(fromSocketListing: text).map(\.port)).sorted()
     }
 
-    /// Transport ports reserved for the daemon and the machine's noVNC display.
-    static let internalPorts: Set<Int> = [1337, 5901, 6901, 8080]
+    /// Listeners that are never web previews, so the Ports scan does not
+    /// publish them: SSH (22), the cmux-tui daemon (1337), the VNC server
+    /// (5901) and its noVNC front end (6901, the Desktop surface), and the
+    /// image's internal 8080 listener.
+    /// Guest display slots use these private RFB/noVNC ports; they are owned by
+    /// the display catalog and must never become generic forwarded-port rows.
+    static let internalPorts: Set<Int> = [22, 1337, 8080]
+    static let displayPorts: Set<Int> = Set(Array(5901...5916) + Array(6901...6916))
 
     static let desktopPort = 6901
 
@@ -1708,17 +1801,9 @@ struct CmuxTuiSnapshotParser: Sendable {
             lifecycle: .running,
             agent: nil,
             remoteWorkspace: nil,
-            port: desktopPort,
+            port: key == SurfaceResourceID.desktopDisplayKey ? desktopPort : nil,
             url: directURL
         )
-    }
-
-    /// The machine's display list after a snapshot: a display the daemon's workspaces point
-    /// at (carrying its views) replaces the bare pool entry of the same id; every other
-    /// resource passes through. Pure, so the provider's refresh stays a straight line.
-    static func mergingDisplays(pool: [SurfaceResource], parsed: [SurfaceResource]) -> [SurfaceResource] {
-        let pointed = Set(parsed.filter { $0.kind == .display }.map(\.id))
-        return pool.filter { !($0.kind == .display && pointed.contains($0.id)) } + parsed
     }
 
     /// A forwarded port, shown as a browser resource. `directURL`, when

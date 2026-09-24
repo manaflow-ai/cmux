@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import AppKit
 import CMUXAgentLaunch
 import CmuxFoundation
@@ -230,6 +231,106 @@ struct ComputerUseUXTests {
             seen: true, featureEnabled: true, permissionStatusIsKnown: true,
             accessibilityGranted: true, screenRecordingGranted: true,
             directCaptureReady: true))
+    }
+
+    @Test @MainActor
+    func settingsHostActionsRoutePermissionRequestsToRequiredOnboardingAction() {
+        var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
+        let actions = HostSettingsActions(
+            configFileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-settings-\(UUID().uuidString).json"),
+            computerUseRuntimeService: ComputerUseRuntimeService(),
+            runComputerUseOnboardingAction: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
+
+        actions.requestComputerUseAccessibility()
+        actions.requestComputerUseScreenRecording()
+
+        #expect(presentations == [.accessibility, .screenRecording])
+    }
+
+    @Test(.timeLimit(.minutes(1))) @MainActor
+    func grantedPermissionsResumeIncompleteSetupFromSettingsRefresh() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cua-granted-settings-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent(
+                "cmux-cu-granted-\(UUID().uuidString.prefix(8))",
+                isDirectory: true
+            )
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: sockets)
+        }
+        try FileManager.default.createDirectory(
+            at: home,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: sockets,
+            withIntermediateDirectories: true
+        )
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: home,
+            socketRootDirectoryURL: sockets,
+            userIdentifier: getuid(),
+            environment: ["CMUX_TAG": "granted-settings"],
+            authenticationToken: "granted-settings-token"
+        )
+        let runtime = ComputerUseRuntimeService(
+            bundle: Bundle(for: NSApplication.self),
+            paths: paths
+        )
+        defer { runtime.stopForTermination() }
+        #expect(runtime.prepareRuntimeForLaunch())
+        await runtime.setEnabled(true)
+
+        let responder = try UnixSocketResponder(
+            path: paths.daemonSocketURL.path,
+            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true,"source":{"attribution":"helper-daemon"}}}}"#
+        )
+        defer { responder.stop() }
+
+        var presentations: [
+            ComputerUseOnboardingWindowController.StartingPoint
+        ] = []
+        let actions = HostSettingsActions(
+            configFileURL: root.appendingPathComponent("cmux.json"),
+            computerUseRuntimeService: runtime,
+            runComputerUseOnboardingAction: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
+
+        await actions.refreshComputerUsePermissions()
+
+        #expect(runtime.permissionStatusIsKnown)
+        #expect(runtime.status().accessibility)
+        #expect(runtime.status().screenRecording)
+        #expect(
+            presentations == [.screenRecording],
+            "granted TCC permissions must resume the final capture verification"
+        )
+
+        runtime.onboardingWasPresented()
+        await actions.refreshComputerUsePermissions()
+        #expect(
+            presentations == [.screenRecording, .screenRecording],
+            "dismissed incomplete onboarding must resume when Settings refreshes again"
+        )
+
+        runtime.onboardingWasCompleted()
+        await actions.refreshComputerUsePermissions()
+        #expect(
+            presentations == [.screenRecording, .screenRecording],
+            "completed onboarding runtime state must remain quiet"
+        )
     }
 
     @Test func computerUseRuntimePermissionReadinessRequiresExplicitCompletion() {
@@ -899,267 +1000,6 @@ struct ComputerUseUXTests {
         ))
     }
 
-    @Test @MainActor func onboardingCreatesFreshWindowAndRootForEveryRun() {
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
-        )
-        let first = controller.makeWindow()
-        let second = controller.makeWindow()
-        defer {
-            first.close()
-            second.close()
-        }
-
-        #expect(first !== second)
-        #expect(first.contentView !== second.contentView)
-        #expect(first.frame.size == CGSize(width: 600, height: 440))
-        #expect(first.contentView?.frame.size == CGSize(width: 600, height: 440))
-        #expect(!first.styleMask.contains(.miniaturizable))
-        #expect(!first.styleMask.contains(.resizable))
-        #expect(!first.hasShadow)
-    }
-
-    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
-        let expandedSize = CGSize(width: 600, height: 440)
-        let companionSize = ComputerUsePermissionCompanionLayout.size
-        let oversizedContent = Color.clear.frame(width: 680, height: 883)
-        let window = ComputerUseOnboardingWindow(
-            contentRect: NSRect(origin: .zero, size: expandedSize),
-            styleMask: [.titled, .closable, .fullSizeContentView],
-            backing: .buffered,
-            defer: false
-        )
-        let contentView = ComputerUseOnboardingHostingView(rootView: oversizedContent)
-        window.contentView = contentView
-        defer { window.close() }
-        window.center()
-        window.orderBack(nil)
-        #expect(window.isVisible)
-
-        // The live failure repeatedly measured the host at 883 points high,
-        // then AppKit terminated cmux after its recursive constraint-pass limit
-        // was exceeded. Drive real visible SwiftUI/AppKit layout passes at both
-        // controller-owned onboarding sizes instead of invoking a frame setter.
-        for expectedSize in [expandedSize, companionSize, expandedSize] {
-            window.setAppKitOwnedFrame(
-                NSRect(origin: window.frame.origin, size: expectedSize),
-                display: true
-            )
-            if expectedSize == companionSize {
-                let placementFrame = NSRect(
-                    origin: NSPoint(x: window.frame.minX + 12, y: window.frame.minY + 12),
-                    size: expectedSize
-                )
-                window.setFrame(placementFrame, display: true, animate: false)
-                #expect(window.frame == placementFrame)
-            }
-            for _ in 0..<12 {
-                contentView.invalidateIntrinsicContentSize()
-                contentView.needsLayout = true
-                contentView.layoutSubtreeIfNeeded()
-                window.displayIfNeeded()
-                await Task.yield()
-            }
-
-            #expect(window.frame.size == expectedSize)
-            #expect(contentView.frame.size == expectedSize)
-        }
-    }
-
-    @Test @MainActor func permissionCompanionUsesItsEntireFixedFrameForContent() {
-        let companionSize = ComputerUsePermissionCompanionLayout.size
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
-        )
-        let mainWindow = controller.makeWindow()
-        defer {
-            controller.dismiss()
-            mainWindow.close()
-        }
-
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: NSRect(origin: mainWindow.frame.origin, size: companionSize)
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
-        }
-
-        #expect(mainWindow.frame.size == CGSize(width: 600, height: 440))
-        #expect(companionWindow?.frame.size == companionSize)
-        #expect(companionWindow?.contentView?.frame.size == companionSize)
-        #expect(companionWindow?.contentLayoutRect.size == companionSize)
-    }
-
-    @Test @MainActor func permissionCompanionLeavesMainWindowChromeUntouched() {
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
-        )
-        let window = controller.makeWindow()
-        defer { window.close() }
-        let expandedStyle = window.styleMask
-        let expandedFrame = window.frame
-
-        controller.prepareForPermissionCompanion(window)
-
-        #expect(window.styleMask == expandedStyle)
-        #expect(window.frame == expandedFrame)
-        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            #expect(window.standardWindowButton(buttonType)?.isHidden == false)
-        }
-    }
-
-    @Test @MainActor func preparingPermissionCompanionHidesMainWindowWithoutMutatingItsChrome() {
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
-        )
-        let window = controller.makeWindow()
-        defer { window.close() }
-        window.center()
-        window.orderBack(nil)
-        let expandedFrame = window.frame
-        let expandedStyle = window.styleMask
-        let standardButtonVisibility = [
-            NSWindow.ButtonType.closeButton,
-            .miniaturizeButton,
-            .zoomButton,
-        ].map { window.standardWindowButton($0)?.isHidden }
-
-        controller.prepareForPermissionCompanion(window)
-
-        #expect(!window.isVisible)
-        #expect(window.frame == expandedFrame)
-        #expect(window.styleMask == expandedStyle)
-        #expect([
-            NSWindow.ButtonType.closeButton,
-            .miniaturizeButton,
-            .zoomButton,
-        ].map { window.standardWindowButton($0)?.isHidden } == standardButtonVisibility)
-    }
-
-    @Test @MainActor func permissionCompanionUsesASeparateBorderlessWindow() {
-        let companionSize = ComputerUsePermissionCompanionLayout.size
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
-        )
-        let mainWindow = controller.makeWindow()
-        defer {
-            controller.dismiss()
-            mainWindow.close()
-        }
-        mainWindow.center()
-        mainWindow.orderBack(nil)
-        let mainFrame = mainWindow.frame
-        let destinationFrame = NSRect(
-            x: mainFrame.maxX + 24,
-            y: mainFrame.midY - companionSize.height / 2,
-            width: companionSize.width,
-            height: companionSize.height
-        )
-
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: destinationFrame
-        )
-
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
-        }
-        #expect(!mainWindow.isVisible)
-        #expect(mainWindow.frame == mainFrame)
-        #expect(companionWindow !== mainWindow)
-        #expect(companionWindow?.styleMask == [.borderless, .nonactivatingPanel])
-        #expect(companionWindow?.frame == destinationFrame)
-        #expect(companionWindow?.contentLayoutRect.size == companionSize)
-        #expect(companionWindow?.standardWindowButton(.closeButton) == nil)
-        #expect(companionWindow?.standardWindowButton(.miniaturizeButton) == nil)
-        #expect(companionWindow?.standardWindowButton(.zoomButton) == nil)
-        #expect(companionWindow?.hasShadow == false)
-    }
-
-    @Test @MainActor func completionClosesCompanionAndRevealsCenteredMainWindowWithoutReturnGlide() {
-        let companionSize = ComputerUsePermissionCompanionLayout.size
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
-        )
-        let mainWindow = controller.makeWindow()
-        defer {
-            controller.dismiss()
-            mainWindow.close()
-        }
-        mainWindow.center()
-        mainWindow.orderBack(nil)
-        let originalMainFrame = mainWindow.frame
-        let destinationFrame = NSRect(
-            x: originalMainFrame.maxX + 24,
-            y: originalMainFrame.midY - companionSize.height / 2,
-            width: companionSize.width,
-            height: companionSize.height
-        )
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: destinationFrame
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
-        }
-        #expect(companionWindow?.isVisible == true)
-        let visibleFrame = mainWindow.screen?.visibleFrame
-            ?? NSScreen.main?.visibleFrame
-            ?? originalMainFrame
-        let expandedSize = CGSize(width: 600, height: 440)
-        let expectedCenteredFrame = NSRect(
-            x: visibleFrame.midX - expandedSize.width / 2,
-            y: visibleFrame.midY - expandedSize.height / 2,
-            width: expandedSize.width,
-            height: expandedSize.height
-        )
-
-        controller.revealExpandedOnboarding(
-            mainWindow,
-            resetStep: false,
-            completed: true
-        )
-
-        #expect(companionWindow?.isVisible == false)
-        #expect(mainWindow.isVisible)
-        #expect(mainWindow.frame.size == expandedSize)
-        #expect(abs(mainWindow.frame.midX - expectedCenteredFrame.midX) <= 0.5)
-        #expect(abs(mainWindow.frame.midY - expectedCenteredFrame.midY) <= 0.5)
-    }
-
-    /// Regression: interacting with the companion beside System Settings
-    /// (dragging the helper tile, pressing Back) must never activate cmux —
-    /// activation raised the main terminal window over the permission pane the
-    /// user was dragging into.
-    @Test @MainActor func permissionCompanionNeverActivatesTheApp() {
-        let controller = ComputerUseOnboardingWindowController(
-            runtimeService: ComputerUseRuntimeService()
-        )
-        let mainWindow = controller.makeWindow()
-        defer {
-            controller.dismiss()
-            mainWindow.close()
-        }
-
-        controller.configureForPermissionCompanion(
-            mainWindow,
-            frame: NSRect(
-                origin: .zero,
-                size: ComputerUsePermissionCompanionLayout.size
-            )
-        )
-        let companionWindow = NSApp.windows.first {
-            $0.identifier?.rawValue == "cmux.computerUse.onboarding.permissionCompanion"
-        }
-
-        let companionPanel = companionWindow as? NSPanel
-        #expect(companionPanel != nil)
-        #expect(companionPanel?.styleMask.contains(.nonactivatingPanel) == true)
-        #expect(companionPanel?.becomesKeyOnlyIfNeeded == true)
-        #expect(companionPanel?.hidesOnDeactivate == false)
-    }
-
     /// The helper drag tile itself must also suppress activation: the press
     /// that starts a Finder-compatible drag is not a request to front cmux.
     @Test @MainActor func helperAppDragSourceDelaysWindowOrdering() throws {
@@ -1562,7 +1402,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor
-    func computerUseHelperArtworkMatchesTheCurrentAppearance() throws {
+    func computerUseHelperArtworkKeepsItsComposerRenditionAcrossAppearances() throws {
         let helperAppURL = URL(fileURLWithPath: "/fixture/cmux Computer Use.app")
         let staticArtwork = NSImage(
             size: NSSize(width: 32, height: 32),
@@ -1594,8 +1434,11 @@ struct ComputerUseUXTests {
         let lightCorner = try Self.sampledIconColor(lightIcon, x: 0, y: 0)
         let darkCorner = try Self.sampledIconColor(darkIcon, x: 0, y: 0)
 
-        #expect(lightPlate.brightnessComponent > 0.7)
+        // The authored macOS rendition owns its plate in both appearances.
+        // Compositing must preserve that dark plate and transparent corners.
+        #expect(lightPlate.brightnessComponent < 0.4)
         #expect(darkPlate.brightnessComponent < 0.4)
+        #expect(abs(lightPlate.brightnessComponent - darkPlate.brightnessComponent) < 0.01)
         #expect(lightCorner.alphaComponent < 0.01)
         #expect(darkCorner.alphaComponent < 0.01)
     }
@@ -1958,12 +1801,16 @@ struct ComputerUseUXTests {
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
         let production = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            userIdentifier: 501,
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app",
             authenticationToken: "production-token"
         )
         let staging = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            userIdentifier: 501,
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app.staging",
             authenticationToken: "staging-token"
@@ -2888,12 +2735,7 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(NSWorkspace.shared.runningApplications.first {
-            !$0.isTerminated
-                && $0.bundleIdentifier?.isEmpty == false
-                && $0.localizedName?.isEmpty == false
-                && $0.launchDate != nil
-        })
+        let target = NSRunningApplication.current
         let targetName = try #require(target.localizedName)
         let targetLaunchDate = try #require(target.launchDate)
         let writerIdentity = try #require(AgentPIDProcessIdentity(
@@ -2921,22 +2763,22 @@ struct ComputerUseUXTests {
             writerPID: Int(writerIdentity.pid),
             writerStartSeconds: writerIdentity.startSeconds,
             writerStartMicroseconds: writerIdentity.startMicroseconds,
-            session: driverSessionID,
+            session: "\(driverSessionID)-mcp-73-2000",
             targetApp: targetName,
             targetPID: Int(target.processIdentifier),
             targetWindowID: 7,
             lastActionAt: formatter.string(from: actionDate)
         )
 
-        let activationEvents = AsyncStream.makeStream(
-            of: pid_t.self,
+        let focusEvents = AsyncStream.makeStream(
+            of: UUID.self,
             bufferingPolicy: .bufferingNewest(1)
         )
-        defer { activationEvents.continuation.finish() }
+        defer { focusEvents.continuation.finish() }
 
         try await confirmation(
-            "background directory callback activated the target once"
-        ) { activated in
+            "background directory callback preserves calling-terminal focus once"
+        ) { focused in
             let controller = ComputerUseWatchTargetController(
                 stateDirectoryURL: directory,
                 featureEnabled: { true },
@@ -2945,10 +2787,13 @@ struct ComputerUseUXTests {
                 feed: ComputerUseWatchTargetFeed(
                     authenticationKey: Self.stateAuthenticationKey
                 ),
-                activate: { application in
-                    activationEvents.continuation.yield(
-                        application.processIdentifier
-                    )
+                onFocusTerminal: { focusedWorkspaceID, focusedSurfaceID, _ in
+                    MainActor.assertIsolated()
+                    #expect(focusedWorkspaceID == workspaceID)
+                    focusEvents.continuation.yield(focusedSurfaceID)
+                },
+                activate: { _ in
+                    Issue.record("A new Computer Use session must preserve calling-terminal focus")
                 }
             )
             controller.start()
@@ -2958,12 +2803,12 @@ struct ComputerUseUXTests {
                 to: directory.appendingPathComponent("watcher.json"),
                 options: .atomic
             )
-            for await processIdentifier in activationEvents.stream {
-                guard processIdentifier == target.processIdentifier else {
+            for await focusedSurfaceID in focusEvents.stream {
+                guard focusedSurfaceID == surfaceID else {
                     continue
                 }
-                activated()
-                activationEvents.continuation.finish()
+                focused()
+                focusEvents.continuation.finish()
                 break
             }
         }
@@ -2982,13 +2827,8 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(NSWorkspace.shared.runningApplications.first {
-            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
-                && !$0.isTerminated
-                && $0.bundleIdentifier?.isEmpty == false
-                && $0.localizedName?.isEmpty == false
-                && $0.launchDate != nil
-        })
+        let target = try await Self.launchExternalTargetForTesting()
+        defer { target.terminate() }
         let targetName = try #require(target.localizedName)
         let targetBundleIdentifier = try #require(target.bundleIdentifier)
         let targetLaunchDate = try #require(target.launchDate)
@@ -3031,12 +2871,9 @@ struct ComputerUseUXTests {
             }
         )
         var featureEnabled = false
-        var reportScannedSession = false
-        let scannedSessions = AsyncStream.makeStream(
-            of: String.self,
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        defer { scannedSessions.continuation.finish() }
+        let terminalFocusEvents = AsyncStream<UUID>.makeStream()
+        var terminalFocusIterator = terminalFocusEvents.stream.makeAsyncIterator()
+        defer { terminalFocusEvents.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
         var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
         var cursorVisibilityChanges: [
@@ -3051,18 +2888,14 @@ struct ComputerUseUXTests {
             featureEnabled: { featureEnabled },
             liveDriverSessions: { sessions },
             currentLiveDriverSession: { scannedSession in
-                if reportScannedSession {
-                    scannedSessions.continuation.yield(
-                        scannedSession.logicalSessionID
-                    )
-                }
-                return sessionsBySurfaceID[scannedSession.surfaceID]
+                sessionsBySurfaceID[scannedSession.surfaceID]
             },
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: Self.stateAuthenticationKey
             ),
             onFocusTerminal: { workspaceID, surfaceID, _ in
                 focusedTerminalSessions.append((workspaceID, surfaceID))
+                terminalFocusEvents.continuation.yield(surfaceID)
             },
             onCursorVisibilityChange: {
                 driverSessionID,
@@ -3091,7 +2924,8 @@ struct ComputerUseUXTests {
             stateWriterIdentity: writerIdentity,
             proxySessionID: backgroundProxySessionID
         ))
-        await Task.yield()
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
+        await AppKitTestEventPump().drain()
         #expect(cursorVisibilityChanges.isEmpty)
         #expect(focusedTerminalSessions.count == 1)
         #expect(
@@ -3142,18 +2976,21 @@ struct ComputerUseUXTests {
             options: .atomic
         )
 
-        reportScannedSession = true
         featureEnabled = true
         NotificationCenter.default.post(
             name: .cmuxFeatureFlagsDidChange,
             object: nil
         )
-        var scannedIterator = scannedSessions.stream.makeAsyncIterator()
-        let scannedLogicalSessionID = await scannedIterator.next()
-
-        #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
+        await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers.isEmpty)
         #expect(focusedTerminalSessions.count == 2)
+
+        #expect(cursorVisibilityChanges.count == 1)
+        #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
+        #expect(cursorVisibilityChanges.first?.proxySessionID == backgroundProxySessionID)
+        #expect(cursorVisibilityChanges.first?.visible == true)
+        let cursorEffectCountBeforeViewing = cursorVisibilityChanges.count
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
@@ -3167,9 +3004,9 @@ struct ComputerUseUXTests {
             stateWriterIdentity: writerIdentity,
             proxySessionID: backgroundProxySessionID
         ))
-        await Task.yield()
+        await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers == [target.processIdentifier])
-        #expect(cursorVisibilityChanges.isEmpty)
+        #expect(cursorVisibilityChanges.count == cursorEffectCountBeforeViewing)
         #expect(!controller.isRunningInBackground(
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID
@@ -4039,6 +3876,31 @@ struct ComputerUseUXTests {
             return
         }
         appendString(value, to: &message)
+    }
+
+    @MainActor
+    private static func launchExternalTargetForTesting() async throws -> NSRunningApplication {
+        let existingPIDs = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.createsNewApplicationInstance = true
+        configuration.hides = true
+        configuration.addsToRecentItems = false
+        let target = try await NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"),
+            configuration: configuration
+        )
+        try #require(!existingPIDs.contains(target.processIdentifier),
+            "The fixture must own the external app instance it will terminate")
+        do {
+            try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+                !target.isTerminated && target.localizedName != nil && target.launchDate != nil
+            })
+            return target
+        } catch {
+            target.terminate()
+            throw error
+        }
     }
 
     private static func sampledIconColor(

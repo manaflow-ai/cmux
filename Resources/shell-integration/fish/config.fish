@@ -401,6 +401,9 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_install_cli_wrapper --argument-names command_name wrapper_file
+        if test "$command_name" = claude; and set -q CMUX_CLAUDE_INTEGRATION_DISABLED; and test "$CMUX_CLAUDE_INTEGRATION_DISABLED" = 1
+            return 0
+        end
         test -n "$CMUX_SHELL_INTEGRATION_DIR"; or return 0
         set -l integration_dir (string replace -r '/$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")
         set -l bundle_dir (string replace -r '/shell-integration$' '' -- "$integration_dir")
