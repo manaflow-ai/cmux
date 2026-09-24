@@ -356,7 +356,8 @@ class JanitorSnapshot(unittest.TestCase):
                "repository": repo, "head_repository": repo}
         self.assertTrue(janitor.may_hold_owned_pool(run, []))
         self.assertTrue(janitor.may_hold_owned_pool(run, [self.job("glaeda-std-xcode-26.6", "queued")]))
-        self.assertFalse(janitor.may_hold_owned_pool(run, [self.job(SMALL, "queued")]))
+        # swift-package-tests sits on Blacksmith beside a full-suite run on an owned pool.
+        self.assertTrue(janitor.may_hold_owned_pool(run, [self.job(OLD, "queued")]))
         for change in ({"event": "push"}, {"run_attempt": 2}, {"head_repository": {"id": 8}},
                        {"path": ".github/workflows/nightly.yml"}):
             self.assertFalse(janitor.may_hold_owned_pool({**run, **change}, []), change)

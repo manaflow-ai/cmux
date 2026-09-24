@@ -236,8 +236,10 @@ every sweep whatever the queue, which frees minis for current work. The other
 categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
 on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
 janitor also lists the artifacts of each in-flight attempt-1, same-repository
-pull request CI run that has no macOS job on another pool, one request per
-run, to read its marker's peak into `committed`.
+pull request CI run (one request per run, more only past 100 artifacts) to
+read its marker's peak into `committed`. A run's other macOS jobs do not rule
+it out: `swift-package-tests` always runs on Blacksmith beside a full suite on
+an owned pool.
 
 | Variable | Default | Effect |
 | --- | --- | --- |

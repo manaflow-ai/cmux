@@ -183,6 +183,10 @@ def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pag
             # test-e2e.yml compiles in its `build` job.
             if job.get("name", "").endswith(ADMISSION_JOB) or job.get("name") == "build":
                 for label in job.get("labels", []):
+                    # An owned Mac pool carries the pull-request lane's Xcode,
+                    # which is the macOS 26 pools' pin (pr_runner_pool.py).
+                    if re.fullmatch(r"glaeda-(?:xl|std|light)-xcode-[0-9.]+", label):
+                        return PRODUCT_RUNNERS["26"]
                     match = re.search(r"macos-(\d+)", label)
                     if match and match.group(1) in PRODUCT_RUNNERS:
                         return PRODUCT_RUNNERS[match.group(1)]

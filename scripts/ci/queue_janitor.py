@@ -352,6 +352,7 @@ POOL_SETTINGS_ENV = {
 }
 
 
+MAX_ARTIFACT_PAGES = 5
 # ci.yml's `changes` job uploads this marker when the picker chose an owned
 # pool: macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>.
 OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)-(?P<pool>.+)")
@@ -368,18 +369,17 @@ def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int
 
 
 def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
-    """A run whose marker is worth one artifact listing: it may hold an owned pool.
+    """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
     Only attempt 1 of a same-repository pull request run of CI can (a retry
-    never takes one), and not once any of its macOS jobs asked for another pool.
+    never takes one). Its other macOS jobs say nothing: swift-package-tests
+    always runs on a Blacksmith pool beside a run on an owned one.
     """
     if run.get("event") != "pull_request" or (run.get("run_attempt") or 1) != 1:
         return False
     if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
         return False
-    if not str(run.get("path") or "").endswith("/ci.yml"):
-        return False
-    return not any(is_macos_job(job) and not owned_label(job) for job in jobs)
+    return str(run.get("path") or "").endswith("/ci.yml")
 
 
 def pool_load_snapshot(
@@ -1198,10 +1198,17 @@ class GitHub:
                     break
         return list(runs.values())
 
-    def artifact_names(self, run_id: int) -> list[str]:
-        query = urllib.parse.urlencode({"per_page": 100})
-        payload = self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}/artifacts?{query}")
-        return [str(item.get("name") or "") for item in payload.get("artifacts") or []]
+    def artifact_names(self, run_id: int, *, stop: str) -> list[str]:
+        """The run's artifact names, page by page until one starts with `stop`."""
+        names: list[str] = []
+        for page in range(1, MAX_ARTIFACT_PAGES + 1):
+            query = urllib.parse.urlencode({"per_page": 100, "page": page})
+            payload = self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}/artifacts?{query}")
+            batch = [str(item.get("name") or "") for item in payload.get("artifacts") or []]
+            names.extend(batch)
+            if len(batch) < 100 or any(name.startswith(stop) for name in batch):
+                break
+        return names
 
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
         jobs: list[dict[str, Any]] = []
@@ -1317,7 +1324,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             for run in runs:
                 if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]]):
                     try:
-                        found = owned_marker(run, github.artifact_names(run["id"]))
+                        found = owned_marker(run, github.artifact_names(
+                            run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-"))
                     except RuntimeError as error:
                         print(f"queue-janitor: owned-pool marker for run {run['id']}: {error}", file=sys.stderr)
                         continue

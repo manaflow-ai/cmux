@@ -182,10 +182,16 @@ class GitHub:
                 break
         return found
 
-    def has_artifact(self, run_id: int, prefix: str) -> bool:
+    def has_artifact(self, run_id: int, prefix: str, pages: int = 5) -> bool:
         """Whether the run uploaded an artifact whose name starts with `prefix`."""
-        data = self.request("GET", f"/actions/runs/{run_id}/artifacts?per_page=100")
-        return any(str(item.get("name") or "").startswith(prefix) for item in (data or {}).get("artifacts") or [])
+        for page in range(1, pages + 1):
+            data = self.request("GET", f"/actions/runs/{run_id}/artifacts?per_page=100&page={page}")
+            names = [str(item.get("name") or "") for item in (data or {}).get("artifacts") or []]
+            if any(name.startswith(prefix) for name in names):
+                return True
+            if len(names) < 100:
+                return False
+        return False
 
     def pull(self, number: int) -> Mapping[str, Any]:
         return self.request("GET", f"/pulls/{number}")
