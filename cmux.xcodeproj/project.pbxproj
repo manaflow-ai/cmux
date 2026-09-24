@@ -2872,6 +2872,7 @@
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		9923A0019923A0019923A001 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9923A0029923A0029923A002 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift */; };
 		A401DFE16CF1BC7701922F8B /* RestorableAgentSessionIndex+ProcessCensus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 008194BFAF62176FE8C0340A /* RestorableAgentSessionIndex+ProcessCensus.swift */; };
+		7DB6CFFD0F8C9EB3DB5041B2 /* RestorableAgentSessionIndex+SnapshotLiveness.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B4D50DCEF633BE0A75CD4A /* RestorableAgentSessionIndex+SnapshotLiveness.swift */; };
 		C6711A020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */; };
 		F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */; };
 		F54100A0A1B2C3D4E5F60718 /* RestorableAgentSessionStalePIDTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F54100A1A1B2C3D4E5F60718 /* RestorableAgentSessionStalePIDTests.swift */; };
@@ -7055,6 +7056,7 @@
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
 		9923A0029923A0029923A002 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+ManagedSessionIdentity.swift"; sourceTree = "<group>"; };
 		008194BFAF62176FE8C0340A /* RestorableAgentSessionIndex+ProcessCensus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+ProcessCensus.swift"; sourceTree = "<group>"; };
+		E7B4D50DCEF633BE0A75CD4A /* RestorableAgentSessionIndex+SnapshotLiveness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RestorableAgentSessionIndex+SnapshotLiveness.swift"; sourceTree = "<group>"; };
 		C6711B020000000000000001 /* RestorableAgentSessionIndexCodexWeakRecordTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexCodexWeakRecordTests.swift; sourceTree = "<group>"; };
 		F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexTests.swift; sourceTree = "<group>"; };
 		F54100A1A1B2C3D4E5F60718 /* RestorableAgentSessionStalePIDTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionStalePIDTests.swift; sourceTree = "<group>"; };
@@ -11098,6 +11100,7 @@
 				F0ACC0DE000000000000000E /* ProcessDetectedResumeIndexes.swift */,
 				C6711B040000000000000001 /* RestorableAgentHookSessionRecord.swift */,
 				842300000000000000000004 /* RestorableAgentProcessLiveness+ProcessIdentity.swift */,
+				E7B4D50DCEF633BE0A75CD4A /* RestorableAgentSessionIndex+SnapshotLiveness.swift */,
 				C6711B060000000000000001 /* RestorableAgentHookSessionStoreFile.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
 				112950000000000000000003 /* SessionRestorableAgentSnapshot+ForkVerb.swift */,
@@ -15101,6 +15104,7 @@
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				9923A0019923A0019923A001 /* RestorableAgentSessionIndex+ManagedSessionIdentity.swift in Sources */,
 				A401DFE16CF1BC7701922F8B /* RestorableAgentSessionIndex+ProcessCensus.swift in Sources */,
+				7DB6CFFD0F8C9EB3DB5041B2 /* RestorableAgentSessionIndex+SnapshotLiveness.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
 				C7C5FAF3145342F395DB4C40 /* RestoredAgentCompletedGeneration.swift in Sources */,
 				F6572052A1B2C3D4E5F60718 /* RestoredAgentForegroundProcess.swift in Sources */,
