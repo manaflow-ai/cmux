@@ -422,7 +422,8 @@ jobs:
           prefix = "iPad" if family == "ipad" else "iPhone"
           preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
           selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
-          selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          # Each proof run owns its simulator, even on a reused runner.
+          selected = None
           requested_version = os.environ.get("IOS_VERSION", "")
           if requested_version:
               # Explicit compatibility runs always get their own simulator.
@@ -510,6 +511,7 @@ jobs:
             -scheme cmux-ios
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
             -derivedDataPath "$IOS_DERIVED_DATA"
+            -parallel-testing-enabled NO
           )
           if [ -n "${TEST_FILTER:-}" ]; then
             if [[ "$TEST_FILTER" == cmuxUITests/* ]]; then
@@ -564,6 +566,7 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            xcrun simctl ui "$SIMULATOR_ID" appearance dark
             if [[ "${{ matrix.family }}" == "iphone" && "$attempt" == "1" && "${TEST_FILTER:-}" == "cmuxUITests/testTaskComposerSubmitsToSelectedWorkspaceGroup" ]]; then
               VIDEO_PATH="$IOS_DERIVED_DATA/task-composer-destination-proof.mov"
               echo "Recording destination picker proof to $VIDEO_PATH"
