@@ -4314,7 +4314,14 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         let sampler = TaskVMInfoMemoryPressureFootprintSampler()
         let sampleNoiseAllowance: UInt64 = 8 * 1_024 * 1_024
 
-        func settledFootprint(_ description: String) throws -> UInt64 {
+        func settledFootprint(
+            _ description: String,
+            requireSettled: Bool = true
+        ) throws -> UInt64 {
+            // Freed malloc pages stay in the physical footprint until the
+            // allocator returns them. That is allocator caching, not renderer
+            // retention, so return them before every measurement.
+            _ = malloc_zone_pressure_relief(nil, 0)
             let deadline = ProcessInfo.processInfo.systemUptime + 4
             var recent: [UInt64] = []
             while ProcessInfo.processInfo.systemUptime < deadline {
@@ -4342,11 +4349,13 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             }
             let minimum = recent.min() ?? 0
             let maximum = recent.max() ?? 0
-            XCTAssertLessThanOrEqual(
-                maximum - minimum,
-                sampleNoiseAllowance,
-                "Physical footprint did not settle for \(description)"
-            )
+            if requireSettled {
+                XCTAssertLessThanOrEqual(
+                    maximum - minimum,
+                    sampleNoiseAllowance,
+                    "Physical footprint did not settle for \(description)"
+                )
+            }
             return recent.sorted()[recent.count / 2]
         }
 
@@ -4393,8 +4402,36 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 "Cycle \(cycle) must leave only the visible tab's renderer realized"
             )
 
-            let targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
             let realizedDelta = fiveRendererPeak - oneRendererBaseline
+            let retentionLimit = 0.45
+            let allowedTarget = oneRendererBaseline + sampleNoiseAllowance
+                + UInt64(Double(realizedDelta) * retentionLimit)
+
+            // `releaseRenderer()` only publishes an unrealize request. The
+            // renderer thread applies it later, drains outstanding frame
+            // leases, and keeps compositor-owned IOSurfaces alive until the
+            // queued layer clear finishes (docs/ghostty-fork.md). On a loaded
+            // headless CI runner a plateau of not-yet-released memory can hold
+            // still for the whole seven-sample settle window, which read as
+            // retention: cycle 2 targets of 241-243 MB over a 206-210 MB
+            // baseline, with the next cycle's target back down to 225 MB.
+            //
+            // Keep sampling while the target is over the limit, for a bounded
+            // window, and judge the lowest settled footprint. Memory the
+            // renderers still hold after the window is real retention and
+            // fails exactly as before.
+            let reclaimStart = ProcessInfo.processInfo.systemUptime
+            let reclaimDeadline = reclaimStart + 20
+            var targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
+            while targetFootprint > allowedTarget,
+                  ProcessInfo.processInfo.systemUptime < reclaimDeadline {
+                let sample = try settledFootprint(
+                    "cycle \(cycle) one-renderer target reclaim",
+                    requireSettled: false
+                )
+                targetFootprint = min(targetFootprint, sample)
+            }
+            let reclaimWait = ProcessInfo.processInfo.systemUptime - reclaimStart
 
             let retainedDelta = targetFootprint > oneRendererBaseline
                 ? targetFootprint - oneRendererBaseline
@@ -4407,11 +4444,12 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 "renderer-memory cycle=\(cycle) one=\(oneRendererBaseline) " +
                 "five=\(fiveRendererPeak) target=\(targetFootprint) " +
                 "realized_delta=\(realizedDelta) noise_allowance=\(sampleNoiseAllowance) " +
+                "reclaim_wait=\(String(format: "%.2f", reclaimWait))s " +
                 "retained_ratio=\(normalizedRetainedRatio)"
             )
             XCTAssertLessThanOrEqual(
                 normalizedRetainedRatio,
-                0.45,
+                retentionLimit,
                 "Cycle \(cycle) cumulative retention above the one-renderer baseline "
                 + "exceeds 45% of the five-renderer delta"
             )
