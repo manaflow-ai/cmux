@@ -129,7 +129,8 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          ./scripts/select-ci-xcode.sh
+          pin_major="$(cut -d. -f1 .xcode-version 2>/dev/null || true)"
+          CMUX_CI_MAX_MACOS_SDK_MAJOR="${pin_major:-}" ./scripts/select-ci-xcode.sh
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -651,67 +652,38 @@ jobs:
           test -d GhosttyKit.xcframework
           out="$GITHUB_WORKSPACE/build"
           mkdir -p "$out"
-          archive="$out/cmux-ios-$slug.xcarchive"
-          rm -rf "$archive"
-          scripts/ci/xcodebuild_noninteractive.py xcodebuild archive \
-            -workspace ios/cmux.xcworkspace \
-            -scheme cmux-ios \
-            -configuration Debug \
-            -destination 'generic/platform=iOS' \
-            -archivePath "$archive" \
-            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
-            CMUX_APP_BUNDLE_IDENTIFIER="$bundle_id" \
-            CMUX_HOST_BUNDLE_IDENTIFIER="$bundle_id" \
-            PRODUCT_DISPLAY_NAME="$display_name" \
-            CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
-            CMUX_DEV_TAG="$BUILD_TAG" \
-            CMUX_API_BASE_URL="$api_base_url" \
-            CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
-            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            SWIFT_OPTIMIZATION_LEVEL=-O \
-            SWIFT_COMPILATION_MODE=wholemodule \
-            GCC_OPTIMIZATION_LEVEL=s \
-            "${swift_workaround_args[@]}"
-          [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
-
-          # Keep Blacksmith device reloads equivalent to the fleet path: one
-          # build supplies both the unsigned phone archive and the exact same
-          # source revision for an isolated Simulator verification.
-          # The prebuilt GhosttyKit simulator slice is arm64-only.
+          # SCRATCH: official com.cmux.app Release configuration for the
+          # Simulator only (mirrors upload-testflight.sh --lane appstore).
           scripts/ci/xcodebuild_noninteractive.py xcodebuild build \
             -workspace ios/cmux.xcworkspace \
             -scheme cmux-ios \
-            -configuration Debug \
+            -configuration Release \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
             ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
-            CMUX_APP_BUNDLE_IDENTIFIER="$bundle_id" \
-            CMUX_HOST_BUNDLE_IDENTIFIER="$bundle_id" \
-            PRODUCT_DISPLAY_NAME="$display_name" \
+            DEVELOPMENT_TEAM=7WLXT3NR37 \
+            CMUX_APP_BUNDLE_IDENTIFIER=com.cmux.app \
+            CMUX_HOST_BUNDLE_IDENTIFIER=com.cmux.app \
+            CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER=com.cmux.app.NotificationService \
+            PRODUCT_DISPLAY_NAME=cmux \
+            CMUX_CRASH_REPORTING_ENABLED=NO \
+            CMUX_IOS_AUTH_ENV=production \
+            CMUX_API_BASE_URL=https://cmux.com \
+            CMUX_IROH_BROKER_BASE_URL=https://cmux.com \
+            CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
-            CMUX_DEV_TAG="$BUILD_TAG" \
-            CMUX_API_BASE_URL="$api_base_url" \
-            CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
-            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            SWIFT_OPTIMIZATION_LEVEL=-O \
-            SWIFT_COMPILATION_MODE=wholemodule \
-            GCC_OPTIMIZATION_LEVEL=s \
             "${swift_workaround_args[@]}"
-          sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
+          sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Release-iphonesimulator/cmux.app"
           [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
 
           mkdir -p artifact
           pkg="$out/cmux-ios-$slug-pkg"
           rm -rf "$pkg"
           mkdir -p "$pkg/simulator"
-          mv "$archive" "$pkg/"
           ditto "$sim_app" "$pkg/simulator/cmux.app"
           ditto -c -k "$pkg" "$GITHUB_WORKSPACE/artifact/archive.zip"
 
