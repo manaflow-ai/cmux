@@ -13,8 +13,10 @@ run-name: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event
 # job condition below and again in the script, so the re-run this workflow
 # starts is never watched, whether or not GitHub delivers `requested` for it.
 # It runs whenever owned pools are on (CI_PR_POOL_OWNED is 1), because a run on
-# an owned pool has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off. It only polls, so it runs on a GitHub-hosted
-# runner rather than holding a slot in the Linux pool CI's own jobs use.
+# an owned pool has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off.
+# The switch gets its default before the comparison: an unset variable is
+# null, and null == '0' in an expression. It only polls, so it runs on a
+# GitHub-hosted runner rather than holding a slot in CI's Linux pool.
 on:
   workflow_run:
     workflows: [CI]
@@ -35,7 +37,7 @@ concurrency:
 jobs:
   rescue:
     name: Rescue a run stuck on a persistent pool
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && vars.CI_OWNED_POOL_RESCUE != '0' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
     # The watch limit is 60 minutes, reads may retry, and a rescue waits up to
     # 3 more for the cancel to settle.
