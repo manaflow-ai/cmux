@@ -1,4 +1,4 @@
-name: IROH v2 deployment target diagnostic
+name: IROH v2 read-only deployment provenance
 
 on:
   workflow_dispatch:
@@ -7,81 +7,154 @@ permissions:
   contents: read
 
 jobs:
-  target:
+  compare:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 2
+    timeout-minutes: 8
     steps:
-      - name: Check account and required secret names without changing the Worker
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: 63cce65464ad08e03844f090296da3abdcfec1a2
+          path: candidate
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "22"
+      - name: Build exact candidate with locked dependencies and no Cloudflare credentials
+        working-directory: candidate/workers/iroh-v2
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          test "$(git rev-parse HEAD)" = 63cce65464ad08e03844f090296da3abdcfec1a2
+          if ! bun install --frozen-lockfile >"$RUNNER_TEMP/provenance-install.log" 2>&1; then
+            echo '{"candidateInstallSucceeded":false}'
+            exit 1
+          fi
+          if ! bunx wrangler deploy --env development --dry-run --outdir "$RUNNER_TEMP/iroh-provenance-candidate" >"$RUNNER_TEMP/provenance-build.log" 2>&1; then
+            echo '{"candidateBuildSucceeded":false}'
+            exit 1
+          fi
+          echo '{"candidateBuildSucceeded":true,"candidateSHA":"63cce65464ad08e03844f090296da3abdcfec1a2"}'
+      - name: Compare canonical development module hashes without deploying
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          python3 - <<'PY_CHECK'
-          import hashlib, json, os, urllib.request, urllib.error
-          expected = "0c1675e0def6de1ab3a50a4e17dc5656"
+          python3 - <<'PY_COMPARE'
+          import email.policy, hashlib, json, os, pathlib, subprocess, sys, urllib.error, urllib.request
+          from email.parser import BytesParser
+
+          EXPECTED_ACCOUNT = "0c1675e0def6de1ab3a50a4e17dc5656"
+          CANDIDATE_SHA = "63cce65464ad08e03844f090296da3abdcfec1a2"
+          WORKER = "cmux-v2-development"
+          CAP = 16 * 1024 * 1024
           configured = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
           token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
-          print("iroh_account_match=" + str(configured == expected).lower())
-          if not configured or not token:
-              raise SystemExit("Missing deployment authentication")
-          required = {"API_TICKET_CURRENT_KEY_ID", "API_TICKET_KEYS", "AXIOM_TOKEN", "DATABASE_URL", "RELAY_KEY_ID", "RELAY_SIGNING_KEY", "RELAY_URLS", "SENTRY_DSN", "STACK_PROJECT_ID", "STACK_PUBLISHABLE_KEY", "STACK_SERVER_KEY"}
-          catalog_request = urllib.request.Request("https://api.cloudflare.com/client/v4/accounts/" + expected + "/workers/scripts", headers={"Authorization": "Bearer " + token})
-          try:
-              with urllib.request.urlopen(catalog_request, timeout=20) as response:
-                  catalog = json.load(response)
-              task_workers = [item.get("id") for item in catalog.get("result", []) if isinstance(item.get("id"), str) and any(marker in item["id"] for marker in ["13458", "13472"])]
-              print(json.dumps({"taskWorkerNames": task_workers}))
-          except urllib.error.HTTPError as error:
-              print(json.dumps({"catalogHttp": error.code}))
-          targets = [("configured", configured)]
-          if configured != expected:
-              targets.append(("expected_iroh_account", expected))
-          for label, account in targets:
-              url = "https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/cmux-iroh-v2-development/secrets"
-              request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token})
+          print(json.dumps({"accountMatches": configured == EXPECTED_ACCOUNT}))
+          if configured != EXPECTED_ACCOUNT or not token:
+              raise SystemExit("Account or authentication precondition failed")
+
+          def digest(data):
+              return hashlib.sha256(data).hexdigest()
+
+          def get(suffix):
+              url = "https://api.cloudflare.com/client/v4/accounts/" + EXPECTED_ACCOUNT + "/workers/scripts/" + WORKER + suffix
+              request = urllib.request.Request(url, headers={"Authorization": "Bearer " + token}, method="GET")
               try:
-                  with urllib.request.urlopen(request, timeout=20) as response:
-                      payload = json.load(response)
+                  with urllib.request.urlopen(request, timeout=25) as response:
+                      content_type = response.headers.get("Content-Type", "")
+                      body = response.read(CAP + 1)
               except urllib.error.HTTPError as error:
-                  print(json.dumps({"target": label, "http": error.code}))
-                  continue
-              if not payload.get("success"):
-                  print(json.dumps({"target": label, "success": False, "errorCodes": [item.get("code") for item in payload.get("errors", [])]}))
-                  continue
-              names = sorted(item["name"] for item in payload.get("result", []) if isinstance(item, dict) and isinstance(item.get("name"), str))
-              print(json.dumps({"target": label, "success": True, "secretNames": names, "missingRequiredNames": sorted(required - set(names))}))
-              settings_url = "https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/cmux-iroh-v2-development/settings"
-              request = urllib.request.Request(settings_url, headers={"Authorization": "Bearer " + token})
+                  print(json.dumps({"readOnlyEndpoint": suffix or "source", "http": error.code}))
+                  raise SystemExit("Read-only Cloudflare request failed") from None
+              except Exception:
+                  raise SystemExit("Read-only Cloudflare transport failed") from None
+              if len(body) > CAP:
+                  raise SystemExit("Cloudflare response exceeded comparison bound")
+              return content_type, body
+
+          def json_result(suffix):
+              _, body = get(suffix)
               try:
-                  with urllib.request.urlopen(request, timeout=20) as response:
-                      settings = json.load(response)
-              except urllib.error.HTTPError as error:
-                  print(json.dumps({"target": label, "settingsHttp": error.code}))
-                  continue
-              result = settings.get("result") or {}
-              bindings = [{"name": item.get("name"), "type": item.get("type"), **({"service": item.get("service"), "environment": item.get("environment")} if item.get("type") == "service" else {})} for item in result.get("bindings", [])]
-              print(json.dumps({"target": label, "settingsSuccess": settings.get("success"), "bindingNamesAndTypes": bindings}))
-              canonical = next((item.get("service") for item in result.get("bindings", []) if item.get("name") == "CANONICAL" and item.get("type") == "service"), None)
-              if isinstance(canonical, str) and canonical in {"cmux-v2-development"} and all(c.isalnum() or c in "-_" for c in canonical):
-                  content_request = urllib.request.Request("https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/" + canonical, headers={"Authorization": "Bearer " + token})
-                  try:
-                      with urllib.request.urlopen(content_request, timeout=20) as response:
-                          content = response.read(8 * 1024 * 1024)
-                      print(json.dumps({"canonical": canonical, "sourceSHA256": hashlib.sha256(content).hexdigest(), "sourceBytes": len(content), "usesConnectedWorkspaceBinding": b"HYPERDRIVE_CONNECTED_WORKSPACES" in content, "usesWorkspacePublisherSecret": b"WORKSPACE_PUBLISHER_SECRET" in content, "advertisesMacPeerRule": b"cmux.mac-peer-inbound.v1" in content, "implementsMacHostCapability": b"cmux.mac-host.v1" in content}))
-                  except urllib.error.HTTPError as error:
-                      print(json.dumps({"canonical": canonical, "sourceHttp": error.code}))
-                  for suffix in ["settings", "secrets"]:
-                      request = urllib.request.Request("https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/" + canonical + "/" + suffix, headers={"Authorization": "Bearer " + token})
-                      try:
-                          with urllib.request.urlopen(request, timeout=20) as response:
-                              value = json.load(response)
-                      except urllib.error.HTTPError as error:
-                          print(json.dumps({"canonical": canonical, "endpoint": suffix, "http": error.code}))
-                          continue
-                      if suffix == "secrets":
-                          print(json.dumps({"canonical": canonical, "secretNames": sorted(item.get("name", "") for item in value.get("result", []))}))
-                      else:
-                          values = (value.get("result") or {}).get("bindings", [])
-                          app_environment = next((item.get("text") for item in values if item.get("name") == "ENVIRONMENT" and item.get("type") == "plain_text"), None)
-                          print(json.dumps({"canonical": canonical, "appEnvironment": app_environment, "bindingNamesAndTypes": [{"name": item.get("name"), "type": item.get("type")} for item in values]}))
-          PY_CHECK
+                  payload = json.loads(body)
+                  if payload.get("success") is not True:
+                      raise ValueError()
+                  return payload["result"]
+              except Exception:
+                  raise SystemExit("Invalid Cloudflare metadata response") from None
+
+          def deployment_hash():
+              return digest(json.dumps(json_result("/deployments"), sort_keys=True, separators=(",", ":")).encode())
+
+          def modules():
+              content_type, body = get("")
+              if "multipart/" in content_type.lower():
+                  if "\r" in content_type or "\n" in content_type:
+                      raise SystemExit("Invalid multipart content type")
+                  message = BytesParser(policy=email.policy.default).parsebytes(
+                      b"Content-Type: " + content_type.encode("ascii") + b"\r\nMIME-Version: 1.0\r\n\r\n" + body
+                  )
+                  if not message.is_multipart():
+                      raise SystemExit("Invalid multipart source response")
+                  result = {}
+                  for part in message.iter_parts():
+                      name = part.get_filename() or part.get_param("name", header="content-disposition")
+                      if not name or name == "metadata":
+                          raise SystemExit("Unrecognized source module part")
+                      if name in result:
+                          raise SystemExit("Duplicate source module name")
+                      result[name] = part.get_payload(decode=True)
+                  if not result or any(not isinstance(value, bytes) for value in result.values()):
+                      raise SystemExit("Empty or invalid source modules")
+                  return result
+              if "javascript" in content_type.lower():
+                  return {"index.js": body}
+              raise SystemExit("Unsupported Cloudflare source media type")
+
+          def normalized(source):
+              # Diagnostic equivalence only: pinned esbuild removes comments and
+              # formats whitespace; no identifier minification or syntax optimization.
+              code = """const fs=require('node:fs');const e=require('./candidate/workers/iroh-v2/node_modules/esbuild');const s=fs.readFileSync(0,'utf8');process.stdout.write(e.transformSync(s,{loader:'js',target:'esnext',format:'esm',minifyWhitespace:true,minifyIdentifiers:false,minifySyntax:false,legalComments:'none',sourcemap:false,charset:'utf8'}).code);"""
+              clean_env = {key: value for key, value in os.environ.items() if key in {"PATH", "HOME", "TMPDIR", "RUNNER_TEMP"}}
+              result = subprocess.run(["node", "-e", code], input=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                      env=clean_env, timeout=30)
+              if result.returncode != 0 or len(result.stdout) > CAP:
+                  return None
+              return digest(result.stdout)
+
+          before = deployment_hash()
+          settings = json_result("/settings")
+          environment = next((item.get("text") for item in settings.get("bindings", [])
+                              if item.get("name") == "ENVIRONMENT" and item.get("type") == "plain_text"), None)
+          print(json.dumps({"worker": WORKER, "developmentEnvironmentMatches": environment == "development"}))
+          if environment != "development":
+              raise SystemExit("Canonical Worker is not verified development")
+          live = modules()
+          candidate_root = pathlib.Path(os.environ["RUNNER_TEMP"]) / "iroh-provenance-candidate"
+          candidate = {str(path.relative_to(candidate_root)): path.read_bytes() for path in candidate_root.rglob("*")
+                       if path.is_file() and path.name != "README.md" and not path.name.endswith(".map")}
+          if not candidate or sum(map(len, candidate.values())) > CAP:
+              raise SystemExit("Candidate output exceeded comparison bound")
+          same_names = set(live) == set(candidate)
+          comparisons = []
+          for name in sorted(set(live) | set(candidate)):
+              left, right = live.get(name), candidate.get(name)
+              item = {"module": name, "liveSHA256": digest(left) if left is not None else None,
+                      "candidateSHA256": digest(right) if right is not None else None,
+                      "exactBytesEqual": left is not None and right is not None and left == right}
+              if left is not None and right is not None and name.endswith((".js", ".mjs")):
+                  left_normalized, right_normalized = normalized(left), normalized(right)
+                  item.update({"liveNormalizedSHA256": left_normalized, "candidateNormalizedSHA256": right_normalized,
+                               "formatNormalizedEqual": left_normalized is not None and left_normalized == right_normalized})
+              comparisons.append(item)
+          source_stable = {name: digest(value) for name, value in live.items()} == {name: digest(value) for name, value in modules().items()}
+          after = deployment_hash()
+          exact = same_names and all(item["exactBytesEqual"] for item in comparisons) and before == after and source_stable
+          print(json.dumps({"candidateSHA": CANDIDATE_SHA, "deploymentBeforeSHA256": before, "deploymentAfterSHA256": after,
+                            "deploymentStable": before == after, "sourceStable": source_stable, "moduleNamesEqual": same_names,
+                            "exactLiveBundleMatch": exact, "modules": comparisons}, sort_keys=True))
+          if not exact:
+              raise SystemExit("Exact live deployment provenance is not established")
+          PY_COMPARE
