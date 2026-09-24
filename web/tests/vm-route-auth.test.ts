@@ -10,6 +10,7 @@ import { vmCapabilitiesFor } from "../services/vms/drivers";
 // machine. The manifest keeps one snapshot per Freestyle size, and the pro
 // plan machine (8 GiB, `memoryMb: 8192` below) boots the smallest size with at
 // least that much memory.
+const originalManifestImages = manifestJson.images;
 const PRO_PLAN_MEMORY_MB = 8192;
 const PRO_PLAN_SIZE = pickVmImageSizeForMemory(PRO_PLAN_MEMORY_MB)!.name;
 type ManifestTestEntry = {
@@ -244,6 +245,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  manifestJson.images = originalManifestImages;
   restoreVmEnv();
   clearNativeAuthCacheForTests();
   getUser.mockClear();
@@ -278,6 +280,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  manifestJson.images = originalManifestImages;
   restoreVmEnv();
 });
 
@@ -469,6 +472,9 @@ describe("VM REST auth", () => {
       provider: "freestyle",
       image: "snapshot-test",
       createdAt: 1_777_000_000_000,
+      addressIpv4: "10.16.0.9",
+      addressIpv6: null,
+      cmuxTuiContract: "snapshot-v2",
     });
 
     const response = await POST(
@@ -498,6 +504,10 @@ describe("VM REST auth", () => {
         persistentHome: false,
         attachTransports: ["cmux-remote"],
       },
+      // New Machine dials the baked daemon from these two fields instead of
+      // re-reading the fleet and calling POST /attach-endpoint.
+      address: { ipv4: "10.16.0.9", ipv6: null },
+      cmuxTuiContract: "snapshot-v2",
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
@@ -596,12 +606,11 @@ describe("VM REST auth", () => {
 
   }
 
-  test("a plan size the manifest ladder cannot serve fails with an actionable image config error", async () => {
+  test("a missing desktop default fails with an actionable image config error", async () => {
     // Both kinds have a manifest ladder, so the only way nothing resolves is a
     // plan machine above the ladder's largest snapshot (2xl, 64 GiB). The
     // route must 503 with a config error rather than boot a smaller machine.
-    process.env.CMUX_VM_PLAN_PRO_MAX_MEMORY_MB = "131072";
-    process.env.CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB = "131072";
+    manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
     getUser.mockResolvedValue(authedStackUser());
 
     const create = await POST(
@@ -622,7 +631,7 @@ describe("VM REST auth", () => {
         source: "default",
         // What the provider serves at its smallest size, so a client can still
         // offer both kinds.
-        allowedKinds: ["desktop", "base"],
+        allowedKinds: ["base"],
       },
     });
     expectNoCloudVmImplementationLeaks(createPayload);
@@ -787,7 +796,7 @@ describe("VM REST auth", () => {
       error: "vm_memory_requires_plan",
       upgradeRequired: true,
       upgradePlanId: "max",
-      upgradeUrl: "https://cmux.com/pricing?plan=max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
       memoryMb: 32768,
       maxMemoryMb: 24576,
     });
@@ -848,6 +857,51 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(402);
     expect((await response.json() as { error: string }).error).toBe("vm_requires_pro");
     expect(createVm).not.toHaveBeenCalled();
+  });
+
+  test("create carries the chosen display name into provisioning without a rename", async () => {
+    process.env.CMUX_VM_CREATE_ENABLED = "1";
+    process.env.CMUX_VM_FREESTYLE_ENABLED = "1";
+    process.env.CMUX_VM_ALLOW_UNMANIFESTED_IMAGES = "1";
+    getUser.mockResolvedValue(stackUserForPlan("pro"));
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "named-machine", provider: "freestyle", image: "snapshot-test",
+      imageVersion: null, createdAt: 1_777_000_000_000, displayName: "Build box",
+    });
+    const response = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST", headers: { origin: "https://cmux.test" },
+      body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", displayName: "  Build box  " }),
+    }));
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ displayName: "Build box" }));
+    expect((await response.json() as { displayName: string }).displayName).toBe("Build box");
+  });
+
+  test.each([42, "x".repeat(65), "bad\nname"])("rejects invalid create display names before allocation: %p", async (displayName) => {
+    getUser.mockResolvedValue(stackUserForPlan("pro"));
+    const response = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST", headers: { origin: "https://cmux.test" }, body: JSON.stringify({ displayName }),
+    }));
+    expect(response.status).toBe(400);
+    expect(createVm).not.toHaveBeenCalled();
+    const payload = await response.json() as { error: string; message: string; details: { field: string; maxLength: number } };
+    expect(payload.error).toBe("vm_invalid_request");
+    expect(payload.details).toEqual({ field: "displayName", maxLength: 64 });
+    expect(payload.message).toBe("Machine names must be printable text of at most 64 characters.");
+  });
+
+  test("an invalid create display name is rejected in the client's locale", async () => {
+    getUser.mockResolvedValue(stackUserForPlan("pro"));
+    const response = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers: { origin: "https://cmux.test", "x-next-intl-locale": "ja" },
+      body: JSON.stringify({ displayName: "x".repeat(65) }),
+    }));
+    expect(response.status).toBe(400);
+    const payload = await response.json() as { error: string; message: string; ui: { title: string } };
+    expect(payload.error).toBe("vm_invalid_request");
+    expect(payload.message).toBe("マシン名は 64 文字以内の表示可能なテキストにしてください。");
+    expect(payload.ui.title).toBe("マシン名が無効です");
   });
 
   test("the paid-plan gate answers in the client's locale", async () => {
@@ -2252,6 +2306,28 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("rejects commands larger than the Freestyle provider limit before workflow", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+    const response = await execRoute.POST(
+      new Request("https://cmux.test/api/vm/provider-vm-1/exec", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ command: "x".repeat(64 * 1024 + 1) }),
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(413);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_command_too_large",
+      details: { maxCommandBytes: 64 * 1024 },
+    });
+    expect(payload.action).toContain("upload a script");
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("does not echo unsupported VM service override values", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
@@ -2593,8 +2669,7 @@ describe("VM REST auth", () => {
     // resolves; the error must not name an image.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
-    process.env.CMUX_VM_PLAN_PRO_MAX_MEMORY_MB = "131072";
-    process.env.CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB = "131072";
+    manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
@@ -2702,6 +2777,7 @@ function stackUserForPlan(plan: string | undefined) {
   const clientReadOnlyMetadata = plan ? { cmuxVmPlan: plan } : {};
   return {
     id: "user-1",
+    ...(plan === "max" ? { clientReadOnlyMetadata: { cmuxVmPlan: "max" } } : {}),
     displayName: null,
     primaryEmail: "user@example.com",
     selectedTeam: {

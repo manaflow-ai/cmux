@@ -1,48 +1,59 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShellUI
 
 /// Official (App Store) builds must not render internal build-lane vocabulary
-/// (DEV, BETA, INTERNAL, TestFlight) in the What's New compat notice or the
-/// Mac-detail presence footer; team channels keep the precise internal copy.
+/// (DEV, BETA, INTERNAL, TestFlight) in compatibility copy or the Mac-detail
+/// presence footer; team channels keep the precise internal copy.
 /// App Review rejected the App Store app under Guideline 2.2 for that
 /// vocabulary in production UI.
 @MainActor
 @Suite struct MobileOfficialChannelCopyTests {
-    @Test func whatsNewCompatFootnoteIsNeutralOnOfficialBuilds() {
-        let official = MobileWhatsNewCatalog.macUpdateFootnote(buildType: .prod)
-        #expect(!official.contains("BETA"))
-        #expect(official.contains("Requires"))
+    @Test func whatsNewCompatCopyIsNeutralOnOfficialBuilds() {
+        let official = MobileWhatsNewCatalog().macCompatibility(
+            policy: .baked,
+            iosVersion: "1.0.4",
+            buildType: .prod
+        )
+        #expect(official.stableVersion == "0.64.25")
+        #expect(official.nightlyVersion?.contains("nightly") == true)
     }
 
-    @Test func whatsNewCompatFootnoteKeepsRollbackRecipeOnTeamBuilds() {
-        let team = MobileWhatsNewCatalog.macUpdateFootnote(buildType: .beta)
-        #expect(team.contains("cmux BETA 1.0.4"))
-        #expect(team.contains("Requires"))
+    @Test func whatsNewCompatCopyUsesTeamSpecificFloor() {
+        let team = MobileWhatsNewCatalog().macCompatibility(
+            policy: .baked,
+            iosVersion: "1.0.4",
+            buildType: .beta
+        )
+        #expect(team.stableVersion == "0.64.20")
+        #expect(team.nightlyVersion == nil)
     }
 
-    @Test func whatsNewCompatFootnoteUsesTheBakedMacCompatFloors() {
-        let beta = MobileWhatsNewCatalog.macUpdateFootnote(
+    @Test func whatsNewMacUpdateDetailUsesTheResolvedFloor() {
+        let team = MobileWhatsNewCatalog().macUpdateDetail(
             buildType: .beta,
-            iosVersion: "1.0.5"
+            requiredVersion: "0.64.20"
         )
-        #expect(beta.contains("0.64.23"))
-        #expect(beta.contains("0.64.22-nightly.3345650013202"))
+        #expect(team.contains("0.64.20"))
+        #expect(team.contains("BETA"))
+        #expect(!team.contains("%@"))
 
-        let prod = MobileWhatsNewCatalog.macUpdateFootnote(
+        let official = MobileWhatsNewCatalog().macUpdateDetail(
             buildType: .prod,
-            iosVersion: "1.0.5"
+            requiredVersion: "0.64.25"
         )
-        #expect(prod.contains("0.64.23"))
-        #expect(prod.contains("0.64.22-nightly.3345650013202"))
+        #expect(official.contains("0.64.25"))
+        #expect(!official.contains("BETA"))
+        #expect(!official.contains("%@"))
     }
 
-    @Test func whatsNewCarriesTheCompatNoticeAsFootnoteNotFeatureRow() {
-        let page = MobileWhatsNewCatalog.connectionsUpdate
-        #expect(page.footnote != nil)
-        guard case .features(let features) = page.body else {
-            Issue.record("connections update page lost its feature rows")
+    @Test func whatsNewUsesTheCustomPairingPage() throws {
+        let page = try #require(MobileWhatsNewCatalog().entry(withID: "connections.v2"))
+        #expect(page.footnote == nil)
+        guard case .pairingSetup(let features) = page.body else {
+            Issue.record("connections update page lost its custom body")
             return
         }
         #expect(!features.contains { $0.symbol == "exclamationmark.triangle.fill" })

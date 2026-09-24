@@ -37,15 +37,12 @@ mock.module("../db/client", () => ({
     return withAccountMutationLeaseSupport({
       select: () => ({
         from: (table: unknown) => ({
-          where: () => ({
-            limit: async () => {
-              if (table === billingEmailClaims) claimLookupCount += 1;
-              if (table !== stripeSubscriptions) return [];
-              return stripeSubscriptionResults.length > 0
-                ? stripeSubscriptionResults.shift()!
-                : stripeSubscriptionRows;
-            },
-          }),
+          where: () => {
+            if (table === billingEmailClaims) claimLookupCount += 1;
+            const rows = table !== stripeSubscriptions ? []
+              : stripeSubscriptionResults.length > 0 ? stripeSubscriptionResults.shift()! : stripeSubscriptionRows;
+            return Object.assign(Promise.resolve(rows), { limit: async () => rows });
+          },
         }),
       }),
     });
@@ -67,7 +64,7 @@ describe("billing plan route", () => {
   });
 
   test("reports stripe management when an active Stripe subscription row exists", async () => {
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro", status: "active" }];
 
     const response = await planResponse();
 

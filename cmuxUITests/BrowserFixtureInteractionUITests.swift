@@ -10,9 +10,10 @@ import Darwin
 /// `ok`/`result`/`error`), and helpers to open a browser split and navigate
 /// it to a local fixture page under `cmuxUITests/BrowserFixtures/`.
 ///
-/// All page interactions in subclasses must go through the socket
+/// Socket interaction suites use the socket
 /// `browser.*` interaction methods (click/fill/press/select/focus);
 /// `browser.eval` is used only to read page state for assertions.
+/// Native input suites use this harness only for setup, then XCUITest input.
 class BrowserFixtureSocketTestCase: XCTestCase {
     private(set) var socketPath = ""
     private var diagnosticsPath = ""

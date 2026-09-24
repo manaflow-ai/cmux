@@ -48,6 +48,7 @@ mock.module("next-intl/server", () => ({
 }));
 
 mock.module("next/server", () => ({
+  connection: async () => undefined,
   // The usage ledger defers its ClickHouse insert past the response with
   // `after`; the render under test only needs the callback to be accepted.
   after: (task: () => unknown) => {
@@ -138,8 +139,8 @@ mock.module("../services/vms/auth", () => ({
     error instanceof TestSubrouterAuthorizationUnavailableError,
 }));
 
-mock.module("../services/subrouter/routeHelpers", () => ({
-  authorizedSubrouterTeams: async () => authorizedTeams,
+mock.module("../services/coderouter/permissions", () => ({
+  authorizedCoderouterTeams: async () => authorizedTeams,
 }));
 
 mock.module("../services/subrouter/hostedClient", () => ({
@@ -464,7 +465,7 @@ describe("coderouter dashboard", () => {
     expect(metricsTeamIds).toEqual(["team-2"]);
   });
 
-  test("uses the persisted CodeRouter scope before the Stack default", async () => {
+  test("uses the Stack selected team before the legacy cookie", async () => {
     authorizationAvailable = true;
     selectedTeamId = "team-1";
     scopedTeamId = "team-2";
@@ -487,7 +488,7 @@ describe("coderouter dashboard", () => {
       locale: "en",
     });
 
-    expect(metricsTeamIds).toEqual(["team-2"]);
+    expect(metricsTeamIds).toEqual(["team-1"]);
   });
 
   test("normalizes a null Stack selection to the personal organization", async () => {

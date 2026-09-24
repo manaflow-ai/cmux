@@ -1,3 +1,6 @@
-// Keep the released Subrouter URL as a compatibility alias while exposing the
-// same authoritative, permission-filtered organization list under CodeRouter.
-export { GET } from "../../subrouter/teams/route";
+import { organizationsGet } from "../../subrouter/teams/route";
+import { authorizedCoderouterTeams } from "../../../../services/coderouter/permissions";
+
+export async function GET(request: Request): Promise<Response> {
+  return organizationsGet(request, authorizedCoderouterTeams);
+}

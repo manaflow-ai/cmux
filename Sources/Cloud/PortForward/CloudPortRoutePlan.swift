@@ -1,15 +1,16 @@
 import CmuxFoundation
 import Foundation
 
-/// Browser opens always target the VM's private address. A missing address is
-/// an unavailable route; it must never create a local listener or public preview.
+/// Browser opens target the VM's private address. The provider may carry that
+/// URL through its authenticated loopback hub; a missing address is unavailable
+/// and never falls back to an unauthenticated public preview.
 enum CloudPortRoutePlan: Equatable, Sendable {
     case privateDirect(remoteURL: String)
     case unsupported(String)
 
     static func plan(resource: SurfaceResource, privateAddress: String?) -> CloudPortRoutePlan {
         let desktop = resource.kind == .display
-        guard let port = resource.id.forwardedPort ?? resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil),
+        guard let port = resource.id.forwardedPort ?? resource.port,
               (1...65_535).contains(port) else {
             return .unsupported(String(format: String(localized: "cloudTree.port.noPort", defaultValue: "%@ has no port to open."), resource.id.rawValue))
         }
@@ -17,8 +18,8 @@ enum CloudPortRoutePlan: Equatable, Sendable {
             return .unsupported(String(format: String(localized: "cloudTree.port.noPrivateAddress", defaultValue: "%@ has no private network address yet; refresh the machine list and retry."), resource.machine.rawValue))
         }
         let raw = resource.url ?? (desktop
-            ? CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: address)
-            : CmuxInternalHostnames.directPortURL(privateAddress: address, port: port))
+            ? CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: address, port: port)
+            : CmuxInternalHostnames().directPortURL(privateAddress: address, port: port))
         guard let url = privateURL(raw, address: address) else {
             return .unsupported(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))
         }
@@ -35,7 +36,8 @@ enum CloudPortRoutePlan: Equatable, Sendable {
         return parts.url
     }
 
-    /// Only an explicit Forward action may use this URL transformation.
+    /// HTTP browser and Desktop routes use this transformation after the shared
+    /// authenticated forward has been established.
     static func localURL(rewriting remoteURL: String, toLoopbackPort localPort: UInt16) -> URL? {
         guard localPort > 0, var parts = URLComponents(string: remoteURL), parts.scheme?.lowercased() == "http" else { return nil }
         parts.host = "127.0.0.1"

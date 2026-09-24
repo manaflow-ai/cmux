@@ -20,6 +20,33 @@ import Testing
         #expect(visiblePixelCount(in: image) > 0)
     }
 
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua], [false, true])
+    func tintedFilledSymbolPreservesInteriorCutout(
+        appearanceName: NSAppearance.Name,
+        usesFallback: Bool
+    ) throws {
+        let symbol = CmuxResolvedIconSource.systemSymbol(
+            name: "xmark.circle.fill", accessibilityDescription: nil
+        )
+        let request = CmuxResolvedIconRequest(
+            source: usesFallback ? .asset(name: "missing-icon", bundle: .main) : symbol,
+            size: NSSize(width: 32, height: 32),
+            tintColor: usesFallback ? nil : .secondaryLabelColor,
+            fallbackSource: usesFallback ? symbol : nil,
+            fallbackTintColor: usesFallback ? .secondaryLabelColor : nil
+        )
+        let appearance = try #require(NSAppearance(named: appearanceName))
+        let image = try #require(CmuxResolvedIconRenderer().image(for: request, appearance: appearance))
+        let bitmap = try #require(image.representations.first as? NSBitmapImageRep)
+        let center = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2))
+        let circle = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 6))
+
+        // A visible image alone can be a solid disc. The X must remain a
+        // transparent cutout while the surrounding circle keeps its tint.
+        #expect(center.alphaComponent < 0.1)
+        #expect(circle.alphaComponent > 0.3)
+    }
+
     @Test func imageViewRerendersWhenEffectiveAppearanceChanges() throws {
         let view = CmuxResolvedIconImageView(frame: NSRect(x: 0, y: 0, width: 16, height: 16))
         view.appearance = NSAppearance(named: .aqua)

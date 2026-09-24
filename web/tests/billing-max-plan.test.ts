@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  GO_PLAN_ID,
   MAX_PLAN_ID,
   PRO_PLAN_ID,
   highestPersonalPlanId,
@@ -16,8 +17,17 @@ import { resolveVmEntitlements, maxMemoryMbForPlan } from "../services/vms/entit
 const lease = { refresh: async () => undefined } as never;
 
 describe("Max as a personal plan", () => {
+  test("Go is a paid personal plan below Pro", () => {
+    expect(isPaidPlanId(GO_PLAN_ID)).toBe(true);
+    expect(isPersonalPlanId(GO_PLAN_ID)).toBe(true);
+    expect(highestPersonalPlanId([GO_PLAN_ID, "pro", "max"])).toBe("max");
+    expect(personalPlanIdForSubscription({
+      items: { data: [{ price: { lookup_key: "cmux-go-monthly-10" } }] },
+      metadata: {},
+    } as never)).toBe(GO_PLAN_ID);
+  });
   test("a personal Max plan unlocks large machines in a Team without changing its seat limit", () => {
-    const user = { id: "user-max", isAnonymous: false, billingCustomerType: "team", billingTeamId: "team-1", billingPlanId: "team", billingSeats: 3, userBillingPlanId: "max", teams: [{ id: "team-1", billingPlanId: "team", billingSeats: 3 }] } as never;
+    const user = { update: async () => undefined, id: "user-max", isAnonymous: false, billingCustomerType: "team", billingTeamId: "team-1", billingPlanId: "team", billingSeats: 3, userBillingPlanId: "max", teams: [{ id: "team-1", billingPlanId: "team", billingSeats: 3 }] } as never;
     for (const options of [{}, { requestedBillingTeamId: "team-1" }]) {
       const result = resolveVmEntitlements(user, {}, options);
       expect(result.planId).toBe("max");
@@ -39,7 +49,7 @@ describe("Max as a personal plan", () => {
     expect(highestPersonalPlanId(["team", "founders"])).toBeNull();
   });
 
-  test("a subscription's plan comes from its Price lookup key, then metadata, then pro", () => {
+  test("a subscription's plan comes from its Price lookup key or known metadata; unknown data grants nothing", () => {
     const withKey = (lookup_key: string | null) => ({
       items: { data: [{ price: { lookup_key } }] },
       metadata: { plan: "pro" },
@@ -56,7 +66,8 @@ describe("Max as a personal plan", () => {
       items: { data: [] },
       metadata: {},
     } as never, { plan: "max" } as never)).toBe(MAX_PLAN_ID);
-    expect(personalPlanIdForSubscription({ items: { data: [] }, metadata: {} } as never)).toBe(PRO_PLAN_ID);
+    expect(personalPlanIdForSubscription({ items: { data: [] }, metadata: {} } as never)).toBeNull();
+    expect(personalPlanIdForSubscription(withKey("unrelated-product"))).toBeNull();
   });
 
   test("the cmuxPlan mirror is rewritten from pro to max on upgrade and cleared on lapse", async () => {
@@ -80,7 +91,7 @@ describe("Max as a personal plan", () => {
 
   test("plan status reports max and reconciles a stale pro mirror to max", async () => {
     const written: unknown[] = [];
-    const user = { id: "user-max", isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    const user = { update: async () => undefined, id: "user-max", isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" } };
     const status = await resolveProPlanStatus(user, {
       activePersonalPlan: async () => "max",
       hasStripeCustomer: async () => true,
@@ -101,7 +112,7 @@ describe("Max as a personal plan", () => {
 
   test("an operator max grant is Max without a subscription to manage", async () => {
     const status = await resolveProPlanStatus(
-      { id: "user-grant", isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "max" } },
+      { update: async () => undefined, id: "user-grant", isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "max" } },
       { activePersonalPlan: async () => null, hasStripeCustomer: async () => false },
     );
     expect(status.planId).toBe("max");
@@ -112,7 +123,7 @@ describe("Max as a personal plan", () => {
 
   test("the legacy boolean seam still means pro", async () => {
     const status = await resolveProPlanStatus(
-      { id: "user-legacy", isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" } },
+      { update: async () => undefined, id: "user-legacy", isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" } },
       { hasActiveStripeSubscription: async () => true, hasStripeCustomer: async () => true },
     );
     expect(status.planId).toBe("pro");

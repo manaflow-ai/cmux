@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
@@ -13,7 +15,7 @@ enum MobileWhatsNewPageLayout {
     var topPadding: CGFloat {
         switch self {
         case .regular: 40
-        case .compact: 12
+        case .compact: 32
         }
     }
 
@@ -118,6 +120,20 @@ struct MobileWhatsNewContent: View {
     var layout: MobileWhatsNewPageLayout = .regular
 
     var body: some View {
+        switch page.body {
+        case .pairingSetup:
+            MobileWhatsNewPairingSetupContent(
+                page: page,
+                layout: layout
+            )
+        case .features:
+            featureRowsContent
+        case .web:
+            EmptyView()
+        }
+    }
+
+    private var featureRowsContent: some View {
         VStack(spacing: layout.headerSpacing) {
             VStack(spacing: 8) {
                 if page.isAnnouncement {
@@ -182,6 +198,182 @@ struct MobileWhatsNewContent: View {
     }
 }
 
+/// A purpose-built release page for the Mac-side pairing gate. The screenshot
+/// makes the required switch recognizable, while the compatibility block reads
+/// the same policy that connection admission uses.
+struct MobileWhatsNewPairingSetupContent: View {
+    let page: MobileWhatsNewPage
+    let layout: MobileWhatsNewPageLayout
+    @Environment(MobileMacCompatCenter.self) private var macCompatCenter: MobileMacCompatCenter?
+
+    private var compatibility: MobileWhatsNewMacCompatibility {
+        MobileWhatsNewCatalog().macCompatibility(
+            policy: macCompatCenter?.policy ?? .baked,
+            iosVersion: AppVersionInfo.current().marketingVersion,
+            buildType: MobileBuildType.current()
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: layout.headerSpacing) {
+            VStack(spacing: 10) {
+                OnboardingBalancedText(
+                    page.title,
+                    role: layout == .regular ? .title : .title2,
+                    alignment: .center,
+                    maximumNumberOfLines: 2,
+                    reservesMaximumLines: true
+                )
+
+                Text(L10n.string(
+                    "mobile.pairingOptInUpdate.requirement",
+                    defaultValue: "On your Mac, open Settings > Mobile and turn on Enable iOS pairing."
+                ))
+                .font(layout.detailFont)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, layout.topPadding)
+            .padding(.horizontal, 28)
+
+            settingsScreenshot
+            accountRequirement
+            compatibilitySection
+        }
+        .padding(.bottom, layout.bottomPadding)
+        .accessibilityIdentifier("MobileWhatsNewPairingSetup")
+    }
+
+    private var settingsScreenshot: some View {
+        screenshotImage
+            .padding(.horizontal, 24)
+    }
+
+    private var screenshotImage: some View {
+        Image("OnboardingPairingSettings", bundle: .module)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .accessibilityLabel(L10n.string(
+                "mobile.whatsNew.pairing.screenshotLabel",
+                defaultValue: "cmux Mac Settings, Mobile section, showing Enable iOS pairing."
+            ))
+            .accessibilityIdentifier("MobileWhatsNewMacSettingsScreenshot")
+    }
+
+    private var accountRequirement: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(L10n.string(
+                "mobile.onboarding.pairing.phoneLabel",
+                defaultValue: "On this iPhone"
+            ))
+            .font(layout.featureTitleFont)
+            .accessibilityIdentifier("MobileWhatsNewPhoneTitle")
+            Text(L10n.string(
+                "mobile.onboarding.pairing.phoneDetail",
+                defaultValue: "Sign in to the same cmux account"
+            ))
+            .font(layout.detailFont)
+            .foregroundStyle(.secondary)
+            .accessibilityIdentifier("MobileWhatsNewPhoneDetail")
+        }
+        .multilineTextAlignment(.leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 24)
+        .accessibilityIdentifier("MobileWhatsNewPairingRequirement")
+    }
+
+    private var compatibilitySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(
+                L10n.string(
+                    "mobile.whatsNew.pairing.compatibilityTitle",
+                    defaultValue: "Mac version required"
+                )
+            )
+            .font(layout.featureTitleFont)
+
+            VStack(spacing: 8) {
+                compatibilityRow(
+                    title: L10n.string(
+                        "mobile.whatsNew.pairing.stableLabel",
+                        defaultValue: "Stable Mac"
+                    ),
+                    value: stableRequirement
+                )
+                compatibilityRow(
+                    title: L10n.string(
+                        "mobile.whatsNew.pairing.nightlyLabel",
+                        defaultValue: "Nightly Mac"
+                    ),
+                    value: nightlyRequirement
+                )
+            }
+
+            if MobileBuildType.current().usesInternalBuildVocabulary {
+                Text(MobileWhatsNewCatalog().macUpdateDetail(
+                    buildType: MobileBuildType.current(),
+                    requiredVersion: compatibility.stableVersion
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .background(
+            Color.accentColor.opacity(0.10),
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
+        .padding(.horizontal, 24)
+        .accessibilityIdentifier("MobileWhatsNewCompatibility")
+    }
+
+    private func compatibilityRow(title: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.subheadline.monospaced())
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private var stableRequirement: String {
+        guard let version = compatibility.stableVersion else {
+            return L10n.string(
+                "mobile.whatsNew.pairing.noStableMinimum",
+                defaultValue: "No stable minimum listed"
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.whatsNew.pairing.macVersionFormat",
+                defaultValue: "cmux %@ or later"
+            ),
+            version
+        )
+    }
+
+    private var nightlyRequirement: String {
+        guard let version = compatibility.nightlyVersion else {
+            return L10n.string(
+                "mobile.whatsNew.pairing.noNightlyMinimum",
+                defaultValue: "No separate minimum"
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.whatsNew.pairing.nightlyVersionFormat",
+                defaultValue: "cmux NIGHTLY %@ or later"
+            ),
+            version
+        )
+    }
+}
+
 /// Small tinted marker distinguishing remote announcements.
 struct MobileWhatsNewAnnouncementBadge: View {
     var body: some View {
@@ -195,4 +387,5 @@ struct MobileWhatsNewAnnouncementBadge: View {
         .accessibilityIdentifier("MobileWhatsNewAnnouncementBadge")
     }
 }
+
 #endif

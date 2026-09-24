@@ -336,97 +336,118 @@ import Testing
         SurfaceProjection(resource: SurfaceResourceID(machine: machine, kind: kind, key: key), workspaceID: workspace, panelID: panel)
     }
 
-    @Test func attributesToTheProjectedPaneOnlyThroughTheHostCatalog() {
-        let workspaceA = UUID(), workspaceB = UUID()
-        let paneA = UUID(uuidString: "00000000-0000-0000-0000-00000000000A")!
-        let paneB = UUID(uuidString: "00000000-0000-0000-0000-00000000000B")!
-        let projections: Set<SurfaceProjection> = [
-            Self.projection(Self.terminalID, workspace: workspaceA, panel: paneA),
-            Self.projection("term_ffffffffffffffffffffffffffffffff", workspace: workspaceB, panel: paneB),
-        ]
-        let target = CmuxTuiSurfaceProvider.notificationTarget(
-            terminalID: Self.terminalID, machine: Self.machine, projections: projections, isLive: { _ in true }
-        )
-        #expect(target?.workspaceID == workspaceA)
-        #expect(target?.panelID == paneA)
 
-        // The same term_ id under another machine is a different resource entirely.
-        let foreign = CmuxTuiSurfaceProvider.notificationTarget(
-            terminalID: Self.terminalID, machine: .cloud("other-machine"), projections: projections, isLive: { _ in true }
+    private static func notificationRow(terminalID: String?) -> CloudVMNotificationRow {
+        CloudVMNotificationRow(
+            id: notificationID, title: "Ready", subtitle: nil, body: "", level: "info",
+            createdAtMs: 0, terminalID: terminalID, readBy: []
         )
-        #expect(foreign == nil)
-
-        // A pane that is gone (workspace closed) is not a target, even if the catalog lags.
-        let dead = CmuxTuiSurfaceProvider.notificationTarget(
-            terminalID: Self.terminalID, machine: Self.machine, projections: projections, isLive: { $0.panelID != paneA }
-        )
-        #expect(dead?.workspaceID == workspaceB, "falls back to the workspace showing the machine")
-        #expect(dead?.panelID == nil)
     }
 
-    @Test func fallsBackToTheWorkspaceShowingTheMachineOrDrops() {
-        let workspace = UUID()
-        let displayPane = UUID()
-        let projections: Set<SurfaceProjection> = [
-            Self.projection("vnc", kind: .display, workspace: workspace, panel: displayPane),
-        ]
-        let unprojected = CmuxTuiSurfaceProvider.notificationTarget(
-            terminalID: Self.terminalID, machine: Self.machine, projections: projections, isLive: { _ in true }
+    @MainActor @Test func attributesToTheProjectedPaneOnlyThroughTheHostCatalog() {
+        let workspace = UUID(), pane = UUID()
+        let projection = Self.projection(Self.terminalID, workspace: workspace, panel: pane)
+        let row = Self.notificationRow(terminalID: Self.terminalID)
+        let resolver = CloudNotificationPlacementResolver(
+            machine: Self.machine,
+            projections: { $0 == projection.resource ? [projection] : [] },
+            remoteWorkspaceID: { _ in nil },
+            boundWorkspaces: { [] }
         )
-        #expect(unprojected?.workspaceID == workspace)
-        #expect(unprojected?.panelID == nil)
+        #expect(resolver.target(for: row)?.workspaceID == workspace)
+        #expect(resolver.target(for: row)?.panelID == pane)
 
-        let sessionWide = CmuxTuiSurfaceProvider.notificationTarget(
-            terminalID: nil, machine: Self.machine, projections: projections, isLive: { _ in true }
+        let foreign = CloudNotificationPlacementResolver(
+            machine: .cloud("other-machine"),
+            projections: { $0 == projection.resource ? [projection] : [] },
+            remoteWorkspaceID: { _ in nil },
+            boundWorkspaces: { [] }
         )
-        #expect(sessionWide?.workspaceID == workspace)
+        #expect(foreign.target(for: row) == nil)
 
-        #expect(CmuxTuiSurfaceProvider.notificationTarget(terminalID: Self.terminalID, machine: Self.machine, projections: [], isLive: { _ in true }) == nil)
-        #expect(CmuxTuiSurfaceProvider.notificationTarget(terminalID: nil, machine: .cloud("elsewhere"), projections: projections, isLive: { _ in true }) == nil)
+        let unprojected = CloudNotificationPlacementResolver(
+            machine: Self.machine, projections: { _ in [] }, remoteWorkspaceID: { _ in nil },
+            boundWorkspaces: { [CloudNotificationBoundWorkspace(workspaceID: workspace, remoteWorkspaceID: nil)] }
+        )
+        #expect(unprojected.target(for: row) == nil, "an unknown terminal must not badge an unrelated workspace")
     }
 
-    @Test func aTerminalShownTwicePrefersTheFocusedSelectedPaneDeterministically() {
-        let selected = UUID(), background = UUID()
-        let paneHigh = UUID(uuidString: "FFFFFFFF-0000-0000-0000-000000000000")!
-        let paneLow = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        let projections: Set<SurfaceProjection> = [
-            Self.projection(Self.terminalID, workspace: selected, panel: paneHigh),
-            Self.projection(Self.terminalID, workspace: background, panel: paneLow),
+    @MainActor @Test func fallsBackOnlyToTheTerminalsOwnRemoteWorkspace() {
+        let unrelated = UUID(), matching = UUID()
+        let bindings = [
+            CloudNotificationBoundWorkspace(workspaceID: unrelated, remoteWorkspaceID: "remote-other"),
+            CloudNotificationBoundWorkspace(workspaceID: matching, remoteWorkspaceID: "remote-current")
         ]
-        let noFocus = CmuxTuiSurfaceProvider.notificationTarget(
-            terminalID: Self.terminalID, machine: Self.machine, projections: projections, isLive: { _ in true }
+        let resolver = CloudNotificationPlacementResolver(
+            machine: Self.machine,
+            projections: { _ in [] },
+            remoteWorkspaceID: { $0 == Self.terminalID ? "remote-current" : "remote-unopened" },
+            boundWorkspaces: { bindings }
         )
-        #expect(noFocus?.panelID == paneLow, "catalog order when nothing is selected")
+        let target = resolver.target(for: Self.notificationRow(terminalID: Self.terminalID))
+        #expect(target?.workspaceID == matching)
+        #expect(target?.panelID == nil)
+        #expect(resolver.target(for: Self.notificationRow(terminalID: "term_unopened")) == nil)
+        #expect(resolver.target(for: Self.notificationRow(terminalID: nil))?.workspaceID == unrelated)
 
-        let focused = CmuxTuiSurfaceProvider.notificationTarget(
-            terminalID: Self.terminalID, machine: Self.machine, projections: projections,
-            isLive: { _ in true },
-            isSelectedWorkspace: { $0 == selected },
-            isFocusedPanel: { $0.panelID == paneHigh }
+        let closed = CloudNotificationPlacementResolver(
+            machine: Self.machine, projections: { _ in [] },
+            remoteWorkspaceID: { _ in "remote-current" }, boundWorkspaces: { [] }
         )
-        #expect(focused?.workspaceID == selected)
-        #expect(focused?.panelID == paneHigh)
+        #expect(closed.target(for: Self.notificationRow(terminalID: Self.terminalID)) == nil)
+        #expect(closed.target(for: Self.notificationRow(terminalID: nil)) == nil)
+    }
+
+    @MainActor @Test func duplicateTerminalProjectionsUseTheCatalogsOrder() {
+        let selected = UUID(), background = UUID(), selectedPane = UUID(), backgroundPane = UUID()
+        let preferred = Self.projection(Self.terminalID, workspace: selected, panel: selectedPane)
+        let other = Self.projection(Self.terminalID, workspace: background, panel: backgroundPane)
+        let resolver = CloudNotificationPlacementResolver(
+            machine: Self.machine, projections: { _ in [preferred, other] },
+            remoteWorkspaceID: { _ in nil }, boundWorkspaces: { [] }
+        )
+        let target = resolver.target(for: Self.notificationRow(terminalID: Self.terminalID))
+        #expect(target?.workspaceID == selected)
+        #expect(target?.panelID == selectedPane)
     }
 
     // MARK: Link pipe
 
-    @Test func oversizedLinesAreDiscardedInsteadOfBuffered() {
-        let buffer = CloudLinkPipe.LineBuffer()
-        let chunk = Data(repeating: 0x41, count: 1024 * 1024)
-        var delivered: [String] = []
-        for _ in 0..<5 {
-            delivered += buffer.append(chunk)
+    @Test("The real pipe reader discards oversized lines and preserves later frames", .timeLimit(.minutes(1)))
+    func oversizedLinesAreDiscardedInsteadOfBuffered() async throws {
+        let pipe = Pipe()
+        defer {
+            try? pipe.fileHandleForReading.close()
+            try? pipe.fileHandleForWriting.close()
         }
-        #expect(delivered.isEmpty)
-        delivered += buffer.append(Data("still the same line\nok\n".utf8))
-        #expect(delivered == ["ok"], "the oversized line is dropped up to its newline; the next line survives")
-        delivered += buffer.append(Data("tail".utf8))
-        #expect(buffer.flush() == "tail")
+        let stream = CloudLinkPipe.lines(from: pipe.fileHandleForReading)
+        async let write: Void = Self.writeLineBufferFixture(to: pipe.fileHandleForWriting)
+        var delivered: [String] = []
+        for await line in stream { delivered.append(line) }
+        try await write
+        #expect(delivered.count == 3)
+        #expect(delivered.first == "ok", "drop the oversized line through its newline")
+        #expect(delivered.dropFirst().first?.utf8.count == 3 * 1024 * 1024, "keep an under-cap line whole")
+        #expect(delivered.last == "tail", "flush an unterminated line at real pipe EOF")
+    }
 
-        // Under the cap, long lines still arrive whole.
-        let underCap = CloudLinkPipe.LineBuffer()
-        let big = Data(repeating: 0x42, count: 3 * 1024 * 1024)
-        #expect(underCap.append(big).isEmpty)
-        #expect(underCap.append(Data("\n".utf8)).map(\.utf8.count) == [3 * 1024 * 1024])
+    private static func writeLineBufferFixture(to handle: FileHandle) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            // A pipe write may block; keep it off the cooperative executor while
+            // the production readability handler drains the other end.
+            DispatchQueue.global(qos: .userInitiated).async {
+                defer { try? handle.close() }
+                do {
+                    let chunk = Data(repeating: 0x41, count: 1024 * 1024)
+                    for _ in 0..<5 { try handle.write(contentsOf: chunk) }
+                    try handle.write(contentsOf: Data("still the same line\nok\n".utf8))
+                    try handle.write(contentsOf: Data(repeating: 0x42, count: 3 * 1024 * 1024))
+                    try handle.write(contentsOf: Data("\ntail".utf8))
+                    continuation.resume()
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 }

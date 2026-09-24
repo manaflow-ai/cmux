@@ -20,9 +20,11 @@ let package = Package(
     ],
     dependencies: [],
     targets: [
+        .target(name: "WireGuardTunnelDevice", dependencies: ["WireGuardKitC"]),
+        .testTarget(name: "WireGuardTunnelDeviceTests", dependencies: ["WireGuardTunnelDevice"]),
         .target(
             name: "WireGuardKit",
-            dependencies: ["WireGuardKitGo", "WireGuardKitC"]
+            dependencies: ["WireGuardKitGo", "WireGuardKitC", "WireGuardTunnelDevice"]
         ),
         .target(
             name: "WireGuardKitC",

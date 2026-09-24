@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import CMUXAgentLaunch
@@ -766,7 +767,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var registration: CmuxVaultAgentRegistration? = nil
     /// Last hook-observed permission mode; re-applied as `--permission-mode` on
     /// user-owned claude resume/fork when no explicit launch flag covers it.
-    var permissionMode: String? = nil
+    var permissionMode: String? = nil; var hadActivePromptTurn: Bool? = nil
 
     func preparedResumeArguments(
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -874,6 +875,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:], isComplete: true)
+    static let unavailable = RestorableAgentSessionIndex(entriesByPanel: [:], isComplete: false)
 
     struct PanelKey: Hashable, Sendable {
         let workspaceId: UUID
@@ -1550,7 +1552,7 @@ struct RestorableAgentSessionIndex: Sendable {
         )
     }
 
-    // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
+    // Expensive: reads every agent kind's hook-store file from disk,
     // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
     // live-PID filtering (measured 350ms-1.8s on machines with large agent history).
     // Claude transcript path lookups share a cross-load existence cache validated by
@@ -1571,46 +1573,6 @@ struct RestorableAgentSessionIndex: Sendable {
             detectedSnapshots: [:]
         )
     }
-
-    static func loadIncludingProcessDetectedSnapshots(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) async -> RestorableAgentSessionIndex {
-        await Task.detached(priority: .utility) {
-            loadIncludingProcessDetectedSnapshotsSynchronously(
-                homeDirectory: homeDirectory,
-                fileManager: fileManager
-            )
-        }.value
-    }
-
-    static func loadIncludingProcessDetectedSnapshotsSynchronously(
-        homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) -> RestorableAgentSessionIndex {
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        let detectedSnapshots = processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: processSnapshot.sampledAt.timeIntervalSince1970
-        )
-        let hibernationProcessScopes = detectedSnapshots.mapValues { detected in
-            processSnapshot.agentHibernationProcessScope(
-                panelProcessIDs: detected.processIDs,
-                agentProcessIDs: detected.agentProcessIDs
-            )
-        }
-        return load(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots,
-            hibernationProcessScopes: hibernationProcessScopes
-        )
-    }
-
     static func load(
         homeDirectory: String,
         fileManager: FileManager,
@@ -2005,10 +1967,10 @@ struct RestorableAgentSessionIndex: Sendable {
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration,
-                    permissionMode: effectiveRecord.lastPermissionMode
+                    permissionMode: effectiveRecord.lastPermissionMode,
+                    hadActivePromptTurn: max(effectiveRecord.activePromptDepth ?? 0, effectiveRecord.activePromptTurnIds?.count ?? 0) > 0
                 )
-                let key = panelKey
-                let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
+                let key = panelKey; let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
                 let recordedProcessIdentity: AgentPIDProcessIdentity? = {
@@ -2168,11 +2130,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 for: detected.processIDs,
                 processIdentityProvider: processIdentityProvider
             )
-            let hibernationScope = hibernationProcessScopes[key] ?? (
-                detected.processIDs,
-                detected.agentProcessIDs,
-                !detected.processIDs.isSubset(of: detected.agentProcessIDs)
-            )
+            // Detection establishes liveness, not exclusive ownership of a complete process tree.
+            let hibernationScope = hibernationProcessScopes[key] ?? ([], [], true)
             let terminationProcessIdentities = Self.processIdentities(
                 for: hibernationScope.terminationProcessIDs,
                 processIdentityProvider: processIdentityProvider

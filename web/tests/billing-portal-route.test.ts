@@ -61,13 +61,13 @@ mock.module("../db/client", () => ({
   cloudDb: () => withAccountMutationLeaseSupport({
     select: () => ({
       from: (table: unknown) => ({
-        where: () => ({
-          limit: mock(async () => {
-            if (table === stripeCustomers) return customerRows;
-            if (table === stripeSubscriptions) return stripeSubscriptionRows;
-            return [];
-          }),
-        }),
+        where: () => {
+          const rows = table === stripeCustomers ? customerRows : table === stripeSubscriptions ? stripeSubscriptionRows : [];
+          return Object.assign(Promise.resolve(rows), {
+            limit: async () => rows,
+            orderBy: () => ({ limit: async () => rows }),
+          });
+        },
       }),
     }),
   }),
@@ -314,7 +314,7 @@ describe("billing portal route", () => {
 
   test("captures missing customer rows for Stripe-managed users and redirects unavailable", async () => {
     customerRows = [];
-    stripeSubscriptionRows = [{ id: "sub_123" }];
+    stripeSubscriptionRows = [{ id: "sub_123", status: "active", plan: "pro", scope: "user" }];
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal"),

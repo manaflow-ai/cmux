@@ -12,14 +12,14 @@ struct IrxStateLocationTests {
 
     @Test("different bundles and different brokers never share a directory")
     func isolation() {
-        let nightlyProd = IrxStateLocation.directory(
+        let nightlyProd = IrxStateLocation().directory(
             base: base, bundleIdentifier: "dev.cmux.app.nightly", brokerHost: "cmux.com")
-        let devStaging = IrxStateLocation.directory(
+        let devStaging = IrxStateLocation().directory(
             base: base, bundleIdentifier: "dev.cmux.app.debug.irx",
-            brokerHost: "cmux-staging.vercel.app")
-        let nightlyStaging = IrxStateLocation.directory(
+            brokerHost: "cmux-iroh-v2-staging.debussy.workers.dev")
+        let nightlyStaging = IrxStateLocation().directory(
             base: base, bundleIdentifier: "dev.cmux.app.nightly",
-            brokerHost: "cmux-staging.vercel.app")
+            brokerHost: "cmux-iroh-v2-staging.debussy.workers.dev")
         #expect(nightlyProd != devStaging)
         #expect(nightlyProd != nightlyStaging)
         #expect(devStaging != nightlyStaging)
@@ -27,12 +27,12 @@ struct IrxStateLocationTests {
 
     @Test("hostile identifiers sanitize without collapsing to a shared path")
     func sanitization() {
-        #expect(IrxStateLocation.sanitized("../../etc", fallback: "x") == "..-..-etc")
-        #expect(IrxStateLocation.sanitized("..", fallback: "x") == "x")
-        #expect(IrxStateLocation.sanitized(".", fallback: "x") == "x")
-        #expect(IrxStateLocation.sanitized(nil, fallback: "unknown-bundle") == "unknown-bundle")
-        #expect(IrxStateLocation.sanitized("", fallback: "f") == "f")
-        #expect(IrxStateLocation.sanitized("Dev.Cmux.App", fallback: "f") == "dev.cmux.app")
+        #expect(IrxStateLocation().sanitized("../../etc", fallback: "x") == "..-..-etc")
+        #expect(IrxStateLocation().sanitized("..", fallback: "x") == "x")
+        #expect(IrxStateLocation().sanitized(".", fallback: "x") == "x")
+        #expect(IrxStateLocation().sanitized(nil, fallback: "unknown-bundle") == "unknown-bundle")
+        #expect(IrxStateLocation().sanitized("", fallback: "f") == "f")
+        #expect(IrxStateLocation().sanitized("Dev.Cmux.App", fallback: "f") == "dev.cmux.app")
     }
 
     @Test("cache writes are owner-only for files and directories")
@@ -59,7 +59,7 @@ struct IrxStateLocationTests {
         try FileManager.default.createDirectory(
             at: legacy, withIntermediateDirectories: true)
         try Data("secret".utf8).write(to: legacy.appendingPathComponent("identity.json"))
-        IrxStateLocation.removeLegacySharedDirectory(base: base)
+        IrxStateLocation().removeLegacySharedDirectory(base: base)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
     }
 }

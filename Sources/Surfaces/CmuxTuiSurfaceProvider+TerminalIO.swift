@@ -1,11 +1,46 @@
 import Foundation
 
+extension CmuxTuiSurfaceProvider {
+    nonisolated static let defaultWaitTimeoutMs = 30_000
+    nonisolated static let maxWaitTimeoutMs = 3_600_000
+
+    nonisolated static func clampedWaitTimeoutMs(_ requested: Int?) -> Int {
+        guard let requested, requested > 0 else { return defaultWaitTimeoutMs }
+        return min(requested, maxWaitTimeoutMs)
+    }
+}
+
 /// Two more headless terminal primitives over the machine's link, beside `readScreen`
 /// and `waitForScreen`: the process's EXIT (a fact the daemon records) and its retained
 /// OUTPUT (the whole log, not the visible rows). Together they turn "run this to
 /// completion and give me the result" into `wait-exit` + `output` instead of a prompt
 /// regex and a screenful of text.
 extension CmuxTuiSurfaceProvider {
+    /// Returns the cwd of the process group currently owning the remote PTY.
+    /// This is deliberately a live process query: the snapshot's `cwd` is the
+    /// terminal's spawn directory and remains stale after a remote `cd`.
+    func currentWorkingDirectory(of resource: SurfaceResource) async -> String? {
+        guard resource.kind == .terminal else { return nil }
+        do {
+            let connected = try await links.connected(machineID: machineID)
+            guard let link = await links.link(machineID: machineID) else { return nil }
+            let data = try await link.run(
+                arguments: CloudTuiRequests.processInfoArguments(
+                    socketPath: connected.socketPath,
+                    terminalID: resource.id.key
+                )
+            )
+            guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return CloudTuiCommandLine.foregroundWorkingDirectory(fromProcessInfo: result)
+        } catch {
+            // Directory inheritance is best effort. A daemon without the process
+            // query capability must retain the existing workspace fallback.
+            return nil
+        }
+    }
+
     /// Block until the remote terminal's process exits or `timeoutMs` elapses (the same
     /// clamp as `waitForScreen`: nil/non-positive → 30 s, at most an hour). The daemon's
     /// answer: `{state: "exited", terminal_id, lifecycle, outcome: {kind: exit, code} |
@@ -17,7 +52,7 @@ extension CmuxTuiSurfaceProvider {
         let effectiveMs = Self.clampedWaitTimeoutMs(timeoutMs)
         let linkTimeout = Duration.milliseconds(effectiveMs + 5_000)
         let data = try await link.run(
-            arguments: CloudTuiCommandLine.processWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, timeoutMs: effectiveMs),
+            arguments: CloudTuiRequests.processWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, timeoutMs: effectiveMs),
             timeout: linkTimeout
         )
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
@@ -31,7 +66,7 @@ extension CmuxTuiSurfaceProvider {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let data = try await link.run(
-            arguments: CloudTuiCommandLine.outputReadArguments(socketPath: connected.socketPath, terminalID: terminalID, after: after, maxBytes: maxBytes)
+            arguments: CloudTuiRequests.outputReadArguments(socketPath: connected.socketPath, terminalID: terminalID, after: after, maxBytes: maxBytes)
         )
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }

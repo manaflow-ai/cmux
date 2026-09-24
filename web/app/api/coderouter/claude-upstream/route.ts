@@ -1,4 +1,4 @@
-import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
+import { coderouterControlRoute, spanned } from "@/services/coderouter/requestTelemetry";
 // Team Claude upstream accounts: list, add, remove all. One account is
 // addressed under ./[accountId]. Any team member may read; `manageAccounts`
 // (every member today) may write. Secrets never leave the server: responses
@@ -11,7 +11,7 @@ import {
 } from "../../../../services/coderouter/claudeUpstream";
 import {
   resolveCoderouterUsageTeam,
-  resolveCodeRouterRequestContext,
+  resolveCoderouterControlContext,
 } from "../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../services/coderouter/analytics";
 import {
@@ -23,7 +23,7 @@ export const MAX_CLAUDE_UPSTREAM_BODY_BYTES = 64 * 1_024;
 
 export type ClaudeUpstreamRouteDependencies = {
   readonly resolveUsageTeam: typeof resolveCoderouterUsageTeam;
-  readonly resolveContext: typeof resolveCodeRouterRequestContext;
+  readonly resolveContext: typeof resolveCoderouterControlContext;
   readonly list: typeof listClaudeAccounts;
   readonly add: typeof addClaudeAccount;
   readonly removeAll: typeof removeAllClaudeAccounts;
@@ -31,7 +31,7 @@ export type ClaudeUpstreamRouteDependencies = {
 
 const defaultDependencies: ClaudeUpstreamRouteDependencies = {
   resolveUsageTeam: resolveCoderouterUsageTeam,
-  resolveContext: resolveCodeRouterRequestContext,
+  resolveContext: resolveCoderouterControlContext,
   list: listClaudeAccounts,
   add: addClaudeAccount,
   removeAll: removeAllClaudeAccounts,
@@ -44,7 +44,7 @@ export function makeClaudeUpstreamHandlers(
     const resolved = await dependencies.resolveUsageTeam(request);
     if (!resolved.ok) return resolved.response;
     try {
-      const accounts = await dependencies.list(resolved.teamId);
+      const accounts = await spanned("rds", () => dependencies.list(resolved.teamId, resolved.access));
       return Response.json(
         // `upstream` mirrors the first account for clients written against the
         // single-upstream contract; new clients read `accounts`.
@@ -61,8 +61,13 @@ export function makeClaudeUpstreamHandlers(
   async function POST(request: Request): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
+    const access = resolved.value.access;
     const body = await readJsonBody(request);
     if (!body.ok) return body.response;
+    const requestedVisibility = body.value && typeof body.value === "object" && "visibility" in body.value ? (body.value as { visibility: unknown }).visibility : "private";
+    if (requestedVisibility !== "private" && requestedVisibility !== "team") return Response.json({ error: "invalid_visibility" }, { status: 400 });
+    const visibility = access.kind === "vm" ? "team" : requestedVisibility;
+    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const input = parseClaudeUpstreamInput(body.value);
     if (!input) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
@@ -70,8 +75,8 @@ export function makeClaudeUpstreamHandlers(
     const teamId = resolved.value.team.teamId;
     const stackUserId = resolved.value.user.id;
     try {
-      const before = await dependencies.list(teamId);
-      const account = await dependencies.add(teamId, stackUserId, input);
+      const before = await dependencies.list(teamId, access);
+      const account = await dependencies.add(teamId, stackUserId, input, visibility, access);
       captureCoderouterEvent({
         event: "coderouter_claude_upstream_set",
         userId: stackUserId,
@@ -96,10 +101,12 @@ export function makeClaudeUpstreamHandlers(
   async function DELETE(request: Request): Promise<Response> {
     const resolved = await dependencies.resolveContext(request);
     if (!resolved.ok) return resolved.response;
+    const access = resolved.value.access;
+    if (!resolved.value.team.manageAccounts) return Response.json({ error: "forbidden" }, { status: 403 });
     const teamId = resolved.value.team.teamId;
-    let result;
+    let result: Awaited<ReturnType<ClaudeUpstreamRouteDependencies["removeAll"]>>;
     try {
-      result = await dependencies.removeAll(teamId);
+      result = await dependencies.removeAll(teamId, access);
     } catch (error) {
       reportCoderouterFailure("rds", error, { operation: "remove_all_claude_accounts" });
       return claudeUpstreamUnavailable("coderouter could not remove the Claude upstream accounts. Nothing was changed; retry shortly.");

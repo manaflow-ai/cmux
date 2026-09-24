@@ -29,16 +29,17 @@ enum SurfacePaneFactory {
     /// A terminal pane running `initialCommand` (nil → the login shell) at the destination.
     static func makeTerminalPane(
         initialCommand: String?,
+        initialInput: String? = nil,
         workingDirectory: String?,
         at destination: SurfaceDestination,
         focus: Bool
     ) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(typeRaw: "terminal", url: nil, initialCommand: initialCommand, workingDirectory: workingDirectory, at: destination, focus: focus)
+        try create(typeRaw: "terminal", url: nil, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, at: destination, focus: focus)
     }
 
     /// A browser pane loading `url` at the destination.
-    static func makeBrowserPane(url: URL, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
-        try create(typeRaw: "browser", url: url.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
+    static func makeBrowserPane(url: URL?, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
+        try create(typeRaw: "browser", url: url?.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
     }
 
     /// The URL a browser pane opens with when its real URL is still being resolved; the
@@ -47,7 +48,7 @@ enum SurfacePaneFactory {
 
     /// The browser pane behind a projection, if it still exists and is a browser.
     static func browserPanel(panelID: UUID, in workspaceID: UUID) -> BrowserPanel? {
-        workspace(id: workspaceID)?.panels[panelID] as? BrowserPanel
+        workspace(id: workspaceID)?.browserPanelIncludingDock(for: panelID) ?? DockSplitStore.liveStore(containingPanel: panelID)?.browserPanel(for: panelID)
     }
 
     /// Sends an existing browser pane to `url` — the optimistic pane's second step, once
@@ -66,6 +67,21 @@ enum SurfacePaneFactory {
     /// Selects the workspace and focuses the pane, the way `surface.focus` does — an explicit
     /// focus-intent operation that still never activates the app.
     static func focus(panelID: UUID, in workspaceID: UUID) {
+        // AppKit focus-intent bookkeeping is optional. Socket/headless and
+        // windowless workspaces still need the shared control-socket focus
+        // operation below.
+        if let appDelegate = AppDelegate.shared,
+           let manager = appDelegate.tabManagerFor(tabId: workspaceID),
+           let workspace = manager.tabs.first(where: { $0.id == workspaceID }),
+           workspace.controlSurfaceTarget(for: panelID) != nil,
+           let windowID = appDelegate.windowId(for: manager),
+           let targetWindow = appDelegate.mainWindow(for: windowID) {
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspaceID,
+                panelId: panelID,
+                in: targetWindow
+            )
+        }
         _ = TerminalController.shared.controlSurfaceFocus(routing: routing(workspaceID: workspaceID), surfaceID: panelID)
     }
 
@@ -108,9 +124,9 @@ enum SurfacePaneFactory {
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
-    static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
         guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
-            title: title,
+            title: title, titleSource: titleSource,
             shouldBringToFront: false,
             debugSource: "surface.catalog.newWorkspace"
         ) else {
@@ -159,6 +175,7 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String? = nil,
         workingDirectory: String?,
         at destination: SurfaceDestination,
         focus: Bool
@@ -180,14 +197,14 @@ enum SurfacePaneFactory {
             switch destination {
             case .tab(_, let paneID, _):
                 guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
             case .workspace(_, .tab):
-                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
             case .split(_, let paneID, let direction):
                 let anchor = try anchorSurface(paneID: paneID, in: workspace)
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
             case .workspace(_, .split):
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
             }
         }
     }
@@ -198,6 +215,7 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String?,
         workingDirectory: String?,
         requestedPane: UUID?,
         focus: Bool
@@ -211,6 +229,7 @@ enum SurfacePaneFactory {
                 urlRaw: url,
                 workingDirectory: workingDirectory,
                 initialCommand: initialCommand,
+                initialInput: initialInput,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
                 remoteContextRaw: nil,
@@ -233,6 +252,7 @@ enum SurfacePaneFactory {
         typeRaw: String,
         url: String?,
         initialCommand: String?,
+        initialInput: String?,
         workingDirectory: String?,
         direction: SurfaceSplitDirection,
         anchor: UUID?,
@@ -247,6 +267,7 @@ enum SurfacePaneFactory {
                 requestedSourceSurfaceID: anchor,
                 workingDirectory: workingDirectory,
                 initialCommand: initialCommand,
+                initialInput: initialInput,
                 tmuxStartCommand: nil,
                 remotePTYSessionID: nil,
                 remoteContextRaw: nil,

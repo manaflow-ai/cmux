@@ -210,17 +210,19 @@ struct SudoApprovalCoordinatorTests {
         await coordinator.stop()
     }
 
-    @Test("A closed pending review window is recreated by the next snapshot")
+    @Test("A closed pending review window is recreated by the next snapshot", .timeLimit(.minutes(1)))
     func closedPendingWindowReappears() async throws {
         let snapshot = Self.snapshot(id: "request-closed")
         let broker = RecordingSudoBroker(initialSnapshots: [snapshot])
         let presenter = RecordingSudoApprovalPresenter()
         let coordinator = SudoApprovalCoordinator(broker: broker, presenter: presenter)
+        var events = presenter.events.makeAsyncIterator()
 
         try await coordinator.start()
+        #expect(await events.next() == .presented(snapshot.request.id))
         presenter.close(id: snapshot.request.id)
         await broker.send(.snapshot([snapshot]))
-        await Task.yield()
+        #expect(await events.next() == .presented(snapshot.request.id))
 
         #expect(presenter.presentCallCount == 2)
         await coordinator.stop()

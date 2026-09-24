@@ -1,4 +1,5 @@
 import CFNetwork
+import CmuxBrowser
 import Foundation
 import Network
 import Testing
