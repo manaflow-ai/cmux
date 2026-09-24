@@ -4549,7 +4549,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         serde_json::json!({"machine":"current","session":"current"}),
         None,
     );
-    let listed_ids = listed["value"]
+    let listed_ids = listed
         .as_array()
         .unwrap_or_else(|| panic!("terminal.list failed: {listed}"))
         .iter()
