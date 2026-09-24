@@ -75,6 +75,32 @@ struct MobileWhatsNewRemoteAnnouncement: Codable, Identifiable {
         var detail: String
     }
 
+    struct LocalizedContent: Codable {
+        var title: String
+        var releaseLabel: String?
+        var features: [Feature]
+    }
+
+    /// Complete translated content. Base fields remain an English fallback
+    /// for older clients and unsupported languages; identity and targeting
+    /// never vary by language.
+    var localizations: [String: LocalizedContent]? = nil
+
+    func localized(for preferredLanguages: [String]) -> Self {
+        guard let localizations else { return self }
+        let languages = Bundle.preferredLocalizations(
+            from: localizations.keys.sorted(),
+            forPreferences: preferredLanguages + ["en"]
+        )
+        guard let language = languages.first,
+              let content = localizations[language] else { return self }
+        var result = self
+        result.title = content.title
+        result.releaseLabel = content.releaseLabel
+        result.features = content.features
+        return result
+    }
+
     var id: String
     var minVersion: String
     var maxVersion: String
@@ -110,10 +136,11 @@ struct MobileAppVersionCompare: Sendable {
     func version(
         _ version: String,
         isWithinMin minVersion: String,
-        max maxVersion: String
+        max maxVersion: String?
     ) -> Bool {
-        compare(version, minVersion) != .orderedAscending
-            && compare(version, maxVersion) != .orderedDescending
+        guard compare(version, minVersion) != .orderedAscending else { return false }
+        guard let maxVersion else { return true }
+        return compare(version, maxVersion) != .orderedDescending
     }
 
     private func components(of version: String) -> [Int] {
