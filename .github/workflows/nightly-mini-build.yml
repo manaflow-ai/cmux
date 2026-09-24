@@ -129,7 +129,16 @@ jobs:
           # products: an incremental build never deletes a resource, framework
           # or dSYM the source has since removed, and those would ship.
           rm -rf build-universal/Build/Products
-          python3 scripts/ci/run-with-helper-prebuild.py \
+          # On a Manaflow mini, take the host lock the build-fleet controller
+          # holds while it builds, so a nightly and a dev build take turns
+          # instead of splitting the machine. Hosted and fork runs have no
+          # lock tool and build as before. Use bin/, not recipes/: recipes is a
+          # symlink and its lock path does not resolve.
+          lock=()
+          host_lock=/Users/Shared/cmux-build-fleet/bin/with-host-lock
+          if [ -x "$host_lock" ]; then lock=("$host_lock"); fi
+          set +e
+          ${lock[@]+"${lock[@]}"} python3 scripts/ci/run-with-helper-prebuild.py \
             --derived-data build-universal --configuration Release --archs "$archs" \
             --log "$RUNNER_TEMP/helper-prebuild.log" -- \
           ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
@@ -144,6 +153,15 @@ jobs:
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
             COMPILER_INDEX_STORE_ENABLE=NO \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" build
+          status=$?
+          set -e
+          if [ "$status" -eq 75 ] && [ ${#lock[@]} -gt 0 ]; then
+            # with-host-lock refuses a job below its free-disk floor. The router
+            # reads the failed producer as producer_failure and the nightly
+            # compiles on Blacksmith.
+            echo "::error::exit 75: the host lock refuses a build below its free-disk floor, so this nightly compiles on Blacksmith"
+          fi
+          [ "$status" -eq 0 ] || exit "$status"
           echo "seconds=$(( $(date +%s) - started ))" >> "$GITHUB_OUTPUT"
 
       - name: Prune dead compilation cache generations
@@ -212,5 +230,5 @@ jobs:
             echo
             echo "- source: \`$SOURCE_SHA\`"
             echo "- runner: \`$RUNNER_NAME\`"
-            echo "- xcodebuild seconds: \`${BUILD_SECONDS:-n/a}\`"
+            echo "- build seconds, including any wait for the host lock: \`${BUILD_SECONDS:-n/a}\`"
           } >> "$GITHUB_STEP_SUMMARY"

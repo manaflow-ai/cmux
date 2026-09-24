@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
+import io
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -596,16 +599,194 @@ class Quarantine(unittest.TestCase):
 
 
 class CandidatePin(unittest.TestCase):
-    def test_doctor_warns_a_week_before_the_candidate_expires(self) -> None:
-        with mock.patch.object(fleet, "candidate_days_left", return_value=3.0):
+    def test_doctor_warns_two_weeks_before_the_candidate_expires(self) -> None:
+        with mock.patch.object(fleet, "candidate_days_left", return_value=10.0):
             sections, nxt = fleet.doctor_lines(fleet_state(runners=[runner()]), None)
-        self.assertIn("expires in 3 days", fleet.render_doctor(sections, nxt))
+        self.assertIn("expires in 10 days", fleet.render_doctor(sections, nxt))
+        with mock.patch.object(fleet, "candidate_days_left", return_value=0.4):
+            sections, nxt = fleet.doctor_lines(fleet_state(runners=[runner()]), None)
+        self.assertIn("expires in 1 day ", fleet.render_doctor(sections, nxt))
         with mock.patch.object(fleet, "candidate_days_left", return_value=20.0):
             sections, nxt = fleet.doctor_lines(fleet_state(runners=[runner()]), None)
         self.assertNotIn("Glaeda candidate", fleet.render_doctor(sections, nxt))
 
+    def test_a_mini_without_gh_still_hears_about_expiry(self) -> None:
+        github = fleet.GitHubState(gh_missing=True, error="gh is not installed here")
+        with mock.patch.object(fleet, "candidate_days_left", return_value=-1.0):
+            sections, nxt = fleet.doctor_lines(github, mini())
+        self.assertIn("expired at", fleet.render_doctor(sections, nxt))
+
     def test_expiry_is_a_timestamp(self) -> None:
         self.assertGreater(fleet.candidate_days_left(0), 0)
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+class CandidateWithoutGh(unittest.TestCase):
+    """A mini has no gh: a staged archive is enough, and a missing one is caught before any long step."""
+
+    def test_a_staged_generation_or_the_pinned_archive_is_enough(self) -> None:
+        self.assertIsNone(fleet.candidate_blocker(True, None, False, -5.0))
+        # Even after the artifact expired: these are still the reviewed bytes.
+        self.assertIsNone(fleet.candidate_blocker(False, fleet.CANDIDATE_SHA256, False, -5.0))
+
+    def test_gh_downloads_it_while_the_artifact_lives(self) -> None:
+        self.assertIsNone(fleet.candidate_blocker(False, None, True, 10.0))
+
+    def test_no_gh_and_nothing_staged_says_where_to_put_it(self) -> None:
+        text = fleet.candidate_blocker(False, None, False, 10.0)
+        for part in (str(fleet.candidate_archive()), fleet.CANDIDATE_RUN, fleet.CANDIDATE_ARTIFACT,
+                     fleet.CANDIDATE_SHA256, "gh run download", "scp"):
+            self.assertIn(part, text)
+
+    def test_a_wrong_archive_is_named(self) -> None:
+        text = fleet.candidate_blocker(False, "0" * 64, True, 10.0)
+        self.assertIn("0" * 64, text)
+        self.assertIn(str(fleet.candidate_archive()), text)
+
+    def test_up_refuses_cleanly_once_the_artifact_expired(self) -> None:
+        self.assertIn("expired", fleet.candidate_blocker(False, None, True, -0.5))
+
+    def test_registration_without_gh_or_token_is_caught_first(self) -> None:
+        steps = [fleet.UpStep("register", ""), fleet.UpStep("start", "")]
+        self.assertIn("persistent-compile token", fleet.up_blockers(steps, False, False)[0])
+        self.assertEqual(fleet.up_blockers(steps, True, False), [])
+
+    def up_on_fresh_mini(self, archive_bytes: bytes | None, gh: bool = False) -> tuple[str | None, mock.Mock]:
+        local = mini(glaeda=None, enrollment=None, acceptance=False, runner_configured=False,
+                     runner_name=None, service_loaded=None)
+        with tempfile.TemporaryDirectory() as tmp:
+            archive = Path(tmp) / "glaeda.tar.gz"
+            if archive_bytes is not None:
+                archive.write_bytes(archive_bytes)
+            with mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", return_value=local), \
+                 mock.patch.object(fleet, "ci_xcode", return_value=(fleet.XCODE_APP, "test")), \
+                 mock.patch.object(fleet, "gh_installed", return_value=gh), \
+                 mock.patch.object(fleet, "gh_signed_in", return_value=gh), \
+                 mock.patch.object(fleet, "candidate_staged", return_value=False), \
+                 mock.patch.object(fleet, "candidate_archive", return_value=archive), \
+                 mock.patch.object(fleet, "candidate_days_left", return_value=20.0), \
+                 mock.patch.dict(fleet.os.environ, {fleet.TOKEN_ENV: "t"}), \
+                 mock.patch.object(fleet, "confirm", return_value=False) as confirm, mock.patch("sys.stdout"):
+                try:
+                    fleet.cmd_up(fleet.parser().parse_args(["up", "--node-id", "cmux-mac-002"]))
+                except fleet.Failure as error:
+                    return str(error), confirm
+        return None, confirm
+
+    def test_up_without_gh_stops_before_the_clone(self) -> None:
+        error, confirm = self.up_on_fresh_mini(None)
+        self.assertIn("gh run download", error)
+        confirm.assert_not_called()
+
+    def test_up_uses_a_staged_archive_with_the_pinned_digest(self) -> None:
+        with mock.patch.object(fleet, "CANDIDATE_SHA256", digest(b"reviewed")):
+            error, confirm = self.up_on_fresh_mini(b"reviewed")
+        self.assertIsNone(error)
+        steps = confirm.call_args.args[1]
+        self.assertFalse(any("download" in step for step in steps))
+
+    def test_up_rejects_a_staged_archive_with_another_digest(self) -> None:
+        error, confirm = self.up_on_fresh_mini(b"truncated", gh=True)
+        self.assertIn(digest(b"truncated"), error)
+        confirm.assert_not_called()
+
+
+class NodeIdFirst(unittest.TestCase):
+    def test_a_missing_node_id_stops_before_the_setup_dry_run(self) -> None:
+        local = mini(enrollment=None, acceptance=False)
+        with mock.patch.object(fleet, "require_mac"), mock.patch.object(fleet, "read_local", return_value=local), \
+             mock.patch.object(fleet, "ci_xcode", return_value=(fleet.XCODE_APP, "test")), \
+             mock.patch.object(fleet, "mini_setup_receipt") as setup:
+            with self.assertRaisesRegex(fleet.Failure, "--node-id"):
+                fleet.cmd_up(fleet.parser().parse_args(["up"]))
+        setup.assert_not_called()
+
+    def test_a_retired_mini_gets_one_answer_with_or_without_a_node_id(self) -> None:
+        retired = mini(enrollment={"nodeId": "cmux-mac-001", "state": "retired"})
+        for node_id in (None, "cmux-mac-009"):
+            with self.assertRaisesRegex(fleet.Failure, "is retired.*--node-id <a new id>"):
+                fleet.up_plan(retired, False, node_id, False)
+
+    def test_another_node_id_than_the_enrolled_one_is_refused(self) -> None:
+        with self.assertRaisesRegex(fleet.Failure, "already enrolled as cmux-mac-001"):
+            fleet.up_plan(mini(), False, "cmux-mac-009", False)
+        self.assertEqual(fleet.up_plan(mini(), False, "cmux-mac-001", False), [])
+
+
+class NoGhOnTheMini(unittest.TestCase):
+    def test_doctor_skips_github_quietly(self) -> None:
+        with mock.patch.object(fleet, "gh_installed", return_value=False):
+            github = fleet.read_github()
+        self.assertTrue(github.gh_missing)
+        sections, nxt = fleet.doctor_lines(github, mini(enrollment=None))
+        text = fleet.render_doctor(sections, nxt)
+        self.assertNotIn("gh auth login", text)
+        self.assertNotIn("-- gh", text)
+        self.assertIn("--node-id", nxt)
+
+    def test_up_names_the_pin_it_assumed(self) -> None:
+        with mock.patch.object(fleet, "gh_installed", return_value=False), \
+             mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            app, source = fleet.ci_xcode()
+        self.assertEqual(app, fleet.XCODE_APP)
+        self.assertIn("no gh", source)
+        self.assertEqual(err.getvalue().count("\n"), 1)
+        self.assertIn(fleet.XCODE_APP, err.getvalue())
+        self.assertNotIn("could not read", err.getvalue())
+
+
+class Heartbeat(unittest.TestCase):
+    """Acceptance is a silent 13-minute build; `up` says it is still alive."""
+
+    # Child programs, kept out of the test bodies: their sleeps run in the child
+    # and pace its output, they are not waits before an assertion.
+    CHATTY = "import sys, time\nfor _ in range(4):\n    print('x', flush=True); time.sleep(0.05)"
+    PROGRESS_THEN_SILENT = ("import sys, time; sys.stderr.write('Receiving 45%\\r'); "
+                            "sys.stderr.flush(); time.sleep(1.0)")
+    SILENT_THEN = "import sys, time; time.sleep(0.35); sys.stdout.write({!r}); sys.stdout.flush()"
+
+    def test_a_silent_child_gets_elapsed_lines(self) -> None:
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
+             mock.patch("sys.stderr", new_callable=io.StringIO):
+            result = fleet.run_with_heartbeat([sys.executable, "-c", self.SILENT_THEN.format("done\n")],
+                                              ROOT, label="acceptance", interval=0.1)
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("acceptance still running", out.getvalue())
+        self.assertTrue(out.getvalue().endswith("done\n"))
+
+    def test_captured_stdout_stays_exactly_the_childs(self) -> None:
+        receipt = '{"ready": true}'
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
+             mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            result = fleet.run_with_heartbeat([sys.executable, "-c", self.SILENT_THEN.format(receipt)],
+                                              ROOT, capture=True, interval=0.1)
+        self.assertEqual(result.stdout, receipt)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("still running", err.getvalue())
+
+    def test_a_chatty_child_gets_no_heartbeat(self) -> None:
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            # The interval is far longer than the child's whole run, so a slow
+            # machine starting Python still leaves no silent gap that long.
+            fleet.run_with_heartbeat([sys.executable, "-c", self.CHATTY], ROOT, interval=5.0)
+        self.assertEqual(out.getvalue(), "x\nx\nx\nx\n")
+
+    def test_a_heartbeat_after_progress_starts_its_own_line(self) -> None:
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
+             mock.patch("sys.stderr", new_callable=io.StringIO):
+            fleet.run_with_heartbeat([sys.executable, "-c", self.PROGRESS_THEN_SILENT], ROOT, interval=0.1)
+        # On a loaded machine a heartbeat can also come before the child starts
+        # writing. Either way the one after the progress line adds its own
+        # line break: first in the output, or right after an earlier heartbeat.
+        text = out.getvalue()
+        self.assertTrue(text.startswith("\n   ... ") or "\n\n   ... " in text, text)
+
+    def test_the_exit_code_is_kept(self) -> None:
+        with mock.patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(fleet.run_with_heartbeat([sys.executable, "-c", "raise SystemExit(3)"], ROOT).returncode, 3)
 
 
 if __name__ == "__main__":

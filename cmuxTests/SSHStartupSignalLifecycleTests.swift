@@ -1229,6 +1229,61 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSSHStartupIgnoresInheritedInternalPendingSignalState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-inherited-pending-signal-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let sessionEndLog = root.appendingPathComponent("ssh-session-end.log")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$*\" >> \"${CMUX_TEST_SESSION_END_LOG}\"",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' ssh >> \"${CMUX_TEST_ATTEMPT_FILE}\"",
+            "exit 0",
+        ])
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
+
+        let startupCommand = try generatedSSHStartupCommand(
+            replacingSystemSSHWith: fakeSSH
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_SESSION_END_LOG"] = sessionEndLog.path
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+        // The wrapper's own deferred-signal state must start empty. An
+        // inherited value would retire the session with 130 before ssh runs.
+        environment["CMUX_SSH_PENDING_SIGNAL"] = "130"
+        environment["CMUX_SSH_PENDING_SIGNAL_NAME"] = "INT"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        // The count is not the contract: the ControlPath preflight also runs
+        // ssh. An unreset inherited signal retires the wrapper before any.
+        XCTAssertTrue(((try? String(contentsOf: attemptFile, encoding: .utf8)) ?? "").hasPrefix("ssh\n"))
+    }
+
     /// Generates the legacy SSH startup wrapper. `cmux ssh` hands TTY
     /// sessions to cmux-tui through `workspace.ssh.open`, so this wrapper is
     /// only produced for sessions without a TTY and for mosh. Unless the

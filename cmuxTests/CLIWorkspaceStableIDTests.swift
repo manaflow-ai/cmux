@@ -174,8 +174,21 @@ struct CLIWorkspaceStableIDTests {
             environment: environment
         )
         let received = await requests.value
-        #expect(received.count == 1, Comment(rawValue: "command=\(command) requests=\(received)"))
+        // A `workspace:N` selector is resolved client-side first (#13964): one
+        // parameterless `workspace.list` read ahead of the command's own request.
+        let commandRequests = received.count == 2 && Self.isWorkspaceRefResolution(received[0])
+            ? Array(received.dropFirst())
+            : received
+        #expect(commandRequests.count == 1, Comment(rawValue: "command=\(command) requests=\(received)"))
         return result
+    }
+
+    private static func isWorkspaceRefResolution(_ line: String) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+              object["method"] as? String == "workspace.list" else {
+            return false
+        }
+        return (object["params"] as? [String: Any])?.isEmpty ?? true
     }
 
     private func responseObject(in stdout: String) throws -> [String: Any] {
