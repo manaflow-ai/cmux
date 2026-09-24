@@ -43,7 +43,7 @@ struct CloudRestoreReplayGridTests {
         #expect(report.surface == 17)
         #expect(report.columns == 99)
         #expect(report.rows == 35)
-        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive"]])
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive", "accepted": false]])
         let claim = try #require(
             await fixture.socket.nextCommand(timeout: .seconds(5)),
             "A visible restored pane must claim its reported grid without requiring focus"
@@ -67,7 +67,7 @@ struct CloudRestoreReplayGridTests {
         #expect(report.surface == 17)
         #expect(report.columns == 99)
         #expect(report.rows == 35)
-        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive"]])
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive", "accepted": false]])
         try await fixture.expectInputAfterPendingResponses(marker: "PASSIVE_REPORT_APPLIED")
         fixture.focus()
         let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
