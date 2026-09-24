@@ -33,6 +33,16 @@ extension MobileShellComposite {
               let macDeviceID = status.macDeviceID,
               let macInstanceTag = status.macInstanceTag,
               let macClientNamespace = status.macClientNamespace else {
+            let missing = [
+                phonePushKeyExchangeHooks == nil ? "hooks" : nil,
+                (identityProvider?.currentUserID ?? "").isEmpty ? "account" : nil,
+                status.macDeviceID == nil ? "mac_device" : nil,
+                status.macInstanceTag == nil ? "mac_instance_tag" : nil,
+                status.macClientNamespace == nil ? "mac_namespace" : nil,
+            ].compactMap { $0 }
+            phonePushKeyExchangeLog.error(
+                "key exchange skipped, missing: \(missing.joined(separator: ","), privacy: .public)"
+            )
             if isPrimaryClient { phonePushKeyExchangeFailed = true }
             diagnosticLog?.recordAppEvent(.pushKeyExchangeContextMissing, failure: .credentialUnavailable)
             return
@@ -83,11 +93,19 @@ extension MobileShellComposite {
             )
             let response = exchange.response
             guard !Task.isCancelled,
-                  identityProvider?.currentUserID == accountID,
-                  response.accountID == accountID,
-                  response.macDeviceID == macDeviceID,
-                  response.macInstanceTag == macInstanceTag,
-                  response.matchesMacClientNamespace(macClientNamespace) else {
+                  identityProvider?.currentUserID == accountID else { return false }
+            // Name the mismatched field (never its value) so a rejected reply
+            // is diagnosable from device logs.
+            let mismatches = [
+                response.accountID == accountID ? nil : "account",
+                response.macDeviceID == macDeviceID ? nil : "mac_device",
+                response.macInstanceTag == macInstanceTag ? nil : "mac_instance_tag",
+                response.matchesMacClientNamespace(macClientNamespace) ? nil : "mac_namespace",
+            ].compactMap { $0 }
+            guard mismatches.isEmpty else {
+                phonePushKeyExchangeLog.error(
+                    "key exchange reply rejected: \(mismatches.joined(separator: ","), privacy: .public)"
+                )
                 return false
             }
             let context = MobilePhonePushKeyExchangeContext(
@@ -104,7 +122,9 @@ extension MobileShellComposite {
             return true
         } catch {
             guard !Task.isCancelled else { return false }
-            phonePushKeyExchangeLog.error("key exchange attempt failed")
+            phonePushKeyExchangeLog.error(
+                "key exchange attempt failed: \(String(describing: type(of: error)), privacy: .public) \(String(describing: error), privacy: .private)"
+            )
             return false
         }
     }
