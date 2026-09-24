@@ -5518,39 +5518,62 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             )
         }
 
-        let reloadCompleted = expectation(
-            description: "staged appearance reload completed"
+        // A full reload commits its Ghostty config synchronously when it
+        // starts and then fans out to surfaces on later main-actor turns.
+        // Start one reload so the staged one queues behind its fanout; the
+        // staged background must stay unpublished until that queued reload
+        // commits its own configuration.
+        let activeReloadCompleted = expectation(
+            description: "active reload completed"
         )
-        let observer = NotificationCenter.default.addObserver(
-            forName: .ghosttyConfigDidReload,
-            object: nil,
-            queue: .main
-        ) { _ in
-            reloadCompleted.fulfill()
+        app.reloadConfiguration(
+            source: "test.stageAppearance.active",
+            reloadSettingsFromFile: false
+        ) {
+            activeReloadCompleted.fulfill()
         }
+
         GhosttyStartupAppearancePreviewState.profile =
             targetProfile
         GhosttyConfig.invalidateLoadCache()
+        let stagedReloadCompleted = expectation(
+            description: "staged appearance reload completed"
+        )
+        var backgroundHexAtCommit: String?
         app.reloadConfiguration(
             source: "test.stageAppearance",
             reloadSettingsFromFile: false,
-            preferredColorScheme: .light
+            preferredColorScheme: .light,
+            completion: {
+                stagedReloadCompleted.fulfill()
+            },
+            commitCompletion: { _ in
+                backgroundHexAtCommit =
+                    app.defaultBackgroundColor.hexString()
+            }
         )
 
+        XCTAssertNil(backgroundHexAtCommit)
         XCTAssertEqual(
             app.defaultBackgroundColor.hexString(),
             originalBackgroundHex,
             "A pending full reload must not publish its new background before the matching Ghostty config commits"
         )
-        // Surface fanout completes on later main-actor executor turns. A
-        // synchronous run-loop wait inside this main-actor test job cannot
-        // run those turns, so suspend instead.
-        await waitWhileSuspended(for: [reloadCompleted], timeout: 5)
-        NotificationCenter.default.removeObserver(observer)
+        // Fanout drains on later main-actor executor turns. A synchronous
+        // run-loop wait inside this main-actor test job cannot run them.
+        await waitWhileSuspended(
+            for: [activeReloadCompleted, stagedReloadCompleted],
+            timeout: 5
+        )
+        XCTAssertNotNil(backgroundHexAtCommit)
         XCTAssertNotEqual(
-            app.defaultBackgroundColor.hexString(),
+            backgroundHexAtCommit,
             originalBackgroundHex,
             "The staged appearance must publish when the full configuration commits"
+        )
+        XCTAssertNotEqual(
+            app.defaultBackgroundColor.hexString(),
+            originalBackgroundHex
         )
 
         GhosttyStartupAppearancePreviewState.profile =
@@ -5559,20 +5582,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         let restoreCompleted = expectation(
             description: "original appearance restored"
         )
-        let restoreObserver =
-            NotificationCenter.default.addObserver(
-                forName: .ghosttyConfigDidReload,
-                object: nil,
-                queue: .main
-            ) { _ in
-                restoreCompleted.fulfill()
-            }
         app.reloadConfiguration(
             source: "test.restoreStagedAppearance",
             reloadSettingsFromFile: false
-        )
+        ) {
+            restoreCompleted.fulfill()
+        }
         await waitWhileSuspended(for: [restoreCompleted], timeout: 5)
-        NotificationCenter.default.removeObserver(restoreObserver)
         withExtendedLifetime(retainedPanels) {}
 #else
         throw XCTSkip("Startup appearance previews require DEBUG")
