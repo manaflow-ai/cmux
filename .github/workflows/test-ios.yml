@@ -43,13 +43,14 @@ on:
           - iphone
           - ipad
       runner:
-        description: "macOS runner (auto follows MACOS_RUNNER_IOS)"
+        description: "macOS runner (auto follows MACOS_RUNNER_IOS; tart-ios uses the isolated VM fleet)"
         required: false
         default: "auto"
         type: choice
         options:
           - auto
           - blacksmith-6vcpu-macos-26
+          - tart-ios
       cache_backend:
         description: "Cache store for this run. default follows CI_CACHE_BACKEND."
         required: false
@@ -229,6 +230,21 @@ jobs:
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
+      - name: Validate Tart runner identity
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
+            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+            exit 1
+          }
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::tart-ios runner is missing the immutable VM identity marker"
+            exit 1
+          }
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -376,6 +392,21 @@ jobs:
       package_seconds: ${{ steps.package-product.outputs.seconds }}
       upload_seconds: ${{ steps.upload-metrics.outputs.seconds }}
     steps:
+      - name: Validate Tart runner identity
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
+            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+            exit 1
+          }
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::tart-ios runner is missing the immutable VM identity marker"
+            exit 1
+          }
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -667,6 +698,21 @@ jobs:
       matrix:
         family: ${{ fromJSON(needs.detect-ios-changes.outputs.device_families) }}
     steps:
+      - name: Validate Tart runner identity
+        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        env:
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          [[ "$RUNNER_CONTEXT_NAME" == tart-cmux-* ]] || {
+            echo "::error::tart-ios resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+            exit 1
+          }
+          test -f /etc/cmux-tart-ci || {
+            echo "::error::tart-ios runner is missing the immutable VM identity marker"
+            exit 1
+          }
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
