@@ -5069,7 +5069,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             }
             defer { NotificationCenter.default.removeObserver(firstResponderToken) }
 
-            func diagSnapshot(_ label: String) -> String {
+            @MainActor func diagSnapshot(_ label: String) -> String {
                 let hv = leftPanel.hostedView
                 let fr = window.firstResponder
                 var frChain: [String] = []
