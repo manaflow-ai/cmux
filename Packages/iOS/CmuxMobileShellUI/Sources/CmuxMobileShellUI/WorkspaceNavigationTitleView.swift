@@ -15,6 +15,7 @@ final class WorkspaceNavigationTitleView: UIView {
     // Preserve the base toolbar's gap between the title island and actions.
     // This does not estimate available space; UIKit allocates the whole view.
     private static let trailingSpacing: CGFloat = 6
+    private var maximumWidthLeadingInset = CGFloat.zero
 
     init() {
         contentView = UIHostingConfiguration { AnyView(EmptyView()) }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
@@ -47,13 +48,12 @@ final class WorkspaceNavigationTitleView: UIView {
     func update(content: AnyView) {
         contentView.configuration = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0)
         let contentWidth = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
-        alignmentRectInsets = UIEdgeInsets(
-            top: 0,
-            left: contentWidth > Self.preferredContentWidth ? Self.maximumWidthLeadingInset : 0,
-            bottom: 0,
-            right: 0
-        )
+        maximumWidthLeadingInset = contentWidth > Self.preferredContentWidth ? Self.maximumWidthLeadingInset : 0
         invalidateIntrinsicContentSize()
+    }
+
+    override var alignmentRectInsets: UIEdgeInsets {
+        UIEdgeInsets(top: 0, left: maximumWidthLeadingInset, bottom: 0, right: 0)
     }
 
     override var intrinsicContentSize: CGSize {
