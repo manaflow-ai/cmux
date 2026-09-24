@@ -329,6 +329,98 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|!|\(|\)|'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_.-]*)")
+
+
+def evaluate(expression, context):
+    """Evaluate the GitHub Actions expression subset these workflows use.
+
+    `a && b` is b when a is truthy, else a; `a || b` is a when truthy,
+    else b. Names resolve by dotted path in `context`; a missing one is null,
+    which compares equal to ''.
+    """
+    text = expression.strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    tokens, at = [], 0
+    while text[at:].strip():
+        match = TOKEN.match(text, at)
+        if not match:
+            raise ValueError(f"cannot parse {text[at:]!r}")
+        tokens.append(match.group(1))
+        at = match.end()
+    position = [0]
+
+    def peek():
+        return tokens[position[0]] if position[0] < len(tokens) else None
+
+    def take():
+        position[0] += 1
+        return tokens[position[0] - 1]
+
+    def primary():
+        token = take()
+        if token == "(":
+            value = either()
+            if take() != ")":
+                raise ValueError("unbalanced parentheses")
+            return value
+        if token == "!":
+            return not primary()
+        if token.startswith("'"):
+            return token[1:-1].replace("''", "'")
+        if token in ("true", "false"):
+            return token == "true"
+        value = context
+        for part in token.split("."):
+            value = value.get(part) if isinstance(value, dict) else None
+        return value
+
+    def comparison():
+        left = primary()
+        while peek() in ("==", "!="):
+            operator, right = take(), primary()
+            equal = ("" if left is None else str(left)) == ("" if right is None else str(right))
+            left = equal if operator == "==" else not equal
+        return left
+
+    def both():
+        left = comparison()
+        while peek() == "&&":
+            take()
+            right = comparison()
+            left = right if left else left
+        return left
+
+    def either():
+        left = both()
+        while peek() == "||":
+            take()
+            right = both()
+            left = left if left else right
+        return left
+
+    value = either()
+    if position[0] != len(tokens):
+        raise ValueError(f"trailing tokens {tokens[position[0]:]}")
+    return value
+
+
+def github_context(event_name, ref="refs/heads/main", **variables):
+    return {
+        "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai"},
+        "vars": {
+            "MACOS_RUNNER_PR": "pool-pr",
+            "MACOS_RUNNER_15": "pool-15-paid",
+            "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode-pr.app",
+            "CMUX_CI_XCODE_APP_MACOS_15": "/Applications/Xcode-15.app",
+            **variables,
+        },
+        "inputs": {"cache_backend": "default"},
+        "steps": {},
+    }
+
+
 class Wiring(unittest.TestCase):
     def test_only_the_nightly_seeder_writes_the_seed_and_admission_reads_the_same_key(self):
         seeder = steps("nightly.yml", "refresh-test-compilation-cache")
@@ -512,7 +604,7 @@ class Wiring(unittest.TestCase):
         import product_input_identity
         self.assertIn("Start the DerivedData seed download", product_input_identity.NON_PRODUCT_RECIPE_STEPS)
 
-    def test_adoption_is_optional_and_limited_to_pull_requests(self):
+    def test_adoption_is_optional_and_limited_to_pull_requests_and_main_dispatch(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
         _, adopt = named(admission, "Adopt the nightly DerivedData seed")
         self.assertIs(adopt.get("continue-on-error"), True)
@@ -523,6 +615,67 @@ class Wiring(unittest.TestCase):
         # mean on, so the kill switch gets a non-zero default first.
         self.assertIn("(vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0'", adopt["if"])
         self.assertIn("timeout-minutes", adopt)
+
+    def test_main_full_suite_admission_adopts_the_seed_for_its_own_commit(self):
+        # ci-main-full-suite.yml dispatches ci.yml on main, and its admission
+        # compiled main's HEAD cold although seed-derived-data.yml had just
+        # built that commit or its parent. It must start from the seed.
+        _, adopt = named(steps("ci-macos.yml", "macos-compile-admission"), "Adopt the nightly DerivedData seed")
+        for overflow in ("", "1"):
+            main_dispatch = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
+            self.assertTrue(evaluate(adopt["if"], main_dispatch))
+        # A dispatch on another branch and a merge group still build clean.
+        self.assertFalse(evaluate(adopt["if"], github_context("workflow_dispatch", ref="refs/heads/topic")))
+        self.assertFalse(evaluate(adopt["if"], github_context("merge_group", ref="refs/heads/gh-readonly-queue/main/x")))
+        self.assertTrue(evaluate(adopt["if"], github_context("pull_request", ref="refs/pull/1/merge")))
+        self.assertFalse(evaluate(adopt["if"], github_context("workflow_dispatch", CI_ADMISSION_SEED_DERIVED_DATA="0")))
+        # The seed search starts at the main commit a pull request merges
+        # onto, or at the dispatched commit itself, never its parent: that
+        # commit's own seed may already exist.
+        self.assertIn('"$SEED_PREFIX" "$MERGED_ONTO"', adopt["run"])
+        onto = adopt["env"]["MERGED_ONTO"]
+        dispatch = github_context("workflow_dispatch")
+        dispatch["github"]["sha"] = "head"
+        dispatch["inputs"]["source_parent1"] = "parent"
+        self.assertEqual(evaluate(onto, dispatch), "head")
+        pull = github_context("pull_request", ref="refs/pull/1/merge")
+        pull["github"].update(sha="merge", event={"pull_request": {"base": {"sha": "base"}}})
+        self.assertEqual(evaluate(onto, pull), "base")
+        pull["inputs"]["source_parent1"] = "parent"
+        self.assertEqual(evaluate(onto, pull), "parent")
+
+    def test_main_full_suite_admission_compiles_on_the_seed_pool_and_xcode(self):
+        # The seed key carries the Xcode and the seed was built on its pool, so
+        # admission can only adopt it where the seeder compiled.
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
+        seeder = load("seed-derived-data.yml")["jobs"]["seed"]
+        for overflow in ("", "1"):
+            for unset in ((), ("MACOS_RUNNER_PR", "CMUX_CI_XCODE_APP_PR")):
+                context = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
+                for name in unset:
+                    context["vars"].pop(name)
+                self.assertEqual(evaluate(admission["runs-on"], context), evaluate(seeder["runs-on"], context))
+                self.assertEqual(
+                    evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
+                    evaluate(seeder["env"]["CMUX_CI_XCODE_APP"], context),
+                )
+        # Pull requests already compile there; other events keep their lane.
+        pull_request = github_context("pull_request", ref="refs/pull/1/merge")
+        self.assertEqual(evaluate(admission["runs-on"], pull_request), "pool-pr")
+        merge_group = github_context("merge_group", ref="refs/heads/gh-readonly-queue/main/x", CI_PAID_MACOS_OVERFLOW="1")
+        self.assertEqual(evaluate(admission["runs-on"], merge_group), "pool-15-paid")
+        self.assertEqual(evaluate(admission["env"]["CMUX_CI_XCODE_APP"], merge_group), "/Applications/Xcode-15.app")
+        branch_dispatch = github_context("workflow_dispatch", ref="refs/heads/topic")
+        self.assertEqual(evaluate(admission["runs-on"], branch_dispatch), "blacksmith-6vcpu-macos-15")
+
+    def test_the_expression_evaluator_follows_actions_semantics(self):
+        context = {"vars": {"A": "a", "EMPTY": ""}}
+        self.assertEqual(evaluate("${{ vars.A && 'x' || 'y' }}", context), "x")
+        self.assertEqual(evaluate("${{ vars.EMPTY && 'x' || 'y' }}", context), "y")
+        self.assertEqual(evaluate("${{ vars.MISSING || vars.A }}", context), "a")
+        self.assertIs(evaluate("${{ !(vars.A == 'a') }}", context), False)
+        self.assertIs(evaluate("${{ (vars.MISSING || '1') != '0' }}", context), True)
+        self.assertIs(evaluate("${{ vars.A != 'b' && vars.A == 'a' }}", context), True)
 
     def test_no_workflow_compares_a_bare_variable_with_zero(self):
         bare = re.compile(r"vars\.[A-Z0-9_]+\s*[!=]=\s*'0'")
