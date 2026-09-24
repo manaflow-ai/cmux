@@ -2,34 +2,32 @@
 
 import PackageDescription
 
+/// The phone's browser tunnel plumbing, independent of what carries the
+/// bytes: a SOCKS5 proxy and loopback port forwards on the phone whose
+/// connections are opened by a `SocksConnectBackend` (SSH `direct-tcpip`,
+/// a paired Mac's irx lanes, or the phone's own network).
 let package = Package(
-    name: "CmuxMobileSSH",
+    name: "CmuxMobileTunnel",
     platforms: [
         .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "CmuxMobileSSH",
-            targets: ["CmuxMobileSSH"]
+            name: "CmuxMobileTunnel",
+            targets: ["CmuxMobileTunnel"]
         ),
     ],
     dependencies: [
-        .package(path: "../CmuxMobileTunnel"),
-        .package(url: "https://github.com/apple/swift-nio-ssh.git", from: "0.9.1"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0"),
         .package(url: "https://github.com/apple/swift-nio-transport-services.git", from: "1.23.0"),
-        .package(url: "https://github.com/apple/swift-crypto.git", "3.12.0"..<"5.0.0"),
     ],
     targets: [
         .target(
-            name: "CmuxMobileSSH",
+            name: "CmuxMobileTunnel",
             dependencies: [
-                "CmuxMobileTunnel",
-                .product(name: "NIOSSH", package: "swift-nio-ssh"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOTransportServices", package: "swift-nio-transport-services"),
-                .product(name: "Crypto", package: "swift-crypto"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
@@ -37,13 +35,10 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "CmuxMobileSSHTests",
+            name: "CmuxMobileTunnelTests",
             dependencies: [
-                "CmuxMobileSSH",
                 "CmuxMobileTunnel",
-                .product(name: "NIOSSH", package: "swift-nio-ssh"),
                 .product(name: "NIOCore", package: "swift-nio"),
-                .product(name: "NIOEmbedded", package: "swift-nio"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
