@@ -101,6 +101,73 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testIOS106WhatsNewReleaseNotice() throws {
+        // Snapshot of web/data/whats-new.ts used to drive the real sheet.
+        let payload = #"{"visibleEntryIds":["pairing.1.0.6","connections.v2","connections.v1"],"announcements":[{"id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6","channels":["beta","internal"],"title":"What's New in 1.0.6","releaseLabel":"1.0.6 · September 2026","features":[{"symbol":"network","title":"Updated Mac connections","detail":"This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect."},{"symbol":"arrow.down.circle","title":"Update cmux on your Mac","detail":"Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac."},{"symbol":"clock.arrow.circlepath","title":"Need to keep an older Mac build?","detail":"Use cmux BETA 1.0.5 (20260914204800) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."}]}]}"#
+        let app = XCUIApplication()
+        defer { app.terminate() }
+        for (channel, version, appearance, expected) in [
+            ("beta", "1.0.6", "light", true),
+            ("internal", "1.0.6", "dark", true),
+            ("prod", "1.0.6", "light", false),
+            ("demo", "1.0.6", "light", false),
+            ("dev", "1.0.6", "light", false),
+            ("beta", "1.0.5", "light", false),
+            ("beta", "1.0.7", "light", false)
+        ] {
+            app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            app.launchEnvironment = [
+                "CMUX_UITEST_WHATS_NEW_PREVIEW": "1",
+                "CMUX_UITEST_WHATS_NEW_PAYLOAD": payload,
+                "CMUX_UITEST_WHATS_NEW_CHANNEL": channel,
+                "CMUX_UITEST_WHATS_NEW_VERSION": version,
+                "CMUX_UITEST_WHATS_NEW_APPEARANCE": appearance,
+                "CMUX_UITEST_WHATS_NEW_ACKNOWLEDGED_ENTRY_ID": "connections.v2"
+            ]
+            app.launch()
+            let title = app.staticTexts["What's New in 1.0.6"].firstMatch
+            if expected {
+                XCTAssertTrue(title.waitForExistence(timeout: 15))
+                let requirement = app.staticTexts.matching(NSPredicate(
+                    format: "label CONTAINS %@", "0.64.25-nightly.3522337919701"
+                )).firstMatch
+                XCTAssertTrue(requirement.exists)
+                XCTAssertTrue(requirement.label.contains("cmux 0.64.25 or later"))
+                let rollback = app.staticTexts.matching(NSPredicate(
+                    format: "label CONTAINS %@", "20260914204800"
+                )).firstMatch
+                XCTAssertTrue(rollback.exists)
+                XCTAssertTrue(rollback.label.contains("BETA 1.0.5"))
+                let screenshot = XCTAttachment(screenshot: app.screenshot())
+                screenshot.name = "1.0.6 notice - \(channel) - \(appearance)"
+                screenshot.lifetime = .keepAlways
+                add(screenshot)
+                let continueButton = app.buttons["Continue"].firstMatch
+                XCTAssertTrue(continueButton.isHittable)
+                continueButton.tap()
+                let pairingSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+                XCTAssertTrue(pairingSheet.waitForExistence(timeout: 5))
+                XCTAssertTrue(pairingSheet.staticTexts["Action Required: Enable iOS pairing on your Mac"].waitForExistence(timeout: 5))
+                XCTAssertTrue(app.images.matching(NSPredicate(format: "label == %@", "cmux Mac Settings, Mobile section, showing Enable iOS pairing.")).firstMatch.waitForExistence(timeout: 5))
+                XCTAssertTrue(app.staticTexts["cmux 0.64.25 or later"].exists)
+                XCTAssertTrue(app.staticTexts["cmux NIGHTLY 0.64.25-nightly.3522337919701 or later"].exists)
+                let pairingScreenshot = XCTAttachment(screenshot: app.screenshot())
+                pairingScreenshot.name = "1.0.6 pairing settings - \(channel) - \(appearance)"
+                pairingScreenshot.lifetime = .keepAlways
+                add(pairingScreenshot)
+                continueButton.tap()
+                XCTAssertTrue(continueButton.waitForNonExistence(timeout: 5))
+                XCTAssertTrue(app.staticTexts["MobileWhatsNewPreviewLoaded"].waitForExistence(timeout: 5))
+            } else {
+                XCTAssertTrue(app.staticTexts["MobileWhatsNewPreviewLoaded"].waitForExistence(timeout: 15))
+                XCTAssertFalse(title.exists, "Notice must not reach \(channel) \(version)")
+                XCTAssertFalse(app.buttons["Continue"].exists)
+            }
+            app.terminate()
+        }
+    }
+
+    @MainActor
     func testWhatsNewSheetFitsSwipedPageAndMatchesAppearance() throws {
         let app = XCUIApplication()
         defer { app.terminate() }
@@ -4596,6 +4663,90 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testEraseAllLocalDataResetsPersistedSettingsAfterRelaunch() throws {
+        // The mock shell mounts the real root view, which owns the reset flow;
+        // layout previews bypass it.
+        var app = launchApp(mockData: true)
+
+        func openSettings(in app: XCUIApplication) {
+            grantNotificationAuthorizationIfRequested()
+            // Both launches start as fresh installs, so the launch sheet shows.
+            // Finish every page rather than tapping its obscured toolbar.
+            let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            if whatsNewSheet.waitForExistence(timeout: 4) {
+                // Every page carries a Continue button; tap only the one on
+                // screen, after the sheet finishes sizing itself.
+                let continueButtons = app.buttons.matching(
+                    NSPredicate(format: "label == %@", "Continue")
+                )
+                let deadline = Date().addingTimeInterval(30)
+                while whatsNewSheet.exists, Date() < deadline {
+                    if let visible = continueButtons.allElementsBoundByIndex.first(where: \.isHittable) {
+                        visible.tap()
+                    }
+                    Thread.sleep(forTimeInterval: 0.5)
+                }
+                XCTAssertTrue(whatsNewSheet.waitForNonExistence(timeout: 5))
+            }
+            let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+            XCTAssertTrue(settings.waitForExistence(timeout: 8))
+            tap(settings, in: app)
+        }
+
+        func revealed(_ element: XCUIElement, in app: XCUIApplication) -> XCUIElement {
+            for _ in 0..<14 where !element.exists || !element.isHittable {
+                app.swipeUp(velocity: .slow)
+            }
+            XCTAssertTrue(element.waitForExistence(timeout: 4))
+            XCTAssertTrue(element.isHittable)
+            return element
+        }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 2), .completed)
+        }
+
+        // Persist a non-default setting so the relaunch can prove the erase.
+        openSettings(in: app)
+        let haptics = revealed(app.switches["MobileSettingsHapticFeedbackToggle"], in: app)
+        if haptics.value as? String == "1" {
+            haptics.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        }
+        waitForValue("0", on: haptics)
+
+        let reset = revealed(app.buttons["MobileSettingsResetLocalData"], in: app)
+        XCTAssertTrue(
+            app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "are not deleted")).firstMatch.exists,
+            "The reset footer must say server-side data is not deleted."
+        )
+        reset.tap()
+
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 4))
+        XCTAssertTrue(
+            alert.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Nothing is deleted from your cmux account")).firstMatch.exists
+        )
+        alert.buttons["Erase"].tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileLocalDataResetFinished"].waitForExistence(timeout: 20),
+            "Erasing must end on the reset screen that asks for a relaunch."
+        )
+        XCTAssertFalse(app.buttons["MobileWorkspaceSettingsMenu"].exists)
+
+        app.terminate()
+        app = launchApp(mockData: true)
+        defer { app.terminate() }
+        openSettings(in: app)
+        let freshHaptics = revealed(app.switches["MobileSettingsHapticFeedbackToggle"], in: app)
+        XCTAssertEqual(freshHaptics.value as? String, "1", "The relaunch must start from default settings.")
+    }
+
+    @MainActor
     func testDiagnosticsExportPresentsTheShareSheet() throws {
         let app = launchApp(
             mockData: false,
@@ -8405,8 +8556,14 @@ final class cmuxUITests: XCTestCase {
         grantNotificationAuthorizationIfRequested()
         let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
         if whatsNewContinue.waitForExistence(timeout: 4) {
-            tap(whatsNewContinue, in: app)
-            XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+            // Continue advances through every unseen page before dismissing.
+            for _ in 0..<4 where whatsNewContinue.exists {
+                tap(whatsNewContinue, in: app)
+            }
+            _ = try XCTUnwrap(
+                whatsNewContinue.waitForNonExistence(timeout: 4) ? true : nil,
+                "Finish every What's New page before opening the workspace"
+            )
         }
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
@@ -11468,7 +11625,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_client_namespace": macInstanceTag == "dev"
                 ? "mac:com.cmuxterm.app.debug"
                 : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
-            "mac_app_version": "0.64.23",
+            "mac_app_version": "0.64.25",
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,

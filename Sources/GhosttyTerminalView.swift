@@ -2206,6 +2206,16 @@ class GhosttyApp {
         configurationReloadCoordinator.isReloadActive
     }
 
+#if DEBUG
+    /// Where the app-scoped reload transaction is, so tests can assert that a
+    /// reload is held at the font-work barrier instead of inferring it from a
+    /// notification that has not arrived yet.
+    @MainActor
+    var debugConfigurationReloadPhase: TerminalConfigurationReloadPhase {
+        configurationReloadCoordinator.phase
+    }
+#endif
+
     @MainActor
     func terminalFontConfigurationSnapshot()
         -> WorkspaceTerminalFontConfigurationSnapshot {

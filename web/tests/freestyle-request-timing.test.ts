@@ -2,6 +2,23 @@ import { describe, expect, test } from "bun:test";
 import { freestyleRequestFetch, type FreestyleRequestTiming } from "../services/vms/drivers/freestyleRequestTiming";
 
 describe("Freestyle enrollment request timings", () => {
+  test.each(["workflow", "init", "request"])("forwards %s cancellation alongside the provider timeout", async (source) => {
+    const controller = new AbortController();
+    const reason = new DOMException("synthetic cancellation", "AbortError");
+    const traced = freestyleRequestFetch({
+      timeoutMs: 60_000, signal: source === "workflow" ? controller.signal : undefined,
+      fetch: (async (_input, init) => {
+        controller.abort(reason);
+        init!.signal!.throwIfAborted();
+        return new Response("must not complete");
+      }) as typeof fetch,
+    });
+    const request = new Request("https://example.test/provider", {
+      signal: source === "request" ? controller.signal : undefined,
+    });
+    await expect(traced(request, source === "init" ? { signal: controller.signal } : undefined)).rejects.toBe(reason);
+  });
+
   test("distinguishes the initial request from background completion without logging access material", async () => {
     const events: FreestyleRequestTiming[] = [];
     const forwarded: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
