@@ -30,7 +30,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_impact import affected_suites  # noqa: E402
+from test_impact import affected_suites, changed_lines  # noqa: E402
 from cmux_unit_test_shard import (  # noqa: E402
     DEFAULT_TIMINGS_PATH,
     FOCUSED_GATE_SELECTORS,
@@ -60,6 +60,44 @@ UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PRE
 # it as a single batch, so it has to fit comfortably inside the batch timeout
 # a normal shard's batch fits in; a larger diff takes all seven shards.
 CHANGED_SUITES_BUDGET_MS = 10 * 60 * 1000
+
+# Compile admission builds the app-host product and stops. Restoring it on a
+# shard's runner and running tests against it happens only in `app-host unit
+# tests`, so a compile-only pull request that edits that path runs none of its
+# change. These are the paths that job's steps run and nothing else in a pull
+# request exercises the same way; the artifact transport scripts are left out
+# because ci-artifact-transport.yml runs them on their own edits.
+#
+# The canary only rides on a compile the pull request pays for anyway: ci.yml
+# drops it when the build inputs were already compiled, which covers most of
+# these paths on their own, since the fingerprint leaves them out. It never
+# adds a compile just to run the canary.
+MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
+APP_HOST_CONSUMER_JOB = "app-host-unit-tests"
+APP_HOST_CONSUMER_PATHS = (
+    MACOS_WORKFLOW_PATH,  # only hunks inside APP_HOST_CONSUMER_JOB count
+    "scripts/ci/app-host-isolation.sh",
+    "scripts/ci/app-host-known-failures.json",
+    "scripts/ci/app-host-processes.sh",
+    "scripts/ci/app_host_result_accounting.py",
+    "scripts/ci/app_host_test_lock.py",
+    "scripts/ci/app_host_test_products.py",
+    "scripts/ci/classify-app-host-test-output.py",
+    "scripts/ci/cleanup-app-host-home.sh",
+    "scripts/ci/cmux_unit_test_shard.py",
+    "scripts/ci/prepare-app-host-home.sh",
+    "scripts/ci/require_selected_test_execution.sh",
+    "scripts/ci/restore-app-host-test-product.sh",
+    "scripts/ci/run-and-capture.sh",
+    "scripts/ci/run-app-host-xcodebuild.sh",
+    "scripts/ci/run-in-console-session.sh",
+    "scripts/ci/xcodebuild_noninteractive.py",
+)
+# What a consumer edit runs instead of seven shards: one small, pure-logic
+# XCTest suite (57 tests, 62 ms measured) on the changed-suites worker. It
+# proves the product restored, the app host launched, and selected tests
+# executed and were accounted for, which is what a consumer edit can break.
+CONSUMER_CANARY_SELECTOR = "cmuxTests/CmuxSSHURLRequestTests"
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -170,6 +208,79 @@ def changed_unit_selectors(
     return suites
 
 
+def job_lines(workflow: str, job: str) -> range | None:
+    """1-based line numbers of `job` in a workflow's text, header included."""
+    lines = workflow.splitlines()
+    try:
+        start = lines.index(f"  {job}:") + 1
+    except ValueError:
+        return None
+    end = next(
+        (
+            number
+            for number, line in enumerate(lines[start:], start=start + 1)
+            if re.match(r"^  [A-Za-z0-9_-]+:$", line)
+        ),
+        len(lines) + 1,
+    )
+    return range(start, end)
+
+
+def admission_route_lines(workflow: str) -> set[int]:
+    """1-based lines of compile admission that route the product's consumers.
+
+    Its `outputs:` block, and the CMUX_PRODUCT_RUNNER and CMUX_CI_XCODE_APP
+    env the `runner` and `xcode_app` outputs read: the shards run on that pool
+    and pin that Xcode (#14163).
+    """
+    job = job_lines(workflow, "macos-compile-admission")
+    if job is None:
+        return set()
+    lines = workflow.splitlines()
+    route: set[int] = set()
+    in_outputs = False
+    for number in job:
+        text = lines[number - 1]
+        if re.match(r"^    [A-Za-z_-]+:", text):
+            in_outputs = text.startswith("    outputs:")
+        if in_outputs or re.match(r"^      (CMUX_PRODUCT_RUNNER|CMUX_CI_XCODE_APP):", text):
+            route.add(number)
+    return route
+
+
+def consumer_canary_selectors(
+    root: Path, paths: Iterable[str] | None, diff: str | None
+) -> list[str]:
+    """[CONSUMER_CANARY_SELECTOR] when the diff edits the app-host consumer path.
+
+    A ci-macos.yml edit counts only when one of its hunks sits inside
+    `app-host unit tests` or compile admission's consumer route
+    (admission_route_lines); most of that file is other jobs, which the lanes
+    they define already judge. When the diff has no hunks for it, the edit
+    cannot be placed and counts. An unreadable file list returns [] because
+    the caller already runs every unit suite for it.
+    """
+    if paths is None:
+        return []
+    stripped = {path.strip() for path in paths}
+    if stripped & set(APP_HOST_CONSUMER_PATHS[1:]):
+        return [CONSUMER_CANARY_SELECTOR]
+    if MACOS_WORKFLOW_PATH not in stripped:
+        return []
+    hunks = changed_lines(diff).get(MACOS_WORKFLOW_PATH) if diff else None
+    if not hunks:
+        return [CONSUMER_CANARY_SELECTOR]
+    try:
+        workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return [CONSUMER_CANARY_SELECTOR]
+    job = job_lines(workflow, APP_HOST_CONSUMER_JOB)
+    route = admission_route_lines(workflow)
+    if job is None or any(line in job or line in route for line in hunks):
+        return [CONSUMER_CANARY_SELECTOR]
+    return []
+
+
 def labels_from_event(event_path: str | Path) -> list[str] | None:
     """Read the pull request labels captured in this workflow run's event payload."""
     try:
@@ -245,7 +356,7 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument(
         "--diff-from",
-        help="`git diff -U0` of cmuxTests/; omit to count every line of a changed file",
+        help="`git diff -U0` of cmuxTests/ and ci-macos.yml; omit to count every line of a changed file",
     )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
@@ -279,6 +390,13 @@ def main(argv: list[str]) -> int:
     # explicit requests for every suite.
     asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
     selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
+    canary = False
+    if not unit:
+        # Nothing else asked for the unit tests, so a consumer edit takes the
+        # one-suite canary rather than seven shards. ci.yml drops it again when
+        # the compile is reused: it only rides on a compile this run pays for.
+        selectors = consumer_canary_selectors(args.root, paths, diff)
+        unit = canary = bool(selectors)
     steps: list[str] = []
     if selectors:
         workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
@@ -289,6 +407,7 @@ def main(argv: list[str]) -> int:
         f"unit_selectors={' '.join(selectors)}",
         f"unit_strict_steps={''.join(f'|{step}' for step in steps) + '|' if steps else ''}",
         f"coverage_gap={'true' if gap else 'false'}",
+        f"unit_canary={'true' if canary else 'false'}",
     ]
     for line in lines:
         print(line)

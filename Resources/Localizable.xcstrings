@@ -551259,6 +551259,122 @@
           }
         }
       }
+    },
+    "settings.configMutation.undoConflict": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo preserved a newer choice. Review this setting before changing it:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り消しでは新しい選択を保持しました。変更する前にこの設定を確認してください："
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die neuere Auswahl wurde beim Rückgängigmachen beibehalten. Prüfen Sie diese Einstellung vor einer Änderung:"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’annulation a conservé un choix plus récent. Vérifiez ce réglage avant de le modifier :"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se conservó una elección más reciente al deshacer. Revisa este ajuste antes de cambiarlo:"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "احتفظ التراجع باختيار أحدث. راجع هذا الإعداد قبل تغييره:"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撤销操作保留了较新的选择。更改前请检查此设置："
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原操作保留了較新的選擇。變更前請檢查此設定："
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 취소 시 더 최근의 선택을 유지했습니다. 변경하기 전에 이 설정을 검토하세요:"
+          }
+        }
+      }
+    },
+    "settings.configMutation.invalidCandidate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The proposed config is invalid. No changes were saved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更後の設定が無効です。変更は保存されませんでした。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die vorgeschlagene Konfiguration ist ungültig. Es wurden keine Änderungen gespeichert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration proposée est invalide. Aucune modification n’a été enregistrée."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuración propuesta no es válida. No se guardó ningún cambio."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعدادات المقترحة غير صالحة. لم تُحفظ أي تغييرات."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建议的配置无效。未保存任何更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建議的設定無效。未儲存任何變更。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제안된 설정이 유효하지 않습니다. 변경 사항이 저장되지 않았습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
