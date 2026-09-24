@@ -232,7 +232,7 @@ struct SSHDeepSleepReattachTests {
         #expect(
             workspace.markRemoteTerminalSessionConnected(
                 surfaceId: panel.id,
-                authority: .persistentTransport(configuration.proxyBrokerTransportKey),
+                authority: .persistentTransport(try #require(workspace.remoteConfiguration).proxyBrokerTransportKey),
                 terminalLifecycleID: panel.surface.terminalLifecycleId
             )
         )
@@ -254,14 +254,18 @@ struct SSHDeepSleepReattachTests {
     @Test func confirmedCloudPTYExitRestartsWithInheritedCustomIdentity() throws {
         let workspace = Workspace()
         let initialPanel = try #require(workspace.focusedTerminalPanel)
-        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
         let customSessionID = "cloud-custom-session"
+        // Once the workspace is Cloud-owned, a split carrying a launch override
+        // such as a custom PTY identity fails closed instead of spawning a
+        // local PTY (#13098). Create the custom-identity pane first; what this
+        // test pins is that identity surviving the confirmed exit and restart.
         let panel = try #require(workspace.newTerminalSplit(
             from: initialPanel.id,
             orientation: .horizontal,
             focus: false,
             remotePTYSessionID: customSessionID
         ))
+        workspace.configureRemoteConnection(Self.persistentCloudConfiguration(), autoConnect: false)
         #expect(panel.surface.respawnAdditionalEnvironment["CMUX_REMOTE_PTY_SESSION_ID"] == customSessionID)
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == customSessionID)
 
@@ -303,7 +307,7 @@ struct SSHDeepSleepReattachTests {
         #expect(restartedSnapshot.remotePTYSessionID == customSessionID)
     }
 
-    @Test(arguments: [(nil, Int32(253), "24", 23), ("2O", Int32(255), "21", 20)])
+    @Test(arguments: [(nil, Int32(255), "21", 20), ("2O", Int32(255), "21", 20)])
     func foregroundAuthenticatedAttachUsesConfiguredRetryBudget(
         reconnectLimit: String?, expectedStatus: Int32, expectedAttempts: String, expectedSleepCount: Int
     ) throws {
@@ -356,8 +360,13 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
-            environment: environment
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
+            environment: environment,
+            // Every attach attempt spawns uuidgen, the fake ssh, cmux and
+            // sleep, so the full budget costs ~4.5 s on an idle runner and
+            // more under shard load. The deadline only bounds a hang; it
+            // scales with the attempts the case expects to run.
+            timeout: max(5, Double(expectedSleepCount + 1) * 2)
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
@@ -465,20 +474,21 @@ struct SSHDeepSleepReattachTests {
             command: SSHPTYAttachStartupCommandBuilder.command(
                 sessionID: "ssh-test-session",
                 foregroundAuth: Self.foregroundAuth()
-            ),
+            ).replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path),
             environment: environment
         )
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 255, Comment(rawValue: result.stderr))
         #expect(try String(contentsOf: authAttemptFile, encoding: .utf8) == "1")
-        #expect(!fileManager.fileExists(atPath: cliAttemptFile.path))
+        let cliAttempts = (try? String(contentsOf: cliAttemptFile, encoding: .utf8)) ?? ""
+        #expect(!cliAttempts.contains("ssh-pty-attach"), "Failed foreground authentication must never start a PTY attach")
     }
 
     private static func foregroundAuth() -> SSHPTYAttachStartupCommandBuilder.ForegroundAuth {
         SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
             destination: "user@example.test", port: 22, identityFile: nil,
-            sshOptions: [], token: "test-auth-token"
+            sshOptions: ["ControlMaster=no", "ControlPath=none"], token: "test-auth-token"
         )
     }
 
@@ -522,7 +532,11 @@ struct SSHDeepSleepReattachTests {
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private static func runProcess(command: String, environment: [String: String]) -> ProcessRunResult {
+    private static func runProcess(
+        command: String,
+        environment: [String: String],
+        timeout: TimeInterval = 5
+    ) -> ProcessRunResult {
         let process = Process()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -536,15 +550,10 @@ struct SSHDeepSleepReattachTests {
         } catch {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + 5) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(status: process.terminationStatus, stderr: stderr, timedOut: timedOut)

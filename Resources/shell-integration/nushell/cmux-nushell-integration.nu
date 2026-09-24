@@ -282,6 +282,13 @@ def --wrapped claude [...args: string] {
     }
 }
 
+# The Automation toggle owns command interception. Keep the wrapper definition
+# available for enabled launches, then hide it entirely when integration is off
+# so Nushell resolves the user's external `claude` directly.
+if ($env.CMUX_CLAUDE_INTEGRATION_DISABLED? | default "") == "1" {
+    hide claude
+}
+
 # Routes grok through the bundled cmux wrapper when present.
 def --wrapped grok [...args: string] {
     let wrapper = (_cmux_wrapper_path "grok")

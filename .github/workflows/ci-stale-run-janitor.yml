@@ -1,0 +1,52 @@
+name: CI stale run janitor
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      cleanup:
+        description: "Actually cancel or delete eligible runs"
+        required: true
+        default: false
+        type: boolean
+      min_age_minutes:
+        description: "Minimum run age before cleanup"
+        required: true
+        default: "1440"
+        type: string
+      max_actions:
+        description: "Maximum runs to process"
+        required: true
+        default: "25"
+        type: string
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+# Scheduled and manually dispatched janitors share the same Actions control
+# plane.  Serialize them so a second inventory cannot race the first run's
+# final cancellation/deletion request.
+concurrency:
+  group: ci-stale-run-janitor
+  cancel-in-progress: false
+
+jobs:
+  janitor:
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted Actions control-plane token
+    timeout-minutes: 15
+    steps:
+      - name: Check out trusted workflow code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Report or clean stale runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CLEANUP: ${{ inputs.cleanup || 'false' }}
+          MIN_AGE_MINUTES: ${{ inputs.min_age_minutes || '1440' }}
+          MAX_ACTIONS: ${{ inputs.max_actions || '25' }}
+        run: python3 scripts/ci/cleanup-stale-runs.py

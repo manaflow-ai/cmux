@@ -23,10 +23,19 @@ private final class RejectingRestoreTabDelegate: BonsplitDelegate {
 @MainActor
 @Suite("Terminal startup restore failure handling", .serialized)
 struct TerminalStartupRestoreFailureTests {
-    @Test("Binding-only persistent SSH resume waits for topology admission")
-    func persistentSSHBindingOnlyResumeWaitsForTopologyAdmission() throws {
+    @Test("Binding-only persistent SSH resume attaches after topology commit without local census admission")
+    func persistentSSHBindingOnlyResumeBypassesLocalCensusAdmission() throws {
         let defaults = try makeAutoResumeDefaults()
         defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        let socketPath = TerminalController.shared.reserveStartupSocketPath(
+            "/tmp/cmux-terminal-restore-\(UUID().uuidString).sock"
+        )
+        defer {
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
+            try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: socketPath + ".lock")
+        }
         let source = Workspace(agentSessionAutoResumeDefaults: defaults.store)
         defer { source.teardownAllPanels() }
         source.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
@@ -85,11 +94,10 @@ struct TerminalStartupRestoreFailureTests {
         restored.terminalStartupRestoreCoordinator.commitPendingRestores(
             panelIDs: [restoredPanelID]
         )
-        // Topology publication alone does not admit an ownership-sensitive
-        // resume. The deferred resolver must still accept or cancel it from
-        // the fresh shared index before the runtime can start.
-        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
-        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] != nil)
+        // The remote daemon owns persistent PTY admission. A local census
+        // must not prevent attaching the existing remote session.
+        #expect(restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] == nil)
     }
 
     @Test("Transferred persistent SSH restore adopts the destination owner")
@@ -265,7 +273,7 @@ struct TerminalStartupRestoreFailureTests {
         #expect(controller.teardownValidationEpochByPanel[sourceKey] == nil)
     }
 
-    @Test("Closing a staged relaunch cancels its restore transaction")
+    @Test("Closing a staged relaunch cancels its restore transaction and releases its claim")
     func closingStagedRelaunchCancelsRestore() throws {
         let sessionID = "closed-staged-restore-\(UUID().uuidString)"
         let workingDirectory = "/tmp/closed-staged-restore"
@@ -306,9 +314,8 @@ struct TerminalStartupRestoreFailureTests {
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
             agentChatResumeIntentRecorder: recorder,
-            // This test exercises cancellation of a synchronously claimed
-            // restore transaction; keep ownership lookup deterministic rather
-            // than racing the separate deferred-admission coordinator.
+            // Keep ownership lookup deterministic rather than racing the
+            // separate deferred-admission coordinator.
             restorableAgentIndexProvider: { .empty }
         )
         defer { restored.teardownAllPanels() }
@@ -319,6 +326,25 @@ struct TerminalStartupRestoreFailureTests {
         let restoredPanelID = try #require(restoredPanelIDs[sourcePanelID])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelID))
         #expect(!restoredPanel.surface.canCreateRuntimeSurface)
+        // Local restores claim at the CLI pre-exec boundary. Seed an owned
+        // transaction here to exercise the separate remote/compatibility
+        // claim-release path that panel teardown must still cover.
+        #expect(
+            AgentResumeLaunchGuard.shared.claimResumeLaunchWithToken(
+                kind: agent.kind.rawValue,
+                sessionId: sessionID
+            ) != nil
+        )
+        restored.terminalStartupRestoreCoordinator.stage(
+            panel: restoredPanel,
+            snapshot: agent,
+            manualResumeAvailable: true,
+            willRunStartupCommand: false,
+            willRunStartupInput: false,
+            resumeWorkingDirectory: workingDirectory,
+            ownsResumeLaunchClaim: true,
+            defersStartupRestoreAdmission: true
+        )
         #expect(
             !AgentResumeLaunchGuard.shared.claimResumeLaunch(
                 kind: agent.kind.rawValue,
@@ -401,12 +427,12 @@ struct TerminalStartupRestoreFailureTests {
 
     private func decodedRemoteCommand(from startupCommand: String) throws -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).map(\.value)
-        let script = try #require(words.dropFirst(2).first)
-        let range = try #require(
-            script.range(of: #"--command-b64 [A-Za-z0-9+/=]+"#, options: .regularExpression)
-        )
-        let encoded = String(script[range]).split(separator: " ", maxSplits: 1).last.map(String.init)
-        let data = try #require(encoded.flatMap { Data(base64Encoded: $0) })
+        let script = try #require(words.first(where: { $0.contains("--command-b64") }))
+        let scriptWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
+        let commandIndex = try #require(scriptWords.firstIndex(of: "--command-b64"))
+        let token = try #require(scriptWords.dropFirst(commandIndex + 1).first)
+        let encoded = token.hasSuffix(";") ? String(token.dropLast()) : token
+        let data = try #require(Data(base64Encoded: encoded))
         return try #require(String(data: data, encoding: .utf8))
     }
 

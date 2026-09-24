@@ -39,7 +39,6 @@ final class AgentChatSessionRegistry {
         versionBySessionID[record.sessionID] = next
         record.version = next
     }
-
     /// Per-session process-exit watchers, keyed by session id, each tagged with
     /// the pid it watches. A `DispatchSourceProcess` (`.exit`) fires exactly
     /// when the agent process dies (crash, kill, closed terminal), so the
@@ -47,6 +46,7 @@ final class AgentChatSessionRegistry {
     /// and without polling `kill(pid,0)` on every read. `DispatchSource` is an
     /// event source, not a timer, and is cancellable.
     private var exitWatchers: [String: (pid: Int, source: DispatchSourceProcess)] = [:]
+    var processExitRetryTasks: [String: (id: UUID, task: Task<Void, Never>)] = [:]
 
     /// Creates a registry.
     ///
@@ -67,7 +67,6 @@ final class AgentChatSessionRegistry {
             syncProcessExitWatch(for: record)
         }
     }
-
     /// All known sessions, optionally restricted to one workspace, most
     /// recent activity first.
     ///
@@ -186,14 +185,14 @@ final class AgentChatSessionRegistry {
         }
     }
 
-    /// The watched agent process exited. Before ending the session, verify
+    /// The watched agent exited; verify before ending the session.
     /// against the surface's process tree off-main: the dead pid may be a
     /// launcher/intermediate (subrouter, `node` shim) while the real agent still
     /// runs, in which case re-bind to the live agent pid instead of ending.
     /// Ignores a stale fire (the session may have resumed under a new pid;
     /// `claude --resume`). `ended` is retained (the GUI stays shown, the input
     /// bar disables); only the watcher is torn down.
-    private func handleProcessExit(sessionID: String, pid: Int) {
+    func handleProcessExit(sessionID: String, pid: Int, retryAttempt: Int = 0) {
         guard let record = records[sessionID], record.pid == pid, record.state != .ended else {
             return
         }
@@ -204,7 +203,7 @@ final class AgentChatSessionRegistry {
         let kind = record.agentKind
         let expectedSessionIDs = Set([record.sessionID, record.hookStoreLookupSessionID])
         Task.detached { [weak self] in
-            let livePID = Self.liveAgentPID(
+            let lookup = await Self.liveAgentPIDResult(
                 surfaceID: surfaceID,
                 kind: kind,
                 matchingSessionIDs: expectedSessionIDs,
@@ -215,12 +214,14 @@ final class AgentChatSessionRegistry {
                       let current = self.records[sessionID],
                       current.pid == pid,
                       current.state != .ended else { return }
-                if let livePID, livePID != pid {
-                    // Real agent still alive under the surface: re-bind to it
-                    // (this re-arms the exit watcher on the real agent pid).
+                switch lookup {
+                case .found(let livePID) where livePID > 0 && livePID != pid:
                     self.update(sessionID: sessionID) { $0.pid = livePID }
-                } else {
+                case .found, .notFound:
                     self.update(sessionID: sessionID) { $0.state = .ended }
+                case .unavailable:
+                    self.scheduleProcessExitRetry(sessionID: sessionID, pid: pid, attempt: retryAttempt + 1)
+                    return
                 }
             }
         }
@@ -841,5 +842,4 @@ final class AgentChatSessionRegistry {
     private func processIsDead(_ pid: Int) -> Bool {
         kill(pid_t(pid), 0) != 0 && errno == ESRCH
     }
-
 }

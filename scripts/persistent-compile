@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Operate the persistent macOS compile fleet. Run with no arguments for the next step.
+set -euo pipefail
+exec python3 "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/ci/persistent_compile_fleet.py" "$@"

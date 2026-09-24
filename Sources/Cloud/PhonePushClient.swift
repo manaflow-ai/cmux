@@ -89,6 +89,29 @@ final class PhonePushClient {
     var presenceMonitor: MacPresenceMonitor = .live()
     private var presenceCache = MacPresenceDecisionCache()
     private var authLifecycleTask: Task<Void, Never>?
+    private var pushRecipients: [PhonePushRecipient] = []
+    /// Active queue payloads retained only in memory so a recipient-key
+    /// rotation can rebuild ciphertext without putting plaintext in the
+    /// durable queue or sending it to the server.
+    private var pendingPayloadsByCorrelationID: [String: PhonePushPayload] = [:]
+    /// Payloads waiting for the bounded recipient-key discovery request. These
+    /// remain in memory only and are either encrypted into the durable queue
+    /// when discovery completes or dropped with telemetry on failure.
+    private struct PendingRecipientPayload {
+        let payload: PhonePushPayload
+        let identity: AuthenticatedSessionIdentity
+        let targetBundleIdentifier: String?
+        let expirationEpochSeconds: Int
+        let discoveryAttempts: Int
+    }
+    private var pendingRecipientPayloads: [PendingRecipientPayload] = []
+    private static let maxPendingRecipientPayloads = 32
+    private static let maxRecipientDiscoveryAttempts = 3
+    private var recipientRefreshTask: Task<Void, Never>?
+    private var lastRecipientRefreshEpochSeconds = 0
+    private var lastEncryptionUnavailableLogEpochSeconds = 0
+
+    let identityPrewarm = PhonePushIdentityPrewarm()
     private var activeIdentity: AuthenticatedSessionIdentity?
     private var pendingPersistenceSnapshot: [PhonePushRequestEnvelope]?
     private var persistenceTask: Task<Void, Never>?
@@ -100,8 +123,13 @@ final class PhonePushClient {
     private lazy var deliveryQueue = PhonePushSerialDeliveryQueue(
         startsImmediately: false,
         pendingChanged: { [weak self] snapshot in
-            guard self?.suppressQueuePersistence == false else { return }
-            self?.schedulePersistence(snapshot)
+            guard let self else { return }
+            let queuedCorrelationIDs = Set(snapshot.map { $0.correlationID })
+            self.pendingPayloadsByCorrelationID = self.pendingPayloadsByCorrelationID.filter {
+                queuedCorrelationIDs.contains($0.key)
+            }
+            guard self.suppressQueuePersistence == false else { return }
+            self.schedulePersistence(snapshot)
         },
         sender: { [weak self] envelope in
             guard let self else { return .cancelled }
@@ -128,24 +156,26 @@ final class PhonePushClient {
             configuration: PhonePushConfiguration(defaults: defaults)
         )
     }
-
+    /// Starts auth-scoped phone push observation and off-main identity warming.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
+        identityPrewarm.reset()
         authLifecycleTask?.cancel()
         cancelInMemoryQueue()
+        recipientRefreshTask?.cancel()
+        recipientRefreshTask = nil
         activeIdentity = nil
+        startIdentityPrewarmIfNeeded()
         authLifecycleTask = Task { [weak self, weak auth] in
             guard let self, let auth else { return }
             await self.bootstrapQueueAndObserve(auth: auth)
         }
     }
-
     func configuration(
         defaults settingsDefaults: UserDefaults? = nil
     ) -> PhonePushConfiguration {
         PhonePushConfiguration(defaults: settingsDefaults ?? defaults)
     }
-
     /// Reconciles state after another owner removes stored overrides (Reset All).
     func reloadConfigurationFromDefaults() {
         let configuration = PhonePushConfiguration(defaults: defaults)
@@ -159,7 +189,6 @@ final class PhonePushClient {
         )
         publishStatusChanged()
     }
-
     /// Sole mutation path for Mac and phone callers. Validation happens before
     /// entry; all three privacy fields publish as one main-actor transaction.
     @discardableResult
@@ -202,7 +231,6 @@ final class PhonePushClient {
         publishStatusChanged()
         return configuration
     }
-
     nonisolated static func shouldForward(
         mode: PhoneForwardingMode,
         presence: MacPresenceMonitor.Decision
@@ -214,7 +242,6 @@ final class PhonePushClient {
             return !presence.isActive
         }
     }
-
     nonisolated static func admission(
         enabled: Bool,
         mode: PhoneForwardingMode,
@@ -225,7 +252,6 @@ final class PhonePushClient {
             ? .queued
             : .presenceSuppressed
     }
-
     func currentAdmission(
         defaults settingsDefaults: UserDefaults? = nil
     ) -> PhonePushAdmission {
@@ -240,7 +266,6 @@ final class PhonePushClient {
             ? .allowed
             : .suppressedMacActive
     }
-
     @discardableResult
     func forward(
         _ notification: TerminalNotification,
@@ -257,7 +282,6 @@ final class PhonePushClient {
         )
         return enqueue(payload)
     }
-
     /// Enqueues a user-requested diagnostic alert through the production path.
     /// The response confirms queue admission only; backend and APNs outcomes
     /// remain asynchronous and are correlated by the envelope UUID.
@@ -288,7 +312,6 @@ final class PhonePushClient {
         )
         return enqueue(payload)
     }
-
     private func forwardingAdmission() -> PhonePushForwardAdmission {
         let mode = PhoneForwardingMode.fromDefaults(defaults)
         let enabled = PhonePushConfiguration.forwardingEnabled(in: defaults)
@@ -301,57 +324,63 @@ final class PhonePushClient {
             presence: presenceCache.decision(from: presenceMonitor)
         )
     }
-
     private func enqueue(
         _ payload: PhonePushPayload
     ) -> PhonePushForwardAdmission {
         guard let identity = auth?.authenticatedSessionIdentity else {
             return .authenticationUnavailable
         }
-        guard let targetBundleIdentifier = MobileIOSPairingTargetStore()
-            .pushTargetNamespace?.bundleIdentifier else {
-            return .encodingFailed
+        scheduleRecipientRefresh()
+        guard hasTrustedRecipient(
+            payload: payload,
+            identity: identity
+        ) else {
+            return retainUntilRecipientRefresh(
+                payload: payload,
+                identity: identity,
+                targetBundleIdentifier: nil
+            )
         }
+        guard let envelope = makeEncryptedEnvelope(
+            payload: payload,
+            identity: identity,
+            targetBundleIdentifier: nil
+        ) else { return .encodingFailed }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
-        let correlationID = UUID()
-        let envelope: PhonePushRequestEnvelope
-        do {
-            envelope = try PhonePushRequestEnvelope(
-                payload: payload,
-                correlationID: correlationID,
-                expirationEpochSeconds:
-                    clock.nowEpochSeconds + Self.eventTTLSeconds,
-                expectedAccountID: identity.accountID,
-                expectedSessionGeneration: identity.generation,
-                targetBundleIdentifier: targetBundleIdentifier
-            )
-        } catch {
-            logQueueStage(
-                "encoding_failed",
-                correlationID: correlationID.uuidString.lowercased()
-            )
-            return .encodingFailed
-        }
+        pendingPayloadsByCorrelationID[envelope.correlationID] = payload
         guard deliveryQueue.enqueue(envelope) else {
+            pendingPayloadsByCorrelationID.removeValue(forKey: envelope.correlationID)
             logQueueStage("queue_overflow", correlationID: envelope.correlationID)
             return .queueFull
         }
         return .queued
     }
-
-    func forwardDismissed(ids: [String], badgeCount: Int) {
-        guard PhonePushConfiguration.forwardingEnabled(in: defaults),
-              !ids.isEmpty,
-              let identity = auth?.authenticatedSessionIdentity,
-              let targetBundleIdentifier = MobileIOSPairingTargetStore()
-                  .pushTargetNamespace?.bundleIdentifier else { return }
+    @discardableResult
+    func forwardDismissed(ids: [String], badgeCount: Int) -> PhonePushForwardAdmission {
+        guard PhonePushConfiguration.forwardingEnabled(in: defaults) else {
+            return .disabled
+        }
+        guard !ids.isEmpty else { return .queued }
+        guard let identity = auth?.authenticatedSessionIdentity else {
+            return .authenticationUnavailable
+        }
+        scheduleRecipientRefresh()
+        guard let macDeviceID = identityPrewarm.deviceIDIfReady() else {
+            guard identityPrewarm.appendDismissals(ids: ids, badgeCount: badgeCount) else {
+                phonePushLog.error("dismissal prewarm buffer full; dropping batch")
+                return .queueFull
+            }
+            startIdentityPrewarmIfNeeded()
+            return .queued
+        }
         deliveryQueue.retainOnly(
             accountID: identity.accountID,
             generation: identity.generation
         )
+        var admission: PhonePushForwardAdmission = .queued
         for start in stride(
             from: 0,
             to: ids.count,
@@ -367,48 +396,53 @@ final class PhonePushClient {
                 workspaceId: nil,
                 surfaceId: nil,
                 retargetsToLiveSurfaceOwner: false,
-                macDeviceId: MobileHostIdentity.deviceID(),
+                macDeviceId: macDeviceID,
                 macInstanceTag: MobileHostIdentity.instanceTag(),
                 notificationId: nil,
                 notificationIds: Array(ids[start..<end]),
                 badgeCount: badgeCount,
                 hideContent: false
             )
-            let correlationID = UUID()
-            let envelope: PhonePushRequestEnvelope
-            do {
-                envelope = try PhonePushRequestEnvelope(
+            if !hasTrustedRecipient(
+                payload: payload,
+                identity: identity
+            ) {
+                admission = retainUntilRecipientRefresh(
                     payload: payload,
-                    correlationID: correlationID,
-                    expirationEpochSeconds:
-                        clock.nowEpochSeconds + Self.eventTTLSeconds,
-                    expectedAccountID: identity.accountID,
-                    expectedSessionGeneration: identity.generation,
-                    targetBundleIdentifier: targetBundleIdentifier
-                )
-            } catch {
-                logQueueStage(
-                    "dismiss_encoding_failed",
-                    correlationID: correlationID.uuidString.lowercased()
+                    identity: identity,
+                    targetBundleIdentifier: nil
                 )
                 continue
             }
+            guard let envelope = makeEncryptedEnvelope(
+                payload: payload,
+                identity: identity,
+                targetBundleIdentifier: nil
+            ) else {
+                logQueueStage("dismiss_encoding_failed", correlationID: UUID().uuidString.lowercased())
+                continue
+            }
+            pendingPayloadsByCorrelationID[envelope.correlationID] = payload
             if !deliveryQueue.enqueuePrioritizingDismiss(envelope) {
+                pendingPayloadsByCorrelationID.removeValue(forKey: envelope.correlationID)
+                admission = .queueFull
                 logQueueStage(
                     "dismiss_queue_overflow",
                     correlationID: envelope.correlationID
                 )
             }
         }
+        return admission
     }
-
     /// Cancels in-flight retries and atomically clears credential-free storage.
     func cancelPendingDeliveries() {
         cancelInMemoryQueue()
+        recipientRefreshTask?.cancel()
+        recipientRefreshTask = nil
+        identityPrewarm.reset()
         pendingPersistenceSnapshot = []
         schedulePersistence([])
     }
-
     private func bootstrapQueueAndObserve(auth: AuthCoordinator) async {
         // This call waits for launch bootstrap. A transient token failure does
         // not erase credential-free queue ownership; the published identity
@@ -416,6 +450,7 @@ final class PhonePushClient {
         auth.start()
         _ = try? await auth.authenticatedSessionSnapshot()
         guard !Task.isCancelled, self.auth === auth else { return }
+        await refreshPushRecipients(auth: auth)
         await restoreQueueIfAllowed(
             identity: auth.authenticatedSessionIdentity,
             auth: auth
@@ -425,6 +460,245 @@ final class PhonePushClient {
         for await identity in identities {
             guard !Task.isCancelled, self.auth === auth else { return }
             await handleAuthTransition(identity, auth: auth)
+        }
+    }
+    private func refreshPushRecipients(auth: AuthCoordinator) async {
+        guard let snapshot = try? await auth.authenticatedSessionSnapshot(),
+              var components = URLComponents(url: AuthEnvironment.pushAPIBaseURL, resolvingAgainstBaseURL: false)
+        else { return }
+        components.path = (components.path.hasSuffix("/") ? String(components.path.dropLast()) : components.path)
+            + "/api/device-tokens"
+        components.queryItems = [URLQueryItem(name: "all", value: "true")]
+        guard let url = components.url else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+        request.setValue("Bearer \(snapshot.accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(snapshot.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse,
+              (200...299).contains(http.statusCode),
+              let result = try? JSONDecoder().decode(PhonePushRecipientResponse.self, from: data)
+        else { return }
+        pushRecipients = result.recipients
+        lastRecipientRefreshEpochSeconds = clock.nowEpochSeconds
+    }
+
+    private func scheduleRecipientRefresh(force: Bool = false) {
+        guard recipientRefreshTask == nil else { return }
+        guard force
+                || pushRecipients.isEmpty
+                || clock.nowEpochSeconds - lastRecipientRefreshEpochSeconds >= 30 else {
+            return
+        }
+        recipientRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.recipientRefreshTask = nil }
+            guard let auth = self.auth else {
+                self.recipientRefreshTask = nil
+                return
+            }
+            await self.refreshPushRecipients(auth: auth)
+            self.recipientRefreshTask = nil
+            self.retryPendingRecipientPayloads()
+        }
+    }
+
+    private func retainUntilRecipientRefresh(
+        payload: PhonePushPayload,
+        identity: AuthenticatedSessionIdentity,
+        targetBundleIdentifier: String?
+    ) -> PhonePushForwardAdmission {
+        guard pendingRecipientPayloads.count < Self.maxPendingRecipientPayloads else {
+            reportEncryptionUnavailable()
+            return .encryptionUnavailable
+        }
+        pendingRecipientPayloads.append(
+            PendingRecipientPayload(
+                payload: payload,
+                identity: identity,
+                targetBundleIdentifier: targetBundleIdentifier,
+                expirationEpochSeconds: clock.nowEpochSeconds + Self.eventTTLSeconds,
+                discoveryAttempts: 0
+            )
+        )
+        scheduleRecipientRefresh(force: true)
+        phonePushLog.info("queued push until recipient-key discovery completes")
+        return .queued
+    }
+
+    private func retryPendingRecipientPayloads() {
+        guard !pendingRecipientPayloads.isEmpty else { return }
+        let pending = pendingRecipientPayloads
+        pendingRecipientPayloads.removeAll(keepingCapacity: true)
+        var retry: [PendingRecipientPayload] = []
+        for item in pending {
+            guard clock.nowEpochSeconds < item.expirationEpochSeconds else {
+                phonePushLog.error("dropping expired push awaiting recipient-key discovery")
+                continue
+            }
+            guard hasTrustedRecipient(
+                payload: item.payload,
+                identity: item.identity
+            ), let envelope = makeEncryptedEnvelope(
+                payload: item.payload,
+                identity: item.identity,
+                targetBundleIdentifier: item.targetBundleIdentifier,
+                expirationEpochSeconds: item.expirationEpochSeconds
+            ) else {
+                if item.discoveryAttempts + 1 < Self.maxRecipientDiscoveryAttempts {
+                    retry.append(
+                        PendingRecipientPayload(
+                            payload: item.payload,
+                            identity: item.identity,
+                            targetBundleIdentifier: item.targetBundleIdentifier,
+                            expirationEpochSeconds: item.expirationEpochSeconds,
+                            discoveryAttempts: item.discoveryAttempts + 1
+                        )
+                    )
+                } else {
+                    reportEncryptionUnavailable()
+                }
+                continue
+            }
+            deliveryQueue.retainOnly(
+                accountID: item.identity.accountID,
+                generation: item.identity.generation
+            )
+            pendingPayloadsByCorrelationID[envelope.correlationID] = item.payload
+            if !deliveryQueue.enqueue(envelope) {
+                pendingPayloadsByCorrelationID.removeValue(forKey: envelope.correlationID)
+                logQueueStage("recipient_refresh_queue_overflow", correlationID: envelope.correlationID)
+            }
+        }
+        pendingRecipientPayloads.append(contentsOf: retry)
+        if !retry.isEmpty {
+            scheduleRecipientRefresh(force: true)
+        }
+    }
+
+    private func reportEncryptionUnavailable() {
+        let now = clock.nowEpochSeconds
+        guard now - lastEncryptionUnavailableLogEpochSeconds >= 60 else { return }
+        lastEncryptionUnavailableLogEpochSeconds = now
+        phonePushLog.error("push encryption unavailable; no trusted recipient key")
+        sentryCaptureWarning(
+            "Phone push encryption unavailable",
+            category: "phone-push",
+            data: [
+                "reason": "missing_trusted_recipient",
+                "protocol": "notification-e2e-v1",
+            ]
+        )
+    }
+
+    private struct PhonePushRecipientResponse: Decodable {
+        let recipients: [PhonePushRecipient]
+    }
+
+    private func makeEncryptedEnvelope(
+        payload: PhonePushPayload,
+        identity: AuthenticatedSessionIdentity,
+        targetBundleIdentifier: String?,
+        expirationEpochSeconds: Int? = nil
+    ) -> PhonePushRequestEnvelope? {
+        guard !identity.accountID.isEmpty,
+              let macDeviceID = payload.macDeviceId,
+              let macBuildID = Bundle.main.bundleIdentifier,
+              let macKey = try? PhonePushKeyMaterial.current(
+                  bundleID: Bundle.main.bundleIdentifier ?? "cmux"
+              ) else { return nil }
+        let recipients = trustedRecipients(
+            identity: identity,
+            payload: payload,
+            macDeviceID: macDeviceID,
+            macBuildID: macBuildID
+        )
+        guard !recipients.isEmpty else { return nil }
+        let correlationID = UUID()
+        let expirationEpochSeconds = expirationEpochSeconds
+            ?? clock.nowEpochSeconds + Self.eventTTLSeconds
+        do {
+            let plaintext = try PhonePushRequestEnvelope(
+                payload: payload,
+                correlationID: correlationID,
+                expirationEpochSeconds: expirationEpochSeconds,
+                expectedAccountID: identity.accountID,
+                expectedSessionGeneration: identity.generation,
+                targetBundleIdentifier: targetBundleIdentifier,
+                macPushPublicKey: macKey.publicKeyData.base64EncodedString(),
+                macInstallationID: macKey.installationID,
+                macBuildID: macBuildID
+            ).body
+            let encrypted = try recipients.map { recipient in
+                try PhonePushCrypto().encrypt(
+                    plaintext: plaintext,
+                    tuple: PhonePushDeviceTuple(
+                        accountID: identity.accountID,
+                        teamID: nil,
+                        iosBuildID: recipient.bundleID,
+                        iosInstallationID: recipient.installationID,
+                        macDeviceID: macDeviceID,
+                        macInstanceTag: payload.macInstanceTag,
+                        macBuildID: macBuildID
+                    ),
+                    recipientPublicKey: recipient.publicKey,
+                    keyID: recipient.keyID,
+                    senderKeyID: macKey.keyID,
+                    senderPrivateKey: macKey.privateKey,
+                    installationID: recipient.installationID
+                )
+            }
+            return try PhonePushRequestEnvelope(
+                encryptedPayloads: encrypted,
+                payload: payload,
+                correlationID: correlationID,
+                expirationEpochSeconds: expirationEpochSeconds,
+                expectedAccountID: identity.accountID,
+                expectedSessionGeneration: identity.generation,
+                targetBundleIdentifier: targetBundleIdentifier
+            )
+        } catch {
+            _ = macKey
+            return nil
+        }
+    }
+
+    private func hasTrustedRecipient(
+        payload: PhonePushPayload,
+        identity: AuthenticatedSessionIdentity
+    ) -> Bool {
+        guard let macDeviceID = payload.macDeviceId,
+              let macBuildID = Bundle.main.bundleIdentifier else { return false }
+        return !trustedRecipients(
+            identity: identity,
+            payload: payload,
+            macDeviceID: macDeviceID,
+            macBuildID: macBuildID
+        ).isEmpty
+    }
+
+    private func trustedRecipients(
+        identity: AuthenticatedSessionIdentity,
+        payload: PhonePushPayload,
+        macDeviceID: String,
+        macBuildID: String
+    ) -> [PhonePushRecipient] {
+        pushRecipients.filter { recipient in
+            let tuple = PhonePushDeviceTuple(
+                accountID: identity.accountID,
+                teamID: nil,
+                iosBuildID: recipient.bundleID,
+                iosInstallationID: recipient.installationID,
+                macDeviceID: macDeviceID,
+                macInstanceTag: payload.macInstanceTag,
+                macBuildID: macBuildID
+            )
+            guard let pinned = PhonePushPeerKeyStore().pinnedDescriptor(for: tuple) else {
+                return false
+            }
+            return pinned.keyID == recipient.keyID
+                && pinned.publicKey == recipient.publicKey
         }
     }
 
@@ -481,20 +755,25 @@ final class PhonePushClient {
         activeIdentity = identity
         deliveryQueue.start()
     }
-
     private func handleAuthTransition(
         _ identity: AuthenticatedSessionIdentity?,
         auth: AuthCoordinator
     ) async {
         guard identity != activeIdentity else { return }
         cancelInMemoryQueue()
+        recipientRefreshTask?.cancel()
+        recipientRefreshTask = nil
+        identityPrewarm.reset()
         pendingPersistenceSnapshot = []
+        pushRecipients = []
         activeIdentity = identity
         await clearPersistedQueue()
         guard self.auth === auth else { return }
+        if identity != nil {
+            await refreshPushRecipients(auth: auth)
+        }
         deliveryQueue.start()
     }
-
     private func schedulePersistence(
         _ snapshot: [PhonePushRequestEnvelope]
     ) {
@@ -504,13 +783,13 @@ final class PhonePushClient {
             await self?.drainPersistence()
         }
     }
-
     private func cancelInMemoryQueue() {
         suppressQueuePersistence = true
         deliveryQueue.cancelAll()
         suppressQueuePersistence = false
+        pendingPayloadsByCorrelationID.removeAll()
+        pendingRecipientPayloads.removeAll()
     }
-
     private func drainPersistence() async {
         while let snapshot = pendingPersistenceSnapshot {
             pendingPersistenceSnapshot = nil
@@ -528,7 +807,6 @@ final class PhonePushClient {
         }
         persistenceTask = nil
     }
-
     private func clearPersistedQueue() async {
         do {
             try await queueStore.clear()
@@ -537,7 +815,6 @@ final class PhonePushClient {
             setQueuePersistenceStatus(.clearFailed)
         }
     }
-
     private func setQueuePersistenceStatus(
         _ status: PhonePushQueuePersistenceStatus
     ) {
@@ -548,14 +825,12 @@ final class PhonePushClient {
         )
         publishStatusChanged()
     }
-
     private func publishStatusChanged() {
         MobileHostService.emitEvent(
             topic: "phone_push.status.changed",
             payload: [:]
         )
     }
-
     private func deliver(
         _ envelope: PhonePushRequestEnvelope
     ) async -> PhonePushHTTPResult {
@@ -623,6 +898,38 @@ final class PhonePushClient {
                 auth: auth,
                 session: session
             )
+            if response.result == .recipientKeyChanged {
+                pushRecipients = []
+                lastRecipientRefreshEpochSeconds = 0
+                recipientRefreshTask?.cancel()
+                recipientRefreshTask = nil
+                await refreshPushRecipients(auth: auth)
+                guard let payload = pendingPayloadsByCorrelationID[envelope.correlationID],
+                      let identity = auth.authenticatedSessionIdentity,
+                      identity.accountID == envelope.expectedAccountID,
+                      identity.generation == envelope.expectedSessionGeneration,
+                      let reencrypted = makeEncryptedEnvelope(
+                          payload: payload,
+                          identity: identity,
+                          targetBundleIdentifier: envelope.targetBundleIdentifier,
+                          expirationEpochSeconds: envelope.expirationEpochSeconds
+                      ) else {
+                    logQueueStage(
+                        "recipient_key_changed_reencrypt_failed",
+                        correlationID: envelope.correlationID
+                    )
+                    return response.result
+                }
+                pendingPayloadsByCorrelationID[reencrypted.correlationID] = payload
+                if !deliveryQueue.enqueue(reencrypted) {
+                    pendingPayloadsByCorrelationID.removeValue(forKey: reencrypted.correlationID)
+                    logQueueStage(
+                        "recipient_key_changed_requeue_failed",
+                        correlationID: envelope.correlationID
+                    )
+                }
+                return response.result
+            }
             if response.result == .authenticationRequired,
                !refreshedAuthentication {
                 do {
@@ -679,7 +986,6 @@ final class PhonePushClient {
         }
         return .retryExhausted
     }
-
     /// Explicit executor hop for URL loading. Queue ownership remains on the
     /// main actor, while request construction, I/O, and response decoding do
     /// not consume its executor.
@@ -702,10 +1008,6 @@ final class PhonePushClient {
         guard current, accountMatches, generationMatches else {
             return (.staleSession, nil)
         }
-        guard let targetBundleIdentifier = envelope.targetBundleIdentifier,
-              !targetBundleIdentifier.isEmpty else {
-            return (.invalidResponse, nil)
-        }
         guard let url = pushURL() else { return (.invalidResponse, nil) }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -719,13 +1021,17 @@ final class PhonePushClient {
             sessionSnapshot.refreshToken,
             forHTTPHeaderField: "X-Stack-Refresh-Token"
         )
-        request.setValue(
-            targetBundleIdentifier,
-            forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
-        )
-        // Intentionally omit X-Cmux-Team-Id. The push route fans out by the
-        // authenticated Stack user id, so a team-picker change cannot retarget
-        // an already-created or in-flight notification request.
+        if let targetBundleIdentifier = envelope.targetBundleIdentifier,
+           !targetBundleIdentifier.isEmpty {
+            request.setValue(
+                targetBundleIdentifier,
+                forHTTPHeaderField: "X-Cmux-IOS-Target-Namespace"
+            )
+        }
+        // An omitted target requests account-wide fanout. The server still
+        // selects each device's APNs topic and matching encrypted payload.
+        // Intentionally omit X-Cmux-Team-Id because push ownership is scoped
+        // to the authenticated Stack user id.
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let redirectDelegate = RedirectMethodPreservingDelegate()
@@ -779,7 +1085,7 @@ final class PhonePushClient {
         components.host?.isEmpty == false else { return nil }
         components.path = (components.path.hasSuffix("/")
             ? String(components.path.dropLast())
-            : components.path) + "/api/notifications/push"
+            : components.path) + "/api/notifications/push/e2e"
         return components.url
     }
 
@@ -809,6 +1115,7 @@ final class PhonePushClient {
         case .authenticationUnavailable: "authentication_unavailable"
         case .staleSession: "stale_session"
         case .correlationConflict: "correlation_conflict"
+        case .recipientKeyChanged: "recipient_key_changed"
         case .expired: "expired"
         case .invalidResponse: "invalid_response"
         case .rejected: "rejected"
