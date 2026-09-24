@@ -60,13 +60,14 @@ class Decide(unittest.TestCase):
         self.assertFalse(decide(api, ["p1", "p2"], {"HEAD": "v1", "p2": "v1"})[0])
         self.assertTrue(decide(api, ["p1", "p2"], {"HEAD": "v2", "p2": "v1"})[0])
 
-    def test_a_seed_being_built_counts_but_a_pending_run_does_not(self):
-        running = Api([run(2, "p1", status="in_progress", conclusion=None)],
-                      {2: [seed_job(conclusion=None, status="in_progress")]})
-        self.assertFalse(decide(running, ["p1"], {"HEAD": "v1", "p1": "v1"})[0])
+    def test_a_pending_run_does_not_count(self):
         pending = Api([run(2, "p1", status="pending", conclusion=None), run(1, "p2")], {1: [seed_job()]})
         build, reason = decide(pending, ["p1", "p2"], {"HEAD": "v1", "p1": "v1", "p2": "v0"})
         self.assertTrue(build, reason)
+
+    def test_a_failed_seed_job_does_not_count(self):
+        api = Api([run(2, "p1", conclusion="failure")], {2: [seed_job(conclusion="failure")]})
+        self.assertTrue(decide(api, ["p1"], {"HEAD": "v1", "p1": "v1"})[0])
 
     def test_a_seed_that_was_not_saved_does_not_count(self):
         api = Api([run(2, "p1")], {2: [seed_job(saved=False)]})
@@ -95,6 +96,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("scripts/ci/seed_decide.py", run_text)
         self.assertNotIn("HEAD^1", run_text)
         self.assertEqual(decide_job["permissions"]["actions"], "read")
+        # A rename would silently turn every skip into a build.
+        seed_steps = [step.get("name") for step in workflow["jobs"][seed_decide.SEED_JOB]["steps"]]
+        self.assertIn(seed_decide.SAVE_STEP, seed_steps)
 
 
 if __name__ == "__main__":

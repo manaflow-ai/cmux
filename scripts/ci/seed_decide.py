@@ -14,8 +14,7 @@ skips left main 2 to 6 commits past its newest seed with different inputs,
 including 80 minutes after #14241 merged.
 
 So walk main's first-parent history to the nearest commit whose seeder run
-saved a seed (or is saving one now), and skip only if that commit's build
-inputs equal this one's. Anything unknown (API errors, no seeded ancestor
+saved a seed, and skip only if that commit's build inputs equal this one's. Anything unknown (API errors, no seeded ancestor
 within the window, a commit outside the shallow checkout) builds.
 """
 from __future__ import annotations
@@ -56,12 +55,14 @@ def fingerprint(revision: str, xcode: str) -> str:
 
 
 def seed_state(api: Api, repository: str, run: dict) -> str:
-    """'seeded', 'seeding', 'skipped' or 'none' for one seeder run."""
+    """'seeded', 'skipped' or 'none' for one seeder run.
+
+    Concurrency is workflow-wide, so this run's decide starts only after every
+    earlier seeder run finished: no ancestor's seed is still being built.
+    """
     status, conclusion = run.get("status"), run.get("conclusion")
-    if status == "completed" and conclusion != "success":
-        return "none"
-    if status not in ("completed", "in_progress"):
-        # Queued or pending: a newer push can still replace it.
+    # A pending run can still be replaced by a newer push.
+    if status != "completed" or conclusion != "success":
         return "none"
     jobs = api(f"repos/{repository}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
     job = next((j for j in jobs if j.get("name") == SEED_JOB), None)
@@ -69,9 +70,6 @@ def seed_state(api: Api, repository: str, run: dict) -> str:
         return "none"
     if job.get("conclusion") == "skipped":
         return "skipped"
-    if job.get("status") == "in_progress":
-        # Never cancelled in progress, so it will publish unless it fails.
-        return "seeding"
     if job.get("conclusion") != "success":
         return "none"
     save = next((s for s in job.get("steps", []) if s.get("name") == SAVE_STEP), None)
@@ -79,7 +77,7 @@ def seed_state(api: Api, repository: str, run: dict) -> str:
 
 
 def nearest_seed(api: Api, repository: str, ancestors: Iterable[str]) -> str | None:
-    """The nearest ancestor with a published (or publishing) seed, or None."""
+    """The nearest ancestor with a published seed, or None."""
     runs = api(f"repos/{repository}/actions/workflows/{WORKFLOW}/runs?branch=main&per_page=100").get(
         "workflow_runs", []
     )
@@ -88,7 +86,7 @@ def nearest_seed(api: Api, repository: str, ancestors: Iterable[str]) -> str | N
         by_sha.setdefault(run.get("head_sha", ""), []).append(run)
     for sha in ancestors:
         states = {seed_state(api, repository, run) for run in by_sha.get(sha, [])}
-        if states & {"seeded", "seeding"}:
+        if "seeded" in states:
             return sha
         # "skipped" means that commit matched its own nearest seed; the walk
         # continues to that seed and compares against it directly.
