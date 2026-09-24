@@ -99,6 +99,9 @@ class FakeAPI:
     def rerun(self, run_id):
         self.calls.append("rerun")
 
+    def rerun_failed(self, run_id):
+        self.calls.append("rerun-failed")
+
 
 def event(**overrides):
     run = {"id": RUN_ID, "path": ".github/workflows/ci.yml", "event": "pull_request", "run_attempt": 1,
@@ -135,6 +138,64 @@ def persistent_run(*, compile_started_at=None, queued_at=40, done_at=None):
                              runner="mini-1" if started else ""))
         return found
     return jobs
+
+
+def refused_job(name="macos / macOS compile admission", *, seconds=8, steps=None, labels=(MINI,)):
+    found = job(name, status="completed", labels=labels, created=40, runner="mini-1")
+    found.update(conclusion="failure", started_at=stamp(41), completed_at=stamp(41 + seconds),
+                 steps=[{"name": "Set up job", "conclusion": "failure"}] if steps is None else steps)
+    return found
+
+
+def refusing_run(refused_at=60, **kwargs):
+    def jobs(seconds):
+        found = [changes()(seconds)]
+        if seconds >= refused_at:
+            found.append(refused_job(**kwargs))
+        elif seconds >= 40:
+            found.append(job("macos / macOS compile admission", labels=[MINI], created=40))
+        return found
+    return jobs
+
+
+class Refusal(unittest.TestCase):
+    def test_what_counts_as_a_refusal(self):
+        self.assertTrue(rescue.refused(refused_job()))
+        self.assertTrue(rescue.refused(refused_job(steps=[])))
+        self.assertTrue(rescue.refused(refused_job(steps=[{"name": "Set up job", "conclusion": "success"},
+                                                          {"name": "Runner hook", "conclusion": "failure"}])))
+        # A step of the workflow ran, the job ran too long, it is not on an owned pool, or it did not fail.
+        self.assertFalse(rescue.refused(refused_job(steps=[{"name": "Set up job", "conclusion": "success"},
+                                                           {"name": "Checkout", "conclusion": "success"},
+                                                           {"name": "Build", "conclusion": "failure"}])))
+        self.assertFalse(rescue.refused(refused_job(seconds=rescue.REFUSAL_SECONDS + 1)))
+        self.assertFalse(rescue.refused(refused_job(labels=(BLACKSMITH,))))
+        self.assertFalse(rescue.refused({**refused_job(), "conclusion": "cancelled"}))
+
+    def test_a_refused_job_reruns_the_failed_jobs_after_cancelling(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True)
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun-failed"])
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn(f"refused by {MINI} at job start", summary)
+        self.assertIn("attempt 2 takes retry_runner", summary)
+
+    def test_a_finished_run_with_a_refusal_needs_no_cancel(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60)
+        _, summary = run_main(api, clock)
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn("re-ran the failed jobs", summary)
+
+    def test_a_refusal_on_a_moved_head_is_left_alone(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True, head="b" * 40)
+        _, summary = run_main(api, clock)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("not rescued", summary)
 
 
 class Scope(unittest.TestCase):

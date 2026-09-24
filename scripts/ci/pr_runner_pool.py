@@ -125,13 +125,19 @@ SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # A pull request run holds several macOS machines at once, each job on its
 # own. Beside compile admission run the Claude wrapper, CLI pipe and remote
 # daemon lanes; once admission passes, a full suite adds APP_HOST_SHARDS
-# shards and tests-build-and-lag, and a changed-suites run one shard. A run
-# takes an owned pool only when its own peak (run_jobs) is free, so none of
-# its jobs queues there and trips the rescue. A run whose peak is unknown, and
-# every run replayed since the snapshot, is charged MAX_RUN_JOBS.
+# shards, tests-build-and-lag and cli-product-tests, a changed-suites run one
+# shard, and a CLI change cli-product-tests. A run takes an owned pool only
+# when its own peak (run_jobs) is free, so none of its jobs queues there. A
+# run whose peak is unknown is charged MAX_RUN_JOBS. A run replayed since the
+# snapshot is charged REPLAYED_RUN_JOBS, the peak of a compile-only run with
+# every side lane, which is what the default pull request policy runs: a
+# full-suite run among them is under-counted until the next snapshot, and a
+# job that then finds its mini busy is refused or queued, and moved to
+# Blacksmith by ci-owned-pool-rescue.yml.
 APP_HOST_SHARDS = 7
 SIDE_LANES = 3
-MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 1
+MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
+REPLAYED_RUN_JOBS = SIDE_LANES + 1
 # A snapshot older than this is not trusted to place a run on an owned pool.
 OWNED_MAX_AGE_MINUTES = 20
 # Pools whose machines are discarded after each job; the only ones a fork run may use.
@@ -196,14 +202,16 @@ def run_jobs(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
 
     Counted high on purpose: compile admission is assumed to run (the reuse
     checks come later), and a changed-suites canary that may yet be dropped
-    counts its shard.
+    counts its shard. ci-macos.yml runs admission for a macOS or a CLI change,
+    and cli-product-tests after it for a CLI change or a full suite.
     """
     side = sum(flag(lane) for lane in (cli, remote_daemon))
     full = flag(macos) and flag(full_suite)
     side += flag(claude_wrapper) or full
-    if not flag(macos):
+    if not (flag(macos) or flag(cli)):
         return side
-    after = APP_HOST_SHARDS + 1 if full else int(flag(unit_suite) and not flag(unit_in_admission))
+    shards = APP_HOST_SHARDS if full else int(flag(macos) and flag(unit_suite) and not flag(unit_in_admission))
+    after = shards + full + (flag(cli) or full)
     return side + max(1, after)
 
 
@@ -337,10 +345,10 @@ def owned_free(counts: Mapping[str, int], added_runs: int) -> int:
     Taken is the larger of the jobs the janitor saw and what the runs holding
     the pool will need at their peak, so a run whose later jobs do not exist
     yet still counts them. Each run replayed since the snapshot is charged
-    MAX_RUN_JOBS, since its peak is unknown here.
+    REPLAYED_RUN_JOBS, since its own peak is unknown here.
     """
     taken = max(counts["running"] + counts["queued"], counts.get("committed", 0))
-    return counts.get("capacity", 0) - taken - added_runs * MAX_RUN_JOBS
+    return counts.get("capacity", 0) - taken - added_runs * REPLAYED_RUN_JOBS
 
 
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
@@ -386,7 +394,7 @@ def decide(
     on macOS 26) while the replay still spreads over the whole order. `jobs`
     is this run's peak machine count, which an owned pool must have free.
     Replayed runs are placed as if they needed one machine (so any that could
-    have taken an owned pool is assumed to) and charged MAX_RUN_JOBS there.
+    have taken an owned pool is assumed to) and charged REPLAYED_RUN_JOBS there.
     """
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return Choice("", "", "no readable pool snapshot")

@@ -179,13 +179,17 @@ at once, each on its own machine, so a run takes the owned pool only when its
 own peak is free at once. The picker runs after the suite choice and counts
 that peak from the run's routing: the Claude wrapper, CLI pipe and remote
 daemon lanes, beside the larger of compile admission alone or what follows it
-(a full suite's seven app-host shards and tests-build-and-lag, 11 jobs in all;
-a changed-suites run's one shard). Taken is the larger of the jobs the janitor
+(a full suite's seven app-host shards, tests-build-and-lag and
+cli-product-tests, 12 jobs in all; a changed-suites run's one shard; a CLI
+change's cli-product-tests). Taken is the larger of the jobs the janitor
 saw on the pool and `committed`, the peaks the runs holding it declared, so a
 run whose later jobs do not exist yet still counts them. A run created since
 the snapshot has an unknown peak: any that could have taken the pool is
-assumed to, and charged 11 machines, so a wrong guess leaves minis idle
-rather than queueing a job there. It is skipped when the snapshot is older than 20
+assumed to, and charged 4 machines, a compile-only run with every side lane,
+which is what the default pull request policy runs. A full-suite run among
+them is under-counted until the next snapshot; a job that then finds its
+mini busy is refused or queued, and the rescue below moves it to Blacksmith.
+It is skipped when the snapshot is older than 20
 minutes or the label has no slots, and it is never the fewest-queued fallback.
 Fork runs and retry attempts never take it. While `CI_PR_POOL_OWNED` is off,
 owned labels in `CI_PR_POOL_ORDER` are dropped and the rest of the order is
@@ -216,6 +220,14 @@ If one of its jobs waits for a persistent runner longer than
 pull request head has not moved, cancels the run, and re-runs it. A retry
 attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
 whole, and so does a manual "Re-run all jobs".
+
+An owned runner can also refuse a job: glaeda's job-started hook exits 1 when
+the host is busy, and the job fails within seconds. GitHub does not retry it.
+The watcher treats a job on the persistent pool that failed within 120
+seconds of starting, with no workflow step succeeded, as refused. It confirms
+the head has not moved, cancels the run if it is still going, and re-runs its
+failed jobs, so nobody has to. That attempt 2 keeps what passed and sends the
+rest to `retry_runner` (below).
 
 "Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
 the failed jobs read attempt 1's outputs, owned pool included, with no watcher

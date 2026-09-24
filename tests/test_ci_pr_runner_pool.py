@@ -461,10 +461,16 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(jobs(), 1)
         self.assertEqual(jobs(cli="true", remote_daemon="true"), 3)
         self.assertEqual(jobs(unit_suite="true"), 1)
+        # A CLI change adds the pipe lane and cli-product-tests after admission.
         self.assertEqual(jobs(unit_suite="true", unit_in_admission="true", cli="true"), 2)
-        # Full suite: seven shards and tests-build-and-lag after admission, and the Claude wrapper.
+        self.assertEqual(jobs(unit_suite="true", cli="true"), 3)
+        # Full suite: seven shards, tests-build-and-lag and cli-product-tests after
+        # admission, beside the three side lanes.
         self.assertEqual(jobs(full_suite="true", cli="true", remote_daemon="true"), pool.MAX_RUN_JOBS)
-        self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 2)
+        self.assertEqual(pool.MAX_RUN_JOBS, 12)
+        # A CLI-only run still compiles, then tests the bundled CLI.
+        self.assertEqual(jobs(macos="false", cli="true"), 2)
+        self.assertEqual(jobs(macos="false", claude_wrapper="true", cli="true"), 3)
         self.assertEqual(jobs(macos="false"), 0)
 
     def test_committed_peaks_count_jobs_not_created_yet(self):
@@ -478,11 +484,13 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(owned_choice(fleet(busy=5, queued=3)).runner, MINI)
         self.assertEqual(owned_choice(fleet(busy=5, queued=4)).runner, LARGE)
 
-    def test_replayed_runs_are_charged_the_largest_peak(self):
+    def test_replayed_runs_are_charged_a_compile_only_peak(self):
         # A run created since the snapshot has an unknown peak: any that could
-        # have taken the pool is assumed to, and charged MAX_RUN_JOBS there.
-        self.assertEqual(owned_choice(fleet(), machines=22, routed=1).runner, MINI)
-        self.assertEqual(owned_choice(fleet(), routed=1).runner, LARGE)
+        # have taken the pool is assumed to, and charged REPLAYED_RUN_JOBS (4).
+        self.assertEqual(pool.REPLAYED_RUN_JOBS, 4)
+        # 11 machines: two newer runs take 8, leaving 3 for this 3-job run.
+        self.assertEqual(owned_choice(fleet(), routed=2).runner, MINI)
+        self.assertEqual(owned_choice(fleet(), routed=2, jobs=4).runner, LARGE)
         self.assertEqual(owned_choice(fleet(busy=10), routed=1).runner, LARGE)
 
     def test_stale_snapshot_or_no_slots_skips_the_pool(self):
