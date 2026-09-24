@@ -5960,6 +5960,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        // The restored agent's resume state may have just changed (for
+        // example, completed when the shell prompt returned).
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
