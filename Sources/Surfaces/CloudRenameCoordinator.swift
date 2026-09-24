@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Remote rename requests are process-wide because one daemon workspace or tab can be

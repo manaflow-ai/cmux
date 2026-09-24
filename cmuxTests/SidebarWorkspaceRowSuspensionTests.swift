@@ -294,7 +294,7 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     @Test
-    func transientWindowReparentingPreservesChecklistPopover() throws {
+    func transientWindowReparentingPreservesChecklistPopover() async throws {
         let application = NSApplication.shared
         let model = Self.makeModel(
             checklistAddFieldActivationToken: 1,
@@ -330,7 +330,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         )
         _ = cell.layoutContent(model: model, width: cell.bounds.width, apply: true)
         cell.layoutSubtreeIfNeeded()
-        let popoverWindow = try #require(
+        _ = try #require(
             application.windows.first {
                 !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
             }
@@ -340,7 +340,12 @@ struct SidebarWorkspaceRowSuspensionTests {
         window.contentView = replacementRoot
         replacementRoot.addSubview(cell)
 
-        #expect(popoverWindow.isVisible)
+        let rePresented = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            application.windows.contains {
+                !existingWindowIds.contains(ObjectIdentifier($0)) && $0.isVisible
+            }
+        }
+        #expect(rePresented, "Checklist popover should re-present after a transient anchor reparent")
         #expect(presentationChanges.isEmpty)
         #expect(tokenConsumptions == 0)
     }

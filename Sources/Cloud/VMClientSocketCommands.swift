@@ -1,5 +1,7 @@
+import CmuxCloudTui
 import CmuxControlSocket
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 extension TerminalController {
     nonisolated func socketWorkerCloudVMResponse(
