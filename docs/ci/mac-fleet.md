@@ -355,6 +355,10 @@ reads those variables rather than a copy of the path, so `up` and the doctor
 check each mini against the value CI uses today and print it.
 The build number matters too: revalidation compares the full `xcodebuild
 -version`, so the mini's Xcode must be the same build as the hosted image's.
+`up` checks only that the app exists. Before routing a mini, compare its
+`xcodebuild -version` against the `Build version` line that a current hosted
+`macOS compile admission` log prints after `Selected pinned Xcode`. When the
+variable moves, every mini needs the new app at that exact path.
 
 Drift is now a guard failure rather than a silent waste:
 `check_persistent_compile_owned_mac_occupancy` compares the producer's
