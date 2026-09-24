@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import plistlib
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,17 @@ def identity() -> dict[str, str]:
         "developer": os.environ.get("DEVELOPER_DIR") or read("xcode-select", "-p"),
         "checkout": str(Path.cwd().resolve()),
     }
+
+
+def xcode_major(version: str | None) -> str | None:
+    """The major Xcode version from `xcodebuild -version`, e.g. "26".
+
+    Pools carry different point releases of one Xcode (26.3 on macos-15
+    images, 26.6 on macos-26), and a product built by one runs under the
+    other. Output that does not parse is compared whole.
+    """
+    match = re.match(r"Xcode (\d+)(?:\.|\s|$)", version or "")
+    return match.group(1) if match else version
 
 
 def manifests(products: Path) -> dict[str, Path]:
@@ -96,9 +108,11 @@ def restore(derived: Path, current: dict[str, str]) -> dict[str, str]:
     """Reject mismatched products and relocate each test manifest for this worker."""
     products = derived / "Build" / "Products"
     receipt = json.loads((products / RECEIPT).read_text())
-    for key in ("revision", "xcode", "architecture"):
+    for key in ("revision", "architecture"):
         if receipt.get(key) != current[key]:
             raise ValueError(f"test products {key} does not match this job")
+    if xcode_major(receipt.get("xcode")) != xcode_major(current["xcode"]):
+        raise ValueError("test products xcode does not match this job")
     replacements = [(receipt["derived"], str(derived.resolve()))]
     replacements += [(receipt[key], current[key]) for key in ("checkout", "developer")]
     outputs = {}
