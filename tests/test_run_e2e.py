@@ -195,6 +195,30 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.dispatch()["ref"], HEAD)
         self.assertEqual(self.dispatch()["record_video"], "false")
 
+    def test_a_batch_too_long_for_the_concurrency_group_is_refused_before_dispatch(self):
+        # test-e2e.yml keys its concurrency group on runner, ref and the whole
+        # filter. GitHub rejects a group over 400 characters as a workflow file
+        # issue: the run starts with no jobs and nothing says why.
+        workflow = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        self.assertIn(
+            "group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || '"
+            "blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}",
+            workflow,
+            "the dispatcher's length check copies this group; update both together",
+        )
+        suite = "cmuxTests/AppDelegateEqualizeSplitsShortcutTests/"
+        selectors = [suite + f"testConfigurationReloadCase{n}RemainsActiveUntilAsyncReconciliationCompletes()" for n in range(3)]
+        # Three selectors: the filter alone is 377 characters, under 400, but
+        # the whole group is 448. A check on the filter alone would let it through.
+        result = self.launch(*selectors)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("split", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
+        result = self.launch(*selectors[:2])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], ",".join(selectors[:2]))
+
     def test_batched_ui_filters_keep_video_recording(self):
         result = self.launch("cmuxUITests/AlphaUITests", "BetaUITests")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -424,6 +448,36 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
+    def test_a_workflow_job_passes_the_variable_it_cannot_list(self):
+        # A job token cannot list variables. Passed in, the variable still
+        # decides the runner, and the in-flight guard still attaches.
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._live(runner="warp-macos-15-arm64-6x"),
+            LAUNCHER_VARIABLES="not json",
+            CMUX_MACOS_RUNNER_TESTS="warp-macos-15-arm64-6x",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+        self.assertNotIn(["variable", "list"], [call[:2] for call in self.calls()])
+        # An unset variable arrives empty, and the workflow literal decides.
+        self.setUp()
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._live(), LAUNCHER_VARIABLES="not json",
+            CMUX_MACOS_RUNNER_TESTS="",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_the_focused_suite_job_passes_the_runner_variable(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-macos-suite.yml").read_text())
+        steps = workflow["jobs"]["focused"]["steps"]
+        wrapper = next(step for step in steps if "run-e2e.sh" in step.get("run", ""))
+        self.assertEqual(
+            wrapper["env"].get("CMUX_MACOS_RUNNER_TESTS"), "${{ vars.MACOS_RUNNER_TESTS }}"
+        )
+
     def test_a_run_without_a_dispatch_id_is_still_seen(self):
         # A run started from the GitHub UI shares the concurrency group and its
         # compile is just as real. Requiring the trailing "[" hid exactly the
@@ -557,6 +611,24 @@ class RunDiscoveryTests(unittest.TestCase):
         with mock.patch.object(self.dispatch, "output", return_value=json.dumps([run, run])):
             with self.assertRaisesRegex(ValueError, "refusing to guess"):
                 self.dispatch.find_run(HEAD, "cmuxTests/Example", "mine")
+
+
+class SuiteWorkflowForwardsFocusedRuns(unittest.TestCase):
+    def test_focused_selectors_never_compile_in_the_suite_workflow(self):
+        jobs = yaml.safe_load((ROOT / ".github/workflows/test-macos-suite.yml").read_text())["jobs"]
+        focused, tests = jobs["focused"]["if"], jobs["tests"]["if"]
+        condition = focused.removeprefix("${{ ").removesuffix(" }}")
+        self.assertEqual(tests, "${{ !(" + condition + ") }}")
+        for clause in ("github.repository == 'manaflow-ai/cmux'", "inputs.unit_test_suites != ''",
+                       "inputs.skip_ui_tests", "!inputs.skip_unit_tests"):
+            self.assertIn(clause, condition)
+        run = jobs["focused"]["steps"][-1]["run"]
+        self.assertIn("./scripts/run-e2e.sh", run)
+        # It hands off and exits; waiting would hold a runner for the whole test.
+        self.assertNotIn("--wait", run)
+        self.assertTrue(run.rstrip().endswith("exit 1"))
+        self.assertIn('"cmuxTests/$suite"', run)
+        self.assertEqual(jobs["focused"]["permissions"], {"actions": "write", "contents": "read"})
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import re
 import signal
@@ -17,6 +18,8 @@ import uuid
 
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
+# `vars.MACOS_RUNNER_TESTS`, as passed by a workflow job; see default_runner().
+VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -42,6 +45,10 @@ RUNNERS = (
 # the product contract all match on.
 SMALL_RUNNER = "blacksmith-6vcpu-macos-26"
 LARGE_RUNNER = "blacksmith-12vcpu-macos-26"
+# GitHub rejects a concurrency group longer than this as a workflow file
+# issue: the run is created with no jobs and no message saying why.
+MAX_CONCURRENCY_GROUP = 400
+
 SELECTOR = re.compile(
     r"(?:(?:cmuxTests|cmuxUITests)/)?"
     r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*(?:\(\))?)?"
@@ -190,23 +197,32 @@ def default_runner() -> str | None:
 
     Returning None means "cannot tell", and every caller treats that as a
     reason to dispatch normally rather than to act on a runner it guessed.
+
+    A workflow job's token cannot list variables, so a job that calls this
+    passes `vars.MACOS_RUNNER_TESTS` in CMUX_MACOS_RUNNER_TESTS instead. Set
+    and empty means the variable is unset, and the literal decides.
     """
-    try:
-        payload = output(
-            "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
-            timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
-        )
-        variables = json.loads(payload)
-    except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
-        return None
-    if not isinstance(variables, list):
-        return None
-    for entry in variables:
-        if isinstance(entry, dict) and entry.get("name") == "MACOS_RUNNER_TESTS":
-            value = str(entry.get("value", "")).strip()
-            if value:
-                return value
-            break
+    if VARIABLE_ENV in os.environ:
+        value = os.environ[VARIABLE_ENV].strip()
+        if value:
+            return value
+    else:
+        try:
+            payload = output(
+                "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
+                timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+            )
+            variables = json.loads(payload)
+        except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(variables, list):
+            return None
+        for entry in variables:
+            if isinstance(entry, dict) and entry.get("name") == "MACOS_RUNNER_TESTS":
+                value = str(entry.get("value", "")).strip()
+                if value:
+                    return value
+                break
     try:
         workflow = (ROOT / ".github/workflows" / WORKFLOW).read_text()
     except OSError:
@@ -415,6 +431,15 @@ def main() -> int:
     # rather than compare against a runner they guessed.
     pinned = args.runner not in (None, "auto")
     runner = args.runner if pinned else routed_runner(commit, default_runner())
+    # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
+    # is unknown, measure against the longest label in the runner dropdown.
+    label = runner or max(RUNNERS, key=len)
+    group_length = len(f"e2e-{label}-{commit}-{test_filter}")
+    if group_length > MAX_CONCURRENCY_GROUP:
+        parser.error(
+            f"these selectors make a {group_length}-character concurrency group, over "
+            f"GitHub's {MAX_CONCURRENCY_GROUP}; split them across dispatches or select the whole suite"
+        )
 
     if not args.force:
         history = recent_dispatches()

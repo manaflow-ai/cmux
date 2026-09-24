@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Cancel macOS runner demand that no longer buys anything.
 
-Pull request macOS jobs share one small runner pool. When that pool is
-saturated, every queued job that nobody will read delays one that somebody
-will. This janitor looks at in-flight Actions runs, and only when the number of
-queued macOS jobs exceeds a threshold does it cancel runs that are waste, in
-this priority order:
+Pull request macOS jobs share a few small runner pools (Blacksmith and
+GitHub-hosted macOS 15 and 26). When one is saturated, every queued job on it
+that nobody will read delays one that somebody will. This janitor looks at
+in-flight Actions runs, and only when the number of macOS jobs queued on one
+pool exceeds a threshold does it cancel runs that are waste and hold that
+pool, in this priority order:
 
   a. push-triggered experiment workflows on ``exp/*`` branches;
   b. pull request runs whose PR is closed or merged, or whose head SHA is no
@@ -14,8 +15,9 @@ this priority order:
      a newer CI run for that PR is already waiting to replace them and the old
      run's compile admission is not mid-flight (ci.yml deliberately lets that
      compile finish so the queued run can reuse its product).
-  d. CI runs whose required ``ci-status`` is already decided against them: an
-     ``app-host unit tests`` shard has concluded ``failure``, so the ``macos``
+  d. CI runs whose required ``ci-status`` is already decided against them:
+     ``macOS compile admission`` or an ``app-host unit tests`` shard has
+     concluded ``failure``, so the ``macos``
      reusable-workflow call cannot report ``success`` or ``skipped`` and no
      later job can take that back, while sibling macOS jobs still hold the
      pool. Unlike (a)-(c) the run is current and its remaining output is still
@@ -26,8 +28,10 @@ Draft pull requests are deliberately not a category: a draft can be an active
 integration branch other work depends on, and ci.yml has no ready_for_review
 trigger to replace a cancelled ci-status.
 
-It stops as soon as the projected queue is back under the threshold, or when
-it reaches the per-sweep cancel cap. Main pushes, merge groups, scheduled and
+A pool is the set of macOS labels a job asked for, so a run that only waits on
+a pool that is not backed up is never cancelled: that frees nothing anyone is
+waiting for. It stops as soon as every pool's projected queue is back under
+the threshold, or when it reaches the per-sweep cancel cap. Main pushes, merge groups, scheduled and
 dispatched runs on main, release/tag runs, nightly, and TestFlight/App Store
 workflows are never candidates, whatever their state.
 
@@ -77,10 +81,15 @@ COMPILE_ADMISSION_JOB = re.compile(r"(^|/ )macOS compile admission$")
 
 CATEGORY_ORDER = ("experiment", "stale-pr", "label-dropped", "doomed")
 
-# The shards whose failure decides ci-status. ci-macos.yml shards this six ways
-# and the reusable-call prefix makes the API name "macos / app-host unit tests
-# (3/6)", so match on the substring.
+# The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
+# suite and the reusable-call prefix makes the API name "macos / app-host unit
+# tests (3/6)", so match on the substring. A failed compile admission fails
+# the same `macos` call before any shard starts.
 DOOMED_JOB_NAME = "app-host unit tests"
+
+
+def decides_ci_status(name: str) -> bool:
+    return DOOMED_JOB_NAME in name or bool(COMPILE_ADMISSION_JOB.search(name))
 
 # How long a shard failure must have stood before the run is a candidate, so a
 # run that just turned red keeps its siblings while someone looks at it.
@@ -192,16 +201,26 @@ def is_macos_job(job: Mapping[str, Any]) -> bool:
     return any("macos" in str(label).lower() for label in job.get("labels") or ())
 
 
+def runner_pool(job: Mapping[str, Any]) -> str:
+    """The pool a macOS job waits on: the macOS labels it asked for."""
+    labels = sorted({str(label).lower() for label in job.get("labels") or () if "macos" in str(label).lower()})
+    return ",".join(labels)
+
+
 @dataclasses.dataclass(frozen=True)
 class MacosUsage:
     queued: int = 0
     running: int = 0
     oldest_queued_at: dt.datetime | None = None
     compile_admission_running: bool = False
-    # The app-host shard whose failure decided ci-status, and when it landed.
+    # The compile admission or app-host shard whose failure decided ci-status,
+    # and when it landed.
     # Read from the same pass over the run's jobs, at no extra API cost.
     decided_by: str | None = None
     decided_at: dt.datetime | None = None
+    # Queued plus running macOS jobs, per runner pool.
+    held_by_pool: Mapping[str, int] = dataclasses.field(default_factory=dict)
+    queued_by_pool: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
     @property
     def held(self) -> int:
@@ -215,11 +234,18 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
     decided_by: str | None = None
     decided_at: dt.datetime | None = None
     undated_failure = False
+    held_by_pool: dict[str, int] = {}
+    queued_by_pool: dict[str, int] = {}
     for job in jobs:
         if not is_macos_job(job):
             continue
         status = job.get("status")
         name = job.get("name") or ""
+        if status in QUEUED_JOB_STATUSES or status in RUNNING_JOB_STATUSES:
+            pool = runner_pool(job)
+            held_by_pool[pool] = held_by_pool.get(pool, 0) + 1
+            if status in QUEUED_JOB_STATUSES:
+                queued_by_pool[pool] = queued_by_pool.get(pool, 0) + 1
         if status in QUEUED_JOB_STATUSES:
             queued += 1
             created = parse_time(job.get("created_at"))
@@ -229,7 +255,7 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
             running += 1
             if COMPILE_ADMISSION_JOB.search(name):
                 compiling = True
-        elif status == "completed" and DOOMED_JOB_NAME in name:
+        elif status == "completed" and decides_ci_status(name):
             # Job conclusion, never step conclusion: a job whose only failed
             # steps carry continue-on-error concludes `success`, so reading the
             # job already excludes tolerated failures.
@@ -243,7 +269,7 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
     if undated_failure:
         # A failure we cannot time cannot clear the grace window; fail closed.
         decided_by = decided_at = None
-    return MacosUsage(queued, running, oldest, compiling, decided_by, decided_at)
+    return MacosUsage(queued, running, oldest, compiling, decided_by, decided_at, held_by_pool, queued_by_pool)
 
 
 def touches_doomed_job_inputs(paths: Iterable[str]) -> bool:
@@ -435,10 +461,11 @@ class Plan:
     running_macos_jobs: int
     threshold: int
     decisions: list[Decision]
+    queued_by_pool: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
     @property
     def over_threshold(self) -> bool:
-        return self.queued_macos_jobs > self.threshold
+        return any(count > self.threshold for count in self.queued_by_pool.values())
 
     def to_cancel(self) -> list[Candidate]:
         return [d.candidate for d in self.decisions if d.action == "cancel"]
@@ -461,6 +488,10 @@ def build_plan(
     usages = {run["id"]: macos_usage(jobs_by_run.get(run["id"], ())) for run in runs}
     queued = sum(u.queued for u in usages.values())
     running = sum(u.running for u in usages.values())
+    queued_by_pool: dict[str, int] = {}
+    for usage in usages.values():
+        for pool, count in usage.queued_by_pool.items():
+            queued_by_pool[pool] = queued_by_pool.get(pool, 0) + count
 
     candidates: list[Candidate] = []
     for run in runs:
@@ -482,21 +513,29 @@ def build_plan(
 
     candidates.sort(key=order)
     decisions: list[Decision] = []
-    projected = queued
+    projected = dict(queued_by_pool)
     cancels = 0
     for candidate in candidates:
-        if projected <= threshold:
-            decisions.append(Decision(candidate, "skip", f"queue projected at {projected}, not over {threshold}"))
+        backed_up = {pool for pool, count in projected.items() if count > threshold}
+        if not backed_up:
+            busiest = max(projected.values(), default=0)
+            decisions.append(Decision(
+                candidate, "skip", f"busiest pool projected at {busiest} queued, not over {threshold}"))
+            continue
+        if not backed_up.intersection(candidate.usage.held_by_pool):
+            decisions.append(Decision(candidate, "skip", "its macOS jobs are on pools that are not backed up"))
             continue
         if cancels >= max_cancels:
             decisions.append(Decision(candidate, "skip", f"per-sweep cap of {max_cancels} reached"))
             continue
         decisions.append(Decision(candidate, "cancel"))
         cancels += 1
-        # Each cancelled queued job leaves the queue; each cancelled running
-        # job frees a slot that the next queued job takes.
-        projected = max(0, projected - candidate.usage.held)
-    return Plan(queued, running, threshold, decisions)
+        # Each cancelled queued job leaves its pool's queue; each cancelled
+        # running job frees a slot that the pool's next queued job takes.
+        for pool, held in candidate.usage.held_by_pool.items():
+            if pool in projected:
+                projected[pool] = max(0, projected[pool] - held)
+    return Plan(queued, running, threshold, decisions, queued_by_pool)
 
 
 def branches_to_resolve(
@@ -563,15 +602,19 @@ def render_summary(plan: Plan, *, dry_run: bool, now: dt.datetime, results: Mapp
     lines = [
         f"## CI queue janitor ({mode})",
         "",
-        f"Queued macOS jobs: **{plan.queued_macos_jobs}** (threshold {plan.threshold}); "
+        f"Queued macOS jobs: **{plan.queued_macos_jobs}** (threshold {plan.threshold} per pool); "
         f"running macOS jobs: {plan.running_macos_jobs}.",
         "",
     ]
+    if plan.queued_by_pool:
+        lines.append("Queued by pool: " + ", ".join(
+            f"`{pool}` {count}" for pool, count in sorted(plan.queued_by_pool.items(), key=lambda item: -item[1])) + ".")
+        lines.append("")
     if not plan.decisions:
         lines.append("No wasteful macOS demand found.")
         return "\n".join(lines) + "\n"
     if not plan.over_threshold:
-        lines.append("Queue is not over the threshold, so nothing is cancelled. Candidates seen:")
+        lines.append("No pool is over the threshold, so nothing is cancelled. Candidates seen:")
         lines.append("")
     lines.append("| Decision | Run | Workflow | Reason | Queued age | macOS jobs (queued/running) |")
     lines.append("| --- | --- | --- | --- | --- | --- |")
