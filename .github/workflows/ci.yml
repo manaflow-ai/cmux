@@ -1198,6 +1198,57 @@ jobs:
           echo "skipping it is deliberate." >&2
           exit 1
 
+  # A failed job below already decides ci-status, whatever macOS finds.
+  # macos-debounce declines admission for a failure that lands before it
+  # admits; this job covers the failure that lands after, when the macOS jobs
+  # would otherwise hold the Mac pools until the queue janitor's next sweep and
+  # grace window. `needs:` starts it the moment the last watched Linux job
+  # concludes, so nothing polls: scripts/ci/pr_fail_fast.py makes one read to
+  # apply the janitor's exemptions (re-run attempt, `no-janitor`, a diff that
+  # changes app-host shard inputs or cannot be read, a superseded head) and
+  # cancels this run. ci-status still runs on cancellation and reports the
+  # failure. Every watched job is Linux-only, so this never waits for a Mac.
+  # It is the only job here that can write to Actions, and it checks out
+  # scripts/ci alone. Fork pull requests get a read-only token and skip it.
+  macos-fail-fast:
+    name: Cancel macOS after a Linux failure
+    needs:
+      - changes
+      - guards
+      - ghosttykit-release-check
+      - browser
+      - web
+      - suite-coverage
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.run_attempt == '1' && github.event.pull_request.head.repo.full_name == github.repository && (needs.changes.outputs.macos != 'false' || needs.changes.outputs.swift_packages == 'true') && (needs.guards.result == 'failure' || needs.ghosttykit-release-check.result == 'failure' || needs.browser.result == 'failure' || needs.web.result == 'failure' || needs.suite-coverage.result == 'failure') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out the fail-fast policy
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+
+      - name: Cancel this run unless the janitor would keep it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CI_NEEDS: ${{ toJSON(needs) }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CI_WORKFLOW_REF: ${{ github.workflow_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_OWNER: ${{ github.event.pull_request.head.repo.owner.login }}
+          DRY_RUN: ${{ vars.CI_JANITOR_DRY_RUN == 'true' && 'true' || 'false' }}
+        run: python3 scripts/ci/pr_fail_fast.py
+
   ci-status:
     needs:
       - changes

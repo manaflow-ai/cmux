@@ -410,23 +410,40 @@ def classify(
     # categories above the run is live and its remaining shards are readable
     # output. Everything unknown therefore preserves the run.
     if (
-        run.get("path") == CI_WORKFLOW_PATH
-        and usage.decided_by
+        usage.decided_by
         and usage.decided_at is not None
-        # A re-run replays a subset of jobs, so an older attempt's failure is
-        # not evidence about this one.
-        and run.get("run_attempt") == 1
         and now - usage.decided_at >= DOOMED_GRACE
-        and JANITOR_OPT_OUT_LABEL not in pr_labels(pr)
+        and doomed_run_kept(run, pr) is None
     ):
-        changed = pr_changed_paths(pr)
-        # An unreadable diff is not evidence that this run is not the fix.
-        if changed is not None and not touches_doomed_job_inputs(changed):
-            return "doomed", (
-                f"ci-status already decided for PR #{number} ({branch}): `{usage.decided_by}` "
-                f"failed {format_age(now - usage.decided_at)} ago, "
-                f"{usage.held} macOS job(s) still held"
-            )
+        return "doomed", (
+            f"ci-status already decided for PR #{number} ({branch}): `{usage.decided_by}` "
+            f"failed {format_age(now - usage.decided_at)} ago, "
+            f"{usage.held} macOS job(s) still held"
+        )
+    return None
+
+
+def doomed_run_kept(run: Mapping[str, Any], pr: Mapping[str, Any]) -> str | None:
+    """Why a current PR's CI run keeps its macOS jobs although ci-status is decided.
+
+    None means the run may be cancelled as doomed. Shared with
+    scripts/ci/pr_fail_fast.py, which applies the same exemptions the moment a
+    required Linux job fails.
+    """
+    if run.get("path") != CI_WORKFLOW_PATH:
+        return "not the CI workflow"
+    # A re-run replays a subset of jobs, so an older attempt's failure is not
+    # evidence about this one.
+    if run.get("run_attempt") != 1:
+        return f"run attempt {run.get('run_attempt')}, not the first"
+    if JANITOR_OPT_OUT_LABEL in pr_labels(pr):
+        return f"PR carries `{JANITOR_OPT_OUT_LABEL}`"
+    changed = pr_changed_paths(pr)
+    # An unreadable diff is not evidence that this run is not the fix.
+    if changed is None:
+        return "PR diff could not be read in full"
+    if touches_doomed_job_inputs(changed):
+        return "PR changes app-host shard inputs"
     return None
 
 

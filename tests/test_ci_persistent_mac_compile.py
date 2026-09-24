@@ -620,7 +620,14 @@ class WorkflowContractTests(unittest.TestCase):
             "github.event.workflow_run.head_repository.full_name == github.repository",
             self.router,
         )
-        self.assertNotIn("actions: write", self.ci)
+        # Persistent-compile dispatch and cancellation stay out of PR CI. The
+        # one Actions writer there is macos-fail-fast, which cancels only its
+        # own run (tests/test_ci_pr_fail_fast.py pins it).
+        before, _, rest = self.ci.partition("\n  macos-fail-fast:\n")
+        fail_fast = re.split(r"\n  (?=[A-Za-z0-9_-]+:\n)", rest, maxsplit=1)[0]
+        self.assertEqual(self.ci.count("actions: write"), 1)
+        self.assertNotIn("actions: write", before)
+        self.assertIn("      actions: write", fail_fast)
         admission = self.macos_ci.split("  macos-compile-admission:", 1)[1].split(
             "  app-host-unit-tests:", 1
         )[0]

@@ -3762,7 +3762,13 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
-    assert "actions: write" not in CI_WORKFLOW.read_text(encoding="utf-8")
+    # The only Actions writer in pull request CI cancels its own run after a
+    # Linux failure (tests/test_ci_pr_fail_fast.py); merge groups are not its
+    # business and it never runs for them.
+    ci_text = CI_WORKFLOW.read_text(encoding="utf-8")
+    fail_fast = workflow_job_block("macos-fail-fast")
+    assert "github.event_name == 'pull_request'" in fail_fast
+    assert "actions: write" not in ci_text.replace(fail_fast, "")
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
