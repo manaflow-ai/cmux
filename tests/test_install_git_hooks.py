@@ -81,11 +81,22 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn("scripts/git-hooks/pre-commit", result.stderr, "must say how to wire the hook")
         self.assert_merge_driver_installed()
 
+    def default_hooks_dir(self):
+        hooks = Path(self.git("rev-parse", "--git-path", "hooks").stdout.strip())
+        return hooks if hooks.is_absolute() else self.repo / hooks
+
+    def test_executable_backup_is_not_an_existing_hook(self):
+        backup = self.default_hooks_dir() / "pre-commit.bak"
+        backup.write_text("#!/bin/sh\nexit 1\n")
+        backup.chmod(0o755)
+
+        result = self.install()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.local_hooks_path(), "scripts/git-hooks")
+
     def test_existing_lfs_hook_warns_and_succeeds(self):
-        hook = Path(self.git("rev-parse", "--git-path", "hooks").stdout.strip())
-        if not hook.is_absolute():
-            hook = self.repo / hook
-        hook = hook / "pre-push"
+        hook = self.default_hooks_dir() / "pre-push"
         hook.write_text(LFS_PRE_PUSH)
         hook.chmod(0o755)
 

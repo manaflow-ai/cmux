@@ -27,8 +27,10 @@ introduces fails.
 from __future__ import annotations
 
 import argparse
+import ast
 import os
 import re
+import shlex
 import subprocess
 import sys
 from collections import Counter
@@ -58,7 +60,8 @@ DIRECT_RUN_LANE = "linux-guard"
 # its recipe (the CHECKS argv lists in scripts/verify-local.py) names, so those
 # tests are live on linux-guard without the workflow naming them itself.
 SHARED_RECIPE = "scripts/verify-local.py"
-RECIPE_TEST_RE = re.compile(r'"(tests/test_[A-Za-z0-9_.-]+\.py)"')
+RECIPE_RUN_RE = re.compile(r"\bpython3?\s+scripts/verify-local\.py\b(?P<args>[^\n]*)")
+RECIPE_TEST_RE = re.compile(r"tests/test_[A-Za-z0-9_.-]+\.py")
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -95,16 +98,51 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
 
 
 def recipe_tests(workflow_texts: list[str], workflows: Path = WORKFLOWS) -> list[str]:
-    """Tests the shared preflight recipe runs, when an executable workflow line runs it."""
-    runs_recipe = any(
-        SHARED_RECIPE in line.split("#", 1)[0]
-        for text in workflow_texts
-        for line in text.splitlines()
-    )
+    """Tests the recipe checks run by each executable `python3 scripts/verify-local.py`.
+
+    Only uncommented invocations count. An invocation with `--only` runs just
+    the named checks, and `--affected` may run none, so it credits nothing.
+    """
+    selections: list[set[str] | None] = []
+    for text in workflow_texts:
+        for line in text.splitlines():
+            match = RECIPE_RUN_RE.search(line.split("#", 1)[0])
+            if not match:
+                continue
+            try:
+                args = shlex.split(match.group("args"))
+            except ValueError:
+                continue
+            if "--affected" in args:
+                continue
+            only = {args[i + 1] for i, arg in enumerate(args[:-1]) if arg == "--only"}
+            only |= {arg.split("=", 1)[1] for arg in args if arg.startswith("--only=")}
+            selections.append(only or None)
     recipe = workflows.parents[1] / SHARED_RECIPE
-    if not runs_recipe or not recipe.is_file():
+    if not selections or not recipe.is_file():
         return []
-    return RECIPE_TEST_RE.findall(recipe.read_text(encoding="utf-8"))
+    try:
+        checks = recipe_checks(recipe.read_text(encoding="utf-8"))
+    except (SyntaxError, ValueError):
+        return []
+    return [
+        test
+        for name, argv in checks
+        if any(selected is None or name in selected for selected in selections)
+        for arg in argv
+        for test in RECIPE_TEST_RE.findall(arg)
+    ]
+
+
+def recipe_checks(source: str) -> list[tuple[str, list[str]]]:
+    """(name, argv) for each entry of the recipe's literal CHECKS tuple."""
+    for node in ast.parse(source).body:
+        if (
+            isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "CHECKS" for target in node.targets)
+        ):
+            return [(entry[0], list(entry[-1])) for entry in ast.literal_eval(node.value)]
+    return []
 
 
 def runner_lanes(workflows: Path = WORKFLOWS) -> set[str]:
