@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("SSH cmux-tui migration")
+@Suite("SSH cmux-tui migration", .serialized)
 struct SSHTuiMigrationTests {
     private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces") -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
