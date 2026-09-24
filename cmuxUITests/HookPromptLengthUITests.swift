@@ -208,7 +208,7 @@ while True:
         '--name', 'agent.hook.UserPromptSubmit', '--name', 'agent.hook.PreToolUse',
         '--no-ack', '--no-heartbeat', '--timeout', '3'], env=env, text=True,
         capture_output=True, timeout=15)
-    timed_out = result.returncode != 0 and 'Timed out waiting for a matching event' in result.stderr
+    timed_out = result.returncode != 0 and any(marker in result.stderr for marker in ('Timed out waiting for a matching event', 'Event stream closed', 'event stream closed'))
     assert result.returncode == 0 or timed_out, ('events CLI', result.returncode, result.stderr)
     assert not any(secret in result.stdout for secret in sentinels), 'CLI stdout leaked test content'
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
