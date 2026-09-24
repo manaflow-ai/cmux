@@ -2721,7 +2721,10 @@ final class CmuxConfigStore: ObservableObject {
                 action: entry.action,
                 confirm: button.confirm ?? entry.confirm,
                 terminalCommandTarget: button.terminalCommandTarget ?? entry.terminalCommandTarget,
-                actionSourcePath: entry.actionSourcePath,
+                // Built-in registry entries have no config source, so the
+                // declaring button's source stays the trust owner, matching
+                // the unregistered built-in fallback below.
+                actionSourcePath: entry.actionSourcePath ?? button.actionSourcePath,
                 iconSourcePath: button.icon == nil ? entry.iconSourcePath : button.iconSourcePath
             )
             return ResolvedSurfaceTabBarButtonEntry(

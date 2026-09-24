@@ -1552,7 +1552,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.resolvedAction(id: "base.shared")?.terminalCommand, "echo base")
         XCTAssertEqual(store.resolvedAction(id: "team.tests")?.terminalCommand, "npm test")
         XCTAssertTrue(store.configurationIssues.contains {
-            $0.kind == .schemaError && ($0.message?.contains("pack cycle ignored") ?? false)
+            $0.kind == .schemaError && $0.message == String(localized: "config.pack.error.cycleIgnored", defaultValue: "Pack cycle ignored.", table: "ConfigPackErrors")
         })
     }
 
@@ -1784,7 +1784,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertTrue(store.configurationIssues.contains { issue in
             issue.kind == .schemaError
-                && issue.message?.contains("packs exceed the maximum of 32 files") == true
+                && issue.message == String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.", table: "ConfigPackErrors")
         })
     }
 
@@ -1814,7 +1814,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertTrue(store.configurationIssues.contains { issue in
             issue.kind == .schemaError
-                && issue.message?.contains("packs exceed the maximum of 32 files") == true
+                && issue.message == String(localized: "config.pack.error.loadLimitExceeded", defaultValue: "Pack loading limit exceeded.", table: "ConfigPackErrors")
         })
         let missingIssues = store.configurationIssues.filter { issue in
             issue.kind == .schemaError
