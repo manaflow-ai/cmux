@@ -395,28 +395,36 @@ public struct TaskComposerAccessibilityPreviewView: View {
         ]
     )
 
-    private static let previewStackWorkspace = MobileWorkspacePreview(
-        id: "workspace-stack-preview",
-        macDeviceID: previewMac.macDeviceID,
-        name: "Picker Stack",
-        terminals: [],
-        surfaces: (0..<3).map { index in
+    private static let previewStackWorkspace: MobileWorkspacePreview = {
+        let surfaces: [MobileSurfacePreview] = (0..<3).map { index in
             MobileSurfacePreview(
-                id: .init(rawValue: "surface-stack-\(index)"),
+                id: MobileSurfacePreview.ID(rawValue: "surface-stack-\(index)"),
                 kind: .terminal,
                 title: "developer@MacBook-Pro:~/Dev/project/worktrees/task-composer"
             )
-        },
-        panes: (0..<3).map { index in
-            MobilePanePreview(
-                id: .init(rawValue: "pane-stack-\(index)"),
-                frame: .init(x: 0, y: Double(index) / 4, width: 1, height: index == 2 ? 0.5 : 0.25),
-                surfaceIDs: [.init(rawValue: "surface-stack-\(index)")],
-                selectedSurfaceID: .init(rawValue: "surface-stack-\(index)"),
+        }
+        let panes: [MobilePanePreview] = (0..<3).map { index in
+            let surfaceID = MobileSurfacePreview.ID(rawValue: "surface-stack-\(index)")
+            let frame = MobilePanePreview.Frame(
+                x: 0, y: Double(index) / 4, width: 1, height: index == 2 ? 0.5 : 0.25
+            )
+            return MobilePanePreview(
+                id: MobilePanePreview.ID(rawValue: "pane-stack-\(index)"),
+                frame: frame,
+                surfaceIDs: [surfaceID],
+                selectedSurfaceID: surfaceID,
                 isFocused: index == 0
             )
         }
-    )
+        return MobileWorkspacePreview(
+            id: "workspace-stack-preview",
+            macDeviceID: previewMac.macDeviceID,
+            name: "Picker Stack",
+            terminals: [],
+            surfaces: surfaces,
+            panes: panes
+        )
+    }()
 
     @MainActor
     private static func makeStagedPreviewAttachments() async -> [TaskComposerAttachment] {
