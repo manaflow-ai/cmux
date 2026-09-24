@@ -420,8 +420,8 @@ def main() -> int:
     pinned = args.runner not in (None, "auto")
     runner = args.runner if pinned else routed_runner(commit, default_runner())
     # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
-    # is unknown, measure against the longest label it could be.
-    label = runner or default_runner() or max(RUNNERS, key=len)
+    # is unknown, measure against the longest label in the runner dropdown.
+    label = runner or max(RUNNERS, key=len)
     group_length = len(f"e2e-{label}-{commit}-{test_filter}")
     if group_length > MAX_CONCURRENCY_GROUP:
         parser.error(

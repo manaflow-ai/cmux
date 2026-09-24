@@ -199,8 +199,17 @@ class FocusedLauncherTests(unittest.TestCase):
         # test-e2e.yml keys its concurrency group on runner, ref and the whole
         # filter. GitHub rejects a group over 400 characters as a workflow file
         # issue: the run starts with no jobs and nothing says why.
+        workflow = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        self.assertIn(
+            "group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || '"
+            "blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}",
+            workflow,
+            "the dispatcher's length check copies this group; update both together",
+        )
         suite = "cmuxTests/AppDelegateEqualizeSplitsShortcutTests/"
-        selectors = [suite + f"testConfigurationReloadCase{n}RemainsActiveUntilAsyncReconciliationCompletes()" for n in range(4)]
+        selectors = [suite + f"testConfigurationReloadCase{n}RemainsActiveUntilAsyncReconciliationCompletes()" for n in range(3)]
+        # Three selectors: the filter alone is 377 characters, under 400, but
+        # the whole group is 448. A check on the filter alone would let it through.
         result = self.launch(*selectors)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("split", result.stderr)
