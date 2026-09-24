@@ -93,6 +93,35 @@ struct SSHTuiMigrationTests {
         #expect(decoded.resource.machine.isSSH)
     }
 
+    @MainActor
+    @Test("Pending native SSH projections remain remote until removed")
+    func nativeSSHProjectionOwnsAgentAndPathClassification() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        #expect(!workspace.isRemoteTerminalContext(panelID))
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        workspace.remoteConfiguration = configuration()
+        let resource = SurfaceResourceID(
+            machine: SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration()).id),
+            kind: .terminal, key: "term_" + UUID().uuidString
+        )
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)],
+                        workspaceID: workspace.id, restoringWorkspace: workspace)
+        try #require(catalog.projectionIncludingPendingRestore(forPanel: panelID)?.resource == resource)
+        #expect(workspace.activeRemoteTerminalSurfaceIds.isEmpty)
+        #expect(workspace.isRemoteTerminalContext(panelID))
+        #expect(!workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+        #expect(!workspace.isRemoteTerminalContext(UUID()))
+        catalog.endProjections(panelID: panelID, reason: .replaced)
+        #expect(!workspace.isRemoteTerminalContext(panelID))
+        #expect(workspace.canResolveTerminalPathsAgainstLocalFilesystem(surfaceID: panelID))
+    }
+
     @Test("Loopback links in SSH terminals retain remote routing")
     func sshLoopbackLinkUsesItsMachineCarrier() throws {
         let resource = SurfaceResource(
@@ -119,4 +148,41 @@ struct SSHTuiMigrationTests {
         )
         #expect(SurfaceCatalog().resourceForPresentation(resource).detail == nil)
     }
+    @Test("Native SSH forks never fall back to local creation without a provider")
+    @MainActor
+    func disconnectedNativeSSHForkFailsClosed() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let paneID = try #require(workspace.paneId(forPanelId: panelID))
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        let config = configuration()
+        workspace.remoteConfiguration = config
+        let resource = SurfaceResourceID(machine: .init(rawValue: SSHTuiConnection(configuration: config).id),
+                                         kind: .terminal, key: "fork-test-" + UUID().uuidString)
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)],
+                        workspaceID: workspace.id, restoringWorkspace: workspace)
+        let snapshot = SessionRestorableAgentSnapshot(kind: .claude,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951", workingDirectory: "/home/alice/project")
+        let originalPanels = Set(workspace.panels.keys)
+        #expect(workspace.remotePTYRespawnRouting(panelId: panelID) == .unsupportedRemote)
+        #expect(workspace.respawnTerminalSurface(panelId: panelID, command: "printf remote-only") == nil)
+        #expect(workspace.forkAgentConversation(fromPanelId: panelID, snapshot: snapshot, direction: .right) == nil)
+        #expect(workspace.forkAgentConversationToNewTab(fromPanelId: panelID, snapshot: snapshot,
+                                                       anchorTabId: tabID, paneId: paneID) == nil)
+        #expect(Set(workspace.panels.keys) == originalPanels)
+        let launch = try #require(workspace.forkAgentWorkspaceLaunch(fromPanelId: panelID, snapshot: snapshot))
+        let forkConfiguration = try #require(launch.remoteConfiguration)
+        #expect(SSHTuiConnection(configuration: forkConfiguration).id == resource.machine.rawValue)
+        #expect(forkConfiguration.configuredRemoteCommand == snapshot.forkCommand)
+        #expect(launch.initialTerminalCommand == nil)
+        #expect(launch.initialTerminalInput.isEmpty)
+        #expect(launch.startupRestoreAgent == nil)
+        #expect(launch.autoConnectRemoteConfiguration)
+    }
+
 }
