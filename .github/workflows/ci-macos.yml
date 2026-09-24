@@ -98,9 +98,10 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      # Part of the compiled product contract, so it has to name the pool this
-      # job actually ran on: two pools lay the workspace out differently, and a
-      # product built under one cannot be relocated into the other.
+      # Names the pool this job actually ran on. The app-host product contract
+      # keys on the toolchain and the build path instead, so a product built
+      # here at the canonical root matches on any pool with the same Xcode.
+      # The macOS runner guard still requires it to track runs-on.
       CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     steps:
       - name: Reject stale pull request rerun

@@ -210,9 +210,9 @@ jobs:
       # product a pull request already compiled for the same revision.
       # contract() hashes the Xcode and SDK that were selected, not the
       # CMUX_CI_XCODE_APP selector, so this lane need not pin Xcode the way
-      # ci.yml does. It still has to land on the same runner label and the
-      # same Xcode build. The intra-run handoff uses the artifact id, not the
-      # name, so nothing here depends on it.
+      # ci.yml does, nor run on the same runner size: it has to land on the
+      # same Xcode build and macOS major. The intra-run handoff uses the
+      # artifact id, not the name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     steps:
