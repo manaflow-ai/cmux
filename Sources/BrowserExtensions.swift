@@ -23,6 +23,30 @@ final class BrowserExtensions: NSObject, ObservableObject {
     @Published private(set) var busy = false
     @Published private(set) var lastError: String?
 
+    static let storeOfferMessageName = "cmuxBrowserExtensionStoreOffer"
+    static let storeOfferMessageHandler = BrowserExtensionStoreOfferMessageHandler()
+    static let storeOfferScriptSource = #"""
+    (() => {
+      if (!/^(chromewebstore\.google\.com|chrome\.google\.com)$/.test(location.hostname)) return;
+      const match = location.href.match(/(?:^|[^a-z])([a-p]{32})(?:[^a-z]|$)/i);
+      if (!match || document.getElementById('cmux-extension-store-offer')) return;
+      const id = match[1].toLowerCase();
+      const host = document.createElement('div');
+      host.id = 'cmux-extension-store-offer';
+      host.style.cssText = 'position:fixed;right:20px;bottom:20px;z-index:2147483647;background:rgba(25,25,28,.96);color:white;border:1px solid rgba(255,255,255,.22);border-radius:12px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35);font:500 14px -apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;gap:12px';
+      const label = document.createElement('span');
+      label.textContent = 'Add this extension to cmux';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = 'Add';
+      button.setAttribute('aria-label', 'Add this extension to cmux');
+      button.style.cssText = 'border:0;border-radius:8px;padding:7px 12px;background:#3b82f6;color:white;font:600 13px -apple-system,BlinkMacSystemFont,sans-serif;cursor:pointer';
+      button.addEventListener('click', () => window.webkit?.messageHandlers?.cmuxBrowserExtensionStoreOffer?.postMessage({id}));
+      host.append(label, button);
+      (document.body || document.documentElement).append(host);
+    })();
+    """#
+
     private let fileManager: FileManager
     private let root: URL
     private let metadataURL: URL
@@ -313,6 +337,15 @@ final class BrowserExtensions: NSObject, ObservableObject {
         let alert = NSAlert(); alert.messageText = "Allow \(name) to access more?"; alert.informativeText = detail
         alert.addButton(withTitle: "Allow"); alert.addButton(withTitle: "Deny")
         return alert.runModal() == .alertFirstButtonReturn
+    }
+}
+
+@available(macOS 15.4, *)
+@MainActor
+final class BrowserExtensionStoreOfferMessageHandler: NSObject, WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let id = body["id"] as? String else { return }
+        BrowserExtensions.shared.installStoreExtension(from: id)
     }
 }
 

@@ -3018,6 +3018,17 @@ final class BrowserPanel: Panel, ObservableObject {
     ) {
         if #available(macOS 15.4, *) {
             BrowserExtensions.attach(configuration, websiteDataStore: websiteDataStore)
+            configuration.userContentController.add(
+                BrowserExtensions.storeOfferMessageHandler,
+                name: BrowserExtensions.storeOfferMessageName
+            )
+            configuration.userContentController.addUserScript(
+                WKUserScript(
+                    source: BrowserExtensions.storeOfferScriptSource,
+                    injectionTime: .atDocumentEnd,
+                    forMainFrameOnly: true
+                )
+            )
         }
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
