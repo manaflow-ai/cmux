@@ -169,6 +169,8 @@ struct SSHTuiMigrationTests {
         let snapshot = SessionRestorableAgentSnapshot(kind: .claude,
             sessionId: "019dad34-d218-7943-b81a-eddac5c87951", workingDirectory: "/home/alice/project")
         let originalPanels = Set(workspace.panels.keys)
+        #expect(workspace.remotePTYRespawnRouting(panelId: panelID) == .unsupportedRemote)
+        #expect(workspace.respawnTerminalSurface(panelId: panelID, command: "printf remote-only") == nil)
         #expect(workspace.forkAgentConversation(fromPanelId: panelID, snapshot: snapshot, direction: .right) == nil)
         #expect(workspace.forkAgentConversationToNewTab(fromPanelId: panelID, snapshot: snapshot,
                                                        anchorTabId: tabID, paneId: paneID) == nil)
