@@ -92,7 +92,6 @@ PATH_OWNERS = {
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
-    "scripts/ci/nightly_mini_route.py": frozenset(("preflight",)),
     "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
