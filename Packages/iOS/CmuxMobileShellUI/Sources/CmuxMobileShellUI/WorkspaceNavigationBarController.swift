@@ -12,9 +12,9 @@ final class WorkspaceNavigationBarController: UIViewController {
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroups: [UIBarButtonItemGroup] = []
     private var trailingGroupLandscape: Bool?
-    private let trailingRepresentative = UIBarButtonItem(
-        image: UIImage(systemName: "ellipsis"), style: .plain, target: nil, action: nil
-    )
+    private lazy var forcedOverflowItems = UIDeferredMenuElement.uncached { completion in
+        completion([])
+    }
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
 
@@ -135,7 +135,10 @@ final class WorkspaceNavigationBarController: UIViewController {
         if !item.trailingItemGroups.elementsEqual(trailingGroups, by: { $0 === $1 }) {
             item.trailingItemGroups = trailingGroups
         }
-        if #available(iOS 16.0, *) { item.additionalOverflowItems = nil }
+        if #available(iOS 16.0, *) {
+            let needsOverflowButton = !isLandscape && trailingIDs.contains(.alternateScreen)
+            item.additionalOverflowItems = needsOverflowButton ? forcedOverflowItems : nil
+        }
         if item.pinnedTrailingGroup != nil {
             item.pinnedTrailingGroup = nil
         }
@@ -147,27 +150,19 @@ final class WorkspaceNavigationBarController: UIViewController {
     ) -> [UIBarButtonItemGroup] {
         let warning = ids.first(where: { $0 == .alternateScreen }).flatMap { controls[$0]?.button }
         let collapsible = ids.filter { $0 != .alternateScreen }.compactMap { controls[$0]?.button }
-        var groups: [UIBarButtonItemGroup] = []
-        if let warning {
-            groups.append(UIBarButtonItemGroup(barButtonItems: [warning], representativeItem: nil))
+        for item in collapsible {
+            item.isHidden = false
         }
-        if !collapsible.isEmpty {
-            let representative: UIBarButtonItem?
-            if warning != nil, !isLandscape {
-                trailingRepresentative.accessibilityIdentifier = "OverflowBarButtonItem"
-                trailingRepresentative.accessibilityLabel = "More"
-                if #available(iOS 26.0, *) {
-                    warning?.sharesBackground = true
-                    trailingRepresentative.sharesBackground = true
-                }
-                representative = trailingRepresentative
-            } else {
-                representative = nil
+        let items = ([warning].compactMap { $0 } + collapsible)
+        guard !items.isEmpty else { return [] }
+        let group = UIBarButtonItemGroup(barButtonItems: items, representativeItem: nil)
+        if warning != nil, !isLandscape {
+            for item in collapsible {
+                item.isHidden = true
             }
-            let group = UIBarButtonItemGroup(barButtonItems: collapsible, representativeItem: representative)
-            groups.append(group)
+            group.alwaysAvailable = true
         }
-        return groups
+        return [group]
     }
 
     private func trailingVisualOffset(for value: UIBarButtonItem) -> CGFloat {
