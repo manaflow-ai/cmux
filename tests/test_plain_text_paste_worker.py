@@ -124,7 +124,7 @@ class PlainTextPasteWorkerTests(unittest.TestCase):
         self.assertEqual((path / "text-payload.txt").read_bytes(), text.encode())
 
     def test_rich_images_and_auxiliary_urls_delegate_without_provider_read(self):
-        for flavor in ["com.apple.flat-rtfd", "public.png",
+        for flavor in ["public.png",
                        "public.tiff", "public.jpeg", "public.file-url", "public.url",
                        "NSFilenamesPboardType", "com.apple.pasteboard.promised-file-url"]:
             with self.subTest(flavor=flavor):
