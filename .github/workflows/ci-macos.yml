@@ -2529,8 +2529,11 @@ jobs:
         if: ${{ inputs.full_suite == 'true' && inputs.release_build == 'true' }}
         run: |
           set -euo pipefail
+          # The helper is a Zig build that needs an SDK 15 Xcode, below the
+          # .xcode-version floor, so it opts out of the pool pin and the floor.
           CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
             CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15 \
+            CMUX_CI_XCODE_ALLOW_BELOW_FLOOR=1 \
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
