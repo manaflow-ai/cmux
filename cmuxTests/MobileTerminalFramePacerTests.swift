@@ -100,4 +100,31 @@ struct MobileTerminalFramePacerTests {
         )
         #expect(pacer.period < widened, "quiet interval must decay the period toward the floor")
     }
+
+    @Test func telemetrySampleSummarizesActivityAtMostOncePerInterval() {
+        var pacer = MobileTerminalFramePacer()
+        _ = pacer.updateArrived(now: t0, acceptedInputSequence: nil)
+        _ = pacer.updateArrived(now: t0 + .milliseconds(10), acceptedInputSequence: nil)
+        _ = pacer.updateArrived(now: t0 + .milliseconds(20), acceptedInputSequence: nil)
+        pacer.transportDidShed(now: t0 + .milliseconds(30))
+        let first = pacer.takeSample(now: t0 + .milliseconds(40))
+        #expect(first?.emitted == 1)
+        #expect(first?.coalesced == 2)
+        #expect(first?.sheds == 1)
+        #expect((first?.periodMillis ?? 0) > 90)
+        // Inside the sampling interval: nothing extra on the wire.
+        _ = pacer.updateArrived(now: t0 + .milliseconds(500), acceptedInputSequence: nil)
+        let second = pacer.takeSample(now: t0 + .milliseconds(600))
+        #expect(second == nil)
+        // After the interval the counters restarted from the previous sample.
+        let third = pacer.takeSample(now: t0 + .milliseconds(40) + MobileTerminalFramePacer.sampleInterval)
+        #expect(third?.coalesced == 0)
+        #expect(third?.emitted == 1)
+    }
+
+    @Test func idlePacerProducesNoSample() {
+        var pacer = MobileTerminalFramePacer()
+        let sample = pacer.takeSample(now: t0)
+        #expect(sample == nil)
+    }
 }
