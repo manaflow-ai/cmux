@@ -100,6 +100,12 @@ struct SSHTuiMigrationTests {
         let legacy = SessionRemoteWorkspaceSnapshot(transport: .ssh, destination: "fixture@host",
             preserveAfterTerminalExit: true, relayPort: 1234, persistentDaemonSlot: "legacy-owned")
         #expect(legacy.tuiSSHConfiguration(agentSocketPath: nil) == nil)
+        let blocked = try #require(legacy.workspaceConfiguration())
+        #expect(blocked.terminalStartupCommand == nil)
+        #expect(blocked.sessionSnapshot() == legacy)
+        #expect(blocked.scopedToOwnerWorkspace(UUID()).sessionSnapshot() == legacy)
+        #expect(blocked.withSSHControlMasterLeaseGeneration(UUID()).sessionSnapshot() == legacy)
+
     }
 
     @Test("Managed SSH snapshot serialization records its session owner")
