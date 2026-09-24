@@ -528,9 +528,10 @@ class PlanTests(unittest.TestCase):
         }
         result = plan([main_run, idle_exp, stuck_exp], jobs, threshold=6)
         self.assertTrue(result.over_threshold)
+        # Runs holding the backed-up pool are decided first.
         self.assertEqual([(d.candidate.run["id"], d.action) for d in result.decisions],
-                         [(idle_exp["id"], "skip"), (stuck_exp["id"], "cancel")])
-        self.assertIn("not backed up", result.decisions[0].note)
+                         [(stuck_exp["id"], "cancel"), (idle_exp["id"], "skip")])
+        self.assertIn("not backed up", result.decisions[1].note)
 
     def test_label_dropped_uses_waiting_replacement_in_inventory(self):
         main_run, main_jobs = busy_main_push(queued=10)

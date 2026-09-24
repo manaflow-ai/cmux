@@ -32,9 +32,11 @@ trigger to replace a cancelled ci-status.
 A pool is the set of macOS labels a job asked for. Outside (b), a run that only
 waits on a pool that is not backed up is never cancelled: its output may still
 be read, and cancelling it frees nothing anyone is waiting for. A stale pull
-request run's output is never read, so it goes whatever the queue. Past (b) the
-sweep stops as soon as every pool's projected queue is back under the
-threshold. Every category shares the per-sweep cancel cap. Main pushes, merge groups, scheduled and
+request run's output is never read, so it goes whatever the queue, unless
+someone re-ran it or labelled the PR no-janitor; those wait for a backed-up
+pool like the other categories. Outside (b), candidates are skipped once every
+pool's projected queue is back under the threshold. Every category shares the
+per-sweep cancel cap, and runs holding a backed-up pool are spent first. Main pushes, merge groups, scheduled and
 dispatched runs on main, release/tag runs, nightly, and TestFlight/App Store
 workflows are never candidates, whatever their state.
 
@@ -361,6 +363,7 @@ class Candidate:
     category: str
     reason: str
     usage: MacosUsage
+    pr: Mapping[str, Any] | None = None
 
 
 def classify(
@@ -509,10 +512,24 @@ def build_plan(
             now=now,
         )
         if verdict:
-            candidates.append(Candidate(run, verdict[0], verdict[1], usage))
+            candidates.append(Candidate(run, verdict[0], verdict[1], usage, pr))
 
-    def order(candidate: Candidate) -> tuple[int, str, int]:
-        return (CATEGORY_ORDER.index(candidate.category), str(candidate.run.get("created_at") or ""), candidate.run["id"])
+    initially_backed_up = {pool for pool, count in queued_by_pool.items() if count > threshold}
+
+    def order(candidate: Candidate) -> tuple[int, int, str, int]:
+        # Runs holding a backed-up pool take the shared cap first; a stale run on
+        # an idle pool frees nothing anyone is waiting for.
+        idle = not initially_backed_up.intersection(candidate.usage.held_by_pool)
+        return (int(idle), CATEGORY_ORDER.index(candidate.category),
+                str(candidate.run.get("created_at") or ""), candidate.run["id"])
+
+    def needs_pressure(candidate: Candidate) -> bool:
+        # A re-run or a no-janitor label means someone wants this output.
+        return candidate.category != "stale-pr" or deliberate(candidate)
+
+    def deliberate(candidate: Candidate) -> bool:
+        pr = candidate.pr or {}
+        return (candidate.run.get("run_attempt") or 1) > 1 or JANITOR_OPT_OUT_LABEL in pr_labels(pr)
 
     candidates.sort(key=order)
     decisions: list[Decision] = []
@@ -522,7 +539,7 @@ def build_plan(
         backed_up = {pool for pool, count in projected.items() if count > threshold}
         # Nobody reads a merged, closed or superseded PR's results, so that run
         # is waste on any pool; every other category waits for a backed-up one.
-        if candidate.category != "stale-pr":
+        if needs_pressure(candidate):
             if not backed_up:
                 busiest = max(projected.values(), default=0)
                 decisions.append(Decision(
@@ -621,8 +638,9 @@ def render_summary(plan: Plan, *, dry_run: bool, now: dt.datetime, results: Mapp
         return "\n".join(lines) + "\n"
     if not plan.over_threshold:
         if plan.to_cancel():
+            verb = "would be cancelled" if dry_run else "are cancelled"
             lines.append("No pool is over the threshold, so only runs for merged, closed or superseded "
-                         "pull requests are cancelled. Candidates seen:")
+                         f"pull requests {verb}. Candidates seen:")
         else:
             lines.append("No pool is over the threshold, so nothing is cancelled. Candidates seen:")
         lines.append("")
