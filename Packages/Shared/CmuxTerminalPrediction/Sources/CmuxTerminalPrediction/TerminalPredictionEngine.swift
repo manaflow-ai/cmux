@@ -109,6 +109,11 @@ public struct TerminalPredictionEngine: Sendable {
     private var smoothedEchoLatency: Duration?
     private var recentMispredictions: [PredictionInstant] = []
     private var suspendedUntil: PredictionInstant?
+    /// Until this instant, output may still be the echo of keystrokes the
+    /// engine stopped tracking when it last withdrew. Matching that echo
+    /// against keystrokes typed since would misalign every later offset, so
+    /// until it passes, output only clears the queue.
+    private var untrackedEchoDeadline: PredictionInstant?
 
     public init(
         configuration: PredictionConfiguration = .default,
@@ -212,13 +217,13 @@ public struct TerminalPredictionEngine: Sendable {
     @discardableResult
     public mutating func typed(printableASCII byte: UInt8?, at now: PredictionInstant) -> Bool {
         guard isEnabled else { return false }
-        expire(at: now)
+        let expired = expire(at: now)
 
         guard let byte, (0x20...0x7E).contains(byte) else {
-            return withdrawAll(countingMisprediction: false)
+            return withdrawAll(countingMisprediction: false, at: now, sendingKeystroke: true) || expired
         }
         guard entries.count < configuration.maximumSpeculativeGlyphs else {
-            return withdrawAll(countingMisprediction: false)
+            return withdrawAll(countingMisprediction: false, at: now, sendingKeystroke: true) || expired
         }
 
         let display = status(at: now) == .predicting
@@ -229,7 +234,7 @@ public struct TerminalPredictionEngine: Sendable {
             confirmedAt: nil,
             isDisplayed: display
         ))
-        return display
+        return display || expired
     }
 
     /// Record a Backspace, whichever byte (DEL or BS) the key sends.
@@ -242,7 +247,7 @@ public struct TerminalPredictionEngine: Sendable {
     @discardableResult
     public mutating func typedBackspace(at now: PredictionInstant) -> Bool {
         guard isEnabled else { return false }
-        expire(at: now)
+        let expired = expire(at: now)
 
         // Everything after the newest unretracted glyph is retracted glyphs
         // and their erases, which occupy no cells, so it is the one the
@@ -255,7 +260,7 @@ public struct TerminalPredictionEngine: Sendable {
               entries[index].standing == .speculative,
               entries.count < configuration.maximumSpeculativeGlyphs
         else {
-            return withdrawAll(countingMisprediction: false)
+            return withdrawAll(countingMisprediction: false, at: now, sendingKeystroke: true) || expired
         }
 
         entries[index].isRetracted = true
@@ -270,22 +275,39 @@ public struct TerminalPredictionEngine: Sendable {
     }
 
     /// Feed the bytes the remote sent, from the PTY output tee. Returns whether
-    /// the drawn overlay changed.
+    /// the host has to re-anchor the overlay.
+    ///
+    /// That is not only when the drawn set changed. Every offset is measured
+    /// from the live cursor, so any output that moves it while something is
+    /// drawn moves every drawn glyph too, even an echo nobody saw typed. The
+    /// host may also have re-anchored on a frame ghostty rendered after
+    /// parsing this output but before this drain, measuring the old offsets
+    /// from the new cursor; only a redraw now puts them back.
     @discardableResult
     public mutating func observedOutput(_ bytes: some Sequence<UInt8>, at now: PredictionInstant) -> Bool {
         let signals = scanner.scan(bytes)
         guard isEnabled else { return false }
-        expire(at: now)
-
-        var changed = false
+        var changed = expire(at: now)
+        var movedCursor = false
         for signal in signals {
+            if signal != .ignorable { movedCursor = true }
+            if let deadline = untrackedEchoDeadline {
+                if now < deadline, signal != .ignorable, !Self.isAlternateScreen(signal) {
+                    // Possibly the echo of a keystroke already given up on.
+                    // Drop what was typed since as well: its echo is behind
+                    // output this cannot account for.
+                    changed = withdrawAll(countingMisprediction: false, at: now) || changed
+                    continue
+                }
+                if now >= deadline { untrackedEchoDeadline = nil }
+            }
             switch signal {
             case .ignorable:
                 continue
 
             case .alternateScreen(let entered):
                 isAlternateScreen = entered
-                changed = withdrawAll(countingMisprediction: false) || changed
+                changed = withdrawAll(countingMisprediction: false, at: now) || changed
 
             case .disruptive:
                 // The remote moved the screen somewhere we did not predict, so
@@ -304,7 +326,7 @@ public struct TerminalPredictionEngine: Sendable {
                 changed = consumeErase(signal, at: now) || changed
             }
         }
-        return changed
+        return changed || (movedCursor && entries.contains { $0.isDrawn })
     }
 
     /// Report that a rendered frame reached the screen. Confirmed glyphs retire
@@ -330,7 +352,7 @@ public struct TerminalPredictionEngine: Sendable {
         guard let index = entries.firstIndex(where: { $0.standing == .speculative }) else {
             // Output at the cursor that we did not type. It advances the cursor
             // our offsets are measured from, and it ends the echo run.
-            return withdrawAll(countingMisprediction: false)
+            return withdrawAll(countingMisprediction: false, at: now)
         }
         guard case .glyph(_, let expected) = entries[index].keystroke else {
             // Mid-erase, the only printable a line editor sends is the space
@@ -350,9 +372,16 @@ public struct TerminalPredictionEngine: Sendable {
             return entries.contains { $0.isDrawn }
         }
         // A glyph the user never saw has nothing to hold on screen for; the
-        // real character is already on its way into the grid.
+        // real character is already on its way into the grid. It still
+        // counts toward the cursor for any held glyph before it, so it goes
+        // when they do.
         guard entries[index].isDisplayed else {
-            entries.remove(at: index)
+            if entries[..<index].contains(where: \.isDrawn) {
+                entries[index].standing = .confirmed
+                entries[index].confirmedAt = now
+            } else {
+                entries.remove(at: index)
+            }
             return false
         }
         entries[index].standing = .confirmed
@@ -393,7 +422,7 @@ public struct TerminalPredictionEngine: Sendable {
         at now: PredictionInstant
     ) -> Bool {
         guard case .erase(let progress) = entries[index].keystroke else {
-            return withdrawAll(countingMisprediction: false)
+            return withdrawAll(countingMisprediction: false, at: now)
         }
         switch (progress, signal) {
         case (.awaitingMoveLeft, .cursorLeft):
@@ -405,11 +434,11 @@ public struct TerminalPredictionEngine: Sendable {
             // the entry just before it is the glyph it took back, and the
             // pair together occupies no cells.
             guard index > 0, entries[index - 1].isRetracted else {
-                return withdrawAll(countingMisprediction: false)
+                return withdrawAll(countingMisprediction: false, at: now)
             }
             entries.removeSubrange((index - 1)...index)
         default:
-            return withdrawAll(countingMisprediction: false)
+            return withdrawAll(countingMisprediction: false, at: now)
         }
         return entries.contains { $0.isDrawn }
     }
@@ -423,12 +452,16 @@ public struct TerminalPredictionEngine: Sendable {
     }
 
     @discardableResult
+    ///
+    /// - Parameter sendingKeystroke: The withdrawal is for a key being sent
+    ///   now, whose echo is as untracked as those of the entries dropped.
     private mutating func withdrawAll(
         countingMisprediction: Bool,
-        at now: PredictionInstant? = nil
+        at now: PredictionInstant,
+        sendingKeystroke: Bool = false
     ) -> Bool {
         let wasVisible = entries.contains { $0.isDrawn }
-        if countingMisprediction, wasVisible, let now {
+        if countingMisprediction, wasVisible {
             recentMispredictions.append(now)
             recentMispredictions.removeAll { now - $0 > configuration.mispredictionWindow }
             if recentMispredictions.count >= configuration.mispredictionsBeforeSuspending {
@@ -436,9 +469,29 @@ public struct TerminalPredictionEngine: Sendable {
                 recentMispredictions.removeAll()
             }
         }
+        // Keystrokes still in flight echo anyway, in a form this no longer
+        // tracks. Each echo arrives within about a round trip of its key, so
+        // output keeps clearing the queue until that has passed for the
+        // newest of them.
+        let newestUntracked = sendingKeystroke
+            ? now
+            : entries.lazy.filter { $0.standing == .speculative }.map(\.typedAt).max()
+        if let newestUntracked {
+            let deadline = newestUntracked + untrackedEchoSettle
+            untrackedEchoDeadline = max(untrackedEchoDeadline ?? deadline, deadline)
+        }
         entries.removeAll()
         isEchoRunActive = false
         return wasVisible
+    }
+
+    /// How long after a withdrawal output may still belong to keystrokes the
+    /// engine dropped. Twice the round trip absorbs jitter and a remote that
+    /// reads in bursts; with no measurement yet, nothing is drawn anyway, so
+    /// a generous default only delays arming.
+    private var untrackedEchoSettle: Duration {
+        guard let latency = smoothedEchoLatency else { return .milliseconds(500) }
+        return latency * 2 + .milliseconds(50)
     }
 
     @discardableResult
@@ -466,6 +519,11 @@ public struct TerminalPredictionEngine: Sendable {
         guard expiredSpeculation else { return staleConfirmation }
         // Nothing came back. Whatever we drew was wrong, or the link stalled.
         return withdrawAll(countingMisprediction: true, at: now) || staleConfirmation
+    }
+
+    private static func isAlternateScreen(_ signal: TerminalOutputSignal) -> Bool {
+        if case .alternateScreen = signal { return true }
+        return false
     }
 
     /// DEL is what ghostty sends for Backspace by default; BS when configured.
