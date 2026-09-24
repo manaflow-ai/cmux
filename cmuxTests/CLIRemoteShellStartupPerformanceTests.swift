@@ -395,15 +395,10 @@ struct CLIRemoteShellStartupPerformanceTests {
     }
 
     private func waitForProcess(_ running: RunningProcess, timeout: TimeInterval) -> ProcessRunResult {
-        let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            running.process.waitUntilExit()
-            done.signal()
-        }
-        let timedOut = done.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(running.process, timeout: timeout) == .timedOut
         if timedOut {
             running.process.terminate()
-            _ = done.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(running.process, timeout: 1)
         }
         let stderr = String(data: running.stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(
