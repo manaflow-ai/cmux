@@ -2,6 +2,7 @@
 """Compile admission may start from the nightly seed's DerivedData, never be judged by it."""
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import tarfile
@@ -220,13 +221,37 @@ class Wiring(unittest.TestCase):
         _, admission_spm = named(steps("ci-macos.yml", "macos-compile-admission"), "Cache Swift packages")
         self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
 
+    def test_the_seeder_reads_and_writes_through_the_public_url_admission_reads(self):
+        # r2-cache.sh restores through CI_CACHE_R2_PUBLIC_URL and refuses to
+        # save without it, so a seeder without it never reads or writes a seed.
+        seeder = load("seed-derived-data.yml")
+        admission = load("ci-macos.yml")
+        self.assertEqual(
+            seeder.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"),
+            admission["env"]["CI_CACHE_R2_PUBLIC_URL"],
+        )
+
     def test_adoption_is_optional_and_limited_to_pull_requests(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
         _, adopt = named(admission, "Adopt the nightly DerivedData seed")
         self.assertIs(adopt.get("continue-on-error"), True)
         self.assertIn("github.event_name == 'pull_request'", adopt["if"])
-        self.assertIn("vars.CI_ADMISSION_SEED_DERIVED_DATA != '0'", adopt["if"])
+        # An unset repository variable is null, and Actions compares null with
+        # '0' as the numbers 0 and 0. A bare `vars.X != '0'` is therefore false
+        # while X is unset, which turned adoption off everywhere. Unset has to
+        # mean on, so the kill switch gets a non-zero default first.
+        self.assertIn("(vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0'", adopt["if"])
         self.assertIn("timeout-minutes", adopt)
+
+    def test_no_workflow_compares_a_bare_variable_with_zero(self):
+        bare = re.compile(r"vars\.[A-Z0-9_]+\s*[!=]=\s*'0'")
+        offenders = [
+            f"{path.name}:{number}"
+            for path in sorted((ROOT / ".github/workflows").glob("*.yml"))
+            for number, line in enumerate(path.read_text().splitlines(), 1)
+            if bare.search(line)
+        ]
+        self.assertEqual(offenders, [], "an unset variable is null, which equals '0'; give it a default first")
 
 
 if __name__ == "__main__":

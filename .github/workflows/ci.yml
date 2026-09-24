@@ -145,12 +145,19 @@ jobs:
             fi
             # Keep both sides of renames visible to path-based guard routing.
             # A guarded file moved into docs/ must still run its owning checks.
+            rm -f /tmp/cmux-ci-base-workflow.yml
             if ! git diff --no-renames --name-only "$BASE_SHA" "$MERGE_SHA" > /tmp/cmux-ci-changed-files.txt; then
               # Absence means unavailable; an existing empty file means a known empty diff.
               rm -f /tmp/cmux-ci-changed-files.txt
               echo "Could not compute PR diff; running all CI areas." >&2
               emit_all_areas
               exit 0
+            fi
+            # The standalone route compares ci.yml job by job with this base.
+            # Absence means unavailable, and that step then fails open.
+            if grep -Fxq '.github/workflows/ci.yml' /tmp/cmux-ci-changed-files.txt; then
+              git show "$BASE_SHA:.github/workflows/ci.yml" > /tmp/cmux-ci-base-workflow.yml \
+                || rm -f /tmp/cmux-ci-base-workflow.yml
             fi
             # The changed lines of cmuxTests/, so choose_ci_suite.py can tell
             # which declarations a test edit touched. Absent reads as "every
@@ -189,6 +196,17 @@ jobs:
               xcode_project_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-xcode-project-base.XXXXXX")"
               if git show "$BASE_SHA:cmux.xcodeproj/project.pbxproj" > "$xcode_project_base"; then
                 xcode_project_base_args=(--xcode-project-base "$xcode_project_base")
+              fi
+            fi
+
+            # ci-macos.yml is compared job by job with its base: an edit that
+            # leaves the Release jobs and their inputs alone runs the Mac jobs
+            # without the Release build. Without the base, every job runs.
+            macos_workflow_base_args=()
+            if grep -Fxq '.github/workflows/ci-macos.yml' /tmp/cmux-ci-changed-files.txt; then
+              macos_workflow_base="$(mktemp "${RUNNER_TEMP:-/tmp}/cmux-macos-workflow-base.XXXXXX")"
+              if git show "$BASE_SHA:.github/workflows/ci-macos.yml" > "$macos_workflow_base"; then
+                macos_workflow_base_args=(--macos-workflow-base "$macos_workflow_base")
               fi
             fi
 
@@ -353,6 +371,11 @@ jobs:
               if [ "${#xcode_project_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--xcode-project-base'; then
                 xcode_project_base_args=()
               fi
+              # One that predates the job comparison keeps the Release build
+              # for every ci-macos.yml edit, which is safe.
+              if [ "${#macos_workflow_base_args[@]}" -gt 0 ] && ! python3 "$trusted_root/scripts/ci/detect_ci_change_areas.py" --help | grep -q -- '--macos-workflow-base'; then
+                macos_workflow_base_args=()
+              fi
               trusted_areas=/tmp/cmux-ci-trusted-areas.txt
               : > "$trusted_areas"
               (
@@ -363,6 +386,7 @@ jobs:
                   --files-from "$product_files" \
                   ${registry_base_args[@]+"${registry_base_args[@]}"} \
                   ${xcode_project_base_args[@]+"${xcode_project_base_args[@]}"} \
+                  ${macos_workflow_base_args[@]+"${macos_workflow_base_args[@]}"} \
                   --github-output "$trusted_areas"
               )
               if [ "$cli_call_site_changed" = true ]; then
@@ -391,6 +415,7 @@ jobs:
               --files-from /tmp/cmux-ci-changed-files.txt \
               ${registry_base_args[@]+"${registry_base_args[@]}"} \
               ${xcode_project_base_args[@]+"${xcode_project_base_args[@]}"} \
+              ${macos_workflow_base_args[@]+"${macos_workflow_base_args[@]}"} \
               ${workflow_base_args[@]+"${workflow_base_args[@]}"}
             exit 0
           fi
@@ -408,15 +433,15 @@ jobs:
           browser=false
           remote_daemon=false
           remote_daemon_native=false
+          ci_workflow_changed=false
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             while IFS= read -r path; do
               case "$path" in
                 .github/workflows/ci.yml)
-                  claude_wrapper=true
-                  # The caller owns both reusable jobs' conditions and targets.
+                  # The caller owns the browser job's condition and target;
+                  # that lane runs on Linux. The Mac lanes are judged below.
                   browser=true
-                  remote_daemon=true
-                  remote_daemon_native=true
+                  ci_workflow_changed=true
                   ;;
                 Resources/bin/cmux-claude-wrapper|tests/test_claude_wrapper_hooks.py|tests/node_runtime.py|scripts/ci/run_python_test_lane.py|scripts/ci/test_execution_registry.py)
                   # Not tests/test-execution.toml: every new test registers
@@ -442,6 +467,65 @@ jobs:
             browser=true
             remote_daemon=true
             remote_daemon_native=true
+          fi
+          # ci.yml runs the wrapper lane inline and calls remote-daemon.yml with
+          # its native_tests input. Only an edit to that job, or to the
+          # triggers, env and permissions before `jobs:`, changes what a Mac
+          # lane runs. Edits to the routing, status and Linux jobs decide only
+          # whether it runs, which the Linux guard tests already check. A
+          # missing or unreadable base, a duplicate job, or a YAML alias in the
+          # lane's job selects both lanes.
+          if [ "$ci_workflow_changed" = true ]; then
+            if python3 - /tmp/cmux-ci-base-workflow.yml .github/workflows/ci.yml \
+              > /tmp/cmux-ci-standalone-callers.txt <<'PY'
+          import re
+          import sys
+
+          def jobs(path: str) -> tuple[str, dict[str, str]]:
+              text = open(path, encoding="utf-8").read()
+              preamble, marker, body = text.partition("\njobs:\n")
+              if not marker:
+                  raise SystemExit(1)
+              blocks: dict[str, str] = {}
+              for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
+                  name = block.partition(":")[0]
+                  if not block.strip():
+                      continue
+                  if name in blocks:
+                      raise SystemExit(1)
+                  blocks[name] = block
+              return preamble, blocks
+
+          (base_preamble, base_jobs), (head_preamble, head_jobs) = jobs(sys.argv[1]), jobs(sys.argv[2])
+          alias = re.compile(r"(?m)(?:<<:|[:-])\s*\*[A-Za-z0-9_.-]+\s*$")
+          for job in ("claude-wrapper", "remote-daemon"):
+              base_block, head_block = base_jobs.get(job, ""), head_jobs.get(job, "")
+              if (
+                  base_preamble != head_preamble
+                  or base_block != head_block
+                  or alias.search(base_block)
+                  or alias.search(head_block)
+              ):
+                  print(job)
+          PY
+            then
+              callers="$(tr '\n' ' ' < /tmp/cmux-ci-standalone-callers.txt)"
+              echo "ci.yml changed; Mac lane callers that differ: ${callers:-none}"
+              case " $callers " in
+                *" claude-wrapper "*) claude_wrapper=true ;;
+              esac
+              case " $callers " in
+                *" remote-daemon "*)
+                  remote_daemon=true
+                  remote_daemon_native=true
+                  ;;
+              esac
+            else
+              echo "Could not compare ci.yml with its base; running the Mac standalone lanes."
+              claude_wrapper=true
+              remote_daemon=true
+              remote_daemon_native=true
+            fi
           fi
           {
             echo "claude_wrapper=$claude_wrapper"
