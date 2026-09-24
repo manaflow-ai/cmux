@@ -164,6 +164,17 @@ class Refusal(unittest.TestCase):
         self.assertTrue(rescue.refused(refused_job(steps=[])))
         self.assertTrue(rescue.refused(refused_job(steps=[{"name": "Set up job", "conclusion": "success"},
                                                           {"name": "Runner hook", "conclusion": "failure"}])))
+        # glaeda's hook fails "Set up runner"; `always()` steps still run and succeed
+        # (run 36070154108, job 107869588013 on 2026-09-24).
+        self.assertTrue(rescue.refused(refused_job(steps=[
+            {"name": "Set up job", "conclusion": "success"},
+            {"name": "Set up runner", "conclusion": "failure"},
+            {"name": "Checkout", "conclusion": "skipped"},
+            {"name": "Record compiled-product reuse metrics", "conclusion": "success"},
+            {"name": "Record compile admission metrics", "conclusion": "failure"},
+            {"name": "Report evidence collection outcomes", "conclusion": "success"},
+            {"name": "Complete runner", "conclusion": "success"},
+            {"name": "Complete job", "conclusion": "success"}])))
         # A step of the workflow ran, the job ran too long, it is not on an owned pool, or it did not fail.
         self.assertFalse(rescue.refused(refused_job(steps=[{"name": "Set up job", "conclusion": "success"},
                                                            {"name": "Checkout", "conclusion": "success"},
