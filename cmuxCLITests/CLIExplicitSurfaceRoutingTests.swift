@@ -313,7 +313,11 @@ struct CLIExplicitSurfaceRoutingTests {
         #expect((result.stderr + result.stdout).contains("Surface ref not found: surface:99999"))
         #expect(state.mutationCountSnapshot() == 0)
 
+        // The CLI first tries to resolve the workspace ref client-side (#13964).
+        // This host answers neither `workspace.list` nor `window.list`, so the ref
+        // passes through to the host unresolved on the one listing request.
         let requests = try state.requestObjects()
+            .filter { !["workspace.list", "window.list"].contains($0["method"] as? String ?? "") }
         #expect(requests.compactMap { $0["method"] as? String } == ["surface.list"])
         let listParams = try #require(requests.first?["params"] as? [String: Any])
         #expect(listParams["workspace_id"] as? String == Self.reproWorkspaceRef)
