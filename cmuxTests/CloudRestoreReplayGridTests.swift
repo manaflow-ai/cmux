@@ -43,7 +43,9 @@ struct CloudRestoreReplayGridTests {
         #expect(report.surface == 17)
         #expect(report.columns == 99)
         #expect(report.rows == 35)
-        fixture.socket.send(["id": report.id, "ok": true, "data": [:]])
+        // Legacy resize-surface replies use accepted=false for an applied
+        // report; the first visible mirror must still promote itself.
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["accepted": false, "outcome": "applied"]])
         let claim = try #require(
             await fixture.socket.nextCommand(timeout: .seconds(5)),
             "A visible restored pane must claim its reported grid without requiring focus"
