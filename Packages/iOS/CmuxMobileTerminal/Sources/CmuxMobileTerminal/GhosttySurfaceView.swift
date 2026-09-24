@@ -1170,9 +1170,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var keyboardTransitionPresentationOverlay: CALayer?
     private var keyboardTransitionPresentationFreeze: KeyboardTransitionPresentationFreeze?
     private var keyboardTransitionPresentationTimeout: Task<Void, Never>?
-    /// Upper bound on holding the frozen frame after UIKit finishes the
-    /// keyboard leg. Covers a disconnected Mac or a TUI that never redraws.
-    private static let keyboardTransitionPresentationTimeout: Duration = .seconds(2)
+    /// Silence allowed while holding the frozen frame after UIKit finishes
+    /// the leg. Relay round trips stall for seconds under load, and a held
+    /// frame is preferable to the old TUI reflowed into the new grid, so this
+    /// only covers a dead link or a TUI that never redraws.
+    private static let keyboardTransitionPresentationTimeout: Duration = .seconds(5)
     /// Screen-fixed view the host provides for the frozen frame. Nil when the
     /// surface is not hosted, in which case no freeze is installed.
     weak var hostedTransitionPresentationContainer: UIView?
@@ -1445,8 +1447,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         startDisplayLink()
     }
 
-    /// The fallback measures silence, not total latency: a confirmation
-    /// proves the link is alive, so the wait for the redraw starts over.
+    /// The fallback measures silence, not total latency: a confirmation or
+    /// output proves the link is alive, so the wait starts over.
     private func armKeyboardTransitionPresentationTimeout() {
         keyboardTransitionPresentationTimeout?.cancel()
         keyboardTransitionPresentationTimeout = Task { @MainActor [weak self] in
@@ -1478,6 +1480,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func noteKeyboardTransitionPresentationOutputApplied() {
         keyboardTransitionPresentationFreeze?.noteOutputApplied(lastIssuedToken: nextSurfaceOperationID)
+        if keyboardTransitionPresentationFreeze?.transitionEnded == true {
+            armKeyboardTransitionPresentationTimeout()
+        }
     }
 
     private func noteKeyboardTransitionPresentationPresented(token: UInt64) {
