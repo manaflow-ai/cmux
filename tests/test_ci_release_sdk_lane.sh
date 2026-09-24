@@ -32,19 +32,19 @@ require_job_contains() {
 require_job_contains \
   "$RELEASE_FILE" \
   "build-ghostty-cli-helper" \
-  'runs-on: ${{ vars.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars.MACOS_RUNNER_15 || '\''blacksmith-6vcpu-macos-15'\'' }}' \
+  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-15'\'' || (vars.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars.MACOS_RUNNER_15 || '\''blacksmith-6vcpu-macos-15'\'') }}' \
   "release must build the real Ghostty CLI helper on macOS 15"
 
 require_job_contains \
   "$RELEASE_FILE" \
   "build-sign-notarize" \
-  'runs-on: ${{ vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'' }}' \
+  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'' }}' \
   "release must sign+notarize on the macOS 26 runner variable after importing the Developer ID intermediate chain"
 
 require_job_contains \
   "$CI_FILE" \
   "release-build" \
-  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-15'\'' || (vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
+  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || (vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
   "CI release-build must use GitHub-hosted macOS on forks and the macOS 26 runner variable upstream"
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
