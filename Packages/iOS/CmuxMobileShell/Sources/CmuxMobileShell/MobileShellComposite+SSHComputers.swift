@@ -47,6 +47,13 @@ extension MobileShellComposite: MobileSSHComputersSink {
         deviceID.map(MobileSSHIdentifiers.owns) ?? false
     }
 
+    /// Whether a per-computer store key belongs to an SSH computer. Mac
+    /// lifecycle passes (secondary reconciliation, team switches, outage
+    /// downgrades) must leave these entries to the SSH runtime.
+    func sshOwnsPairingKey(_ key: MacPairingKey) -> Bool {
+        MobileSSHIdentifiers.owns(key.canonicalMacDeviceID)
+    }
+
     func sshOwnsWorkspaceRow(_ id: MobileWorkspacePreview.ID) -> Bool {
         if MobileSSHIdentifiers.owns(id.rawValue) { return true }
         guard let row = workspaces.first(where: { $0.id == id }) else { return false }

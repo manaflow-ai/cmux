@@ -346,10 +346,9 @@ extension WorkspaceShellView {
                 if let row = store.workspaces.first(where: { $0.id == id }),
                    let deviceID = row.macDeviceID,
                    store.sshHostID(computerDeviceID: deviceID) != nil {
-                    let scopedID = store.sshHostID(computerDeviceID: row.rpcWorkspaceID.rawValue) != nil
-                        ? row.rpcWorkspaceID.rawValue
-                        : id.rawValue
-                    await store.sshComputers.closeWorkspace(scopedID: scopedID)
+                    if let scopedID = store.sshScopedWorkspaceID(id) {
+                        await store.sshComputers.closeWorkspace(scopedID: scopedID)
+                    }
                     return
                 }
                 let result = await store.closeWorkspace(id: id)

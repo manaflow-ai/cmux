@@ -88,6 +88,8 @@ public final class MobileSSHComputers {
     @ObservationIgnored private var connectTasks: [UUID: Task<SSHConnection, any Error>] = [:]
     @ObservationIgnored private var providers: [UUID: any MobileSSHWorkspaceProvider] = [:]
     @ObservationIgnored private var workspacesByHost: [UUID: [MobileSSHWorkspace]] = [:]
+    /// Bumped per listing started, so only the newest listing publishes.
+    @ObservationIgnored private var refreshGenerations: [UUID: UInt64] = [:]
     @ObservationIgnored private var attachments: [String: any MobileSSHAttachedTerminal] = [:]
     @ObservationIgnored private var attachTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var gridBySurface: [String: (columns: Int, rows: Int)] = [:]
@@ -261,14 +263,54 @@ public final class MobileSSHComputers {
         }
     }
 
+    /// Relists the host's workspaces and republishes its rows.
+    ///
+    /// Refreshes overlap (create, close, topology notifications, the list
+    /// reappearing), and a slow listing that started before a create must not
+    /// replace the newer one: only the most recently started listing for the
+    /// host publishes; the newer one publishes when it lands.
     public func refreshWorkspaces(hostID: UUID) async {
         guard let provider = providers[hostID] else { return }
+        refreshGenerations[hostID, default: 0] &+= 1
+        let generation = refreshGenerations[hostID]
         do {
-            workspacesByHost[hostID] = try await provider.listWorkspaces()
+            let workspaces = try await provider.listWorkspaces()
+            guard refreshGenerations[hostID] == generation, providers[hostID] === provider else { return }
+            workspacesByHost[hostID] = workspaces
+            // A listing through the live provider proves the host works.
+            // Clears an earlier failure (tmux was missing, a listing failed)
+            // that `connection(for:)` never revisits while its connection is
+            // cached, so the title, rows, and empty state stop reading failed.
+            statusByHost[hostID] = .connected
             if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
         } catch {
+            guard refreshGenerations[hostID] == generation else { return }
             fail(hostID: hostID, error)
         }
+    }
+
+    /// The workspace list is showing this host again (Back from a
+    /// workspace, return to the foreground): relist it when connected so
+    /// sessions created or closed elsewhere appear without pull-to-refresh.
+    /// A host that is not connected is left to ``autoConnect(hostID:)``.
+    public func refreshIfConnected(hostID: UUID) {
+        guard providers[hostID] != nil else { return }
+        Task { await refreshWorkspaces(hostID: hostID) }
+    }
+
+    /// Test seam: a provider standing in for a connected host's.
+    func installProviderForTesting(_ provider: any MobileSSHWorkspaceProvider, hostID: UUID) {
+        providers[hostID] = provider
+    }
+
+    /// Test seam: records a failure the way a failed connect or listing does.
+    func failForTesting(hostID: UUID, _ error: any Error) {
+        fail(hostID: hostID, error)
+    }
+
+    /// ``refreshIfConnected(hostID:)`` for every connected host.
+    public func refreshConnectedHosts() {
+        for hostID in providers.keys { refreshIfConnected(hostID: hostID) }
     }
 
     /// Creates a workspace and returns its scoped row id.

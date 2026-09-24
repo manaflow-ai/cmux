@@ -199,3 +199,92 @@ enum MobileSSHTmuxLayout {
         return leaves
     }
 }
+
+/// Removes screen-style title sequences (`ESC k <title> ST`) from one pane's
+/// `%output` stream.
+///
+/// Shells that believe they run under screen or tmux (zsh with `TERM=screen*`
+/// or `tmux*`, and prompt frameworks that set the window name) emit
+/// `ESC k <title> ESC \`. tmux consumes it as the window name, but control
+/// mode forwards the pane's raw bytes, and Ghostty does not know the
+/// sequence: it drops `ESC k` and prints the title as text. tmux ends the
+/// string on ST (`ESC \`) or BEL, like its other string sequences.
+///
+/// State survives across chunks, so a sequence split between two `%output`
+/// notifications is still removed whole. An `ESC` at the end of a chunk is
+/// held until the next byte decides whether it starts a title.
+struct MobileSSHTmuxTitleSequenceFilter {
+    /// Longest title kept; the rest of a longer one is still swallowed.
+    static let maxTitleBytes = 1_024
+
+    private enum State {
+        case ground
+        /// Saw `ESC` outside a title.
+        case escape
+        /// Inside `ESC k`, collecting the title.
+        case title
+        /// Saw `ESC` inside a title (`ESC \` ends it).
+        case titleEscape
+    }
+
+    private var state = State.ground
+    private var title: [UInt8] = []
+
+    /// Filters one chunk. Returns the bytes to render and the titles that
+    /// completed in this chunk, in order.
+    mutating func filter(_ data: Data) -> (output: Data, titles: [String]) {
+        var output = Data()
+        output.reserveCapacity(data.count)
+        var titles: [String] = []
+        for byte in data {
+            process(byte, output: &output, titles: &titles)
+        }
+        return (output, titles)
+    }
+
+    private mutating func process(_ byte: UInt8, output: inout Data, titles: inout [String]) {
+        let esc: UInt8 = 0x1B
+        switch state {
+        case .ground:
+            if byte == esc {
+                state = .escape
+            } else {
+                output.append(byte)
+            }
+        case .escape:
+            if byte == UInt8(ascii: "k") {
+                state = .title
+                title.removeAll(keepingCapacity: true)
+            } else if byte == esc {
+                // `ESC ESC`: the first is complete on its own.
+                output.append(esc)
+            } else {
+                state = .ground
+                output.append(esc)
+                output.append(byte)
+            }
+        case .title:
+            if byte == esc {
+                state = .titleEscape
+            } else if byte == 0x07 {
+                finishTitle(&titles)
+            } else if title.count < Self.maxTitleBytes {
+                title.append(byte)
+            }
+        case .titleEscape:
+            finishTitle(&titles)
+            // `ESC \` is the terminator. Any other byte after ESC ends the
+            // title too and begins a new escape sequence.
+            if byte != UInt8(ascii: "\\") {
+                state = .escape
+                process(byte, output: &output, titles: &titles)
+            }
+        }
+    }
+
+    private mutating func finishTitle(_ titles: inout [String]) {
+        titles.append(String(decoding: title, as: UTF8.self))
+        title.removeAll(keepingCapacity: true)
+        state = .ground
+    }
+}

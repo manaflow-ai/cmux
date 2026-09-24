@@ -16,13 +16,20 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     private let connection: SSHConnection
     /// Absolute path found by ``probe(on:)``; login PATH may omit Homebrew.
     let tmuxPath: String
+    /// A private tmux server (`tmux -L <name>`); `nil` is the user's default
+    /// server, which the app always uses. Lab tests use their own server.
+    let socketName: String?
     private var controls: [String: MobileSSHTmuxControlClient] = [:]
     private var opening: [String: Task<MobileSSHTmuxControlClient, any Error>] = [:]
+    /// The one stale-grouped-session collection per connection, run before
+    /// the first listing or attach.
+    private var collection: Task<Void, Never>?
     var onTopologyChange: (@MainActor () -> Void)?
 
-    init(connection: SSHConnection, tmuxPath: String) {
+    init(connection: SSHConnection, tmuxPath: String, socketName: String? = nil) {
         self.connection = connection
         self.tmuxPath = tmuxPath
+        self.socketName = socketName
     }
 
     /// Finds tmux on the server, checking common install locations the
@@ -35,7 +42,51 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         return path.isEmpty ? nil : path
     }
 
-    private var tmux: String { MobileSSHShell.quote(tmuxPath) }
+    /// The shell-quoted tmux command, with the server socket when private.
+    var tmux: String {
+        let path = MobileSSHShell.quote(tmuxPath)
+        guard let socketName else { return path }
+        return path + " -L " + MobileSSHShell.quote(socketName)
+    }
+
+    // MARK: Grouped sessions
+
+    /// Kills the phone's grouped sessions that no client is attached to.
+    ///
+    /// A grouped session outlives its control client when the SSH channel
+    /// drops without a graceful ``MobileSSHTmuxControlClient/close()`` (app
+    /// killed, network lost), because tmux is deliberately not asked to
+    /// destroy it (see ``MobileSSHTmuxControlClient``). Every phone creates
+    /// its grouped session already attached, so an unattached one is never
+    /// in use. Runs once per connection, before the first listing or attach.
+    func collectStaleGroupedSessions() async {
+        if let collection { return await collection.value }
+        let task = Task { @MainActor [connection, tmux] in
+            let format = MobileSSHShell.quote("#{session_attached}:#{session_name}")
+            guard let result = try? await connection.exec("\(tmux) list-sessions -F \(format) 2>/dev/null"),
+                  result.exitStatus == 0 else { return } // no server running
+            let stale = Self.staleGroupedSessions(result.stdoutString)
+            guard !stale.isEmpty else { return }
+            // One tmux invocation: `kill-session` detaches any client before
+            // freeing the session, so a client that attached meanwhile is
+            // sent `%exit`, never left on a freed session.
+            let kills = stale.map { "kill-session -t " + MobileSSHShell.quote("=" + $0) }
+            _ = try? await connection.exec("\(tmux) " + kills.joined(separator: " \\; ") + " 2>/dev/null")
+        }
+        collection = task
+        await task.value
+    }
+
+    /// Names of the phone's grouped sessions with no attached client, from
+    /// `list-sessions -F '#{session_attached}:#{session_name}'`. Session
+    /// names cannot contain `:`, so the first `:` splits the fields.
+    nonisolated static func staleGroupedSessions(_ output: String) -> [String] {
+        output.split(whereSeparator: \.isNewline).compactMap { line in
+            guard let colon = line.firstIndex(of: ":"), line[..<colon] == "0" else { return nil }
+            let name = String(line[line.index(after: colon)...])
+            return name.contains(MobileSSHTmuxControlClient.groupedSessionMarker) ? name : nil
+        }
+    }
 
     // MARK: Ids
 
@@ -104,6 +155,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     }
 
     func listWorkspaces() async throws -> [MobileSSHWorkspace] {
+        await collectStaleGroupedSessions()
         let result = try await connection.exec("\(tmux) list-panes -a -F \(MobileSSHShell.quote(Self.listFormat)) 2>/dev/null")
         guard result.exitStatus == 0 else { return [] } // no server running = no sessions
         return Self.workspaces(from: Self.parsePaneRows(result.stdoutString))
@@ -175,7 +227,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         control.setClientSize(columns: columns, rows: rows)
         control.attach(pane: pane, events: events)
         return MobileSSHTmuxPaneTerminal(pane: pane, control: control) { [weak self] in
-            self?.paneDetached(session: session, control: control)
+            await self?.paneDetached(session: session, control: control)
         } resize: { columns, rows in
             control.setClientSize(columns: columns, rows: rows)
         }
@@ -185,7 +237,8 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         if let control = controls[session], !control.isClosed { return control }
         if let task = opening[session] { return try await task.value }
         let task = Task { @MainActor in
-            try await MobileSSHTmuxControlClient.open(connection: connection, tmuxPath: tmuxPath, session: session)
+            await self.collectStaleGroupedSessions()
+            return try await MobileSSHTmuxControlClient.open(connection: self.connection, tmux: self.tmux, session: session)
         }
         opening[session] = task
         defer { opening[session] = nil }
@@ -199,10 +252,13 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         return control
     }
 
-    private func paneDetached(session: String, control: MobileSSHTmuxControlClient) {
+    /// The last pane of a session detached: close its control client and
+    /// grouped session before returning, so a disconnect that follows
+    /// cannot cut the kill off.
+    private func paneDetached(session: String, control: MobileSSHTmuxControlClient) async {
         guard control.attachedPaneCount == 0, controls[session] === control else { return }
         controls[session] = nil
-        Task { await control.close() }
+        await control.close()
     }
 
     /// Test hook: the grouped session name serving `session`, if attached.
@@ -218,13 +274,13 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
 final class MobileSSHTmuxPaneTerminal: MobileSSHAttachedTerminal {
     private let pane: Int
     private let control: MobileSSHTmuxControlClient
-    private let onDetach: @MainActor () -> Void
+    private let onDetach: @MainActor () async -> Void
     private let onResize: @MainActor (Int, Int) -> Void
 
     init(
         pane: Int,
         control: MobileSSHTmuxControlClient,
-        detach: @escaping @MainActor () -> Void,
+        detach: @escaping @MainActor () async -> Void,
         resize: @escaping @MainActor (Int, Int) -> Void
     ) {
         self.pane = pane
@@ -243,7 +299,7 @@ final class MobileSSHTmuxPaneTerminal: MobileSSHAttachedTerminal {
 
     func detach() async {
         control.detach(pane: pane)
-        onDetach()
+        await onDetach()
     }
 }
 

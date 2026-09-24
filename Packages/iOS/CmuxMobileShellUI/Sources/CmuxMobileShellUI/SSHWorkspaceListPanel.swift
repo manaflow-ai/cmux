@@ -62,6 +62,9 @@ struct SSHWorkspaceListPanelActions {
     let refresh: @Sendable (UUID) async -> Void
     /// Reconnects an idle host; the runtime ignores it unless eligible.
     let autoConnect: (UUID) -> Void
+    /// Relists every connected SSH computer: the list is showing again, and
+    /// sessions may have been created or closed while it was hidden.
+    let refreshConnected: () -> Void
 }
 
 extension View {
@@ -91,6 +94,12 @@ private struct SSHWorkspaceListPanelModifier: ViewModifier {
         content
             .onChange(of: autoConnectHostID, initial: true) { _, hostID in
                 if let hostID { actions.autoConnect(hostID) }
+            }
+            // Back from a workspace, or back to the foreground: the list may
+            // be stale (a session made with `+`, or on a laptop meanwhile).
+            .onAppear { actions.refreshConnected() }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { actions.refreshConnected() }
             }
             .overlay {
                 if let panel, !panel.hasWorkspaces {

@@ -1756,7 +1756,8 @@ struct WorkspaceShellView: View {
         let store = store
         return SSHWorkspaceListPanelActions(
             refresh: { hostID in await store.openSSHComputer(hostID: hostID) },
-            autoConnect: { hostID in store.autoConnectSSHComputer(hostID: hostID) }
+            autoConnect: { hostID in store.autoConnectSSHComputer(hostID: hostID) },
+            refreshConnected: { store.sshComputers.refreshConnectedHosts() }
         )
     }
 

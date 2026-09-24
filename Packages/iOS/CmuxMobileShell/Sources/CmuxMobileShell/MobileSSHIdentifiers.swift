@@ -28,6 +28,13 @@ enum MobileSSHIdentifiers {
         identifier.hasPrefix(prefix)
     }
 
+    /// Whether `identifier` is a well-formed workspace or surface id
+    /// (`cmux-ssh-<host uuid>~<local id>`). Aggregated row ids that merely
+    /// start with the prefix are not.
+    static func isScopedID(_ identifier: String) -> Bool {
+        hostID(of: identifier) != nil && localID(of: identifier) != nil
+    }
+
     /// The host that owns a computer, workspace, or surface id.
     static func hostID(of identifier: String) -> UUID? {
         guard owns(identifier) else { return nil }

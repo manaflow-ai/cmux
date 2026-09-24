@@ -5,12 +5,29 @@ import Foundation
 /// channel (no PTY, so the stream carries no DCS framing or CRs).
 ///
 /// The client attaches through its OWN grouped session
-/// (`new-session -t <session> -s <session>-cmux-ios-<id>`, destroyed when
-/// unattached): the group shares windows and panes with the user's session
-/// but keeps its own current window, so the phone never switches the window
-/// a laptop is looking at. Control mode reports `%output` for every pane in
-/// every window of the attached session, so one channel serves every pane
-/// surface of the workspace.
+/// (`new-session -t <session> -s <session>-cmux-ios-<id>`): the group shares
+/// windows and panes with the user's session but keeps its own current
+/// window, so the phone never switches the window a laptop is looking at.
+/// Control mode reports `%output` for every pane in every window of the
+/// attached session, so one channel serves every pane surface of the
+/// workspace.
+///
+/// Grouped-session lifetime is owned by the phone, never by tmux's
+/// `destroy-unattached`. With that option on, tmux 3.7c segfaults and takes
+/// down every session on the server when two such control clients lose their
+/// SSH channels at once (app killed): the first lost client's size
+/// recalculation counts the second, already exiting, client as unattached,
+/// `destroy-unattached` frees the second grouped session under it, and
+/// `server_client_lost` then dereferences that session's NULL current window
+/// (`server_client_get_pane`). So the start command turns the option OFF for
+/// the grouped session (overriding a user's global setting), a graceful
+/// ``close()`` kills the grouped session, and
+/// ``MobileSSHTmuxProvider/collectStaleGroupedSessions()`` removes the ones an
+/// abrupt disconnect left behind. `kill-session` is safe where
+/// `destroy-unattached` is not: it detaches every client of the session
+/// before freeing it. Creating and attaching in one `-C new-session` keeps
+/// the session attached from the moment it exists, so another phone's
+/// collection pass can never mistake it for a stale one.
 ///
 /// Pane seeding follows the Mac mirror (`RemoteTmuxControlConnection+Commands.swift`
 /// `capturePane`): pause this client's output for the pane, read the
@@ -48,6 +65,9 @@ final class MobileSSHTmuxControlClient {
         var events: @MainActor (MobileSSHAttachEvent) -> Void
         var state: SeedState
         var grid: (columns: Int, rows: Int)?
+        /// Every `%output` chunk passes through, including ones dropped
+        /// before the capture, so a title split across chunks stays whole.
+        var titles = MobileSSHTmuxTitleSequenceFilter()
     }
 
     private enum SeedState {
@@ -64,12 +84,20 @@ final class MobileSSHTmuxControlClient {
         self.channel = channel
     }
 
-    /// Starts `tmux -C` in a new grouped session of `session`.
-    static func open(connection: SSHConnection, tmuxPath: String, session: String) async throws -> MobileSSHTmuxControlClient {
+    /// The shell command that starts the control client: create the grouped
+    /// session and attach to it in one step, then make sure tmux never
+    /// destroys it on its own (see the type comment).
+    nonisolated static func startCommand(tmux: String, session: String, grouped: String) -> String {
+        "\(tmux) -C new-session -t \(MobileSSHShell.quote("=" + session)) -s \(MobileSSHShell.quote(grouped))"
+            // `set-option -t` takes a pane target: `=name:` selects the session exactly.
+            + " \\; set-option -t \(MobileSSHShell.quote("=" + grouped + ":")) destroy-unattached off"
+    }
+
+    /// Starts `tmux -C` in a new grouped session of `session`. `tmux` is the
+    /// shell-quoted tmux command (path and socket arguments).
+    static func open(connection: SSHConnection, tmux: String, session: String) async throws -> MobileSSHTmuxControlClient {
         let grouped = session + groupedSessionMarker + UUID().uuidString.prefix(8).lowercased()
-        let tmux = MobileSSHShell.quote(tmuxPath)
-        let command = "\(tmux) -C new-session -t \(MobileSSHShell.quote("=" + session)) -s \(MobileSSHShell.quote(grouped))"
-            + " \\; set-option -t \(MobileSSHShell.quote(grouped)) destroy-unattached on"
+        let command = startCommand(tmux: tmux, session: session, grouped: grouped)
         let channel = try await connection.openSession(environment: ["LANG": "en_US.UTF-8"], start: .exec(command))
         let client = MobileSSHTmuxControlClient(sessionName: session, groupedSessionName: grouped, channel: channel)
         client.startPump()
@@ -103,6 +131,8 @@ final class MobileSSHTmuxControlClient {
                     break
                 }
             }
+            // The stream can also just end (connection torn down).
+            self?.finish()
         }
     }
 
@@ -237,11 +267,16 @@ final class MobileSSHTmuxControlClient {
         return nil
     }
 
-    /// Detaches the control client; its grouped session is destroyed.
+    /// Detaches the control client and kills its grouped session (the
+    /// session's windows live on in the user's session).
+    ///
+    /// Waits for tmux to act on the kill before closing the channel: the
+    /// reply (`%end`), or the `%exit` / channel close that ends the client,
+    /// resolves it, so a disconnect right after this never races the kill
+    /// and leaves the session for the next connect's collection.
     func close() async {
         guard !isClosed else { return }
-        send("kill-session -t \(Self.quoteForTmux(groupedSessionName))")
-        await writeChain?.value
+        _ = try? await command("kill-session -t \(Self.quoteForTmux("=" + groupedSessionName))")
         await channel.close()
         finish()
     }
@@ -250,8 +285,11 @@ final class MobileSSHTmuxControlClient {
 
     private func handle(_ message: MobileSSHTmuxControlMessage) {
         switch message {
-        case .output(let pane, let data):
+        case .output(let pane, let raw):
             guard var entry = panes[pane] else { return }
+            let data = entry.titles.filter(raw).output
+            panes[pane] = entry
+            guard !data.isEmpty else { return }
             switch entry.state {
             case .awaitingCapture:
                 break

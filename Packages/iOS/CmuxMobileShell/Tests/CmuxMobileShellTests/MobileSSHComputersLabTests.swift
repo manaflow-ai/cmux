@@ -167,7 +167,7 @@ struct MobileSSHComputersLabTests {
     @Test(.timeLimit(.minutes(2))) func tmuxSplitWindowPanesAreSeparateTabs() async throws {
         let session = "cmux-lab-split-\(UUID().uuidString.prefix(6))"
         Self.tmux("new-session", "-d", "-s", session, "-x", "120", "-y", "40")
-        defer { Self.tmux("kill-session", "-t", "=" + session) }
+        defer { Self.killSessionAndPhoneGroups(session) }
         Self.tmux("split-window", "-h", "-t", "=" + session + ":")
         let panes = Self.tmux("list-panes", "-t", "=" + session + ":", "-F", "#{pane_id}").split(separator: "\n").map(String.init)
         try #require(panes.count == 2)
@@ -217,7 +217,7 @@ struct MobileSSHComputersLabTests {
         await computers.open(hostID: host.id)
         let scoped = try #require(await computers.createWorkspace(hostID: host.id))
         let session = try #require(MobileSSHIdentifiers.localID(of: scoped))
-        defer { Self.tmux("kill-session", "-t", "=" + session) }
+        defer { Self.killSessionAndPhoneGroups(session) }
         #expect(computers.supportsTerminalTabs(workspaceID: scoped))
 
         let first = try #require(sink.states.last?.workspaces.first { $0.id.rawValue == scoped }?.terminals.first).id.rawValue
@@ -262,7 +262,7 @@ struct MobileSSHComputersLabTests {
     @Test(.timeLimit(.minutes(2))) func tmuxControlModeCoversAllWindowsAndTopology() async throws {
         let session = "cmux-lab-topo-\(UUID().uuidString.prefix(6))"
         Self.tmux("new-session", "-d", "-s", session)
-        defer { Self.tmux("kill-session", "-t", "=" + session) }
+        defer { Self.killSessionAndPhoneGroups(session) }
         Self.tmux("new-window", "-d", "-t", "=" + session + ":")
         let (computers, sink, host) = try await makeRuntime()
         defer { Task { @MainActor in await cleanup(computers, host: host) } }
@@ -314,6 +314,17 @@ struct MobileSSHComputersLabTests {
         try await sink.waitForOutput(surface) { !$0.isEmpty }
         computers.input(Data("echo tui-$((9*9))\r".utf8), surfaceID: surface)
         try await sink.waitForOutput(surface) { $0.contains("tui-81") }
+    }
+
+    /// Kills a test session and any phone grouped session still attached to
+    /// it: the runtime cleanup below runs in a detached task that can outlive
+    /// the test, and tmux no longer destroys grouped sessions on its own.
+    static func killSessionAndPhoneGroups(_ session: String) {
+        let prefix = session + MobileSSHTmuxControlClient.groupedSessionMarker
+        for name in tmux("list-sessions", "-F", "#{session_name}").split(separator: "\n") where name.hasPrefix(prefix) {
+            tmux("kill-session", "-t", "=" + name)
+        }
+        tmux("kill-session", "-t", "=" + session)
     }
 
     /// Runs the lab's tmux directly (same user and server as the lab sshd).

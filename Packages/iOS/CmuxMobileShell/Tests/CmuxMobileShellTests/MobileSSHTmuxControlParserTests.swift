@@ -113,4 +113,82 @@ struct MobileSSHTmuxControlParserTests {
         #expect(workspaces[0].terminals.map(\.name) == ["0:zsh · pane 1", "0:zsh · pane 2", "1:logs: tail"])
         #expect(MobileSSHTmuxProvider.parseTerminalID("a/b/%12")! == ("a/b", 12))
     }
+
+    // MARK: Screen title sequences
+
+    private func filtered(_ chunks: [String]) -> (output: String, titles: [String]) {
+        var filter = MobileSSHTmuxTitleSequenceFilter()
+        var output = Data()
+        var titles: [String] = []
+        for chunk in chunks {
+            let result = filter.filter(Data(chunk.utf8))
+            output.append(result.output)
+            titles += result.titles
+        }
+        return (String(decoding: output, as: UTF8.self), titles)
+    }
+
+    /// zsh under tmux emits `ESC k <title> ESC \` (laptop log:
+    /// `%output %56 \033k/tmp\033\134`); it rendered as a stray "/tmp" line.
+    @Test func screenTitleSequenceIsRemoved() {
+        let result = filtered(["a\u{1B}k/tmp\u{1B}\\b"])
+        #expect(result.output == "ab")
+        #expect(result.titles == ["/tmp"])
+    }
+
+    @Test func screenTitleSplitAcrossEveryChunkBoundaryIsRemoved() {
+        let text = "prompt \u{1B}k..w/cmuxterm-hq\u{1B}\\% \u{1B}[1mbold\u{1B}[0m"
+        let bytes = Array(text.utf8)
+        for split in 1..<bytes.count {
+            var filter = MobileSSHTmuxTitleSequenceFilter()
+            var output = filter.filter(Data(bytes[..<split])).output
+            output.append(filter.filter(Data(bytes[split...])).output)
+            #expect(String(decoding: output, as: UTF8.self) == "prompt % \u{1B}[1mbold\u{1B}[0m", "split at \(split)")
+        }
+        // One byte per chunk.
+        #expect(filtered(text.map(String.init)).output == "prompt % \u{1B}[1mbold\u{1B}[0m")
+    }
+
+    @Test func screenTitleEndsOnBELAndOtherEscapesPassThrough() {
+        let result = filtered(["\u{1B}kvim\u{07}\u{1B}]0;osc\u{07}\u{1B}[2J\u{1B}\u{1B}[m"])
+        #expect(result.titles == ["vim"])
+        #expect(result.output == "\u{1B}]0;osc\u{07}\u{1B}[2J\u{1B}\u{1B}[m")
+    }
+
+    @Test func escapeAtChunkEndIsHeldUntilTheNextByte() {
+        var filter = MobileSSHTmuxTitleSequenceFilter()
+        #expect(filter.filter(Data("x\u{1B}".utf8)).output == Data("x".utf8))
+        #expect(filter.filter(Data("[A".utf8)).output == Data("\u{1B}[A".utf8))
+    }
+
+    @Test func unterminatedTitleEndedByAnotherEscapeKeepsThatEscape() {
+        let result = filtered(["\u{1B}kname\u{1B}[31mred"])
+        #expect(result.titles == ["name"])
+        #expect(result.output == "\u{1B}[31mred")
+    }
+
+    // MARK: Grouped sessions
+
+    /// The control client's start command creates and attaches its grouped
+    /// session in one step and turns tmux's `destroy-unattached` OFF for it:
+    /// that option crashed tmux 3.7c when two phone clients dropped at once.
+    @Test func startCommandNeverAsksTmuxToDestroyTheGroupedSession() {
+        let command = MobileSSHTmuxControlClient.startCommand(tmux: "'/opt/homebrew/bin/tmux'", session: "vt-main", grouped: "vt-main-cmux-ios-abcd1234")
+        #expect(command.hasPrefix("'/opt/homebrew/bin/tmux' -C new-session -t '=vt-main' -s 'vt-main-cmux-ios-abcd1234'"))
+        #expect(command.hasSuffix(" \\; set-option -t '=vt-main-cmux-ios-abcd1234:' destroy-unattached off"))
+        #expect(!command.contains("destroy-unattached on"))
+        #expect(!command.contains("switch-client"))
+    }
+
+    @Test func staleGroupedSessionsAreUnattachedPhoneSessionsOnly() {
+        let output = [
+            "0:vt-main-cmux-ios-dead0001",
+            "1:vt-main-cmux-ios-live0002",
+            "0:vt-main",
+            "2:work",
+            "0:odd:name-cmux-ios-dead0003",
+            "garbage",
+        ].joined(separator: "\n")
+        #expect(MobileSSHTmuxProvider.staleGroupedSessions(output) == ["vt-main-cmux-ios-dead0001", "odd:name-cmux-ios-dead0003"])
+    }
 }

@@ -2359,7 +2359,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // on the next foreground / Computers `.task` / pull-to-refresh.
         teardownSecondaryMacSubscriptions()
         let foregroundKey = foregroundMacKey
-        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.pairingID)
+        // SSH computers are device-local, not team-scoped (PRD D5).
+        workspacesByMac = workspacesByMac.filter { $0.key == foregroundKey || sshOwnsPairingKey($0.key) }; pruneStableMacColorSlots(keepingForegroundKey: foregroundKey.pairingID)
         retainForegroundNotificationFeedSnapshot()
         // Restore memo: invalidate so the next read re-restores for the new
         // (account, team) scope, and a suspended old-team restore can't resume.
@@ -6112,6 +6113,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             for retainedOwnerKey in retainedOwnerKeys {
                 guard retainedOwnerKey != .anonymousForeground,
                       retainedOwnerKey != liveForegroundKey,
+                      // SSH computers are served on the phone and are never
+                      // stored paired Macs; their runtime owns their rows.
+                      !sshOwnsPairingKey(retainedOwnerKey),
                       // The foreground's device-keyed feed snapshot has no tag
                       // dimension; only the exact live foreground device keeps
                       // that spelling.
@@ -7607,7 +7611,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func markSecondaryMacUnavailable(_ ownerKey: MacPairingKey) {
         // The demonstration entry is served locally; no transport or refresh
         // failure can make it unavailable.
-        guard ownerKey != Self.demonstrationPairingKey else { return }
+        guard ownerKey != Self.demonstrationPairingKey, !sshOwnsPairingKey(ownerKey) else { return }
         guard var state = workspacesByMac[ownerKey] else { return }
         state.status = .unavailable
         state.workspaceGroupsAreAuthoritative = false
@@ -11265,6 +11269,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // served locally and its liveness is unrelated to the torn-down
             // real connection.
             guard key != Self.demonstrationPairingKey else { return false }
+            // SSH computers publish their own status from their own connections.
+            guard !sshOwnsPairingKey(key) else { return false }
             return key == offlineForegroundKey || !preservingOtherMacWorkspaceState
         }
         var updatedWorkspacesByMac = workspacesByMac

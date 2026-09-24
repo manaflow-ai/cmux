@@ -31,13 +31,19 @@ extension MobileShellComposite {
         }
     }
 
-    /// The SSH-namespaced id of a workspace row (rows may be re-keyed by
-    /// aggregation; the RPC id keeps the SSH scope).
-    func sshScopedWorkspaceID(_ id: MobileWorkspacePreview.ID) -> String? {
-        if MobileSSHIdentifiers.owns(id.rawValue) { return id.rawValue }
-        guard let row = workspaces.first(where: { $0.id == id }),
-              MobileSSHIdentifiers.owns(row.rpcWorkspaceID.rawValue) else { return nil }
-        return row.rpcWorkspaceID.rawValue
+    /// The SSH-namespaced id (`cmux-ssh-<host>~<local>`) of a workspace row.
+    ///
+    /// With more than one computer in the list, aggregation re-keys every row
+    /// as `<owner id><US><local id>`. An SSH computer's owner id is itself
+    /// `cmux-ssh-<host>`, so the re-keyed row id still starts with the SSH
+    /// prefix but no longer parses; the row's RPC id keeps the scoped id.
+    /// Resolve through the row first and accept a raw id only when it parses.
+    public func sshScopedWorkspaceID(_ id: MobileWorkspacePreview.ID) -> String? {
+        if let row = workspaces.first(where: { $0.id == id }) {
+            let rpcID = row.rpcWorkspaceID.rawValue
+            return MobileSSHIdentifiers.isScopedID(rpcID) ? rpcID : nil
+        }
+        return MobileSSHIdentifiers.isScopedID(id.rawValue) ? id.rawValue : nil
     }
 
     // MARK: Pane geometry
