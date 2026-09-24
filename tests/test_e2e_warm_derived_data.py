@@ -184,10 +184,15 @@ class AdoptionBudget(unittest.TestCase):
 
     def test_an_adoption_over_budget_starts_cold_and_names_its_phase(self):
         def slow_restore(_workspace, derived, _key):
+            import signal
+
             with warm.phase("extract DerivedData"):
                 Path(derived, "half.o").write_text("partial")
-                import time
-                time.sleep(5)
+                # The budget is armed for the whole adoption; expire it now
+                # instead of waiting a real second for it.
+                remaining = signal.getitimer(signal.ITIMER_REAL)[0]
+                self.assertTrue(0 < remaining <= 1, f"budget alarm armed for {remaining}s")
+                os.kill(os.getpid(), signal.SIGALRM)
             self.fail("the budget did not interrupt the adoption")
 
         status, left, output = self.run_restore(slow_restore)
@@ -201,9 +206,10 @@ class AdoptionBudget(unittest.TestCase):
         def quick_restore(_workspace, _derived, _key):
             return {"hit": "true"}
 
+        import signal
+
         status, left, output = self.run_restore(quick_restore)
-        import time
-        time.sleep(1.5)  # past the budget: a still-armed alarm would fire here
+        self.assertEqual(signal.getitimer(signal.ITIMER_REAL)[0], 0, "the budget alarm is still armed")
         self.assertEqual(status, 0)
         self.assertIn("hit=true", output)
         self.assertEqual(len(left), 1)
