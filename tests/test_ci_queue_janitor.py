@@ -65,7 +65,7 @@ def doomed_jobs(*, queued=2, running=1, conclusion="failure", failed_age=30, nam
 
 
 def make_pr(number=1, *, state="OPEN", draft=False, head="aaa", labels=(), owner="manaflow-ai", timeline=(),
-            files=("web/app/page.tsx",), files_truncated=False):
+            files=("web/app/page.tsx",), files_truncated=False, labels_truncated=False):
     return {
         "number": number, "state": state, "isDraft": draft, "headRefOid": head,
         "headRepositoryOwner": {"login": owner},
@@ -73,7 +73,7 @@ def make_pr(number=1, *, state="OPEN", draft=False, head="aaa", labels=(), owner
             "pageInfo": {"hasNextPage": files_truncated},
             "nodes": [{"path": path} for path in files],
         },
-        "labels": {"nodes": [{"name": name} for name in labels]},
+        "labels": {"pageInfo": {"hasNextPage": labels_truncated}, "nodes": [{"name": name} for name in labels]},
         "timelineItems": {"nodes": [
             {"__typename": kind, "createdAt": iso(age), "label": {"name": label}}
             for kind, label, age in timeline
@@ -495,6 +495,13 @@ class PlanTests(unittest.TestCase):
         main_run, main_jobs = busy_main_push(queued=9)
         busy = plan([main_run, rerun, opted_out], {main_run["id"]: main_jobs, **idle_jobs}, prs)
         self.assertEqual([c.run["id"] for c in busy.to_cancel()], [rerun["id"], opted_out["id"]])
+
+    def test_a_stale_run_with_an_unread_label_page_waits_for_a_backed_up_pool(self):
+        # no-janitor may be on the page that was not fetched.
+        run = make_run(branch="moved-branch", sha="old")
+        prs = {"moved-branch": [make_pr(1, head="new", labels_truncated=True)]}
+        result = plan([run], {run["id"]: mac_jobs(running=1)}, prs)
+        self.assertEqual(result.to_cancel(), [])
 
     def test_cancel_cap(self):
         main_run, main_jobs = busy_main_push(queued=30)
