@@ -7,9 +7,10 @@ name: reload-build
 # for an ephemeral branch holding the caller's working tree, then download the
 # produced artifact and install it locally. Dispatch on the default branch and
 # pass the ephemeral branch as `ref`: caches are scoped to the dispatch ref, so a
-# run dispatched on the ephemeral branch itself saves caches no later run reads. This is the Blacksmith alternative to
-# SSH-leasing a fleet Mac. It is workflow_dispatch ONLY: nothing here runs on push
-# or pull_request, so it never adds to the heavy CI fan-out.
+# run dispatched on the ephemeral branch itself saves caches no later run reads.
+# This is the Blacksmith alternative to SSH-leasing a fleet Mac. It is
+# workflow_dispatch ONLY: nothing here runs on push or pull_request, so it never
+# adds to the heavy CI fan-out.
 
 on:
   workflow_dispatch:

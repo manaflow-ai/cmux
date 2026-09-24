@@ -32,6 +32,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "reload-build.yml"
 METADATA_STEP = "Prepare macOS cache metadata"
+EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 OUTPUT_REF = re.compile(r"^\$\{\{ steps\.cache_meta\.outputs\.([A-Za-z0-9_]+) \}\}$")
 
 FAKE_XCODEBUILD = """#!/bin/sh
@@ -85,8 +86,42 @@ def commit_change(repo: Path, text: str) -> None:
     git(repo, "commit", "-q", "-m", text)
 
 
-def cache_metadata(repo: Path, source_ref: str, run_id: str) -> dict[str, str]:
+def step_env(source_ref: str, dispatch_ref: str) -> dict[str, str]:
+    """Evaluate the step's own `env:` block for one dispatch.
+
+    Every expression that can carry ref text receives the spelling under test,
+    so ref-text keying fails here under any env name the step chooses.
+    """
+    values = {
+        "inputs.ref": source_ref,
+        "github.ref_name": dispatch_ref,
+        "github.ref": f"refs/heads/{dispatch_ref}",
+        "github.head_ref": dispatch_ref,
+        "github.event.repository.default_branch": "main",
+    }
+    env = {}
+    for name, raw in (step_named(METADATA_STEP).get("env") or {}).items():
+        match = EXPRESSION.fullmatch(str(raw).strip())
+        if not match:
+            env[name] = str(raw)
+            continue
+        text = ""
+        for operand in match.group(1).split("||"):
+            operand = operand.strip()
+            assert operand in values, f"{METADATA_STEP}: unmodelled env expression {raw!r}"
+            text = values[operand]
+            if text:
+                break
+        env[name] = text
+    return env
+
+
+def cache_metadata(
+    repo: Path, source_ref: str, run_id: str, dispatch_ref: str | None = None
+) -> dict[str, str]:
     script = step_named(METADATA_STEP)["run"]
+    if dispatch_ref is None:
+        dispatch_ref = source_ref or "main"
     bin_dir = repo.parent.parent.parent / "bin"
     bin_dir.mkdir(exist_ok=True)
     fake = bin_dir / "xcodebuild"
@@ -96,8 +131,8 @@ def cache_metadata(repo: Path, source_ref: str, run_id: str) -> dict[str, str]:
     output.write_text("")
     env = {
         **os.environ,
+        **step_env(source_ref, dispatch_ref),
         "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
-        "SOURCE_REF": source_ref,
         "GITHUB_OUTPUT": str(output),
         "GITHUB_WORKSPACE": "/Users/runner/_work/cmux/cmux",
         "GITHUB_RUN_ID": run_id,
@@ -114,7 +149,7 @@ def cache_metadata(repo: Path, source_ref: str, run_id: str) -> dict[str, str]:
         check=False,
     )
     assert result.returncode == 0, result.stderr
-    values = {}
+    values = {"_stdout": result.stdout}
     for line in output.read_text().splitlines():
         name, _, value = line.partition("=")
         values[name] = value
@@ -196,10 +231,21 @@ def test_generic_fallback_names_no_branch_or_commit() -> None:
             assert part in fallback, (part, fallback)
 
 
+def test_off_default_dispatch_warns_that_its_save_is_private() -> None:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        repo = make_repo(Path(temp_dir))
+        sha = git(repo, "rev-parse", "HEAD")
+        private = cache_metadata(repo, sha, "400", dispatch_ref="reload-blacksmith/one-call")
+        shared = cache_metadata(repo, sha, "401", dispatch_ref="main")
+        assert "::notice::" in private["_stdout"], private["_stdout"]
+        assert "::notice::" not in shared["_stdout"], shared["_stdout"]
+
+
 def main() -> int:
     test_every_ref_spelling_of_one_commit_keys_identically()
     test_later_commit_restores_an_earlier_entry_under_any_ref_text()
     test_generic_fallback_names_no_branch_or_commit()
+    test_off_default_dispatch_warns_that_its_save_is_private()
     print("PASS: reload-build caches key on the commit and fall back across refs")
     return 0
 
