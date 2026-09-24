@@ -73,7 +73,8 @@ def api_request(method: str, path: str, *, payload: dict | None = None) -> dict:
                 raw = response.read()
             return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
-            message = error.read().decode("utf-8", errors="replace")
+            # A stalled or proxied failure can arrive without a body.
+            message = (error.fp.read() if error.fp else b"").decode("utf-8", errors="replace")
             if not _retryable(error.code) or attempt + 1 == attempts:
                 raise TagUpdateError(error.code, message) from error
         except (OSError, urllib.error.URLError) as error:

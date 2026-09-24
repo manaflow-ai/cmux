@@ -164,10 +164,11 @@ def github_api_json(method: str, path: str) -> dict:
                     return {}
                 return json.loads(body)
             except urllib.error.HTTPError as exc:
-                message = exc.read().decode("utf-8", errors="replace")
+                # A stalled or proxied failure can arrive without a body.
+                message = (exc.fp.read() if exc.fp else b"").decode("utf-8", errors="replace")
                 if not _retryable_api_error(exc.code, message) or attempt + 1 == attempts:
                     raise GitHubAPIError(exc.code, message) from exc
-                retry_after = exc.headers.get("Retry-After")
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
                 try:
                     delay = max(float(retry_after), 0.0) if retry_after else base_delay * (2 ** attempt)
                 except ValueError:
