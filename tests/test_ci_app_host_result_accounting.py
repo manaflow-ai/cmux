@@ -345,6 +345,53 @@ def test_catalog_may_only_shrink() -> None:
             assert status == expected
 
 
+def _catalog_diff(base: dict[str, object], current: dict[str, object]) -> int:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path = root / "base.json"
+        current_path = root / "current.json"
+        base_path.write_text(json.dumps(base), encoding="utf-8")
+        current_path.write_text(json.dumps(current), encoding="utf-8")
+        return accounting.command_catalog_diff(
+            SimpleNamespace(base=base_path, current=current_path)
+        )
+
+
+def test_empty_catalog_bootstraps_once_from_a_pinned_main_census() -> None:
+    """The catalog's own comment promises a bootstrap; the diff used to forbid it.
+
+    Every addition was rejected, including the first, so the ratchet could
+    never tolerate anything and every app-host PR inherited main's whole red
+    set.
+    """
+    empty = {"bootstrap_main_sha": None, "version": 1, "tests": {}}
+    census = _catalog({
+        "FooTests/testOne()": {"classification": "product bug", "issue": 1},
+        "BarTests/testTwo()": {"classification": "unknown"},
+    })
+    assert _catalog_diff(empty, census) == 0
+
+    # Once pinned, growth is closed again, even by re-stating the same SHA.
+    grown = json.loads(json.dumps(census))
+    grown["tests"]["BazTests/testThree()"] = {"classification": "unknown"}
+    assert _catalog_diff(census, grown) == 1
+
+
+def test_bootstrap_still_requires_a_pinned_sha() -> None:
+    empty = {"bootstrap_main_sha": None, "version": 1, "tests": {}}
+    unpinned = {
+        "bootstrap_main_sha": None,
+        "version": 1,
+        "tests": {"FooTests/testOne()": {"classification": "unknown"}},
+    }
+    try:
+        _catalog_diff(empty, unpinned)
+    except ValueError as error:
+        assert "bootstrap_main_sha" in str(error)
+    else:
+        raise AssertionError("an unpinned catalog was bootstrapped")
+
+
 def test_catalog_diff_rejects_changed_bootstrap_sha_even_when_tests_match() -> None:
     base = {
         "bootstrap_main_sha": "1" * 40,

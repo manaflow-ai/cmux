@@ -117,6 +117,41 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("runner", self.dispatch())
 
+    def test_odd_commits_compile_on_the_large_sku(self):
+        # REMOTE_HEAD ends in b, so it is routed; HEAD ends in a, so it is not.
+        result = self.launch("cmuxTests/ExampleTests", "--ref", "topic/fix")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["runner"], "blacksmith-12vcpu-macos-26")
+
+    def test_an_explicit_runner_is_never_rerouted(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--ref", "topic/fix",
+            "--runner", "blacksmith-6vcpu-macos-26",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["runner"], "blacksmith-6vcpu-macos-26")
+
+    def test_an_admin_runner_variable_is_never_split(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--ref", "topic/fix",
+            LAUNCHER_VARIABLES=json.dumps([
+                {"name": "MACOS_RUNNER_TESTS", "value": "blacksmith-6vcpu-macos-15"},
+            ]),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("runner", self.dispatch())
+
+    def test_a_routed_commit_reuses_its_in_flight_run_on_the_large_sku(self):
+        result = self.launch(
+            "cmuxTests/ExampleTests", "--ref", "topic/fix",
+            LAUNCHER_PRIOR_RUNS=self._live(
+                commit=REMOTE_HEAD, runner="blacksmith-12vcpu-macos-26",
+            ),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("reusing that run", result.stdout)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
     def test_invalid_runner_is_rejected_before_github_access(self):
         result = self.launch("cmuxTests/ExampleTests", "--runner", "macos-15")
         self.assertNotEqual(result.returncode, 0)
