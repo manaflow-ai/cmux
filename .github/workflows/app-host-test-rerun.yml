@@ -154,7 +154,11 @@ jobs:
       - name: Fetch the products' revision and package submodules
         run: |
           set -euo pipefail
-          git fetch --no-tags --depth=1 origin "$SOURCE_SHA"
+          # Only "Stage and validate products" checks this revision out, and it
+          # differs from the tested one only in files no app target reads.
+          # Without blobs the fetch is a tree walk; the checkout then fetches
+          # just the files that differ.
+          git fetch --no-tags --depth=1 --filter=blob:none origin "$SOURCE_SHA"
           # Only vendor/bonsplit is a Swift package; GhosttyKit is downloaded
           # by the submodule's recorded SHA without checking it out.
           git submodule update --init --depth 1 vendor/bonsplit
