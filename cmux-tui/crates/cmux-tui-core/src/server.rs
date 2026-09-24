@@ -10066,6 +10066,12 @@ fn retains_exited_terminal(mux: &Mux, surface: &crate::Surface) -> bool {
     })
 }
 
+fn get_retained_view_surface(mux: &Mux, id: SurfaceId) -> anyhow::Result<Arc<crate::Surface>> {
+    mux.surface(id)
+        .filter(|surface| !surface.is_dead() || retains_exited_terminal(mux, surface))
+        .ok_or_else(|| anyhow::anyhow!("unknown surface {id}"))
+}
+
 fn detached_surface_message(mux: &Mux, id: SurfaceId) -> Value {
     // A finite final replay ends its stream without removing the retained
     // terminal. Tell clients to keep that mirror until topology removes it.
@@ -11484,6 +11490,9 @@ fn handle_command_with_cancellation(
             if exclusive && !enabled {
                 anyhow::bail!("exclusive client sizing must be enabled");
             }
+            if mux.surface(surface).is_some_and(|surface| retains_exited_terminal(mux, &surface)) {
+                return Ok(json!({}));
+            }
             get_surface(mux, surface)?;
             if exclusive && target.is_none() {
                 mux.use_only_client_size(surface, client).ok_or_else(|| {
@@ -12476,7 +12485,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::CloseSurface { surface } => {
-            get_surface(mux, surface)?;
+            get_retained_view_surface(mux, surface)?;
             if !mux.close_surface(surface)? {
                 anyhow::bail!("unknown surface {surface}");
             }
@@ -12798,7 +12807,7 @@ fn handle_command_with_cancellation(
             })
         }
         Command::ScrollSurface { surface, delta } => {
-            let surface = get_surface(mux, surface)?;
+            let surface = get_retained_view_surface(mux, surface)?;
             require_pty(&surface)?;
             mux.scroll_surface_viewport(&surface, delta)?;
             Ok(json!({}))
@@ -12919,10 +12928,7 @@ fn handle_command_with_cancellation(
             // Process exit does not remove a keep-on-exit terminal's view.
             // Its surface still owns the final VT replay; attachment is a read
             // operation, so do not apply the live-child guard used by input.
-            let surface = mux
-                .surface(surface_id)
-                .filter(|surface| !surface.is_dead() || retains_exited_terminal(mux, surface))
-                .ok_or_else(|| anyhow::anyhow!("unknown surface {surface_id}"))?;
+            let surface = get_retained_view_surface(mux, surface_id)?;
             // Retained output has no live PTY to resize. Preserve attachment
             // bookkeeping while replaying the final geometry unchanged.
             let initial_size =
@@ -19816,6 +19822,16 @@ mod tests {
                     break;
                 }
             }
+            handle_command(
+                &mux,
+                client,
+                Command::ScrollSurface { surface: id, delta: -1 },
+                &writer,
+            )
+            .expect("retained view must remain scrollable");
+            handle_command(&mux, client, Command::CloseSurface { surface: id }, &writer)
+                .expect("retained view must remain closable");
+            assert!(!surface_has_view_placement(&mux, id));
             disconnect_client(&mux, client, false);
             mux.shutdown();
         }
