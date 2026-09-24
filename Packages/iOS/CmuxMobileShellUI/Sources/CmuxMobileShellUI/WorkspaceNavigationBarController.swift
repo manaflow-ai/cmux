@@ -12,9 +12,6 @@ final class WorkspaceNavigationBarController: UIViewController {
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroups: [UIBarButtonItemGroup] = []
     private var trailingGroupLandscape: Bool?
-    private lazy var forcedOverflowItems = UIDeferredMenuElement.uncached { completion in
-        completion([])
-    }
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
 
@@ -135,10 +132,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         if !item.trailingItemGroups.elementsEqual(trailingGroups, by: { $0 === $1 }) {
             item.trailingItemGroups = trailingGroups
         }
-        if #available(iOS 16.0, *) {
-            let needsOverflowButton = !isLandscape && trailingIDs.contains(.alternateScreen)
-            item.additionalOverflowItems = needsOverflowButton ? forcedOverflowItems : nil
-        }
+        if #available(iOS 16.0, *) { item.additionalOverflowItems = nil }
         if item.pinnedTrailingGroup != nil {
             item.pinnedTrailingGroup = nil
         }
@@ -149,11 +143,19 @@ final class WorkspaceNavigationBarController: UIViewController {
         isLandscape: Bool
     ) -> [UIBarButtonItemGroup] {
         let warning = ids.first(where: { $0 == .alternateScreen }).flatMap { controls[$0]?.button }
+        let overflow = ids.first(where: { $0 == .overflow }).flatMap { controls[$0]?.button }
         let collapsible = ids.filter { $0 != .alternateScreen }.compactMap { controls[$0]?.button }
         for item in collapsible {
             item.isHidden = false
         }
-        let items = ([warning].compactMap { $0 } + collapsible)
+        overflow?.isHidden = true
+        if let warning, !isLandscape, let overflow {
+            for item in collapsible where item !== overflow {
+                item.isHidden = true
+            }
+            return [UIBarButtonItemGroup(barButtonItems: [warning, overflow], representativeItem: nil)]
+        }
+        let items = ([warning].compactMap { $0 } + collapsible.filter { $0 !== overflow })
         guard !items.isEmpty else { return [] }
         let group = UIBarButtonItemGroup(barButtonItems: items, representativeItem: nil)
         if warning != nil, !isLandscape {
