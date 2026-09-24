@@ -31,6 +31,9 @@ final class HookPromptLengthUITests: XCTestCase {
         let appDiagnosticsURL = root.appendingPathComponent("app-diagnostics.json")
         let app = XCUIApplication.cmuxTestApplication()
         app.launchArguments += ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
+        app.launchEnvironment["HOME"] = root.path
+        app.launchEnvironment["CFFIXED_USER_HOME"] = root.path
+        app.launchEnvironment["XDG_CONFIG_HOME"] = root.appendingPathComponent(".config").path
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
@@ -61,7 +64,7 @@ final class HookPromptLengthUITests: XCTestCase {
         let process = Process()
         process.executableURL = try pythonExecutable()
         process.arguments = ["-c", Self.probe, cli, socketPath, root.path,
-            FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmuxterm/events.jsonl").path]
+            root.appendingPathComponent(".cmuxterm/events.jsonl").path]
         process.standardOutput = handle
         process.standardError = handle
         let finished = expectation(description: "hook and events CLI probe finished")
