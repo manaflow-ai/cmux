@@ -598,6 +598,10 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         "scripts/ci/swift_incremental_diagnostics.py",
         "scripts/ci/cmux_workload_profile.py",
         "scripts/ci/r2-canary-cloudflare.py",
+        # The persistent compile fleet operator command: gh API calls and
+        # launchd on the mini, never read by a build.
+        "scripts/persistent-compile",
+        "scripts/ci/persistent_compile_fleet.py",
     ):
         assert_areas([path], macos=False, web=False)
 
