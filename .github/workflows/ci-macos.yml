@@ -2366,8 +2366,9 @@ jobs:
     name: CLI product tests
     # cmuxCLITests has no app host, so it needs no testmanagerd control session
     # and no GUI console session. It still needs the compiled product, so it
-    # reuses macos-compile-admission's artifact like the app-host shards do.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    # reuses macos-compile-admission's artifact like the app-host shards do,
+    # on the same pool: GitHub-hosted macos-26 for forks.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 40
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
