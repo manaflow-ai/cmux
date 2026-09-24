@@ -8,8 +8,10 @@ import UIKit
 final class WorkspaceNavigationControlView: UIView {
     private let contentView: UIView & UIContentView
     private var width: NSLayoutConstraint?
+    private let minimumWidth: CGFloat
 
-    init(content: AnyView) {
+    init(content: AnyView, minimumWidth: CGFloat) {
+        self.minimumWidth = minimumWidth
         contentView = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -33,7 +35,7 @@ final class WorkspaceNavigationControlView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        return CGSize(width: contentSize.width + layoutMargins.left + layoutMargins.right, height: 36)
+        return CGSize(width: max(minimumWidth, contentSize.width + layoutMargins.left + layoutMargins.right), height: 36)
     }
 
     override func layoutMarginsDidChange() {

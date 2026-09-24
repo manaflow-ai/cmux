@@ -71,6 +71,12 @@ final class WorkspaceNavigationBarController: UINavigationController {
         titleCapsule.setNeedsLayout()
 
         for value in leadingItems + trailingItems {
+            let minimumWidth: CGFloat = switch value.id {
+            case .sidebar, .back: 52
+            case .alternateScreen: 41.3
+            case .changes: 55.3
+            case .terminals: 42.3
+            }
             let content = AnyView(value.content
                 .buttonStyle(.plain)
                 .imageScale(.large)
@@ -79,7 +85,7 @@ final class WorkspaceNavigationBarController: UINavigationController {
             if let control = controls[value.id] {
                 control.view.update(content: content)
             } else {
-                let customView = WorkspaceNavigationControlView(content: content)
+                let customView = WorkspaceNavigationControlView(content: content, minimumWidth: minimumWidth)
                 let button = UIBarButtonItem(customView: customView)
                 controls[value.id] = HostedControl(button: button, view: customView)
             }
