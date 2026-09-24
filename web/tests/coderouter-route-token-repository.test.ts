@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "b
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import { coderouterRouteTokens } from "../db/schema";
+import { vmToken } from "./vm-authorization-fixture";
 
 const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
@@ -12,6 +13,7 @@ type Statement = {
   readonly table: unknown;
   readonly values: Record<string, unknown>;
   readonly where: SQL | null;
+  readonly joins: readonly SQL[];
 };
 let statements: Statement[] = [];
 let returnedRows: Record<string, unknown>[] = [];
@@ -24,24 +26,32 @@ function whereResult(rows: Record<string, unknown>[]) {
 
 const stubDb = {
   select: (fields: Record<string, unknown>) => ({
-    from: (table: unknown) => ({
-      where: (where: SQL) => ({
-        limit: async () => {
-          statements.push({ kind: "select", table, values: fields, where });
-          return returnedRows;
+    from: (table: unknown) => {
+      const joins: SQL[] = [];
+      const builder = {
+        innerJoin: (_joinedTable: unknown, on: SQL) => {
+          joins.push(on);
+          return builder;
         },
-      }),
-    }),
+        where: (where: SQL) => ({
+          limit: async () => {
+            statements.push({ kind: "select", table, values: fields, where, joins });
+            return returnedRows;
+          },
+        }),
+      };
+      return builder;
+    },
   }),
   insert: (table: unknown) => ({
     values: async (values: Record<string, unknown>) => {
-      statements.push({ kind: "insert", table, values, where: null });
+      statements.push({ kind: "insert", table, values, where: null, joins: [] });
     },
   }),
   update: (table: unknown) => ({
     set: (values: Record<string, unknown>) => ({
       where: (where: SQL) => {
-        statements.push({ kind: "update", table, values, where });
+        statements.push({ kind: "update", table, values, where, joins: [] });
         return whereResult(returnedRows);
       },
     }),
@@ -104,6 +114,22 @@ describe("coderouter route token VM binding", () => {
     await expect(authenticateRouteToken(TOKEN)).resolves.toEqual({ teamId: "team-1", stackUserId: "user-1", vmId: null });
     returnedRows = [];
     await expect(authenticateRouteToken(TOKEN)).resolves.toBeNull();
+  });
+
+  test("signed VM authorization joins the legacy text binding without a uuid/text operator error", async () => {
+    const token = await vmToken("vm-1", "team-1", "user-1");
+    returnedRows = [{ poolId: "pool-1" }];
+    await expect(authenticateRouteToken(token)).resolves.toEqual({
+      teamId: "team-1",
+      stackUserId: "user-1",
+      vmId: "vm-1",
+      poolId: "pool-1",
+    });
+    const join = statements[0]?.joins[0];
+    expect(join).toBeDefined();
+    const joinSql = rendered(join ?? null).sql;
+    expect(joinSql).toContain('"cloud_vms"."id" = case');
+    expect(joinSql).toContain('"coderouter_route_tokens"."vm_id"::uuid');
   });
 
   test("authentication is a read-only lookup and defers a rate-limited last-used write", async () => {
