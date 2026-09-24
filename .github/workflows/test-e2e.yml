@@ -248,8 +248,43 @@ jobs:
           echo "Resolved target: $test_target"
           echo "Resolved selectors ($count): $selectors"
 
+  sibling:
+    # Dispatches of one commit with other selectors run in other concurrency
+    # groups, so each compiled the same product. When an earlier dispatch is
+    # already compiling this revision on the same macOS, wait for it here, on
+    # Linux, so this run holds no macOS runner meanwhile; the build job then
+    # adopts that product through its reuse step. See e2e_sibling_build.py.
+    needs: [resolve-ref, runner]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # The helper comes from this workflow's revision, not the tested one,
+      # which may predate it.
+      - name: Checkout sibling helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci/e2e_sibling_build.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # A seed dispatch exists to compile, and never adopts a product.
+      - name: Wait for an earlier compile of this revision
+        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
+          CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.label }}
+          CMUX_E2E_SIBLING_WAIT_SECONDS: "1800"
+        # Waiting is an economy, never a gate: every outcome compiles or adopts.
+        run: python3 scripts/ci/e2e_sibling_build.py wait || true
+
   build:
-    needs: [resolve-ref, filter, runner]
+    needs: [resolve-ref, filter, runner, sibling]
+    # The sibling wait never gates the build.
+    if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && needs.filter.result == 'success' && needs.runner.result == 'success' }}
     runs-on: ${{ needs.runner.outputs.label }}
     # Reuse lists this contract's artifacts and downloads one from an earlier
     # run. Nothing else in this lane reads the Actions API, and nothing writes.
@@ -683,6 +718,9 @@ jobs:
 
   test:
     needs: [resolve-ref, filter, runner, build]
+    # Like build: a failed sibling wait must not skip tests a build succeeded
+    # for, and the implicit success() reads every upstream job.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     # scripts/ci/parallel_artifact_download.py reads this run's artifact
     # metadata through the Actions API; the workflow-level token is
     # contents-only. Narrow and additive, mirroring ci-macos.yml's admission

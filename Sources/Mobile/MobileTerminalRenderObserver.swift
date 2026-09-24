@@ -22,6 +22,13 @@ final class MobileTerminalRenderObserver {
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID:
         [UUID: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridEmissionState]] = [:]
+    /// Per-surface pacers bounding the render-grid frame rate shipped to
+    /// phones (dynamic, floored at ~11fps, echo-bearing frames bypass).
+    /// Entries for closed surfaces are dropped with the caches when the last
+    /// subscriber detaches; until then a stale entry is inert and bounded by
+    /// the surface count.
+    private var framePacersBySurfaceID: [UUID: MobileTerminalFramePacer] = [:]
+    private var pacerFlushTasksBySurfaceID: [UUID: Task<Void, Never>] = [:]
     var terminalThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     var terminalConfigThemesBySurfaceID: [UUID: TerminalTheme] = [:]
     private var runtimeSurfaceGenerationsBySurfaceID: [UUID: UInt64] = [:]
@@ -136,6 +143,17 @@ final class MobileTerminalRenderObserver {
         // notification already fired. Schedule a fresh Ghostty tick so every
         // byte-backed pending surface gets one post-parser render-grid flush.
         GhosttyApp.shared.scheduleTick()
+    }
+
+    /// A viewport report changes the terminal's cell grid without requiring
+    /// PTY bytes. Drop the previous emission baseline before the resize's
+    /// render notification flushes, so the next frame is authoritative for
+    /// the new row count instead of a delta against the old geometry.
+    func noteTerminalViewportChanged(surfaceID: UUID) {
+        clearRenderGridCache(surfaceID: surfaceID)
+        guard MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+        pendingSurfaceIDs.insert(surfaceID)
+        scheduleTerminalUpdateFlush()
     }
 
     deinit {
@@ -263,16 +281,122 @@ final class MobileTerminalRenderObserver {
         // scroll position; screen (v2) anchors to the active area so the phone
         // owns its local viewport/scrollback. An empty registry (subscribers
         // predating anchor negotiation) means v1 only.
-        let activeAnchors = MobileTerminalRenderGridAnchorRegistry.shared.activeAnchors()
-        var anchors: [MobileTerminalRenderGridFrame.Anchor] = []
-        if activeAnchors.contains(.viewport) || activeAnchors.isEmpty { anchors.append(.viewport) }
-        if activeAnchors.contains(.screen) { anchors.append(.screen) }
+        let anchors = currentRenderGridAnchors()
         for surfaceID in renderSurfaceIDs {
-            emitRenderGrid(
+            pacedEmitRenderGrid(
                 surfaceID: surfaceID,
                 anchors: anchors,
                 forceIncludeTheme: shouldEmitAllThemes
                     || themeSurfaceIDs.contains(surfaceID)
+            )
+        }
+    }
+
+    private func currentRenderGridAnchors() -> [MobileTerminalRenderGridFrame.Anchor] {
+        let activeAnchors = MobileTerminalRenderGridAnchorRegistry.shared.activeAnchors()
+        var anchors: [MobileTerminalRenderGridFrame.Anchor] = []
+        if activeAnchors.contains(.viewport) || activeAnchors.isEmpty { anchors.append(.viewport) }
+        if activeAnchors.contains(.screen) { anchors.append(.screen) }
+        return anchors
+    }
+
+    /// Route one surface's update through its frame pacer so sustained TUI
+    /// repaints coalesce to a bounded per-surface rate. Theme deliveries and
+    /// cold baselines (no cached emission state) bypass pacing: both are rare
+    /// and must land promptly, and pacing is measured from them. Frames whose
+    /// accepted-input marker moved since the last emit also bypass — the
+    /// keystroke echo is the thing pacing exists to protect.
+    private func pacedEmitRenderGrid(
+        surfaceID: UUID,
+        anchors: [MobileTerminalRenderGridFrame.Anchor],
+        forceIncludeTheme: Bool
+    ) {
+        let now = ContinuousClock.now
+        let marker = MobileTerminalByteTee.shared.currentInputSequence(surfaceID: surfaceID)
+        var pacer = framePacersBySurfaceID[surfaceID] ?? MobileTerminalFramePacer()
+        if forceIncludeTheme || renderGridStatesBySurfaceID[surfaceID] == nil {
+            pacer.noteUnpacedEmit(now: now, acceptedInputSequence: marker)
+            framePacersBySurfaceID[surfaceID] = pacer
+            emitRenderGrid(surfaceID: surfaceID, anchors: anchors, forceIncludeTheme: forceIncludeTheme)
+            return
+        }
+        switch pacer.updateArrived(now: now, acceptedInputSequence: marker) {
+        case .emit:
+            framePacersBySurfaceID[surfaceID] = pacer
+            emitRenderGrid(surfaceID: surfaceID, anchors: anchors, forceIncludeTheme: false)
+        case .coalesce:
+            framePacersBySurfaceID[surfaceID] = pacer
+        case .coalesceAndSchedule(let deadline):
+            framePacersBySurfaceID[surfaceID] = pacer
+            schedulePacerFlush(surfaceID: surfaceID, deadline: deadline)
+        }
+    }
+
+    /// Per-capture resolution of the telemetry attached to emitted frames:
+    /// taken once on the first frame a capture emits, then shared by every
+    /// anchor variant of that same capture.
+    private enum HostTimingResolution {
+        case unresolved
+        case resolved(MobileTerminalHostTiming?)
+    }
+
+    /// Attaches Mac stage stamps and a pacer sample to a frame for the
+    /// phone's per-hop latency telemetry. Input stamps travel only on the
+    /// first frame after a newly accepted marker and pacer samples at most
+    /// once per second, so almost every frame carries nothing extra.
+    private func attachHostTiming(
+        to frame: MobileTerminalRenderGridFrame,
+        surfaceID: UUID,
+        resolved: inout HostTimingResolution
+    ) -> MobileTerminalRenderGridFrame {
+        let timing: MobileTerminalHostTiming?
+        switch resolved {
+        case .resolved(let existing):
+            timing = existing
+        case .unresolved:
+            let captured = MobileTerminalByteTee.uptimeMicros()
+            let input = MobileTerminalByteTee.shared.takePendingInputTiming(surfaceID: surfaceID)
+            var sample: MobileTerminalPacerSample?
+            if var pacer = framePacersBySurfaceID[surfaceID] {
+                sample = pacer.takeSample(now: ContinuousClock.now)
+                framePacersBySurfaceID[surfaceID] = pacer
+            }
+            if input == nil, sample == nil {
+                timing = nil
+            } else {
+                timing = MobileTerminalHostTiming(
+                    inputReceivedMicros: input?.receivedMicros,
+                    inputAcceptedMicros: input?.acceptedMicros,
+                    frameCapturedMicros: input == nil ? nil : captured,
+                    pacer: sample
+                )
+            }
+            resolved = .resolved(timing)
+        }
+        guard var timing else { return frame }
+        if timing.frameCapturedMicros != nil {
+            timing.frameDispatchedMicros = MobileTerminalByteTee.uptimeMicros()
+        }
+        var frame = frame
+        frame.hostTiming = timing
+        return frame
+    }
+
+    private func schedulePacerFlush(surfaceID: UUID, deadline: ContinuousClock.Instant) {
+        pacerFlushTasksBySurfaceID[surfaceID]?.cancel()
+        pacerFlushTasksBySurfaceID[surfaceID] = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(until: deadline, tolerance: .milliseconds(10))
+            guard !Task.isCancelled, let self else { return }
+            self.pacerFlushTasksBySurfaceID[surfaceID] = nil
+            guard var pacer = self.framePacersBySurfaceID[surfaceID] else { return }
+            let shouldEmit = pacer.flushFired(now: ContinuousClock.now)
+            self.framePacersBySurfaceID[surfaceID] = pacer
+            guard shouldEmit,
+                  MobileHostService.hasEventSubscribers(topic: "terminal.render_grid") else { return }
+            self.emitRenderGrid(
+                surfaceID: surfaceID,
+                anchors: self.currentRenderGridAnchors(),
+                forceIncludeTheme: false
             )
         }
     }
@@ -311,11 +435,12 @@ final class MobileTerminalRenderObserver {
         var emittedByAnchor: [MobileTerminalRenderGridFrame.Anchor: MobileTerminalRenderGridFrame] = [:]
         var surfaceIDString: String?
 
+        var resolvedHostTiming: HostTimingResolution = .unresolved
         for anchor in anchors {
             #if DEBUG
             let latencyExportStart = HostLatencyTrace.captureTime()
             #endif
-            guard let emitted = emitRenderGridFrame(
+            guard let capturedFrame = emitRenderGridFrame(
                 surface: surface,
                 surfaceID: surfaceID,
                 anchor: anchor,
@@ -325,6 +450,7 @@ final class MobileTerminalRenderObserver {
                 forceIncludeTheme: forceIncludeTheme || didReplaceRuntimeSurface,
                 sharedTheme: &sharedTheme
             ) else { continue }
+            let emitted = attachHostTiming(to: capturedFrame, surfaceID: surfaceID, resolved: &resolvedHostTiming)
             guard let payloadJSON = try? JSONEncoder().encode(emitted) else { continue }
             #if DEBUG
             HostLatencyTrace.stampElapsed(
@@ -562,8 +688,16 @@ final class MobileTerminalRenderObserver {
             return
         }
         var didInvalidate = false
+        let now = ContinuousClock.now
         for surfaceIDString in surfaceIDStrings {
             guard let surfaceID = UUID(uuidString: surfaceIDString) else { continue }
+            // A shed is the transport saying it cannot keep up at the current
+            // rate: widen this surface's pacing period before the resync
+            // baseline goes out (the baseline itself bypasses pacing).
+            if var pacer = framePacersBySurfaceID[surfaceID] {
+                pacer.transportDidShed(now: now)
+                framePacersBySurfaceID[surfaceID] = pacer
+            }
             clearRenderGridCache(surfaceID: surfaceID)
             pendingSurfaceIDs.insert(surfaceID)
             didInvalidate = true
@@ -585,6 +719,9 @@ final class MobileTerminalRenderObserver {
         terminalConfigThemesBySurfaceID.removeAll()
         runtimeSurfaceGenerationsBySurfaceID.removeAll()
         reconciledSurfaceTopologyGeneration = nil
+        for task in pacerFlushTasksBySurfaceID.values { task.cancel() }
+        pacerFlushTasksBySurfaceID.removeAll()
+        framePacersBySurfaceID.removeAll()
     }
 
     #if DEBUG

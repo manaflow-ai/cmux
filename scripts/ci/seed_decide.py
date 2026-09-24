@@ -54,26 +54,36 @@ def fingerprint(revision: str, xcode: str) -> str:
     ).strip()
 
 
+def is_seed_job(name: str | None) -> bool:
+    """The seed job is a matrix over pools, which GitHub names "seed (<pool>)"."""
+    return name == SEED_JOB or str(name or "").startswith(f"{SEED_JOB} (")
+
+
 def seed_state(api: Api, repository: str, run: dict) -> str:
     """'seeded', 'skipped' or 'none' for one seeder run.
 
-    Concurrency is workflow-wide, so this run's decide starts only after every
-    earlier seeder run finished: no ancestor's seed is still being built.
+    Each pool seeds its own Swift job width, so a commit is seeded only when
+    every pool's job saved. Concurrency is per pool, so an earlier run may
+    still be building; it reads as 'none' and the walk moves past it, which
+    can only make a push build, never skip wrongly.
     """
     status, conclusion = run.get("status"), run.get("conclusion")
     # A pending run can still be replaced by a newer push.
     if status != "completed" or conclusion != "success":
         return "none"
     jobs = api(f"repos/{repository}/actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
-    job = next((j for j in jobs if j.get("name") == SEED_JOB), None)
-    if job is None:
+    seeds = [j for j in jobs if is_seed_job(j.get("name"))]
+    if not seeds:
         return "none"
-    if job.get("conclusion") == "skipped":
+    if all(j.get("conclusion") == "skipped" for j in seeds):
         return "skipped"
-    if job.get("conclusion") != "success":
-        return "none"
-    save = next((s for s in job.get("steps", []) if s.get("name") == SAVE_STEP), None)
-    return "seeded" if save is not None and save.get("conclusion") == "success" else "none"
+    for job in seeds:
+        if job.get("conclusion") != "success":
+            return "none"
+        save = next((s for s in job.get("steps", []) if s.get("name") == SAVE_STEP), None)
+        if save is None or save.get("conclusion") != "success":
+            return "none"
+    return "seeded"
 
 
 def nearest_seed(api: Api, repository: str, ancestors: Iterable[str]) -> str | None:

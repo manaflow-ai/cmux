@@ -1239,7 +1239,8 @@ class ReuseProducts(TestProductHandoff):
     def use_main_push_producer(self):
         self.api.run.update(self.main_push_run(), head_sha="abc123")
         self.api.job = {
-            "name": "seed",
+            # A matrix over pools: GitHub names it "seed (<pool>)".
+            "name": "seed (blacksmith-12vcpu-macos-26)",
             "conclusion": "success",
             "status": "completed",
             "steps": [{

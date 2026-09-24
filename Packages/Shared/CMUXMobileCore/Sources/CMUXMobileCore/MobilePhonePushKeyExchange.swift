@@ -117,6 +117,17 @@ public struct MobilePhonePushKeyExchangeResponse: Codable, Equatable, Sendable {
         case macBuildID = "mac_build_id"
     }
 
+    /// Whether this reply came from the Mac build that advertised
+    /// `clientNamespace` as `mac_client_namespace` in its host status.
+    ///
+    /// The status field is the Iroh broker form `mac:<lowercased bundle id>`
+    /// (`CmxIrohMacBundleNamespace`), while `macBuildID` is the raw bundle id
+    /// that push tuples carry. Comparing them directly never matches, so the
+    /// phone rejected every exchange and never pinned the Mac's key.
+    public func matchesMacClientNamespace(_ clientNamespace: String) -> Bool {
+        clientNamespace == "mac:" + macBuildID.lowercased()
+    }
+
     public func validate() throws {
         guard version == MobilePhonePushKeyExchangeRequest.currentVersion,
               hpkeEnvelopeVersion == MobilePhonePushKeyExchangeRequest.hpkeEnvelopeVersion,

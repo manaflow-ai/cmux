@@ -46,6 +46,9 @@ class SeedDerivedData(unittest.TestCase):
         self.fake.write_text(FAKE_R2)
         self.env = dict(os.environ)
         os.environ["CMUX_R2_CACHE_SCRIPT"] = str(self.fake)
+        # Seed keys name the Swift job width; pin it so keys do not depend on
+        # the machine running the tests.
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
 
     def tearDown(self):
         os.environ.clear()
@@ -163,9 +166,9 @@ class SeedDerivedData(unittest.TestCase):
         result = self.start_then_adopt("hit")
 
         self.assertEqual(result["hit"], "true")
-        self.assertEqual(result["key"], "admission-derived-data-v1-x-0123abc")
+        self.assertEqual(result["key"], "admission-derived-data-v1-x-j6-0123abc")
         self.assertEqual((result["unchanged_inputs"], result["changed_inputs"]), ("1", "1"))
-        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-base"])
+        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-j6-base"])
         self.assertEqual((self.derived / "Build/App.o").read_text(), "object")
         self.assertFalse((self.derived / "from-resolve").exists())
         self.assertEqual(self.mtime("Sources/Other.swift"), BUILD_TIME_NS)
@@ -175,7 +178,7 @@ class SeedDerivedData(unittest.TestCase):
         self.publish_seed()
         result = self.start_then_adopt("fail")
         self.assertEqual(result["hit"], "false")
-        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-base"])
+        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-j6-base"])
         self.assertEqual((self.derived / "from-resolve").read_text(), "resolve")
         self.assertGreater(self.mtime("Sources/Other.swift"), BUILD_TIME_NS)
         self.assert_no_leftovers()
@@ -203,7 +206,7 @@ class SeedDerivedData(unittest.TestCase):
         with mock.patch.object(seed, "start", start_and_kill):
             result = self.start_then_adopt("hit")
         self.assertEqual(result["hit"], "true")
-        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-base")
+        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-j6-base")
         self.assert_no_leftovers()
 
     def test_a_download_started_for_other_keys_is_not_adopted(self):
@@ -211,8 +214,8 @@ class SeedDerivedData(unittest.TestCase):
         result = self.start_then_adopt("hit", ("admission-derived-data-v1-y-", "base"))
         # The stray download is stopped and adopt fetches its own keys.
         self.assertEqual(result["hit"], "true")
-        self.assertEqual(result["key"], "admission-derived-data-v1-x-0123abc")
-        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-base")
+        self.assertEqual(result["key"], "admission-derived-data-v1-x-j6-0123abc")
+        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-j6-base")
         self.assert_no_leftovers()
 
     def test_adopt_prefers_the_nearest_seeded_ancestor_over_the_newest_pointer(self):
@@ -230,6 +233,8 @@ class SeedDerivedData(unittest.TestCase):
         self.assertEqual(seed.nearest("p-", ["c5", "c4"], exists), None)
 
         restored = []
+        # Through main, keys carry the width (see setUp).
+        published = {"p-j6-c3", "p-j6-c1"}
         self.publish_seed()
         os.environ["FAKE_MODE"] = "hit"
         output = self.root / "output"
@@ -238,7 +243,7 @@ class SeedDerivedData(unittest.TestCase):
                 mock.patch.object(seed, "seed_exists", side_effect=lambda key: key in published), \
                 mock.patch.object(seed, "adopt", side_effect=lambda *a: restored.append(a) or {"hit": "true", "key": a[2]}):
             self.assertEqual(seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c4"]), 0)
-        self.assertEqual(restored[0][2:], ("p-c3", "p-"))
+        self.assertEqual(restored[0][2:], ("p-j6-c3", "p-j6-"))
         self.assertIn("seed_distance=1", output.read_text())
 
         # No seeded ancestor: ask for REVISION's own key, so the restore falls
@@ -249,8 +254,38 @@ class SeedDerivedData(unittest.TestCase):
                 mock.patch.object(seed, "seed_exists", return_value=False), \
                 mock.patch.object(seed, "adopt", side_effect=lambda *a: restored.append(a) or {"hit": "true", "key": "p-c1"}):
             seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c9"])
-        self.assertEqual(restored[0][2:], ("p-c9", "p-"))
+        self.assertEqual(restored[0][2:], ("p-j6-c9", "p-j6-"))
         self.assertIn("seed_distance=\n", output.read_text())
+
+    def test_seed_keys_name_the_swift_job_width(self):
+        """Swift Build passes the runner's CPU count to every swift-driver
+        invocation as -j<n>, so a seed built on 12 vCPU reruns every
+        SwiftDriver task and re-emits every module on 6 vCPU (run 36043267820:
+        94 and 62 at seed distance 0). A seed names the width it was built at."""
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+        self.assertEqual(seed.scoped("p-"), "p-j6-")
+        self.assertEqual(seed.scoped("p-", 12), "p-j12-")
+        output = self.root / "scope"
+        with mock.patch.object(seed.sys, "stdout", new=output.open("w")) as stream:
+            self.assertEqual(seed.main(["seed", "scope", "p-"]), 0)
+            stream.close()
+        self.assertEqual(output.read_text().strip(), "p-j6-")
+
+    def test_adopt_prefers_its_own_width_and_falls_back_to_another(self):
+        """A seed of the other width still beats a cold build, so it is the
+        fallback, never the first choice."""
+        os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+        published = set()
+        exists = lambda key: key in published  # noqa: E731
+        with mock.patch.object(seed, "lineage", return_value=["c4", "c3"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=exists):
+            published.update({"p-j12-c4", "p-j6-c3"})
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c3", 1))
+            published.clear()
+            published.add("p-j12-c4")
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j12-c4", 0))
+            published.clear()
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
 
     def test_seed_probe_names_itself_and_treats_any_error_as_a_miss(self):
         os.environ["CI_CACHE_R2_PUBLIC_URL"] = "https://cache.example/"
@@ -329,7 +364,7 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|!|\(|\)|,|'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_.-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
 
 
 def evaluate(expression, context):
@@ -338,6 +373,8 @@ def evaluate(expression, context):
     `a && b` is b when a is truthy, else a; `a || b` is a when truthy,
     else b. Names resolve by dotted path in `context`; a missing one is null,
     which compares equal to ''. startsWith() compares case-insensitively.
+    `<`, `>`, `<=` and `>=` compare as numbers, the way Actions coerces: null
+    and '' are 0, and a string that is not a number never compares true.
     """
     text = expression.strip()
     if text.startswith("${{") and text.endswith("}}"):
@@ -371,6 +408,8 @@ def evaluate(expression, context):
             return token[1:-1].replace("''", "'")
         if token in ("true", "false"):
             return token == "true"
+        if token[0].isdigit():
+            return float(token)
         if token == "startsWith" and peek() == "(":
             take()
             haystack = either()
@@ -386,12 +425,26 @@ def evaluate(expression, context):
             value = value.get(part) if isinstance(value, dict) else None
         return value
 
+    def number(value):
+        if value is None or value == "":
+            return 0.0
+        if isinstance(value, bool):
+            return float(value)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float("nan")
+
     def comparison():
         left = primary()
-        while peek() in ("==", "!="):
+        while peek() in ("==", "!=", ">", "<", ">=", "<="):
             operator, right = take(), primary()
-            equal = ("" if left is None else str(left)) == ("" if right is None else str(right))
-            left = equal if operator == "==" else not equal
+            if operator in ("==", "!="):
+                equal = ("" if left is None else str(left)) == ("" if right is None else str(right))
+                left = equal if operator == "==" else not equal
+            else:
+                a, b = number(left), number(right)
+                left = {">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b}[operator]
         return left
 
     def both():
@@ -418,7 +471,7 @@ def evaluate(expression, context):
 
 def github_context(event_name, ref="refs/heads/main", **variables):
     return {
-        "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai"},
+        "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai", "run_attempt": "1"},
         "vars": {
             "MACOS_RUNNER_PR": "pool-pr",
             "MACOS_RUNNER_15": "pool-15-paid",
@@ -442,7 +495,10 @@ class Wiring(unittest.TestCase):
         self.assertEqual(save["with"]["backend"], "r2")
         written = save["with"]["key"]
         suffix = "${{ needs.decide.outputs.head_sha }}"
-        self.assertTrue(written.endswith(suffix))
+        self.assertEqual(written, "${{ steps.derived-data-seed-key.outputs.scoped }}" + suffix)
+        _, scope = named(seeder, "Scope DerivedData seed key")
+        self.assertEqual(scope["env"]["FINGERPRINT"], "${{ steps.compilation-cache-key.outputs.fingerprint }}")
+        self.assertIn('scope "admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${FINGERPRINT}-"', scope["run"])
 
         admission = steps("ci-macos.yml", "macos-compile-admission")
         resolve_at, _ = named(admission, "Resolve Swift packages")
@@ -452,7 +508,11 @@ class Wiring(unittest.TestCase):
         self.assertLess(resolve_at, adopt_at)
         self.assertLess(adopt_at, compile_at)
         self.assertLess(compile_at, forget_at)
-        self.assertEqual(adopt["env"]["SEED_PREFIX"], written[: -len(suffix)])
+        # Admission passes the unscoped prefix; seed_derived_data.py scopes it.
+        self.assertEqual(
+            adopt["env"]["SEED_PREFIX"],
+            "admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-",
+        )
         # Adopt writes the override before it can time out, so clear it
         # whenever adopt ran, not only when it reported a hit.
         self.assertIn("steps.seed-derived-data.outcome != 'skipped'", forget["if"])
@@ -475,9 +535,9 @@ class Wiring(unittest.TestCase):
         self.assertEqual(triggers["push"]["branches"], ["main"])
         # cancel-in-progress would starve publishing while merges keep
         # arriving faster than a seed builds; see the comment beside it.
-        self.assertIs(workflow["concurrency"]["cancel-in-progress"], False)
+        self.assertIs(workflow["jobs"]["seed"]["concurrency"]["cancel-in-progress"], False)
         # One group per pool: a seed is only useful to admission on that pool.
-        self.assertIn(workflow["jobs"]["seed"]["runs-on"].strip("${} "), workflow["concurrency"]["group"])
+        self.assertIn(workflow["jobs"]["seed"]["runs-on"].strip("${} "), workflow["jobs"]["seed"]["concurrency"]["group"])
 
         seeder = steps("seed-derived-data.yml", "seed")
         resolve_at, _ = named(seeder, "Resolve Swift packages")
@@ -491,7 +551,7 @@ class Wiring(unittest.TestCase):
         self.assertLess(build_at, save_at)
         self.assertIs(adopt.get("continue-on-error"), True)
         self.assertEqual(save["with"]["backend"], "r2")
-        self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.prefix }}${{ github.sha }}")
+        self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
 
         # Same key shape, runner and Xcode as the nightly seeder, or pull
         # requests would never match what this writes.
@@ -499,7 +559,7 @@ class Wiring(unittest.TestCase):
         self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
         nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
         job = workflow["jobs"]["seed"]
-        self.assertEqual(job["runs-on"], nightly["runs-on"])
+        self.assertIn(nightly["runs-on"], job["strategy"]["matrix"]["pool"])
         self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"], nightly["env"]["CMUX_CI_XCODE_APP"])
 
         # Resolve against the same Swift package cache admission restores, so
@@ -508,18 +568,53 @@ class Wiring(unittest.TestCase):
         _, admission_spm = named(steps("ci-macos.yml", "macos-compile-admission"), "Cache Swift packages")
         self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
 
+    def test_every_pool_admission_compiles_on_gets_a_seed_of_its_width(self):
+        """Pull-request admission runs on the 6 or 12 vCPU macOS 26 pool, and a
+        seed only serves the width it was built at, so both pools seed."""
+        job = load("seed-derived-data.yml")["jobs"]["seed"]
+        self.assertEqual(job["runs-on"], "${{ matrix.pool }}")
+        self.assertIs(job["strategy"]["fail-fast"], False)
+        context = github_context("push", MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")
+        pools = {evaluate(pool, context) for pool in job["strategy"]["matrix"]["pool"]}
+        self.assertEqual(pools, {"blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"})
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
+        self.assertIn(evaluate(admission, github_context("pull_request", ref="refs/pull/1/merge",
+                                                         MACOS_RUNNER_PR="blacksmith-6vcpu-macos-26")), pools)
+        # Each pool queues on its own, so a slow 6 vCPU seed never holds the
+        # 12 vCPU one back, and neither cancels a running seed.
+        self.assertIn("matrix.pool", job["concurrency"]["group"])
+        self.assertIs(job["concurrency"]["cancel-in-progress"], False)
+
+        # Both writers save under the width they built at.
+        seeder = job["steps"]
+        _, key = named(seeder, "Compute seed key")
+        self.assertIn("seed_derived_data.py scope", key["run"])
+        _, save = named(seeder, "Save seed")
+        self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.scoped }}${{ github.sha }}")
+        # A failed scope call must not save under the bare revision.
+        self.assertIn('test -n "$scoped"', key["run"])
+        nightly = steps("nightly.yml", "refresh-test-compilation-cache")
+        scope_at, scope = named(nightly, "Scope DerivedData seed key")
+        save_at, nightly_save = named(nightly, "Save DerivedData seed")
+        self.assertLess(scope_at, save_at)
+        self.assertIn("seed_derived_data.py scope", scope["run"])
+        self.assertTrue(nightly_save["with"]["key"].startswith("${{ steps.derived-data-seed-key.outputs.scoped }}"))
+
     def test_the_seed_pool_differs_from_admission_only_in_runner_size(self):
         # Seeds used to queue behind pull requests on admission's own pool.
         # They may move to a larger runner of the same image, since neither
         # the seed key nor the product key names the size, but never to
         # another image or Xcode.
-        runs_on = load("seed-derived-data.yml")["jobs"]["seed"]["runs-on"]
+        # The 12 vCPU pool comes first: it starts in seconds, and the first
+        # entry alone publishes the app-host product.
+        runs_on, own = load("seed-derived-data.yml")["jobs"]["seed"]["strategy"]["matrix"]["pool"]
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
         larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
         self.assertIn(larger, runs_on)
         # Any other pool value is admission's pull-request pool, unchanged.
         fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
+        self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
         self.assertIn(fallback, admission)
 
     def test_main_push_publishes_the_product_admission_would_compile(self):
@@ -670,7 +765,8 @@ class Wiring(unittest.TestCase):
                 context = github_context("workflow_dispatch", CI_PAID_MACOS_OVERFLOW=overflow)
                 for name in unset:
                     context["vars"].pop(name)
-                self.assertEqual(evaluate(admission["runs-on"], context), evaluate(seeder["runs-on"], context))
+                pools = [evaluate(pool, context) for pool in seeder["strategy"]["matrix"]["pool"]]
+                self.assertIn(evaluate(admission["runs-on"], context), pools)
                 self.assertEqual(
                     evaluate(admission["env"]["CMUX_CI_XCODE_APP"], context),
                     evaluate(seeder["env"]["CMUX_CI_XCODE_APP"], context),
@@ -709,6 +805,23 @@ class Wiring(unittest.TestCase):
                     "/Applications/Xcode-pr.app" if head == "manaflow-ai/cmux" else "/Applications/Xcode-15.app",
                 )
 
+    def test_a_rerun_of_an_owned_pool_run_takes_the_retry_runner(self):
+        # pr_runner_pool.py names pr_retry_runner only for an owned-pool pick; a
+        # re-run of failed jobs (attempt 2) reuses attempt 1's inputs.
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
+        for attempt, retry, runner in (
+            ("1", "blacksmith-12vcpu-macos-26", "glaeda-std-xcode-26.6"),
+            ("2", "blacksmith-12vcpu-macos-26", "blacksmith-12vcpu-macos-26"),
+            ("2", "", "glaeda-std-xcode-26.6"),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry)
+            with self.subTest(attempt=attempt, retry=retry):
+                self.assertEqual(evaluate(admission["runs-on"], context), runner)
+                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}
         self.assertEqual(evaluate("${{ vars.A && 'x' || 'y' }}", context), "x")
@@ -718,6 +831,11 @@ class Wiring(unittest.TestCase):
         self.assertIs(evaluate("${{ (vars.MISSING || '1') != '0' }}", context), True)
         self.assertIs(evaluate("${{ vars.A != 'b' && vars.A == 'a' }}", context), True)
         self.assertIs(evaluate("${{ startsWith(vars.A, 'A') }}", context), True)
+        numbers = {"github": {"run_attempt": "2"}, "vars": {"A": "a"}}
+        self.assertIs(evaluate("${{ github.run_attempt > 1 }}", numbers), True)
+        self.assertIs(evaluate("${{ github.run_attempt > 2 }}", numbers), False)
+        self.assertIs(evaluate("${{ vars.MISSING > 0 }}", numbers), False)
+        self.assertIs(evaluate("${{ vars.A > 0 || vars.A < 1 }}", numbers), False)
         self.assertIs(evaluate("${{ startsWith(vars.MISSING, 'a') }}", context), False)
 
     def test_no_workflow_compares_a_bare_variable_with_zero(self):
