@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Algılanan harness yapılandırması",
+    "selectionNotice": "Bir sağlayıcı seçmek bu harnessleri başlatmaz veya etkinleştirmez.",
+    "selectProvider": "{provider} seç",
+    "foundPath": "{path} bulundu",
+    "foundCommand": "{command} komutu bulundu",
+    "installed": "Sağlayıcı yüklü",
+    "missing": "Sağlayıcı yüklü değil",
+    "install": "Şununla yükle: {command}",
+    "benefitPi": "Sıkıştırma, bellek ve sağlayıcı yönlendirmesi",
+    "benefitOpenagent": "OpenCode için paralel uzmanlar ve kurtarma",
+    "benefitClaude": "Claude Code için ekipler ve doğrulama",
+    "benefitSuperpowers": "Planlama, TDD, alt aracılar ve inceleme"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM kurulumu tamamlanamadı",
+      "reason": "Cloud VM konuk kurulumu tamamlanmadı.",
+      "message": "cmux, Cloud VM kurulumunu tamamlayamadı.",
+      "action": "İşlemi yeniden deneyin. Sorun devam ederse destek ekibiyle iletişime geçin."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM temizliği bekleniyor",
+      "message": "Cloud VM kurulumu başarısız oldu ve temizlik henüz tamamlanmadı.",
+      "action": "Başka bir makine oluşturmadan önce izleme kimliğiyle destek ekibine başvurun."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",
@@ -1434,6 +1459,7 @@
       "restartNew": "Yeni bir workspace oluştur (varsayılan)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir (Option+Z).",
       "title": "Klavye Kısayolları",
       "description": "cmux'ta mevcut tüm klavye kısayolları, kategoriye göre gruplandırılmış.",
       "metaDescription": "macOS'ta çalışma alanları, yüzeyler, bölünmüş paneller, tarayıcı, bildirimler, bulma ve pencere yönetimi için tüm cmux klavye kısayolları.",

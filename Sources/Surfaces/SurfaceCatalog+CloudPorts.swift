@@ -137,7 +137,7 @@ extension SurfaceCatalog {
     ) async throws -> (projection: SurfaceProjection, reused: Bool) {
         let id = SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port))
         try validateOwnership(of: [id], at: destination)
-        guard case .cloud = machine, (1...65_535).contains(port) else {
+        guard machine.tuiMachineID != nil, (1...65_535).contains(port) else {
             throw SurfaceCatalogError.unsupported(
                 String(localized: "cloudTree.port.invalidMachine", defaultValue: "Ports can only be opened on a cloud machine.")
             )
