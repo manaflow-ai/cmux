@@ -1175,3 +1175,7 @@ lane = "macos-cli-no-socket"
 [[test]]
 path = "tests/test_e2e_sibling_build.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_git_seed.py"
+lane = "linux-guard"
