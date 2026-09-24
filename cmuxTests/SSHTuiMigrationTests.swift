@@ -214,7 +214,7 @@ struct SSHTuiMigrationTests {
         appDelegate.tabManager = manager
         let workspace = manager.addWorkspace(select: false)
         defer {
-            if manager.tabs.contains(where: { $0.id == workspace.id }) { manager.closeWorkspace(workspace) }
+            if manager.tabs.contains(where: { $0.id == workspace.id }) { manager.closeWorkspace(workspace, recordHistory: false) }
             appDelegate.tabManager = originalTabManager
         }
         let panelID = try #require(workspace.focusedPanelId)
