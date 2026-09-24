@@ -154,11 +154,10 @@ extension Workspace {
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
         guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         if isManagedCloudVMWorkspace, !CloudMachinesFeature.offMainIsEnabled() { return false }
-        if let surfaceId,
-           let resource = cloudProjectedResource(forPanel: surfaceId),
-           let machineID = resource.id.machine.cloudMachineID,
-           let session = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID)?.manualMirrorSessions[surfaceId] {
-            return session.retryConnection()
+        if let surfaceId, let session = tuiMirrorSession(for: surfaceId) { return session.retryConnection() }
+        if usesSSHTui, let configuration = remoteConfiguration {
+            AppDelegate.shared?.sshTuiWorkspaceCoordinator.connect(workspace: self, configuration: configuration)
+            return true
         }
         // `DisableRemoteConnections` (MDM): a configuration retained from
         // before the policy activated must not redial. New connections are
@@ -234,8 +233,7 @@ extension Workspace {
         // An optimistic pane whose creation failed replays its own request.
         if retryReservedCloudTerminalPane(surfaceId: surfaceId) { return true }
         if let resource = cloudProjectedResource(forPanel: surfaceId),
-           let machineID = resource.id.machine.cloudMachineID,
-           let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: machineID) {
+           let provider = SurfaceCatalog.shared.provider(for: resource.id.machine) as? CmuxTuiSurfaceProvider {
             guard let session = provider.manualMirrorSessions[surfaceId] else {
                 clearCloudMaterializationFailure(surfaceID: surfaceId)
                 provider.scheduleRefresh()

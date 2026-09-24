@@ -48,13 +48,16 @@ jobs:
 
       # A cold resolve clones every package in the project and took about 90
       # seconds of each run. Nightly seeds this key; a miss only means a cold
-      # resolve.
+      # resolve. The seed carries SwiftPM's binary-artifact zips under
+      # .package-cache/: the sanitizer drops workspace-state.json, so without
+      # them every resolve downloads about 600 MB of Sentry, Iroh and Sparkle
+      # from GitHub again.
       - name: Restore Swift packages
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -69,6 +72,7 @@ jobs:
             xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
               -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -packageCachePath "$SOURCE_PACKAGES_DIR/.package-cache" \
               -resolvePackageDependencies
           }
           if ! resolve; then

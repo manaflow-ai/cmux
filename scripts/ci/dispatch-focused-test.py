@@ -29,11 +29,23 @@ RUNNERS = (
     "auto",
     "blacksmith-6vcpu-macos-15",
     "blacksmith-6vcpu-macos-26",
+    "blacksmith-12vcpu-macos-26",
     "blacksmith-6vcpu-macos-latest",
     "tart-canary",
     "tart-dual",
     "tart-small",
 )
+# Half of all commits compile on the large macOS 26 SKU, so the two sizes are
+# compared on real focused-run traffic rather than one benchmark. The split is
+# keyed on the commit, not drawn at random: every dispatch at one commit lands
+# on one pool, which is what in-flight reuse, the failed-selector refusal and
+# the product contract all match on.
+SMALL_RUNNER = "blacksmith-6vcpu-macos-26"
+LARGE_RUNNER = "blacksmith-12vcpu-macos-26"
+# GitHub rejects a concurrency group longer than this as a workflow file
+# issue: the run is created with no jobs and no message saying why.
+MAX_CONCURRENCY_GROUP = 400
+
 SELECTOR = re.compile(
     r"(?:(?:cmuxTests|cmuxUITests)/)?"
     r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*(?:\(\))?)?"
@@ -207,6 +219,17 @@ def default_runner() -> str | None:
         r"vars\.MACOS_RUNNER_TESTS \|\| '([^']+)'", workflow
     )
     return literal.group(1) if literal else None
+
+
+def routed_runner(commit: str, default: str | None) -> str | None:
+    """The pool an unpinned dispatch at `commit` runs on.
+
+    Only the free default is split. A repository variable naming any other
+    pool is an admin decision, and it wins unchanged.
+    """
+    if default == SMALL_RUNNER and int(commit[-1], 16) % 2:
+        return LARGE_RUNNER
+    return default
 
 
 def attempts(
@@ -391,12 +414,23 @@ def main() -> int:
     if args.ref is None and commit != requested_ref:
         raise ValueError("GitHub revision differs from local HEAD; push the intended commit first")
 
+    # Which pool this dispatch will actually land on. None means the answer
+    # could not be established, and the in-flight guards below stay silent
+    # rather than compare against a runner they guessed.
+    pinned = args.runner not in (None, "auto")
+    runner = args.runner if pinned else routed_runner(commit, default_runner())
+    # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
+    # is unknown, measure against the longest label in the runner dropdown.
+    label = runner or max(RUNNERS, key=len)
+    group_length = len(f"e2e-{label}-{commit}-{test_filter}")
+    if group_length > MAX_CONCURRENCY_GROUP:
+        parser.error(
+            f"these selectors make a {group_length}-character concurrency group, over "
+            f"GitHub's {MAX_CONCURRENCY_GROUP}; split them across dispatches or select the whole suite"
+        )
+
     if not args.force:
         history = recent_dispatches()
-        # Which pool this dispatch will actually land on. None means the
-        # answer could not be established, and the in-flight guards below stay
-        # silent rather than compare against a runner they guessed.
-        runner = args.runner if args.runner not in (None, "auto") else default_runner()
 
         if runner is not None:
             # An identical dispatch is already answering this exact question on
@@ -471,6 +505,8 @@ def main() -> int:
     }
     if args.runner is not None:
         fields["runner"] = args.runner
+    if not pinned and runner == LARGE_RUNNER:
+        fields["runner"] = runner
     command = ["gh", "workflow", "run", WORKFLOW, "--repo", REPO]
     if args.workflow_ref:
         command.extend(["--ref", args.workflow_ref])
