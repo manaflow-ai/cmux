@@ -335,6 +335,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate persistent compile fleet command
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_persistent_compile_fleet.py
+
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_health_report.py
@@ -422,6 +426,12 @@ jobs:
       - name: Validate Swift Testing suite timeout guard
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_swift_testing_suite_timeout.py
+
+      - name: Validate hung test watchdog
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: |
+          python3 tests/test_hung_test_watchdog.py
+          python3 tests/test_run_with_timeout_process_tree.py
 
       - name: Validate Swift package execution evidence
         if: ${{ matrix.group == 'app-host-execution' }}
@@ -754,6 +764,7 @@ jobs:
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_e2e_warm_derived_data.py
+          python3 tests/test_seed_derived_data.py
           python3 tests/test_ci_product_publication.py
 
       - name: Validate Python R2 appcast upload guard
@@ -791,6 +802,10 @@ jobs:
       - name: Validate release bundle stripping
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_strip_release_bundle.sh
+
+      - name: Validate cmux-tui SSH payload thinning and signing
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_cmux_tui_ssh_payload_bundle.sh
 
       - name: Validate current GhosttyKit checksum pin
         if: ${{ matrix.group == 'release-tooling' }}
