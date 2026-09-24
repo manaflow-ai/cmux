@@ -280,8 +280,16 @@ def read_github() -> GitHubState:
 def read_variables() -> dict[str, str]:
     """Repository variables over the organization ones visible to the repository, as Actions resolves them."""
     values = {}
-    for path in (f"repos/{REPO}/actions/organization-variables", f"repos/{REPO}/actions/variables"):
-        data = gh_api(f"{path}?per_page=100") or {}
+    for path, required in ((f"repos/{REPO}/actions/organization-variables", False),
+                           (f"repos/{REPO}/actions/variables", True)):
+        # The Xcode pin is a repository variable; a login that cannot list the
+        # organization ones must still read it.
+        try:
+            data = gh_api(f"{path}?per_page=100") or {}
+        except Failure:
+            if required:
+                raise
+            continue
         values.update({v["name"]: v["value"] for v in data.get("variables", [])})
     return values
 
@@ -467,6 +475,8 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
         healthy = bool(healthy_runners(github))
         if routing == "pilot":
             lines.append(Line(bool(cohort), f"routing: pilot for {cohort or '(empty cohort: nothing routes)'}"))
+            if not cohort:
+                nxt.append("scripts/persistent-compile pilot <your PR number>")
         elif routing_on(routing):
             lines.append(Line(True, "routing: every trusted PR"))
         else:
@@ -858,7 +868,8 @@ def stop_taking_jobs(args: argparse.Namespace, target: str, reason: str | None =
     elif glaeda_error is None:
         print(f"no runner is configured in {directory}; only the Glaeda state changed")
     if glaeda_error is not None:
-        raise Failure(f"the runner is stopped, but Glaeda was not moved to {target}: {glaeda_error}")
+        done = "the runner is stopped, but" if local.runner_configured else "no runner is configured, and"
+        raise Failure(f"{done} Glaeda was not moved to {target}: {glaeda_error}")
     return name
 
 
