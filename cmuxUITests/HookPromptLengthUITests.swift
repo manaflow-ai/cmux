@@ -29,34 +29,36 @@ final class HookPromptLengthUITests: XCTestCase {
         let cli = appURL.appendingPathComponent("Contents/Resources/bin/cmux").path
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: cli))
         let appDiagnosticsURL = root.appendingPathComponent("app-diagnostics.json")
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
-        app.launchEnvironment["HOME"] = root.path
-        app.launchEnvironment["CFFIXED_USER_HOME"] = root.path
-        app.launchEnvironment["XDG_CONFIG_HOME"] = root.appendingPathComponent(".config").path
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_TAG"] = "ui-tests-14024-hook-length"
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = appDiagnosticsURL.path
-        defer { app.terminate() }
-        // XCTest's launcher gives the app its normal process context; a Process
-        // child inherits the runner sandbox and cannot create the socket lock.
-        // Window activation is irrelevant to this socket-only regression.
-        let options = XCTExpectedFailure.Options()
-        options.isStrict = false
-        options.issueMatcher = { issue in
-            let detail = [issue.compactDescription, issue.detailedDescription,
-                          issue.associatedError?.localizedDescription].compactMap { $0 }.joined(separator: "\n")
-            return (issue.type == .system || issue.type == .assertionFailure)
-                && detail.contains("Failed to activate application")
-                && detail.contains("Running Background")
-        }
-        XCTExpectFailure("Headless activation may leave the app in the background", options: options) {
-            app.launch()
-        }
+        let appURL = try XCTUnwrap(["cmux DEV", "cmux"].map {
+            products.appendingPathComponent("\($0).app")
+        }.first { FileManager.default.isExecutableFile(atPath:
+            $0.appendingPathComponent("Contents/MacOS/\($0.deletingPathExtension().lastPathComponent)").path
+        ) })
+        // Launch the app binary directly so this socket-only test does not
+        // require foreground activation. The socket and app home live in the
+        // runner-owned fixture paths, which are accessible to both processes.
+        let app = Process()
+        app.executableURL = appURL.appendingPathComponent(
+            "Contents/MacOS/\(appURL.deletingPathExtension().lastPathComponent)"
+        )
+        app.arguments = ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
+        var appEnvironment = ProcessInfo.processInfo.environment
+        appEnvironment["HOME"] = root.path
+        appEnvironment["CFFIXED_USER_HOME"] = root.path
+        appEnvironment["XDG_CONFIG_HOME"] = root.appendingPathComponent(".config").path
+        appEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        appEnvironment["CMUX_SOCKET_ENABLE"] = "1"
+        appEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
+        appEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        appEnvironment["CMUX_TAG"] = "ui-tests-14024-hook-length"
+        appEnvironment["CMUX_UI_TEST_PROCESS"] = "1"
+        appEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        appEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = appDiagnosticsURL.path
+        app.environment = appEnvironment
+        app.standardOutput = FileHandle.nullDevice
+        app.standardError = FileHandle.nullDevice
+        try app.run()
+        defer { if app.isRunning { app.terminate() } }
         let output = root.appendingPathComponent("result.txt")
         _ = FileManager.default.createFile(atPath: output.path, contents: nil)
         let handle = try FileHandle(forWritingTo: output)
