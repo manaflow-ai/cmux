@@ -79,9 +79,7 @@ jobs:
       unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
-      source_tree: ${{ steps.source-identity.outputs.tree }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
-      source_identity_valid: ${{ steps.source-identity.outputs.valid }}
       # The macOS pool every pull-request macOS job in this run uses, chosen
       # once so a run is never split across pools (see pr_runner_pool.py).
       # Empty keeps each job's own MACOS_RUNNER_PR fallback: every event but a
@@ -154,27 +152,14 @@ jobs:
         id: source-identity
         run: |
           set -u
-          valid=false
-          tree=""
           parent1=""
-          # parent2 is read only so that `extra` lands on a third parent; a
-          # merge with more than two is not a routing source we can trust.
+          # Only the first parent is used (compile admission's merge-base
+          # seed lookup). The other fields just absorb the rest of the line.
           # shellcheck disable=SC2034
-          read -r commit parent1 parent2 extra <<EOF
+          read -r commit parent1 rest <<EOF
           $(git rev-list --parents -n1 HEAD)
           EOF
-          if [ "$commit" = "$GITHUB_SHA" ] && [ -n "${parent1:-}" ] && [ -z "${extra:-}" ]; then
-            if tree="$(git rev-parse 'HEAD^{tree}')"; then
-              valid=true
-            fi
-          else
-            echo "Persistent routing source identity is unavailable; hosted admission remains authoritative." >&2
-          fi
-          {
-            echo "valid=$valid"
-            echo "tree=$tree"
-            echo "parent1=${parent1:-}"
-          } >> "$GITHUB_OUTPUT"
+          echo "parent1=${parent1:-}" >> "$GITHUB_OUTPUT"
 
       - name: Detect CI change areas
         id: detect
@@ -297,7 +282,7 @@ jobs:
                   ci_router_changed=true
                   ghosttykit_guard_only=false
                   ;;
-                scripts/ci/build_input_fingerprint.py|scripts/ci/find_admitted_build.py|scripts/ci/app_host_test_products.py|scripts/ci/compile-app-host-test-product.sh|scripts/ci/product_input_identity.py|scripts/ci/peer_product_source.py|scripts/ci/restore-app-host-test-product.sh|scripts/ci/reuse_app_host_products.py|scripts/ci/sanitize-xcode-source-packages-cache.py|scripts/ci/persistent_mac_route.py|scripts/ci/web_validation.py|scripts/ci/download-run-artifact.py)
+                scripts/ci/build_input_fingerprint.py|scripts/ci/find_admitted_build.py|scripts/ci/app_host_test_products.py|scripts/ci/compile-app-host-test-product.sh|scripts/ci/product_input_identity.py|scripts/ci/peer_product_source.py|scripts/ci/restore-app-host-test-product.sh|scripts/ci/reuse_app_host_products.py|scripts/ci/sanitize-xcode-source-packages-cache.py|scripts/ci/web_validation.py|scripts/ci/download-run-artifact.py)
                   # These have explicit owning lanes and names that cannot
                   # shadow Python stdlib imports used by the router.
                   ghosttykit_guard_only=false
@@ -834,58 +819,6 @@ jobs:
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
 
-      # The PR workflow only publishes immutable request evidence. Dispatch and
-      # cancellation authority live in persistent-macos-router.yml on main.
-      # A run pr_runner_pool.py moved to another Xcode (the macOS 15 pool) skips
-      # it: the owned-Mac producer builds with the lane's Xcode, and compile
-      # admission would refuse that product.
-      - name: Publish persistent Mac route request
-        id: persistent-route-request
-        if: ${{ github.event_name == 'pull_request' && steps.source-identity.outputs.valid == 'true' && steps.detect.outputs.macos == 'true' && steps.unchanged_inputs.outputs.compile_admitted != 'true' && steps.admitted.outputs.compile_admitted != 'true' && steps.macos-pool.outputs.xcode_app == '' && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') }}
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
-          HEAD_REF: ${{ github.head_ref }}
-          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          SOURCE_TREE: ${{ steps.source-identity.outputs.tree }}
-          SOURCE_PARENT1: ${{ steps.source-identity.outputs.parent1 }}
-        run: |
-          set -euo pipefail
-          request="$RUNNER_TEMP/persistent-mac-route-request.json"
-          REQUEST="$request" python3 - <<'PY'
-          import json
-          import os
-
-          payload = {
-              "schema_version": 1,
-              "request_id": f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}",
-              "pr_number": os.environ["PR_NUMBER"],
-              "source_sha": os.environ["GITHUB_SHA"],
-              "source_tree": os.environ["SOURCE_TREE"],
-              "source_parent1": os.environ["SOURCE_PARENT1"],
-              "head_sha": os.environ["HEAD_SHA"],
-              "head_ref": os.environ["HEAD_REF"],
-              "head_repository": os.environ["HEAD_REPOSITORY"],
-              "author_association": os.environ["AUTHOR_ASSOCIATION"],
-          }
-          with open(os.environ["REQUEST"], "w", encoding="utf-8") as stream:
-              json.dump(payload, stream, sort_keys=True)
-              stream.write("\n")
-          PY
-          echo "path=$request" >> "$GITHUB_OUTPUT"
-          echo "publish=true" >> "$GITHUB_OUTPUT"
-
-      - name: Upload persistent Mac route request
-        if: ${{ steps.persistent-route-request.outputs.publish == 'true' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: persistent-mac-route-request-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ steps.persistent-route-request.outputs.path }}
-          if-no-files-found: error
-          retention-days: 1
-          compression-level: 0
-
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs
@@ -1115,8 +1048,6 @@ jobs:
       swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}
-      source_identity_valid: ${{ needs.changes.outputs.source_identity_valid }}
-      source_tree: ${{ needs.changes.outputs.source_tree }}
       source_parent1: ${{ needs.changes.outputs.source_parent1 }}
       cache_backend: ${{ inputs.cache_backend }}
       release_archs: ${{ inputs.release_archs }}
