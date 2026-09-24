@@ -42,12 +42,14 @@ export function legacySubrouterRetirementConfig(
   if (!adminToken) {
     throw new Error("legacy Subrouter retirement is not configured");
   }
-  const baseUrl = (
-    runtimeEnv.SUBROUTER_BASE_URL?.trim() ||
-    (runtimeEnv.VERCEL_ENV === "production"
-      ? "https://subrouter.cmux.dev"
-      : "https://subrouter-staging.cmux.dev")
-  ).replace(/\/+$/, "");
+  // The staging legacy service (subrouter-staging.cmux.dev) is retired, so only
+  // production has a default source; other environments must name one.
+  const configured = runtimeEnv.SUBROUTER_BASE_URL?.trim() ||
+    (runtimeEnv.VERCEL_ENV === "production" ? "https://subrouter.cmux.dev" : "");
+  if (!configured) {
+    throw new Error("legacy Subrouter retirement is not configured");
+  }
+  const baseUrl = configured.replace(/\/+$/, "");
   assertSafeBaseUrl(baseUrl);
   return { baseUrl, adminToken };
 }

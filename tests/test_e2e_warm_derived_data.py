@@ -78,6 +78,23 @@ class TrustedProducers(unittest.TestCase):
             self.assertFalse(warm.trusted(self.artifact(), "o/r"))
 
 
+class ProviderDigest(unittest.TestCase):
+    def test_an_archive_that_does_not_match_its_digest_is_never_unpacked(self):
+        derived = Path(tempfile.mkdtemp())
+        artifact = {"id": 3, "size_in_bytes": 4, "digest": "sha256:" + "0" * 64, "workflow_run": {"id": 7}}
+
+        def download(repository, artifact_id, target, size):
+            Path(target).write_bytes(b"zip!")
+
+        with mock.patch.dict(os.environ, {"GITHUB_REPOSITORY": "o/r"}), \
+                mock.patch.object(warm, "newest", return_value=artifact), \
+                mock.patch.object(warm.transport, "download_zip", side_effect=download), \
+                mock.patch.object(warm, "extract") as extract:
+            with self.assertRaises(ValueError):
+                warm.restore(derived, derived, "key")
+        extract.assert_not_called()
+
+
 class ArchiveBounds(unittest.TestCase):
     def archive(self, name, link=None):
         path = Path(tempfile.mkdtemp(), "derived-data.tar.gz")
