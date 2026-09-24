@@ -620,15 +620,19 @@ final class CloudTuiManualMirrorSession {
             break
         }
     }
-
     private func applyReplay(_ bytes: Data, colors: CloudTuiRemoteColors?) {
         // A sidecar replaces authored colors; an absent sidecar preserves them.
         // Restore the authoritative set after resetting the replacement VT state.
         let replayColors = colors ?? appliedRemoteColors
-        applyColors(CloudTuiRemoteColors())
-        surface?.processRemoteOutput(Self.replayReset)
-        surface?.processRemoteOutput(bytes)
-        applyColors(replayColors)
+        var replay = CloudTuiRemoteColors().oscDelta(from: appliedRemoteColors)
+        replay.append(Self.replayReset)
+        replay.append(bytes)
+        replay.append(replayColors.oscBytes)
+        appliedRemoteColors = replayColors
+        guard let surface else { return }
+        surface.processRemoteReplay(replay) { [weak surface] in
+            surface?.forceRefresh(reason: "cloud.replay.applied")
+        }
     }
 
     /// The replay is theme-portable: it carries no palette or default-color
