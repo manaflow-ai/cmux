@@ -4266,6 +4266,27 @@ def test_an_app_host_consumer_edit_runs_a_canary_after_the_compile() -> None:
         assert (full["full_suite"], full["unit_selectors"]) == ("true", ""), full
         # A diff with no consumer edit keeps the compile-only path.
         assert outputs(["Sources/Workspace.swift"])["unit_suite"] == "false"
+        assert result["unit_canary"] == "true", result
+        assert suites["unit_canary"] == "false", suites
+        assert outputs(["Sources/Workspace.swift"])["unit_canary"] == "false"
+
+    # The canary rides on a compile the pull request pays for anyway. A diff
+    # whose build inputs were already compiled (a known-failures edit, say)
+    # keeps skipping the Mac: both reuse checks still run for a canary, and
+    # either one finding a compile drops it from the job's outputs.
+    changes = yaml.safe_load(ci_text)["jobs"]["changes"]
+    by_id = {step.get("id"): step for step in changes["steps"] if step.get("id")}
+    for step_id in ("unchanged_inputs", "admitted"):
+        condition = by_id[step_id]["if"]
+        assert "(steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true')" \
+            in condition, (step_id, condition)
+    reused = ("(steps.unchanged_inputs.outputs.compile_admitted == 'true' || "
+              "steps.admitted.outputs.compile_admitted == 'true')")
+    dropped = f"steps.suite.outputs.unit_canary == 'true' && {reused}"
+    assert changes["outputs"]["unit_suite"] == \
+        f"${{{{ {dropped} && 'false' || steps.suite.outputs.unit_suite }}}}", changes["outputs"]["unit_suite"]
+    assert changes["outputs"]["unit_selectors"] == \
+        f"${{{{ !({dropped}) && steps.suite.outputs.unit_selectors || '' }}}}", changes["outputs"]["unit_selectors"]
 
 
 def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
