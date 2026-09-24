@@ -111,6 +111,12 @@ jobs:
           POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          # Owned Mac pools (off unless 1), their machine counts, and the lane
+          # Xcode whose version names their label (glaeda-std-xcode-26.6).
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          OWNED_JOBS_PER_RUN: ${{ vars.CI_OWNED_POOL_JOBS_PER_RUN }}
+          CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: python3 scripts/ci/pr_runner_pool.py
