@@ -289,9 +289,12 @@ extension GlobalSearchShortcutBehaviorTests {
         return window
     }
 
+    // The first Search popover in a fresh macOS 26 app host can take longer
+    // than 2 seconds to present and focus its field; later ones take well
+    // under a second. The wait returns as soon as the window appears.
     private func waitForSearchPopoverWindow(
         excluding mainWindow: NSWindow,
-        timeout: TimeInterval = 2
+        timeout: TimeInterval = 10
     ) -> NSWindow? {
         let deadline = Date.now.addingTimeInterval(timeout)
         repeat {
