@@ -532,7 +532,12 @@ extension WorkspaceRemoteConfiguration {
             persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
             managedCloudVMID: managedCloudVMID
         )
-        if terminalTransport == .ssh && !skipDaemonBootstrap { snapshot.sshSessionOwner = "cmux-tui" }
+        // Same rule as the app's routesThroughSSHTui: a configuration carrying a
+        // cmuxd-remote relay or daemon endpoint runs the legacy lifecycle, so its
+        // snapshot must not claim cmux-tui ownership.
+        if terminalTransport == .ssh && !skipDaemonBootstrap && relayPort == nil && daemonWebSocketEndpoint == nil {
+            snapshot.sshSessionOwner = "cmux-tui"
+        }
         return snapshot
     }
 }
