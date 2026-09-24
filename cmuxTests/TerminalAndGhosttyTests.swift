@@ -4382,16 +4382,22 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         // still being freed left cycle 2's five-renderer peak inside the
         // noise allowance, failing the "must distinguish" guard. Sample until
         // settled readings stop falling, within the same bounded window, and
-        // keep the lowest.
+        // keep the lowest. A pending release can plateau through one whole
+        // settle window, so require two non-falling readings in a row.
         let baselineDescription = "one-renderer baseline"
         let baselineDeadline = ProcessInfo.processInfo.systemUptime + 20
         var settledBaseline: UInt64?
+        var nonFallingReadings = 0
         repeat {
             let sample = try sampleFootprint(baselineDescription)
             guard sample.settled else { continue }
-            let previous = settledBaseline
-            settledBaseline = min(previous ?? sample.median, sample.median)
-            if let previous, previous <= sample.median + sampleNoiseAllowance { break }
+            if let previous = settledBaseline {
+                nonFallingReadings = previous <= sample.median + sampleNoiseAllowance
+                    ? nonFallingReadings + 1
+                    : 0
+            }
+            settledBaseline = min(settledBaseline ?? sample.median, sample.median)
+            if nonFallingReadings >= 2 { break }
         } while ProcessInfo.processInfo.systemUptime < baselineDeadline
         guard let oneRendererBaseline = settledBaseline else {
             XCTFail("Physical footprint did not settle for \(baselineDescription)")
