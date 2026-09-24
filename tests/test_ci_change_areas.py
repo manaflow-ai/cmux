@@ -3617,6 +3617,81 @@ def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
     # An unreadable diff runs the unit tests rather than guessing.
     assert wants_unit_suite("pull_request", "compile-only", [], None) is True
 
+def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import changed_unit_selectors, suites_declared_in
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        tests = root / "cmuxTests"
+        tests.mkdir()
+        (tests / "AlphaTests.swift").write_text(
+            "import XCTest\nfinal class AlphaTests: XCTestCase {\n    func testA() {}\n}\n"
+        )
+        (tests / "BetaTests.swift").write_text(
+            "import Testing\n@Suite struct BetaTests {\n    @Test func testB() {}\n}\n"
+            "extension AlphaTests {\n    func testC() {}\n}\n"
+        )
+        (tests / "Helper.swift").write_text("func sharedHelper() {}\n")
+        (tests / "NewHelper.swift").write_text("func newHelper() {}\n")
+        (tests / "Fixture.json").write_text("{}\n")
+
+        alpha = ["cmuxTests/AlphaTests.swift", "Sources/Workspace.swift"]
+        assert suites_declared_in(root, alpha) == ["cmuxTests/AlphaTests"]
+        # A file that extends another suite runs that suite too.
+        assert suites_declared_in(root, ["cmuxTests/BetaTests.swift"]) == [
+            "cmuxTests/AlphaTests",
+            "cmuxTests/BetaTests",
+        ]
+        # An existing helper can change any suite, so every suite runs.
+        assert suites_declared_in(root, alpha + ["cmuxTests/Helper.swift"]) == []
+        # A helper this diff adds is used only by files this diff changes.
+        assert suites_declared_in(
+            root, alpha + ["cmuxTests/NewHelper.swift"], added=["cmuxTests/NewHelper.swift"]
+        ) == ["cmuxTests/AlphaTests"]
+        # Non-Swift inputs and an unreadable diff also run everything.
+        assert suites_declared_in(root, alpha + ["cmuxTests/Fixture.json"]) == []
+        assert suites_declared_in(root, None) == []
+        # A deleted suite leaves nothing of itself to run.
+        assert suites_declared_in(root, alpha + ["cmuxTests/GoneTests.swift"]) == ["cmuxTests/AlphaTests"]
+        assert changed_unit_selectors(root, ["cmuxTests/GoneTests.swift"]) == []
+        assert changed_unit_selectors(root, alpha) == ["cmuxTests/AlphaTests"]
+
+
+def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> None:
+    workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["app-host-unit-tests"]
+    matrix = job["strategy"]["matrix"]["shard"]
+    assert "'[8]'" in matrix and "'[1, 2, 3, 4, 5, 6, 7]'" in matrix, matrix
+    assert job["env"]["CMUX_APP_HOST_UNIT_SELECTORS"] == "${{ inputs.unit_selectors }}"
+    # Shard 8 must own none of the strict steps the numbered shards run.
+    owners = {key: value for key, value in job["env"].items() if key.endswith("_SHARD")}
+    assert "8" not in owners.values(), owners
+    ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    assert ci["jobs"]["macos"]["with"]["unit_selectors"] == "${{ needs.changes.outputs.unit_selectors }}"
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        changed.write_text("cmuxTests/TerminalTabIconRegressionTests.swift\n")
+        labels = Path(directory) / "labels.txt"
+
+        def selectors(label: str) -> str:
+            labels.write_text(label)
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--labels-file", str(labels),
+                 "--files-from", str(changed), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return next(line for line in run.stdout.splitlines() if line.startswith("unit_selectors="))
+
+        assert selectors("") == "unit_selectors=cmuxTests/TerminalTabIconRegressionTests"
+        # An explicit request for every suite is honored.
+        assert selectors("unit-ci\n") == "unit_selectors="
+        assert selectors("full-ci\n") == "unit_selectors="
+
+
 def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import coverage_gap

@@ -70,6 +70,7 @@ jobs:
       ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}
       full_suite: ${{ steps.suite.outputs.full_suite }}
       unit_suite: ${{ steps.suite.outputs.unit_suite }}
+      unit_selectors: ${{ steps.suite.outputs.unit_selectors }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_tree: ${{ steps.source-identity.outputs.tree }}
@@ -150,6 +151,10 @@ jobs:
               emit_all_areas
               exit 0
             fi
+            # Files new in this diff. Only other changed files can use a new
+            # test helper, so choose_ci_suite.py need not widen for one.
+            git diff --no-renames --name-only --diff-filter=A "$BASE_SHA" "$MERGE_SHA" \
+              > /tmp/cmux-ci-added-files.txt || rm -f /tmp/cmux-ci-added-files.txt
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
               echo "PR diff is empty; skipping product-area CI."
@@ -464,6 +469,9 @@ jobs:
           files_args=()
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             files_args=(--files-from /tmp/cmux-ci-changed-files.txt)
+          fi
+          if [ -f /tmp/cmux-ci-added-files.txt ]; then
+            files_args+=(--added-from /tmp/cmux-ci-added-files.txt)
           fi
           python3 scripts/ci/choose_ci_suite.py \
             --event-name "$EVENT_NAME" \
@@ -969,6 +977,7 @@ jobs:
       macos: ${{ needs.changes.outputs.macos }}
       full_suite: ${{ needs.changes.outputs.full_suite }}
       unit_suite: ${{ needs.changes.outputs.unit_suite }}
+      unit_selectors: ${{ needs.changes.outputs.unit_selectors }}
       swift_packages: ${{ needs.changes.outputs.swift_packages }}
       compile_admitted: ${{ needs.changes.outputs.compile_admitted }}
       release_build: ${{ needs.changes.outputs.release_build }}

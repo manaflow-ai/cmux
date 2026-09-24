@@ -624,7 +624,7 @@ def check_global_search_has_dedicated_consumer() -> int:
         print("FAIL: app-host-unit-tests job missing")
         return 1
     job = match.group(1)
-    if "shard: [1, 2, 3, 4, 5, 6, 7]" not in job:
+    if "'[1, 2, 3, 4, 5, 6, 7]'" not in job:
         print("FAIL: app-host matrix must include the dedicated seventh consumer")
         return 1
     if 'CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"' not in job:

@@ -28,6 +28,16 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_unit_test_shard import (  # noqa: E402
+    DEFAULT_TIMINGS_PATH,
+    EXTENSION_RE,
+    SUITE_RE,
+    discover_selectors,
+    load_timings,
+    reweight_selectors,
+)
+
 COMPILE_ONLY_POLICY = "compile-only"
 FULL_SUITE_LABEL = "full-ci"
 SUITE_OPT_OUT_LABEL = "no-full-ci"
@@ -44,6 +54,11 @@ UNIT_SUITE_LABEL = "unit-ci"
 UNIT_JUDGED_PREFIXES = ("cmuxTests/",)
 UNJUDGED_BY_ANY_PR_JOB_PREFIXES = ("cmuxUITests/",)
 UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PREFIXES
+
+# Measured serial test time a changed-suites run may hold. One runner executes
+# it as a single batch, so it has to fit comfortably inside the batch timeout
+# a normal shard's batch fits in; a larger diff takes all seven shards.
+CHANGED_SUITES_BUDGET_MS = 10 * 60 * 1000
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -97,6 +112,70 @@ def wants_unit_suite(
     if paths is None:
         return True
     return any(path.strip().startswith(UNIT_JUDGED_PREFIXES) for path in paths)
+
+
+def suites_declared_in(
+    root: Path, paths: Iterable[str] | None, added: Iterable[str] = ()
+) -> list[str]:
+    """The cmuxTests/ suites declared or extended in the changed files.
+
+    Returns an empty list, meaning "run every suite", whenever the answer could
+    be incomplete: an unreadable diff, a changed file under cmuxTests/ that is
+    not Swift, or an existing one that declares no suite. A helper like that
+    can change the behavior of any suite, and nothing here can say which. A
+    helper `added` by this diff is the exception: nothing called it before, so
+    only files this diff also changed can use it.
+    """
+    if paths is None:
+        return []
+    new_files = {path.strip() for path in added}
+    suites: set[str] = set()
+    for path in (path.strip() for path in paths):
+        if not path.startswith(UNIT_JUDGED_PREFIXES):
+            continue
+        source = root / path
+        if not source.exists():
+            # Deleted: nothing of it is left to run.
+            continue
+        if not path.endswith(".swift"):
+            return []
+        try:
+            lines = source.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            return []
+        declared = {
+            match.group(1)
+            for line in lines
+            if (match := SUITE_RE.match(line) or EXTENSION_RE.match(line))
+            and match.group(1).endswith("Tests")
+        }
+        if not declared and path not in new_files:
+            return []
+        suites |= declared
+    return sorted(f"cmuxTests/{name}" for name in suites)
+
+
+def changed_unit_selectors(
+    root: Path, paths: Iterable[str] | None, added: Iterable[str] = ()
+) -> list[str]:
+    """Suite selectors for a unit run the diff selected, or [] for all of them.
+
+    A pull request that edits a few tests needs those tests run, not the
+    other few thousand across seven shards. An empty answer keeps the full
+    unit suite: see suites_declared_in(), plus a changed set whose measured
+    time would not fit one batch.
+    """
+    suites = suites_declared_in(root, paths, added)
+    if not suites:
+        return []
+    wanted = {suite.split("/", 1)[1] for suite in suites}
+    selectors, _ = reweight_selectors(discover_selectors(root), load_timings(DEFAULT_TIMINGS_PATH))
+    cost = sum(
+        selector.weight for selector in selectors if selector.identifier.split("/")[1] in wanted
+    )
+    if cost > CHANGED_SUITES_BUDGET_MS:
+        return []
+    return suites
 
 
 def labels_from_event(event_path: str | Path) -> list[str] | None:
@@ -172,6 +251,11 @@ def main(argv: list[str]) -> int:
         "--files-from",
         help="changed paths, one per line; omit when the diff could not be read",
     )
+    parser.add_argument(
+        "--added-from",
+        help="paths the diff adds, one per line; omit when unknown, which treats none as new",
+    )
+    parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
 
     labels = None
@@ -189,12 +273,25 @@ def main(argv: list[str]) -> int:
         except (OSError, UnicodeError):
             paths = None
 
+    added: list[str] = []
+    if args.added_from:
+        try:
+            with open(args.added_from, encoding="utf-8") as handle:
+                added = handle.read().splitlines()
+        except (OSError, UnicodeError):
+            added = []
+
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
     unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
     gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
+    # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
+    # explicit requests for every suite.
+    asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
+    selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, added)
     lines = [
         f"full_suite={'true' if full else 'false'}",
         f"unit_suite={'true' if unit else 'false'}",
+        f"unit_selectors={' '.join(selectors)}",
         f"coverage_gap={'true' if gap else 'false'}",
     ]
     for line in lines:

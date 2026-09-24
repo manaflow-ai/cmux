@@ -28,6 +28,13 @@ on:
         required: false
         default: ""
         type: string
+      # Space-separated cmuxTests/ suites when `unit_suite` came from a diff
+      # that only edits those suites. `app-host unit tests` then runs just
+      # them on one worker instead of every suite on seven. Empty runs all.
+      unit_selectors:
+        required: false
+        default: ""
+        type: string
       product_artifacts:
         required: false
         default: "layered"
@@ -967,7 +974,7 @@ jobs:
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') }}
-    name: app-host unit tests (${{ matrix.shard }}/7)
+    name: ${{ inputs.unit_selectors != '' && 'app-host unit tests (changed suites)' || format('app-host unit tests ({0}/7)', matrix.shard) }}
     # App-host XCTest needs a runner that can broker testmanagerd control
     # sessions, so route through the shared MACOS_RUNNER_15 var like the other
     # macOS jobs. The fallback is what fork pull requests get, because
@@ -980,7 +987,9 @@ jobs:
       # only needs a verdict, and the first failure already is one.
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        # Shard 8 matches none of the numbered shards below that own a strict
+        # step, so a changed-suites run executes only its own batch.
+        shard: ${{ fromJSON(inputs.unit_selectors != '' && '[8]' || '[1, 2, 3, 4, 5, 6, 7]') }}
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
@@ -991,6 +1000,7 @@ jobs:
       # closed if a setup step or environment handoff loses either redirect.
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
       CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
+      CMUX_APP_HOST_UNIT_SELECTORS: ${{ inputs.unit_selectors }}
       CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
       CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -1705,6 +1715,11 @@ jobs:
           LOGICAL_BATCHES_PER_WORKER=2
           LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
           LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
+          if [ -n "${CMUX_APP_HOST_UNIT_SELECTORS:-}" ]; then
+            # A changed-suites run: one batch holding exactly those suites.
+            LOGICAL_SHARD_TOTAL=1
+            LOGICAL_SHARDS=(1)
+          fi
 
           # Each worker runs two balanced batches sequentially. Every invocation
           # writes to a regular file, and this script mirrors that file into the
@@ -1748,16 +1763,24 @@ jobs:
             for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
               reserve_args+=(--reserve "$reservation")
             done
-            python3 scripts/ci/cmux_unit_test_shard.py \
-              --shard-index "$logical_shard" \
-              --shard-total "$LOGICAL_SHARD_TOTAL" \
-              --physical-shard-total "$PHYSICAL_SHARD_TOTAL" \
-              ${reserve_args[@]+"${reserve_args[@]}"} \
-              --output "$shard_args" || {
-                local shard_status=$?
-                echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
-                return "$shard_status"
-              }
+            if [ -n "${CMUX_APP_HOST_UNIT_SELECTORS:-}" ]; then
+              local selector
+              : >"$shard_args"
+              for selector in $CMUX_APP_HOST_UNIT_SELECTORS; do
+                echo "-only-testing:$selector" >>"$shard_args"
+              done
+            else
+              python3 scripts/ci/cmux_unit_test_shard.py \
+                --shard-index "$logical_shard" \
+                --shard-total "$LOGICAL_SHARD_TOTAL" \
+                --physical-shard-total "$PHYSICAL_SHARD_TOTAL" \
+                ${reserve_args[@]+"${reserve_args[@]}"} \
+                --output "$shard_args" || {
+                  local shard_status=$?
+                  echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+                  return "$shard_status"
+                }
+            fi
             if [ ! -r "$shard_args" ]; then
               echo "Missing selector file for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
               return 1
