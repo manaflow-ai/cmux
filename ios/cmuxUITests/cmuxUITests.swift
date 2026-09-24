@@ -7546,7 +7546,7 @@ final class cmuxUITests: XCTestCase {
             // introduction. Compare the actual keyboard in both builds.
             let typingIntroduction = app.buttons["Continue"]
             if typingIntroduction.waitForExistence(timeout: 1) {
-                tap(typingIntroduction, in: app)
+                typingIntroduction.tap()
             }
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-keyboard")
             XCUIDevice.shared.orientation = .landscapeLeft
