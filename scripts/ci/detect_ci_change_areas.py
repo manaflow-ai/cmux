@@ -594,6 +594,9 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ghosttykit-checksums.txt",
     "scripts/validate-xcframework-archive.py",
     "scripts/select-ci-xcode.sh",
+    # select-ci-xcode.sh reads the pool pins and the .xcode-version floor.
+    "scripts/ci/xcode-pins.txt",
+    ".xcode-version",
     "scripts/install-rust-ci.sh",
     # install-rust-ci.sh installs the toolchain this file names.
     "Native/DiffSidecar/rust-toolchain.toml",
