@@ -16,10 +16,16 @@ import time
 from urllib.parse import quote
 import uuid
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from e2e_runner_pool import LARGE_RUNNER, SPLIT_VARIABLE, split_enabled
+from e2e_runner_pool import routed_runner as pool_routed_runner
+
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
 # `vars.MACOS_RUNNER_TESTS`, as passed by a workflow job; see default_runner().
 VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
+# `vars.CI_E2E_LARGE_POOL_SPLIT`, passed the same way; see large_pool_split().
+SPLIT_ENV = "CMUX_CI_E2E_LARGE_POOL_SPLIT"
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -38,13 +44,9 @@ RUNNERS = (
     "tart-dual",
     "tart-small",
 )
-# Half of all commits compile on the large macOS 26 SKU, so the two sizes are
-# compared on real focused-run traffic rather than one benchmark. The split is
-# keyed on the commit, not drawn at random: every dispatch at one commit lands
-# on one pool, which is what in-flight reuse, the failed-selector refusal and
-# the product contract all match on.
-SMALL_RUNNER = "blacksmith-6vcpu-macos-26"
-LARGE_RUNNER = "blacksmith-12vcpu-macos-26"
+# Half of all commits compile on the large macOS 26 SKU. The rule lives in
+# e2e_runner_pool.py, which test-e2e.yml runs too, so a run started here and
+# one started from the Actions UI put the same commit on the same pool.
 # GitHub rejects a concurrency group longer than this as a workflow file
 # issue: the run is created with no jobs and no message saying why.
 MAX_CONCURRENCY_GROUP = 400
@@ -186,6 +188,50 @@ def parse_run_name(title: str) -> tuple[list[str], str, str] | None:
     return [part.strip() for part in head.split(",")], runner.strip(), ref
 
 
+_UNLISTED = object()
+_listed: object = _UNLISTED
+
+
+def listed_variables() -> dict[str, str] | None:
+    """Repository variables by name, read once, or None when unreadable."""
+    global _listed
+    if _listed is _UNLISTED:
+        try:
+            payload = output(
+                "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
+                timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+            )
+            variables = json.loads(payload)
+        except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
+            variables = None
+        if isinstance(variables, list):
+            _listed = {
+                str(entry["name"]): str(entry.get("value", ""))
+                for entry in variables
+                if isinstance(entry, dict) and "name" in entry
+            }
+        else:
+            _listed = None
+    return _listed  # type: ignore[return-value]
+
+
+def large_pool_split() -> bool:
+    """Whether `vars.CI_E2E_LARGE_POOL_SPLIT` leaves the split on.
+
+    A workflow job passes the variable in CMUX_CI_E2E_LARGE_POOL_SPLIT. An
+    unreadable listing counts as on, the workflow's own default; the only
+    cost of guessing wrong is pinning a commit to the pool the workflow would
+    otherwise have split it onto.
+    """
+    if SPLIT_ENV in os.environ:
+        return split_enabled(os.environ[SPLIT_ENV])
+    if VARIABLE_ENV in os.environ:
+        # A job token cannot list variables; a caller that passed one variable
+        # but not the other predates the switch.
+        return True
+    return split_enabled((listed_variables() or {}).get(SPLIT_VARIABLE))
+
+
 def default_runner() -> str | None:
     """The label `runner: auto` resolves to, or None when it cannot be known.
 
@@ -207,22 +253,12 @@ def default_runner() -> str | None:
         if value:
             return value
     else:
-        try:
-            payload = output(
-                "gh", "variable", "list", "--repo", REPO, "--json", "name,value",
-                timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
-            )
-            variables = json.loads(payload)
-        except (subprocess.SubprocessError, OSError, ValueError, json.JSONDecodeError):
+        variables = listed_variables()
+        if variables is None:
             return None
-        if not isinstance(variables, list):
-            return None
-        for entry in variables:
-            if isinstance(entry, dict) and entry.get("name") == "MACOS_RUNNER_TESTS":
-                value = str(entry.get("value", "")).strip()
-                if value:
-                    return value
-                break
+        value = variables.get("MACOS_RUNNER_TESTS", "").strip()
+        if value:
+            return value
     try:
         workflow = (ROOT / ".github/workflows" / WORKFLOW).read_text()
     except OSError:
@@ -233,15 +269,9 @@ def default_runner() -> str | None:
     return literal.group(1) if literal else None
 
 
-def routed_runner(commit: str, default: str | None) -> str | None:
-    """The pool an unpinned dispatch at `commit` runs on.
-
-    Only the free default is split. A repository variable naming any other
-    pool is an admin decision, and it wins unchanged.
-    """
-    if default == SMALL_RUNNER and int(commit[-1], 16) % 2:
-        return LARGE_RUNNER
-    return default
+def routed_runner(commit: str, default: str | None, split: bool = True) -> str | None:
+    """The pool an unpinned dispatch at `commit` runs on; see e2e_runner_pool."""
+    return pool_routed_runner(commit, default, split)
 
 
 def attempts(
@@ -430,7 +460,9 @@ def main() -> int:
     # could not be established, and the in-flight guards below stay silent
     # rather than compare against a runner they guessed.
     pinned = args.runner not in (None, "auto")
-    runner = args.runner if pinned else routed_runner(commit, default_runner())
+    runner = args.runner if pinned else routed_runner(
+        commit, default_runner(), large_pool_split()
+    )
     # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
     # is unknown, measure against the longest label in the runner dropdown.
     label = runner or max(RUNNERS, key=len)
@@ -517,6 +549,8 @@ def main() -> int:
     }
     if args.runner is not None:
         fields["runner"] = args.runner
+    # test-e2e.yml would route this commit to the same pool on its own. Name
+    # it anyway so the run title carries the pool the guards above match on.
     if not pinned and runner == LARGE_RUNNER:
         fields["runner"] = runner
     command = ["gh", "workflow", "run", WORKFLOW, "--repo", REPO]

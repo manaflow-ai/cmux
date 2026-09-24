@@ -29,7 +29,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows MACOS_RUNNER_TESTS; tart-* choices use isolated VMs)"
+        description: "Runner OS (auto follows MACOS_RUNNER_TESTS and splits commits across the 6vcpu and 12vcpu macOS 26 pools; tart-* choices use isolated VMs)"
         required: false
         default: "auto"
         type: choice
@@ -43,6 +43,11 @@ on:
           - tart-dual
           - tart-small
 
+# run-name and the concurrency group cannot read job outputs, so they spell
+# `auto` as the pre-split default even when the runner job routes the commit
+# to the 12vcpu pool. Every auto dispatch of one ref and filter still shares a
+# group, and still lands on one pool, because the split is keyed on the
+# commit. run-e2e.sh names a routed pool explicitly, so its titles are exact.
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
@@ -59,6 +64,44 @@ jobs:
     uses: ./.github/workflows/resolve-dispatch-ref.yml
     with:
       ref: ${{ inputs.ref }}
+
+  runner:
+    # The macOS pool build and test run on. `auto` follows MACOS_RUNNER_TESTS
+    # and, on the default 6vcpu macOS 26 pool, sends odd commits to the 12vcpu
+    # pool (CI_E2E_LARGE_POOL_SPLIT=0 turns that off). run-e2e.sh applies the
+    # same rule from the same script, so product reuse and in-flight matching
+    # see one label per commit however the run was started.
+    needs: resolve-ref
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      # The helper comes from this workflow's revision, not the tested one,
+      # which may predate it.
+      - name: Checkout pool helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci/e2e_runner_pool.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          REQUESTED_RUNNER: ${{ inputs.runner }}
+          RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS }}
+          LARGE_POOL_SPLIT: ${{ vars.CI_E2E_LARGE_POOL_SPLIT }}
+          COMMIT: ${{ needs.resolve-ref.outputs.sha }}
+        run: |
+          set -euo pipefail
+          label="$(python3 scripts/ci/e2e_runner_pool.py \
+            --requested "$REQUESTED_RUNNER" \
+            --variable "$RUNNER_VARIABLE" \
+            --split "$LARGE_POOL_SPLIT" \
+            --commit "$COMMIT")"
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+          echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto}) for $COMMIT"
 
   filter:
     # Seconds on Linux, and it rejects a malformed selector before either
@@ -190,8 +233,8 @@ jobs:
           echo "Resolved selectors ($count): $selectors"
 
   build:
-    needs: [resolve-ref, filter]
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+    needs: [resolve-ref, filter, runner]
+    runs-on: ${{ needs.runner.outputs.label }}
     # Reuse lists this contract's artifacts and downloads one from an earlier
     # run. Nothing else in this lane reads the Actions API, and nothing writes.
     permissions:
@@ -214,13 +257,13 @@ jobs:
       # same Xcode build. The intra-run handoff uses the artifact id, not the
       # name, so nothing here depends on it.
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+      CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.label }}
     steps:
 
       - name: Validate Tart canary identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}
         env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -613,7 +656,7 @@ jobs:
           esac
 
   test:
-    needs: [resolve-ref, filter, build]
+    needs: [resolve-ref, filter, runner, build]
     # scripts/ci/parallel_artifact_download.py reads this run's artifact
     # metadata through the Actions API; the workflow-level token is
     # contents-only. Narrow and additive, mirroring ci-macos.yml's admission
@@ -621,7 +664,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+    runs-on: ${{ needs.runner.outputs.label }}
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     env:
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
@@ -639,9 +682,9 @@ jobs:
     steps:
 
       - name: Validate Tart canary identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
+        if: ${{ startsWith(needs.runner.outputs.label, 'tart-') }}
         env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
+          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
