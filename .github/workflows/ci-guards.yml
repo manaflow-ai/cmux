@@ -453,6 +453,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_manual_macos_package_cache.py
 
+      - name: Validate test-only app-host rerun planning
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_app_host_test_rerun.py
+
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh

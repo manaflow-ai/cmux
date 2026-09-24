@@ -664,6 +664,10 @@ path = "tests/test_app_host_layered_products.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_host_test_rerun.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_check_ghostty_zig_workflows.py"
 lane = "linux-guard"
 
