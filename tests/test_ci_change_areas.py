@@ -3677,6 +3677,57 @@ def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
                 "import Testing\n@Suite struct FeedCoordinatorTests {\n    @Test func testF() {}\n}\n"
             ),
             "Fixture.json": "{}\n",
+            # 1 class, 2 member, 3 body, 4 close, 5 close, 6 factory
+            "Recorder.swift": (
+                "final class Recorder: IntentRecording {\n"
+                "    func record(_ intent: Int) {\n"
+                "        intents.append(intent)\n"
+                "    }\n"
+                "}\n"
+                "func makeRecorder() -> Recorder { Recorder() }\n"
+            ),
+            "BuildsRecorderTests.swift": (
+                "import XCTest\n"
+                "final class BuildsRecorderTests: XCTestCase {\n"
+                "    func testR() { _ = Recorder() }\n"
+                "}\n"
+            ),
+            "FactoryTests.swift": (
+                "import XCTest\n"
+                "final class FactoryTests: XCTestCase {\n"
+                "    func testF() { makeRecorder().record(1) }\n"
+                "}\n"
+            ),
+            # 1 struct, 2 tearDown, 3 body, 4 close, 5 close
+            "Harness.swift": (
+                "struct Harness {\n"
+                "    func tearDown() {\n"
+                "        stop()\n"
+                "    }\n"
+                "}\n"
+            ),
+            "HarnessTests.swift": (
+                "import XCTest\n"
+                "final class HarnessTests: XCTestCase {\n"
+                "    func testH() { Harness().tearDown() }\n"
+                "}\n"
+            ),
+            # 1 func, 2 close, 3 attribute, 4 func, 5 close
+            "Plain.swift": "func first() -> Int {\n}\n@MainActor\nfunc plain() {\n}\n",
+            "PlainTests.swift": (
+                "import XCTest\n"
+                "final class PlainTests: XCTestCase {\n"
+                "    func testP() { plain() }\n"
+                "}\n"
+            ),
+            "Container.swift": (
+                "enum SettingsSuites {}\n"
+                "extension SettingsSuites {\n"
+                "    @Suite struct ChromeTests {\n"
+                "        @Test func chrome() {}\n"
+                "    }\n"
+                "}\n"
+            ),
         }
         for name, text in files.items():
             (tests / name).write_text(text)
@@ -3698,6 +3749,18 @@ def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
         assert affected("StringExtras.swift", 2) == ["cmuxTests/ShoutTests"]
         # A conformance has no name to search for.
         assert affected("Conformances.swift", 2) is None
+        # A helper type's member traces the type: a suite that only builds
+        # the mock for app code to call runs, and so does one that reaches it
+        # through a factory without naming it.
+        assert affected("Recorder.swift", 3) == ["cmuxTests/BuildsRecorderTests", "cmuxTests/FactoryTests"]
+        # A helper's `tearDown()` is a helper, not a hook only XCTest calls.
+        assert affected("Harness.swift", 3) == ["cmuxTests/HarnessTests"]
+        # An attribute line belongs to the declaration below it.
+        assert affected("Plain.swift", 3) == ["cmuxTests/PlainTests"]
+        # Suites nested in a container are named nowhere here: run everything.
+        assert affected("Container.swift", 4) is None
+        # An import is a change to the whole file.
+        assert affected("AlphaTests.swift", 1) == ["cmuxTests/AlphaTests", "cmuxTests/BetaTests"]
         # Without line information every line of the file counts.
         assert affected("AlphaTests.swift") == ["cmuxTests/AlphaTests", "cmuxTests/BetaTests"]
         # Non-Swift inputs run everything; a deleted file leaves nothing.

@@ -53,6 +53,9 @@ class Declaration:
     test: bool
     # The type a member belongs to: callers elsewhere name it to reach one.
     owner: str | None = None
+    # A non-suite declaration with tests inside, such as a container of
+    # nested Swift Testing suites, whose selectors this module cannot name.
+    holds_tests: bool = False
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,12 @@ def outline(lines: list[str]) -> Outline:
                 suite,
                 not file_local,
                 False,
+                holds_tests=suite is None
+                and any(
+                    marker in text
+                    for text in lines[start - 1 : end]
+                    for marker in ("@Test", "@Suite", "XCTestCase")
+                ),
             )
         )
         member_starts: list[tuple[int, re.Match[str]]] = [
@@ -103,7 +112,9 @@ def outline(lines: list[str]) -> Outline:
                 member_starts[position + 1][0] - 1 if position + 1 < len(member_starts) else end
             )
             member_name = match.group(3)
-            test = member_name is not None and (
+            # Only a suite's hooks and test methods are called by the test
+            # runner alone; a helper's `tearDown()` has callers.
+            test = member_name is not None and suite is not None and (
                 member_name.startswith("test")
                 or member_name in XCTEST_HOOKS
                 or has_test_attribute(lines, member_start)
@@ -203,8 +214,8 @@ def affected_suites(
         top, member = enclosing(outline_of(path), line)
         if top is None:
             return True  # imports, comments
-        if top.name is None:
-            return False  # inside a conformance
+        if top.name is None or top.holds_tests:
+            return False  # inside a conformance, or suites named nowhere here
         if top.suite is not None:
             suites.add(top.suite)
         if member is not None and member.start > top.start:
@@ -216,7 +227,14 @@ def affected_suites(
                 if top.visible:
                     names.append((top.name, None))
             elif member.visible and not member.test:
-                names.append((member.name, member.owner))
+                if member.owner is not None and top.suite is None:
+                    # A helper type's member. App code may call it (a mock)
+                    # and callers may hold an instance without naming it, so
+                    # trace the type: whatever constructs, returns or stores
+                    # one is affected.
+                    names.append((member.owner, None))
+                else:
+                    names.append((member.name, member.owner))
             return True
         if top.name is None:
             return False
@@ -233,10 +251,33 @@ def affected_suites(
             continue
         if path not in files:
             return None
+        text = files[path]
+        whole = range(1, len(text) + 1)
         lines = hunks.get(path) if diff is not None else None
-        for line in sorted(lines if lines else range(1, len(files[path]) + 1)):
+        first_declaration = min((item.start for item in outline_of(path).top), default=len(text) + 1)
+        if not lines or any(
+            line < first_declaration and text[line - 1].strip() and not text[line - 1].lstrip().startswith("//")
+            for line in lines
+        ):
+            # No line information, or an import or other file-level line:
+            # the whole file changed.
+            lines = set(whole)
+        for line in sorted(lines):
             if not touch(path, line):
                 return None
+            if text[line - 1].lstrip().startswith(("@", "#", "///")):
+                # An attribute, directive or doc comment belongs to the
+                # declaration it precedes, not the one above it.
+                following = next(
+                    (
+                        number
+                        for number in range(line + 1, min(line + 20, len(text)) + 1)
+                        if TOP_LEVEL_RE.match(text[number - 1]) or MEMBER_RE.match(text[number - 1])
+                    ),
+                    None,
+                )
+                if following is not None and not touch(path, following):
+                    return None
 
     searched: set[tuple[str, str | None]] = set()
     while names:
