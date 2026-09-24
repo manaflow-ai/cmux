@@ -365,5 +365,7 @@ extension RemoteTmuxControlConnection {
         paneHeaderLabels = paneHeaderLabels.filter { livePanes.contains($0.key) }
         paneOutputByteCounts = paneOutputByteCounts.filter { livePanes.contains($0.key) }
         paneForegroundStates = paneForegroundStates.filter { livePanes.contains($0.key) }
+        paneColors = paneColors.filter { livePanes.contains($0.key) }
+        sentPaneColors = sentPaneColors.filter { livePanes.contains($0.key) }
     }
 }
