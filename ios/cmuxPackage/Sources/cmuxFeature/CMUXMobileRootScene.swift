@@ -267,7 +267,9 @@ public struct CMUXMobileRootScene: View {
             #if DEBUG
             legacyURL = nil
             #else
-            legacyURL = environment == "production" && MobileIOSBuildScope.current() == nil
+            legacyURL = environment == "production"
+                && MobileBuildType.current().migratesLegacyComputerIdentities
+                && MobileIOSBuildScope.current() == nil
                 ? support.appendingPathComponent("cmux/paired-macs.sqlite3") : nil
             #endif
             let store = try MobilePairedMacStore(
@@ -533,6 +535,8 @@ public struct CMUXMobileRootScene: View {
             pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             personalIrohDiscovery: personalIrohDiscovery,
+            legacyMacIdentityMigration: MobileBuildType.current().migratesLegacyComputerIdentities
+                ? pairedMacStore as? any MobilePairedMacIdentityMigrating : nil,
             personalIrohForget: resolvedPersonalIrohForget,
             presence: nil,
             identityProvider: identityProvider,

@@ -1109,6 +1109,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
     private let multiMacAggregationDefaults: UserDefaults
+    let legacyMacIdentityMigration: (any MobilePairedMacIdentityMigrating)?
     let hiddenMacStore: any PairedMacHiddenStoring
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
@@ -1846,6 +1847,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
+        legacyMacIdentityMigration: (any MobilePairedMacIdentityMigrating)? = nil,
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
@@ -1921,6 +1923,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
+        self.legacyMacIdentityMigration = legacyMacIdentityMigration
         self.hiddenMacStore = hiddenMacStore
         self.analytics = analytics
         self.terminalLatencyObserver = terminalLatencyObserver
@@ -3253,6 +3256,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         func storedReconnectRoutes(_ mac: MobilePairedMac) -> [CmxAttachRoute] {
             orderedReconnectRoutes(for: mac, supportedKinds: supportedKinds)
         }
+        let directoryPairingIDs: Set<String>?
+        do {
+            directoryPairingIDs = try await refreshDirectoryPairedMacIdentities(scope: scope)
+        } catch {
+            finishStoredMacReconnectAttempt(generation: generation)
+            return .failed(.unknown)
+        }
         let loadedActiveMac: MobilePairedMac?
         let loadedMacs: [MobilePairedMac]
         do {
@@ -3298,11 +3308,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // transport, and running it through the reconnect machinery (registry
         // route refresh, dial-failure cleanup) would degrade its locally
         // served, always-connected state.
-        let activeMac = loadedActiveMac.flatMap {
-            isHidden($0) || isDemonstrationPairedMac($0) ? nil : $0
+        let activeMac = loadedActiveMac.flatMap { mac in
+            isHidden(mac) || isDemonstrationPairedMac(mac)
+                || !(directoryPairingIDs?.contains(mac.id) ?? true) ? nil : mac
         }
-        let allMacs = loadedMacs.filter {
-            !isHidden($0) && !isDemonstrationPairedMac($0)
+        let allMacs = loadedMacs.filter { mac in
+            !isHidden(mac) && !isDemonstrationPairedMac(mac)
+                && (directoryPairingIDs?.contains(mac.id) ?? true)
         }
         // Reconnect candidates include every saved Computer, but strict
         // Tailscale owns the recovery pass only for the selected foreground
@@ -4275,6 +4287,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         guard loadGeneration == pairedMacLoadGeneration else { return false }
         pairedMacLoadState = .notLoaded
+        do {
+            _ = try await refreshDirectoryPairedMacIdentities(scope: scope)
+        } catch {
+            if await isScopeCurrent(scope), loadGeneration == pairedMacLoadGeneration {
+                pairedMacLoadState = .failed
+            }
+            return false
+        }
         let storeLoad = await Self.raceAgainstDeadline(
             nanoseconds: 5_000_000_000
         ) { [pairedMacStore] () async -> PairedMacStoreLoadResult in
@@ -6736,6 +6756,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         authorityValidation: SecondaryStoredAuthorityValidation,
         persistAuthenticatedDiscovery: Bool = false
     ) async -> SecondaryMacEstablishmentOutcome {
+        guard await directoryAllowsConnection(macDeviceID: mac.macDeviceID, instanceTag: mac.instanceTag),
+              await isScopeCurrent(scope) else { return .superseded }
         let flightKey = MacPairingKey(mac)
         if let existing = secondaryMacEstablishmentFlights[flightKey] {
             MobileDebugLog.anchormux(
@@ -7506,8 +7528,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             secondaryAggregationRetryNeedsFullRefresh =
                 true
         }
-        guard presence != nil,
-              foregroundRefreshIsActive,
+        guard foregroundRefreshIsActive,
               secondaryAggregationRetryTask == nil,
               (!secondaryAggregationRetryMacIDs.isEmpty
                   || secondaryAggregationRetryNeedsFullRefresh),
