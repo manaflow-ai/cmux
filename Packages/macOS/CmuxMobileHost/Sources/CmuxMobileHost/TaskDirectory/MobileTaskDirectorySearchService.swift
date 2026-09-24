@@ -9,7 +9,17 @@ public actor MobileTaskDirectorySearchService {
         public var queryTimeout: Duration = .seconds(2)
         public var walkBudget = MobileTaskDirectoryFilesystemWalker.Budget()
 
-        public init() {}
+        public init(
+            maximumMetadataResults: Int = 2_048,
+            maximumWireResults: Int = 64,
+            queryTimeout: Duration = .seconds(2),
+            walkBudget: MobileTaskDirectoryFilesystemWalker.Budget = MobileTaskDirectoryFilesystemWalker.Budget()
+        ) {
+            self.maximumMetadataResults = maximumMetadataResults
+            self.maximumWireResults = maximumWireResults
+            self.queryTimeout = queryTimeout
+            self.walkBudget = walkBudget
+        }
     }
 
     public struct SearchablePath: Sendable {
