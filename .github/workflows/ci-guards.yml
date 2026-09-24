@@ -723,6 +723,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
 
+      - name: Validate runner capability resolution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_capability_resolver.py
+
       - name: Validate evidence collection reporting
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_evidence_outcomes.py
