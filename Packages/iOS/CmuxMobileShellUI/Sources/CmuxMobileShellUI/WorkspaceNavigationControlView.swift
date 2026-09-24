@@ -8,12 +8,13 @@ import UIKit
 final class WorkspaceNavigationControlView: UIView {
     private let contentView: UIView & UIContentView
     private var width: NSLayoutConstraint?
-    private let minimumWidth: CGFloat
 
-    init(content: AnyView, minimumWidth: CGFloat) {
-        self.minimumWidth = minimumWidth
+    init(content: AnyView) {
         contentView = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
         super.init(frame: .zero)
+        // The bar already places items around the device's safe area. Adding
+        // it again here enlarges the end items by 17 points in landscape.
+        insetsLayoutMarginsFromSafeArea = false
         translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentView)
@@ -35,7 +36,7 @@ final class WorkspaceNavigationControlView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        return CGSize(width: max(minimumWidth, contentSize.width + layoutMargins.left + layoutMargins.right), height: 36)
+        return CGSize(width: contentSize.width + layoutMargins.left + layoutMargins.right, height: 36)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
