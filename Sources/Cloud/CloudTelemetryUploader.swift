@@ -5,6 +5,23 @@ import os
 
 /// A bounded, account-scoped queue. Uses its own transport, so export errors cannot recurse.
 actor CloudTelemetryUploader: CloudTelemetrySending {
+    /// Debug Cloud API traffic uses the isolated tag backend, but diagnostics
+    /// must survive that backend being unreachable. The shared staging ingress
+    /// authenticates the same development Stack account and forwards spans to
+    /// Axiom independently of the tag's GCP stack.
+    static var telemetryBaseURL: URL {
+        #if DEBUG
+        if BuildFlavor.current == .dev,
+           AuthEnvironment.resolvedStackAuthEnvironment(
+               environment: ProcessInfo.processInfo.environment,
+               isDebugBuild: true
+           ) != .production {
+            return URL(string: "https://cmux-staging.vercel.app")!
+        }
+        #endif
+        return AuthEnvironment.vmAPIBaseURL
+    }
+
     private struct Entry: Codable {
         let accountKey: String
         let client: CloudTelemetryClient

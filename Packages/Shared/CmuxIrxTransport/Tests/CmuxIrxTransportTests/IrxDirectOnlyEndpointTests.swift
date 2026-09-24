@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxIrohTransport
 import Foundation
 import IrohLib
 import Testing
@@ -5,13 +7,13 @@ import Testing
 
 @Suite(.timeLimit(.minutes(1)))
 struct IrxDirectOnlyEndpointTests {
-    private func supervisor() -> IrxEndpointSupervisor {
+    private func supervisor(diagnosticLog: DiagnosticLog? = nil) -> IrxEndpointSupervisor {
         IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
             identity: IrxIdentity(privateKeyData: IrxLiveTestSupport.identitySeed(),
                 deviceID: "direct-test", appInstanceID: "direct-test"),
             pathMode: .directOnly, preferredBindAddress: "127.0.0.1:0",
             initialRemoteBiStreams: 0, initialRemoteUniStreams: 0),
-            journal: IrxLiveTestSupport.journal())
+            journal: IrxLiveTestSupport.journal(), diagnosticLog: diagnosticLog)
     }
 
     @Test func directConnectionNeedsNoCredentialAndCannotAcquireARelay() async throws {
@@ -39,6 +41,50 @@ struct IrxDirectOnlyEndpointTests {
         #expect(await connection.isClosed == false)
         let sameEndpoint = try await supervisor.readyEndpoint(credentials: [])
         #expect(sameEndpoint === endpoint)
+
+        await connection.close(code: .userRequested, origin: .local)
+        try accepted.close(errorCode: 0, reason: Data())
+        await supervisor.deactivate()
+        try await server.close()
+    }
+
+    @Test func directConnectionRecordsSelectedPathDiagnostics() async throws {
+        let diagnosticLog = DiagnosticLog(capacity: 32, role: .mobileClient)
+        let (stream, continuation) = AsyncStream<DiagnosticEvent>.makeStream()
+        diagnosticLog.setEventTap { continuation.yield($0) }
+        defer { continuation.finish() }
+        let supervisor = supervisor(diagnosticLog: diagnosticLog)
+        _ = try await supervisor.readyEndpoint(credentials: [])
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let accepting = Task {
+            let incoming = try #require(await server.acceptNext())
+            return try await incoming.accept().connect()
+        }
+        let address = EndpointAddr(
+            id: server.id(),
+            relayUrl: nil,
+            addresses: IrxLiveTestSupport.loopbackAddr(of: server).directAddresses())
+        let connection = try await supervisor.dial(address: address, credentials: [])
+        let accepted = try await accepting.value
+
+        let observed = try await withIrxDeadline(.seconds(3), onTimeout: { continuation.finish() }) {
+            var events: [DiagnosticEvent] = []
+            for await event in stream {
+                events.append(event)
+                if event.code == .selectedPathChanged {
+                    return events
+                }
+            }
+            return nil
+        }
+        let events = observed ?? []
+        #expect(events.contains {
+            $0.code == .selectedPathChanged && $0.diagnosticPathKind == .privateNetwork
+        })
+        #expect(events.allSatisfy {
+            $0.surface != nil && ($0.c ?? 0) > 0 && ($0.c ?? 0) <= Int(UInt32.max)
+        })
 
         await connection.close(code: .userRequested, origin: .local)
         try accepted.close(errorCode: 0, reason: Data())

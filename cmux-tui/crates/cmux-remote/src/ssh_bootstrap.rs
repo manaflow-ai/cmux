@@ -254,12 +254,19 @@ impl SshBootstrapper {
         })?;
         let remote = self.remote_platform().await?;
         let local = Platform::local();
-        if !local.compatible_with(&remote) {
+        let artifact = crate::ssh_artifacts::payload(
+            source,
+            &self.config.build_identity,
+            &remote.os,
+            &remote.arch,
+        )?;
+        if artifact.is_none() && !local.compatible_with(&remote) {
             return Err(BootstrapError::LocalBinaryIncompatible {
                 local: local.display(),
                 remote: remote.display(),
             });
         }
+        let source = artifact.as_deref().unwrap_or(source);
         let temporary_dir = self.temporary_upload_path();
         let temporary = format!("{temporary_dir}/payload");
         let parent = self

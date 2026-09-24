@@ -222,8 +222,8 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
     for job in ("build", "preflight", "verify"):
         block = workflow_job(bootstrap, job)
         assert (
-            "runs-on: ${{ vars.LINUX_RUNNER || "
-            "'blacksmith-4vcpu-ubuntu-2404' }}" in block
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+            "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in block
         )
     assert (
         "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
@@ -256,7 +256,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
     }
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
     assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
@@ -319,7 +319,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
     assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
@@ -718,7 +718,7 @@ def test_release_app_token_is_scoped_to_the_atomic_push() -> None:
 
     assert "SDK_RELEASE_APP_PRIVATE_KEY" not in revalidate_tags
     assert "actions/create-github-app-token@" not in revalidate_tags
-    assert "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in cut_tags
     assert "actions/checkout@" not in cut_tags
     assert "actions/download-artifact@" not in cut_tags
     assert "actions/setup-node@" not in cut_tags
@@ -1640,12 +1640,63 @@ def test_installed_pypi_wheel_probe_rejects_stale_executable() -> None:
 
 
 def test_native_tui_releases_do_not_gate_on_separately_deployed_worker() -> None:
-    for name in ("cmux-tui-release.yml", "cmux-tui-nightly.yml"):
-        document = yaml.safe_load(workflow(name))
-        assert document["jobs"]["build-package"]["with"]["build_cloudflare_relay"] is False
+    """No shipping lane may be gated on the separately deployed Worker.
+
+    This used to be enforced caller by caller: the Worker was a job inside
+    cmux-tui-build-package.yml behind `build_cloudflare_relay`, and each release
+    caller passed false. relay-publish-npm.yml never did, so it inherited the
+    default of true and ran the Worker's `cargo clippy -- -D warnings` and
+    `npm audit --audit-level=high` inside a publishing run, where `publish`
+    needs `build-package`. A third-party advisory or a new lint -- neither of
+    them a change to this repository -- could therefore stop cmux-relay
+    shipping.
+
+    The Worker now has its own lane, so there is no input left to pass and no
+    caller left to get it wrong.
+    """
     shared = workflow("cmux-tui-build-package.yml")
-    assert "if: inputs.build_cloudflare_relay" in shared
-    assert "npm audit --audit-level=high" in shared
+    assert "build_cloudflare_relay" not in shared
+    assert "cloudflare-relay:" not in shared
+    assert "cloudflare-do" not in shared
+
+    for name in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+        if name.name == "cloudflare-relay.yml":
+            continue
+        text = name.read_text(encoding="utf-8")
+        assert "relays/cloudflare-do" not in text, (
+            f"{name.name} references the Worker directory; verifying it outside "
+            "cloudflare-relay.yml risks gating a shipping lane on it again"
+        )
+
+
+def test_cloudflare_worker_is_verified_on_the_pull_request_that_changes_it() -> None:
+    """The Worker's only lane must be triggered by changes to the Worker.
+
+    Before it had its own workflow the verification ran only during a
+    cmux-relay publish, which last succeeded 2026-08-27 -- so edits to
+    cmux-tui/relays/cloudflare-do went unverified between releases, and the
+    verification was discovered only at the moment it could block one.
+    """
+    document = yaml.safe_load(workflow("cloudflare-relay.yml"))
+    triggers = document.get("on") or document.get(True)
+    assert "pull_request" in triggers, "the Worker must be verified on pull requests"
+
+    component = "cmux-tui/relays/cloudflare-do/**"
+    for event in ("pull_request", "push"):
+        paths = triggers[event]["paths"]
+        assert component in paths, f"{event} must cover {component}"
+        assert ".github/workflows/cloudflare-relay.yml" in paths, (
+            f"{event} must re-run the lane when the lane itself changes"
+        )
+
+    body = workflow("cloudflare-relay.yml")
+    for check in (
+        "python3 tests/validate_wrangler_config.py",
+        "cargo clippy --locked --all-targets -- -D warnings",
+        "npm audit --audit-level=high",
+        "wrangler deploy --dry-run",
+    ):
+        assert check in body, f"the Worker lane lost {check!r}"
 
 
 def test_experimental_windows_is_opt_in_without_blocking_unix_publication() -> None:
@@ -1782,7 +1833,9 @@ def test_relay_attestations_survive_a_skipped_windows_build() -> None:
 
 PACKAGE_BUILD_JOBS = (
     "build",
-    "cloudflare-relay",
+    # cloudflare-relay moved to its own lane; it checks out the pull request
+    # directly rather than a caller-supplied ref, so it is no longer one of the
+    # jobs this invariant applies to.
     "build-windows",
     "package",
     "verify-linux-packages",

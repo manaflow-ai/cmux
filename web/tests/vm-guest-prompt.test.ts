@@ -23,6 +23,26 @@ function install(directory: string, name: string, revision: number, machineId = 
   expect(result.status).toBe(0);
 }
 
+// The prompt hook reports the cwd with OSC 7 (ESC ] 7 ; … BEL) before every
+// prompt; tests about other prompt behavior drop those reports from the output.
+function withoutCwdReports(text: string): string {
+  const start = `${String.fromCharCode(0x1b)}]7;`;
+  const end = String.fromCharCode(0x07);
+  let output = "";
+  let index = 0;
+  while (index < text.length) {
+    const report = text.indexOf(start, index);
+    const reportEnd = report < 0 ? -1 : text.indexOf(end, report + start.length);
+    if (report < 0 || reportEnd < 0) {
+      output += text.slice(index);
+      break;
+    }
+    output += text.slice(index, report);
+    index = reportEnd + 1;
+  }
+  return output;
+}
+
 function bash(directory: string, command: string) {
   const result = spawnSync("bash", ["--noprofile", "--norc", "-c", command], {
     encoding: "utf8",
@@ -41,8 +61,8 @@ describe("Cloud Bash prompt", () => {
       .update(readFileSync(path.join(directory, name), "utf8").replaceAll(directory, "/etc/cmux"))
       .digest("hex");
     expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
-      bashrc: "bd10a566dba17a1ad7c519badfa2587df2dc4b2cb0e9ca9c380fe9fc15fbe89f",
-      prompt: "499ea91eb393055483918b1de75329ec94d77c58ffab4396f72fe2c8719441d1",
+      bashrc: "b5229855c3edd1961e8bd695ea1254b410ca2146a8f37903d7c2b9db588692c8",
+      prompt: "71dd0bdc75bf70c12de5e01c9844b2801a37c5d0bbb80e346b00e2199f502134",
     });
   });
 
@@ -107,7 +127,7 @@ describe("Cloud Bash prompt", () => {
   test("preserves existing prompt commands, exit status, and repeated sourcing", () => {
     const directory = fixture();
     install(directory, "brave-blue-otter", 100);
-    expect(bash(directory, `
+    expect(withoutCwdReports(bash(directory, `
       PROMPT_COMMAND=(':' 'printf user-hook')
       . '${directory}/prompt.bash'
       . '${directory}/prompt.bash'
@@ -115,7 +135,30 @@ describe("Cloud Bash prompt", () => {
       __cmux_prompt_name
       printf '%s|' "$?"
       printf '%s|' "\${PROMPT_COMMAND[@]}"
-    `)).toBe("1|__cmux_prompt_name|:|printf user-hook|");
+    `))).toBe("1|__cmux_prompt_name|:|printf user-hook|");
+  });
+
+  test("reports the working directory to the daemon with OSC 7 using only builtins", () => {
+    const directory = fixture();
+    install(directory, "brave-blue-otter", 100);
+    // A space and a multi-byte character: the daemon parses the report as a
+    // file URL, so every byte outside the unreserved set is percent-encoded.
+    const cwd = path.join(directory, "cmux tést dir");
+    mkdirSync(cwd);
+    const encoded = Array.from(Buffer.from(cwd, "utf8"), (byte) => {
+      const char = String.fromCharCode(byte);
+      return /[A-Za-z0-9/_.~-]/.test(char) ? char : `%${byte.toString(16).toUpperCase().padStart(2, "0")}`;
+    }).join("");
+    const output = bash(directory, `
+      . '${directory}/prompt.bash'
+      PATH=/does-not-exist
+      HOSTNAME=test-host
+      cd '${cwd}'
+      false
+      __cmux_prompt_name
+      printf '|status=%s' "$?"
+    `);
+    expect(output).toBe(`\u001b]7;file://test-host${encoded}\u0007|status=1`);
   });
 
   test("renders successive prompts in a real interactive Bash terminal", () => {
@@ -124,7 +167,7 @@ describe("Cloud Bash prompt", () => {
     // System rc, Ubuntu user defaults, then the user's cmux source line.
     writeFileSync(path.join(directory, "startup.bash"), `. '${directory}/bashrc'\nPS1='ubuntu> '\n. '${directory}/bashrc'\n`);
     const result = spawnSync("python3", ["-c", String.raw`
-import fcntl, os, pathlib, pty, select, signal, struct, subprocess, sys, termios, time
+import fcntl, os, pathlib, pty, re, select, signal, struct, subprocess, sys, termios, time
 root = pathlib.Path(sys.argv[1])
 (root / ".inputrc").write_text("set enable-bracketed-paste off\n")
 (root / ".hushlogin").touch()
@@ -142,7 +185,9 @@ def until(marker):
     deadline = time.monotonic() + 3
     while marker not in output:
         if time.monotonic() > deadline: raise AssertionError(repr(output))
-        if select.select([master], [], [], 0.1)[0]: output += os.read(master, 65536)
+        if select.select([master], [], [], 0.1)[0]:
+            # The prompt hook reports the cwd (OSC 7) right before each prompt.
+            output = re.sub(rb"\x1b\]7;[^\x07]*\x07", b"", output + os.read(master, 65536))
 try:
     until(b"@brave-blue-otter")
     (root / "vm-name").write_text("renamed-box\n")
@@ -183,4 +228,28 @@ finally:
     install(directory, "clone-name", 50, "vm-two");
     expect(readFileSync(path.join(directory, "vm-name"), "utf8")).toBe("clone-name\n");
   });
+
+  test("prompt sync treats a name written into vm-name as published, and ignores the baked default", () => {
+    const directory = fixture();
+    writeFileSync(path.join(directory, "vm-name"), "cmux\n");
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const result = spawnSync("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, pathlib, sys, threading, time
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+directory = pathlib.Path(sys.argv[2])
+ready = threading.Event()
+thread = threading.Thread(target=module.watch_local_name, args=(directory, ready, 5.0), daemon=True)
+thread.start()
+time.sleep(0.5)
+print("default", ready.is_set())
+(directory / "vm-name").write_text("shiny-cobalt-lizard\n")
+print("named", ready.wait(2.0))
+`, script, directory], { encoding: "utf8" });
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
+  });
 });
+

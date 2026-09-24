@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
@@ -41,7 +42,9 @@ struct cmuxApp: App {
         )
         let v2Configuration = MobileIrohV2Configuration.current(projectID: auth.config.stack.projectId)
         let irx = MobileIrxRuntimeComposition(configuration: v2Configuration,
-            keychainAccessGroup: auth.keychainAccessGroup)
+            macListAuthState: MobileMacListAuthState(),
+            keychainAccessGroup: auth.keychainAccessGroup,
+            diagnosticLog: diagnosticLog)
         Task { await irx.configure(auth: auth.coordinator) }
 
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
@@ -110,7 +113,23 @@ struct cmuxApp: App {
         )
     }()
 
+    #if DEBUG
+    private let releaseGateUIProbe: MobileReleaseGateUIProbe
+    #endif
+
     init() {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        #if targetEnvironment(simulator)
+        let launchUptime = environment["CMUX_IROH_UI_LAUNCH_UPTIME_NS"].flatMap(UInt64.init)
+        #else
+        let launchUptime: UInt64? = nil
+        #endif
+        releaseGateUIProbe = MobileReleaseGateUIProbe(
+            enabled: !(environment["CMUX_IROH_SOAK_PROFILE"] ?? "").isEmpty && launchUptime != nil,
+            launchUptimeNanoseconds: launchUptime
+        )
+        #endif
         Self.root.pushCoordinator.configure(delegate: appDelegate)
         appDelegate.pushCoordinator = Self.root.pushCoordinator
         appDelegate.analytics = Self.root.analytics.emitter
@@ -135,6 +154,7 @@ struct cmuxApp: App {
         Group {
             #if DEBUG
             MobileIrohReleaseGateScene(
+                uiProbe: releaseGateUIProbe,
                 root: mobileRootScene,
                 irx: Self.root.irx,
                 settingsController: Self.root.irohSettingsController
@@ -156,9 +176,11 @@ struct cmuxApp: App {
     private var mobileRootScene: CMUXMobileRootScene {
         CMUXMobileRootScene(
             runtime: Self.root.runtime,
+            macListAuthState: Self.root.irx.macListAuthState,
             auth: Self.root.auth,
             reachability: Self.root.reachability,
             analytics: Self.root.analytics.emitter,
+            analyticsClientID: Self.root.analytics.anonymousID,
             terminalLatencyObserver: Self.root.analytics.terminalLatencyReporter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,

@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import Foundation
 public import IrohLib
 import CmuxIrohTransport
@@ -59,6 +60,7 @@ public struct IrxEndpointConfiguration: Sendable {
 public actor IrxEndpointSupervisor {
     private let configuration: IrxEndpointConfiguration
     private let journal: IrxJournal
+    private let diagnosticLog: DiagnosticLog?
     private var driver: Endpoint?
     private var generation = 0
     private var onlineReached = false
@@ -75,9 +77,13 @@ public actor IrxEndpointSupervisor {
     private var lifecycleEpoch: UInt64 = 0
     private var deactivated = false
 
-    public init(configuration: IrxEndpointConfiguration, journal: IrxJournal) {
+    public init(
+        configuration: IrxEndpointConfiguration, journal: IrxJournal,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
         self.configuration = configuration
         self.journal = journal
+        self.diagnosticLog = diagnosticLog
     }
 
     public var currentGeneration: Int { generation }
@@ -155,9 +161,10 @@ public actor IrxEndpointSupervisor {
             let accepting = try await incoming.accept()
             let alpn = try await accepting.alpn()
             let connection = try await accepting.connect()
-            if alpn == IrxProtocol.alpnData {
+            if alpn == IrxProtocol().alpnData {
                 return .irx(
-                    IrxConnection(connection: connection, role: .acceptor, journal: journal))
+                    IrxConnection(connection: connection, role: .acceptor, journal: journal,
+                        diagnosticLog: diagnosticLog))
             }
             journal.record(
                 "endpoint", "foreign-alpn-accepted",
@@ -294,7 +301,7 @@ public actor IrxEndpointSupervisor {
         }
         var options = EndpointOptions(preset: presetMinimal())
         options.secretKey = configuration.identity.privateKeyData
-        options.alpns = [IrxProtocol.alpnData] + configuration.additionalALPNs
+        options.alpns = [IrxProtocol().alpnData] + configuration.additionalALPNs
         options.relayMode = directOnly ? RelayMode.disabled() : RelayMode.custom(map: relayMap)
         options.portMappingEnabled = false
         // NAT traversal stays unauthorized until admission (automatic mode) or
@@ -459,10 +466,11 @@ extension IrxEndpointSupervisor {
         let endpoint = try await readyEndpoint(credentials: credentials)
         let startedAt = DispatchTime.now()
         let connection = try await endpoint.connect(
-            addr: target, alpn: IrxProtocol.alpnData)
+            addr: target, alpn: IrxProtocol().alpnData)
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
-        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal,
+            diagnosticLog: diagnosticLog)
         journal.record(
             "endpoint", "dialed",
             [

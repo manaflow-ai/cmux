@@ -38,10 +38,15 @@ export async function GET(request: Request): Promise<Response> {
   try { user = await verifyRequest(request, { allowCookie: false }); }
   catch (error) { return authProviderErrorResponse(error, "device-tokens.get.auth"); }
   if (!user) return unauthorized();
-  const bundleId = request.headers.get("x-cmux-app-namespace")?.trim()
-    || new URL(request.url).searchParams.get("bundleId")?.trim() || "";
-  const bundle = normalizeApnsBundle(bundleId);
-  if (!bundle) return jsonResponse({ error: "invalid_bundle_id" }, 400);
+  const url = new URL(request.url);
+  const requestedNamespace = request.headers.get("x-cmux-app-namespace")?.trim()
+    || url.searchParams.get("bundleId")?.trim() || "";
+  const accountWide = url.searchParams.get("all") === "true";
+  if (accountWide && requestedNamespace) {
+    return jsonResponse({ error: "invalid_bundle_id" }, 400);
+  }
+  const bundle = accountWide ? null : normalizeApnsBundle(requestedNamespace);
+  if (!accountWide && !bundle) return jsonResponse({ error: "invalid_bundle_id" }, 400);
   const rows = await cloudDb().select({
     accountID: deviceTokens.userId,
     installationID: deviceTokens.installationId,
@@ -50,7 +55,7 @@ export async function GET(request: Request): Promise<Response> {
     bundleID: deviceTokens.bundleId,
   }).from(deviceTokens).where(and(
     eq(deviceTokens.userId, user.id),
-    eq(deviceTokens.bundleId, bundle.bundleId),
+    ...(bundle ? [eq(deviceTokens.bundleId, bundle.bundleId)] : []),
     eq(deviceTokens.platform, "ios"),
     isNull(deviceTokens.revokedAt),
   ));

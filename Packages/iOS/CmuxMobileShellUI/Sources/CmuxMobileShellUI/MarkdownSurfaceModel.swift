@@ -71,7 +71,7 @@ final class MarkdownSurfaceModel {
             }
             try Task.checkCancellation()
             guard generation == loadGeneration else { return }
-            phase = .loaded(text: MacSurfaceTextDecoder.decode(collected).text)
+            phase = .loaded(text: MacSurfaceTextDecoder().decode(collected).text)
             collected = Data()
         } catch is CancellationError {
             return

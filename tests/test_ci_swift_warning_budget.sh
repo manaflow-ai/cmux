@@ -9,23 +9,31 @@ cd "$ROOT_DIR"
 
 LOG="$TMP_DIR/build.log"
 BUDGET="$TMP_DIR/budget.tsv"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
+GUARD_FILE="$ROOT_DIR/.github/workflows/ci-guards.yml"
 
-python3 - "$CI_FILE" <<'PY'
+python3 - "$CI_FILE" "$GUARD_FILE" <<'PY'
 import pathlib
 import sys
 
 ci_text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-required_tokens = {
-    "workflow guard step": "Validate Swift warning budget guard",
-    "guard test script": "./tests/test_ci_swift_warning_budget.sh",
-    "build log tee": "tee",
-    "build log path": "cmux-build-output.txt",
+guard_text = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+required_ci_tokens = {
+    "build log path": "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log",
     "budget script": "scripts/swift_warning_budget.py",
     "budget log argument": "--log",
 }
+required_guard_tokens = {
+    "workflow guard step": "Validate Swift warning budget guard",
+    "guard test script": "./tests/test_ci_swift_warning_budget.sh",
+}
 
-missing = [label for label, token in required_tokens.items() if token not in ci_text]
+missing = [
+    label for label, token in required_ci_tokens.items() if token not in ci_text
+]
+missing += [
+    label for label, token in required_guard_tokens.items() if token not in guard_text
+]
 if missing:
     raise SystemExit(f"missing Swift warning budget CI wiring: {', '.join(missing)}")
 PY

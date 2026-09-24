@@ -18,6 +18,13 @@ public enum DiagnosticTerminalTracePhase: Int, Sendable, Codable, CaseIterable {
     case applied = 7
     case failed = 8
     case discarded = 9
+    /// The operation is still in flight past a stall threshold.
+    ///
+    /// Unlike every other phase this is not terminal: it is emitted by a
+    /// probe while the request is outstanding, so an operation that never
+    /// settles still produces evidence. A settled operation emits its real
+    /// terminal phase afterwards.
+    case stalled = 10
 }
 
 /// A short opaque ID that can safely cross the mobile RPC boundary.
