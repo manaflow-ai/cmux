@@ -6,14 +6,13 @@ concurrency groups, so each compiled the same product. Of the 25 dispatches
 between 2026-09-23 and 2026-09-24 that repeated a commit and pool, at least 12
 compiled while an identical compile was still running in an earlier run.
 
-`wait` finds the oldest unfinished earlier dispatch of this revision on the
-same macOS and, when its build job is running on a runner, polls that job. A
-build job still queued for a runner is not waited for: the waiter would hold a
-macOS runner idle while the other waits for one. Exit status 0 means that job
-succeeded, so reuse_app_host_products.py can now restore its product; 1 means
+`wait` runs in test-e2e.yml's Linux `sibling` job, before the build job asks
+for a macOS runner. It finds the oldest unfinished earlier dispatch of this
+revision on the same macOS and polls that run's build job. Exit status 0 means
+the job succeeded, so the build job's reuse step restores its product; 1 means
 there is nothing to wait for, the other compile failed, or the budget ran out,
-and this run compiles as before. Only a later run waits on an earlier one, so
-two runs never wait on each other.
+and the build job compiles as before. Only a later run waits on an earlier one,
+so two runs never wait on each other.
 """
 from __future__ import annotations
 
@@ -63,9 +62,7 @@ def earlier_sibling(runs: list[dict], run_id: str, revision: str, runner: str) -
 
 def build_state(jobs: list[dict]) -> str:
     job = next((job for job in jobs if job.get("name") == BUILD_JOB), None)
-    if job is None or job.get("status") in ("queued", "waiting", "pending", "requested"):
-        return "queued"
-    if job.get("status") != "completed":
+    if job is None or job.get("status") != "completed":
         return "running"
     return "success" if job.get("conclusion") == "success" else "failed"
 
@@ -89,9 +86,6 @@ def wait(
         print(f"Run {sibling['id']} is compiling {revision}, but this job has no time to wait for it.")
         return False
     jobs = f"actions/runs/{sibling['id']}/jobs?filter=latest&per_page=100"
-    if build_state(get(jobs).get("jobs", [])) == "queued":
-        print(f"Run {sibling['id']} has not started compiling {revision}; compiling here.")
-        return False
     print(
         f"Run {sibling['id']} is already compiling {revision} on {runner}; waiting up to "
         f"{int(budget // 60)} min for its product instead of compiling it a second time."
@@ -117,6 +111,8 @@ def wait(
 def main(argv: list[str]) -> int:
     if argv[1:2] != ["wait"]:
         raise SystemExit("usage: e2e_sibling_build.py wait")
+    # Show the wait in the job log while it happens, not when it ends.
+    sys.stdout.reconfigure(line_buffering=True)
     try:
         found = wait(
             os.environ["GITHUB_RUN_ID"],

@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import importlib.util
-import os
 import re
 from pathlib import Path
-import subprocess
-import tempfile
 import unittest
 
 import yaml
@@ -59,7 +56,7 @@ class Fake:
 
 class SiblingWaitTests(unittest.TestCase):
     def test_waits_for_an_earlier_compile_of_the_same_revision(self) -> None:
-        fake = Fake([run(90)], [("in_progress", None)] * 3 + [("completed", "success")])
+        fake = Fake([run(90)], [("in_progress", None), ("in_progress", None), ("completed", "success")])
         self.assertTrue(fake.wait())
         self.assertEqual(fake.sleeps, 2)
 
@@ -72,11 +69,10 @@ class SiblingWaitTests(unittest.TestCase):
         self.assertFalse(fake.wait())
         self.assertEqual(fake.sleeps, 0)
 
-    def test_a_compile_still_queued_for_a_runner_is_not_waited_for(self) -> None:
-        # Waiting would hold this runner idle while the other waits for one.
-        fake = Fake([run(90)], [("queued", None)])
-        self.assertFalse(fake.wait())
-        self.assertEqual(fake.sleeps, 0)
+    def test_a_compile_still_queued_for_a_runner_is_waited_for(self) -> None:
+        # The wait holds only a Linux runner, so a queued compile is worth it.
+        fake = Fake([run(90)], [("queued", None), ("in_progress", None), ("completed", "success")])
+        self.assertTrue(fake.wait())
 
     def test_the_budget_bounds_the_wait(self) -> None:
         fake = Fake([run(90)], [("in_progress", None)])
@@ -112,42 +108,34 @@ class SiblingWaitTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    def test_the_reuse_step_waits_then_restores_again(self) -> None:
-        text = (ROOT / ".github/workflows/test-e2e.yml").read_text()
-        step = text[text.index("- name: Reuse a compiled product instead of building one"):]
-        step = step[: step.index("\n      - name:", 1)]
-        first = step.index('GITHUB_OUTPUT="$first" python3 scripts/ci/reuse_app_host_products.py restore')
-        waited = step.index("python3 scripts/ci/e2e_sibling_build.py wait")
-        again = step.index('python3 scripts/ci/reuse_app_host_products.py restore', waited)
-        self.assertLess(first, waited)
-        self.assertLess(waited, again)
-        # A tested revision older than the helper compiles as before.
-        self.assertIn("[ -f scripts/ci/e2e_sibling_build.py ]", step)
-        self.assertIn('cat "$first" >> "$GITHUB_OUTPUT"', step)
+    def setUp(self) -> None:
+        self.jobs = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())["jobs"]
 
-    def test_the_budget_step_adds_the_wait_to_job_timeout(self) -> None:
-        workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
-        steps = workflow["jobs"]["runner"]["steps"]
-        pool = next(step for step in steps if step.get("id") == "pool")
-        self.assertIn('echo "Runner: $label', pool["run"])
-        budget = next(step for step in steps if step.get("id") == "budget")
-        with tempfile.NamedTemporaryFile("r") as output:
-            for timeout, expected in (("45", "build_timeout=75"), ("90", "build_timeout=120")):
-                open(output.name, "w").close()
-                env = {"PATH": os.environ["PATH"], "GITHUB_OUTPUT": output.name,
-                       "JOB_TIMEOUT": timeout, "SIBLING_WAIT_MINUTES": budget["env"]["SIBLING_WAIT_MINUTES"]}
-                subprocess.run(["bash", "-c", budget["run"]], env=env, check=True)
-                self.assertEqual(Path(output.name).read_text().strip(), expected)
-            env["JOB_TIMEOUT"] = "45.5"
-            self.assertNotEqual(subprocess.run(["bash", "-c", budget["run"]], env=env, capture_output=True).returncode, 0)
+    def test_the_wait_runs_on_linux_before_the_build(self) -> None:
+        sibling_job = self.jobs["sibling"]
+        self.assertNotIn("macos", str(sibling_job["runs-on"]))
+        self.assertEqual(sibling_job["runs-on"], self.jobs["runner"]["runs-on"])
+        self.assertIn("sibling", self.jobs["build"]["needs"])
+        wait = next(step for step in sibling_job["steps"] if "e2e_sibling_build.py wait" in str(step.get("run")))
+        self.assertTrue(wait["run"].endswith("|| true"))
+        # The job outlasts the wait, so the budget, not the timeout, ends it.
+        self.assertGreater(sibling_job["timeout-minutes"] * 60, int(wait["env"]["CMUX_E2E_SIBLING_WAIT_SECONDS"]))
 
-    def test_the_wait_has_its_own_share_of_the_build_timeout(self) -> None:
-        text = (ROOT / ".github/workflows/test-e2e.yml").read_text()
-        added = int(re.search(r'SIBLING_WAIT_MINUTES: "(\d+)"', text).group(1))
-        waited = int(re.search(r'CMUX_E2E_SIBLING_WAIT_SECONDS: "(\d+)"', text).group(1))
-        self.assertEqual(added * 60, waited)
-        build = text[text.index("\n  build:\n"):text.index("\n  test:\n")]
-        self.assertIn("timeout-minutes: ${{ fromJSON(needs.runner.outputs.build_timeout", build)
+    def test_a_failed_wait_never_skips_the_build(self) -> None:
+        condition = self.jobs["build"]["if"]
+        self.assertIn("!cancelled()", condition)
+        self.assertNotIn("needs.sibling", condition)
+        for job in ("resolve-ref", "filter", "runner"):
+            self.assertIn(f"needs.{job}.result == 'success'", condition)
+
+    def test_the_helper_comes_from_the_workflow_revision(self) -> None:
+        checkout = self.jobs["sibling"]["steps"][0]
+        self.assertEqual(checkout["with"]["sparse-checkout"], "scripts/ci/e2e_sibling_build.py")
+        self.assertNotIn("ref", checkout["with"])
+
+    def test_the_build_restores_through_the_unchanged_reuse_step(self) -> None:
+        reuse = next(step for step in self.jobs["build"]["steps"] if step.get("id") == "reuse")
+        self.assertEqual(reuse["run"].strip(), 'python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"')
 
 
 if __name__ == "__main__":

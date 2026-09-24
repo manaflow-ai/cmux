@@ -86,11 +86,6 @@ jobs:
       # e2e_runner_pool.py only knows the manaflow-ai pools, so a fork takes
       # the GitHub-hosted image here, as in run-name and the concurrency group.
       label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}
-      # job_timeout plus the time the build job may spend waiting for an
-      # earlier dispatch's compile of the same revision (e2e_sibling_build.py),
-      # so waiting never shortens the time left to compile. Expressions cannot
-      # add, so a step does it.
-      build_timeout: ${{ steps.budget.outputs.build_timeout }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
@@ -123,16 +118,6 @@ jobs:
             --max-queued "$POOL_MAX_QUEUED")"
           echo "label=$label" >> "$GITHUB_OUTPUT"
           echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto})"
-
-      - name: Budget the build job
-        id: budget
-        env:
-          JOB_TIMEOUT: ${{ inputs.job_timeout || '45' }}
-          SIBLING_WAIT_MINUTES: "30"
-        run: |
-          set -euo pipefail
-          case "$JOB_TIMEOUT" in ''|*[!0-9]*) echo "job_timeout must be whole minutes" >&2; exit 1 ;; esac
-          echo "build_timeout=$((JOB_TIMEOUT + SIBLING_WAIT_MINUTES))" >> "$GITHUB_OUTPUT"
 
   filter:
     # Seconds on Linux, and it rejects a malformed selector before either
@@ -263,15 +248,50 @@ jobs:
           echo "Resolved target: $test_target"
           echo "Resolved selectors ($count): $selectors"
 
+  sibling:
+    # Dispatches of one commit with other selectors run in other concurrency
+    # groups, so each compiled the same product. When an earlier dispatch is
+    # already compiling this revision on the same macOS, wait for it here, on
+    # Linux, so this run holds no macOS runner meanwhile; the build job then
+    # adopts that product through its reuse step. See e2e_sibling_build.py.
+    needs: [resolve-ref, runner]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # The helper comes from this workflow's revision, not the tested one,
+      # which may predate it.
+      - name: Checkout sibling helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci/e2e_sibling_build.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # A seed dispatch exists to compile, and never adopts a product.
+      - name: Wait for an earlier compile of this revision
+        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
+          CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.label }}
+          CMUX_E2E_SIBLING_WAIT_SECONDS: "1800"
+        # Waiting is an economy, never a gate: every outcome compiles or adopts.
+        run: python3 scripts/ci/e2e_sibling_build.py wait || true
+
   build:
-    needs: [resolve-ref, filter, runner]
+    needs: [resolve-ref, filter, runner, sibling]
+    # The sibling wait never gates the build.
+    if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && needs.filter.result == 'success' && needs.runner.result == 'success' }}
     runs-on: ${{ needs.runner.outputs.label }}
     # Reuse lists this contract's artifacts and downloads one from an earlier
     # run. Nothing else in this lane reads the Actions API, and nothing writes.
     permissions:
       contents: read
       actions: read
-    timeout-minutes: ${{ fromJSON(needs.runner.outputs.build_timeout || '75') }}
+    timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
@@ -410,24 +430,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          # Matches SIBLING_WAIT_MINUTES in the runner job, which adds it to
-          # this job's timeout.
-          CMUX_E2E_SIBLING_WAIT_SECONDS: "1800"
-        run: |
-          set -euo pipefail
-          # Dispatches of one commit with other selectors run in other
-          # concurrency groups. When an earlier one is compiling this revision
-          # on a runner now, wait for its product (e2e_sibling_build.py) and
-          # restore that; the wait has its own 30 minutes of this job's timeout.
-          first="$RUNNER_TEMP/reuse-first-attempt.out"
-          GITHUB_OUTPUT="$first" python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
-          if ! grep -qx 'hit=true' "$first" \
-            && [ -f scripts/ci/e2e_sibling_build.py ] \
-            && python3 scripts/ci/e2e_sibling_build.py wait; then
-            python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
-          else
-            cat "$first" >> "$GITHUB_OUTPUT"
-          fi
+        run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
       # Only an input to compiling, and not part of the product contract, so an
       # adopted product never needs it.
