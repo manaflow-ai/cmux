@@ -692,6 +692,10 @@ path = "tests/test_ci_app_host_result_accounting.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_focused_test_selectors.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cache_restore_receipt.py"
 lane = "linux-guard"
 

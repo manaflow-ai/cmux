@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,9 @@ from e2e_runner_pool import LARGE_RUNNER, SMALL_RUNNER  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
+# The branch `gh workflow run` takes the workflow definition from when no
+# --workflow-ref is given: the repository default branch.
+DEFAULT_WORKFLOW_REF = "main"
 # `vars.MACOS_RUNNER_TESTS`, as passed by a workflow job; see default_runner().
 VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
 # The overflow variables, passed the same way; see repository_variable().
@@ -58,8 +62,54 @@ MAX_CONCURRENCY_GROUP = 400
 
 SELECTOR = re.compile(
     r"(?:(?:cmuxTests|cmuxUITests)/)?"
-    r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*(?:\(\))?)?"
+    r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*"
+    # Swift Testing names a method with its call suffix, and a parameterized
+    # one with its argument labels: method(), method(label:), method(_:_:).
+    r"(?:\((?:[A-Za-z_][A-Za-z0-9_]*:)*\))?)?"
 )
+
+
+def _load_selectors():
+    spec = importlib.util.spec_from_file_location(
+        "focused_test_selectors", Path(__file__).resolve().parent / "focused_test_selectors.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+selectors = _load_selectors()
+
+
+def normalize_entry(entry: str, root: Path = ROOT) -> tuple[str, str | None]:
+    """Give a cmuxTests method selector the call suffix its declaration needs.
+
+    `Suite/method` matches no Swift Testing test: xcodebuild runs nothing and
+    reports success. The workflow resolves selectors against the built test
+    inventory before running and fails a selector that executed nothing, but
+    both happen after a full compile. Reading the suite's source here catches
+    the common case before spending one.
+
+    Only a declaration found in the local checkout changes the entry. A name
+    this checkout does not declare passes through unchanged, because --ref may
+    name a revision where it exists; the workflow remains the authority.
+    """
+    if not entry.startswith("cmuxTests/"):
+        return entry, None
+    parts = entry.split("/")
+    if len(parts) != 3:
+        return entry, None
+    declared = selectors.source_inventory(root, parts[1])
+    if not declared:
+        return entry, None
+    try:
+        return selectors.resolve_selector(declared, entry)
+    except selectors.UnknownSelector:
+        return entry, (
+            f"{entry} is not declared in this checkout's {parts[1]}; dispatching "
+            "it unchanged. The workflow fails it if it matches no built test."
+        )
 
 
 def positive_integer(value: str) -> int:
@@ -147,8 +197,12 @@ def cancellation_scope():
             signal.signal(signum, handler)
 
 
-def recent_dispatches() -> list[dict]:
-    """Recent dispatches of this workflow, or nothing when history is unreadable.
+def recent_dispatches(workflow_ref: str) -> list[dict]:
+    """Recent dispatches of this workflow from the definition on `workflow_ref`,
+    or nothing when history is unreadable.
+
+    Filtering on the server keeps the page to this definition's runs, so
+    dispatches from other refs cannot push them past the listing limit.
 
     One listing answers every pre-dispatch question, for every selector in a
     batch. Asking per selector repeated the same request once per entry and
@@ -157,8 +211,9 @@ def recent_dispatches() -> list[dict]:
     try:
         payload = output(
             "gh", "run", "list", "--repo", REPO, "--workflow", WORKFLOW,
-            "--event", "workflow_dispatch", "--limit", str(PRIOR_ATTEMPT_LIMIT),
-            "--json", "databaseId,displayTitle,conclusion,status,url",
+            "--event", "workflow_dispatch", "--branch", workflow_ref,
+            "--limit", str(PRIOR_ATTEMPT_LIMIT),
+            "--json", "databaseId,displayTitle,conclusion,status,url,headBranch",
             timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
         )
     except (subprocess.SubprocessError, OSError, ValueError):
@@ -471,6 +526,8 @@ def main() -> int:
         "test_filter",
         nargs="+",
         help="cmuxTests/Suite[/method] or cmuxUITests/Class[/method]; bare names target UI tests. "
+        "A Swift Testing method takes its call suffix, Suite/method() or Suite/method(label:); "
+        "one this checkout declares gets it added. "
         "Pass several to run them against one compile; they must share a target.",
     )
     parser.add_argument("--ref", help="remote branch, tag, or SHA; default: clean local HEAD, already pushed")
@@ -489,7 +546,21 @@ def main() -> int:
     args = parser.parse_args()
     for entry in args.test_filter:
         if not SELECTOR.fullmatch(entry):
-            parser.error("test_filter must name one suite or method, optionally prefixed with cmuxTests/ or cmuxUITests/")
+            parser.error(
+                "test_filter must name one suite or method, optionally prefixed "
+                "with cmuxTests/ or cmuxUITests/; a Swift Testing method takes "
+                "its call suffix, Suite/method() or Suite/method(label:)"
+            )
+    normalized = []
+    for entry in args.test_filter:
+        try:
+            value, note = normalize_entry(entry)
+        except selectors.AmbiguousSelector as error:
+            parser.error(str(error))
+        if note:
+            print(f"note: {note}", file=sys.stderr, flush=True)
+        normalized.append(value)
+    args.test_filter = normalized
     if len(set(args.test_filter)) != len(args.test_filter):
         parser.error("test_filter entries must be unique")
     # One dispatch compiles once and runs one scheme, so a batch cannot span
@@ -537,7 +608,16 @@ def main() -> int:
         )
 
     if not args.force:
-        history = recent_dispatches()
+        # A dispatch's headBranch is the branch its workflow definition came
+        # from. A run of another definition answers a different question:
+        # attaching to it, or refusing because it failed, would mean the
+        # definition under --workflow-ref never runs. Every guard below reads
+        # this filtered history.
+        workflow_ref = args.workflow_ref or DEFAULT_WORKFLOW_REF
+        history = [
+            run for run in recent_dispatches(workflow_ref)
+            if run.get("headBranch") == workflow_ref
+        ]
 
         if pools:
             # An identical dispatch is already answering this exact question on
