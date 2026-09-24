@@ -5237,6 +5237,29 @@ mod tests {
     }
 
     #[test]
+    fn vt_replay_preserves_blank_tail_after_history() {
+        let mut source = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        for _ in 0..12 {
+            source.vt_write(b"history\r\n");
+        }
+        source.vt_write(b"\x1b[2J\x1b[HHEADER\x1b[5;1H> Ask Codex\x1b[6;1HSTATUS\x1b[5;3H");
+        let expected = source.viewport_text().unwrap();
+        let replay = source.vt_replay_bounded_theme_portable(128 * 1024).unwrap();
+        let mut restored = Terminal::new(20, 8, 100, Callbacks::default()).unwrap();
+        restored.vt_write(&replay);
+
+        assert_eq!(restored.viewport_text().unwrap(), expected);
+        assert_eq!(restored.cursor_position(), source.cursor_position());
+
+        // A TUI continues with absolute-cell diffs after attaching. Its header,
+        // composer and cursor must still agree on the same physical rows.
+        let update = b"\x1b[5;3HInput\x1b[6;1HDONE\x1b[5;8H";
+        source.vt_write(update);
+        restored.vt_write(update);
+        assert_eq!(restored.viewport_text().unwrap(), source.viewport_text().unwrap());
+    }
+
+    #[test]
     fn theme_portable_replay_retains_aliases_for_admitted_kitty_images() {
         let mut source = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
         source.vt_write(b"\x1b_Ga=T,t=d,f=24,I=77,p=0,s=1,v=1,c=1,r=1,q=2;/wAA\x1b\\");
