@@ -176,7 +176,7 @@ jobs:
           if [ "$MANIFEST_CACHE_HIT" = true ]; then
             scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
           else
-            rm -rf "$HOME/Library/Caches/org.swift.swiftpm/manifests"
+            scripts/ci/swiftpm-manifest-cache.sh clear
           fi
         env:
           MANIFEST_CACHE_HIT: ${{ steps.swiftpm-manifest-restore.outputs.cache-hit }}
@@ -193,7 +193,7 @@ jobs:
       # canonical-resolve left the workspace package cache as restored.
       - name: Evaluate manifests at the cli-pipe-regressions path
         id: swiftpm-manifest-workspace
-        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
         continue-on-error: true
         run: |
           set -euo pipefail

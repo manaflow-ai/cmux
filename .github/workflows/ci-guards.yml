@@ -348,6 +348,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate owned Mac build state
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_build_state.py
+
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
@@ -839,6 +843,10 @@ jobs:
       - name: Validate bash shell integration job control
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
+
+      - name: Validate shell surface-scoped environment keys
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_shell_surface_scoped_keys.py
 
       - name: Validate focused Dock shortcut routing guard
         if: ${{ matrix.group == 'quality-determinism' }}
