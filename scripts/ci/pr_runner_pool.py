@@ -44,8 +44,8 @@ needed. An owned pool is skipped when it has no slot count, or when the
 snapshot is older than OWNED_MAX_AGE_MINUTES. An offline machine still counts
 as a slot; what that and the snapshot's age get wrong,
 ci-owned-pool-rescue.yml catches: a run whose job waits on an owned pool past
-its budget is re-run on Blacksmith. Only the `std` class (48 GB) takes a whole run; `light` minis
-(16 GB) cannot compile the app.
+its budget is re-run on Blacksmith. The owned order is `std` (48 GB minis),
+then `light` (16 GB), then the Blacksmith pools: one order for every job type.
 
 The queue comes from the queue janitor, which lists every in-flight run's
 jobs each sweep and publishes what it saw as the `macos-pool-load` artifact.
@@ -108,10 +108,10 @@ POOLS = {
     MACOS_15_RUNNER: "CMUX_CI_XCODE_APP_MACOS_15",
 }
 DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
-# Owned classes that take a whole pull request run, first in the default order
+# Owned classes in preference order, ahead of Blacksmith in the default order
 # once CI_PR_POOL_OWNED is 1. Their label embeds the lane's Xcode version, and
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
-RUN_CLASSES = ("std",)
+RUN_CLASSES = ("std", "light")
 OWNED_LABEL = re.compile(r"glaeda-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"

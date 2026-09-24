@@ -170,9 +170,9 @@ label glaeda issues to a dedicated member once it has verified the pinned
 Xcode build: `glaeda-<class>-xcode-<version>`, today `glaeda-std-xcode-26.6`.
 The version comes from `CMUX_CI_XCODE_APP_PR`, so moving that pin moves the
 pool, and no machine carries the new label until glaeda has verified the new
-Xcode on it. Only the `std` class (48 GB) takes a whole run. With
-`CI_PR_POOL_OWNED=1` the owned pool goes first in the default order and the
-Blacksmith pools become overflow. Its capacity is its entry in
+Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
+`glaeda-std-xcode-<version>` (48 GB minis), then `glaeda-light-xcode-<version>`
+(16 GB), then the Blacksmith pools as overflow. An owned pool's capacity is its entry in
 `CI_OWNED_POOL_SLOTS`, and the janitor's snapshot counts the jobs queued and
 running on that label. A pull request run puts several macOS jobs on its pool
 at once, so a run takes the owned pool only when `CI_OWNED_POOL_JOBS_PER_RUN`
@@ -189,7 +189,7 @@ names no owned pool.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
-| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 11}` |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 11, "glaeda-light-xcode-26.6": 2}` |
 | `CI_OWNED_POOL_JOBS_PER_RUN` | `3` | machines a run needs free to take an owned pool (1 to 10) |
 
 An owned pool is persistent, which needs one more rule because GitHub never
