@@ -4603,10 +4603,18 @@ final class cmuxUITests: XCTestCase {
 
         func openSettings(in app: XCUIApplication) {
             grantNotificationAuthorizationIfRequested()
-            let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
-            if whatsNewContinue.waitForExistence(timeout: 3) {
-                tap(whatsNewContinue, in: app)
-                XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+            // Both launches start as fresh installs, so the launch sheet shows.
+            // Finish every page rather than tapping its obscured toolbar.
+            let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+            if whatsNewSheet.waitForExistence(timeout: 4) {
+                let continueButton = app.buttons.matching(
+                    NSPredicate(format: "label == %@", "Continue")
+                ).firstMatch
+                for _ in 0..<4 where whatsNewSheet.exists {
+                    XCTAssertTrue(continueButton.waitForExistence(timeout: 4))
+                    continueButton.tap()
+                }
+                XCTAssertTrue(whatsNewSheet.waitForNonExistence(timeout: 5))
             }
             let settings = app.buttons["MobileWorkspaceSettingsMenu"]
             XCTAssertTrue(settings.waitForExistence(timeout: 8))
