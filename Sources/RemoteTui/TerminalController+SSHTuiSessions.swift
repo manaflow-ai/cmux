@@ -21,6 +21,7 @@ extension TerminalController {
         } else {
             return nil
         }
+        guard !workspaces.isEmpty else { return nil }
         var sessions: [[String: Any]] = []
         var errors: [[String: Any]] = []
         var listedMachines = Set<SurfaceMachineID>()
@@ -57,6 +58,22 @@ extension TerminalController {
         }
         return .ok(["backend": "cmux-tui", "all_workspaces": all, "workspace_count": workspaces.count,
                     "sessions": sessions, "errors": errors])
+    }
+
+    /// Combines disjoint owner lists without hiding a backend's errors or empty workspaces.
+    nonisolated func mergeRemotePTYSessionLists(tui: V2CallResult, legacy: V2CallResult) -> V2CallResult {
+        guard case .ok(let tuiRaw) = tui else { return tui }
+        guard case .ok(let legacyRaw) = legacy else { return legacy }
+        guard let tuiPayload = tuiRaw as? [String: Any],
+              let legacyPayload = legacyRaw as? [String: Any] else {
+            return .err(code: "internal_error", message: CloudDiagnosticFailure.response.localizedDescription, data: nil)
+        }
+        return .ok([
+            "all_workspaces": true,
+            "workspace_count": (tuiPayload["workspace_count"] as? Int ?? 0) + (legacyPayload["workspace_count"] as? Int ?? 0),
+            "sessions": (tuiPayload["sessions"] as? [[String: Any]] ?? []) + (legacyPayload["sessions"] as? [[String: Any]] ?? []),
+            "errors": (tuiPayload["errors"] as? [[String: Any]] ?? []) + (legacyPayload["errors"] as? [[String: Any]] ?? [])
+        ])
     }
 
     @MainActor

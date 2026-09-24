@@ -244,4 +244,24 @@ struct SSHTuiMigrationTests {
         #expect(result == nil)
     }
 
+    @Test("All sessions includes both owners and preserves partial listing errors")
+    func mixedSessionListsPreserveRowsAndErrors() throws {
+        let result = TerminalController.shared.mergeRemotePTYSessionLists(
+            tui: .ok(["workspace_count": 2,
+                      "sessions": [["session_id": "term_native", "workspace_id": "native"]],
+                      "errors": [["workspace_id": "native-offline", "error": "offline"]]]),
+            legacy: .ok(["workspace_count": 2,
+                         "sessions": [["session_id": "legacy-session", "workspace_id": "legacy"]],
+                         "errors": [["workspace_id": "legacy-offline", "error": "offline"]]])
+        )
+        guard case .ok(let raw) = result else { Issue.record("Expected a combined session list"); return }
+        let payload = try #require(raw as? [String: Any])
+        #expect(payload["all_workspaces"] as? Bool == true)
+        #expect(payload["workspace_count"] as? Int == 4)
+        let sessions = try #require(payload["sessions"] as? [[String: Any]])
+        #expect(sessions.compactMap { $0["workspace_id"] as? String } == ["native", "legacy"])
+        let errors = try #require(payload["errors"] as? [[String: Any]])
+        #expect(errors.compactMap { $0["workspace_id"] as? String } == ["native-offline", "legacy-offline"])
+    }
+
 }
