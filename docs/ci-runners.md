@@ -248,6 +248,24 @@ Xcode, which is also the Xcode the owned label names. Every pull request macOS
 pool, reads `github.run_attempt > 1 && inputs.pr_retry_runner` first. It is
 empty for a run on Blacksmith, so those re-run where they ran.
 
+Compile admission on an owned Mac keeps its build state between jobs
+(`scripts/ci/owned_build_state.py`) under `/Users/Shared/cmux-build-fleet/ci`:
+the admission DerivedData, stamped with the canonical fingerprint (Xcode build,
+canonical paths, file-system mode), and the resolved Swift packages. When the
+kept DerivedData matches, the SwiftPM cache restore and the nightly seed are
+skipped, and the compile, which compares inputs by checksum, rebuilds only what
+changed since the last job on that Mac. The kept packages resolve with a fetch
+of what changed rather than a cache restore. The first run on cmux11s spent 25
+minutes on the ephemeral flow instead (run 36048804178). Any mismatch or miss
+falls back to that flow, and a DerivedData over 40 GB is dropped. Only a
+successful compile's DerivedData is kept, cloned right after the compile,
+before the staging and packaging steps rewrite Build/Products. Only pull
+request runs keep or read this state, so main's full-suite dispatch never
+builds on it. Moves are renames on one volume, glaeda's host lock keeps one job
+per Mac, and nothing is uploaded: an owned run writes only its own Mac's state.
+The four steps are non-product recipe steps (`product_input_identity.py`), so
+no pool's product key changes. Blacksmith and fork runs never take them.
+
 The queue janitor treats an owned label as one more macOS pool. A stale pull
 request run (category b: closed, merged or superseded) is cancelled there on
 every sweep whatever the queue, which frees minis for current work. The other

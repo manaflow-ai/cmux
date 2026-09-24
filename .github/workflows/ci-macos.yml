@@ -154,6 +154,8 @@ jobs:
       CMUX_ARTIFACT_PEER_TOKEN_FILE: ${{ vars.CMUX_ARTIFACT_PEER_TOKEN_FILE }}
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (inputs.pr_xcode_app || (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      # Where an owned Mac keeps this job's build state (owned_build_state.py).
+      CMUX_OWNED_STATE_ROOT: /Users/Shared/cmux-build-fleet/ci
       CMUX_SKIP_ZIG_BUILD: "1"
       # Names the pool this job actually ran on. The app-host product contract
       # keys on the toolchain and the build path instead, so a product built
@@ -385,6 +387,24 @@ jobs:
         id: ghostty-revision
         run: echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Reuse this owned Mac's build state
+        # An owned Mac (glaeda-*, pr_runner_pool.py) outlives the job, so it keeps
+        # this admission's DerivedData and resolved packages between
+        # jobs instead of restoring caches and a seed every time. A kept
+        # DerivedData whose fingerprint (Xcode build, canonical paths) matches is
+        # `warm`: the SwiftPM cache restore and the seed are skipped, and the
+        # compile rebuilds only what changed since the last job on this Mac. Any
+        # mismatch, miss or failure falls back to the ephemeral flow below.
+        # scripts/ci/owned_build_state.py has the rules; nothing is uploaded.
+        id: owned-state
+        if: steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          python3 scripts/ci/owned_build_state.py check "$CMUX_OWNED_STATE_ROOT" "$fingerprint" "$PWD"
+
       - name: Cache GhosttyKit.xcframework
         if: steps.reuse-products.outputs.hit != 'true'
         id: cache-ghosttykit-admission
@@ -399,7 +419,7 @@ jobs:
 
       - name: Cache Swift packages
         id: swift-package-cache
-        if: steps.reuse-products.outputs.hit != 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.packages != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -449,7 +469,7 @@ jobs:
       # seed" below reuses the seed this step picked and waits for it; if this
       # step fails, adopt picks and downloads itself.
       - name: Start the DerivedData seed download
-        if: steps.reuse-products.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
         # Picking the seed probes the bucket before the download detaches; a
         # hung CDN must not hold up the resolve. adopt then picks for itself.
@@ -518,7 +538,7 @@ jobs:
       # them costs compile time.
       - name: Adopt the nightly DerivedData seed
         id: seed-derived-data
-        if: steps.reuse-products.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
         timeout-minutes: 8
         env:
@@ -533,6 +553,12 @@ jobs:
           python3 scripts/ci/seed_derived_data.py adopt \
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
             "$SEED_PREFIX" "$MERGED_ONTO"
+
+      - name: Adopt this owned Mac's DerivedData
+        id: owned-adopt
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm == 'true'
+        continue-on-error: true
+        run: python3 scripts/ci/owned_build_state.py adopt "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Compile app-host test product
         id: hosted-compile
@@ -555,9 +581,18 @@ jobs:
       # just replayed should ignore inode changes, so a reused runner does not
       # carry it into an unrelated job.
       - name: Forget the adopted-build inode override
-        if: always() && steps.seed-derived-data.outcome != 'skipped'
+        if: always() && (steps.seed-derived-data.outcome != 'skipped' || steps.owned-adopt.outcome != 'skipped')
         continue-on-error: true
         run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
+
+      - name: Keep this owned Mac's DerivedData
+        # Before the steps below stage frameworks into Build/Products and
+        # rewrite the xctestruns: the kept DerivedData is the one Xcode left.
+        if: steps.hosted-compile.outcome == 'success' && steps.owned-state.outputs.fingerprint != ''
+        continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
+        run: python3 scripts/ci/owned_build_state.py keep "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$FINGERPRINT"
 
       - name: Generate Xcode build metrics receipt
         id: build-metrics
@@ -936,6 +971,15 @@ jobs:
       # changed-suites run; only the product's source differs. The restore
       # unpacks the uploaded archive into a DerivedData of its own, so the
       # tests run the exact bytes the other consumers download.
+      - name: Keep this owned Mac's build state
+        # The DerivedData was kept right after the compile; this keeps the
+        # resolved packages, whatever happened in between.
+        if: always() && steps.owned-state.outcome != 'skipped'
+        continue-on-error: true
+        run: |
+          python3 scripts/ci/owned_build_state.py save "$CMUX_OWNED_STATE_ROOT" \
+            "${CMUX_CI_CANONICAL_SRC:-/private/tmp/cmux-ci/src}/.ci-source-packages" "$PWD"
+
       - name: Prepare isolated DerivedData
         id: test-derived-data
         if: ${{ inputs.unit_in_admission == 'true' }}
