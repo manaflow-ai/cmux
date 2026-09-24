@@ -1026,6 +1026,25 @@ tagged_derived_data_path() {
 # worktrees, a fleet lease) name that warm directory once, so callers do not have
 # to pass --derived-data on every reload. It must be absolute, and only one build
 # may use it at a time; that is the owner's lock to hold, not this script's.
+# Print the cmux-tui commit whose published client the bundle will carry. A branch
+# that changes cmux-tui has no published client for its own commits, so explain
+# the existing overrides next to the resolver's error.
+resolve_cmux_tui_client_commit() {
+  local commit
+  if ! commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh")"; then
+    cat >&2 <<'EOF'
+error: no published cmux-tui client for this checkout, so the app bundle cannot get one.
+       A branch that changes cmux-tui has no published client for its own commits
+       until they land on main. Point reload at a client built from this branch:
+         CMUX_TUI_CLIENT_LOCAL=/path/to/cmux-tui ./scripts/reload.sh --tag <tag>
+       or install a published manifest with --cmux-tui-manifest-url <url>
+       (or CMUX_TUI_CLIENT_MANIFEST_URL=<url>).
+EOF
+    return 1
+  fi
+  printf '%s\n' "$commit"
+}
+
 resolve_tagged_derived_data() {
   # Precedence: --derived-data, then CMUX_DERIVED_DATA, then one directory per tag.
   local slug="$1" explicit_set="${2:-0}" explicit_path="${3:-}"
@@ -1406,6 +1425,20 @@ if [[ "$PROD_AUTH" -eq 1 ]]; then
   CMUX_IROH_BROKER_BASE_URL_VALUE="https://cmux.com"
   CMUX_AUTH_WWW_ORIGIN_VALUE="https://cmux.com"
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
+fi
+
+# Resolve the published cmux-tui client before GhosttyKit and xcodebuild run, so a
+# checkout without one fails in seconds rather than after a full build. The
+# install step after the build reuses this commit. The same overrides skip it:
+# --cmux-tui-manifest-url, CMUX_TUI_CLIENT_MANIFEST_URL, and CMUX_TUI_CLIENT_LOCAL.
+# CMUX_SKIP_CMUX_TUI_CLIENT=1 defers to the install step, which keeps an existing
+# bundled copy and resolves only when there is none.
+CMUX_TUI_CLIENT_COMMIT=""
+if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" != "1" \
+      && -z "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE" \
+      && -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" \
+      && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
+  CMUX_TUI_CLIENT_COMMIT="$(resolve_cmux_tui_client_commit)" || exit 1
 fi
 
 # Quiet logging: capture all noisy build output (xcodebuild, zig, codesign,
@@ -1992,11 +2025,14 @@ else
       --manifest-url "$CMUX_TUI_CLIENT_MANIFEST_URL_VALUE"
     )
   elif [[ -z "${CMUX_TUI_CLIENT_MANIFEST_URL:-}" && -z "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
-    cmux_tui_commit="$("$PWD/scripts/ci/resolve-cmux-tui-client-commit.sh")"
+    # Resolved before the build unless CMUX_SKIP_CMUX_TUI_CLIENT=1 deferred it.
+    if [[ -z "$CMUX_TUI_CLIENT_COMMIT" ]]; then
+      CMUX_TUI_CLIENT_COMMIT="$(resolve_cmux_tui_client_commit)"
+    fi
     cmux_tui_manifest_base="${CMUX_TUI_CLIENT_MANIFEST_BASE:-https://files.cmux.com/cmux-tui}"
     cmux_tui_install_args+=(
-      --manifest-url "${cmux_tui_manifest_base%/}/$cmux_tui_commit/manifest.json"
-      --expected-commit "$cmux_tui_commit"
+      --manifest-url "${cmux_tui_manifest_base%/}/$CMUX_TUI_CLIENT_COMMIT/manifest.json"
+      --expected-commit "$CMUX_TUI_CLIENT_COMMIT"
     )
   fi
   # The installer verifies the published manifest's build-provenance attestation
