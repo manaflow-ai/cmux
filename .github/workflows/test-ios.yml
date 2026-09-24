@@ -553,7 +553,7 @@ jobs:
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
           archive="$RUNNER_TEMP/ios-test-product.tar.gz"
           rm -f "$archive"
-          COPYFILE_DISABLE=1 tar -czf "$archive" -C "$IOS_PRODUCT_STAGE" Build/Products
+          COPYFILE_DISABLE=1 tar -cf - -C "$IOS_PRODUCT_STAGE" Build/Products | gzip -1 > "$archive"
           sha256="$(shasum -a 256 "$archive" | awk '{print $1}')"
           bytes="$(stat -f '%z' "$archive")"
           seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
