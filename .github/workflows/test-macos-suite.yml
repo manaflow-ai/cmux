@@ -89,6 +89,9 @@ jobs:
       - name: Run the selectors through run-e2e.sh
         env:
           GH_TOKEN: ${{ github.token }}
+          # The job token cannot list repository variables, and without the
+          # runner the wrapper cannot see an identical run already in flight.
+          CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
           UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
           TEST_REF: ${{ inputs.ref || github.sha }}
           TEST_TIMEOUT: ${{ inputs.test_timeout }}

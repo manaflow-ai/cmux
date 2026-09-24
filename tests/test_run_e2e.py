@@ -424,6 +424,36 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
+    def test_a_workflow_job_passes_the_variable_it_cannot_list(self):
+        # A job token cannot list variables. Passed in, the variable still
+        # decides the runner, and the in-flight guard still attaches.
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._live(runner="warp-macos-15-arm64-6x"),
+            LAUNCHER_VARIABLES="not json",
+            CMUX_MACOS_RUNNER_TESTS="warp-macos-15-arm64-6x",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+        self.assertNotIn(["variable", "list"], [call[:2] for call in self.calls()])
+        # An unset variable arrives empty, and the workflow literal decides.
+        self.setUp()
+        result = self.launch(
+            "cmuxTests/ExampleTests",
+            LAUNCHER_PRIOR_RUNS=self._live(), LAUNCHER_VARIABLES="not json",
+            CMUX_MACOS_RUNNER_TESTS="",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
+
+    def test_the_focused_suite_job_passes_the_runner_variable(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/test-macos-suite.yml").read_text())
+        steps = workflow["jobs"]["focused"]["steps"]
+        wrapper = next(step for step in steps if "run-e2e.sh" in step.get("run", ""))
+        self.assertEqual(
+            wrapper["env"].get("CMUX_MACOS_RUNNER_TESTS"), "${{ vars.MACOS_RUNNER_TESTS }}"
+        )
+
     def test_a_run_without_a_dispatch_id_is_still_seen(self):
         # A run started from the GitHub UI shares the concurrency group and its
         # compile is just as real. Requiring the trailing "[" hid exactly the
