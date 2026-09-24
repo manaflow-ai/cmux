@@ -9,7 +9,19 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
     private let lifetime: Task<Void, Never>
 
     public init(connection: Connection, diagnosticLog: DiagnosticLog) {
-        let observer = Observer(connection: connection, log: diagnosticLog)
+        let correlation = DiagnosticCorrelation()
+        let observer = Observer(
+            log: diagnosticLog,
+            surface: correlation.handle(for: connection.remoteId().toBytes().base64EncodedString()),
+            // A native stable ID may be pointer-sized. Hash it into the bounded,
+            // process-local diagnostic vocabulary before sending it off-device.
+            sessionID: max(1, Int(correlation.handle(for: String(connection.stableId())) ?? 1)),
+            selectedPath: {
+                CmxIrohObservedConnectionPath(
+                    snapshots: connection.paths().map(CmxIrohConnectionPathSnapshot.init)
+                ).diagnosticPathKind
+            }
+        )
         // Subscribe before the initial snapshot so a selection change between
         // the two cannot go unrecorded; the log drops a duplicate snapshot.
         let handle = connection.watchPathEvents(callback: observer)
@@ -26,20 +38,22 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
 
     deinit { lifetime.cancel() }
 
-    private final class Observer: PathEventCallback, Sendable {
-        let connection: Connection
+    final class Observer: PathEventCallback, Sendable {
         let log: DiagnosticLog
         let surface: UInt32?
         let sessionID: Int
+        let selectedPath: @Sendable () -> DiagnosticPathKind
 
-        init(connection: Connection, log: DiagnosticLog) {
-            self.connection = connection
+        init(
+            log: DiagnosticLog,
+            surface: UInt32?,
+            sessionID: Int,
+            selectedPath: @escaping @Sendable () -> DiagnosticPathKind
+        ) {
             self.log = log
-            let correlation = DiagnosticCorrelation()
-            surface = correlation.handle(for: connection.remoteId().toBytes().base64EncodedString())
-            // A native stable ID may be pointer-sized. Hash it into the bounded,
-            // process-local diagnostic vocabulary before sending it off-device.
-            sessionID = max(1, Int(correlation.handle(for: String(connection.stableId())) ?? 1))
+            self.surface = surface
+            self.sessionID = sessionID
+            self.selectedPath = selectedPath
         }
 
         func onEvent(event: PathEvent) async {
@@ -55,12 +69,10 @@ public final class CmxIrohConnectionPathDiagnostics: Sendable {
         }
 
         func recordSelectedPath() {
-            let selected = CmxIrohObservedConnectionPath(
-                snapshots: connection.paths().map(CmxIrohConnectionPathSnapshot.init)
-            )
+            let selected = selectedPath()
             log.record(DiagnosticEvent(
                 .selectedPathChanged, surface: surface,
-                a: selected.diagnosticPathKind.rawValue, c: sessionID
+                a: selected.rawValue, c: sessionID
             ))
         }
     }
