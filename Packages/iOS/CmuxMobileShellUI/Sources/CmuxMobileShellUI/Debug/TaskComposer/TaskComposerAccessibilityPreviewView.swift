@@ -123,9 +123,13 @@ public struct TaskComposerAccessibilityPreviewView: View {
         }
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
-            workspaces: presentsOpenDirectory
+            workspaces: (presentsOpenDirectory
                 ? [Self.openDirectoryWorkspace]
-                : [Self.previewPaneWorkspace, Self.previewStackWorkspace],
+                : [Self.previewPaneWorkspace, Self.previewStackWorkspace]).map { workspace in
+                    var workspace = workspace
+                    workspace.macInstanceTag = Self.previewMac.instanceTag
+                    return workspace
+                },
             taskTemplateStore: templateStore,
             taskModelCatalogClient: catalogClient
         )
