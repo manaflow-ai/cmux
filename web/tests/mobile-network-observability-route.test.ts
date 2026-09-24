@@ -161,6 +161,29 @@ describe("iOS mobile network observability route", () => {
     expect(invalid.status).toBe(400);
   });
 
+  test("accepts task model result metadata", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_task_model_result",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "model_list",
+        provider: "codex",
+        source: "discovered",
+        effort_count: 6,
+        correlation_id: 42,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      provider: "codex",
+      source: "discovered",
+      effortCount: 6,
+      correlationId: 42,
+    });
+  });
+
   test("accepts a terminal latency window with bounded percentile fields", async () => {
     const response = await POST(outcomeRequest([terminalWindow()]));
 
