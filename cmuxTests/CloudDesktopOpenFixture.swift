@@ -54,9 +54,21 @@ final class CloudDesktopOpenFixture {
             styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
+        // Opens and drops request focus, and a routable window would now take
+        // it. Suppress activation so the window stays hidden and never key.
+        let appDelegate = app.appDelegate
+        appDelegate.mainWindowVisibilityController = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { true },
+                setActiveMainWindow: { [weak appDelegate] window in
+                    appDelegate?.setActiveMainWindow(window)
+                }
+            )
+        )
         let windowID = app.windowID
         let context = try #require(app.appDelegate.mainWindowContexts.values.first { $0.windowId == windowID })
         context.window = window
+        assertWindowStaysHidden()
         owner = app.workspace
         other = app.manager.addWorkspace(title: "workspace-1", select: false)
         owner.cloudVMBinding = WorkspaceCloudVMBinding(vmID: ownerID, isBase: false, remoteWorkspaceID: "ws-same")
@@ -87,6 +99,7 @@ final class CloudDesktopOpenFixture {
     }
 
     func activate(_ node: CloudTreeNode, menu: Bool = false) throws {
+        defer { assertWindowStaysHidden() }
         _ = container
         coordinator.apply(nodes: [node])
         let outline = try #require(coordinator.outlineView)
@@ -137,6 +150,7 @@ final class CloudDesktopOpenFixture {
     func waitForOpen() async {
         var iterator = completion.stream.makeAsyncIterator()
         _ = await iterator.next()
+        assertWindowStaysHidden()
     }
 
     func drop(_ row: CloudTreeNode, into workspace: Workspace) async throws {
@@ -146,7 +160,8 @@ final class CloudDesktopOpenFixture {
         // performs first and fail here instead of after the commit deadline.
         let route = try #require(TerminalController.shared.v2LocatePane(pane.id),
             "the drop's target pane is not routable through the main-window registry")
-        try #require(route.windowId == app.windowID && route.workspace === workspace)
+        try #require(route.windowId == app.windowID && route.tabManager === app.manager)
+        try #require(route.workspace === workspace && route.paneId == pane)
         try #require(workspace.selectedPanelForPaneDrop(in: pane) != nil)
         let expected = catalog.projections(of: display.id).count + 1
         let committed = CloudLinkFirstValue<Bool>()
@@ -159,7 +174,7 @@ final class CloudDesktopOpenFixture {
                 }
             }
         defer { NotificationCenter.default.removeObserver(token) }
-        #expect(workspace.handleSurfaceResourceDrop(group: group,
+        try #require(workspace.handleSurfaceResourceDrop(group: group,
             destination: .split(targetPane: pane, orientation: .vertical, insertFirst: false), catalog: catalog))
         // The commit can land before the next catalog notification, and an
         // unbounded wait turns a missed commit into the suite's 60 s time limit,
@@ -172,6 +187,12 @@ final class CloudDesktopOpenFixture {
         defer { deadline.cancel() }
         let didCommit = await committed.result
         #expect(didCommit == true, "the drop never committed a second Desktop projection")
+        assertWindowStaysHidden()
+    }
+
+    private func assertWindowStaysHidden() {
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
     }
 
     func close() {
