@@ -13,6 +13,8 @@ final class WorkspaceNavigationControlView: UIView {
 
     private let contentView: UIView & UIContentView
     private var width: NSLayoutConstraint?
+    private var contentLeading: NSLayoutConstraint!
+    private var contentTrailing: NSLayoutConstraint!
     private var placement: Placement = .leading
     private var isLandscape = false
     private var widthAdjustment: CGFloat = 0
@@ -28,9 +30,11 @@ final class WorkspaceNavigationControlView: UIView {
         translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentView)
+        contentLeading = contentView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor)
+        contentTrailing = contentView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor)
         NSLayoutConstraint.activate([
-            contentView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            contentLeading,
+            contentTrailing,
             contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: 36),
         ])
@@ -69,7 +73,8 @@ final class WorkspaceNavigationControlView: UIView {
         self.isLandscape = isLandscape
         self.visualOffset = isLandscape ? visualOffset : 0
         widthAdjustment = placement == .trailing && isLandscape ? -3 : 0
-        contentView.transform = CGAffineTransform(translationX: self.visualOffset, y: 0)
+        contentLeading.constant = self.visualOffset
+        contentTrailing.constant = self.visualOffset
         let leading: CGFloat = placement == .trailing && isLandscape ? 4.5 : 8
         let trailing: CGFloat = placement == .leading && isLandscape ? -5 : 8
         layoutMargins = UIEdgeInsets(top: 8, left: leading, bottom: 8, right: trailing)
