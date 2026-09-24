@@ -1,3 +1,4 @@
+import CmuxCloudTui
 import Foundation
 
 extension CmuxTuiSurfaceProviderRegistry {
@@ -20,7 +21,8 @@ extension CmuxTuiSurfaceProviderRegistry {
             listPage: {
                 guard let client = VMClient.shared else { return nil }
                 return try? await client.listPage()
-            }
+            },
+            hasCloudSession: { AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true }
         )
     }
 

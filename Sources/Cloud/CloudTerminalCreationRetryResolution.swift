@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The daemon's authoritative permission for one explicit terminal-creation retry.

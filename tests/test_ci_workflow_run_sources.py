@@ -48,6 +48,12 @@ PINNED_JOB_NAMES = (
         ".github/workflows/ios-testflight.yml",
         "upload",
     ),
+    # The persistent-pool rescue waits for the job that runs the pool picker.
+    (
+        "scripts/ci/owned_pool_rescue.py",
+        ".github/workflows/ci.yml",
+        "changes",
+    ),
 )
 
 # The fail-fast watcher is started by a display name but must not act on one.

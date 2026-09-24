@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "감지된 하네스 구성",
+    "selectionNotice": "제공자를 선택해도 이러한 하네스가 시작되거나 활성화되지는 않습니다.",
+    "selectProvider": "{provider} 선택",
+    "foundPath": "{path} 발견",
+    "foundCommand": "명령 {command} 발견",
+    "installed": "제공자가 설치되어 있습니다",
+    "missing": "제공자가 설치되어 있지 않습니다",
+    "install": "다음으로 설치: {command}",
+    "benefitPi": "압축, 메모리 및 제공자 라우팅",
+    "benefitOpenagent": "OpenCode의 병렬 전문가와 복구",
+    "benefitClaude": "Claude Code의 팀과 검증",
+    "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM 설정이 완료되지 않았습니다",
+      "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",
+      "message": "cmux가 Cloud VM 설정을 완료하지 못했습니다.",
+      "action": "작업을 다시 시도하세요. 문제가 계속되면 지원팀에 문의하세요."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM 정리 대기 중",
+      "message": "Cloud VM 설정에 실패했으며 정리가 아직 완료되지 않았습니다.",
+      "action": "다른 머신을 만들기 전에 추적 ID와 함께 지원팀에 문의하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
@@ -1248,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux 구성입니다. 전역 cmux.json은 앱 설정, 단축키, 작업, 사용자 지정 명령, 알림 훅, 워크스페이스 레이아웃을 지원합니다. 프로젝트 로컬 .cmux/cmux.json 또는 cmux.json은 작업, 명령, 알림 훅, UI 작업 연결, Agent Chat 재정의, vault 에이전트, 워크스페이스 그룹 재정의, 워크스페이스 시작 및 버튼 구성을 지원합니다.",
         "rightSidebar": "cmux.json에 보존되는 레거시 및 확장 프로그램 소유 오른쪽 사이드바 구성입니다.",
+        "packs": {
+          "description": "이 설정보다 먼저 불러올 로컬 cmux 팩 파일 또는 디렉터리입니다. 디렉터리는 cmux.pack.json으로 해석됩니다. 경로 문자열 또는 path 필드가 있는 객체를 사용하세요.",
+          "path": "로컬 파일 또는 디렉터리 경로입니다. 절대 경로가 아니면 이 설정 파일을 기준으로 합니다."
+        },
         "paneBorderColor": "분할된 작업 공간에서 cmux 창 구분선 색상을 재정의합니다. Ghostty 내부 분할이 아니라 cmux 창 경계에 적용됩니다.",
         "activePaneBorderColor": "분할된 작업 공간에서 포커스된 cmux 창 주위에 그릴 선택적 테두리 색상입니다.",
         "automation": {
@@ -1260,6 +1289,7 @@
           "filePreviewVimKeys": "텍스트 파일 미리보기에서 읽기 전용 Vim 탐색을 활성화합니다.",
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
           "windowTitleTemplate": "선택적 NSWindow 제목 템플릿입니다. 비워 두면 현재 디렉터리 대체 동작을 포함해 cmux의 기존 기본 제목 동작을 유지합니다. 지원되는 자리표시자: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "새 창을 열 때 DEBUG 빌드에서만 사용하는 디스플레이 이름입니다. 빈 값은 시스템 기본값을 사용합니다.",
           "warnBeforeQuit": "종료 확인을 위한 기존 boolean 대체값입니다. 새 구성에는 app.confirmQuit을 사용하세요.",
           "warnBeforeClosingTabXButton": "탭 닫기 버튼으로 탭을 닫기 전에 확인을 표시합니다.",
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
@@ -4025,5 +4055,15 @@
     "organization": "조직",
     "personalAccount": "개인 계정",
     "switchAccountButton": "다른 계정 사용"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6의 새로운 기능",
+    "releaseLabel": "1.0.6 · 2026년 9월",
+    "connectionTitle": "Mac 연결 업데이트",
+    "connectionDetail": "이 업데이트는 새로운 연결 서비스와 Iroh 전송을 사용합니다. 이전 Mac 빌드는 연결하려면 업데이트해야 합니다.",
+    "updateTitle": "Mac에서 cmux 업데이트",
+    "updateDetail": "cmux {stableVersion} 이상 또는 NIGHTLY {nightlyVersion} 이상이 필요합니다. 각 Mac의 설정 > 모바일에서 iOS 페어링을 활성화하세요.",
+    "rollbackTitle": "이전 Mac 빌드를 계속 사용해야 하나요?",
+    "rollbackDetail": "제공되는 동안 TestFlight > 이전 빌드에서 cmux BETA 1.0.5 ({rollbackBuild})를 사용하세요. 이후 빌드는 새로운 연결 서비스를 사용하므로 이 빌드를 정확히 선택하세요."
   }
 }
