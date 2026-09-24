@@ -48,17 +48,18 @@ public struct SettingsWindowRoot: View {
         let defaults = UserDefaults.standard
         let restoredSection = defaults.string(forKey: Self.selectedSectionDefaultsKey)
             .flatMap(SettingsSectionID.init(rawValue:)) ?? .account
+        let betaEnabled = defaults.object(forKey: Self.cloudMachinesBetaDefaultsKey) as? Bool
+            ?? BetaFeaturesCatalogSection().cloudMachines.defaultValue
         let cloudAvailable = !ManagedDevicePolicy().isEnforced(.disableCloud)
-            && (runtime.hostActions.isCloudMachinesAvailable
-            || defaults.bool(forKey: Self.cloudMachinesBetaDefaultsKey)
-            )
+            && runtime.hostActions.isCloudMachinesAvailable
+            && betaEnabled
         _mountModel = State(initialValue: mountModel ?? SettingsSectionMountModel(
             initial: initialSection ?? restoredSection,
             order: Self.mountOrder(cloudAvailable: cloudAvailable)
         ))
     }
-
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
+    @State private var cloudFeatureFlagRevision = 0
     @State private var searchText: String = ""
     // Legacy SettingsRootView persists two distinct pieces of state:
     // `selectedSettingsSection` (the top-level section pane shown in
@@ -105,32 +106,29 @@ public struct SettingsWindowRoot: View {
     // seeds the row's `TimelineView` fade. Read by every
     // `SettingsCardRow` through `\.settingsSearchHighlightState`.
     @State private var searchHighlight = SettingsSearchHighlightState(anchorID: nil, token: 0, startedAt: nil)
-
     var defaultsStore: UserDefaultsSettingsStore { runtime.userDefaultsStore }
     var jsonStore: JSONConfigStore { runtime.jsonStore }
     var secretStore: SecretFileStore { runtime.secretStore }
     var catalog: SettingCatalog { runtime.catalog }
     var hostActions: SettingsHostActions { runtime.hostActions }
     var accountFlow: AccountFlow? { runtime.accountFlow }
-    /// Whether the Cloud section (and its sidebar row) is offered at all: the
-    /// remote rollout flag or the Beta Features opt-in makes its surfaces
-    /// real, and the `DisableCloud` managed policy wins over both.
+    /// Whether the Cloud section (and its sidebar row) is offered at all. The
+    /// host owns the remote flag and managed-policy decision; this local value
+    /// keeps the section responsive to the Beta Features toggle as well.
     var isCloudSectionAvailable: Bool {
-        !cloudDisabledByPolicy && (hostActions.isCloudMachinesAvailable || cloudMachinesBetaEnabled)
+        _ = cloudFeatureFlagRevision
+        return !cloudDisabledByPolicy && hostActions.isCloudMachinesAvailable && cloudMachinesBetaEnabled
     }
-
     /// Resolves the selected section pane from the persisted raw value,
     /// defaulting to ``SettingsSectionID/account`` when the stored value
     /// is unrecognized (e.g., after dropping a case).
     private var selectedSection: SettingsSectionID {
         SettingsSectionID(rawValue: selectedSectionRaw) ?? .account
     }
-
     /// Whether the user currently has a non-empty search query. When
     /// false the sidebar should track section selection only; when true
     /// the per-entry selection survives.
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
     // Legacy uses a non-optional `Binding<String>` because a sidebar
     // selection always points at *some* entry (section row or setting
     // hit). Mirroring that here lets List's selection semantics behave
@@ -145,7 +143,6 @@ public struct SettingsWindowRoot: View {
             }
         )
     }
-
     public var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebar
@@ -183,6 +180,10 @@ public struct SettingsWindowRoot: View {
             // menu command here when the Settings window is key.
             columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("cmuxFeatureFlagsDidChange"))) { _ in
+            cloudFeatureFlagRevision &+= 1
+            leaveCloudSectionIfDisabledByPolicy()
+        }
         .onChange(of: searchText) { _, newValue in
             // Legacy SettingsRootView resyncs the sidebar entry to the
             // section row whenever the search text is cleared, so
@@ -192,7 +193,6 @@ public struct SettingsWindowRoot: View {
             selectedSidebarEntryID = sectionEntryID(for: selectedSection)
         }
     }
-
     public static let navigationRequestName = Notification.Name("cmux.settings.navigate")
     public static let sidebarToggleRequestName = Notification.Name("cmux.settings.toggleSidebar")
 
@@ -222,16 +222,16 @@ public struct SettingsWindowRoot: View {
         navigate(to: target, preferSectionSelection: !shouldPreserveSearchSelection)
     }
 
-    /// Moves a selection that rests on the Cloud section (hidden under
-    /// `DisableCloud`) to Account, both at first render and on a transition.
+    /// Moves a selection that rests on an unavailable Cloud section to Account,
+    /// both at first render and on a transition.
     private func leaveCloudSectionIfDisabledByPolicy() {
-        if cloudDisabledByPolicy {
+        if !isCloudSectionAvailable {
             // If the Cloud slot is the outstanding progressive mount, its
             // intentionally empty content has no onAppear to advance the
             // queue. Skip it explicitly so later sections still mount.
             _ = mountModel.skip(.cloudMachines)
         }
-        if cloudDisabledByPolicy && selectedSection == .cloudMachines {
+        if !isCloudSectionAvailable && selectedSection == .cloudMachines {
             navigate(to: .account)
         }
     }
@@ -246,6 +246,7 @@ public struct SettingsWindowRoot: View {
         }
     }
 
+    /// Shows grouped browse categories until search is active, then preserves the flat ranked result list.
     @ViewBuilder
     private var sidebar: some View {
         List(selection: sidebarSelectionBinding) {
@@ -253,14 +254,26 @@ public struct SettingsWindowRoot: View {
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                     .foregroundStyle(.secondary)
-            } else {
+            } else if isSearching {
+                // Search stays flat and relevance-ranked. Taxonomy only
+                // reorganizes the default browse view, so existing setting
+                // hit IDs, row anchors, and deep-link selection semantics
+                // remain unchanged while a query is active.
                 ForEach(matches) { entry in
-                    SettingsSidebarEntryRow(
-                        title: entry.title,
-                        symbolName: entry.symbolName,
-                        subtitle: subtitle(for: entry)
-                    )
-                    .tag(entry.id)
+                    sidebarEntryRow(entry)
+                }
+            } else {
+                ForEach(SettingsTaxonomyGroup.allCases) { group in
+                    let groupEntries = taxonomyEntries(for: group, from: matches)
+                    if !groupEntries.isEmpty {
+                        Section {
+                            ForEach(groupEntries) { entry in
+                                sidebarEntryRow(entry)
+                            }
+                        } header: {
+                            Text(group.title)
+                        }
+                    }
                 }
             }
         }
@@ -268,6 +281,30 @@ public struct SettingsWindowRoot: View {
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
         .navigationSplitViewColumnWidth(210)
+    }
+
+    /// Renders one existing search-index entry as a selectable sidebar leaf.
+    @ViewBuilder
+    private func sidebarEntryRow(_ entry: SettingsSearchIndex.Entry) -> some View {
+        SettingsSidebarEntryRow(
+            title: entry.title,
+            symbolName: entry.symbolName,
+            subtitle: subtitle(for: entry)
+        )
+        .tag(entry.id)
+    }
+
+    /// Returns the existing section entries in taxonomy order without
+    /// changing their ids or targets. Runtime visibility filtering happens
+    /// before this step, so unavailable leaves simply disappear from their
+    /// group while the remaining destinations keep their stable identities.
+    private func taxonomyEntries(
+        for group: SettingsTaxonomyGroup,
+        from entries: [SettingsSearchIndex.Entry]
+    ) -> [SettingsSearchIndex.Entry] {
+        group.sections.compactMap { section in
+            entries.first { $0.id == sectionEntryID(for: section) }
+        }
     }
 
     func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }

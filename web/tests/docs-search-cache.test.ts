@@ -79,4 +79,4 @@ test("restores identical search assets and rebuilds after dependency or generato
   appendFileSync(path.join(fixture, "CHANGELOG.md"), "\nA new searchable release note.\n");
   expect(build(web)).not.toContain(restored);
   expect(outputHashes(output)).not.toEqual(original);
-}, { timeout: 120_000 });
+}, 120_000);

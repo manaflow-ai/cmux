@@ -111,28 +111,16 @@ fn terminal_screen_read(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
-    let (text, cols, rows, cursor_col, cursor_row, cursor_visible) = surface
-        .try_with_terminal(|terminal| {
-            let text = terminal.viewport_text()?;
-            let (cursor_col, cursor_row) = terminal.cursor_position().unwrap_or((0, 0));
-            Ok::<_, ghostty_vt::Error>((
-                text,
-                terminal.cols(),
-                terminal.rows(),
-                cursor_col,
-                cursor_row,
-                terminal.mode(25, false),
-            ))
-        })
-        .map_err(resource_operation_error)?
-        .map_err(|error| resource_operation_error(error.into()))?;
+    let snapshot = surface.terminal_screen_snapshot().map_err(resource_operation_error)?;
     Ok(json!({
-        "text":text,
-        "cols":cols,
-        "rows":rows,
-        "cursor_row":cursor_row,
-        "cursor_col":cursor_col,
-        "cursor_visible":cursor_visible,
+        "text":snapshot.text,
+        "cols":snapshot.cols,
+        "rows":snapshot.rows,
+        "cursor_row":snapshot.cursor_row,
+        "cursor_col":snapshot.cursor_col,
+        "cursor_visible":snapshot.cursor_visible,
+        "revision":snapshot.revision.to_string(),
+        "osc_progress":snapshot.osc_progress,
     }))
 }
 
@@ -331,6 +319,7 @@ fn terminal_process_get(
         "argv":argv,
         "children":children,
         "foreground_cwd":crate::platform::foreground_cwd(pid),
+        "foreground_executable":crate::platform::foreground_process_name(pid),
     });
     if let Some(executable) = executable {
         value["executable"] = json!(executable);
@@ -759,6 +748,74 @@ fn terminal_project(
     super::mutation_result(mux, value, commit.revision, commit.replayed)
 }
 
+fn confirmed_terminal_write(
+    surface: &Surface,
+    bytes: &[u8],
+    operation: &str,
+) -> Result<(), ActionFailure> {
+    surface.write_bytes_confirmed(bytes).map_err(|error| confirmed_input_error(operation, error))
+}
+
+fn confirmed_input_error(
+    operation: &str,
+    error: crate::surface::ConfirmedInputFailure,
+) -> ActionFailure {
+    match error {
+        crate::surface::ConfirmedInputFailure::Known(error) => {
+            let message = match error.kind() {
+                std::io::ErrorKind::InvalidInput => "terminal_input_too_large",
+                std::io::ErrorKind::WouldBlock => "terminal_input_unavailable",
+                std::io::ErrorKind::Unsupported => "terminal_input_confirmation_unsupported",
+                _ => "terminal_input_delivery_failed",
+            };
+            ActionFailure::Known(ResourceError::operation_failed(operation, message, json!({})))
+        }
+        crate::surface::ConfirmedInputFailure::Indeterminate(error) => {
+            // Raw transport diagnostics must not enter the durable API response.
+            drop(error);
+            ActionFailure::Indeterminate("terminal_input_delivery_indeterminate".into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod confirmed_input_error_tests {
+    use super::*;
+
+    #[test]
+    fn confirmed_input_errors_do_not_expose_internal_details() {
+        let private = "internal socket /private/terminal.sock token=secret-test-value";
+        for kind in [
+            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::Unsupported,
+            std::io::ErrorKind::BrokenPipe,
+        ] {
+            let failure =
+                crate::surface::ConfirmedInputFailure::Known(std::io::Error::new(kind, private));
+            let ActionFailure::Known(error) =
+                confirmed_input_error("terminal.input.write", failure)
+            else {
+                panic!("known failure changed delivery classification");
+            };
+            assert_eq!(error.code, "operation.failed");
+            assert!(error.message.starts_with("terminal_input_"));
+            assert_eq!(error.details["reason"], error.message);
+            assert!(!error.message.contains(private));
+            assert!(!error.details.to_string().contains(private));
+            assert_eq!(error.details["operation"], "terminal.input.write");
+        }
+        let failure =
+            crate::surface::ConfirmedInputFailure::Indeterminate(std::io::Error::other(private));
+        let ActionFailure::Indeterminate(reason) =
+            confirmed_input_error("terminal.input.write", failure)
+        else {
+            panic!("uncertain delivery changed classification");
+        };
+        assert!(!reason.contains(private));
+    }
+}
+
 fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
     let bytes = match (fields.get("text"), fields.get("bytes_base64")) {
         (Some(Value::String(text)), None) => text.as_bytes().to_vec(),
@@ -777,7 +834,7 @@ fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
             )));
         }
     };
-    surface.write_bytes(&bytes).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+    confirmed_terminal_write(surface, &bytes, "terminal.input.write")
 }
 
 fn terminal_scroll_viewport(
@@ -826,7 +883,7 @@ fn terminal_keys(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
         .map_err(|error| ActionFailure::Known(resource_operation_error(error)))?
         .map_err(ActionFailure::Known)?;
     surface.scroll_to_bottom().map_err(|error| ActionFailure::Indeterminate(error.to_string()))?;
-    surface.write_bytes(&encoded).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+    confirmed_terminal_write(surface, &encoded, "terminal.input.keys")
 }
 
 fn terminal_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
@@ -940,7 +997,7 @@ fn terminal_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
     if output.is_empty() {
         return Ok(());
     }
-    surface.write_bytes(&output).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+    confirmed_terminal_write(surface, &output, "terminal.input.mouse")
 }
 
 fn terminal_focus(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
@@ -954,7 +1011,7 @@ fn terminal_focus(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
         return Ok(());
     }
     let bytes: &[u8] = if focused { b"\x1b[I" } else { b"\x1b[O" };
-    surface.write_bytes(bytes).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+    confirmed_terminal_write(surface, bytes, "terminal.input.focus")
 }
 
 fn browser_key(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {

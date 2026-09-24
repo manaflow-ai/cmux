@@ -10,9 +10,10 @@
 // row that the token's user or team owns.
 //
 // Deny by default. A VM principal is accepted ONLY by the guest-facing reflection
-// routes (app/api/vm/reflection); no other `/api/vm/*` route reads it, and no user
+// routes (app/api/vm/reflection) and its own resource-usage report; no user
 // (Stack) session is ever accepted on the guest-facing routes. The authority a
-// machine gets is therefore read-only knowledge about itself and its siblings.
+// machine gets is read-only knowledge about itself and its siblings, plus
+// permission to publish only its own advisory resource gauges.
 import { and, eq } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { cloudVms } from "../../db/schema";
@@ -20,7 +21,6 @@ import { authenticateRequestRouteToken, type RouteTokenIdentity } from "../coder
 import { normalizeVmId } from "../coderouter/teamMachines";
 import {
   VM_PRINCIPAL_LIVE_STATUSES,
-  type VmPrincipal,
   type VmPrincipalLiveStatus,
   type VmPrincipalResult,
   type VmPrincipalRow,
@@ -55,6 +55,8 @@ export async function loadCloudVmRow(vmId: string): Promise<VmPrincipalRow | nul
     .select({
       id: cloudVms.id,
       userId: cloudVms.userId,
+      ownerTeamId: cloudVms.ownerTeamId,
+      coderouterPoolId: cloudVms.coderouterPoolId,
       billingTeamId: cloudVms.billingTeamId,
       billingPlanId: cloudVms.billingPlanId,
       provider: cloudVms.provider,
@@ -80,13 +82,11 @@ export function isVmPrincipalLiveStatus(status: string): status is VmPrincipalLi
 }
 
 /**
- * Whether `identity` (the token's owner) may speak for `row`: the row was created
- * by that user, or belongs to the billing team the token was issued for. The same
- * ownership rule `teamMachines.ts` applies to per-machine usage.
+ * A VM identity is fixed to the resource team. Its creator cannot substitute
+ * another team, and changing the payer does not change machine authorization.
  */
 export function vmPrincipalOwns(row: VmPrincipalRow, identity: Pick<RouteTokenIdentity, "stackUserId" | "teamId">): boolean {
-  if (row.userId === identity.stackUserId) return true;
-  return row.billingTeamId !== null && row.billingTeamId === identity.teamId;
+  return row.ownerTeamId === identity.teamId;
 }
 
 export async function requireVmPrincipal(
@@ -98,7 +98,8 @@ export async function requireVmPrincipal(
     : await authenticateRequestRouteToken(request);
   if (!auth.ok) return { ok: false, reason: auth.reason };
   const identity = auth.identity;
-  if (identity.vmId === null) return { ok: false, reason: "vm_bound_token_required" };
+  // A chatmux machine is not a Cloud VM; it has no cloud_vms row.
+  if (identity.vmId === null || identity.machine === "chatmux") return { ok: false, reason: "vm_bound_token_required" };
   const row = await dependencies.loadVm(identity.vmId);
   if (!row) return { ok: false, reason: "vm_not_found" };
   if (!vmPrincipalOwns(row, identity)) return { ok: false, reason: "vm_owner_mismatch" };

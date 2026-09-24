@@ -1,13 +1,8 @@
 import Foundation
 
-/// The sparse color sidecar a cmux-tui `attach-surface` stream sends beside a
-/// theme-portable replay: only colors the remote PTY (or the daemon's pushed
-/// defaults) authored. Every entry absent here stays whatever the local
-/// Ghostty theme says.
-///
-/// The pane applies it by feeding the equivalent OSC sequences to its own
-/// libghostty, so the renderer parses them exactly as it would have parsed the
-/// PTY's original bytes.
+/// Application-authored colors beside a theme-portable Cloud replay.
+/// Missing entries retain the viewer's Ghostty theme. The pane feeds the
+/// equivalent OSC sequences to its own libghostty to preserve reset semantics.
 struct CloudTuiRemoteColors: Equatable, Sendable {
     var foreground: String?
     var background: String?
@@ -27,9 +22,12 @@ struct CloudTuiRemoteColors: Equatable, Sendable {
     /// losing the screen bytes it travels with.
     init?(json: Any?) {
         guard let object = json as? [String: Any] else { return nil }
-        foreground = Self.hex(object["fg"])
-        background = Self.hex(object["bg"])
-        cursor = Self.hex(object["cursor"])
+        // Only older daemons omit provenance. Never treat a newer daemon's
+        // shared effective defaults as application OSC, even if malformed.
+        let special = object["overrides"] == nil ? object : (object["overrides"] as? [String: Any] ?? [:])
+        foreground = Self.hex(special["fg"])
+        background = Self.hex(special["bg"])
+        cursor = Self.hex(special["cursor"])
         var palette: [Int: String] = [:]
         if let entries = object["palette"] as? [String: Any] {
             for (key, value) in entries {

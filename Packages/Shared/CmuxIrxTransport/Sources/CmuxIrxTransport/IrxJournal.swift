@@ -40,6 +40,10 @@ public final class IrxJournal: @unchecked Sendable {
     private var fileHandle: FileHandle?
     private var ring: [IrxJournalEvent] = []
     private var counters: [String: Int] = [:]
+    private var terminalTraceWindowInitialized = false
+    private var terminalTraceWindowStartMs: UInt64 = 0
+    private var terminalTraceEventsInWindow = 0
+    private static let terminalTraceEventsPerMinute = 120
     private static func isoTimestamp(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -75,6 +79,23 @@ public final class IrxJournal: @unchecked Sendable {
     ) {
         let monotonicMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
+        if component == "terminal-trace" {
+            lock.lock()
+            if !terminalTraceWindowInitialized
+                || monotonicMs < terminalTraceWindowStartMs
+                || monotonicMs - terminalTraceWindowStartMs >= 60_000 {
+                terminalTraceWindowInitialized = true
+                terminalTraceWindowStartMs = monotonicMs
+                terminalTraceEventsInWindow = 0
+            }
+            guard terminalTraceEventsInWindow < Self.terminalTraceEventsPerMinute else {
+                counters["terminal_trace_dropped"] = counters["terminal_trace_dropped", default: 0] + 1
+                lock.unlock()
+                return
+            }
+            terminalTraceEventsInWindow += 1
+            lock.unlock()
+        }
         let entry = IrxJournalEvent(
             wallTime: Date(),
             monotonicMs: monotonicMs,

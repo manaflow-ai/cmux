@@ -167,6 +167,7 @@
       "machine-listening-tcp",
       "machine-usage",
       "move-tab",
+      "move-tab-to-workspace",
       "move-terminal",
       "move-workspace",
       "new-browser-tab",
@@ -177,6 +178,7 @@
       "new-workspace",
       "notify",
       "pane-neighbor",
+      "paste-image",
       "ping",
       "process-info",
       "put-frontend-projection",
@@ -237,7 +239,10 @@
       "attach-surface",
       "resize-attached-view",
       "release-attached-view-size",
-      "detach-attached-view"
+      "detach-attached-view",
+      "url-open-subscribe",
+      "url-open-claim",
+      "url-open-result"
     ],
     "local-admin": [
       "server-stats",
@@ -245,7 +250,8 @@
       "get-browser-provider",
       "unregister-browser-provider",
       "shutdown-daemon",
-      "pairing-response"
+      "pairing-response",
+      "url-open"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -551,6 +557,12 @@
       "name": "workspace-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "url-open",
+      "streams": [
+        "control"
       ]
     }
   ],
@@ -1123,6 +1135,11 @@
       "variant": "RunConfigured",
       "classification": "composite",
       "route": "frontend configured menu + the referenced action's own route"
+    },
+    {
+      "variant": "MoveTabToWorkspace",
+      "classification": "direct",
+      "route": "move-tab-to-workspace"
     }
   ],
   "feature_families": [
@@ -1214,7 +1231,7 @@
       "id": "plugins",
       "wire_status": "partial",
       "programmability": "partial",
-      "route": "sidebar-plugin-v0; proposed manifest, permissions, contributions, and transactional management"
+      "route": "sidebar-plugin-v0 plus userland journal agent plugins; proposed contribution points, permissions, and typed management"
     },
     {
       "id": "file-sidebar",
@@ -1320,6 +1337,7 @@
         "LaunchFailed": 20,
         "TerminateAck": 21,
         "DetachAck": 22,
+        "InputAck": 23,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,

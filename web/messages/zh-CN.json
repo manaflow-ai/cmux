@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "检测到的 harness 配置",
+    "selectionNotice": "选择提供商不会启动或启用这些 harness。",
+    "selectProvider": "选择 {provider}",
+    "foundPath": "发现 {path}",
+    "foundCommand": "发现命令 {command}",
+    "installed": "提供商已安装",
+    "missing": "提供商未安装",
+    "install": "使用以下命令安装：{command}",
+    "benefitPi": "压缩、记忆和提供商路由",
+    "benefitOpenagent": "OpenCode 的并行专家和恢复能力",
+    "benefitClaude": "Claude Code 的团队协作与验证",
+    "benefitSuperpowers": "规划、TDD、子代理和审查"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "云端虚拟机设置未完成",
+      "reason": "云端虚拟机的来宾设置未完成。",
+      "message": "cmux 无法完成云端虚拟机的设置。",
+      "action": "请重试此操作。如果问题持续，请联系支持。"
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM 清理待完成",
+      "message": "Cloud VM 设置失败，清理仍未完成。",
+      "action": "创建另一台机器之前，请提供跟踪 ID 联系支持团队。"
+    },
     "unsupported": {
       "title": "云端虚拟机操作不可用",
       "reason": "此机器类型不提供此操作。",
@@ -22,6 +47,34 @@
       "title": "需要 cmux Pro",
       "message": "云端虚拟机需要 cmux Pro 套餐。",
       "action": "请前往 {upgradeUrl} 升级到 cmux Pro 以创建云端虚拟机。"
+    },
+    "displayName": {
+      "title": "机器名称无效",
+      "message": "机器名称必须是不超过 {maxLength} 个字符的可打印文本。",
+      "action": "请使用不含控制字符的更短名称，或留空以清除名称。"
+    },
+    "memoryPlan": {
+      "title": "cmux {plan}",
+      "message": "{memory} GiB 的机器需要 cmux {plan}。当前套餐最多支持 {max} GiB。",
+      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+    },
+    "memoryUnknown": {
+      "message": "无法验证源机器的内存大小。",
+      "action": "cmux vm new --size 4g"
+    },
+    "memoryUnavailable": {
+      "message": "此机器规格当前不可用。请选择不超过 {max} GiB 的规格。",
+      "action": "cmux vm new --size {max}g"
+    },
+    "goLimit": {
+      "savedMessage": "Go 最多保存两台 VM，包括正在运行的 VM。",
+      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "activeMessage": "Go 同时可运行一台 VM。",
+      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "hoursMessage": "Go 本月的 40 VM 小时已用完。保存的 VM 可在下一个计费周期开始后继续使用。",
+      "hoursAction": "cmux billing checkout --plan pro",
+      "shapeMessage": "Go 支持 2 vCPU、4 GiB 内存和 16 GiB 磁盘。",
+      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
     }
   },
   "billingRecovery": {
@@ -58,6 +111,7 @@
   "authError": {
     "emailUnverifiedTitle": "验证邮箱后继续",
     "emailUnverifiedBody": "请使用最初注册时的方式登录，然后验证邮箱，再使用此登录方式。",
+    "signupPendingBody": "如果你已有账户，请使用之前的方法登录。如果你刚刚创建了账户，请在登录前验证邮箱。",
     "genericTitle": "无法完成登录",
     "genericBody": "请重试。如果问题仍然存在，请联系支持。",
     "backToSignIn": "返回登录"
@@ -294,7 +348,8 @@
     "nav": {
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概览",
-      "team": "团队"
+      "team": "团队",
+      "mobileDevices": "移动设备"
     },
     "home": {
       "coderouterName": "coderouter",
@@ -338,6 +393,69 @@
         "pro": "Pro",
         "loading": "加载中…"
       }
+    },
+    "mobileDevices": {
+      "title": "移动设备",
+      "description": "管理对已连接电脑、手机和平板电脑的访问。",
+      "team": "团队",
+      "teamSwitchError": "无法切换团队。请重试。",
+      "loading": "正在加载设备…",
+      "empty": "此团队没有注册设备。",
+      "unavailable": "无法加载你的设备。刷新页面后重试。",
+      "retry": "重试",
+      "mutationError": "无法完成设备更改。",
+      "revoke": "撤销访问权限",
+      "deviceId": "设备",
+      "revision": "版本",
+      "status": "状态",
+      "active": "活动",
+      "revoked": "已撤销",
+      "relaySettings": "中继设置",
+      "relaySettingsDescription": "选择此团队使用的中继服务器。每行输入一个 URL。",
+      "saveRelaySettings": "保存中继设置",
+      "eyebrow": "云端 / 设备",
+      "scopeActive": "正在显示此团队",
+      "emptyTitle": "尚无已连接的设备",
+      "emptyDescription": "cmux 设备与此团队配对后，其平台、版本和访问控制将显示在这里。",
+      "revoking": "正在撤销…",
+      "registeredDevices": "已注册设备",
+      "activeDevices": "有效设备",
+      "directoryRevision": "设备列表修订号",
+      "savingRelaySettings": "正在保存…"
+    },
+    "coderouterAccounts": {
+      "shareWithTeam": "与团队共享",
+      "makePrivate": "设为私有",
+      "privateImportHint": "新账户默认为私有。共享账户后，此团队的云虚拟机即可使用。",
+      "description": "共享账户可供此团队的 Cloud VM 使用。私有账户仅供添加它们的人使用。",
+      "cancelAction": "取消",
+      "apiKeysTitle": "API 密钥",
+      "apiKeysDescription": "为脚本和代理创建长期密钥。密钥只显示一次。",
+      "apiKeysCount": "{count, plural, one {# 个密钥} other {# 个密钥}}",
+      "apiKeysLoading": "正在加载 API 密钥…",
+      "apiKeysLoadError": "无法加载 API 密钥，请稍后重试。",
+      "apiKeysRetry": "重试",
+      "apiKeysEmptyBody": "还没有 API 密钥。创建一个以验证 CodeRouter 客户端。",
+      "apiKeyPrefixColumn": "密钥",
+      "apiKeyStatusColumn": "状态",
+      "apiKeySecretTitle": "立即复制此密钥",
+      "apiKeySecretBody": "此密钥不会再次显示。",
+      "apiKeyCopy": "复制 API 密钥",
+      "apiKeyCopied": "已复制",
+      "apiKeyCreatedAt": "创建于 {at}",
+      "apiKeyLastUsed": "最后使用 {at}",
+      "apiKeyRevoked": "已撤销",
+      "apiKeyLabelPlaceholder": "例如 CI 或生产环境",
+      "createApiKeyAction": "创建 API 密钥",
+      "creatingApiKeyAction": "正在创建",
+      "apiKeyCreateError": "无法创建 API 密钥。",
+      "revokeApiKeyAction": "撤销",
+      "revokingApiKeyAction": "正在撤销",
+      "apiKeyRevokeError": "无法撤销 API 密钥。",
+      "revokeApiKeyConfirmTitle": "撤销此 API 密钥？",
+      "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
+      "apiKeyUsageUnavailable": "使用数据不可用",
+      "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
     }
   },
   "community": {
@@ -912,6 +1030,60 @@
     }
   },
   "docs": {
+    "computerUse": {
+      "title": "cmux Computer Use",
+      "metaTitle": "cmux Computer Use：让 AI 代理自动操作 Mac",
+      "metaDescription": "通过 cmux Computer Use，让 Claude Code 和 Codex 操作你的 Mac。结合截图、辅助功能、点击、文字输入和键盘操作，实现原生应用自动化。",
+      "docsMetaTitle": "Computer Use 设置与代理工具",
+      "docsMetaDescription": "在 macOS 上设置 cmux Computer Use。了解权限、Claude Code 和 Codex 工具、应用定位、会话控制、技能和故障排除。",
+      "tagline": "让 Claude Code 和 Codex 操作你的 Mac。",
+      "intro": "让 AI 编程代理使用 Mac 原生应用。通过 cmux Computer Use 读取应用界面、截取屏幕、点击控件并输入文字。",
+      "imageAlt": "cmux Computer Use 的辅助功能与截图权限设置界面",
+      "caption": "Computer Use 权限由独立的辅助程序管理，因此在初始设置期间，你的终端会话可以保持运行。",
+      "featuresTitle": "操作 Mac 原生应用",
+      "featureInspect": "通过辅助功能树和截图查看应用界面。",
+      "featureAct": "在 macOS 应用中点击、输入、滚动、拖动并使用键盘快捷键。",
+      "featureReview": "跟随代理的可见光标，检查结果，并返回发起操作的终端。",
+      "agentsTitle": "在 cmux 中使用编程代理",
+      "agentsBody": "在 cmux 中运行 {agents} 等命令行代理。",
+      "supportTitle": "支持的代理",
+      "supportBody": "原生 Computer Use 工具会自动连接到从 cmux 内启动的 Claude Code 和 Codex 会话。其他代理也能在终端中运行，但尚不支持这种自动连接的 Mac 控制集成。",
+      "setupTitle": "开始使用",
+      "step1": "安装并打开 Mac 版 cmux。在设置 → Computer Use 中启用 Computer Use。",
+      "step2": "通过权限控件打开系统设置，为 cmux Computer Use 授予辅助功能和屏幕录制权限。如果列表中没有辅助程序，请将其应用图块添加或拖入权限面板。",
+      "step3": "在 cmux 内新建 Claude Code 或 Codex 会话。明确要求使用 Computer Use，并指定应用和任务。工具会自动连接，无需手动配置 MCP。",
+      "permissionsTitle": "权限与设置",
+      "permissionsBody": "辅助功能权限允许辅助程序读取和操作应用界面；屏幕录制权限用于截图。请将两项权限都授予 cmux Computer Use。打开 cmux 或启动代理不会自动授予权限，也不会自动打开设置流程。",
+      "tahoeBody": "在 macOS Tahoe 上，还需在设置过程中批准额外的屏幕捕获确认。等 cmux 显示两项权限均已授予后，再重试任务。",
+      "promptTitle": "用计算器试一下",
+      "prompt": "使用 cmux Computer Use 打开计算器，点击输入 100 + 105，并向我展示结果。",
+      "workflowBody": "先查看目标，再操作该快照中的控件，然后重新查看以验证结果。元素索引仅对当前快照有效，导航或布局改变后应重新获取。点击成功的回执本身并不能证明任务已完成。",
+      "toolsTitle": "代理工具",
+      "toolsBody": "cmux-cua 是内置 MCP 服务器，向代理提供操作原生应用的结构化工具。下面是工具名称，不是 shell 命令。具体参数取决于代理配置，请以会话中提供的工具定义为准。",
+      "codexBody": "Codex 使用应用名称或 bundle ID 调用 get_app_state，获取截图和辅助功能树。使用当前的 element_index 或截图坐标执行操作，再次调用 get_app_state 验证。工具列表：",
+      "claudeBody": "Claude Code 使用 list_apps 和 list_windows 查找目标，再通过 pid 和 window_id 调用 get_window_state。优先使用元素令牌或最新索引。原生配置还支持 perform_actions，用于合并不会使后续目标失效的操作。",
+      "controlTitle": "跟随并停止 Computer Use",
+      "controlBody": "菜单栏的 Computer Use 项目显示当前代理。Focus Computer Use 会跟随其操作的应用，Focus Calling Terminal 返回发起操作的终端。返回终端不会停止自动化。请使用菜单中的停止操作来结束当前控制会话。",
+      "disableBody": "在设置中关闭 Computer Use 即可停用。若要在新代理会话中排除这些工具，请在启动前设置 CMUX_COMPUTER_USE_MCP_DISABLED=1。",
+      "skillTitle": "技能",
+      "skillBody": "cmux-cua 技能说明了观察与操作流程。技能是可选的，不会授予 macOS 权限。需要持久安装时，请使用代理的技能安装器；cmux 默认不会安装全局技能。",
+      "skillLink": "阅读 cmux-cua 技能",
+      "browserTitle": "原生应用与浏览器自动化",
+      "browserBody": "Computer Use 通过截图和辅助功能操作 Mac 原生窗口。对于 cmux 浏览器窗格，请使用 cmux browser 命令处理 DOM 快照、选择器、表单和 JavaScript。浏览器表面引用与原生应用元素索引并不相同。",
+      "browserLink": "浏览器自动化参考",
+      "troubleTitle": "故障排除",
+      "missingTitle": "代理没有 Computer Use 工具",
+      "missingBody": "在 cmux 设置中启用 Computer Use，然后在 cmux 内新建 Claude Code 或 Codex 会话。已有会话可能保留原来的工具配置。检查是否有环境变量或管理策略禁用了 Computer Use。",
+      "blockedTitle": "设置未完成、点击失败或截图空白",
+      "blockedBody": "重新打开设置 → Computer Use，完成两项权限步骤及额外的捕获确认。设置完成后重试。即使辅助程序需要重启，终端会话也可以保持运行。",
+      "targetTitle": "选错窗口或点击被阻止",
+      "targetBody": "重新查看应用，从当前状态中选择新的元素。如果其他窗口遮挡了目标，请先显示目标窗口再重新查看。不要复用过期坐标或元素索引。",
+      "productLink": "cmux Computer Use 概览",
+      "copyTitle": "复制 Computer Use 提示词",
+      "copyPrompt": "复制提示词",
+      "copiedPrompt": "已复制",
+      "installPrompt": "本任务使用 $cmux-cua 技能。若技能不可用，请用常用技能安装器安装。若缺少权限，请让我打开 cmux 设置 → Computer Use。操作前检查，每次变更后验证。\n\n任务：[在此描述任务]"
+    },
     "remoteTmux": {
       "moshContrast": "如需在网络之间漫游，请使用 cmux mosh-tmux。它会打开一个连接到命名 tmux 会话的完整 Mosh 终端；不会取代 SSH tmux 控制模式提供的原生工作区、标签页和分屏镜像。"
     },
@@ -1099,6 +1271,8 @@
       "exampleConfig": "配置示例",
       "metaTitle": "配置",
       "schemaDescriptions": {
+        "root": "cmux 配置。全局 cmux.json 支持应用设置、快捷键、操作、自定义命令、通知钩子和工作区布局。项目本地的 .cmux/cmux.json 或 cmux.json 支持操作、命令、通知钩子、UI 操作绑定、Agent Chat 覆盖、vault 代理、工作区组覆盖，以及工作区启动和按钮配置。",
+        "rightSidebar": "保留在 cmux.json 中的旧版及扩展拥有的右侧边栏配置。",
         "paneBorderColor": "覆盖拆分工作区中的 cmux 窗格分隔线颜色。此设置影响 cmux 窗格边界，而不是 Ghostty 的内部分屏。",
         "activePaneBorderColor": "在拆分工作区中围绕当前聚焦的 cmux 窗格绘制的可选边框颜色。",
         "automation": {
@@ -1110,6 +1284,7 @@
         "app": {
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
           "windowTitleTemplate": "可选的 NSWindow 标题模板。留空会保留 cmux 现有的默认标题行为，包括回退到当前目录。支持的占位符：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
+          "devWindowDisplay": "仅在 DEBUG 构建中打开新窗口时使用的显示器名称。空值使用系统默认设置。",
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
@@ -1117,6 +1292,7 @@
           "globalFontMagnification": "按此百分比缩放 cmux 拥有的终端、标签标题、侧边栏、设置、覆盖层和应用 chrome。渲染后的浏览器页面内容不包含在内。"
         },
         "terminal": {
+          "adaptiveDefaultTheme": "为 true（默认）时，除非配置了 Ghostty 主题或终端颜色，否则 cmux 会提供随外观变化的默认配色。字体和其他设置会保留。为 false 时，Ghostty 使用固定的内置配色。显式主题和颜色始终优先，包括 theme = light:X,dark:Y。",
           "sessionContentMaxWidth": "终端和内置代理聊天内容的可选最大宽度，单位为点。设为 false 可使用整个窗格宽度。",
           "sessionContentAlignment": "启用 sessionContentMaxWidth 时，终端和内置代理聊天内容的水平位置。",
           "copyOnSelect": "为 true 时，在确认选择后将所选终端文本复制到系统剪贴板。为 false 时，cmux 不会输出 Ghostty copy-on-select 覆盖项；选择剪贴板行为由 Ghostty 配置和默认值控制。",
@@ -1231,7 +1407,7 @@
       "plusButtonScreenshotAlt": "cmux 加号按钮右键菜单显示 Worktree Agents、New Terminal 和 New Browser",
       "plusButtonScreenshotCaption": "右键菜单遵循 ui.newWorkspace.contextMenu 中的顺序。",
       "newWorkspaceButton": "加号按钮的自定义动作",
-      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。",
+      "newWorkspaceButtonDesc": "使用 <action>ui.newWorkspace.action</action> 覆盖加号按钮的行为。使用 <contextMenu>ui.newWorkspace.contextMenu</contextMenu>（或别名 <rightClick>rightClick</rightClick>）定义有序的右键菜单。菜单项可以是动作 ID、动作对象，或 <separator>{ \"type\": \"separator\" }</separator>。 未设置时，菜单会列出 cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L)，并显示各自当前的快捷键。仅在启用 Cloud Machines 时显示云菜单项。 New Cloud Workspace 使用最近选中的 Cloud 工作区所属机器，然后使用右侧边栏中的第一台机器；New Cloud Machine 会主动配置一台机器。",
       "newWorkspaceWorktreeNote": "此示例让普通加号点击运行 <action>worktree-agents</action> 操作。来自 <commands>commands</commands> 的工作区命令会先使用可见的设置终端创建 Git <worktree>worktree</worktree>。Codex 和 Claude 同时启动，等待该工作区专用的状态文件，然后在 exec 前进入创建的目录。",
       "simpleCommands": "简单命令",
       "simpleCommandsDesc": "简单命令在当前聚焦的终端中运行 shell 命令：",
@@ -1284,6 +1460,7 @@
       "restartNew": "创建新的 workspace（默认）"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "切换文件编辑器自动换行 (Option+Z).",
       "title": "快捷键",
       "description": "cmux 中所有可用的快捷键，按类别分组。",
       "metaDescription": "cmux 的所有 macOS 快捷键，涵盖工作区、surface、分屏面板、浏览器、通知、查找和窗口管理。",
@@ -1592,6 +1769,7 @@
       }
     },
     "navItems": {
+      "computerUse": "电脑操作",
       "gettingStarted": "入门指南",
       "concepts": "核心概念",
       "workspaceGroups": "工作区分组",
@@ -3868,5 +4046,12 @@
         "action": "管理方案"
       }
     }
+  },
+  "cliAuthIdentity": {
+    "email": "电子邮件",
+    "emailUnavailable": "电子邮件地址不可用",
+    "organization": "组织",
+    "personalAccount": "个人账户",
+    "switchAccountButton": "使用其他账号"
   }
 }

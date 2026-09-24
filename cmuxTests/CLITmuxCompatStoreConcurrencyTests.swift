@@ -206,17 +206,12 @@ struct CLITmuxCompatStoreConcurrencyTests {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
 
-        let exited = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exited.signal()
-        }
-        let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exited.wait(timeout: .now() + 1) == .timedOut {
+            if waitForProcessExit(process, timeout: 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exited.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
         let stderr = String(

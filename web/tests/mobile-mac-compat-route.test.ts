@@ -91,11 +91,40 @@ describe("mobile-mac-compat route", () => {
 
   test("keeps minimums scoped to each build kind", () => {
     const entry = mobileMacCompatList.entries[0];
-    expect(entry.buildKinds?.prod.stableMinVersion).toBe("0.64.23");
+    const appStoreNightly = {
+      minBaseVersion: "0.64.25",
+      minBuild: "3522337919701",
+    };
+    for (const appStoreEntry of mobileMacCompatList.entries) {
+      expect(appStoreEntry.stableMinVersion).toBe("0.64.25");
+      expect(appStoreEntry.nightly).toEqual(appStoreNightly);
+      expect(appStoreEntry.buildKinds?.prod.stableMinVersion).toBe("0.64.25");
+      expect(appStoreEntry.buildKinds?.prod.nightly).toEqual(appStoreNightly);
+    }
     expect(entry.buildKinds?.internal.stableMinVersion).toBe("0.64.17");
     expect(entry.buildKinds?.beta.stableMinVersion).toBe("0.64.17");
     expect(mobileMacCompatList.entries[1].buildKinds?.internal.stableMinVersion).toBe("0.64.23");
     expect(mobileMacCompatList.entries[2].buildKinds?.internal.stableMinVersion).toBe("0.64.23");
+    expect(mobileMacCompatList.entries[0].buildKinds?.internal.nightly).toEqual({
+      minBaseVersion: "0.64.22",
+      minBuild: "3345650013202",
+    });
+    expect(mobileMacCompatList.entries[0].buildKinds?.beta.nightly).toEqual({
+      minBaseVersion: "0.64.22",
+      minBuild: "3345650013202",
+    });
+    expect(mobileMacCompatList.entries[1].buildKinds?.beta.nightly).toEqual({
+      minBaseVersion: "0.64.22",
+      minBuild: "3345650013202",
+    });
+    expect(mobileMacCompatList.entries[1].buildKinds?.internal.nightly).toEqual({
+      minBaseVersion: "0.64.22",
+      minBuild: "3345650013202",
+    });
+    expect(mobileMacCompatList.entries[2].buildKinds?.internal.nightly).toEqual({
+      minBaseVersion: "0.64.22",
+      minBuild: "3345650013202",
+    });
   });
 
   test("rejects conflicting legacy and build-kind minimums", () => {

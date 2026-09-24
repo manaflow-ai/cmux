@@ -21,7 +21,7 @@ struct CloudTuiCommandLine: Sendable {
             "remote", "connect", route,
             "--device-name", deviceName,
             "--state-dir", stateDir,
-            "--headless", "--json", "--exit-with-parent",
+            "--headless", "--json", "--exit-with-parent", "--lanes", "single",
         ]
         if carrier {
             arguments.append("--carrier")
@@ -40,6 +40,16 @@ struct CloudTuiCommandLine: Sendable {
 
     /// The probe capability a client advertises when it understands `--wireguard-hub`.
     static let wireGuardHubCapability = "wireguard-hub"
+
+    /// Private addresses are browser identities; the daemon opens each requested port on its loopback
+    /// after the authenticated CONNECT proxy or Cloud WebSocket bridge accepts the browser connection.
+    static func browserProxyArguments(route: String, addresses: [String], stateDir: String, wireGuardHubSocket: String, carrier: Bool) -> [String] {
+        var args = ["remote", "browser-proxy", route, "--workspace-root", "/", "--state-dir", stateDir,
+                    "--wireguard-hub", wireGuardHubSocket, "--exit-with-parent"]
+        for address in addresses { args += ["--allowed-host", address] }
+        if carrier { args.append("--carrier") }
+        return args
+    }
 
     /// Whole-session public snapshot (`session current snapshot`, `--json`).
     static func snapshotArguments(socketPath: String) -> [String] {
@@ -60,8 +70,10 @@ struct CloudTuiCommandLine: Sendable {
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
     /// running the exact argv. Result: `MutationResult<CreatedTerminalPath>`
     /// (`spec/resource-operations-v2.json` → `workspace.run`).
-    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil) -> [String] {
+    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "workspace", workspaceID, "run"]
+        if let idempotencyKey { arguments += ["--idempotency-key", idempotencyKey] }
+        if let correlationKey { arguments += ["--correlation-key", correlationKey] }
         // `--on-exit keep` retains the tab and the final screen after the process exits
         // (spec `workspace.run`): what a sender needs when the process's last lines ARE
         // the result (`CloudEnvDelivery`). The default (`close`) detaches every view.
@@ -201,6 +213,20 @@ struct CloudTuiCommandLine: Sendable {
         return arguments
     }
 
+    /// `terminal <term_id> process show` (spec `terminal.process.get`): reads
+    /// the foreground process cwd live from the PTY's controlling terminal.
+    static func processInfoArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "process", "show"]
+    }
+
+    /// Extracts the live foreground cwd. The sibling `cwd` field is the spawn
+    /// directory and is stale after the shell changes directory.
+    static func foregroundWorkingDirectory(fromProcessInfo result: [String: Any]) -> String? {
+        guard let cwd = result["foreground_cwd"] as? String else { return nil }
+        let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     /// `terminal <term_id> output read [--after <offset>] [--max-bytes <n>]` (spec
     /// `terminal.output_read`): the terminal's retained OUTPUT as text — the whole build log,
     /// not the 24 rows currently on screen — with `{text, start_offset, next_offset, complete}`;
@@ -260,8 +286,11 @@ struct CloudTuiCommandLine: Sendable {
     /// Resolves a stable terminal resource ID to the current generation's
     /// numeric surface handle. This is preferred over walking the legacy tree
     /// because it also works while a terminal has no visible tab placement.
-    /// The private command accepts the 32-character payload without the
-    /// public `term_` prefix.
+    ///
+    /// The full public `term_…` id is sent. A current daemon maps it through
+    /// its registry; a daemon that only knows UUIDv4 host ids rejects both
+    /// spellings the same way (`invalid_terminal_id`), and the resolver then
+    /// reads the authoritative snapshot instead.
     static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
         let payload = terminalID.hasPrefix("term_")
             ? String(terminalID.dropFirst("term_".count))
@@ -275,7 +304,7 @@ struct CloudTuiCommandLine: Sendable {
         let request: [String: Any] = [
             "id": 1,
             "cmd": "resolve-terminal",
-            "terminal_id": payload,
+            "terminal_id": "term_" + payload,
         ]
         return rawCommandArguments(socketPath: socketPath, request: request)
     }

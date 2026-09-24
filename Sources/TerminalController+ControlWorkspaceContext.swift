@@ -51,64 +51,6 @@ extension TerminalController: ControlWorkspaceContext {
         resolveTabManager(routing: routing) != nil
     }
 
-    // MARK: - Snapshots
-
-    /// Builds the Sendable summary of one workspace (the legacy
-    /// `v2WorkspaceSummaryPayload` data, minus the index/selected/ref minting the
-    /// coordinator now owns), bridging the app-typed `remoteStatusPayload()`.
-    private func controlWorkspaceSummary(_ workspace: Workspace) -> ControlWorkspaceSummary {
-        ControlWorkspaceSummary(
-            id: workspace.id, title: workspace.title, customTitle: workspace.customTitle,
-            customDescription: workspace.customDescription,
-            isPinned: workspace.isPinned,
-            listeningPorts: workspace.listeningPorts,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
-            currentDirectory: workspace.presentedCurrentDirectory ?? "",
-            customColor: workspace.customColor,
-            latestConversationMessage: workspace.latestConversationMessage,
-            latestSubmittedMessage: workspace.latestSubmittedMessage,
-            latestSubmittedAt: workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp)
-        )
-    }
-
-    // MARK: - List / current
-
-    func controlWorkspaceList(routing: ControlRoutingSelectors) -> ControlWorkspaceListResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
-        }
-        let selectedId = tabManager.selectedTabId
-        var selectedIndex: Int?
-        let summaries = tabManager.tabs.enumerated().map { index, ws -> ControlWorkspaceSummary in
-            if ws.id == selectedId {
-                selectedIndex = index
-            }
-            return controlWorkspaceSummary(ws)
-        }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
-        return .resolved(windowID: windowId, workspaces: summaries, selectedIndex: selectedIndex)
-    }
-
-    func controlWorkspaceCurrent(routing: ControlRoutingSelectors) -> ControlWorkspaceCurrentResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
-        }
-        guard let workspaceId = tabManager.selectedTabId else {
-            return .noWorkspaceSelected
-        }
-        // Legacy: a selectedTabId pointing at a workspace missing from `tabs`
-        // still answered .ok with "workspace": null.
-        let workspace = tabManager.tabs.first(where: { $0.id == workspaceId })
-        let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
-        return .resolved(
-            windowID: windowId,
-            workspaceID: workspaceId,
-            index: index,
-            summary: workspace.map { controlWorkspaceSummary($0) }
-        )
-    }
-
     // MARK: - Create
 
     /// `workspace.create` forwards to the single shared `v2WorkspaceCreate` body
@@ -295,6 +237,11 @@ extension TerminalController: ControlWorkspaceContext {
             iMessageModeEnabled: iMessageModeEnabled
         ) else {
             return .notFound
+        }
+        if let surfaceID = routing.surfaceID,
+           let terminalSurface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
+           terminalSurface.tabId == workspaceID {
+            terminalSurface.hostedView.recordPromptScrollMarker()
         }
         let preview = tabManager.tabs.first(where: { $0.id == workspaceID })?.latestSubmittedMessage
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
@@ -674,8 +621,9 @@ extension TerminalController: ControlWorkspaceContext {
         // `DisableCloud` (MDM): a workspace bound to a Cloud machine is a Cloud
         // attach whichever verb carried it, so pre-minted daemon credentials
         // cannot route around the `vm.*` gate.
-        if let managedCloudVMID, !managedCloudVMID.isEmpty, ManagedCloudPolicy.isDisabled {
-            return .err(code: ManagedCloudPolicy.socketErrorCode, message: ManagedCloudPolicy.disabledMessage, data: nil)
+        if let managedCloudVMID, !managedCloudVMID.isEmpty,
+           (ManagedCloudPolicy.isDisabled || !CloudMachinesFeature.offMainIsEnabled()) {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
         }
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
@@ -684,7 +632,6 @@ extension TerminalController: ControlWorkspaceContext {
                 "workspace_ref": controlWorkspaceRefValue(workspaceId),
             ]))
         }
-
         let config = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,

@@ -24,12 +24,21 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         defer { try? fileManager.removeItem(at: root) }
 
         try Self.writeShellFile(at: fakeCLI, lines: ["#!/bin/sh", "exit 0"])
+        // Like native OpenSSH, explicitly install a handler even if script(1)
+        // inherited SIGTERM ignored. A POSIX shell cannot reset that disposition.
         try Self.writeShellFile(at: fakeSSH, lines: [
-            "#!/bin/sh",
-            "trap '' HUP INT",
-            "trap 'printf \"%s\\n\" term > \"${CMUX_TEST_AUTH_CHILD_SIGNAL:?}\"; exit 143' TERM",
-            "printf '%s\\n' \"$$\" > \"${CMUX_TEST_AUTH_CHILD_PID:?}\"",
-            "while :; do /bin/sleep 30; done",
+            "#!/usr/bin/python3",
+            "import os, signal, subprocess, sys",
+            "signal.signal(signal.SIGHUP, signal.SIG_IGN)",
+            "signal.signal(signal.SIGINT, signal.SIG_IGN)",
+            "def terminate(signum, frame):",
+            "    with open(os.environ['CMUX_TEST_AUTH_CHILD_SIGNAL'], 'w') as output:",
+            "        output.write('term\\n')",
+            "    sys.exit(143)",
+            "signal.signal(signal.SIGTERM, terminate)",
+            "with open(os.environ['CMUX_TEST_AUTH_CHILD_PID'], 'w') as output:",
+            "    output.write(str(os.getpid()) + '\\n')",
+            "subprocess.run(['/bin/sleep', '30'])",
         ])
         for executable in [fakeCLI, fakeSSH] {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
@@ -159,6 +168,7 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         let result = try Self.runProcess(command: command, environment: environment)
 
         #expect(result.status == 253, Comment(rawValue: result.stderr))
+        #expect(result.stderr.contains("Network is unreachable"), Comment(rawValue: result.stderr))
         #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "2")
         #expect(try String(contentsOf: attachFile, encoding: .utf8) == "attach\n")
         #expect(try String(contentsOf: sleepFile, encoding: .utf8) == "2\n")
@@ -281,8 +291,10 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
 
         try Self.writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
-            "printf '%s\\n' attach >> \"${CMUX_TEST_ATTACH_FILE}\"",
-            "exit 253",
+            "case \" $* \" in",
+            "  *\" ssh-pty-attach \"*) printf '%s\\n' attach >> \"${CMUX_TEST_ATTACH_FILE}\"; exit 253 ;;",
+            "  *) exit 0 ;;",
+            "esac",
         ])
         try Self.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",

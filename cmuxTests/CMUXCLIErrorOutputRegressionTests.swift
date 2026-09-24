@@ -593,7 +593,7 @@ import Testing
                     "working_directory": root.path,
                 ],
             ],
-        ])
+        ], workspaceID: workspaceID, surfaceID: surfaceID)
         let socketPath = "/tmp/cmux-hermes-restore-recovery-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: response)
         defer { responder.stop() }
@@ -607,6 +607,8 @@ import Testing
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_WORKSPACE_ID"] = workspaceID
         environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
         try writeHermesStateDatabase(
             homeDirectory: root,
             sessionID: realSessionID,
@@ -636,6 +638,8 @@ import Testing
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try """
         #!/bin/sh
+        # Resumed Hermes pins its profile before the config subcommand.
+        if [ "$1" = "--profile" ]; then shift 2; fi
         if [ "$1" = "config" ]; then
           printf 'preflight stdout chatter\\n'
           printf 'preflight stderr chatter\\n' >&2
@@ -681,6 +685,9 @@ import Testing
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        environment["HOME"] = root.path
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HERMES_HOME"] = root.appendingPathComponent(".hermes", isDirectory: true).path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1553,7 +1560,7 @@ import Testing
                 ) else {
                     return
                 }
-                // Keep the bound TCP endpoint unavailable through the waiter's
+                // Keep the TCP endpoint unavailable through the waiter's
                 // first connection attempt. Without relay error classification,
                 // that attempt fails permanently instead of reaching a retry.
                 usleep(100_000)
@@ -3077,70 +3084,7 @@ import Testing
     }
 
     @Test func testThemesSetNightlyOverridePathIsReadableByNightlyAppConfigResolution() throws {
-        let cliPath = try bundledCLIPath()
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-themes-nightly-path-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
-        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
-        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
-        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
-
-        // The reload target comes from the socket file name before CMUX_BUNDLE_ID is even
-        // consulted: `cmux-nightly-<slug>.sock` becomes `com.cmuxterm.app.nightly.<slug>`.
-        // So scoping the identifier means scoping the socket name it is read from, and both
-        // take the same hex-only suffix — a raw UUID's dashes would turn into dots in the
-        // identifier. Scoping matters because the reload goes out machine-wide: on the
-        // plain nightly socket name this test told a real nightly build to re-read its
-        // config, and two runs at once shared one identifier.
-        let uniqueSuffix = UUID().uuidString.lowercased().replacingOccurrences(of: "-", with: "")
-        let socketPath = "/tmp/cmux-nightly-\(uniqueSuffix).sock"
-        let bundleIdentifier = "com.cmuxterm.app.nightly.\(uniqueSuffix)"
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CFFIXED_USER_HOME"] = root.path
-        environment["HOME"] = root.path
-        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLE_ID"] = bundleIdentifier
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["--json", "themes", "set", "Theme A"],
-            environment: environment
-        )
-
-        XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-
-        // Parsed from stdout alone. This is the check that used to break when a stray
-        // diagnostic line from the runtime shared the pipe with the payload.
-        let payload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
-            result.diagnostics
-        )
-        let configPath = try XCTUnwrap(payload["config_path"] as? String, result.diagnostics)
-        XCTAssertEqual(payload["reload_target_bundle_id"] as? String, bundleIdentifier)
-
-        let appSupportDirectory = root
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Application Support", isDirectory: true)
-        let expectedConfigURL = appSupportDirectory
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("config.ghostty", isDirectory: false)
-        XCTAssertEqual(configPath, expectedConfigURL.path)
-
-        let appReadablePaths = GhosttyApp.cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: bundleIdentifier,
-            appSupportDirectory: appSupportDirectory
-        ).map(\.path)
-        XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
+        try assertThemesSetOverridePathIsReadableByChannelApp(channel: "nightly")
     }
 
     @Test func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
@@ -3836,8 +3780,27 @@ import Testing
         )
         guard kevent(queue, &event, 1, nil, 0, nil) == 0 else { return false }
 
+        var fileFD: Int32 = -1
+        defer { if fileFD >= 0 { close(fileFD) } }
         let deadline = Date.now.addingTimeInterval(max(timeout, 0))
         while true {
+            // A directory event observes file creation, not later appends.
+            // Watch the log itself before reading so a marker appended after
+            // its first line cannot be missed until the deadline.
+            if fileFD < 0 {
+                fileFD = open(url.path, O_EVTONLY)
+                if fileFD >= 0 {
+                    var fileEvent = kevent(
+                        ident: UInt(fileFD),
+                        filter: Int16(EVFILT_VNODE),
+                        flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+                        fflags: UInt32(NOTE_WRITE | NOTE_EXTEND | NOTE_DELETE | NOTE_RENAME),
+                        data: 0,
+                        udata: nil
+                    )
+                    guard kevent(queue, &fileEvent, 1, nil, 0, nil) == 0 else { return false }
+                }
+            }
             if let contents = try? String(contentsOf: url, encoding: .utf8),
                contents.contains(expected) {
                 return true
@@ -3875,7 +3838,7 @@ import Testing
             .write(to: markerURL, atomically: true, encoding: .utf8)
     }
 
-    private func writeTheme(named name: String, background: String, to directory: URL) throws {
+    func writeTheme(named name: String, background: String, to directory: URL) throws {
         try """
         background = \(background)
         foreground = #eeeeee
@@ -4591,6 +4554,7 @@ final class RelaySocketResponder {
     private var stopped = false
     private var requests: [String] = []
     private var listenerFD: Int32 = -1
+    private var deferredBindAddress: sockaddr_in?
 
     init(
         relayID: String,
@@ -4645,6 +4609,13 @@ final class RelaySocketResponder {
         endpoint = "127.0.0.1:\(UInt16(bigEndian: boundAddress.sin_port))"
         if startListening {
             self.startListening()
+        } else {
+            // A bound, non-listening TCP socket can leave macOS connects in
+            // SYN_SENT. Close the reservation so startup observes refusal and
+            // enters its retry path before this fixture begins listening.
+            close(fd)
+            listenerFD = -1
+            deferredBindAddress = boundAddress
         }
     }
 
@@ -4660,7 +4631,32 @@ final class RelaySocketResponder {
 
     func startListening() {
         lock.lock()
-        guard !stopped, listenerFD >= 0 else {
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        if listenerFD < 0, var address = deferredBindAddress {
+            let fd = socket(AF_INET, SOCK_STREAM, 0)
+            guard fd >= 0 else {
+                lock.unlock()
+                return
+            }
+            var reuse: Int32 = 1
+            setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
+            let bindResult = withUnsafePointer(to: &address) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                    Darwin.bind(fd, socketPointer, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard bindResult == 0 else {
+                close(fd)
+                lock.unlock()
+                return
+            }
+            listenerFD = fd
+            deferredBindAddress = nil
+        }
+        guard listenerFD >= 0 else {
             lock.unlock()
             return
         }

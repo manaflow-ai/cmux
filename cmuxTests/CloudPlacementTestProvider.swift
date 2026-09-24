@@ -7,16 +7,22 @@ import Testing
 #endif
 
 @MainActor
-final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing {
+final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing, SurfaceAgentNaming {
     let machine: SurfaceMachineID
     var info: SurfaceMachineInfo
     var moved: [(tab: String, workspace: String)] = []
     var projected: [(terminal: String, workspace: String)] = []
     var closedTabs: [String] = []
+    var renamedTabs: [(id: String, name: String)] = []
     var events: [String] = []
     var beforeMutation: (() async throws -> Void)?
+    var beforeMaterialization: (() async throws -> Void)?
     var refreshCount = 0
     var moveCursor: CloudVMCursor?
+    /// The daemon cursor a projection reply carries. The real reply always has one.
+    var projectCursor: CloudVMCursor?
+    var workspaceRenames: [String] = []
+    var tabRenames: [String] = []
 
     init(machine: SurfaceMachineID) {
         self.machine = machine
@@ -27,8 +33,25 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID())
     }
+    func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
+        try await beforeMaterialization?()
+        return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: UUID(),
+                          remoteWorkspaceID: remoteView?.workspace.id, remoteTabID: remoteView?.tabID)
+    }
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         throw SurfaceCatalogError.unsupported("createTerminal")
+    }
+    func renameRemoteWorkspace(id: String, name: String) async throws {
+        try await beforeMutation?()
+        workspaceRenames.append(name)
+    }
+    func renameRemoteTab(id: String, name: String) async throws {
+        try await beforeMutation?()
+        tabRenames.append(name)
+        renamedTabs.append((id, name))
+    }
+    func renameAgentTab(context: CloudAgentNameContext, name: String) async throws {
+        try await renameRemoteTab(id: try #require(context.projection.remoteTabID), name: name)
     }
     func projectionDidEnd(_ projection: SurfaceProjection) {}
     func moveRemoteTab(id: String, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
@@ -41,7 +64,7 @@ final class CloudPlacementTestProvider: SurfaceProvider, SurfacePlacementSyncing
     func projectTerminal(_ id: SurfaceResourceID, intoRemoteWorkspace remoteWorkspaceID: String) async throws -> SurfaceRemotePlacement {
         try await beforeMutation?()
         projected.append((id.key, remoteWorkspaceID))
-        return SurfaceRemotePlacement(workspaceID: remoteWorkspaceID, tabID: "tab_projected")
+        return SurfaceRemotePlacement(workspaceID: remoteWorkspaceID, tabID: "tab_projected", cursor: projectCursor)
     }
     func closeRemoteTab(id: String, inRemoteWorkspace remoteWorkspaceID: String) async throws {
         events.append("close:" + id)

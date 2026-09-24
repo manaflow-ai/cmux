@@ -311,6 +311,7 @@ function parseCredential(value: unknown): CodeRouterCredential | null {
       accessToken,
       refreshToken,
       idToken: value.idToken,
+      ...(string(value.userId) ? { userId: value.userId } : {}),
       accountId,
       email,
       expiresAt,

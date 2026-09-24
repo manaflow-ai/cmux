@@ -15,9 +15,9 @@ struct CloudTunnelBroadcast<Value: Sendable> {
     /// later `yield`. `onTerminated` fires once when the subscriber goes away.
     mutating func subscribe(
         current: Value? = nil,
+        id: UUID = UUID(),
         onTerminated: @escaping @Sendable (UUID) -> Void
     ) -> AsyncStream<Value> {
-        let id = UUID()
         let (stream, continuation) = AsyncStream<Value>.makeStream(bufferingPolicy: .unbounded)
         continuation.onTermination = { _ in onTerminated(id) }
         if let current {

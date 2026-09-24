@@ -1,0 +1,36 @@
+name: Cloud task-local lifecycle
+
+on:
+  pull_request:
+    paths:
+      - Sources/Cloud/CloudOperation*.swift
+      - Sources/Cloud/CloudTelemetry*.swift
+      - Sources/Cloud/CloudRemoteOperationStep.swift
+      - scripts/select-ci-xcode.sh
+      - tests/cloud_task_local/**
+      - tests/test_cloud_task_local_lifecycle.py
+      - .github/workflows/cloud-task-local-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-task-local-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lifecycle:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 5
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Test optimized Cloud task-local lifecycle
+        run: python3 tests/test_cloud_task_local_lifecycle.py

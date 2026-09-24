@@ -31,7 +31,13 @@ extension Workspace {
     /// Persisted projections for this workspace: remote resources only. Local panes are
     /// re-registered by the hooks when the restored pane is created.
     var surfaceProjectionRecordsForSession: [SurfaceProjectionRecord]? {
-        let records = SurfaceCatalog.shared.projectionRecords(forWorkspace: id).filter { !$0.resource.machine.isLocal }
+        var records = SurfaceCatalog.shared.projectionRecords(forWorkspace: id).filter { !$0.resource.machine.isLocal }
+        let recorded = Set(records.map(\.panelID))
+        for (panelID, panel) in panels where !recorded.contains(panelID) {
+            if let resource = (panel as? BrowserPanel)?.cloudAccess.resourceID, !resource.machine.isLocal {
+                records.append(SurfaceProjectionRecord(panelID: panelID, resource: resource))
+            }
+        }
         return records.isEmpty ? nil : records
     }
 
@@ -49,6 +55,6 @@ extension Workspace {
                 remoteTabID: record.remoteTabID
             )
         }
-        SurfaceCatalog.shared.restore(remapped, workspaceID: id)
+        SurfaceCatalog.shared.restore(remapped, workspaceID: id, restoringWorkspace: self)
     }
 }

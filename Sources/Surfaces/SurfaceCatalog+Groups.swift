@@ -1,27 +1,6 @@
 import CmuxCore
 import Foundation
 
-/// One resource in a group, with the immutable daemon placement that produced the
-/// row. A terminal id is not enough when one terminal is shown by several tabs.
-/// The tab id is an opaque routing key; the current catalog resolves it to fresh
-/// metadata immediately before materialization.
-struct SurfaceResourcePlacement: Hashable, Codable, Sendable {
-    let resource: SurfaceResourceID
-    let remoteWorkspaceID: String?
-    let remoteTabID: String?
-
-    init(
-        resource: SurfaceResourceID,
-        remoteView: SurfaceRemoteView? = nil,
-        remoteWorkspaceID: String? = nil,
-        remoteTabID: String? = nil
-    ) {
-        self.resource = resource
-        self.remoteWorkspaceID = remoteView?.workspace.id ?? remoteWorkspaceID
-        self.remoteTabID = remoteView?.tabID ?? remoteTabID
-    }
-}
-
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui
 /// workspace on a machine, or a local workspace (the panes it projects). The canonical
 /// payload is typed placements. `resources` and the group workspace id remain as derived
@@ -31,12 +10,14 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     let placements: [SurfaceResourcePlacement]
     /// A common placement used by legacy callers that have no per-member tab id.
     let remoteWorkspaceID: String?
+    /// True only for a whole workspace row, never a selection of its tabs.
+    let representsWorkspace: Bool
 
     var resources: [SurfaceResourceID] { placements.map(\.resource) }
     var isEmpty: Bool { placements.isEmpty }
 
     func withRemoteWorkspaceID(_ id: String?) -> Self {
-        SurfaceResourceGroup(title: title, placements: placements, remoteWorkspaceID: id ?? remoteWorkspaceID)
+        SurfaceResourceGroup(title: title, placements: placements, remoteWorkspaceID: id ?? remoteWorkspaceID, representsWorkspace: representsWorkspace)
     }
 
     init(title: String, resources: [SurfaceResourceID], remoteWorkspaceID: String? = nil) {
@@ -52,8 +33,10 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     init(
         title: String,
         placements: [SurfaceResourcePlacement],
-        remoteWorkspaceID: String? = nil
+        remoteWorkspaceID: String? = nil,
+        representsWorkspace: Bool = false
     ) {
+        self.representsWorkspace = representsWorkspace
         self.title = title
         self.placements = placements
         self.remoteWorkspaceID = remoteWorkspaceID
@@ -69,6 +52,7 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
         case resources
         case placements
         case remoteWorkspaceID
+        case representsWorkspace
     }
 
     /// Decode both the placement-aware format and the original id-only format.
@@ -77,6 +61,7 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = try container.decode(String.self, forKey: .title)
+        representsWorkspace = try container.decodeIfPresent(Bool.self, forKey: .representsWorkspace) ?? false
         let decodedRemoteWorkspaceID = try container.decodeIfPresent(String.self, forKey: .remoteWorkspaceID)
         remoteWorkspaceID = decodedRemoteWorkspaceID
         if let decoded = try container.decodeIfPresent([SurfaceResourcePlacement].self, forKey: .placements) {
@@ -94,6 +79,7 @@ struct SurfaceResourceGroup: Hashable, Codable, Sendable {
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(title, forKey: .title)
+        try container.encode(representsWorkspace, forKey: .representsWorkspace)
         try container.encode(resources, forKey: .resources)
         try container.encode(placements, forKey: .placements)
         try container.encodeIfPresent(remoteWorkspaceID, forKey: .remoteWorkspaceID)
@@ -137,8 +123,17 @@ extension SurfaceCatalog {
         _ group: SurfaceResourceGroup,
         into destination: SurfaceDestination,
         focus: Bool,
-        paneLookup: PaneLookup = { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) }
+        paneLookup: PaneLookup = { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) },
+        optimistic: OptimisticPaneHost? = nil
     ) async throws -> [SurfaceProjection] {
+        try validateOwnership(of: group.resources, at: destination)
+        let scope = beginProjectionMutation(for: group.resources)
+        defer { endProjectionMutation(scope) }
+        let group = try currentCloudWorkspace(group)?.group ?? group
+        try validateOwnership(of: group.resources, at: destination)
+        if let optimistic, let reserved = reserveTerminalGroup(group, into: destination, focus: focus, paneLookup: paneLookup, host: optimistic) {
+            return reserved
+        }
         var projected: [SurfaceProjection] = []
         var firstError: Error?
         var anchor: SurfaceDestination?
@@ -203,8 +198,8 @@ extension SurfaceCatalog {
         }
         let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
         guard let workspaceID else { return nil }
-        if member.resource.kind == .display, projections.contains(where: {
-            $0.resource == member.resource && $0.remoteTabID == nil && $0.remoteWorkspaceID == workspaceID
+        if projections.contains(where: {
+            $0.resource == member.resource && $0.isLocalWorkspaceView && $0.remoteWorkspaceID == workspaceID
         }) {
             return nil
         }
@@ -224,13 +219,53 @@ extension SurfaceCatalog {
         /// actually realized, so a split that failed to materialize is not in it). Defaults
         /// to a no-op so a headless test host can check the walk without a pane engine.
         var applyDividerRatios: @MainActor (_ workspaceID: UUID, _ layout: SurfaceProjectionLayout) -> Void = { _, _ in }
+        /// Reserve-then-attach support. With it, a group of cloud terminals opens as its
+        /// whole layout at once and every pane attaches in parallel; without it (headless
+        /// tests, socket callers that await authoritative projections) placements are
+        /// projected one after another.
+        var optimistic: OptimisticPaneHost? = nil
 
         @MainActor
         static let app = NewWorkspaceHost(
-            create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title) },
+            create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title, titleSource: .auto) },
             paneLookup: { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) },
             closeStarter: { panelID, workspaceID in SurfacePaneFactory.close(panelID: panelID, in: workspaceID) },
             applyDividerRatios: { workspaceID, layout in SurfacePaneFactory.applyDividerRatios(layout, in: workspaceID) }
+        )
+
+        /// The interactive host: the sidebar and drag-and-drop open layouts optimistically.
+        @MainActor
+        static let appOptimistic: NewWorkspaceHost = {
+            var host = NewWorkspaceHost.app
+            host.optimistic = .app
+            return host
+        }()
+    }
+
+    /// Reserves a native pane before the machine round trip and attaches it afterwards.
+    /// The reserved pane's projection is recorded up front, so the bound-workspace
+    /// coordinator sees the placement as present and never projects a duplicate tab.
+    struct OptimisticPaneHost {
+        /// A reserved pane at `destination` for a terminal on `machine`, or nil when the
+        /// destination is gone. `focus` moves input focus to the new pane.
+        var reserve: @MainActor (_ machine: SurfaceMachineID, _ destination: SurfaceDestination, _ focus: Bool) -> CloudTerminalPaneReservation?
+        /// Starts the attach loop for a reserved pane whose projection is already recorded.
+        var attach: @MainActor (_ reservation: CloudTerminalPaneReservation, _ resource: SurfaceResource, _ remoteTabID: String?) -> Void
+
+        @MainActor
+        static let app = OptimisticPaneHost(
+            reserve: { machine, destination, focus in
+                Workspace.liveWorkspace(id: destination.workspaceID)?
+                    .reserveCloudTerminalPane(machine: machine, at: destination, focus: focus)
+            },
+            attach: { reservation, resource, remoteTabID in
+                guard let provider = SurfaceCatalog.shared.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
+                    Workspace.liveWorkspace(id: reservation.workspaceID)?
+                        .failReservedCloudTerminalPane(reservation, error: SurfaceCatalogError.noProvider(resource.machine))
+                    return
+                }
+                provider.attachReservedTerminalPane(reservation, resource: resource, remoteTabID: remoteTabID)
+            }
         )
     }
 
@@ -271,6 +306,12 @@ extension SurfaceCatalog {
         host: NewWorkspaceHost,
         layout: SurfaceProjectionLayout? = nil
     ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        let scope = beginProjectionMutation(for: group.resources)
+        defer { endProjectionMutation(scope) }
+        let current = try currentCloudWorkspace(group)
+        let group = current?.group ?? group
+        let title = current?.group.title ?? title
+        let layout = current.map { $0.layout } ?? layout
         let ids = group.resources
         guard !ids.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
         let created = try host.create(title)
@@ -340,6 +381,75 @@ extension SurfaceCatalog {
     /// ratio pass walk both trees in step afterwards. The walk returns the tree it really
     /// built, so a placement that failed to materialize cannot misalign the two.
     @MainActor
+    /// Every terminal of `group` gets its pane now: the first at `destination`, the rest
+    /// as tabs beside it; each pane's projection is recorded and its attach loop started.
+    /// Returns nil (caller falls back to the awaited path) when the group holds anything
+    /// but cloud terminals the catalog knows, or the first pane cannot be reserved.
+    private func reserveTerminalGroup(
+        _ group: SurfaceResourceGroup,
+        into destination: SurfaceDestination,
+        focus: Bool,
+        paneLookup: PaneLookup,
+        host: OptimisticPaneHost
+    ) -> [SurfaceProjection]? {
+        guard let members = reservableTerminals(group) else { return nil }
+        var projected: [SurfaceProjection] = []
+        var anchor: SurfaceDestination?
+        for (placement, resource, remoteView) in members {
+            let target = anchor ?? destination
+            guard let reservation = host.reserve(resource.machine, target, anchor == nil && focus) else {
+                if anchor == nil { return nil }
+                continue
+            }
+            let projection = recordReservedProjection(reservation, placement: placement, remoteView: remoteView)
+            projected.append(projection)
+            host.attach(reservation, resource, remoteView?.tabID)
+            if anchor == nil {
+                anchor = paneLookup(reservation.panelID, reservation.workspaceID)
+                    .map { .tab(workspaceID: reservation.workspaceID, paneID: $0, index: nil) }
+                    ?? .workspace(id: reservation.workspaceID, placement: .tab)
+            }
+        }
+        return projected.isEmpty ? nil : projected
+    }
+
+    /// The group's members as (placement, resource, exact remote view) when every one is a
+    /// cloud terminal the catalog knows; nil otherwise, so browsers and unknown resources
+    /// keep the awaited path.
+    private func reservableTerminals(_ group: SurfaceResourceGroup) -> [(SurfaceResourcePlacement, SurfaceResource, SurfaceRemoteView?)]? {
+        var members: [(SurfaceResourcePlacement, SurfaceResource, SurfaceRemoteView?)] = []
+        for placement in group.placements {
+            guard placement.resource.machine.cloudMachineID != nil,
+                  let resource = resources[placement.resource],
+                  resource.kind == .terminal,
+                  let remoteView = try? resolveRemoteView(for: placement, fallbackWorkspaceID: group.remoteWorkspaceID) else {
+                return nil
+            }
+            members.append((placement, resource, remoteView))
+        }
+        return members.isEmpty ? nil : members
+    }
+
+    /// Records the projection a reserved pane will carry once attached. Recording it now
+    /// keeps the placement out of the coordinator's "missing" plan while the attach runs.
+    @discardableResult
+    func recordReservedProjection(
+        _ reservation: CloudTerminalPaneReservation,
+        placement: SurfaceResourcePlacement,
+        remoteView: SurfaceRemoteView?
+    ) -> SurfaceProjection {
+        let projection = SurfaceProjection(
+            resource: placement.resource,
+            workspaceID: reservation.workspaceID,
+            panelID: reservation.panelID,
+            remoteWorkspaceID: remoteView?.workspace.id ?? placement.remoteWorkspaceID,
+            remoteTabID: remoteView?.tabID ?? placement.remoteTabID
+        )
+        record(projection)
+        return projection
+    }
+
+    @MainActor
     private struct LayoutProjectionWalk {
         let catalog: SurfaceCatalog
         let group: SurfaceResourceGroup
@@ -349,6 +459,7 @@ extension SurfaceCatalog {
         let host: NewWorkspaceHost
         private(set) var projected: [SurfaceProjection] = []
         private(set) var firstError: Error?
+        private var tabIndices: [SurfaceResourcePlacement: Int] = [:]
 
         init(catalog: SurfaceCatalog, group: SurfaceResourceGroup, workspaceID: UUID, starterPanelID: UUID?, focus: Bool, host: NewWorkspaceHost) {
             self.catalog = catalog
@@ -360,13 +471,95 @@ extension SurfaceCatalog {
         }
 
         /// Builds `layout` into the fresh workspace; the realized tree, or nil when nothing
-        /// projected at all.
+        /// projected at all. With an optimistic host every pane of the layout is reserved
+        /// synchronously first, so the workspace opens looking the way it does on the
+        /// machine, and the terminals attach in parallel behind those panes.
         mutating func run(_ layout: SurfaceProjectionLayout) async -> SurfaceProjectionLayout? {
+            indexTabs(in: layout)
+            if let optimistic = host.optimistic, let realized = reserveAll(layout, host: optimistic) {
+                return realized
+            }
             // The first placement takes the starter pane's place, exactly as the grid walk does.
             guard let root = await consumeFirst(of: layout, into: .workspace(id: workspaceID, placement: .split)) else {
                 return nil
             }
             return await build(root.remaining, in: root.paneID)
+        }
+
+        private mutating func indexTabs(in layout: SurfaceProjectionLayout) {
+            switch layout {
+            case .leaf(let placements):
+                for (index, placement) in placements.enumerated() { tabIndices[placement] = index }
+            case .split(_, _, let first, let second):
+                indexTabs(in: first)
+                indexTabs(in: second)
+            }
+        }
+
+        private func selectedFirst(_ placements: [SurfaceResourcePlacement]) -> [SurfaceResourcePlacement] {
+            guard let selected = placements.first(where: {
+                (try? catalog.resolveRemoteView(for: $0, fallbackWorkspaceID: group.remoteWorkspaceID))?.focused == true
+            }) else { return placements }
+            return [selected] + placements.filter { $0 != selected }
+        }
+
+        /// Reserves every pane of `layout` in the same order the awaited walk projects them,
+        /// records their projections, and starts every attach. Nil when the layout holds
+        /// anything but known cloud terminals, so the awaited walk takes over untouched.
+        private mutating func reserveAll(_ layout: SurfaceProjectionLayout, host: OptimisticPaneHost) -> SurfaceProjectionLayout? {
+            let members = SurfaceResourceGroup(title: group.title, placements: layout.placements, remoteWorkspaceID: group.remoteWorkspaceID)
+            guard let resolved = catalog.reservableTerminals(members) else { return nil }
+            var views: [SurfaceResourcePlacement: (SurfaceResource, SurfaceRemoteView?)] = [:]
+            for (placement, resource, view) in resolved { views[placement] = (resource, view) }
+            var pending: [(CloudTerminalPaneReservation, SurfaceResource, SurfaceRemoteView?)] = []
+            @MainActor func reserve(_ placement: SurfaceResourcePlacement, into destination: SurfaceDestination) -> String?? {
+                guard let (resource, view) = views[placement] else { return nil }
+                guard let reservation = host.reserve(resource.machine, destination, projected.isEmpty && focus) else { return nil }
+                if projected.isEmpty, let starterPanelID, starterPanelID != reservation.panelID {
+                    self.host.closeStarter(starterPanelID, workspaceID)
+                }
+                projected.append(catalog.recordReservedProjection(reservation, placement: placement, remoteView: view))
+                pending.append((reservation, resource, view))
+                return .some(self.host.paneLookup(reservation.panelID, workspaceID))
+            }
+            // Same shape as consumeFirst/build, without the awaits: the first placement of a
+            // node makes its pane; a leaf's rest become tabs; a split's second half opens
+            // beside the first's pane.
+            @MainActor func consumeFirst(of node: SurfaceProjectionLayout, into destination: SurfaceDestination) -> (paneID: String?, remaining: SurfaceProjectionLayout)? {
+                switch node {
+                case .leaf(let placements):
+                    var attempted = Set<SurfaceResourcePlacement>()
+                    for placement in selectedFirst(placements) {
+                        attempted.insert(placement)
+                        guard let paneID = reserve(placement, into: destination) else { continue }
+                        return (paneID, .leaf(placements: placements.filter { !attempted.contains($0) }))
+                    }
+                    return nil
+                case .split(let direction, let ratio, let first, let second):
+                    if let consumed = consumeFirst(of: first, into: destination) {
+                        return (consumed.paneID, .split(direction: direction, ratio: ratio, first: consumed.remaining, second: second))
+                    }
+                    return consumeFirst(of: second, into: destination)
+                }
+            }
+            @MainActor func build(_ node: SurfaceProjectionLayout, in paneID: String?) -> SurfaceProjectionLayout {
+                switch node {
+                case .leaf(let placements):
+                    for placement in placements { _ = reserve(placement, into: tabDestination(paneID, placement: placement)) }
+                    return node
+                case .split(let direction, let ratio, let first, let second):
+                    guard let consumed = consumeFirst(of: second, into: splitDestination(paneID, direction)) else {
+                        return build(first, in: paneID)
+                    }
+                    let builtFirst = build(first, in: paneID)
+                    let builtSecond = build(consumed.remaining, in: consumed.paneID)
+                    return .split(direction: direction, ratio: ratio, first: builtFirst, second: builtSecond)
+                }
+            }
+            guard let root = consumeFirst(of: layout, into: .workspace(id: workspaceID, placement: .split)) else { return nil }
+            let realized = build(root.remaining, in: root.paneID)
+            for (reservation, resource, view) in pending { host.attach(reservation, resource, view?.tabID) }
+            return realized
         }
 
         /// Projects one placement, recording the first failure; nil when it did not land.
@@ -401,10 +594,12 @@ extension SurfaceCatalog {
         ) async -> (paneID: String?, remaining: SurfaceProjectionLayout)? {
             switch node {
             case .leaf(let placements):
-                for (offset, placement) in placements.enumerated() {
+                var attempted = Set<SurfaceResourcePlacement>()
+                for placement in selectedFirst(placements) {
+                    attempted.insert(placement)
                     guard let projection = await projectOne(placement, into: destination) else { continue }
                     let paneID = host.paneLookup(projection.panelID, workspaceID)
-                    return (paneID, .leaf(placements: Array(placements[(offset + 1)...])))
+                    return (paneID, .leaf(placements: placements.filter { !attempted.contains($0) }))
                 }
                 return nil
             case .split(let direction, let ratio, let first, let second):
@@ -422,7 +617,7 @@ extension SurfaceCatalog {
             switch node {
             case .leaf(let placements):
                 for placement in placements {
-                    _ = await projectOne(placement, into: tabDestination(paneID))
+                    _ = await projectOne(placement, into: tabDestination(paneID, placement: placement))
                 }
                 return node
             case .split(let direction, let ratio, let first, let second):
@@ -438,9 +633,9 @@ extension SurfaceCatalog {
 
         /// A pane the factory could not name falls back to the workspace's focused pane,
         /// as the tab-anchored group walk above does.
-        private func tabDestination(_ paneID: String?) -> SurfaceDestination {
+        private func tabDestination(_ paneID: String?, placement: SurfaceResourcePlacement) -> SurfaceDestination {
             guard let paneID else { return .workspace(id: workspaceID, placement: .tab) }
-            return .tab(workspaceID: workspaceID, paneID: paneID, index: nil)
+            return .tab(workspaceID: workspaceID, paneID: paneID, index: tabIndices[placement])
         }
 
         private func splitDestination(_ paneID: String?, _ direction: SurfaceSplitDirection) -> SurfaceDestination {

@@ -26,8 +26,10 @@ import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
+  CMUX_TUI_HOOK_PROVIDERS,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
+  cmuxTuiHooksReadyCommand,
   cmuxTuiLayoutSelector,
   cmuxTuiRunCommand,
   resolveCmuxTuiSource,
@@ -90,6 +92,11 @@ const CHECKS: readonly string[] = [
   // the boot supervisor's announce loop is running on the booted machine.
   // `[b]oot` keeps pgrep from matching this check's own shell command line.
   "command -v arping && pgrep -f 'cmux-devbox-[b]oot' >/dev/null && grep -q 'announce_loop &' /usr/local/bin/cmux-devbox-boot && echo network-announce-ok",
+  // Quiet resume (cmux-devbox-boot park/re-arm, build-devbox-freestyle.ts
+  // "snapshot-resume-quiet"): this clone's resume killed no service by
+  // watchdog, fired no parked housekeeping timer, printed no workqueue
+  // lockup, and scheduled the delayed re-arm (or already ran it).
+  "! journalctl -b --no-pager 2>/dev/null | grep -qE 'Watchdog timeout|workqueue lockup|Starting (logrotate|man-db|dpkg-db-backup)\\.service' && { [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || [ \"$(cat /sys/module/workqueue/parameters/watchdog_thresh)\" = 0 ]; } && { systemctl list-timers --all --no-pager | grep -q cmux-housekeeping-rearm || [ \"$(systemctl show -p ServiceWatchdogs --value)\" = yes ]; } && echo snapshot-resume-quiet-ok",
   // Chrome + managed policy + browser/computer-use drivers.
   "google-chrome-stable --version",
   "jq -e '.DefaultSearchProviderSearchURL | test(\"duckduckgo\")' /etc/opt/chrome/policies/managed/cmux.json >/dev/null && echo chrome-ddg-policy-ok",
@@ -112,6 +119,11 @@ const CHECKS: readonly string[] = [
   // Quiet-marks smoke: the bashrc blanks ble.sh's status marks and pins USER
   // so no [ble: ...] or "insane environment" text ever renders.
   "tmux new-session -d -s marks -x 100 -y 24 && sleep 3 && tmux send-keys -t marks not-a-command Enter && sleep 2 && tmux send-keys -t marks 'printf no-newline' Enter && sleep 2 && out=$(tmux capture-pane -pt marks); tmux kill-session -t marks 2>/dev/null; printf '%s\\n' \"$out\" | grep -E '\\[ble:|ble\\.sh:' && exit 1; echo no-ble-marks",
+  // Coding-agent hooks: the work user's Claude Code and Codex hooks are
+  // installed and current (helper byte-equal to the pinned one, cmux marker
+  // in both provider configs, codex trust table), and the daemon user's own
+  // status verb reports both providers installed.
+  `${cmuxTuiHooksReadyCommand()} && ${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json && node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { const p = (r.providers || []).find((x) => x.provider === id); if (!p || p.state !== "installed") { console.error(id, p); process.exit(1); } }' && rm -f /tmp/hook-status.json && echo agent-hooks-ok`,
   // Agent-config generator: a login shell under a throwaway HOME with fake
   // model-plane env (placeholder keys, never a token) materializes the codex
   // custom provider plus the pi openai-codex override (no route-token
@@ -133,7 +145,7 @@ const INSTANCE_ID = DEVBOX_INSTANCE_ID_COMMAND;
 // cmux-remote keys per-session state by the base64url session name under its
 // default root state dir; the Noise static identity lives in auth/.
 const REMOTE_IDENTITY = `${DEVBOX_WORK_HOME}/.local/state/cmux/remote/sessions/${Buffer.from(CMUX_TUI_SESSION).toString("base64url")}/auth/identity.json`;
-// cmux-tui's own per-machine secrets, regenerated on first start after the bake wiped them.
+// cmux-tui's own per-machine secrets, regenerated on first start after the bake.
 const MACHINE_SECRETS = `${DEVBOX_WORK_HOME}/.local/state/cmux-tui/sessions/machine-id ${DEVBOX_WORK_HOME}/.local/state/cmux-tui/sessions/resource-effect-pepper`;
 const DAEMON_CHECKS: readonly string[] = [
   // [s]tart: the pattern must not match the exec shell carrying this very command line.
@@ -152,6 +164,7 @@ const DAEMON_CHECKS: readonly string[] = [
   // The static model-plane env is baked; a shell with no boot env sources it.
   `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
+  "test -x /usr/local/bin/cmux-prompt-sync && python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync >/dev/null && echo prompt-sync-contract-ok",
   cmuxTuiWebsocketSmokeCommand(),
 ];
 
@@ -271,6 +284,10 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // real interactive logins as the work user print nothing from ble.sh or
   // the shell (a `bash -c` probe would not load ble.sh at all).
   `[ "$(find ${DEVBOX_WORK_HOME} -not -user ${DEVBOX_WORK_USER} | wc -l)" = 0 ] && echo home-owned-by-work-user`,
+  // ble.sh uses a boot-scoped /tmp runtime root instead of the transient
+  // XDG runtime directory. Keep that root present while the durable shell
+  // runs, then prove the caller's XDG value remains independent.
+  `runtime_probe=$(mktemp -d /tmp/cmux-blesh-runtime-probe.XXXXXX) && chown ${DEVBOX_WORK_USER}:${DEVBOX_WORK_USER} "$runtime_probe" && sudo -n -u ${DEVBOX_WORK_USER} env -i HOME=${DEVBOX_WORK_HOME} USER=${DEVBOX_WORK_USER} TERM=xterm-256color XDG_RUNTIME_DIR="$runtime_probe" CMUX_BLESH_RUNTIME_SENTINEL="$runtime_probe/sentinel" PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -c 'set -eu; tmux -L blesh-runtime-probe new-session -d -s login -x 120 -y 30; sleep 3; test -d "/tmp/cmux-blesh-runtime-$(id -u)/blesh"; tmux -L blesh-runtime-probe send-keys -t login "printf CMUX_BLESH_RUNTIME_OK > \\\"$CMUX_BLESH_RUNTIME_SENTINEL\\\"" Enter; sleep 1; tmux -L blesh-runtime-probe capture-pane -pt login >/dev/null; test -s "$CMUX_BLESH_RUNTIME_SENTINEL"; tmux -L blesh-runtime-probe kill-server' && test -s "$runtime_probe/sentinel" && rm -rf "$runtime_probe" && echo blesh-runtime-dir-isolated`,
   // Not cosmetic: cmux-tui refuses to store its Noise identity under a group-
   // or other-writable ancestor, and the daemon's state dir lives in this home.
   // Ubuntu's user-private-group umask (002) is what puts it there.
