@@ -303,6 +303,46 @@ def check_every_app_host_home_is_identified_and_cleaned() -> None:
                     )
 
 
+def check_every_test_executing_lane_pins_its_home() -> None:
+    """Hold every lane that runs XCTest to the same home pinning.
+
+    The sibling guard above keys on `prepare-app-host-home.sh`, so a host-free
+    lane that runs no app host is invisible to it. One was: `cli-product-tests`
+    isolated itself with a bare `HOME` in the job environment, which reaches
+    xcodebuild and stops there -- xcodebuild forwards only TEST_RUNNER_-prefixed
+    variables into the test process. Every fixture in that lane read the
+    runner's real home, and on a reused self-hosted runner that is shared,
+    persistent state between runs.
+
+    CFFIXED_USER_HOME is required alongside HOME because Foundation resolves
+    NSHomeDirectory() through getpwuid unless it is set, so HOME alone moves
+    nothing for Swift code.
+    """
+    required = ("TEST_RUNNER_HOME", "TEST_RUNNER_CFFIXED_USER_HOME")
+    for path, workflow in zip(WORKFLOW_PATHS, WORKFLOWS):
+        for job_name, job in (workflow.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                run = str(step.get("run", ""))
+                if "xcodebuild test" not in run:
+                    continue
+                # Enumeration lists test identifiers without running them, so
+                # it reads no configuration and needs no home of its own.
+                if "-enumerate-tests" in run:
+                    continue
+                if "run-app-host-xcodebuild.sh" in run:
+                    continue
+                where = (
+                    f"{path.name} job {job_name} step {step.get('name')!r}"
+                )
+                missing = [key for key in required if key not in run]
+                if missing:
+                    raise SystemExit(
+                        f"FAIL: {where} runs XCTest without {', '.join(missing)}; "
+                        "xcodebuild forwards only TEST_RUNNER_-prefixed variables "
+                        "into the test process"
+                    )
+
+
 def main() -> int:
     override_fixture = """\
 <Scheme>
@@ -799,6 +839,7 @@ def main() -> int:
         )
 
     check_every_app_host_home_is_identified_and_cleaned()
+    check_every_test_executing_lane_pins_its_home()
 
     print("PASS: app-host XCTest receives an isolated launch home")
     return 0

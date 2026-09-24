@@ -253,6 +253,15 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn("1 Swift test files", stdout)
 
+    def test_scans_the_host_free_cli_test_sources(self) -> None:
+        for path in ("cmuxCLITests/ProbeTests.swift", "cmuxCLITestSupport/ProbeSupport.swift"):
+            with self.subTest(path=path):
+                status, _, stderr = self.run_lint(
+                    {path: "#expect(read(fd, &byte, 1) == -1)\n#expect(errno == EAGAIN)\n"}
+                )
+                self.assertEqual(status, 1)
+                self.assertIn(f"{path}:2", stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
