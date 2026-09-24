@@ -1382,6 +1382,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// the observable stores this session seeds, so the session itself needs
     /// no observation.
     @ObservationIgnored var demoContentSession: MobileDemoContentSession?
+    /// SSH computers (hosts, keys, live sessions). Local to this device and
+    /// independent of the cmux account. See `MobileShellComposite+SSHComputers.swift`.
+    public let sshComputers: MobileSSHComputers
     @ObservationIgnored var notificationFeedSnapshotsByMac: [String: NotificationFeedMacSnapshot] = [:]
     @ObservationIgnored var notificationFeedKnownRevisionsByMac: [String: Int] = [:]
     @ObservationIgnored var notificationFeedSuccessfulMacIDs: Set<String> = []
@@ -1880,8 +1883,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         simulatorStreamStore: MobileSimulatorStreamStore? = nil,
         simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
-        storedMacReconnectRestoringDeadlineSeconds: Double = 15
+        storedMacReconnectRestoringDeadlineSeconds: Double = 15,
+        sshComputers: MobileSSHComputers? = nil
     ) {
+        // Tests and previews get an ephemeral SSH store; the app injects the
+        // persistent one from its composition root.
+        self.sshComputers = sshComputers ?? MobileSSHComputers(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-ssh-ephemeral-\(UUID().uuidString)")
+        )
         self.runtime = runtime
         self.macListAuthState = macListAuthState ?? MobileMacListAuthState()
         self.draftStore = draftStore
@@ -4408,6 +4418,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // seeded workspaces are already live, so a "switch" (opening one of
         // its rows) succeeds immediately without touching the foreground
         // connection a real Mac may hold.
+        if let sshHostID = MobileSSHIdentifiers.hostID(of: macDeviceID) {
+            // SSH computers connect on their own transport; the foreground
+            // Mac connection is untouched.
+            recordAppEvent(.computerSelected, correlationID: macDeviceID)
+            await sshComputers.open(hostID: sshHostID)
+            return true
+        }
         if demonstrationOwnsMac(deviceID: macDeviceID, instanceTag: instanceTag) {
             recordAppEvent(.computerSelected, correlationID: macDeviceID)
             // Self-heal so the caller's row resolution finds the seeded
@@ -8941,6 +8958,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if workspaceHadUnread {
                 clearDemonstrationWorkspaceUnread(resolvedRowID)
             }
+        } else if sshOwnsWorkspaceRow(resolvedRowID) {
+            // SSH rows carry no Mac read state.
         } else if supportsWorkspaceReadStateActions, workspaceHadUnread {
             await setWorkspaceUnread(id: resolvedRowID, false)
         }
@@ -8966,7 +8985,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             count: text.utf8.count
         )
         terminalInputText = ""
-        let selectedTerminalIsDemonstration = terminalID.map(demonstrationOwnsSurface) ?? false
+        let selectedTerminalIsDemonstration = terminalID.map(locallyServedOwnsSurface) ?? false
         guard remoteClient != nil || selectedTerminalIsDemonstration else {
             recordAppEvent(
                 .terminalInputDropped,
@@ -9535,7 +9554,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // client; without this the composer fails its connection gate before
         // reaching the demo paste fence and shows the send-failure banner.
         guard remoteClient != nil
-            || demonstrationOwnsSurface(terminalID.rawValue) else { return false }
+            || locallyServedOwnsSurface(terminalID.rawValue) else { return false }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
         // is not pasted twice. The flag is set/cleared on the main actor around
         // the await, so no second call can slip past it.
@@ -9804,7 +9823,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Demonstration terminals answer locally, outside the send-status
         // pipeline (a keystroke to the engine can never fail).
         if let terminalID = selectedTerminalID,
-           handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue) {
+           handleLocallyServedTerminalInput(text, surfaceID: terminalID.rawValue) {
             return
         }
         // The explicit selection id, not `selectedWorkspace`: its first-row
@@ -9843,9 +9862,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         // The on-screen keyboard's key bytes enter HERE (the Ghostty surface
-        // delegate), not through the awaiting funnel: demonstration surfaces
-        // answer from the local engine, outside the send-status pipeline.
-        if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) {
+        // delegate), not through the awaiting funnel: demonstration and SSH
+        // surfaces answer locally, outside the send-status pipeline.
+        if handleLocallyServedTerminalInput(text, surfaceID: surfaceID) {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
@@ -9936,7 +9955,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // alone. The workspace resolution below deliberately scopes to the
         // foreground pairing, which the demo Mac never is, so without this
         // branch demo keystrokes would silently drop.
-        if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) {
+        if handleLocallyServedTerminalInput(text, surfaceID: surfaceID) {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
@@ -9956,7 +9975,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Demonstration terminals answer locally: the engine echoes the
         // typed bytes back through the same output stream, so this is the
         // one branch point between "send to the Mac" and "send to the demo".
-        if handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue) {
+        if handleLocallyServedTerminalInput(text, surfaceID: terminalID.rawValue) {
             return
         }
         guard remoteClient != nil else { return }
@@ -13311,6 +13330,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // per line) and the submit key runs the final line. Every composer
         // route (text-only, attachments+text) funnels through here, so this
         // is the one branch between "paste to the Mac" and "paste to the demo".
+        if sshOwnsSurface(terminalID.rawValue) {
+            return handleSSHTerminalPaste(text, submitKey: submitKey, surfaceID: terminalID.rawValue)
+        }
         if demonstrationOwnsSurface(terminalID.rawValue) {
             var pasted = text
             if submitKey == "return" {
@@ -15101,13 +15123,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Every replay entry point (cold attach, view reset, resync sweeps)
         // funnels here: demonstration surfaces answer from the local engine
         // and release any barrier so canned output is never gated on a Mac.
-        if demonstrationOwnsSurface(surfaceID) {
+        if locallyServedOwnsSurface(surfaceID) {
             clearTerminalReplayBarrierIfCurrent(
                 surfaceID: surfaceID,
                 token: replayBarrierTokenForRequest,
                 reason: "demo_content"
             )
-            deliverDemonstrationTerminalReplay(surfaceID: surfaceID)
+            deliverLocallyServedTerminalReplay(surfaceID: surfaceID)
             return
         }
         if replayBarrierToken == nil, terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] != nil {

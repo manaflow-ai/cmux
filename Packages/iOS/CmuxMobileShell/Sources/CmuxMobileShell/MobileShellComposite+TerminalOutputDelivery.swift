@@ -485,7 +485,7 @@ extension MobileShellComposite {
         )
     }
 
-    private func deliverTerminalOutput(
+    func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false

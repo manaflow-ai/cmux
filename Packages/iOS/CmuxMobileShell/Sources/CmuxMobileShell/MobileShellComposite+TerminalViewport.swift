@@ -186,7 +186,12 @@ extension MobileShellComposite {
         // retryViewportReport loop. Placed before the replay-barrier prearm
         // below so no barrier is ever armed against a demo surface (a
         // lingering barrier would gate the engine's output).
-        if demonstrationOwnsSurface(surfaceID) {
+        if locallyServedOwnsSurface(surfaceID) {
+            if sshOwnsSurface(surfaceID) {
+                // The phone owns SSH geometry (PRD D19): the grid it reports
+                // is the grid the server's PTY gets.
+                sshComputers.viewportChanged(surfaceID: surfaceID, columns: columns, rows: rows)
+            }
             reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
             effectiveViewportSizesBySurfaceID[surfaceID] = reportedGrid
             recordAppEvent(
