@@ -204,6 +204,10 @@ path = "tests/test_issue_9356_bash_shim_noclobber.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
