@@ -3477,6 +3477,13 @@ impl Mux {
         if let (Some(terminal_id), Some(path)) =
             (template_terminal, options.template_bound_file.as_deref())
         {
+            // The legacy import placed the terminal in memory only. Commit it
+            // to the public topology before the binding announces it, so the
+            // first `terminal.list` after the daemon listens includes it.
+            self.commit_ordinary_full_resource_projection(
+                "terminal.adopt-template",
+                serde_json::json!({}),
+            )?;
             self.publish_template_binding(&terminal_id, path)?;
         }
         Ok(())
