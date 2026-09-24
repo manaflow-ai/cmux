@@ -79,6 +79,33 @@ def find_products(repository: str, revisions: Iterable[str], api: Callable[[str]
     return None
 
 
+ADMISSION_JOB = "macOS compile admission"
+PRODUCT_RUNNERS = {"15": "blacksmith-6vcpu-macos-15", "26": "blacksmith-6vcpu-macos-26"}
+
+
+def product_runner(repository: str, run_id: str, api: Callable[[str], dict], pages: int = 5) -> str:
+    """The Blacksmith pool with the macOS, and so the Xcode, that built a run's products.
+
+    The rerun rebuilds cmuxTests with the products' own Xcode, and each macOS
+    image carries one pinned Xcode (26.3 on 15, 26.6 on 26). Compile admission
+    follows MACOS_RUNNER_PR, so read the pool it actually ran on. A run
+    without that job keeps the macOS 15 default.
+    """
+    for page in range(1, pages + 1):
+        listing = api(f"repos/{repository}/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page={page}")
+        jobs = listing.get("jobs", [])
+        for job in jobs:
+            if job.get("name", "").endswith(ADMISSION_JOB):
+                for label in job.get("labels", []):
+                    match = re.search(r"macos-(\d+)", label)
+                    if match and match.group(1) in PRODUCT_RUNNERS:
+                        return PRODUCT_RUNNERS[match.group(1)]
+                return PRODUCT_RUNNERS["15"]
+        if len(jobs) < 100:
+            break
+    return PRODUCT_RUNNERS["15"]
+
+
 def parse_selectors(text: str) -> list[str]:
     """Normalize newline, comma, or space separated selectors to cmuxTests/... form."""
     selectors = []
@@ -139,6 +166,7 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
         "artifact_id": str(found["artifact"]["id"]),
         "artifact_name": found["artifact"]["name"],
         "artifact_bytes": str(found["artifact"].get("size_in_bytes", 0)),
+        "runner": product_runner(args.repository, found["run_id"], api),
         "selectors": " ".join(selectors),
         "changed_tests": ",".join(changed),
     }

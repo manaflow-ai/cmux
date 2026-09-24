@@ -4010,6 +4010,94 @@ def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
         assert strict_steps(workflow, ["cmuxTests/AlphaTests"]) == []
 
 
+def app_host_product_consumers(workflow: dict) -> dict[str, dict]:
+    """Jobs in ci-macos.yml that download compile admission's app-host product."""
+    return {
+        name: job
+        for name, job in workflow["jobs"].items()
+        if "needs.macos-compile-admission.outputs.artifact_id" in yaml.safe_dump(job, width=10**6)
+    }
+
+
+PRODUCT_RUNNER_OUTPUT = "${{ needs.macos-compile-admission.outputs.runner }}"
+PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
+
+
+def product_consumer_route_violations(workflow: dict) -> list[str]:
+    """Consumers of the admission product whose pool or Xcode can differ from it.
+
+    A consumer either reads the admission's `runner` / `xcode_app` outputs, or
+    (tests-build-and-lag, whose display overflow lane has its own guards)
+    restates the admission's exact expressions, differing only by paid
+    overflow's MACOS_RUNNER_DISPLAY in place of MACOS_RUNNER_15.
+    """
+    producer = workflow["jobs"]["macos-compile-admission"]
+    violations = []
+    if producer["env"].get("CMUX_PRODUCT_RUNNER") != producer["runs-on"]:
+        violations.append("macos-compile-admission: CMUX_PRODUCT_RUNNER does not restate runs-on")
+    outputs = producer.get("outputs", {})
+    if outputs.get("runner") != "${{ env.CMUX_PRODUCT_RUNNER }}":
+        violations.append("macos-compile-admission: missing runner output")
+    if outputs.get("xcode_app") != "${{ env.CMUX_CI_XCODE_APP }}":
+        violations.append("macos-compile-admission: missing xcode_app output")
+    for name, job in app_host_product_consumers(workflow).items():
+        runs_on = job.get("runs-on", "")
+        xcode = (job.get("env") or {}).get("CMUX_CI_XCODE_APP")
+        if runs_on == PRODUCT_RUNNER_OUTPUT and xcode == PRODUCT_XCODE_OUTPUT:
+            continue
+        if (
+            name == "tests-build-and-lag"
+            and runs_on.replace("vars.MACOS_RUNNER_DISPLAY", "vars.MACOS_RUNNER_15") == producer["runs-on"]
+            and xcode == producer["env"]["CMUX_CI_XCODE_APP"]
+        ):
+            continue
+        violations.append(f"{name}: runs-on {runs_on}; CMUX_CI_XCODE_APP {xcode}")
+    return violations
+
+
+def test_app_host_product_consumers_run_on_the_producers_pool_and_xcode() -> None:
+    # An app-host test bundle only loads under the Xcode that linked it: a
+    # product compiled with Xcode 26.6 references Testing.framework symbols
+    # that Xcode 26.3 does not ship, so a consumer on another pool dies in
+    # dlopen ("Symbol not found ... Expected in: Xcode_26.3.app/.../Testing")
+    # before running one test (run 35958884147, job 107508090815). Compile
+    # admission is the single source of the pool and Xcode.
+    workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+    consumers = app_host_product_consumers(workflow)
+    assert {"app-host-unit-tests", "tests-build-and-lag"} <= set(consumers), sorted(consumers)
+    assert product_consumer_route_violations(workflow) == []
+    # The app-host shards read the outputs, so a route added to the admission
+    # moves them without an edit here.
+    shards = workflow["jobs"]["app-host-unit-tests"]
+    assert shards["runs-on"] == PRODUCT_RUNNER_OUTPUT
+    assert shards["env"]["CMUX_CI_XCODE_APP"] == PRODUCT_XCODE_OUTPUT
+
+
+def test_product_consumer_guard_follows_a_new_admission_route() -> None:
+    # Give the admission a new route, as main's full-suite dispatch taking the
+    # pull-request pool and Xcode would. Consumers that read the outputs stay
+    # compliant; one that restates the old expression is reported.
+    workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
+    producer = workflow["jobs"]["macos-compile-admission"]
+    pull_request = "github.event_name == 'pull_request'"
+    main_dispatch = "(github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')"
+    for key in ("CMUX_PRODUCT_RUNNER", "CMUX_CI_XCODE_APP"):
+        assert pull_request in producer["env"][key], key
+        producer["env"][key] = producer["env"][key].replace(pull_request, main_dispatch, 1)
+    producer["runs-on"] = producer["env"]["CMUX_PRODUCT_RUNNER"]
+    violations = product_consumer_route_violations(workflow)
+    assert [line.split(":", 1)[0] for line in violations] == ["tests-build-and-lag"], violations
+
+
+def test_app_host_rerun_runs_on_the_products_pool() -> None:
+    # The rerun rebuilds cmuxTests against downloaded products with the
+    # products' own Xcode, which only the pool that built them carries.
+    rerun_workflow = ROOT / ".github" / "workflows" / "app-host-test-rerun.yml"
+    workflow = yaml.safe_load(rerun_workflow.read_text(encoding="utf-8"))
+    assert "runner" in workflow["jobs"]["plan"]["outputs"]
+    assert "needs.plan.outputs.runner" in workflow["jobs"]["rerun"]["runs-on"]
+
+
 def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> None:
     workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["app-host-unit-tests"]
@@ -4022,9 +4110,8 @@ def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> N
     )
     assert [row["shard"] for row in changed_rows] == [8], changed_rows
     assert [row["shard"] for row in numbered_rows] == [1, 2, 3, 4, 5, 6, 7], numbered_rows
-    # Shard 8 routes like the others: a same-repository PR pool and a
-    # GitHub-hosted label for a fork's own repository.
-    assert {"pr_runner", "hosted_runner"} <= set(changed_rows[0]), changed_rows
+    # No row names a pool: every consumer runs where compile admission ran.
+    assert all(set(row) == {"shard"} for row in changed_rows + numbered_rows), (changed_rows, numbered_rows)
     assert job["env"]["CMUX_APP_HOST_UNIT_SELECTORS"] == "${{ inputs.unit_selectors }}"
     # Shard 8 must own none of the strict steps the numbered shards run.
     owners = {key: value for key, value in job["env"].items() if key.endswith("_SHARD")}
@@ -4802,19 +4889,6 @@ def test_macos_jobs_use_lane_specific_xcode_pin_vars() -> None:
     ]:
         block = workflow_job_block(job_name, MACOS_WORKFLOW)
         assert f"CMUX_CI_XCODE_APP: {PR_LANE_XCODE_PIN}" in block, job_name
-        assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
-        assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
-
-    # Same-repository pull-request app-host shards span pools with different
-    # Xcodes, so they pin none and take the machine's newest macOS 26 SDK
-    # Xcode; forks and other events keep the lane pin.
-    for job_name in ["app-host-unit-tests"]:
-        block = workflow_job_block(job_name, MACOS_WORKFLOW)
-        unpinned = PR_LANE_XCODE_PIN.replace(
-            "${{ ",
-            "${{ !(github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) && (",
-        ).replace(" }}", ") || '' }}")
-        assert f"CMUX_CI_XCODE_APP: {unpinned}" in block, job_name
         assert "vars.CMUX_CI_XCODE_APP_MACOS_26" not in block, job_name
         assert 'CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"' in block
 

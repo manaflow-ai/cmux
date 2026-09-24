@@ -106,6 +106,34 @@ class ProductLookupTests(unittest.TestCase):
         self.assertIsNone(rerun.find_products("o/r", ["only"], api))
 
 
+class ProductRunnerTests(unittest.TestCase):
+    """The rerun must land on the pool whose Xcode compiled the products."""
+
+    @staticmethod
+    def api_for(jobs: list[dict]):
+        def api(path: str) -> dict:
+            assert re.search(r"runs/5/jobs", path), path
+            return {"jobs": jobs, "total_count": len(jobs)}
+
+        return api
+
+    def test_follows_compile_admission_to_macos_26(self) -> None:
+        api = self.api_for([
+            {"name": "guards / linux", "labels": ["blacksmith-4vcpu-ubuntu-2404"]},
+            {"name": "macos / macOS compile admission", "labels": ["blacksmith-6vcpu-macos-26"]},
+        ])
+        self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-26")
+
+    def test_github_hosted_admission_maps_to_the_same_macos(self) -> None:
+        api = self.api_for([{"name": "macos / macOS compile admission", "labels": ["macos-26"]}])
+        self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-26")
+
+    def test_macos_15_admission_and_unknown_producers_stay_on_macos_15(self) -> None:
+        api = self.api_for([{"name": "macos / macOS compile admission", "labels": ["blacksmith-6vcpu-macos-15"]}])
+        self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-15")
+        self.assertEqual(rerun.product_runner("o/r", "5", self.api_for([])), "blacksmith-6vcpu-macos-15")
+
+
 class SelectorTests(unittest.TestCase):
     def test_normalizes_separators_and_prefix(self) -> None:
         self.assertEqual(

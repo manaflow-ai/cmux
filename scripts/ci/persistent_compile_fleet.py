@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import platform
+import select
 import shutil
 import subprocess
 import sys
@@ -614,11 +615,35 @@ def default_runner_name(local: LocalState) -> str:
     return f"{node}-persistent-compile" if node else f"{platform.node().split('.')[0]}-persistent-compile"
 
 
-def worker_running(directory: Path) -> bool:
+def worker_pids(directory: Path) -> list[int]:
     """A Runner.Worker process exists only while this runner holds a job."""
     result = subprocess.run(["pgrep", "-f", os.fspath(directory / "bin" / "Runner.Worker")],
-                            capture_output=True, check=False)
-    return result.returncode == 0
+                            capture_output=True, text=True, check=False)
+    return [int(pid) for pid in result.stdout.split()] if result.returncode == 0 else []
+
+
+def wait_for_workers(directory: Path, deadline: float) -> None:
+    """Block until no job is running here or the deadline passes, woken by the worker's exit.
+
+    kqueue's NOTE_EXIT fires the moment the process ends, which keeps the window in
+    which GitHub can assign another job before the stop as short as it can be.
+    """
+    while (pids := worker_pids(directory)) and time.monotonic() < deadline:
+        queue = select.kqueue()
+        try:
+            watched = 0
+            for pid in pids:
+                try:
+                    queue.control([select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                                                 flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                                 fflags=select.KQ_NOTE_EXIT)], 0)
+                    watched += 1
+                except ProcessLookupError:
+                    pass  # already gone
+            if watched:
+                queue.control(None, 1, max(0.0, deadline - time.monotonic()))
+        finally:
+            queue.close()
 
 
 def register_runner(name: str, token: str | None) -> None:
@@ -825,6 +850,10 @@ def glaeda_transition(local: LocalState, target: str, reason: str | None = None)
         print("no Glaeda enrollment on this mini; skipping the Glaeda state change")
         return
     if local.enrollment.get("state") == target:
+        kept = local.enrollment.get("quarantineReason")
+        if reason is not None and reason != kept:
+            # Glaeda has no quarantined -> quarantined transition to record a new reason.
+            print(f"Glaeda: {local.enrollment.get('nodeId')} is already {target} for {kept}; that reason stays")
         return
     if local.glaeda is None:
         raise Failure("cannot find the Glaeda checkout; set GLAEDA_ROOT or pass --glaeda-root")
@@ -857,12 +886,9 @@ def stop_taking_jobs(args: argparse.Namespace, target: str, reason: str | None =
     except Failure as error:
         glaeda_error = error
     if local.runner_configured:
-        deadline = time.monotonic() + (0 if args.now else DRAIN_WAIT_SECONDS)
-        if worker_running(directory) and not args.now:
+        if not args.now and worker_pids(directory):
             print(f"{name} is running a job; stopping as soon as it finishes (--now stops it immediately)")
-        # Poll tightly: between the job ending and the stop, GitHub can assign another.
-        while worker_running(directory) and time.monotonic() < deadline:
-            time.sleep(2)
+            wait_for_workers(directory, time.monotonic() + DRAIN_WAIT_SECONDS)
         stop_service(directory)
         print(f"{name} is stopped and stays stopped across reboots.")
     elif glaeda_error is None:
