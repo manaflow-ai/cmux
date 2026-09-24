@@ -2205,6 +2205,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+      # The R2 artifact transport mints an OIDC token for its broker.
+      id-token: write
     needs:
       - macos-compile-admission
     # Targeted CLI routing consumes the shared compiled product even when prior

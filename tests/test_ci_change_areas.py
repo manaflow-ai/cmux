@@ -1712,8 +1712,12 @@ def test_cli_product_lane_scripts_route_the_cli_lane() -> None:
     block = real[start:following.start() if following else len(real)]
     scripts = set(re.findall(r"(scripts/[A-Za-z0-9_./-]+\.(?:py|sh))", block))
     assert "scripts/ci/restore-app-host-test-product.sh" in scripts
+    # And what the restore script runs in turn.
+    scripts |= {"scripts/ci/app_host_test_products.py", "scripts/ci/canonical-build-root.sh"}
     for script in sorted(scripts):
         assert module.classify_files([script]).cli, script
+    for action in set(re.findall(r"uses: \./(\.github/actions/[A-Za-z0-9_-]+)", block)):
+        assert module.classify_files([f"{action}/action.yml"]).cli, action
 
 
 def test_workflow_routes_macos_shard_edit_without_release_build() -> None:
@@ -2434,11 +2438,13 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
     ):
         result, outputs = run_detect_step_for_paths([path])
         assert "CI router changed; running all CI areas." not in result.stdout, path
+        # cli-product-tests restores its product through app_host_test_products.py.
+        cli = "true" if path == "scripts/ci/app_host_test_products.py" else "false"
         assert outputs == [
             "macos=true",
             "web=false",
             "agent_session_web=false",
-            "cli=false",
+            f"cli={cli}",
             "swift_packages=false",
             "release_build=false",
         ], path
