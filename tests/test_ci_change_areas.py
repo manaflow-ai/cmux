@@ -4539,10 +4539,15 @@ def test_static_preflight_rejects_stale_embedded_schema_before_native_work() -> 
         assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_guard_workflow_call_preserves_routes_and_static_gate() -> None:
+def test_guard_workflow_call_preserves_routes_and_starts_beside_static_checks() -> None:
     block = workflow_job_block("guards")
 
-    assert "    needs: [changes, static-preflight]" in block
+    # Guards are the last job macos-admission-gate waits for. Starting them
+    # beside Fast static checks, not after, opens the gate ~25 s sooner; the
+    # gate itself still requires static-preflight, so macOS never starts on a
+    # diff those checks reject.
+    assert "    needs: [changes]" in block
+    assert "static-preflight" in workflow_job_block("macos-admission-gate")
     assert "    uses: ./.github/workflows/ci-guards.yml" in block
     for route in GUARD_ROUTE_JOBS:
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block
@@ -4679,11 +4684,12 @@ def test_history_guard_uses_shallow_synthetic_merge_parent() -> None:
         ]
 
 
-def test_web_workflow_call_preserves_routes_and_static_gate() -> None:
+def test_web_workflow_call_preserves_routes_and_starts_beside_static_checks() -> None:
     block = workflow_job_block("web")
     assert "needs.changes.outputs.macos != 'false'" not in block
 
-    assert "    needs: [changes, static-preflight]" in block
+    # On web pull requests, web finishes after the guards; see the guards test.
+    assert "    needs: [changes]" in block
     assert "    uses: ./.github/workflows/ci-web.yml" in block
     for route in ("web", "macos", "agent_session_web"):
         assert f"      {route}: ${{{{ needs.changes.outputs.{route} }}}}" in block

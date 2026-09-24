@@ -817,7 +817,8 @@ jobs:
   static-preflight:
     name: Fast static checks
     # No package installs, submodules or app build: reject malformed inputs
-    # before starting the longer guard, web and macOS stages.
+    # before starting macOS and the other Linux stages. Guards and web run
+    # beside it, because the macOS gate waits for them.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -834,7 +835,11 @@ jobs:
         run: python3 scripts/verify-local.py
 
   guards:
-    needs: [changes, static-preflight]
+    # Not after static-preflight: the guards are the last job
+    # macos-admission-gate waits for (median ~110 s after changes), and the
+    # gate still requires static-preflight, so starting them together opens the
+    # gate ~25 s sooner without admitting macOS on a rejected diff.
+    needs: [changes]
     if: ${{ needs.changes.outputs.linux_guard_tests != 'false' || needs.changes.outputs.linux_guard_history != 'false' || needs.changes.outputs.linux_guard_cli != 'false' || needs.changes.outputs.linux_guard_source != 'false' }}
     uses: ./.github/workflows/ci-guards.yml
     with:
@@ -896,7 +901,8 @@ jobs:
     uses: ./.github/workflows/cli-pipe-regressions.yml
 
   web:
-    needs: [changes, static-preflight]
+    # Beside static-preflight for the same reason as guards.
+    needs: [changes]
     if: ${{ needs.changes.outputs.web != 'false' || needs.changes.outputs.agent_session_web != 'false' }}
     uses: ./.github/workflows/ci-web.yml
     with:
