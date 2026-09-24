@@ -428,12 +428,9 @@ class RoutingSwitch(unittest.TestCase):
 
     def test_doctor_flags_a_pilot_with_an_empty_cohort(self) -> None:
         github = fleet_state(runners=[runner()], variables={fleet.SELECTOR_VARIABLE: "pilot"})
-        lines = dict(fleet.doctor_lines(github, None)[0])["GitHub"]
-        self.assertIn(fleet.Line(False, "routing: pilot for (empty cohort: nothing routes)"), lines)
-
-    def test_doctor_points_an_empty_pilot_at_a_pr(self) -> None:
-        github = fleet_state(runners=[runner()], variables={fleet.SELECTOR_VARIABLE: "pilot"})
-        self.assertIn("scripts/persistent-compile pilot", fleet.doctor_lines(github, None)[1])
+        sections, nxt = fleet.doctor_lines(github, None)
+        self.assertIn(fleet.Line(False, "routing: pilot for (empty cohort: nothing routes)"), dict(sections)["GitHub"])
+        self.assertIn("scripts/persistent-compile pilot", nxt)
 
 
 class XcodePin(unittest.TestCase):
@@ -510,7 +507,7 @@ class Quarantine(unittest.TestCase):
         with mock.patch.object(fleet, "require_mac"), \
              mock.patch.object(fleet, "read_local", return_value=mini()), \
              mock.patch.object(fleet, "glaeda_transition", side_effect=lambda l, t, r=None: transitions.append((t, r))), \
-             mock.patch.object(fleet, "worker_running", return_value=False), \
+             mock.patch.object(fleet, "worker_pids", return_value=[]), \
              mock.patch.object(fleet, "stop_service", side_effect=stopped.append), mock.patch("builtins.print"):
             self.assertEqual(fleet.main(["quarantine", "disk_pressure"]), 0)
         self.assertEqual(transitions, [("quarantined", "disk_pressure")])
@@ -521,7 +518,7 @@ class Quarantine(unittest.TestCase):
         with mock.patch.object(fleet, "require_mac"), \
              mock.patch.object(fleet, "read_local", return_value=mini()), \
              mock.patch.object(fleet, "glaeda_transition", side_effect=fleet.Failure("unsupported")), \
-             mock.patch.object(fleet, "worker_running", return_value=False), \
+             mock.patch.object(fleet, "worker_pids", return_value=[]), \
              mock.patch.object(fleet, "stop_service", side_effect=stopped.append), \
              mock.patch("builtins.print"), mock.patch("sys.stderr"):
             self.assertEqual(fleet.main(["quarantine", "hardware_failure"]), 1)
@@ -537,6 +534,57 @@ class Quarantine(unittest.TestCase):
         stop.assert_not_called()
         self.assertNotIn("stopped", str(caught.exception))
         self.assertIn("no runner is configured", str(caught.exception))
+
+    def test_drain_waits_on_the_worker_exit_not_a_timer(self) -> None:
+        # Two looks: a job is running, then the worker has exited.
+        pids = iter([[4242], []])
+        registered, waits = [], []
+
+        class Queue:
+            def control(self, changes, max_events, timeout=None):
+                if changes:
+                    registered.extend(event.ident for event in changes)
+                else:
+                    waits.append(timeout)
+                return []
+
+            def close(self):
+                pass
+
+        fake_select = mock.Mock(kqueue=Queue, KQ_FILTER_PROC=-5, KQ_EV_ADD=1, KQ_EV_ONESHOT=16, KQ_NOTE_EXIT=1,
+                                kevent=lambda ident, **_: mock.Mock(ident=ident))
+        with mock.patch.object(fleet, "select", fake_select), \
+             mock.patch.object(fleet, "worker_pids", side_effect=lambda _: next(pids)):
+            fleet.wait_for_workers(Path("/r"), fleet.time.monotonic() + 60)
+        self.assertEqual(registered, [4242])
+        self.assertEqual(len(waits), 1)
+        self.assertGreater(waits[0], 0)
+
+    def test_a_worker_gone_before_registration_is_skipped(self) -> None:
+        pids = iter([[4242], []])
+
+        class Queue:
+            def control(self, changes, max_events, timeout=None):
+                if changes:
+                    raise ProcessLookupError
+                raise AssertionError("waited on a process that was already gone")
+
+            def close(self):
+                pass
+
+        fake_select = mock.Mock(kqueue=Queue, KQ_FILTER_PROC=-5, KQ_EV_ADD=1, KQ_EV_ONESHOT=16, KQ_NOTE_EXIT=1,
+                                kevent=lambda ident, **_: ident)
+        with mock.patch.object(fleet, "select", fake_select), \
+             mock.patch.object(fleet, "worker_pids", side_effect=lambda _: next(pids)):
+            fleet.wait_for_workers(Path("/r"), fleet.time.monotonic() + 60)
+
+    def test_requarantine_says_the_old_reason_is_kept(self) -> None:
+        # Glaeda has no quarantined -> quarantined transition, so a new reason is not recorded.
+        local = mini(enrollment={"nodeId": "n", "state": "quarantined", "quarantineReason": "disk_pressure"})
+        with mock.patch("builtins.print") as printed, mock.patch.object(fleet, "run_checked") as run:
+            fleet.glaeda_transition(local, "quarantined", "hardware_failure")
+        run.assert_not_called()
+        self.assertIn("disk_pressure", " ".join(str(c.args[0]) for c in printed.call_args_list))
 
     def test_resume_points_a_quarantined_mini_at_up(self) -> None:
         local = mini(enrollment={"nodeId": "n", "state": "quarantined", "quarantineReason": "disk_pressure"})
