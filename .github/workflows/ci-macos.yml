@@ -616,6 +616,8 @@ jobs:
           echo "== manifest cache before resolve: entries=$(sqlite3 "$manifests/manifest.db" 'select count(*) from MANIFEST_CACHE' 2>/dev/null || echo none)"
           ( while sleep 2; do echo "== ps $(date -u +%T) $(ps -Ao comm= | sed 's|.*/||' | sort | uniq -c | sort -rn | head -8 | tr -s ' \n' ' ')"; done ) &
           sampler=$!
+          t=$SECONDS; xcodebuild -version >/dev/null; echo "== cold xcodebuild -version: $((SECONDS - t))s"
+          t=$SECONDS; xcodebuild -showsdks >/dev/null; echo "== xcodebuild -showsdks: $((SECONDS - t))s"
           started="$(python3 -c 'import time; print(time.monotonic())')"
           rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
