@@ -304,8 +304,11 @@ jobs:
         id: product-key
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_DERIVED_DATA_PATH"
 
+      # e2e-derived-data-seed.yml dispatches exist to publish DerivedData,
+      # which only a compile produces, so they never adopt a product.
       - name: Reuse a compiled product instead of building one
         id: reuse
+        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -349,7 +352,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
