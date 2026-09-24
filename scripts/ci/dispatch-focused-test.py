@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import chdir, contextmanager
+from contextlib import contextmanager
 import datetime as dt
 import importlib.util
 import json
@@ -537,6 +537,17 @@ def find_run(
     )
 
 
+@contextmanager
+def chdir(path: Path):
+    """contextlib.chdir, which needs Python 3.11; run-e2e.sh may get macOS's 3.9."""
+    previous = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
 def planned_products(commit: str, only_testing: str, source_run_id: str = "") -> dict | None:
     """app_host_test_rerun.py's plan for this commit, or None when it finds no products."""
     args = argparse.Namespace(
@@ -557,7 +568,8 @@ def building_producer(commit: str) -> dict | None:
     """A CI run of this commit still compiling products the commit can use.
 
     A pull_request run builds the merge with its base, so it qualifies only
-    while that merge differs from the commit under cmuxTests/ alone. The
+    while that merge differs from the commit under cmuxTests/ alone. Main's
+    ci.yml runs are dispatched by ci-main-full-suite.yml. The
     guards in main() already refuse a second test-e2e.yml compile of a commit.
     """
     try:
@@ -567,7 +579,7 @@ def building_producer(commit: str) -> dict | None:
         runs = []
     for run in runs:
         if (run.get("path") != CI_WORKFLOW_PATH or run.get("status") not in UNFINISHED
-                or run.get("event") not in ("push", "pull_request")):
+                or run.get("event") not in ("push", "pull_request", "workflow_dispatch")):
             continue
         try:
             with chdir(ROOT):
@@ -577,6 +589,15 @@ def building_producer(commit: str) -> dict | None:
             continue
         return {"id": run["id"], "url": run.get("html_url", "")}
     return None
+
+
+def skips_macos(run_id: int) -> bool:
+    """Whether a CI run decided not to compile for macOS, so it will leave no products."""
+    listing = rerun.gh_api(f"repos/{REPO}/actions/runs/{run_id}/jobs?filter=latest&per_page=100")
+    return any(
+        job.get("name", "").endswith(rerun.ADMISSION_JOB) and job.get("conclusion") == "skipped"
+        for job in listing.get("jobs", [])
+    )
 
 
 def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | None:
@@ -594,6 +615,9 @@ def awaited_products(producer: dict, commit: str, only_testing: str) -> dict | N
             state = rerun.gh_api(f"repos/{REPO}/actions/runs/{producer['id']}")
             if state.get("status") not in UNFINISHED:
                 print(f"note: {producer['url']} finished without app-host products", file=sys.stderr, flush=True)
+                return None
+            if skips_macos(producer["id"]):
+                print(f"note: {producer['url']} skipped its macOS compile", file=sys.stderr, flush=True)
                 return None
             if time.monotonic() > deadline:
                 print(f"note: {producer['url']} has not produced app-host products yet", file=sys.stderr, flush=True)
@@ -647,7 +671,12 @@ def reuse_ci_products(commit: str, entries: list[str], workflow_ref: str | None,
         f"compiled from {found['source_sha']}; only cmuxTests recompiles (request {dispatch_id})",
         flush=True,
     )
-    subprocess.run(command, cwd=ROOT, check=True)
+    try:
+        subprocess.run(command, cwd=ROOT, check=True)
+    except subprocess.CalledProcessError:
+        # A --workflow-ref whose rerun workflow predates dispatch_id rejects it.
+        print("note: the rerun dispatch was refused; compiling in full instead", file=sys.stderr, flush=True)
+        return None
     with cancellation_scope() as cancel_event:
         run = find_run(commit, only_testing, dispatch_id, cancel_event=cancel_event, workflow=RERUN_WORKFLOW)
     print(f"Run: {run['url']}", flush=True)
@@ -683,7 +712,8 @@ def main() -> int:
     parser.add_argument(
         "--full-build",
         action="store_true",
-        help="compile the whole app even when CI already compiled this commit's app-host products",
+        help="compile the whole app even when CI already compiled this commit's app-host products; "
+        "without it, a cmuxTests run waits (up to 50 min) for a CI run still compiling this commit",
     )
     parser.add_argument(
         "--force",

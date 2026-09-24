@@ -1385,7 +1385,9 @@ class CIProductReuseTests(unittest.TestCase):
         artifacts = iter([None, self.PRODUCTS])
         rerun = self.dispatch.rerun
         rerun.gh_api.side_effect = lambda path: (
-            {"workflow_runs": [ci]} if "head_sha=" in path else {"status": "in_progress"}
+            {"workflow_runs": [ci]} if "head_sha=" in path
+            else {"jobs": [{"name": "macOS / macOS compile admission", "conclusion": None}]} if "/jobs" in path
+            else {"status": "in_progress"}
         )
         with mock.patch.object(self.dispatch, "planned_products", side_effect=[None, self.PLAN]) as plan, \
                 mock.patch.object(rerun, "built_revision", return_value="e" * 40), \
@@ -1421,6 +1423,29 @@ class CIProductReuseTests(unittest.TestCase):
                 mock.patch.object(rerun, "products_artifact", return_value=None):
             self.assertIsNone(self.reuse())
         self.run_command.assert_not_called()
+
+    def test_ci_that_skips_its_macos_compile_is_not_awaited(self):
+        ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "in_progress",
+              "event": "workflow_dispatch", "html_url": "https://x/runs/500", "head_sha": HEAD}
+        rerun = self.dispatch.rerun
+        rerun.gh_api.side_effect = lambda path: (
+            {"workflow_runs": [ci]} if "head_sha=" in path
+            else {"jobs": [{"name": "macOS / macOS compile admission", "conclusion": "skipped"}]} if "/jobs" in path
+            else {"status": "in_progress"}
+        )
+        with mock.patch.object(self.dispatch, "planned_products", return_value=None), \
+                mock.patch.object(rerun, "built_revision", return_value=HEAD), \
+                mock.patch.object(rerun, "non_test_changes", return_value=[]), \
+                mock.patch.object(rerun, "products_artifact", return_value=None), \
+                mock.patch.object(self.dispatch, "wait_for_retry", side_effect=AssertionError("waited")):
+            self.assertIsNone(self.reuse())
+        self.run_command.assert_not_called()
+
+    def test_a_refused_rerun_dispatch_falls_back_to_a_full_build(self):
+        self.run_command.side_effect = subprocess.CalledProcessError(1, ["gh"])
+        with mock.patch.object(self.dispatch, "planned_products", return_value=self.PLAN):
+            self.assertIsNone(self.reuse())
+        self.find_run.assert_not_called()
 
     def test_selectors_the_rerun_cannot_express_fall_back_to_a_full_build(self):
         with mock.patch.object(self.dispatch, "planned_products") as plan:

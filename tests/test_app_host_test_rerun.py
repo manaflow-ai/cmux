@@ -150,7 +150,14 @@ class PullRequestProductTests(unittest.TestCase):
 
     def dispatched_run(self, built: str, run_id: int = 6) -> dict:
         title = f"cmuxTests/ATests on blacksmith-6vcpu-macos-26 @ {built} [abc123]"
-        return {"id": run_id, "event": "workflow_dispatch", "head_sha": self.head, "display_title": title}
+        return {"id": run_id, "event": "workflow_dispatch", "head_sha": self.head, "display_title": title,
+                "path": ".github/workflows/test-e2e.yml"}
+
+    def test_a_dispatched_ci_run_built_its_head(self) -> None:
+        # ci-main-full-suite.yml dispatches main's ci.yml, titled just "CI".
+        run = {"id": 7, "event": "workflow_dispatch", "head_sha": self.head, "display_title": "CI",
+               "path": ".github/workflows/ci.yml"}
+        self.assertEqual(self.built(run), self.head)
 
     def test_a_dispatched_run_built_the_revision_its_title_names(self) -> None:
         self.assertEqual(self.built(self.dispatched_run(self.base)), self.base)

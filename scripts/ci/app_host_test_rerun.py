@@ -69,6 +69,7 @@ def products_artifact(repository: str, run_id: str, api: Callable[[str], dict]) 
 
 
 MERGE_REF = re.compile(r"refs/pull/\d+/merge")
+E2E_WORKFLOW = ".github/workflows/test-e2e.yml"
 # test-e2e.yml's run title ends "@ <ref> [<dispatch id>]"; run-e2e.sh passes a full SHA.
 DISPATCHED_REVISION = re.compile(r" @ ([0-9a-f]{40})(?: \[[^\]]*\])?$")
 
@@ -99,14 +100,15 @@ def built_revision(run: dict, cwd: str | None = None, fetch: Callable[[str], Non
     loads its reusable workflows from the same ref, and `referenced_workflows`
     names the commit each came from. The merge must name `head_sha` as its
     second parent, which ties it to this run's head rather than any commit.
-    A dispatched run's `head_sha` is its workflow's branch, so its title says
-    what it built instead.
+    A dispatched test-e2e.yml run's `head_sha` is its workflow's branch, so
+    its title says what it built instead.
     """
     head = run["head_sha"]
     fetch = fetch or (lambda revision: fetch_commit(revision, cwd=cwd))
-    if run.get("event") == "workflow_dispatch":
+    if run.get("event") == "workflow_dispatch" and run.get("path") == E2E_WORKFLOW:
         # A dispatched test-e2e.yml run lists under the branch its workflow came
         # from, usually main, but compiles the `ref` input its title names.
+        # Other dispatches, such as main's ci.yml, build their head.
         match = DISPATCHED_REVISION.search(str(run.get("display_title", "")))
         if not match:
             raise ValueError(f"dispatched run {run.get('id')} names no full revision in its title")
@@ -209,6 +211,8 @@ def plan(args: argparse.Namespace, api: Callable[[str], dict] = gh_api) -> dict:
         run = api(f"repos/{args.repository}/actions/runs/{args.source_run_id}")
         try:
             revision = built_revision(run)
+        except ValueError as error:
+            raise SystemExit(str(error))
         except subprocess.CalledProcessError:
             raise SystemExit(f"run {args.source_run_id} built a revision other than {run['head_sha']} that could not be fetched")
         try:
