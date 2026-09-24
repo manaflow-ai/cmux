@@ -29,11 +29,6 @@ final class HookPromptLengthUITests: XCTestCase {
         let cli = appURL.appendingPathComponent("Contents/Resources/bin/cmux").path
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: cli))
         let appDiagnosticsURL = root.appendingPathComponent("app-diagnostics.json")
-        let appURL = try XCTUnwrap(["cmux DEV", "cmux"].map {
-            products.appendingPathComponent("\($0).app")
-        }.first { FileManager.default.isExecutableFile(atPath:
-            $0.appendingPathComponent("Contents/MacOS/\($0.deletingPathExtension().lastPathComponent)").path
-        ) })
         // Launch the app binary directly so this socket-only test does not
         // require foreground activation. The socket and app home live in the
         // runner-owned fixture paths, which are accessible to both processes.
@@ -76,7 +71,7 @@ final class HookPromptLengthUITests: XCTestCase {
         if process.isRunning { process.terminate() }
         var diagnostics = (try? String(contentsOf: output, encoding: .utf8)) ?? "missing probe output"
         if !process.isRunning && process.terminationStatus != 0 {
-            diagnostics += "\nappState=\(app.state.rawValue)"
+            diagnostics += "\nappRunning=\(app.isRunning) appExit=\(app.terminationStatus)"
             diagnostics += "\n" + ((try? String(contentsOf: appDiagnosticsURL, encoding: .utf8)) ?? "missing app diagnostics")
         }
         XCTAssertFalse(process.isRunning, diagnostics)
