@@ -3,6 +3,18 @@ import Testing
 @testable import CmuxFilePreviewCore
 
 struct ReadOnlyVimNavigationTests {
+    @Test func verticalYanksIncludeBothEndpointLines() {
+        var vim = ReadOnlyVimNavigation(text: "alpha\nbeta\ngamma\n")
+        for key in ["l", "y", "j"] { vim.handle(key) }
+        #expect(vim.yankedText == "alpha\nbeta\n")
+        #expect(vim.cursor == 1)
+        for key in ["j", "y", "k"] { vim.handle(key) }
+        #expect(vim.yankedText == "alpha\nbeta\n")
+        #expect(vim.cursor == 7)
+        for key in ["g", "g", "2", "y", "j"] { vim.handle(key) }
+        #expect(vim.yankedText == "alpha\nbeta\ngamma\n")
+    }
+
     @Test func horizontalYankUsesExclusiveMotionAndIncludesEndCharacter() {
         var vim = ReadOnlyVimNavigation(text: "alpha")
         for key in ["y", "l"] { vim.handle(key) }
