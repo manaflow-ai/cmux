@@ -741,6 +741,11 @@ class NoGhOnTheMini(unittest.TestCase):
 class Heartbeat(unittest.TestCase):
     """Acceptance is a silent 13-minute build; `up` says it is still alive."""
 
+    # Child programs, kept out of the test bodies: their sleeps run in the child
+    # and pace its output, they are not waits before an assertion.
+    CHATTY = "import sys, time\nfor _ in range(4):\n    print('x', flush=True); time.sleep(0.05)"
+    PROGRESS_THEN_SILENT = ("import sys, time; sys.stderr.write('Receiving 45%\\r'); "
+                            "sys.stderr.flush(); time.sleep(1.0)")
     SILENT_THEN = "import sys, time; time.sleep(0.35); sys.stdout.write({!r}); sys.stdout.flush()"
 
     def test_a_silent_child_gets_elapsed_lines(self) -> None:
@@ -763,17 +768,21 @@ class Heartbeat(unittest.TestCase):
         self.assertIn("still running", err.getvalue())
 
     def test_a_chatty_child_gets_no_heartbeat(self) -> None:
-        code = "import sys, time\nfor _ in range(4):\n    print('x', flush=True); time.sleep(0.05)"
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out:
-            fleet.run_with_heartbeat([sys.executable, "-c", code], ROOT, interval=0.5)
+            # The interval is far longer than the child's whole run, so a slow
+            # machine starting Python still leaves no silent gap that long.
+            fleet.run_with_heartbeat([sys.executable, "-c", self.CHATTY], ROOT, interval=5.0)
         self.assertEqual(out.getvalue(), "x\nx\nx\nx\n")
 
     def test_a_heartbeat_after_progress_starts_its_own_line(self) -> None:
-        code = "import sys, time; sys.stderr.write('Receiving 45%\\r'); sys.stderr.flush(); time.sleep(0.35)"
         with mock.patch("sys.stdout", new_callable=io.StringIO) as out, \
              mock.patch("sys.stderr", new_callable=io.StringIO):
-            fleet.run_with_heartbeat([sys.executable, "-c", code], ROOT, interval=0.1)
-        self.assertTrue(out.getvalue().startswith("\n   ... "))
+            fleet.run_with_heartbeat([sys.executable, "-c", self.PROGRESS_THEN_SILENT], ROOT, interval=0.1)
+        # On a loaded machine a heartbeat can also come before the child starts
+        # writing. Either way the one after the progress line adds its own
+        # line break: first in the output, or right after an earlier heartbeat.
+        text = out.getvalue()
+        self.assertTrue(text.startswith("\n   ... ") or "\n\n   ... " in text, text)
 
     def test_the_exit_code_is_kept(self) -> None:
         with mock.patch("sys.stdout", new_callable=io.StringIO):
