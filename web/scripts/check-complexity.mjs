@@ -124,9 +124,12 @@ function sourceFiles(repoRoot, explicitFiles) {
       .sort();
   }
 
-  const tracked = git(["ls-files", "--", "web"], repoRoot).stdout;
-  const untracked = git(["ls-files", "--others", "--exclude-standard", "--", "web"], repoRoot).stdout;
-  return [...new Set(`${tracked}\n${untracked}`.split("\n").filter(Boolean))]
+  // -z keeps git from C-quoting paths that contain non-ASCII or control
+  // characters. A quoted "web/app/\303\251.ts" no longer starts with web/, so
+  // isProductionSource() would drop the file and the gate would never see it.
+  const tracked = git(["ls-files", "-z", "--", "web"], repoRoot).stdout;
+  const untracked = git(["ls-files", "-z", "--others", "--exclude-standard", "--", "web"], repoRoot).stdout;
+  return [...new Set(`${tracked}${untracked}`.split("\0").filter(Boolean))]
     .filter(isProductionSource)
     .map((file) => file.slice("web/".length))
     .sort();
