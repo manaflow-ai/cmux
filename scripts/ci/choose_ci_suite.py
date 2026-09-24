@@ -71,18 +71,32 @@ def wants_full_suite(event_name: str, pull_request_policy: str, labels: Iterable
     return FULL_SUITE_LABEL in {label.strip() for label in labels}
 
 
-def wants_unit_suite(event_name: str, pull_request_policy: str, labels: Iterable[str] | None) -> bool:
+def wants_unit_suite(
+    event_name: str,
+    pull_request_policy: str,
+    labels: Iterable[str] | None,
+    paths: Iterable[str] | None = (),
+) -> bool:
     """True when this run should execute `app-host unit tests`.
 
     The full suite already includes them, so it implies this. Otherwise the
-    `unit-ci` label asks for compile admission plus that one job, without the
-    package tests, the lag lane, release admission and the Release build the
-    full suite also unlocks. Those cost a paid runner and judge nothing about a
-    change to cmuxTests/.
+    diff decides: a change under cmuxTests/ is judged by exactly this job and
+    by nothing compile admission does, so it selects the job itself rather
+    than failing `suite-coverage` and waiting for someone to add a label that
+    this module could already have derived. An unreadable diff (`paths` is
+    None) runs it too. The `unit-ci` label still asks for it on any diff.
+
+    Only this job is selected: the package tests, the lag lane, release
+    admission and the Release build the full suite also unlocks cost a paid
+    runner and judge nothing about a change to cmuxTests/.
     """
     if wants_full_suite(event_name, pull_request_policy, labels):
         return True
-    return UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
+    if UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}:
+        return True
+    if paths is None:
+        return True
+    return any(path.strip().startswith(UNIT_JUDGED_PREFIXES) for path in paths)
 
 
 def labels_from_event(event_path: str | Path) -> list[str] | None:
@@ -176,7 +190,7 @@ def main(argv: list[str]) -> int:
             paths = None
 
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
-    unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels)
+    unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
     gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
     lines = [
         f"full_suite={'true' if full else 'false'}",

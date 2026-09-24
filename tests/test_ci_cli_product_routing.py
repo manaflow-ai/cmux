@@ -14,9 +14,12 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def gate(expression, *, macos, cli, full_suite, compile_admitted, swift_packages="false"):
+def gate(expression, *, macos, cli, full_suite, compile_admitted, swift_packages="false",
+         unit_suite="false"):
+    # unit_suite is main's unit-ci tier (#13996); these cases model PRs without it.
     routes = dict(macos=macos, cli=cli, full_suite=full_suite,
-                  compile_admitted=compile_admitted, release_build="false", swift_packages=swift_packages)
+                  compile_admitted=compile_admitted, release_build="false", swift_packages=swift_packages,
+                  unit_suite=unit_suite)
     expression = expression.removeprefix("${{").removesuffix("}}").strip()
     expression = expression.replace("!cancelled()", "True")
     expression = expression.replace("github.event_name", repr("pull_request"))
