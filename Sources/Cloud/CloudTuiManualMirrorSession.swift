@@ -56,7 +56,6 @@ final class CloudTuiManualMirrorSession {
     /// Retained for diagnostics and for a future targeted detach. Closing the
     /// socket is still the cleanup fence for peers without lease support.
     private var remoteLease: String?
-    private var replayNeedsReset = false
     /// The last sidecar fed to the local surface; the next one is applied as a delta from it.
     private var appliedRemoteColors = CloudTuiRemoteColors()
     private var hasReceivedRemoteReplay = false
@@ -283,9 +282,6 @@ final class CloudTuiManualMirrorSession {
     /// a reset screen.
     private func tearDownConnection() {
         watchdog.cancel()
-        if hasReceivedRemoteReplay {
-            replayNeedsReset = true
-        }
         connectTask?.cancel()
         connectTask = nil
         eventTask?.cancel()
@@ -566,9 +562,11 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
-            applyReplay(bytes, reset: replayNeedsReset)
+            // A snapshot replaces the local VT state. Reset first so cells,
+            // cursor state, alternate-screen mode, and SGR from a prior
+            // restore cannot survive where the replacement is shorter.
+            applyReplay(bytes)
             applyColors(colors)
-            replayNeedsReset = false
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
             if phase == .attached { finishDiagnostics() }
@@ -585,7 +583,7 @@ final class CloudTuiManualMirrorSession {
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
-            applyReplay(bytes, reset: true)
+            applyReplay(bytes)
             applyColors(colors)
             hasReceivedRemoteReplay = true
             diagnosticReplayReceived = true
@@ -621,14 +619,15 @@ final class CloudTuiManualMirrorSession {
         }
     }
 
-    private func applyReplay(_ bytes: Data, reset: Bool) {
-        if reset {
-            // Drop every remote color before the reset rather than trusting
-            // RIS to do it: the replay's own sidecar re-applies the authored
-            // set in full, so the pane ends in the same state either way.
-            applyColors(CloudTuiRemoteColors())
-            surface?.processRemoteOutput(Self.replayReset)
-        }
+    private func applyReplay(_ bytes: Data) {
+        // A snapshot/resized frame replaces the local VT state. Drop every
+        // remote color before the reset rather than trusting RIS to do it: the
+        // replay's sidecar re-applies the authored set in full, so the pane
+        // ends in the same state either way. Without this fence, cells and
+        // cursor/SGR state from a previous restore survive wherever the new
+        // replay is shorter.
+        applyColors(CloudTuiRemoteColors())
+        surface?.processRemoteOutput(Self.replayReset)
         surface?.processRemoteOutput(bytes)
     }
 
