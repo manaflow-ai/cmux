@@ -14479,7 +14479,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 self.resyncTerminalOutput(
                     reason: "liveness_event_lane",
                     restartEventStream: true,
-                    recoversConnectionOnSubscriptionFailure: false
+                    // The shared transport answered the liveness probe, but
+                    // the replacement event listener still needs a usable
+                    // server registration. If that start handshake fails or
+                    // its stream closes immediately, leaving the connection
+                    // alive would strand the UI with a permanently silent
+                    // terminal. Let the normal connection recovery replace
+                    // the session in that case; a successful handshake still
+                    // keeps the existing transport in place.
+                    recoversConnectionOnSubscriptionFailure: true
                 )
                 return
             }

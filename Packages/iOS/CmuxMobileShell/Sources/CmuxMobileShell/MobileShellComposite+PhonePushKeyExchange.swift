@@ -32,7 +32,7 @@ extension MobileShellComposite {
               !accountID.isEmpty,
               let macDeviceID = status.macDeviceID,
               let macInstanceTag = status.macInstanceTag,
-              let macBuildID = status.macClientNamespace else {
+              let macClientNamespace = status.macClientNamespace else {
             if isPrimaryClient { phonePushKeyExchangeFailed = true }
             diagnosticLog?.recordAppEvent(.pushKeyExchangeContextMissing, failure: .credentialUnavailable)
             return
@@ -46,7 +46,7 @@ extension MobileShellComposite {
                     accountID: accountID,
                     macDeviceID: macDeviceID,
                     macInstanceTag: macInstanceTag,
-                    macBuildID: macBuildID
+                    macClientNamespace: macClientNamespace
                 )
                 guard !Task.isCancelled, self.identityProvider?.currentUserID == accountID else { return }
                 if exchanged {
@@ -72,7 +72,7 @@ extension MobileShellComposite {
         accountID: String,
         macDeviceID: String,
         macInstanceTag: String,
-        macBuildID: String
+        macClientNamespace: String
     ) async -> Bool {
         guard let hooks = phonePushKeyExchangeHooks else { return false }
         guard !Task.isCancelled, identityProvider?.currentUserID == accountID else { return false }
@@ -87,7 +87,7 @@ extension MobileShellComposite {
                   response.accountID == accountID,
                   response.macDeviceID == macDeviceID,
                   response.macInstanceTag == macInstanceTag,
-                  response.macBuildID == macBuildID else {
+                  response.matchesMacClientNamespace(macClientNamespace) else {
                 return false
             }
             let context = MobilePhonePushKeyExchangeContext(
