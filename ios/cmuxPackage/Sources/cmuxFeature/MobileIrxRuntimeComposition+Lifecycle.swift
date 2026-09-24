@@ -65,6 +65,8 @@ extension MobileIrxRuntimeComposition {
             deviceID: deviceID, environment: configuration.environment,
             projectID: configuration.projectID, teamID: scope.teamID, userID: scope.session.accountID)
         let key = try await installation.key(identity: tuple)
+        let stateStore = V2FileStateStore(rootDirectory: configuration.stateDirectory,
+            fileManager: FileManager(), identityKey: key)
         // A corrupt disposable cache is recoverable through a signed v2 setup;
         // the identity seed and Stack authentication are never erased.
         let restored = try? await stateStore.load(identity: tuple)

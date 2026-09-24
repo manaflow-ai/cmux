@@ -9,6 +9,7 @@ import { OperationError } from "./errors";
 import type { EndpointOwnership } from "./ownership/planetscale";
 import type { RelayIssuer } from "./relay";
 import type { TeamStore } from "./storage/team-store";
+import { CONTROL_PLANE_RULES } from "./rules";
 
 export interface BrokerSession {
   readonly sessionId: string;
@@ -138,14 +139,22 @@ export class TeamBroker {
     const now = this.dependencies.now();
     const authority = session.authority;
     if (session.expiresAt <= now) throw new OperationError("ticket_expired", 401, true);
+    if (!await this.dependencies.verifyTeamMember(authority.teamId, authority.userId)) {
+      throw new OperationError("team_access_revoked", 403);
+    }
+    // Dashboard tickets carry the role observed at issuance for reconnect UX,
+    // but the online path must use current Stack management authority. A
+    // demoted manager may continue to see only the ordinary filtered list.
+    const canManageTeam = await this.dependencies.canManageTeam(authority);
+    if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
     switch (request.schemaId) {
       case "directory.request.v1": {
         const revision = this.dependencies.store.readRevision();
         if (request.cursor && request.haveRevision !== revision) throw new OperationError("resync_required", 409, true);
-        const records = this.dependencies.store.listDashboardDevices(authority.userId, session.canManageTeam, request.cursor);
+        const records = this.dependencies.store.listDashboardDevices(authority.userId, canManageTeam, request.cursor);
         const devices: DeviceRecord[] = [], managedDeviceIds: string[] = [];
         const directory = { teamId: authority.teamId, revision, devices, managedDeviceIds,
-          canManageTeam: session.canManageTeam, relayURLs: this.relayURLs(), issuedAt: now, nextCursor: null as string | null };
+          canManageTeam, relayURLs: this.relayURLs(), issuedAt: now, nextCursor: null as string | null };
         const response = { schemaId: "dashboard.directory.v1" as const, requestId: request.requestId, directory };
         let bytes = new TextEncoder().encode(JSON.stringify(response)).byteLength;
         let lastRecordId: string | null = null;
@@ -160,6 +169,7 @@ export class TeamBroker {
           lastRecordId = record.device.deviceRecordId; bytes += size;
         }
         if (records.length === 1024 && lastRecordId === records.at(-1)!.device.deviceRecordId) directory.nextCursor = lastRecordId;
+        if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
         encodeResponse(response);
         return { response };
       }
@@ -168,18 +178,20 @@ export class TeamBroker {
         if (!target) throw new OperationError("permission_denied", 403);
         const locallyAllowed = () => target!.descriptor.identity.userId === authority.userId
           || this.dependencies.store.getPermission(authority.userId, request.deviceRecordId)?.manage === true;
-        if (!locallyAllowed() && !await this.dependencies.canManageTeam(authority)) throw new OperationError("permission_denied", 403);
+        if (!locallyAllowed() && !canManageTeam) throw new OperationError("permission_denied", 403);
         if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
         target = this.dependencies.store.getDeviceByRecordId(request.deviceRecordId);
         if (!target) throw new OperationError("permission_denied", 403);
         if (target.revoked) return this.completed(request.requestId, target.revision);
+        if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
         const revision = this.dependencies.store.revokeDevice(target.deviceRecordId, this.dependencies.now(), authority.userId);
         return { ...this.completed(request.requestId, revision), changed: { revision, revokedDeviceRecordId: target.deviceRecordId } };
       }
       case "preferences.update.v1": {
-        if (!await this.dependencies.canManageTeam(authority)) throw new OperationError("permission_denied", 403);
+        if (!canManageTeam) throw new OperationError("permission_denied", 403);
         if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
         if (request.relayURLs.some(url => !this.dependencies.relays.configuration.relayURLs.includes(url))) throw new OperationError("invalid_request", 400);
+        if (session.expiresAt <= this.dependencies.now()) throw new OperationError("ticket_expired", 401, true);
         const revision = this.dependencies.store.updateRelayPreferences(request.relayURLs, request.expectedRevision, authority.userId, this.dependencies.now());
         return { ...this.completed(request.requestId, revision), changed: { revision } };
       }
@@ -310,6 +322,7 @@ export class TeamBroker {
       directory: {
         teamId: session.identity.teamId, revision, devices, inboundPeers, relayURLs: this.relayURLs(),
         issuedAt: now, permissionExpiresAt: Math.min(session.expiresAt, now + API_TICKET_SECONDS), nextCursor: null as string | null,
+        rules: [...CONTROL_PLANE_RULES],
       },
     };
     let bytes = new TextEncoder().encode(JSON.stringify(response)).byteLength;
