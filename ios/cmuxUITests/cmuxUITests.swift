@@ -7532,12 +7532,13 @@ final class cmuxUITests: XCTestCase {
             ])
             let surface = app.otherElements["MobileTerminalSurface"]
             try XCTUnwrap(surface.waitForExistence(timeout: 8) ? true : nil)
-            try XCTUnwrap(app.buttons["MobileChangesButton"].waitForExistence(timeout: 8) ? true : nil)
+            _ = app.buttons["MobileChangesButton"].waitForExistence(timeout: 8)
             // Capture before assertions so a visual regression still leaves usable evidence.
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
             if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
                 assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
                                                  includesAlternateScreen: scenario == "alternate-screen")
+                assertWorkspaceToolbarTitlePresentation(in: app)
             }
             tap(surface, in: app)
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
@@ -7548,6 +7549,7 @@ final class cmuxUITests: XCTestCase {
             if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
                 assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
                                                  includesAlternateScreen: scenario == "alternate-screen")
+                assertWorkspaceToolbarTitlePresentation(in: app)
             }
             XCUIDevice.shared.orientation = .portrait
             RunLoop.current.run(until: Date().addingTimeInterval(1))
@@ -7589,7 +7591,9 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     private func captureWorkspaceToolbarPresentation(in app: XCUIApplication, name: String) {
-        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        // The app screenshot can inherit the portrait keyboard window's crop
+        // during rotation. The display screenshot preserves the whole bar.
+        let screenshot = XCTAttachment(screenshot: XCUIDevice.shared.screenshot())
         screenshot.name = "toolbar-\(name)"
         screenshot.lifetime = .keepAlways
         add(screenshot)
@@ -7597,6 +7601,16 @@ final class cmuxUITests: XCTestCase {
         hierarchy.name = "toolbar-\(name)-hierarchy"
         hierarchy.lifetime = .keepAlways
         add(hierarchy)
+    }
+
+    @MainActor
+    private func assertWorkspaceToolbarTitlePresentation(in app: XCUIApplication) {
+        let title = workspaceTitleElement(in: app)
+        let back = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertLessThanOrEqual(title.frame.width, 200,
+                                 "The title must retain the base capsule width in landscape")
+        XCTAssertLessThanOrEqual(title.frame.minX - back.frame.maxX, 30,
+                                 "The title must remain beside Back, including in landscape")
     }
 
     @MainActor
