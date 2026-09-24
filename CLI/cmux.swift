@@ -1846,7 +1846,7 @@ final class ClaudeHookSessionStore {
         includeTerminalPromptTurnIds: Bool = true
     ) -> Bool {
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
-            return true
+            return CodexSessionTurnOwnerAdmission.recordedTurnOwnerMayStillBeAlive(record)
         }
         let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
             || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
@@ -4808,7 +4808,7 @@ struct CMUXCLI {
         }
         if command == SudoExecutionRunner.hiddenCommand {
             Darwin.exit(runHiddenSudoRunner(commandArgs: rawCommandArgs))
-        }
+        }; if command == "__restore-lease-watch" { runRestoreLeaseWatcher(commandArgs: rawCommandArgs) }
         if command == "sudo" {
             let exitCode = try runSudoCommand(commandArgs: rawCommandArgs)
             if exitCode != 0 { Darwin.exit(exitCode) }
