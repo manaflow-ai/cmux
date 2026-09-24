@@ -28,6 +28,7 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 | `cmux-settings get <a.b.c>` | Print value at dotted JSON path. |
 | `cmux-settings set <a.b.c> <value>` | Set value. `<value>` is parsed as JSON (`true`, `42`, `"text"`, `[…]`, `{…}`); unquoted plain words are stored as strings. |
 | `cmux-settings unset <a.b.c>` | Delete key, reverting to the in-app default. |
+| `cmux-settings undo <receipt>` | Restore one path changed by `set`/`unset --receipt`, only if it still holds the value that change installed. |
 | `cmux-settings list-supported` | List every settings JSON path the app recognizes. |
 | `cmux-settings validate` | Run the same semantic validation as `cmux config validate` (unknown paths, types, enums, bounds, nested constraints, and config scope). |
 | `cmux-settings open` | Open `cmux.json` in `$EDITOR`, VS Code, Cursor, or TextEdit. |
@@ -49,6 +50,24 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
    ```
 3. Read back and `cmux-settings validate`.
 4. Tell the user it auto-reloaded, and that `cmux-settings unset <key>` reverts it.
+
+`set` and `unset` print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing.
+
+## Reversible changes
+
+Use these when a change may need to be taken back later, for example a preset the user can uninstall:
+
+```bash
+cmux-settings set computerUse.showInMenuBar false --preview        # prints the change and a revision; writes nothing
+cmux-settings set computerUse.showInMenuBar false \
+  --expect-revision <revision> --receipt ~/private/menu-bar-undo.json
+cmux-settings undo ~/private/menu-bar-undo.json
+```
+
+- `--expect-revision` refuses the write if the file changed since the preview.
+- `--receipt` creates a new mode-0600 file and never overwrites one. It holds config values, so keep it private.
+- `undo` restores the prior value, or the prior absence, only while the path on the same resolved file still holds the value the receipt installed. If the user or another tool changed it since, `undo` returns `undo_conflict` and leaves the newer choice alone.
+- Plain `unset` is an unconditional reset, not an undo.
 
 ## Quick reference
 

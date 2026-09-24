@@ -486,9 +486,10 @@ if ! awk '
   /^      - name: Move channel release tag to built commit/ { in_move=1; next }
   in_move && /^      - name:/ { in_move=0 }
   in_move && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_move_if=1 }
-  END { exit !saw_move_if }
+  in_move && /scripts\/ci\/update-release-tag\.py/ { saw_api_update=1 }
+  END { exit !(saw_move_if && saw_api_update) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: moving the channel release tag must be gated to publishing runs"
+  echo "FAIL: moving the channel release tag must be gated to publishing runs and use the verified API helper"
   exit 1
 fi
 
