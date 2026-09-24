@@ -7536,8 +7536,11 @@ final class cmuxUITests: XCTestCase {
             // Capture before assertions so a visual regression still leaves usable evidence.
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
             if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
-                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
-                                                 includesAlternateScreen: scenario == "alternate-screen")
+                if scenario == "alternate-screen" {
+                    assertNativeWorkspaceToolbarUsesBaseOverflow(in: app)
+                } else {
+                    assertNativeWorkspaceToolbarFits(in: app, includesChanges: true)
+                }
                 assertWorkspaceToolbarTitlePresentation(in: app)
             }
             tap(surface, in: app)
@@ -7585,10 +7588,17 @@ final class cmuxUITests: XCTestCase {
             XCUIDevice.shared.orientation = orientation
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             captureWorkspaceToolbarPresentation(in: app, name: "crowded-\(orientation.rawValue)")
-            assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
-            tap(app.buttons["MobileTerminalDropdown"], in: app)
-            assertTerminalMenuItemExists("terminal-delayed", in: app)
-            dismissOpenMenu(in: app)
+            if orientation == .portrait {
+                assertNativeWorkspaceToolbarUsesBaseOverflow(in: app)
+            } else {
+                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
+            }
+            let picker = app.buttons["MobileTerminalDropdown"]
+            if picker.exists, picker.isHittable {
+                tap(picker, in: app)
+                assertTerminalMenuItemExists("terminal-delayed", in: app)
+                dismissOpenMenu(in: app)
+            }
         }
         tap(app.buttons["MobileTerminalAltScreenNoticeButton"], in: app)
         let dismissNotice = app.buttons["MobileTerminalAltScreenNoticeDismissPermanentlyButton"]
@@ -8718,6 +8728,20 @@ final class cmuxUITests: XCTestCase {
             line: line
         )
         XCTAssertFalse(bar.buttons["More"].exists, "Essential controls must stay out of overflow", file: file, line: line)
+    }
+
+    @MainActor
+    private func assertNativeWorkspaceToolbarUsesBaseOverflow(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let bar = app.navigationBars["MobileWorkspaceNavigationBar"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 4), file: file, line: line)
+        XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForExistence(timeout: 4), file: file, line: line)
+        XCTAssertTrue(bar.buttons["OverflowBarButtonItem"].waitForExistence(timeout: 4), file: file, line: line)
+        XCTAssertFalse(app.buttons["MobileChangesButton"].exists, file: file, line: line)
+        XCTAssertFalse(app.buttons["MobileTerminalDropdown"].exists, file: file, line: line)
     }
 
     @MainActor

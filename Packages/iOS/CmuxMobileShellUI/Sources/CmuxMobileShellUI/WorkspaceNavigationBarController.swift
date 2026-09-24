@@ -11,6 +11,7 @@ final class WorkspaceNavigationBarController: UIViewController {
     private var leadingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroups: [UIBarButtonItemGroup] = []
+    private var trailingGroupLandscape: Bool?
     private let trailingRepresentative = UIBarButtonItem(
         image: UIImage(systemName: "ellipsis"), style: .plain, target: nil, action: nil
     )
@@ -81,7 +82,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         let nextTrailingIDs = trailingItems.map(\.id)
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs
-            trailingGroups = makeTrailingGroups(for: trailingIDs)
+            trailingGroupLandscape = nil
         }
         let visibleIDs = Set((leadingItems + trailingItems).map(\.id))
         controls = controls.filter { visibleIDs.contains($0.key) }
@@ -104,6 +105,10 @@ final class WorkspaceNavigationBarController: UIViewController {
         let item = target.navigationItem
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
         let isLandscape = target.view.bounds.width > target.view.bounds.height
+        if trailingGroupLandscape != isLandscape {
+            trailingGroups = makeTrailingGroups(for: trailingIDs, isLandscape: isLandscape)
+            trailingGroupLandscape = isLandscape
+        }
         for value in leadingGroup.barButtonItems {
             (value.customView as? WorkspaceNavigationControlView)?.update(
                 placement: .leading,
@@ -136,7 +141,8 @@ final class WorkspaceNavigationBarController: UIViewController {
     }
 
     private func makeTrailingGroups(
-        for ids: [WorkspaceNavigationBar.Item.ID]
+        for ids: [WorkspaceNavigationBar.Item.ID],
+        isLandscape: Bool
     ) -> [UIBarButtonItemGroup] {
         let warning = ids.first(where: { $0 == .alternateScreen }).flatMap { controls[$0]?.button }
         let collapsible = ids.filter { $0 != .alternateScreen }.compactMap { controls[$0]?.button }
@@ -145,15 +151,21 @@ final class WorkspaceNavigationBarController: UIViewController {
             groups.append(UIBarButtonItemGroup(barButtonItems: [warning], representativeItem: nil))
         }
         if !collapsible.isEmpty {
-            trailingRepresentative.accessibilityIdentifier = "OverflowBarButtonItem"
-            trailingRepresentative.accessibilityLabel = "More"
-            if #available(iOS 26.0, *) {
-                trailingRepresentative.sharesBackground = true
-                warning?.sharesBackground = true
+            let representative: UIBarButtonItem?
+            if warning != nil, !isLandscape {
+                trailingRepresentative.accessibilityIdentifier = "OverflowBarButtonItem"
+                trailingRepresentative.accessibilityLabel = "More"
+                representative = trailingRepresentative
+                if #available(iOS 26.0, *) {
+                    trailingRepresentative.sharesBackground = true
+                    warning?.sharesBackground = true
+                }
+            } else {
+                representative = nil
             }
             groups.append(UIBarButtonItemGroup(
                 barButtonItems: collapsible,
-                representativeItem: trailingRepresentative
+                representativeItem: representative
             ))
         }
         return groups
