@@ -16,7 +16,7 @@ struct MobileWhatsNewListView: View {
         // back to the binary catalog, matching the never-fetched policy —
         // still under the channel gate, so official builds never fall back
         // into team-lane announcements.
-        let pages = center?.archivePages ?? MobileWhatsNewCatalog.channelVisibleEntries()
+        let pages = center?.archivePages ?? MobileWhatsNewCatalog().channelVisibleEntries()
         let allowedHosts = center?.allowedWebHosts ?? []
         List {
             ForEach(pages, id: \.listID) { page in

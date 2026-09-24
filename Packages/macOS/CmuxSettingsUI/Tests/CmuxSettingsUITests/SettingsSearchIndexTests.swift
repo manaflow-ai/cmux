@@ -55,6 +55,33 @@ struct SettingsSearchIndexTests {
         UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
     }
 
+    /// Verifies the representative catalog descriptors drive search identity and lookup.
+    @Test func canonicalUserFacingAppTogglesDriveSearchMetadata() throws {
+        let catalog = SettingCatalog()
+        let index = SettingsSearchIndex(catalog: catalog)
+        let keys = [
+            catalog.app.warnBeforeClosingTab,
+            catalog.app.hideTabCloseButton,
+            catalog.app.renameSelectsExistingName,
+        ]
+
+        for key in keys {
+            let descriptor = try #require(key.userFacing)
+            let expectedID = "setting:\(descriptor.section.rawValue):\(descriptor.searchID)"
+            let entry = try #require(index.entries.first { $0.id == expectedID })
+
+            #expect(entry.title == descriptor.title)
+            #expect(index.anchorID(forSettingsPath: key.id) == expectedID)
+            #expect(index.match(descriptor.searchKeywords[0]).contains { $0.id == expectedID })
+        }
+    }
+
+    @Test(arguments: ["text", "selection"])
+    func renameSettingPreservesLegacySearchAliases(query: String) {
+        let result = SettingsSearchIndex(catalog: SettingCatalog()).match(query)
+        #expect(result.contains { $0.id == "setting:app:rename-selects-name" })
+    }
+
     @Test func emptyQueryReturnsAllSectionEntries() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("")

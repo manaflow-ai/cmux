@@ -180,14 +180,15 @@ final class CloudSidebarOrderingFixture {
     let defaultsName = "cloud-sidebar-ordering-\(UUID().uuidString)"
     let catalog: SurfaceCatalog
     let provider: CloudPlacementTestProvider
-    let transferRegistry = TabDragTransferRegistry()
+    let transferRegistry: TabDragTransferRegistry
     let coordinator: CloudTreeOutlineView.Coordinator
     let container: CloudTreeContainerView
     let window: NSWindow
 
-    init() {
+    init(transferRegistry: TabDragTransferRegistry? = nil) {
         defaults = UserDefaults(suiteName: defaultsName)!
         provider = CloudPlacementTestProvider(machine: machine)
+        self.transferRegistry = transferRegistry ?? TabDragTransferRegistry()
         catalog = SurfaceCatalog(sidebarOrganization: CloudSidebarOrganizationStore(defaults: defaults))
         let catalog = catalog
         coordinator = CloudTreeOutlineView.Coordinator(
@@ -197,6 +198,7 @@ final class CloudSidebarOrderingFixture {
                 promptRename: { _, _ in }, resizeDisk: { _, _ in }, promptUpgrade: {}
             ),
             nodeActions: CloudTreeNodeActions.bound(
+                navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                 catalog: { catalog }, selectedWorkspaceID: { nil },
                 selectLocalWorkspace: { _ in }, onWillMutate: { _ in },
                 onDidMutate: {}, onFailure: { _ in }, refresh: {}

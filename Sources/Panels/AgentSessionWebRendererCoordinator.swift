@@ -29,6 +29,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         }
     }
     var onProviderIDChanged: ((AgentSessionProviderID) -> Void)?
+    var onRunCommand: ((String) throws -> [String: Any])?
 
     func bind(
         panelId: UUID,
@@ -618,9 +619,24 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         case "provider.stop":
             try processStore.stop(sessionId: request.requiredString("sessionId"))
             return ["stopped": true]
+        case "terminal.runCommand":
+            return try runTerminalCommandRequest(
+                try request.requiredString("command")
+            )
         default:
             throw AgentSessionBridgeError.unsupportedMethod(request.method)
         }
+    }
+
+    /// Runs one terminal command only while this renderer still owns a live panel.
+    func runTerminalCommandRequest(_ command: String) throws -> [String: Any] {
+        guard !isClosed else {
+            throw AgentSessionBridgeError.invalidRequest
+        }
+        guard let onRunCommand else {
+            throw AgentSessionBridgeError.providerNotReady("terminal")
+        }
+        return try onRunCommand(command)
     }
 
     private func pickLocalFiles() async -> [String: Any] {
