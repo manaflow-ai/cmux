@@ -72,12 +72,14 @@ env:
   # needs the cmux-cli product and its test bundle -- not the app, and not the
   # app-host or numeric-locale bundles.
   #
-  # Any macOS routing keeps the full product: the app-host shards consume it,
-  # and admission is also the check that proves the app itself still compiles.
+  # macOS routing keeps the full product while anything needs it: the app-host
+  # shards consume it, and admission is also the check that proves the app
+  # itself still compiles. Once an earlier run has admitted these inputs and
+  # no app-host shard is routed, a CLI route only needs the cli product.
   # Producer and consumer must agree here, so it is declared once for every job
   # -- a consumer recomputing a different profile's identity simply declines
   # the artifact, which would silently cost a compile instead of reusing one.
-  CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && 'app-host' || 'cli' }}
+  CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true' || inputs.compile_admitted != 'true') && 'app-host' || 'cli' }}
 
 jobs:
   macos-compile-admission:
@@ -88,9 +90,9 @@ jobs:
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
     if: ${{ (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
-    # NOTE: the cli clause above still forces a compile when an earlier run was
-    # already admitted. That is now cheap for CLI-only routing (one scheme via
-    # CMUX_PRODUCT_PROFILE), so it no longer buys a full app build.
+    # The cli clause above still compiles when an earlier run already admitted
+    # these inputs. CMUX_PRODUCT_PROFILE then selects the cli product, one
+    # scheme, so it no longer buys a full app build.
     runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 75
     permissions:
@@ -578,7 +580,13 @@ jobs:
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          python3 scripts/swift_warning_budget.py --log "$CMUX_COMPILE_ADMISSION_DERIVED_DATA/cmux-build.log"
+          # The build writes one log per scheme, and the profile's first scheme
+          # is the one whose warnings the budget covers (cmux for app-host,
+          # cmux-cli-tests for a CLI-only product).
+          first_scheme="$(python3 scripts/ci/product_input_identity.py schemes | awk '{print $1}')"
+          log="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/$first_scheme-build.log"
+          test -s "$log" || { echo "::error::missing Swift warning log $log" >&2; exit 1; }
+          python3 scripts/swift_warning_budget.py --log "$log"
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
