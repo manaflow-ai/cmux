@@ -249,10 +249,14 @@ jobs:
         with:
           bun-version: "1.3.6"
 
-      - name: Validate Claude launch environment policy behavior
+      # `bun run check` type-checks agent-chat and runs the unit tests listed
+      # in its package.json, including the Claude launch environment policy.
+      - name: Check agent-chat types and unit tests
         if: ${{ matrix.group == 'preflight' }}
         working-directory: agent-chat
-        run: bun test/claude-environment.test.ts
+        run: |
+          bun install --frozen-lockfile
+          bun run check
 
       # The committed control-plane wire types (Swift + TS) must be exactly
       # what quicktype regenerates from schemas/control-plane/; fails on any
