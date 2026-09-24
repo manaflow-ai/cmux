@@ -31,9 +31,7 @@ final class RemoteTerminalFilePreviewCoordinator {
     func open(workspace: Workspace, sourcePanelID: UUID, tokens: [String]) -> Bool {
         let tokens = tokens.filter { RemoteTerminalPathResolver().isFileReference($0) }
         guard !tokens.isEmpty,
-              workspace.isRemoteTerminalSurface(sourcePanelID),
-              let configuration = workspace.remoteConfiguration,
-              configuration.transport == .ssh,
+              let configuration = workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID),
               let panel = workspace.terminalPanel(for: sourcePanelID) else { return false }
         tasks[sourcePanelID]?.task.cancel()
         let settings = FileRouteSettingsStore(defaults: defaults)
@@ -67,6 +65,8 @@ final class RemoteTerminalFilePreviewCoordinator {
         let sourceSurface = panel.surface
         let lifecycleID = sourceSurface.terminalLifecycleId
         let attemptID = workspace.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID]
+        let tuiAttemptID = workspace.sshTuiConnectionAttemptID
+        let projectionResource = SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource
         let task = Task { [weak self, weak workspace, weak panel, weak sourceSurface] in
             defer {
                 if self?.tasks[sourcePanelID]?.id == requestID {
@@ -88,13 +88,14 @@ final class RemoteTerminalFilePreviewCoordinator {
                 guard let self, let workspace, let panel, let sourceSurface,
                       !ManagedFileTransferPolicy.isDisabled,
                       !workspace.isRetiredFromOwningTabManager,
-                      workspace.remoteConfiguration == configuration,
+                      workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
                       workspace.terminalPanel(for: sourcePanelID) === panel,
                       panel.surface === sourceSurface,
                       sourceSurface.terminalLifecycleId == lifecycleID,
                       workspace.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID] == attemptID,
+                      workspace.sshTuiConnectionAttemptID == tuiAttemptID,
+                      SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource == projectionResource,
                       sourceSurface.owningWorkspace() === workspace,
-                      workspace.isRemoteTerminalSurface(sourcePanelID),
                       workspace.owningTabManager?.selectedTabId == workspace.id,
                       workspace.focusedPanelId == sourcePanelID,
                       panel.hostedView.window?.isKeyWindow == true else {
@@ -118,7 +119,8 @@ final class RemoteTerminalFilePreviewCoordinator {
                 cmuxDebugLog("remotePreview.failed request=\(requestID.uuidString)")
                 #endif
                 guard let workspace, let panel,
-                      workspace.remoteConfiguration == configuration,
+                      workspace.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
+                      workspace.sshTuiConnectionAttemptID == tuiAttemptID,
                       workspace.terminalPanel(for: sourcePanelID) === panel,
                       workspace.owningTabManager?.selectedTabId == workspace.id,
                       workspace.focusedPanelId == sourcePanelID,
