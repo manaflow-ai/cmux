@@ -37,6 +37,7 @@ on:
           - auto
           - blacksmith-6vcpu-macos-15
           - blacksmith-6vcpu-macos-26
+          - blacksmith-12vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
           - tart-canary
           - tart-dual
