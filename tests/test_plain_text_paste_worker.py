@@ -92,6 +92,13 @@ class PlainTextPasteWorkerTests(unittest.TestCase):
                 print(json.dumps(dict(helper_startup_ms=ms, directory=directory_index,
                                       repetition=repetition, size=Path(HELPER).stat().st_size)), flush=True)
 
+    def test_plain_text_with_html_uses_fast_path(self):
+        text = "hello\n日本語 🦀\n"
+        board = self.board(text=text, extra={"public.html": "<p>rich</p>"})
+        result = self.result(self.directory(board))
+        self.assertEqual(result["textPayload"]["destination"], {"terminal": {}})
+        self.assertEqual((self.workdirs[-1] / "text-payload.txt").read_bytes(), text.encode())
+
     def test_rich_images_and_auxiliary_urls_delegate_without_provider_read(self):
         for flavor in ["public.html", "public.rtf", "com.apple.flat-rtfd", "public.png",
                        "public.tiff", "public.jpeg", "public.file-url", "public.url",
