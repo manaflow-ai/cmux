@@ -8016,6 +8016,15 @@ mod tests {
                 text.contains(final_text),
                 "exit became visible before final PTY bytes: {text:?}"
             );
+            let attach = surface.attach_stream().expect("local exit must retain byte replay");
+            let mut mirror =
+                Terminal::new(attach.cols, attach.rows, 10_000, Callbacks::default()).unwrap();
+            mirror.vt_write(&attach.replay);
+            assert!(mirror.plain_text().unwrap().contains(final_text));
+            assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Disconnected)));
+            let render =
+                surface.attach_render_stream().expect("local exit must retain render replay");
+            assert!(matches!(render.stream.try_recv(), Err(TryRecvError::Disconnected)));
             exit
         }
 
