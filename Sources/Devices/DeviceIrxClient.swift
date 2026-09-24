@@ -285,14 +285,15 @@ actor DeviceIrxClient {
         let connection = try await context.supervisor.dial(address: address, credentials: credentials)
         do {
             guard await context.isCurrent() else { throw DeviceLinkError.notConnected }
-            let (admit, control) = try await IrxAdmission().performClient(connection: connection, journal: journal)
+            let (admit, control) = try await IrxAdmission().performClient(
+                connection: connection, journal: journal,
+                authorizesDirectPaths: context.allowsDirectPaths)
             let latest = try intent.resolve(cache: await context.control.snapshot().cache,
                 localIdentity: context.localDevice.descriptor.identity, now: now())
             guard latest.deviceRecordID == target.deviceRecordID,
                   latest.descriptor.identityGeneration == target.descriptor.identityGeneration,
                   await context.isCurrent(), await recordBinding(target) else { throw DeviceLinkError.identityMismatch }
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
-            if context.allowsDirectPaths { await connection.authorizeDirectPaths() }
             return IrxClientSession(connection: connection, admit: admit, control: control, establishedAt: now())
         } catch {
             await connection.close(code: .userRequested, origin: .local)

@@ -156,10 +156,13 @@ extension MobileIrxRuntimeComposition {
         let connection = try await supervisor.dial(address: address, credentials: credentials)
         do {
             try await assertScope(scope, epoch: currentEpoch)
-            let (admit, control) = try await IrxAdmission().performClient(connection: connection, journal: journal)
+            var authorizesDirectPaths = false
+            if !forceRelayOnly, case .automatic = intent { authorizesDirectPaths = true }
+            let (admit, control) = try await IrxAdmission().performClient(
+                connection: connection, journal: journal,
+                authorizesDirectPaths: authorizesDirectPaths)
             try await assertScope(scope, epoch: currentEpoch)
             await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
-            if !forceRelayOnly, case .automatic = intent { await connection.authorizeDirectPaths() }
             try await assertScope(scope, epoch: currentEpoch)
             activeDialIntentByPeer[peerHex] = intent
             admittedSessionCount += 1

@@ -53,13 +53,25 @@ public struct IrxAdmission: Sendable {
     /// list-auth mode; the optional grant exists only for legacy dialects),
     /// await the admit. A denial arrives as the connection's own termination
     /// and is rethrown with its parsed code.
+    ///
+    /// `authorizesDirectPaths` owns the client side of the NAT barrier: the
+    /// hello offers the capability, and after the admit the client authorizes
+    /// NAT traversal itself, then (when the server acked) signals
+    /// ``IrxClientReady``. The server holds its own authorization, and with
+    /// it its ADD_ADDRESS candidate advertisement, until that signal, because
+    /// candidates that reach a not-yet-authorized peer are discarded and
+    /// tombstoned by the transport with no retransmission (the frames were
+    /// ACKed), which strands the connection on relay permanently.
     public func performClient(
         connection: IrxConnection,
         grantJWS: String? = nil,
-        journal: IrxJournal
+        journal: IrxJournal,
+        authorizesDirectPaths: Bool = false
     ) async throws -> (IrxAdmit, IrxLaneStream) {
         do {
-            return try await clientExchange(connection: connection, grantJWS: grantJWS, journal: journal)
+            return try await clientExchange(
+                connection: connection, grantJWS: grantJWS, journal: journal,
+                authorizesDirectPaths: authorizesDirectPaths)
         } catch let denial as IrxAdmissionDenied {
             throw denial
         } catch {
@@ -80,11 +92,13 @@ public struct IrxAdmission: Sendable {
     private func clientExchange(
         connection: IrxConnection,
         grantJWS: String?,
-        journal: IrxJournal
+        journal: IrxJournal,
+        authorizesDirectPaths: Bool
     ) async throws -> (IrxAdmit, IrxLaneStream) {
         let startedAt = DispatchTime.now()
         let control = try await connection.openLane(IrxLaneDescriptor(lane: .control))
-        try await control.writer.writeControlFrame(IrxHello(grant: grantJWS))
+        try await control.writer.writeControlFrame(
+            IrxHello(grant: grantJWS, natBarrier: authorizesDirectPaths ? true : nil))
         let admit: IrxAdmit?
         do {
             admit = try await withIrxDeadline(deadline, onTimeout: {
@@ -144,6 +158,20 @@ public struct IrxAdmission: Sendable {
                 "path": connection.selectedPathDescription(),
             ]
         )
+        if authorizesDirectPaths {
+            // Client-first ordering: authorize before signaling the server,
+            // so the server's candidate advertisement can only reach an
+            // already-authorized client. authorizeDirectPaths never throws;
+            // a failed authorization is journaled and ready is still sent so
+            // a barrier server cannot deadlock waiting on it.
+            await connection.authorizeDirectPaths()
+            if admit.natBarrier == true {
+                try await control.writer.writeControlFrame(IrxClientReady())
+                journal.record("admission", "nat-barrier", ["state": "client-ready-sent"])
+            } else {
+                journal.record("admission", "nat-barrier", ["state": "legacy-server"])
+            }
+        }
         return (admit, control)
     }
 
@@ -214,7 +242,28 @@ public struct IrxAdmission: Sendable {
             // Lanes: keepalive + terminals + artifact + headroom. Uni stays 0
             // (the client never opens unidirectional streams).
             await connection.raiseRemoteStreamCredit(bi: 64, uni: 0)
-            try await control.writer.writeControlFrame(IrxAdmit(session: sessionID))
+            let barrier = hello.natBarrier == true
+            try await control.writer.writeControlFrame(
+                IrxAdmit(session: sessionID, natBarrier: barrier ? true : nil))
+            if barrier {
+                // Hold admission open until the client proves it authorized
+                // NAT traversal, so this side's authorization (and with it
+                // the ADD_ADDRESS candidate advertisement) can never beat the
+                // client's own authorization onto the wire.
+                let readyResult = try await withIrxDeadlineResult(deadline) {
+                    try await control.reader.readControlFrame(IrxClientReady.self)
+                }
+                switch readyResult {
+                case .operation(.some):
+                    journal.record(
+                        "admission", "nat-barrier", ["state": "client-ready-received"])
+                case .operation(.none), .timeout:
+                    journal.record(
+                        "admission", "nat-barrier", ["state": "client-ready-missing"])
+                    await connection.close(code: .admissionTimeout, origin: .local)
+                    return nil
+                }
+            }
             journal.record(
                 "admission", "admitted",
                 [
