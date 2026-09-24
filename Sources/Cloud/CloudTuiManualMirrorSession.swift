@@ -16,7 +16,6 @@ private let manualMirrorLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class CloudTuiManualMirrorSession {
     private static let replayReset = Data([0x1B, 0x63, 0x1B, 0x5B, 0x33, 0x4A])
-
     let machineID: String
     let terminalID: String
     private(set) var remoteSurfaceID: UInt64
@@ -564,6 +563,7 @@ final class CloudTuiManualMirrorSession {
                 inputRouter.updateSurfaceID(surfaceID)
             }
             guard surfaceID == remoteSurfaceID else { return }
+            surface?.prepareForRemoteReplay(columns: columns, rows: rows)
             // A snapshot replaces the local VT state. Reset first so cells,
             // cursor state, alternate-screen mode, and SGR from a prior
             // restore cannot survive where the replacement is shorter.
@@ -583,6 +583,7 @@ final class CloudTuiManualMirrorSession {
             applyColors(colors)
         case let .resized(surfaceID, columns, rows, bytes, colors):
             guard surfaceID == remoteSurfaceID else { return }
+            surface?.prepareForRemoteReplay(columns: columns, rows: rows)
             // `resized` carries a replacement replay, not an incremental
             // output chunk. Resetting first prevents old rows/cursor state from
             // surviving a shrink or a reconnect.
@@ -622,7 +623,6 @@ final class CloudTuiManualMirrorSession {
             break
         }
     }
-
     private func applyReplay(_ bytes: Data) {
         // A snapshot/resized frame replaces the local VT state. Drop every
         // remote color before the reset rather than trusting RIS to do it: the
