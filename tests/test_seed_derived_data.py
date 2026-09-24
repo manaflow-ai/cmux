@@ -7,6 +7,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -75,7 +76,10 @@ class SeedDerivedData(unittest.TestCase):
 
     def adopt(self, mode):
         os.environ["FAKE_MODE"] = mode
-        return seed.adopt(self.source, self.derived, "admission-derived-data-v1-x-base", "admission-derived-data-v1-x-")
+        # On darwin a hit runs `defaults write com.apple.dt.XCBuild ...`;
+        # tests must never change the developer's real Xcode default.
+        with mock.patch.object(seed.sys, "platform", "linux"):
+            return seed.adopt(self.source, self.derived, "admission-derived-data-v1-x-base", "admission-derived-data-v1-x-")
 
     def mtime(self, relative):
         return (self.source / relative).stat().st_mtime_ns
@@ -209,6 +213,12 @@ class Wiring(unittest.TestCase):
         job = workflow["jobs"]["seed"]
         self.assertEqual(job["runs-on"], nightly["runs-on"])
         self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"], nightly["env"]["CMUX_CI_XCODE_APP"])
+
+        # Resolve against the same Swift package cache admission restores, so
+        # a layout change invalidates both keys together.
+        _, seed_spm = named(seeder, "Cache Swift packages")
+        _, admission_spm = named(steps("ci-macos.yml", "macos-compile-admission"), "Cache Swift packages")
+        self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
 
     def test_adoption_is_optional_and_limited_to_pull_requests(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
