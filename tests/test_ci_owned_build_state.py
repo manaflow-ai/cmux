@@ -149,6 +149,38 @@ class AdoptAndSave(Fixture):
             self.assertEqual(state.main(["x", "check", "only"]), 2)
 
 
+class WorkflowCommandLines(unittest.TestCase):
+    """Run every owned_build_state.py line of the workflow as written (run 36064525977 exited 2)."""
+
+    def test_each_workflow_call_is_one_the_script_accepts(self):
+        import re
+        import subprocess
+
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
+        steps = workflow["jobs"]["macos-compile-admission"]["steps"]
+        calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
+        self.assertEqual(len(calls), 4)
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            (base / "derived").mkdir()
+            env = {"PATH": "/usr/bin:/bin", "CMUX_OWNED_STATE_ROOT": str(base / "store"),
+                   "CMUX_COMPILE_ADMISSION_DERIVED_DATA": str(base / "derived"),
+                   "CMUX_CI_CANONICAL_SRC": str(base / "src"), "FINGERPRINT": "fp",
+                   "HOME": str(base)}
+            for step in calls:
+                script = step["run"]
+                # The fingerprint comes from Xcode; stand in for it.
+                script = re.sub(r'fingerprint="\$\(scripts/ci/compile-app-host-test-product\.sh[^\n]*\n',
+                                'fingerprint=fp\n', script)
+                script = script.replace('>> "$GITHUB_OUTPUT"', ">/dev/null")
+                script = script.replace("python3 scripts/ci/owned_build_state.py",
+                                        f"{sys.executable} {ROOT / 'scripts/ci/owned_build_state.py'}")
+                result = subprocess.run(["bash", "-c", script], cwd=base, env=env, capture_output=True, text=True)
+                # adopt runs `defaults` on macOS only after a hit; a miss here is fine.
+                self.assertEqual(result.returncode, 0, f"{step['name']}: {result.stderr[-400:]}")
+                self.assertNotIn("owned_build_state.py check STORE", result.stderr, step["name"])
+
+
 class Wiring(unittest.TestCase):
     """Only an owned runner keeps state, and it never uploads it."""
 

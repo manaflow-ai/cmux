@@ -7,6 +7,7 @@ import os
 import json
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -273,13 +274,12 @@ class CanonicalRecipeTests(unittest.TestCase):
             # Derive the expected calls from the recipe rather than pinning a
             # count: one version probe, one resolve, then one build per scheme.
             # A hardcoded total silently breaks whenever a scheme is added --
-            # cmux-cli-tests did exactly that.
-            schemes = re.findall(
-                r"for scheme in ([^;]+); do",
-                SCRIPT.read_text(encoding="utf-8"),
-            )
-            self.assertEqual(len(schemes), 1, "expected one scheme loop in the recipe")
-            expected_schemes = schemes[0].split()
+            # cmux-cli-tests did exactly that. The recipe now takes its scheme
+            # list from PRODUCT_PROFILES, so read the same source it does.
+            sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+            import product_input_identity as identity
+
+            expected_schemes = list(identity.profile_schemes("app-host"))
             self.assertEqual(len(records), 2 + len(expected_schemes))
             # resolve() also passes -scheme (cmux-unit) alongside
             # -resolvePackageDependencies; only the build invocations count.
