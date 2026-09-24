@@ -25,7 +25,7 @@ final class WorkspaceNavigationControlView: UIView {
             contentView.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             contentWidth,
-            widthAnchor.constraint(equalTo: contentWidth, constant: 16),
+            widthAnchor.constraint(equalTo: contentView.widthAnchor, constant: 16),
             heightAnchor.constraint(equalToConstant: 36),
         ])
         addSubview(contentView)
