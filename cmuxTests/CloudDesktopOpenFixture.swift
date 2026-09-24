@@ -13,6 +13,8 @@ import Testing
 @MainActor
 final class CloudDesktopOpenFixture {
     let app: VaultPaneAppFixture
+    /// Never shown. It only makes the fixture's window context routable.
+    let window: NSWindow
     let catalog: SurfaceCatalog
     let provider: CloudDesktopOpenTestProvider
     let owner: Workspace
@@ -44,6 +46,17 @@ final class CloudDesktopOpenFixture {
 
     init(ownerID: String = "desktop-a", hasRemoteView: Bool = true) throws {
         app = try VaultPaneAppFixture()
+        // A drop onto a pane resolves that pane through the main-window
+        // registry (`v2LocatePane`), which lists only contexts that own a
+        // window. The app always has one; the testing context is registered
+        // without one, so the drop would throw `paneNotFound` inside its Task.
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
+        let windowID = app.windowID
+        let context = try #require(app.appDelegate.mainWindowContexts.values.first { $0.windowId == windowID })
+        context.window = window
         owner = app.workspace
         other = app.manager.addWorkspace(title: "workspace-1", select: false)
         owner.cloudVMBinding = WorkspaceCloudVMBinding(vmID: ownerID, isBase: false, remoteWorkspaceID: "ws-same")
@@ -129,6 +142,12 @@ final class CloudDesktopOpenFixture {
     func drop(_ row: CloudTreeNode, into workspace: Workspace) async throws {
         let group = try #require(row.dragGroup)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        // The drop's Task swallows a routing failure, so check the lookup it
+        // performs first and fail here instead of after the commit deadline.
+        let route = try #require(TerminalController.shared.v2LocatePane(pane.id),
+            "the drop's target pane is not routable through the main-window registry")
+        try #require(route.windowId == app.windowID && route.workspace === workspace)
+        try #require(workspace.selectedPanelForPaneDrop(in: pane) != nil)
         let expected = catalog.projections(of: display.id).count + 1
         let committed = CloudLinkFirstValue<Bool>()
         let catalog = catalog
@@ -160,6 +179,8 @@ final class CloudDesktopOpenFixture {
         catalog.unregister(machine: provider.machine)
         app.manager.tabs.forEach { $0.teardownAllPanels() }
         app.tearDown()
+        app.appDelegate.forgetRecoverableMainWindowRoute(windowId: app.windowID)
+        window.close()
         defaults.removePersistentDomain(forName: defaultsName)
     }
 }
