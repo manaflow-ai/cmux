@@ -1,5 +1,6 @@
-import AppKit
-import WebKit
+public import AppKit
+import CMUXDebugLog
+public import WebKit
 
 /// Base class for every WebKit view that cmux embeds in an app window.
 ///
@@ -7,13 +8,21 @@ import WebKit
 /// `NSResponder` otherwise resolves that property to the window's shared
 /// manager, which lets commands from a closed web view remain in a different
 /// object's undo stack and later message a dangling target.
-class CmuxUndoableWebView: WKWebView {
-    let webContentUndoManager = UndoManager()
+open class CmuxUndoableWebView: WKWebView {
+    public let webContentUndoManager = UndoManager()
 
-    override var undoManager: UndoManager? { webContentUndoManager }
+    open override var undoManager: UndoManager? { webContentUndoManager }
+
+    /// Whether `event` is the keyboard-layout-aware Cmd+Z or Cmd+Shift+Z
+    /// chord this view completes. The keyboard layout lookup lives in the
+    /// app, so each concrete web view class overrides this; the base class
+    /// recognizes no chord.
+    open func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        false
+    }
 
     /// Completes a routed WebKit undo command after the page declines it.
-    override func keyDown(with event: NSEvent) {
+    open override func keyDown(with event: NSEvent) {
         if performWebContentUndoRedo(for: event) {
             return
         }
@@ -25,7 +34,7 @@ extension NSWindow {
     /// Finds an embedded WebKit view from a responder without depending on
     /// browser-only panel state. Agent-session and Markdown views use this
     /// path when their web content owns first responder.
-    func cmuxOwningUndoableWebView(for responder: NSResponder) -> CmuxUndoableWebView? {
+    public func cmuxOwningUndoableWebView(for responder: NSResponder) -> CmuxUndoableWebView? {
         if let webView = responder as? CmuxUndoableWebView {
             return webView
         }
@@ -78,13 +87,13 @@ extension CmuxUndoableWebView {
     /// Returns `false` when `event` is not an undo/redo command equivalent.
     /// Otherwise the chord is consumed even when the relevant stack is empty,
     /// mirroring a disabled Edit-menu item rather than re-forwarding the key.
-    func performWebContentUndoRedo(for event: NSEvent) -> Bool {
-        guard event.cmuxIsUndoRedoCommandEquivalent else { return false }
+    public func performWebContentUndoRedo(for event: NSEvent) -> Bool {
+        guard isWebContentUndoRedoCommandEquivalent(event) else { return false }
         let isRedo = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .contains(.shift)
 #if DEBUG
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.webContentUndoRedo \(isRedo ? "redo" : "undo") " +
             "web=\(ObjectIdentifier(self)) " +
             "canUndo=\(webContentUndoManager.canUndo ? 1 : 0) " +

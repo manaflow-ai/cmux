@@ -1,6 +1,6 @@
-import AppKit
-import ObjectiveC
-import WebKit
+public import AppKit
+public import ObjectiveC
+public import WebKit
 
 /// Context-menu link resolution for `CmuxWebView`.
 ///
@@ -22,8 +22,8 @@ extension CmuxWebView {
     /// stored property lives in `CmuxWebView.swift` because extensions cannot
     /// add stored properties.
     struct ContextMenuCapturedLink {
-        let url: URL?
-        let uptime: TimeInterval
+        public let url: URL?
+        public let uptime: TimeInterval
     }
 
     private static let contextMenuLinkCaptureMessageHandlerName = "cmuxContextMenuLinkCapture"
@@ -34,7 +34,7 @@ extension CmuxWebView {
     /// have no way to produce a trusted DOM event, so they opt back in. The
     /// flag is baked into the injected script at install time (set it before
     /// creating the web view); the production bridge path never consults it.
-    static var contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = false
+    public static var contextMenuLinkCaptureAcceptsUntrustedEventsForTesting = false
 
     /// Isolated content world for the context-menu link capture hook. Both the
     /// injected script and the message handler live here, not the page world,
@@ -188,7 +188,7 @@ extension CmuxWebView {
     /// on the opposite side of the page). `pageZoom` scales CSS pixels
     /// relative to view points, so on a zoomed page the division is required
     /// or the hit test lands on the wrong element.
-    func cssViewportPoint(for point: NSPoint) -> CGPoint {
+    public func cssViewportPoint(for point: NSPoint) -> CGPoint {
         let zoom = pageZoom > 0 ? pageZoom : 1
         let topLeftY = isFlipped ? point.y : bounds.height - point.y
         return CGPoint(x: point.x / zoom, y: topLeftY / zoom)

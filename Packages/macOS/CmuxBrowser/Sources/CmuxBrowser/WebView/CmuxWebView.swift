@@ -1,17 +1,38 @@
-import AppKit
+public import AppKit
 import Bonsplit
-import CmuxBrowser
-import ObjectiveC
+import CMUXDebugLog
+public import ObjectiveC
 import UniformTypeIdentifiers
-import WebKit
+public import WebKit
 
 /// WKWebView can consume app command equivalents before app menu/SwiftUI Commands.
 /// Route app/menu shortcuts first, but allow browser content to try browser-local
 /// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
 /// find or right-sidebar file search from the current focus owner.
-final class CmuxWebView: CmuxUndoableWebView {
-    var browserViewportModel: BrowserViewportModel?
-    var onBrowserViewportHierarchyChanged: (() -> Void)?
+public final class CmuxWebView: CmuxUndoableWebView {
+    /// App services this web view calls back into, injected where the web
+    /// view is created. `nil` only for views decoded from a nib.
+    private let host: (any CmuxWebViewHost)?
+
+    /// Posted when a `CmuxWebView` becomes first responder. `userInfo` carries
+    /// ``firstResponderPointerInitiatedUserInfoKey`` as a `Bool`.
+    public nonisolated static let didBecomeFirstResponderNotification = Notification.Name("browserDidBecomeFirstResponderWebView")
+
+    /// Posted when a pointer click reaches a `CmuxWebView`.
+    public nonisolated static let didReceiveClickNotification = Notification.Name("webViewDidReceiveClick")
+
+    /// `userInfo` key of ``didBecomeFirstResponderNotification``: whether a
+    /// pointer event initiated the focus change.
+    public nonisolated static let firstResponderPointerInitiatedUserInfoKey = "pointerInitiated"
+
+    /// Pasteboard type of bonsplit tab drags.
+    private static let bonsplitTabTransferType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
+
+    /// Pasteboard type of sidebar workspace reorder drags.
+    private static let sidebarTabReorderType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
+
+    public var browserViewportModel: BrowserViewportModel?
+    public var onBrowserViewportHierarchyChanged: (() -> Void)?
 
     /// One-shot app-owned internal navigations (file/data/blob/etc.) that
     /// must pass the browser URL policy's trusted-load seam. Page callbacks
@@ -19,22 +40,22 @@ final class CmuxWebView: CmuxUndoableWebView {
     private var trustedInternalNavigationURLs: Set<String> = []
 
     @MainActor
-    func markTrustedInternalNavigation(_ url: URL) {
+    public func markTrustedInternalNavigation(_ url: URL) {
         trustedInternalNavigationURLs.insert(url.absoluteString)
     }
 
     @MainActor
-    func consumeTrustedInternalNavigation(_ url: URL) -> Bool {
+    public func consumeTrustedInternalNavigation(_ url: URL) -> Bool {
         trustedInternalNavigationURLs.remove(url.absoluteString) != nil
     }
 
     @MainActor
-    func clearTrustedInternalNavigationGrants() {
+    public func clearTrustedInternalNavigationGrants() {
         trustedInternalNavigationURLs.removeAll()
     }
 
     @MainActor
-    func resetTrustedInternalNavigationState() {
+    public func resetTrustedInternalNavigationState() {
         clearTrustedInternalNavigationGrants()
     }
 
@@ -75,7 +96,7 @@ final class CmuxWebView: CmuxUndoableWebView {
       ]);
 
       const deepestActiveElement = (root) => {
-        let active = root?.activeElement ?? null;
+        public let active = root?.activeElement ?? null;
         while (active) {
           const shadowActive = active.shadowRoot?.activeElement ?? null;
           if (shadowActive && shadowActive !== active) {
@@ -162,7 +183,7 @@ final class CmuxWebView: CmuxUndoableWebView {
       return helpers;
     })();
     """
-    static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
+    public static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
     (() => {
       try {
         if (window.__cmuxPasteAsPlainTextFocusTrackerInstalled) return true;
@@ -249,7 +270,7 @@ final class CmuxWebView: CmuxUndoableWebView {
 
     private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
 
-    static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
+    public static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
         guard let intent = lastMiddleClickIntent else { return false }
 
@@ -269,7 +290,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         )
     }
 
-    override func viewDidMoveToSuperview() {
+    public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         onBrowserViewportHierarchyChanged?()
     }
@@ -287,10 +308,10 @@ final class CmuxWebView: CmuxUndoableWebView {
     private static var contextMenuFallbackKey: UInt8 = 0
     private static var cmuxDownloadDelegateKey: UInt8 = 0
     private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
-    var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
-    var onSessionDownloadEvent: (([String: Any]) -> Void)?
+    public var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    public var onSessionDownloadEvent: (([String: Any]) -> Void)?
     /// Called after a page or section screenshot is written to the pasteboard.
-    var onScreenshotCopied: (() -> Void)?
+    public var onScreenshotCopied: (() -> Void)?
     private lazy var sessionDownloadSaver = BrowserSessionDownloadSaver(
         parentWindow: { [weak self] in self?.window },
         notifyDownloadState: { [weak self] in self?.notifyContextMenuDownloadState($0) },
@@ -302,17 +323,17 @@ final class CmuxWebView: CmuxUndoableWebView {
     )
     /// Called when "Open Link in New Tab" context menu is selected.
     /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
-    var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    public var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
     /// Called for physical mouse back/forward buttons so BrowserPanel can use
     /// its restored-session history fallback instead of raw WKWebView history.
-    var onMouseBackButton: (() -> Void)?
-    var onMouseForwardButton: (() -> Void)?
-    var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
-    var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
-    var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
-    var cmuxDownloadDelegate: WKDownloadDelegate? {
+    public var onMouseBackButton: (() -> Void)?
+    public var onMouseForwardButton: (() -> Void)?
+    public var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
+    public var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
+    public var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
+    public var cmuxDownloadDelegate: (any WKDownloadDelegate)? {
         get {
-            objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? WKDownloadDelegate
+            objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? any WKDownloadDelegate
         }
         set {
             objc_setAssociatedObject(
@@ -325,31 +346,34 @@ final class CmuxWebView: CmuxUndoableWebView {
     }
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
-    var allowsFirstResponderAcquisition: Bool = true
+    public var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
     private var pasteAsPlainTextTargetAvailable = false
     private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
     private let diffViewerDocumentState = DiffViewerNavigationDocumentState()
-    private let diffViewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
-        .diffViewerScrollDown, .diffViewerScrollUp,
-        .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
-        .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
-        .diffViewerScrollToBottom, .diffViewerScrollToTop,
-        .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
-    ])
-    var allowsFirstResponderAcquisitionEffective: Bool {
+    private lazy var diffViewerNavigationKeyRouter: (any CmuxWebViewNavigationKeyRouting)? =
+        host?.makeDiffViewerNavigationKeyRouter()
+    public var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
-    var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
+    public var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
-    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+    /// Uses the host's keyboard-layout-aware Cmd+Z / Cmd+Shift+Z check.
+    public override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        host?.isUndoRedoCommandEquivalent(event) == true
+    }
+
+    /// Creates a browser web view that reaches app services through `host`.
+    public init(frame: NSRect, configuration: WKWebViewConfiguration, host: any CmuxWebViewHost) {
+        self.host = host
         super.init(frame: frame, configuration: configuration)
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
         installDiffViewerEditableFocusTracking()
     }
-    required init?(coder: NSCoder) {
+    public required init?(coder: NSCoder) {
+        host = nil
         super.init(coder: coder)
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
@@ -363,12 +387,13 @@ final class CmuxWebView: CmuxUndoableWebView {
             controller,
             &Self.diffViewerEditableFocusHandlerInstalledKey
         ) == nil else { return }
+        guard let registration = host?.diffViewerEditableFocusMessageHandler() else { return }
         controller.add(
-            DiffViewerEditableFocusMessageHandler.shared,
-            contentWorld: DiffViewerEditableFocusMessageHandler.contentWorld,
-            name: DiffViewerEditableFocusMessageHandler.name
+            registration.handler,
+            contentWorld: registration.contentWorld,
+            name: registration.name
         )
-        let name = DiffViewerEditableFocusMessageHandler.name
+        let name = registration.name
         controller.addUserScript(WKUserScript(
             source: """
             (() => {
@@ -401,7 +426,7 @@ final class CmuxWebView: CmuxUndoableWebView {
             """,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true,
-            in: DiffViewerEditableFocusMessageHandler.contentWorld
+            in: registration.contentWorld
         ))
         objc_setAssociatedObject(
             controller,
@@ -416,7 +441,7 @@ final class CmuxWebView: CmuxUndoableWebView {
     /// rows (off-screen lines are not in the DOM), so cmux's generic
     /// TreeWalker find cannot search it; the app implements find over its
     /// full diff model instead and cmux forwards the find shortcuts.
-    enum DiffViewerFindAction: String {
+    public enum DiffViewerFindAction: String {
         case open = "diffViewerOpenFind"
         case next = "diffViewerFindNext"
         case previous = "diffViewerFindPrevious"
@@ -425,7 +450,7 @@ final class CmuxWebView: CmuxUndoableWebView {
 
     /// Whether the current document is a ready diff viewer app that owns
     /// find-in-page for this web view.
-    var isDiffViewerFindOwner: Bool {
+    public var isDiffViewerFindOwner: Bool {
         diffViewerDocumentState.canHandleFindCommands
     }
 
@@ -433,13 +458,13 @@ final class CmuxWebView: CmuxUndoableWebView {
     /// not a ready diff viewer, `fallback` runs synchronously (the generic
     /// browser find path). When the page later rejects the action, the
     /// renderer is marked unavailable and `fallback` runs then.
-    func performDiffViewerFindAction(
+    public func performDiffViewerFindAction(
         _ action: DiffViewerFindAction,
         fallback: @escaping @MainActor () -> Void
     ) {
         guard isDiffViewerFindOwner else {
 #if DEBUG
-            cmuxDebugLog(
+            CMUXDebugLog.logDebugEvent(
                 "diffViewer.find.fallback action=\(action.rawValue) " +
                     "state={\(diffViewerDocumentState.debugStateDescription)}"
             )
@@ -455,50 +480,49 @@ final class CmuxWebView: CmuxUndoableWebView {
         }
     }
 
-    func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool, rendererReady: Bool) {
+    public func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool, rendererReady: Bool) {
 #if DEBUG
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "diffViewer.focusState viewer=\(viewer ? 1 : 0) editable=\(editable ? 1 : 0) " +
                 "ready=\(rendererReady ? 1 : 0)"
         )
 #endif
         diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
         if !viewer || editable {
-            diffViewerNavigationKeyRouter.reset()
+            diffViewerNavigationKeyRouter?.reset()
         }
     }
 
-    func diffViewerNavigationDidStart(_ navigation: WKNavigation?) {
+    public func diffViewerNavigationDidStart(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidStart(id: navigation.map(ObjectIdentifier.init))
-        diffViewerNavigationKeyRouter.reset()
+        diffViewerNavigationKeyRouter?.reset()
     }
 
-    func diffViewerNavigationDidCommit(_ navigation: WKNavigation?) {
+    public func diffViewerNavigationDidCommit(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidCommit(id: navigation.map(ObjectIdentifier.init))
     }
 
-    func diffViewerNavigationDidCancel(_ navigation: WKNavigation?) {
+    public func diffViewerNavigationDidCancel(_ navigation: WKNavigation?) {
         diffViewerDocumentState.navigationDidCancel(id: navigation.map(ObjectIdentifier.init))
     }
 
     private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
         guard cmuxOwnsKeyEvent(event),
               diffViewerDocumentState.canHandleNavigation else {
-            diffViewerNavigationKeyRouter.reset()
+            diffViewerNavigationKeyRouter?.reset()
             return false
         }
-        return diffViewerNavigationKeyRouter.handle(event, isAllowed: { action, event in
-            AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
-        }, perform: { [weak self] action in
+        guard let diffViewerNavigationKeyRouter else { return false }
+        return diffViewerNavigationKeyRouter.handle(event, perform: { [weak self] action in
             guard let self else { return }
             let rawAction = action.rawValue.replacingOccurrences(of: "'", with: "\\'")
             let script = "window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)') === true"
-            if action == .diffViewerOpenFileSearch {
+            if action.opensFileSearch {
                 diffViewerDocumentState.beginEditableFocusTransition()
             }
             evaluateJavaScript(script) { [weak self] result, error in
                 guard error != nil || result as? Bool != true else { return }
-                if action == .diffViewerOpenFileSearch {
+                if action.opensFileSearch {
                     self?.diffViewerDocumentState.editableFocusTransitionDidFail()
                 }
                 self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
@@ -531,22 +555,22 @@ final class CmuxWebView: CmuxUndoableWebView {
         guard pasteAsPlainTextTargetAvailable != available else { return }
         pasteAsPlainTextTargetAvailable = available
 #if DEBUG
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.pasteAsPlainText.target " +
             "web=\(ObjectIdentifier(self)) available=\(available ? 1 : 0)"
         )
 #endif
     }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        host?.paneFirstClickFocusEnabled() ?? false
     }
 
-    override func becomeFirstResponder() -> Bool {
+    public override func becomeFirstResponder() -> Bool {
         guard allowsFirstResponderAcquisitionEffective else {
 #if DEBUG
             let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-            cmuxDebugLog(
+            CMUXDebugLog.logDebugEvent(
                 "browser.focus.blockedBecome web=\(ObjectIdentifier(self)) " +
                 "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
                 "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
@@ -556,16 +580,16 @@ final class CmuxWebView: CmuxUndoableWebView {
         }
         let result = super.becomeFirstResponder()
         if result {
-            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+            let pointerInitiatedKey = Self.firstResponderPointerInitiatedUserInfoKey
             NotificationCenter.default.post(
-                name: .browserDidBecomeFirstResponderWebView,
+                name: Self.didBecomeFirstResponderNotification,
                 object: self,
                 userInfo: [pointerInitiatedKey: pointerFocusAllowanceDepth > 0]
             )
         }
 #if DEBUG
         let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.focus.become web=\(ObjectIdentifier(self)) result=\(result ? 1 : 0) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
@@ -576,10 +600,10 @@ final class CmuxWebView: CmuxUndoableWebView {
 
     /// Temporarily permits focus acquisition for explicit pointer-driven interactions
     /// (mouse click into this webview) while keeping background autofocus blocked.
-    func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
+    public func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
         pointerFocusAllowanceDepth += 1
 #if DEBUG
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.focus.pointerAllowance.enter web=\(ObjectIdentifier(self)) " +
             "depth=\(pointerFocusAllowanceDepth)"
         )
@@ -587,7 +611,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         defer {
             pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
 #if DEBUG
-            cmuxDebugLog(
+            CMUXDebugLog.logDebugEvent(
                 "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
                 "depth=\(pointerFocusAllowanceDepth)"
             )
@@ -618,10 +642,10 @@ final class CmuxWebView: CmuxUndoableWebView {
     private func evaluateJavaScriptSynchronously(
         _ script: String,
         timeout: TimeInterval = 0.25
-    ) -> (completed: Bool, result: Any?, error: Error?) {
+    ) -> (completed: Bool, result: Any?, error: (any Error)?) {
         var completed = false
         var result: Any?
-        var error: Error?
+        var error: (any Error)?
 
         evaluateJavaScript(script) { jsResult, jsError in
             result = jsResult
@@ -662,7 +686,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         let errorDescription = evaluation.completed
             ? (evaluation.error?.localizedDescription ?? "nil")
             : "timeout"
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.pasteAsPlainText.preflight " +
             "web=\(ObjectIdentifier(self)) canPaste=\(canPaste ? 1 : 0) " +
             "error=\(errorDescription)"
@@ -690,7 +714,7 @@ final class CmuxWebView: CmuxUndoableWebView {
 
         webKitPasteAsPlainTextFallback(sender)
 #if DEBUG
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.pasteAsPlainText " +
             "web=\(ObjectIdentifier(self)) routedNative=1"
         )
@@ -698,14 +722,14 @@ final class CmuxWebView: CmuxUndoableWebView {
         return true
     }
 
-    @IBAction func pasteAsPlainText(_ sender: Any?) {
+    @IBAction public func pasteAsPlainText(_ sender: Any?) {
         _ = sender
         if !performPasteAsPlainTextFromPasteboard(sender) {
             webKitPasteAsPlainTextFallback(sender)
         }
     }
 
-    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+    public override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(pasteAsPlainText(_:)) {
             return pasteAsPlainTextTargetAvailable
                 && NSPasteboard.general.string(forType: .string) != nil
@@ -713,12 +737,12 @@ final class CmuxWebView: CmuxUndoableWebView {
         return super.validateUserInterfaceItem(item)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
 #if DEBUG
-        let typingTimingStart = CmuxTypingTiming.start()
+        let typingTimingStart = host?.typingTimingStart()
         var handled = false
         defer {
-            CmuxTypingTiming.logDuration(
+            host?.typingTimingLogDuration(
                 path: "browser.web.performKeyEquivalent",
                 startedAt: typingTimingStart,
                 event: event,
@@ -737,7 +761,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+        if let decision = host?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
             source: "web.performKeyEquivalent"
@@ -769,7 +793,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         }
 
         if event.keyCode == 36 || event.keyCode == 76 {
-            return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
+            return finish(host?.handleBrowserSurfaceKeyEquivalent(event) == true)
         }
 
         // Menu/app shortcut routing is only needed for Command equivalents
@@ -792,10 +816,10 @@ final class CmuxWebView: CmuxUndoableWebView {
         }
 
         var replayedBrowserDocumentEditingShortcutIntoWebContent = false
-        if shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
+        if host?.routesDocumentEditingShortcutToWebContentFirst(
             event,
             responder: window?.firstResponder
-        ) {
+        ) == true {
             replayedBrowserDocumentEditingShortcutIntoWebContent = true
             let result = super.performKeyEquivalent(with: event)
             if result {
@@ -804,11 +828,11 @@ final class CmuxWebView: CmuxUndoableWebView {
         }
 
         var replayedBrowserFindShortcutIntoWebContent = false
-        if shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
+        if host?.routesFindShortcutToWebContentFirst(
             event,
             responder: window?.firstResponder,
             owningWebView: self
-        ) {
+        ) == true {
             replayedBrowserFindShortcutIntoWebContent = true
             let result = super.performKeyEquivalent(with: event)
             if result {
@@ -816,15 +840,16 @@ final class CmuxWebView: CmuxUndoableWebView {
             }
         }
 
-        if shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+        if host?.routesInlineVSCodeCommandPaletteShortcutToWebContentFirst(event, pageURL: url) == true {
             _ = super.performKeyEquivalent(with: event)
             return finish(true)
         }
-        let inspectorOwnsUndoRedo = event.cmuxIsUndoRedoCommandEquivalent && cmuxIsLikelyWebInspectorResponder(window?.firstResponder)
-        if !inspectorOwnsUndoRedo && (event.cmuxIsUndoRedoCommandEquivalent || !shouldRouteCommandEquivalentDirectlyToMainMenu(event)) {
+        let isUndoRedoCommandEquivalent = isWebContentUndoRedoCommandEquivalent(event)
+        let inspectorOwnsUndoRedo = isUndoRedoCommandEquivalent && window?.firstResponder?.cmuxIsInsideWebInspector == true
+        if !inspectorOwnsUndoRedo && (isUndoRedoCommandEquivalent || !event.cmuxRoutesDirectlyToMainMenu) {
             return finish(super.performKeyEquivalent(with: event))
         }
-        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
+        if host?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
             return finish(true)
         }
 
@@ -843,12 +868,12 @@ final class CmuxWebView: CmuxUndoableWebView {
         return finish(result)
     }
 
-    override func keyDown(with event: NSEvent) {
+    public override func keyDown(with event: NSEvent) {
 #if DEBUG
-        let typingTimingStart = CmuxTypingTiming.start()
+        let typingTimingStart = host?.typingTimingStart()
         var route = "super"
         defer {
-            CmuxTypingTiming.logDuration(
+            host?.typingTimingLogDuration(
                 path: "browser.web.keyDown",
                 startedAt: typingTimingStart,
                 event: event,
@@ -865,7 +890,7 @@ final class CmuxWebView: CmuxUndoableWebView {
 #endif
             return
         }
-        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+        if let decision = host?.handleBrowserFocusModeKeyEvent(
             event,
             webView: self,
             source: "web.keyDown"
@@ -917,7 +942,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         // Inline VS Code owns Cmd+Shift+P for its in-page command palette.
         // If this path reaches keyDown, forward it to WebKit instead of cmux.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
-           shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+           host?.routesInlineVSCodeCommandPaletteShortcutToWebContentFirst(event, pageURL: url) == true {
 #if DEBUG
             route = "inlineVSCode"
 #endif
@@ -928,7 +953,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
-           AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
+           host?.handleBrowserSurfaceKeyEquivalent(event) == true {
 #if DEBUG
             route = "appShortcut"
 #endif
@@ -944,14 +969,14 @@ final class CmuxWebView: CmuxUndoableWebView {
     // clicks when a WKWebView is underneath — AppKit delivers the click to the deepest
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
-    override func mouseDown(with event: NSEvent) {
+    public override func mouseDown(with event: NSEvent) {
         if diffViewerDocumentState.documentConfirmed {
             diffViewerDocumentState.invalidateFocusConfirmation()
         }
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
         let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.focus.mouseDown web=\(ObjectIdentifier(self)) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
@@ -972,13 +997,13 @@ final class CmuxWebView: CmuxUndoableWebView {
     // dispatches the DOM contextmenu event (which refills the capture) after
     // this and before willOpenMenu, so clearing here guarantees the menu can
     // only ever pair with a link captured by this exact click.
-    override func rightMouseDown(with event: NSEvent) {
+    public override func rightMouseDown(with event: NSEvent) {
         contextMenuCapturedLink = nil
         super.rightMouseDown(with: event)
     }
 
     private func performBrowserClickFocusHandoff(_ action: () -> Void) {
-        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
+        NotificationCenter.default.post(name: Self.didReceiveClickNotification, object: self)
         withPointerFocusAllowance(action)
     }
 
@@ -990,7 +1015,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         switch event.buttonNumber {
         case 3:
 #if DEBUG
-            cmuxDebugLog("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=back canGoBack=\(canGoBack ? 1 : 0)")
+            CMUXDebugLog.logDebugEvent("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=back canGoBack=\(canGoBack ? 1 : 0)")
 #endif
             if let onMouseBackButton {
                 onMouseBackButton()
@@ -1000,7 +1025,7 @@ final class CmuxWebView: CmuxUndoableWebView {
             return true
         case 4:
 #if DEBUG
-            cmuxDebugLog("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=forward canGoForward=\(canGoForward ? 1 : 0)")
+            CMUXDebugLog.logDebugEvent("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=forward canGoForward=\(canGoForward ? 1 : 0)")
 #endif
             if let onMouseForwardButton {
                 onMouseForwardButton()
@@ -1013,14 +1038,14 @@ final class CmuxWebView: CmuxUndoableWebView {
         }
     }
 
-    override func otherMouseDown(with event: NSEvent) {
+    public override func otherMouseDown(with event: NSEvent) {
         if event.buttonNumber == 2 {
             Self.recordMiddleClickIntent(for: self)
         }
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.mouse.otherDown web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
@@ -1036,14 +1061,14 @@ final class CmuxWebView: CmuxUndoableWebView {
         super.otherMouseDown(with: event)
     }
 
-    override func otherMouseUp(with event: NSEvent) {
+    public override func otherMouseUp(with event: NSEvent) {
         if event.buttonNumber == 2 {
             Self.recordMiddleClickIntent(for: self)
         }
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        cmuxDebugLog(
+        CMUXDebugLog.logDebugEvent(
             "browser.mouse.otherUp web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
@@ -1082,7 +1107,7 @@ final class CmuxWebView: CmuxUndoableWebView {
     private var fallbackDownloadLinkedFileTarget: AnyObject?
     private var fallbackDownloadLinkedFileAction: Selector?
 
-    static func makeContextDownloadTraceID(prefix: String) -> String {
+    public static func makeContextDownloadTraceID(prefix: String) -> String {
 #if DEBUG
         return "\(prefix)-\(UUID().uuidString.prefix(8))"
 #else
@@ -1092,7 +1117,7 @@ final class CmuxWebView: CmuxUndoableWebView {
 
     func debugContextDownload(_ message: @autoclosure () -> String) {
 #if DEBUG
-        cmuxDebugLog(Self.redactedContextDownloadDebugMessage(message()))
+        CMUXDebugLog.logDebugEvent(Self.redactedContextDownloadDebugMessage(message()))
 #endif
     }
 
@@ -1639,7 +1664,7 @@ final class CmuxWebView: CmuxUndoableWebView {
     }
 
     private func appendBrowserFocusModeContextMenuItem(to menu: NSMenu) {
-        let state = AppDelegate.shared?.browserFocusModeContextMenuState(for: self) ?? (isActive: false, canToggle: false)
+        let state = host?.browserFocusModeContextMenuState(for: self) ?? (isActive: false, canToggle: false)
         guard state.isActive || state.canToggle else { return }
 
         let title = state.isActive
@@ -1738,7 +1763,7 @@ final class CmuxWebView: CmuxUndoableWebView {
         )
     }
 
-    func downloadURLViaSession(
+    public func downloadURLViaSession(
         _ url: URL,
         suggestedFilename: String?,
         sender: Any?,
@@ -1861,6 +1886,9 @@ final class CmuxWebView: CmuxUndoableWebView {
                 "browser.ctxdl.request trace=\(traceID) stage=dispatch method=\(request.httpMethod ?? "GET") cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
             )
 
+            // URLSession delivers off the main actor; these values are only used after hopping back to main.
+            nonisolated(unsafe) let fallbackTarget = fallbackTarget
+            nonisolated(unsafe) let sender = sender
             URLSession.shared.dataTask(with: request) { data, response, error in
                 DispatchQueue.main.async {
                     guard let data, error == nil else {
@@ -2000,6 +2028,8 @@ final class CmuxWebView: CmuxUndoableWebView {
         }
 
         if scheme == "file" {
+            // Read off the main actor; the completion only runs after hopping back to main.
+            nonisolated(unsafe) let completion = completion
             DispatchQueue.global(qos: .userInitiated).async {
                 let data = try? Data(contentsOf: sourceURL)
                 DispatchQueue.main.async {
@@ -2053,6 +2083,8 @@ final class CmuxWebView: CmuxUndoableWebView {
                 "browser.ctxcopy.fetch trace=\(traceID) stage=dispatch cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
             )
 
+            // URLSession delivers off the main actor; the completion only runs after hopping back to main.
+            nonisolated(unsafe) let completion = completion
             URLSession.shared.dataTask(with: request) { data, response, error in
                 DispatchQueue.main.async {
                     guard let data, !data.isEmpty, error == nil else {
@@ -2097,13 +2129,13 @@ final class CmuxWebView: CmuxUndoableWebView {
             return (false, true)
         }
 
-        let result = await GhosttyApp.terminalPasteboard
-            .replaceContentsAndWait(
-                of: pasteboard,
-                with: items,
-                expectedChangeCount: expectedPasteboardChangeCount
-            )
-        if result.status == .conditionNotMet {
+        guard let host else { return (false, true) }
+        let result = await host.replacePasteboardContents(
+            of: pasteboard,
+            with: items,
+            expectedChangeCount: expectedPasteboardChangeCount
+        )
+        if result.conditionNotMet {
             debugContextDownload(
                 "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
             )
@@ -2137,72 +2169,67 @@ final class CmuxWebView: CmuxUndoableWebView {
     /// A custom drag UTI is only a hint: AppKit keeps it after a session ends.
     /// Resolve both internal capabilities through their live main-actor owners
     /// before preventing WebKit from receiving an ordinary external drag.
-    private static func hasLiveInternalPaneDrag(in pasteboard: NSPasteboard) -> Bool {
+    private func hasLiveInternalPaneDrag(in pasteboard: NSPasteboard) -> Bool {
         MainActor.assumeIsolated {
             let types = pasteboard.types
             let hasLiveTabTransfer = types?.contains(
-                DragOverlayRoutingPolicy.bonsplitTabTransferType
-            ) == true && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
-                from: pasteboard
-            ) != nil
+                Self.bonsplitTabTransferType
+            ) == true && host?.hasLiveTabTransfer(in: pasteboard) == true
             let hasLiveSidebarDrag: Bool = {
-                guard types?.contains(DragOverlayRoutingPolicy.sidebarTabReorderType) == true else {
+                guard types?.contains(Self.sidebarTabReorderType) == true else {
                     return false
                 }
-                return SidebarTabDragPayload.hasLiveSession(
-                    in: pasteboard,
-                    currentSessionId: AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentSessionId
-                )
+                return host?.hasLiveSidebarTabDrag(in: pasteboard) == true
             }()
             return hasLiveTabTransfer || hasLiveSidebarDrag
         }
     }
 
-    static func shouldRejectInternalPaneDrag(
+    public static func shouldRejectInternalPaneDrag(
         _ pasteboardTypes: [NSPasteboard.PasteboardType]?,
         hasLiveTabTransfer: Bool = false,
         hasLiveSidebarDrag: Bool = false
     ) -> Bool {
-        (DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes) && hasLiveTabTransfer)
-            || (DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes) && hasLiveSidebarDrag)
+        (pasteboardTypes?.contains(bonsplitTabTransferType) == true && hasLiveTabTransfer)
+            || (pasteboardTypes?.contains(sidebarTabReorderType) == true && hasLiveSidebarDrag)
     }
 
-    override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
+    public override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
         let filtered = newTypes.filter { !Self.blockedDragTypes.contains($0) }
         if !filtered.isEmpty {
             super.registerForDraggedTypes(filtered)
         }
     }
 
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
+    public override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard !hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
         return super.draggingEntered(sender)
     }
 
-    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
+    public override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        guard !hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
         return super.draggingUpdated(sender)
     }
 
-    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
+    public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard !hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
         return super.performDragOperation(sender)
     }
 
-    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
+    public override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard !hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
         return super.prepareForDragOperation(sender)
     }
 
-    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+    public override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
         if let pasteboard = sender?.draggingPasteboard,
-           Self.hasLiveInternalPaneDrag(in: pasteboard) {
+           hasLiveInternalPaneDrag(in: pasteboard) {
             return
         }
         super.concludeDragOperation(sender)
     }
 
-    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+    public override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
         lastContextMenuOpenUptime = ProcessInfo.processInfo.systemUptime
@@ -2298,14 +2325,14 @@ final class CmuxWebView: CmuxUndoableWebView {
             item.target = self
             menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
         }
-        appendScreenshotContextMenuItems(to: menu)
+        host?.appendScreenshotContextMenuItems(to: menu, for: self)
         appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
         appendBrowserFocusModeContextMenuItem(to: menu)
     }
 
     @objc private func contextMenuToggleBrowserFocusMode(_ sender: Any?) {
         _ = sender
-        if AppDelegate.shared?.toggleBrowserFocusModeFromContextMenu(for: self) != true {
+        if host?.toggleBrowserFocusModeFromContextMenu(for: self) != true {
             NSSound.beep()
         }
     }
@@ -2379,8 +2406,8 @@ final class CmuxWebView: CmuxUndoableWebView {
                     return
                 }
 
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
+                Task { @MainActor [weak webView = self] in
+                    guard let self = webView else { return }
                     let writeResult = await self
                         .writeContextMenuImageCopyPayload(
                             payload,

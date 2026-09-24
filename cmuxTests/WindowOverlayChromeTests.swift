@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
@@ -26,7 +27,7 @@ struct WindowOverlayChromeTests {
         defer { browser.tearDown() }
 
         for _ in 0..<3 {
-            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
             browser.bind(webView: webView, to: anchor, visibleInUI: true)
             content.layoutSubtreeIfNeeded()
             browser.synchronizeWebViewForAnchor(anchor)
@@ -123,7 +124,7 @@ struct WindowOverlayChromeTests {
         let browser = WindowBrowserPortal(window: window)
         let terminal = WindowTerminalPortal(window: window)
         defer { browser.tearDown(); terminal.tearDown() }
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let terminalView = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: .zero))
         browser.bind(webView: webView, to: browserAnchor, visibleInUI: true)
         terminal.bind(hostedView: terminalView, to: terminalAnchor, visibleInUI: true)
