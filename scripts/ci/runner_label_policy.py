@@ -83,7 +83,7 @@ def _patterns() -> tuple[re.Pattern[str], re.Pattern[str], re.Pattern[str]]:
     """
     try:
         body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
-    except OSError as error:
+    except (OSError, UnicodeDecodeError) as error:
         raise PolicyUnreadable(f"{GUARD_SCRIPT.name} could not be read: {error}") from error
     compiled = []
     for name in ("fleet", "allowed", "selfhosted"):

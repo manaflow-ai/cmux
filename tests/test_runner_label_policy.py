@@ -55,11 +55,14 @@ class PolicyIsReadFromTheGuard(unittest.TestCase):
         cases = {
             "missing": None,
             "bad regex": good.replace("local fleet='", "local fleet='(", 1),
+            "not utf-8": good.encode("utf-8") + b"\xff\n",
         }
         for label, text in cases.items():
             with self.subTest(case=label), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "guard.sh"
-                if text is not None:
+                if isinstance(text, bytes):
+                    path.write_bytes(text)
+                elif text is not None:
                     path.write_text(text, encoding="utf-8")
                 with mock.patch.object(runner_label_policy, "GUARD_SCRIPT", path):
                     runner_label_policy._patterns.cache_clear()
