@@ -1,3 +1,6 @@
+#if DEBUG
+import CMUXDebugLog
+#endif
 import CmuxCore
 import CoreFoundation
 import Foundation
@@ -13,25 +16,36 @@ import Foundation
 /// `agents[{id?,terminal_id,state,source}]`.
 /// A tab's `name` is the user-set label (`tab.rename`, persisted in the daemon's
 /// registry); the terminal's `title` is PTY-derived. A named view wins over the title.
-struct CloudVMStateDeltaImpact: Hashable, Sendable {
+public struct CloudVMStateDeltaImpact: Hashable, Sendable {
     /// Resource identities whose derived rows can be rebuilt without touching unrelated rows.
-    var resourceIDs: Set<SurfaceResourceID> = []
+    public var resourceIDs: Set<SurfaceResourceID> = []
     /// Relationship changes can move many resources at once. These use the authoritative full
     /// rebuild path instead of risking a partial placement update.
-    var requiresFullResourceRebuild = false
+    public var requiresFullResourceRebuild = false
+
+    public init(resourceIDs: Set<SurfaceResourceID> = [], requiresFullResourceRebuild: Bool = false) {
+        self.resourceIDs = resourceIDs
+        self.requiresFullResourceRebuild = requiresFullResourceRebuild
+    }
 }
-struct CloudVMStateDeltaApplication: Sendable {
-    let state: CloudVMState
-    let impact: CloudVMStateDeltaImpact
+public struct CloudVMStateDeltaApplication: Sendable {
+    public let state: CloudVMState
+    public let impact: CloudVMStateDeltaImpact
+
+    public init(state: CloudVMState, impact: CloudVMStateDeltaImpact) {
+        self.state = state
+        self.impact = impact
+    }
 }
 
-struct CmuxTuiSnapshotParser: Sendable {
+/// lint:allow namespace-type — moved unchanged from the app target, where it was an internal static namespace; reshaping the parser's many static call sites is a separate change from this package move.
+public struct CmuxTuiSnapshotParser: Sendable {
     /// Chooses a stable destination for projecting a terminal that currently has no remote
     /// tab view. The session snapshot lists structural records separately, so selection walks
     /// the focused workspace, focused screen, and focused pane in that order, using explicit
     /// row indexes when available and a legacy daemon-order fallback otherwise. A new tab is
     /// appended to the chosen pane.
-    static func terminalProjectionTarget(from snapshot: [String: Any]) -> CloudTuiTerminalProjectionTarget? {
+    public static func terminalProjectionTarget(from snapshot: [String: Any]) -> CloudTuiTerminalProjectionTarget? {
         guard requiredGraphCollectionsArePresent(in: snapshot) else { return nil }
         let workspaces = snapshot["workspaces"] as? [[String: Any]] ?? []
         let screens = snapshot["screens"] as? [[String: Any]] ?? []
@@ -75,7 +89,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// Returns the decimal resource revision carried by a public session
     /// snapshot. It is used as an optimistic-concurrency fence when a detached
     /// terminal is projected into a pane selected from that snapshot.
-    static func resourceRevision(from snapshot: [String: Any]) -> String? {
+    public static func resourceRevision(from snapshot: [String: Any]) -> String? {
         guard let cursor = snapshot["cursor"] as? [String: Any] else { return nil }
         if let revision = cursor["revision"] as? String,
            !revision.isEmpty,
@@ -102,7 +116,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// A missing or explicit-null cursor is a legacy snapshot-only state. A
     /// present cursor must be valid, because accepting a malformed ordering token
     /// would make later deltas target the wrong graph.
-    static func state(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> CloudVMState? {
+    public static func state(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> CloudVMState? {
         let cursor: CloudVMCursor?
         if let rawCursor = snapshot["cursor"], !(rawCursor is NSNull) {
             guard let parsed = CloudVMCursor(snapshot: snapshot) else { return nil }
@@ -283,7 +297,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     /// The same identity and foreign-key contract gates accepted state and mutations.
-    static func authoritativeGraphIsValid(_ snapshot: [String: Any]) -> Bool {
+    public static func authoritativeGraphIsValid(_ snapshot: [String: Any]) -> Bool {
         identityCollectionsAreUnique(in: snapshot)
             && requiredGraphCollectionsArePresent(in: snapshot)
             && snapshotRelationshipsAreConsistent(in: snapshot)
@@ -395,12 +409,12 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// before the second, stacked panes in their listed order, viewport columns
     /// left to right. Panes the document does not mention, and an unreadable
     /// document, get no position, so callers fall back to arrival order.
-    static func layoutPaneOrder(fromLayout layout: Any?) -> [String: Int] {
+    public static func layoutPaneOrder(fromLayout layout: Any?) -> [String: Int] {
         RemoteWorkspacePaneOrder(document: layout).positions
     }
 
     /// The same order read from a screen state's opaque layout data (the delta path).
-    static func layoutPaneOrder(fromLayoutData data: Data?) -> [String: Int] {
+    public static func layoutPaneOrder(fromLayoutData data: Data?) -> [String: Int] {
         RemoteWorkspacePaneOrder(data: data).positions
     }
 
@@ -409,7 +423,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// order remains the compatibility fallback. An explicit index wins over
     /// an omitted one, and equal explicit indexes use the stable id before the
     /// transport offset as a deterministic tie-break.
-    static func orderedSnapshotRows(
+    public static func orderedSnapshotRows(
         _ rows: [[String: Any]],
         focusedFirst: Bool = false
     ) -> [(offset: Int, element: [String: Any])] {
@@ -466,7 +480,7 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     /// Re-derives the compatibility resources from the exact state bytes. No
     /// resource mutation path is allowed to maintain a second remote graph.
-    static func resources(from state: CloudVMState) -> [SurfaceResource] {
+    public static func resources(from state: CloudVMState) -> [SurfaceResource] {
         guard let snapshot = state.snapshotObject() else { return [] }
         return resources(fromSnapshot: snapshot, machine: state.machine)
     }
@@ -475,7 +489,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// joins through pane and screen with constant-time lookups; unrelated graph rows are not
     /// allocated, sorted, or compared. The provider uses this for row-local deltas and reserves
     /// the complete path for topology changes.
-    static func resources(
+    public static func resources(
         from state: CloudVMState,
         matching resourceIDs: Set<SurfaceResourceID>
     ) -> [SurfaceResource] {
@@ -593,7 +607,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// provider whether it can update selected resource rows or must rebuild all
     /// relationships. Upserts replace an entity in place, deletes remove it, and
     /// unknown resource kinds refuse the batch so the caller can fetch a snapshot.
-    static func applying(
+    public static func applying(
         deltaPayload: Data,
         cursor: CloudVMCursor,
         to state: CloudVMState
@@ -606,12 +620,12 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// visible in the debug log instead of inferred from recovery cadence.
     private static func rejectDelta(_ reason: String) -> CloudVMStateDeltaApplication? {
         #if DEBUG
-        cmuxDebugLog("cloud.state.deltaRejectReason reason=\(reason)")
+        CMUXDebugLog.logDebugEvent("cloud.state.deltaRejectReason reason=\(reason)")
         #endif
         return nil
     }
 
-    static func applyingWithImpact(
+    public static func applyingWithImpact(
         deltaPayload: Data,
         cursor: CloudVMCursor,
         to state: CloudVMState
@@ -732,7 +746,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// edges.
     private static func rejectTyped(_ reason: String) -> CloudVMState? {
         #if DEBUG
-        cmuxDebugLog("cloud.state.deltaRejectReason reason=\(reason)")
+        CMUXDebugLog.logDebugEvent("cloud.state.deltaRejectReason reason=\(reason)")
         #endif
         return nil
     }
@@ -1337,7 +1351,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     /// Legacy entry point retained for callers that only have a one-shot snapshot.
-    static func terminals(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
+    public static func terminals(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
         resources(fromSnapshot: snapshot, machine: machine)
     }
 
@@ -1349,7 +1363,7 @@ struct CmuxTuiSnapshotParser: Sendable {
 #else
     @Sendable
 #endif
-    nonisolated static func terminalProjectionTarget(
+    public nonisolated static func terminalProjectionTarget(
         from data: Data
     ) async -> (target: CloudTuiTerminalProjectionTarget, revision: String?)? {
         guard let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1576,7 +1590,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The machine-local port a daemon browser's URL points at, when it does —
     /// `http://localhost:3000/...` and equivalents. A remote browser projects through the
     /// machine's port preview, so only localhost URLs are projectable today.
-    static func localhostPort(fromURL urlString: String) -> Int? {
+    public static func localhostPort(fromURL urlString: String) -> Int? {
         guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return nil }
         guard ["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"].contains(host) else { return nil }
         if let port = url.port { return port }
@@ -1590,7 +1604,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// The tab each terminal currently sits in. The reverse tab content edge is
     /// authoritative; terminal-row references are retained as a legacy fallback
     /// so an exited terminal can still be closed when its own selector is gone.
-    static func tabByTerminal(fromSnapshot snapshot: [String: Any]) -> [String: String] {
+    public static func tabByTerminal(fromSnapshot snapshot: [String: Any]) -> [String: String] {
         var result: [String: String] = [:]
         for tab in (snapshot["tabs"] as? [[String: Any]]) ?? [] {
             guard nonEmptyString(tab["content_kind"]) == "terminal",
@@ -1616,7 +1630,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// User labels for tabs in the snapshot. An absent entry means the tab has no
     /// user label (or only whitespace), which lets rename compensation restore the
     /// daemon's unnamed state with an empty value.
-    static func tabNames(fromSnapshot snapshot: [String: Any]) -> [String: String] {
+    public static func tabNames(fromSnapshot snapshot: [String: Any]) -> [String: String] {
         var result: [String: String] = [:]
         for tab in (snapshot["tabs"] as? [[String: Any]]) ?? [] {
             guard let id = tab["id"] as? String, !id.isEmpty,
@@ -1629,7 +1643,7 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     /// The workspace and first terminal a `workspace create` mutation made
     /// (`{value: {workspace_id, terminal_id, …}}`).
-    static func createdWorkspaceTerminal(fromResult result: [String: Any]) -> (workspaceID: String, terminalID: String?)? {
+    public static func createdWorkspaceTerminal(fromResult result: [String: Any]) -> (workspaceID: String, terminalID: String?)? {
         let path = (result["value"] as? [String: Any]) ?? result
         guard let workspaceID = ((path["workspace_id"] as? String) ?? (path["id"] as? String)), !workspaceID.isEmpty else { return nil }
         return (workspaceID, (path["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
@@ -1637,7 +1651,7 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     /// The daemon's workspaces, in its order — including empty ones, which have no
     /// terminal to derive them from.
-    static func workspaces(fromSnapshot snapshot: [String: Any]) -> [SurfaceRemoteWorkspace] {
+    public static func workspaces(fromSnapshot snapshot: [String: Any]) -> [SurfaceRemoteWorkspace] {
         let workspacesRaw = (snapshot["workspaces"] as? [[String: Any]]) ?? []
         return orderedSnapshotRows(workspacesRaw).compactMap { entry in
             let raw = entry.element
@@ -1652,7 +1666,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         }
     }
 
-    static func terminal(
+    public static func terminal(
         fromSnapshotEntry raw: [String: Any],
         machine: SurfaceMachineID,
         agents: [String: SurfaceAgentBadge] = [:]
@@ -1674,23 +1688,41 @@ struct CmuxTuiSnapshotParser: Sendable {
         )
     }
 
-    struct CreatedTerminalPath: Equatable, Sendable {
-        var attachment: CloudCreationAttachment? = nil
-        let terminalID: String
-        let workspaceID: String?
-        let screenID: String?
-        let paneID: String?
-        let tabID: String?
+    public struct CreatedTerminalPath: Equatable, Sendable {
+        public var attachment: CloudCreationAttachment? = nil
+        public let terminalID: String
+        public let workspaceID: String?
+        public let screenID: String?
+        public let paneID: String?
+        public let tabID: String?
         /// The daemon commit position for this creation. A mutation result is
         /// also a read-your-write receipt, so a lagging snapshot can be
         /// recognized without guessing how long the event feed needs.
-        let cursor: CloudVMCursor?
+        public let cursor: CloudVMCursor?
+
+        public init(
+            attachment: CloudCreationAttachment? = nil,
+            terminalID: String,
+            workspaceID: String?,
+            screenID: String?,
+            paneID: String?,
+            tabID: String?,
+            cursor: CloudVMCursor?
+        ) {
+            self.attachment = attachment
+            self.terminalID = terminalID
+            self.workspaceID = workspaceID
+            self.screenID = screenID
+            self.paneID = paneID
+            self.tabID = tabID
+            self.cursor = cursor
+        }
     }
 
     /// The exact path a `workspace <ws> run` / `tab create terminal` mutation
     /// created. The committed result is a read-your-write placement receipt, so
     /// callers do not need to guess a tab while the next snapshot is in flight.
-    static func createdTerminal(fromRunResult result: [String: Any]) -> CreatedTerminalPath? {
+    public static func createdTerminal(fromRunResult result: [String: Any]) -> CreatedTerminalPath? {
         let path = (result["value"] as? [String: Any]) ?? result
         guard let terminalID = path["terminal_id"] as? String, !terminalID.isEmpty else { return nil }
         func optionalID(_ key: String) -> String? {
@@ -1716,7 +1748,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// object in `result` or put the cursor under `cursor`. Accept those
     /// equivalent shapes, but never invent a generation or revision from a
     /// partial response.
-    static func mutationCursor(
+    public static func mutationCursor(
         fromResult result: [String: Any],
         fallbackGeneration: String? = nil
     ) -> CloudVMCursor? {
@@ -1744,7 +1776,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     /// The workspace a `workspace create` mutation created.
-    static func createdWorkspace(fromResult result: [String: Any]) -> String? {
+    public static func createdWorkspace(fromResult result: [String: Any]) -> String? {
         let path = (result["value"] as? [String: Any]) ?? result
         let id = (path["workspace_id"] as? String)
             ?? (path["workspace"] as? String)
@@ -1754,7 +1786,7 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     /// `remote connect --headless --json` prints `{"event":"connection-snapshot","local_socket":…}`
     /// lines; the first one carries the mux socket path.
-    static func localSocket(fromLinkLine line: String) -> String? {
+    public static func localSocket(fromLinkLine line: String) -> String? {
         guard let data = line.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               (object["event"] as? String) == "connection-snapshot",
@@ -1765,7 +1797,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     }
 
     /// Listening TCP ports from `ss -ltn` / `netstat -ltn` output (what `cmux vm ports` runs).
-    static func listeningPorts(fromSocketListing text: String) -> [Int] {
+    public static func listeningPorts(fromSocketListing text: String) -> [Int] {
         Set(listeningPortBindings(fromSocketListing: text).map(\.port)).sorted()
     }
 
@@ -1775,21 +1807,21 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// image's internal 8080 listener.
     /// Guest display slots use these private RFB/noVNC ports; they are owned by
     /// the display catalog and must never become generic forwarded-port rows.
-    static let internalPorts: Set<Int> = [22, 1337, 8080]
-    static let displayPorts: Set<Int> = Set(Array(5901...5916) + Array(6901...6916))
+    public static let internalPorts: Set<Int> = [22, 1337, 8080]
+    public static let displayPorts: Set<Int> = Set(Array(5901...5916) + Array(6901...6916))
 
-    static let desktopPort = 6901
+    public static let desktopPort = 6901
 
     /// Fallback for callers that only hold an image id. Prefer
     /// ``VMSummary/resolvedKind``, which honors the backend's explicit `kind`.
     /// Only VNC markers count: see ``VMMachineKind/inferred(fromImage:)``.
-    static func machineHasDesktop(image: String) -> Bool {
+    public static func machineHasDesktop(image: String) -> Bool {
         VMMachineKind.inferred(fromImage: image).hasDesktop
     }
 
     /// The VNC display of a desktop machine (`display:1`; the key is the daemon's content id
     /// once a workspace points at it).
-    static func display(
+    public static func display(
         machine: SurfaceMachineID,
         key: String = "display:1",
         directURL: String? = nil
@@ -1811,7 +1843,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// address over the WireGuard tunnel, never a provider port-forwarding
     /// proxy (Freestyle's public platform has none for arbitrary ports). nil
     /// means the resource cannot open until the machine has a private address.
-    static func portBrowser(machine: SurfaceMachineID, port: Int, directURL: String? = nil) -> SurfaceResource {
+    public static func portBrowser(machine: SurfaceMachineID, port: Int, directURL: String? = nil) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port)),
             title: ":\(port)",
@@ -1826,7 +1858,7 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     /// The noVNC page recipe `cmux vm desktop` uses: auto-connect, follow the pane's size,
     /// reconnect after a sleep.
-    static func desktopURL(openURL: String) -> String {
+    public static func desktopURL(openURL: String) -> String {
         openURL + "&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
     }
 

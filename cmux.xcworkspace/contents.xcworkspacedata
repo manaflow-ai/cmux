@@ -241,6 +241,9 @@
          location = "group:CmuxSudoBrokerUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxSurfaceCatalogModel">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSwiftRender">
       </FileRef>
       <FileRef

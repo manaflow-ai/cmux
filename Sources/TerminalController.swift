@@ -11,6 +11,7 @@ import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteDaemon
 import CmuxRemoteWorkspace
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxSettings
 import CmuxSwiftRenderUI

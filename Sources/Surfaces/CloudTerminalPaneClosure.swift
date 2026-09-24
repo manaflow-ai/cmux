@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Decides which cloud attach panes must close after a graph publication.
