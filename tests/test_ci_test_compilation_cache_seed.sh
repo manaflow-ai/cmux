@@ -175,6 +175,8 @@ STUB
 chmod +x "$TMP_DIR/bin/xcodebuild"
 export STUB_RESOLVE_ATTEMPTS="$TMP_DIR/resolve-attempts.txt"
 export STUB_XCODEBUILD_ARGS="$TMP_DIR/args.txt"
+# swiftpm-manifest-cache.sh runs resolves under a fixed environment.
+export CMUX_CI_SWIFTPM_KEEP_ENV="STUB_RESOLVE_ATTEMPTS STUB_XCODEBUILD_ARGS STUB_SKIP_UPDATES_FAILS STUB_RESOLVE_FAILS_UNTIL STUB_RESOLVE_ARTIFACTS_FROM STUB_XCODE_VERSION"
 
 run_script() {
   (cd "$TMP_DIR/work" && PATH="$TMP_DIR/bin:$PATH" "$SCRIPT" "$@")
@@ -195,6 +197,7 @@ for expected in \
   cmux \
   cmux-unit \
   cmux-numeric-locale \
+  cmux-cli-tests \
   build-for-testing \
   -showBuildTimingSummary \
   COMPILATION_CACHE_ENABLE_CACHING=YES \
@@ -206,8 +209,8 @@ for expected in \
     exit 1
   fi
 done
-if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 3 ] || [ ! -d "$TMP_DIR/cas" ]; then
-  echo "FAIL: the build must run all three schemes against an existing CAS directory"
+if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 4 ] || [ ! -d "$TMP_DIR/cas" ]; then
+  echo "FAIL: the build must run all four schemes against an existing CAS directory"
   exit 1
 fi
 # `build` compiles no test files: the cmux-unit scheme marks cmuxTests
@@ -216,7 +219,7 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles all three schemes for testing with the compilation cache on"
+echo "PASS: the build compiles all four schemes for testing with the compilation cache on"
 if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log" \
   || grep -Fq 'build output for cmux-unit' "$TMP_DIR/derived/cmux-build.log"; then
   echo "FAIL: the warning-budget log must retain only app/UI build output"

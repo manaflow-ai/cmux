@@ -96,7 +96,8 @@ def record(source: Path, derived: Path) -> None:
     derived.mkdir(parents=True, exist_ok=True)
     recorded = warm.record(source)
     (derived / MANIFEST).write_text(json.dumps(recorded, sort_keys=True))
-    print(f"Recorded {len(recorded)} build inputs under {source}")
+    directories = sum(key.endswith("/") for key in recorded)
+    print(f"Recorded {len(recorded) - directories} build inputs and {directories} directories under {source}")
 
 
 def prune(derived: Path) -> dict[str, object]:

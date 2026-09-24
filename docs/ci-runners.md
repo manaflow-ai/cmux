@@ -54,7 +54,7 @@ The pull-request lane also has a toolchain variable, set together with
 
 | Variable | Used by | Intended steady state | Falls back to |
 | --- | --- | --- | --- |
-| `CMUX_CI_XCODE_APP_PR` | the Xcode pin of the pull-request jobs that *select a pinned Xcode*: `macos-compile-admission`, `app-host-unit-tests`, `tests-build-and-lag`, `cli-pipe-regressions`, the `nightly.yml` cache seed, the owned-Mac producer, and `ci.yml`'s pull-request build-input fingerprint | unset (see "Lanes" below) | `CMUX_CI_XCODE_APP_MACOS_15` |
+| `CMUX_CI_XCODE_APP_PR` | the Xcode pin of the pull-request jobs that *select a pinned Xcode*: `macos-compile-admission`, `app-host-unit-tests`, `tests-build-and-lag`, `cli-pipe-regressions`, the `nightly.yml` cache seed, and `ci.yml`'s pull-request build-input fingerprint | unset (see "Lanes" below) | `CMUX_CI_XCODE_APP_MACOS_15` |
 
 Not every job on the pool reads it. `ci.yml`'s `claude-wrapper` never selects an
 Xcode, and the two `terminal-hang-diagnostics.yml` jobs run
@@ -132,7 +132,14 @@ reads it: compile admission and its product consumers, `tests-build-and-lag`,
 never split across pools, so the app-host product always meets the Xcode that
 linked it. The run takes the first pool in `CI_PR_POOL_ORDER` with fewer than
 `CI_PR_POOL_MAX_QUEUED` (default 3) jobs queued and no queued release or
-nightly job, or else the pool with the fewest queued jobs.
+nightly job, or else the pool with the fewest queued jobs. The macOS 15 pool
+counts 12 more queued jobs than it has (`COLD_QUEUE_PENALTY`): the DerivedData
+seed exists only for the lane's Xcode, so a run there compiles cold, 10 to 20
+minutes longer, while a queued job on a macOS 26 pool waits about a minute.
+It never has headroom, and it wins the fewest-queued fallback only when both
+macOS 26 pools are queued 12 deeper. From 17:25Z to 18:10Z on 2026-09-24,
+before this rule, every PR admission overflowed there at 3 queued and compiled
+for 17 to 25 minutes against a 321 s seeded median.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -164,6 +171,114 @@ follow those: `CI_PR_POOL_OVERFLOW=0` or a lane other than
 `blacksmith-6vcpu-macos-26` keeps them on the Blacksmith macOS 15 fallback as
 before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
 26 Xcode) and only use ephemeral `blacksmith-*` pools.
+
+Owned Mac minis (fleet RFC cmuxterm-hq#573) join as class pools keyed by the
+label glaeda issues to a dedicated member once it has verified the pinned
+Xcode build: `glaeda-<class>-xcode-<version>`, today `glaeda-std-xcode-26.6`.
+The version comes from `CMUX_CI_XCODE_APP_PR`, so moving that pin moves the
+pool, and no machine carries the new label until glaeda has verified the new
+Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
+`glaeda-std-xcode-<version>` (48 GB minis), then `glaeda-light-xcode-<version>`
+(16 GB), then the Blacksmith pools as overflow. An owned pool's capacity is its entry in
+`CI_OWNED_POOL_SLOTS`, and the janitor's snapshot counts the jobs queued and
+running on that label. A pull request run puts several macOS jobs on its pool
+at once, each on its own machine, so a run takes the owned pool only when its
+own peak is free at once. The picker runs after the suite choice and counts
+that peak from the run's routing: the Claude wrapper, CLI pipe and remote
+daemon lanes, beside the larger of compile admission alone or what follows it
+(a full suite's seven app-host shards, tests-build-and-lag and
+cli-product-tests, 12 jobs in all; a changed-suites run's one shard; a CLI
+change's cli-product-tests). Taken is the larger of the jobs the janitor
+saw on the pool and `committed`, the peaks the runs holding it declared, so a
+run whose later jobs do not exist yet still counts them. A run created since
+the snapshot has an unknown peak: any that could have taken the pool is
+assumed to, and charged 4 machines, a compile-only run with every side lane,
+which is what the default pull request policy runs. A full-suite run among
+them is under-counted until the next snapshot; a job that then finds its
+mini busy is refused or queued, and the rescue below moves it to Blacksmith.
+It is skipped when the snapshot is older than 20
+minutes or the label has no slots, and it is never the fewest-queued fallback.
+Fork runs and retry attempts never take it. While `CI_PR_POOL_OWNED` is off,
+owned labels in `CI_PR_POOL_ORDER` are dropped and the rest of the order is
+used; an owned label for another Xcode than the lane's pin is dropped the same
+way and named in the `changes` summary. An order left empty by that turns the
+preference off. A pin path that is not `/Applications/Xcode_<version>.app`
+names no owned pool.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}` |
+
+Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label with a positive
+whole number of machines counts as none. While owned pools are on, the
+`changes` job raises a workflow warning and a summary line for each such entry,
+so a typo shows up on every run instead of quietly leaving a pool unused.
+
+An owned pool is persistent, which needs one more rule because GitHub never
+re-routes a queued job: one queued there waits for that pool however long it
+stays busy. An offline mini still counts as a slot, and the snapshot can be
+minutes old. When the picker chooses a persistent pool, `changes`
+uploads a `macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>` marker (the
+janitor reads the run's peak and pool from its name), and
+`ci-owned-pool-rescue.yml` (from `main`, with Actions write) watches that run.
+If one of its jobs waits for a persistent runner longer than
+`CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600), the watcher confirms the
+pull request head has not moved, cancels the run, and re-runs it. A retry
+attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
+whole, and so does a manual "Re-run all jobs".
+
+An owned runner can also refuse a job: glaeda's job-started hook exits 1 when
+the host is busy, and the job fails within seconds. GitHub does not retry it.
+The watcher treats a job on the persistent pool that failed within 120
+seconds of starting, with no workflow step succeeded, as refused. It confirms
+the head has not moved, cancels the run if it is still going, and re-runs its
+failed jobs, so nobody has to. That attempt 2 keeps what passed and sends the
+rest to `retry_runner` (below). Products built on a mini are then tested on
+Blacksmith, which is sound only while both carry the same Xcode build: on
+2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all
+reported Xcode 26.6 build 17F113 (jobs 107712770707 and 107710434810).
+
+"Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
+the failed jobs read attempt 1's outputs, owned pool included, with no watcher
+(the rescue follows attempt 1 only). So a persistent choice also names
+`retry_runner`, the Blacksmith pool the same rule picks on the lane's own
+Xcode, which is also the Xcode the owned label names. Every pull request macOS
+`runs-on`, and the app-host shards that otherwise inherit compile admission's
+pool, reads `github.run_attempt > 1 && inputs.pr_retry_runner` first. It is
+empty for a run on Blacksmith, so those re-run where they ran.
+
+The queue janitor treats an owned label as one more macOS pool. A stale pull
+request run (category b: closed, merged or superseded) is cancelled there on
+every sweep whatever the queue, which frees minis for current work. The other
+categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
+on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
+janitor also lists the artifacts of each in-flight attempt-1, same-repository
+pull request CI run (one request per run, more only past 100 artifacts) to
+read its marker's peak into `committed`. A run's other macOS jobs do not rule
+it out: `swift-package-tests` always runs on Blacksmith beside a full suite on
+an owned pool.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CI_OWNED_POOL_RESCUE` | unset (on while `CI_PR_POOL_OWNED` is 1) | `0` turns the watcher off |
+| `CI_OWNED_POOL_RESCUE_SECONDS` | `90` | how long a job may wait for a persistent runner before the run moves to Blacksmith |
+
+The watcher makes no API request while owned pools are off. A run on an
+ephemeral pool costs it a few jobs listings until `changes` finishes, plus one
+artifact listing.
+
+The guard keeps the picker the only way onto an owned pool.
+`check_no_self_hosted_fleet_runners` refuses any `glaeda-*` label in workflow
+text, and `runner_label_policy.py` refuses one in any `*RUNNER*` variable, so
+neither a workflow edit nor `MACOS_RUNNER_PR` can send a job there.
+`check_owned_pools_route_through_picker` requires the picked label to reach
+jobs only as `pr_runner` or on a `pull_request` `runs-on` branch.
+`CI_PR_POOL_ORDER` is the one variable that may name owned labels (the guard's
+`owned` pattern, which must match `pr_runner_pool.OWNED_LABEL`), and the CI
+health report checks every other entry in it against the workflow policy.
+Owned pools stay off until `CI_PR_POOL_OWNED` is 1 and `CI_OWNED_POOL_SLOTS`
+gives the lane's owned label machines.
 
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
@@ -209,17 +324,6 @@ it stays on `MACOS_RUNNER_DUAL_XCODE` on every event, and the dual-Xcode guard i
 `test_macos_jobs_use_lane_specific_xcode_pin_vars` in
 `tests/test_ci_change_areas.py` keeps the pin on the same escape hatch as the
 pool.
-
-The dispatch-only owned-Mac producer in `persistent-macos-compile.yml` reads
-`CMUX_CI_XCODE_APP_PR` directly, because only pull-request jobs consume its
-products and hosted revalidation rejects a toolchain mismatch. Before enabling
-`CI_PERSISTENT_MAC_COMPILE`, the owned Mac has to carry whatever Xcode the
-pull-request lane currently pins;
-`check_persistent_compile_owned_mac_occupancy` in
-`tests/test_ci_self_hosted_guard.sh` reduces the hosted job's conditional to its
-pull-request branch before comparing, and separately requires the producer to
-name the lane directly: that file is `workflow_dispatch`-only, so a conditional
-on `github.event_name` there would never take the branch being compared.
 
 `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` are escape hatches: leaving them
 unset is the intended state, and setting one overrides just that lane without
@@ -318,77 +422,13 @@ gh variable set MACOS_RUNNER_BACKGROUND --repo manaflow-ai/cmux -b blacksmith-6v
 
 Leaving it unset is the intended state.
 
-## Persistent compile-admission pilot
+## Owned Macs for pull request compiles
 
-`macos-compile-admission` has one narrow owned-Mac producer path for trusted,
-same-repository maintainer pull requests. The required
-`macOS compile admission` job remains on the ordinary paid macOS runner and
-remains the check, log, validation, and artifact-publication owner. It may
-consume a compile product from `.github/workflows/persistent-macos-compile.yml`
-after revalidating the Git revision/tree, Xcode, SDK, architecture,
-`Package.resolved`, submodules, Glaeda lineage evidence, warning budget, and
-early CLI probes. Any dispatch, queue, execution, download, or validation miss
-falls through to the existing hosted compile in that same required job.
-The required hosted macOS job is allocated without waiting for the persistent
-producer. It restores any exact reusable product first, then observes the
-producer with read-only Actions permission before deciding whether to consume
-the persistent artifact or compile hosted. That observation is nonblocking:
-the producer is consumed only when its compile is already complete at the
-decision point; an absent, queued, or running producer falls through to hosted
-compilation immediately. The PR workflow never receives
-Actions write authority: `changes` publishes a small exact-source request
-artifact, and the default-branch `persistent-macos-router.yml` workflow
-validates it against the live PR and owns producer dispatch/cancellation.
-
-The producer is `workflow_dispatch`-only and requires the
-`cmux-persistent-compile` runner group plus the dedicated
-`cmux-persistent-macos-compile` label. Before rollout, the organization-owned
-runner group must allow this public repository and restrict workflow access to
-`manaflow-ai/cmux/.github/workflows/persistent-macos-compile.yml@refs/heads/main`.
-That group policy is the external scheduling boundary: branch-modified workflow
-copies cannot acquire the owned Mac. The compile job has empty GitHub-token
-permissions, performs public Git fetches instead of `actions/checkout`, and
-receives no repository secrets. Glaeda owns DerivedData, SwiftPM,
-module-cache, and Xcode compilation-cache persistence; every run still resolves
-packages and performs exact source/toolchain admission.
-
-Glaeda performs no automatic cache eviction, and each generation under
-`.glaeda/apple-build/cache/<key>/` holds a full cmux DerivedData tree, so a
-toolchain change would otherwise strand a multi-GB directory on the owned Mac
-indefinitely. After a verified compile, `run-persistent-mac-compile.py` stamps
-the generation it used and deletes all but the three most recently used ones,
-logging each removal and recording it in the admission metrics. The generation
-in use is never a candidate; an evicted generation costs only a cold rebuild.
-
-Capacity sizing for that pilot -- how many owned Macs the queue actually
-needs, which lane moves first, and the enrollment/drain/rollback runbook --
-lives in [ci/mac-fleet.md](ci/mac-fleet.md).
-
-Rollout is reversible through two repository variables:
-
-- `CI_PERSISTENT_MAC_COMPILE=off` (or unset): hosted path only;
-- `CI_PERSISTENT_MAC_COMPILE=pilot` with
-  `CI_PERSISTENT_MAC_COMPILE_COHORT=<pr-number>,feature/name`: only matching trusted
-  PR numbers or head branches;
-- `CI_PERSISTENT_MAC_COMPILE=all`: every trusted same-repository
-  organization PR (`OWNER` or `MEMBER`).
-
-`OWNER`/`MEMBER` is the single admitted author-association set. The producer's
-`authorize` job enforces it, and every routing gate ahead of the producer
-(`ci.yml`, `ci-macos.yml`, `scripts/ci/persistent_mac_route.py`) must match it
-exactly. A routing gate wider than the producer still fails safe, but it
-dispatches a producer that is certain to refuse, which costs an owned-Mac
-allocation and reports `producer_failure` instead of falling through to the
-hosted path at once. `tests/test_ci_persistent_mac_compile.py` derives all four
-sets from their source files and asserts they agree, so they cannot drift.
-
-Queue and execution ceilings may be set with
-`CI_PERSISTENT_MAC_QUEUE_SECONDS` and
-`CI_PERSISTENT_MAC_EXECUTION_SECONDS`; defaults are 90 and 480 seconds.
-Admission publishes timing evidence for source preparation, package readiness,
-compile, warning validation, product publication, total wall time, runner time,
-and the `hot` / `partially-warm` / `cold-reset` / `hosted fallback`
-classification.
+The persistent compile-admission pilot (`persistent-macos-compile.yml`, its
+router, and `CI_PERSISTENT_MAC_COMPILE`) was retired before it routed any
+pull request.
+Owned minis serve pull request runs through the pool picker instead; see
+"Pull request pool preference" above.
 
 ## Tart isolation and capacity
 
@@ -446,13 +486,6 @@ admission or is draining, pressured, or unavailable.
 There is no automatic overflow for the runner variables. If the Tart pool is
 unavailable or its queue is too long, set the affected variable to a paid
 provider.
-
-The two owned-Mac producer lanes are the exception, because they never own a
-result: the persistent compile route and the nightly route
-(`scripts/ci/nightly_mini_route.py`) wait a bounded time for a mini and fall
-back to the hosted build automatically on a queue timeout, an overrun, a
-producer failure or a refused product. Restore Tart after the
-fleet recovers.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
 read through a second switch that lives in this repository rather than in
@@ -580,17 +613,11 @@ the persistent self-hosted mac-mini fleet (`cmux-mac-mini`, `studio1`,
 labels and lack the isolated foreground GUI guarantees expected by runtime
 tests.
 
-The sole direct-host exception is the dispatch-only
-`Persistent Apple compile` producer described above, selected by its dedicated
-workflow-restricted `cmux-persistent-compile` runner group and
-`cmux-persistent-macos-compile` label. It performs compile-only Debug work,
-carries no repository secrets, and grants its hot state zero result authority.
-The second is the dispatch-only nightly producer (`nightly-mini-build.yml`,
-`cmux-nightly-mini` group, `cmux-nightly-mini-build` label), which compiles the
-unsigned nightly app for a hosted job that revalidates and signs it; see
-[mac-fleet.md, Nightly lane](ci/mac-fleet.md#nightly-lane).
+There is no direct-host exception: no workflow names a mini's label or runner
+group. Owned pools are reached only through `pr_runner_pool.py`, behind
+`CI_PR_POOL_OWNED` (see "Pull request pool preference").
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
-`tests/test_ci_self_hosted_guard.sh` enforces that exact exception and rejects
-any second required-job or generic fleet route. Repository variables may keep
+`tests/test_ci_self_hosted_guard.sh` rejects any required-job or generic fleet
+route. Repository variables may keep
 pointing at the isolated `tart-*` pool for their existing jobs.

@@ -92,8 +92,6 @@ PATH_OWNERS = {
     "scripts/ci/peer_product_source.py": frozenset(("preflight",)),
     "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh": frozenset(("release-notary",)),
     "scripts/ci/nightly-sparkle-key.sh": frozenset(("release-notary",)),
-    "scripts/ci/nightly_mini_route.py": frozenset(("preflight",)),
-    "scripts/ci/persistent_mac_route.py": frozenset(("preflight",)),
     "scripts/ci/product_input_identity.py": frozenset(("preflight",)),
     "scripts/ci/ci_health_report.py": frozenset(("ci",)),
     "scripts/ci/queue_janitor.py": frozenset(("ci",)),
@@ -154,7 +152,8 @@ def _python_syntax_scan(path: str) -> bool:
 def _determinism_scan(path: str) -> bool:
     if not path.endswith(DETERMINISM_SUFFIXES):
         return False
-    if path.startswith(("cmuxTests/", "cmuxUITests/", "ios/cmuxUITests/",
+    if path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/",
+                        "cmuxUITests/", "ios/cmuxUITests/",
                         "tests/", "tests_v2/", "web/tests/", "webviews/test/")):
         return True
     return path.startswith("Packages/") and "/Tests/" in path
