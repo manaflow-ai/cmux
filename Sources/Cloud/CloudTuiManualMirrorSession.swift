@@ -47,6 +47,7 @@ final class CloudTuiManualMirrorSession {
     private var attachResponseReceived = false
     private var claimInFlight = false
     private var geometryClaimed = false
+    /// Claim policy survives hiding; visibility fences the current connection's claim.
     private var geometryClaimEligible: Bool
     /// Older daemons do not know `set-client-sizing`. In that case the
     /// recorded `resize-surface` report is still useful, so the scheduler can
@@ -238,7 +239,6 @@ final class CloudTuiManualMirrorSession {
                 }
             }
             geometryClaimed = false
-            geometryClaimEligible = false
             claimUnsupported = false
             claimInFlight = false
             discardPendingSizingRequests()
