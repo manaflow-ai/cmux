@@ -48,6 +48,7 @@ public struct CloudTuiRequest: Sendable, Equatable {
 
 /// Builders for the Cloud application's complete control surface.
 /// Public IDs are absolute. Never add focused workspace/pane selectors to them.
+/// lint:allow namespace-type: moved unchanged from the app target, where it was an internal static namespace; reshaping its static call sites is a separate change from this package move.
 public enum CloudTuiRequests {
     public static func snapshotArguments(socketPath: String) -> CloudTuiRequest { CloudTuiRequest("session.snapshot") }
     public static func createWorkspaceArguments(socketPath: String, name: String? = nil, empty: Bool = false) -> CloudTuiRequest {

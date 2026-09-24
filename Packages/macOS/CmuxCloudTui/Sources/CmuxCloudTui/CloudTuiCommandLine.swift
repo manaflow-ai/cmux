@@ -6,6 +6,7 @@ import Foundation
 /// `cmux-tui/spec/cli.md`: `cmux [GLOBAL OPTIONS] <resource> <action> [OPTIONS]`, with
 /// `--socket`/`--json`/`--jsonl` as global options, and `attach --terminal <id>` as the
 /// single-terminal renderer (`spec/cli.md` §"attach").
+/// lint:allow namespace-type: moved unchanged from the app target, where it was an internal static namespace; reshaping its static call sites is a separate change from this package move.
 public struct CloudTuiCommandLine: Sendable {
     /// `remote connect <route> --device-name … --state-dir … --headless --json [--carrier]`:
     /// a headless link whose stdout carries `connection-snapshot` JSON lines with the
