@@ -9,12 +9,18 @@
 /* Begin PBXBuildFile section */
 		A11CE0040000000000000001 /* AboutLicenseContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0030000000000000001 /* AboutLicenseContent.swift */; };
 		A11CE0010000000000000001 /* AboutLicensesResourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */; };
+		D0B102030000000000000001 /* AboutPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103030000000000000001 /* AboutPanelView.swift */; };
+		D0B102040000000000000001 /* AboutPropertyRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103040000000000000001 /* AboutPropertyRow.swift */; };
+		D0B102050000000000000001 /* AboutVisualEffectBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103050000000000000001 /* AboutVisualEffectBackground.swift */; };
+		D0B102000000000000000001 /* AboutWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103000000000000000001 /* AboutWindowController.swift */; };
 		A5C017000000000000000001 /* AccountSignInFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000002 /* AccountSignInFlow.swift */; };
 		A5C017000000000000000003 /* AccountSignInModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000004 /* AccountSignInModel.swift */; };
 		A5C01700000000000000000F /* AccountSignInModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000010 /* AccountSignInModelTests.swift */; };
 		A5C017000000000000000009 /* AccountSignInPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C01700000000000000000A /* AccountSignInPanel.swift */; };
 		A5C01700000000000000000B /* AccountSignInPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C01700000000000000000C /* AccountSignInPanelView.swift */; };
 		A5C017000000000000000007 /* AccountSignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C017000000000000000008 /* AccountSignInView.swift */; };
+		D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103020000000000000001 /* AcknowledgmentsView.swift */; };
+		D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */; };
 		A9E020000000000000000006 /* agent-session-react in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000006 /* agent-session-react */; };
 		A9E020000000000000000007 /* agent-session-solid in Resources */ = {isa = PBXBuildFile; fileRef = A9E010000000000000000007 /* agent-session-solid */; };
 		C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */; };
@@ -4362,12 +4368,18 @@
 /* Begin PBXFileReference section */
 		A11CE0030000000000000001 /* AboutLicenseContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutLicenseContent.swift; sourceTree = "<group>"; };
 		A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutLicensesResourceTests.swift; sourceTree = "<group>"; };
+		D0B103030000000000000001 /* AboutPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutPanelView.swift; sourceTree = "<group>"; };
+		D0B103040000000000000001 /* AboutPropertyRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutPropertyRow.swift; sourceTree = "<group>"; };
+		D0B103050000000000000001 /* AboutVisualEffectBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutVisualEffectBackground.swift; sourceTree = "<group>"; };
+		D0B103000000000000000001 /* AboutWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AboutWindowController.swift; sourceTree = "<group>"; };
 		A5C017000000000000000002 /* AccountSignInFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInFlow.swift; sourceTree = "<group>"; };
 		A5C017000000000000000004 /* AccountSignInModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInModel.swift; sourceTree = "<group>"; };
 		A5C017000000000000000010 /* AccountSignInModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInModelTests.swift; sourceTree = "<group>"; };
 		A5C01700000000000000000A /* AccountSignInPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInPanel.swift; sourceTree = "<group>"; };
 		A5C01700000000000000000C /* AccountSignInPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInPanelView.swift; sourceTree = "<group>"; };
 		A5C017000000000000000008 /* AccountSignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSignInView.swift; sourceTree = "<group>"; };
+		D0B103020000000000000001 /* AcknowledgmentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsView.swift; sourceTree = "<group>"; };
+		D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/About/AcknowledgmentsWindowController.swift; sourceTree = "<group>"; };
 		A9E010000000000000000006 /* agent-session-react */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-react"; sourceTree = "<group>"; };
 		A9E010000000000000000007 /* agent-session-solid */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "agent-session-solid"; sourceTree = "<group>"; };
 		C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactGalleryBuilder.swift"; sourceTree = "<group>"; };
@@ -9391,6 +9403,12 @@
 				A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */,
 				C97160000000000000000002 /* AppHostProcessReceipt.swift */,
 				A5001011 /* cmuxApp.swift */,
+				D0B103050000000000000001 /* AboutVisualEffectBackground.swift */,
+				D0B103040000000000000001 /* AboutPropertyRow.swift */,
+				D0B103030000000000000001 /* AboutPanelView.swift */,
+				D0B103020000000000000001 /* AcknowledgmentsView.swift */,
+				D0B103010000000000000001 /* AcknowledgmentsWindowController.swift */,
+				D0B103000000000000000001 /* AboutWindowController.swift */,
 				257DFD20F0961FE0BDAF70F2 /* TelemetrySettings.swift */,
 				C12289000000000000000002 /* CmuxMain.swift */,
 				875200000000000000000002 /* cmuxApp+SurfaceNavigationMenu.swift */,
@@ -13498,11 +13516,17 @@
 
 
 				A11CE0040000000000000001 /* AboutLicenseContent.swift in Sources */,
+				D0B102030000000000000001 /* AboutPanelView.swift in Sources */,
+				D0B102040000000000000001 /* AboutPropertyRow.swift in Sources */,
+				D0B102050000000000000001 /* AboutVisualEffectBackground.swift in Sources */,
+				D0B102000000000000000001 /* AboutWindowController.swift in Sources */,
 				A5C017000000000000000001 /* AccountSignInFlow.swift in Sources */,
 				A5C017000000000000000003 /* AccountSignInModel.swift in Sources */,
 				A5C017000000000000000009 /* AccountSignInPanel.swift in Sources */,
 				A5C01700000000000000000B /* AccountSignInPanelView.swift in Sources */,
 				A5C017000000000000000007 /* AccountSignInView.swift in Sources */,
+				D0B102020000000000000001 /* AcknowledgmentsView.swift in Sources */,
+				D0B102010000000000000001 /* AcknowledgmentsWindowController.swift in Sources */,
 				C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */,
 				C7AF10000000000000000001 /* AgentChatArtifactIndex.swift in Sources */,
 					C7A52E000000000000000002 /* AgentChatEndedTranscriptListabilityCache.swift in Sources */,
