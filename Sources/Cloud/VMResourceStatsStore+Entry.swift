@@ -8,5 +8,6 @@ extension VMResourceStatsStore {
         var readSequence: UInt64 = 0
         var acceptedSequence: UInt64 = 0
         var stats: VMStats?
+        var readTask: Task<VMStats, Error>?
     }
 }

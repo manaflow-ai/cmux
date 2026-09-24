@@ -8405,8 +8405,14 @@ final class cmuxUITests: XCTestCase {
         grantNotificationAuthorizationIfRequested()
         let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
         if whatsNewContinue.waitForExistence(timeout: 4) {
-            tap(whatsNewContinue, in: app)
-            XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+            // Continue advances through every unseen page before dismissing.
+            for _ in 0..<4 where whatsNewContinue.exists {
+                tap(whatsNewContinue, in: app)
+            }
+            _ = try XCTUnwrap(
+                whatsNewContinue.waitForNonExistence(timeout: 4) ? true : nil,
+                "Finish every What's New page before opening the workspace"
+            )
         }
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
@@ -11468,7 +11474,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             "mac_client_namespace": macInstanceTag == "dev"
                 ? "mac:com.cmuxterm.app.debug"
                 : "mac:com.cmuxterm.app.debug.\(macInstanceTag)",
-            "mac_app_version": "0.64.23",
+            "mac_app_version": "0.64.25",
             "routes": [],
             "terminal_fidelity": "render_grid",
             "capabilities": capabilities,

@@ -35,12 +35,14 @@ public struct ComputerUseSection: View {
         _enabled = State(initialValue: JSONValueModel(
             store: jsonStore,
             key: catalog.computerUse.enabled,
-            errorLog: errorLog
+            errorLog: errorLog,
+            validateMutations: true
         ))
         _showInMenuBar = State(initialValue: JSONValueModel(
             store: jsonStore,
             key: catalog.computerUse.showInMenuBar,
-            errorLog: errorLog
+            errorLog: errorLog,
+            validateMutations: true
         ))
         _accessibilityGranted = State(initialValue: hostActions.computerUseAccessibilityGranted())
         _screenRecordingGranted = State(initialValue: hostActions.computerUseScreenRecordingGranted())

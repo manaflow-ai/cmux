@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import SwiftUI
 
 /// Adapts a completed browser download to the app's existing file drop path.

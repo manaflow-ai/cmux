@@ -149,12 +149,7 @@ struct CLISSHPTYResizeInputTests {
         closeBridge.signal()
         #expect(bridgeCloseObserved.wait(timeout: .now() + 5) == .success)
 
-        let exited = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exited.signal()
-        }
-        let didExit = exited.wait(timeout: .now() + 5) == .success
+        let didExit = waitForProcessExit(process, timeout: 5) == .success
         #expect(didExit, "Expected ssh-pty-attach to exit")
         guard didExit else {
             if process.isRunning {

@@ -173,7 +173,7 @@ exit 97
         outputs = WORKFLOW['jobs']['build']['outputs']
         self.assertEqual(outputs['artifact_id'], '${{ steps.upload-product.outputs.artifact-id }}')
         self.assertEqual(outputs['sha256'], '${{ steps.package.outputs.sha256 }}')
-        self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'build'])
+        self.assertEqual(WORKFLOW['jobs']['test']['needs'], ['resolve-ref', 'filter', 'runner', 'build'])
 
     def test_the_test_job_verifies_the_product_before_using_it(self):
         # A transport is allowed to miss; it is not allowed to hand over
