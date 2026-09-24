@@ -733,7 +733,11 @@ extension Workspace {
                 } : nil,
                 resumeBinding: localTmuxStartCommand == nil ? resumeBinding : nil,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
-                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
+                // A cmux-tui mirror pane is remote even before its projection exists
+                // (a reservation, respawn, or failed creation), so restore never
+                // turns it into a local shell.
+                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId) ||
+                    (usesSSHTui && terminalPanel.surface.ioMode == .manualMirror),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: localTmuxStartCommand == nil ? agentWasRunning : nil
             )
@@ -1590,8 +1594,8 @@ extension Workspace {
                inPane: paneId
            ) {
             return restoredCloudPanelID }
-        // Projected SSH terminals restore as device mirrors. A local shell saved in the
-        // same workspace has no projection record and keeps its own shell and cwd.
+        // Remote terminals that reach this point without a reservation restore as
+        // process-free mirrors; a terminal saved as local keeps its own shell.
         if usesSSHTui, remoteConfiguration?.preserveAfterTerminalExit == true, snapshot.type == .terminal,
            cloudProjectionRecord != nil || snapshot.terminal?.isRemoteTerminal != false {
             return restoreDeviceDisplayPanel(snapshot, in: paneId)
