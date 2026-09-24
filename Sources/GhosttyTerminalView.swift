@@ -9249,15 +9249,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        // AppKit delivers `viewDidChangeBackingProperties` when the window's
-        // backing scale actually changes.  Replaying it for every screen
-        // topology notification forces a drawable/terminal geometry
-        // recommit even when the window remains on the same scale.  During a
-        // display connect/disconnect this transient recommit clears the
-        // Metal surface for a frame, which presents as a flash in every
-        // running session.  Let the normal backing-properties callback own
-        // scale changes and keep this notification limited to the display
-        // identity and visibility updates above.
+        // Let AppKit's backing-properties callback own scale changes. A screen
+        // notification alone does not establish that backing geometry changed;
+        // replaying that callback schedules an extra settled geometry commit
+        // while display topology is still changing.
     }
 
     fileprivate static func escapeDropForShell(_ value: String) -> String {
