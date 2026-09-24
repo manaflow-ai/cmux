@@ -31,6 +31,6 @@ For UI or behavior changes, include a short demo video (GitHub upload, Loom, or 
 - [ ] I added or updated tests for behavior changes
 - [ ] For iOS connectivity, auth, lifecycle, workspace or terminal changes, I updated the [deterministic soak coverage](https://github.com/manaflow-ai/cmux/blob/main/docs/ios-connectivity-soak.md) or explained why existing coverage still applies, and recorded the affected workload result
 - [ ] I updated docs/changelog if needed
-- [ ] I requested bot reviews after my latest commit (copy/paste block above or equivalent)
+- [ ] I requested bot reviews after my latest commit (paste the commented-out Review Trigger block from this template as a PR comment, or equivalent)
 - [ ] All code review bot comments are resolved
 - [ ] All human review comments are resolved
