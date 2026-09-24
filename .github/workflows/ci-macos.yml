@@ -2080,6 +2080,13 @@ jobs:
           "$NU_DIR/nu" --version
           echo "$NU_DIR" >> "$GITHUB_PATH"
 
+      # The app-host checkout skips submodules (#13427). The bash prompt and
+      # CLI no-socket regressions read Ghostty's shell integration from
+      # ghostty/src, so fetch only that submodule on the CLI regression shard.
+      - name: Check out the ghostty submodule for shell regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
+        run: git submodule update --init --depth 1 ghostty
+
       - name: Validate bash prompt bootstrap export compatibility
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
         run: |
