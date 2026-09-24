@@ -525,6 +525,7 @@ class ReuseProducts(TestProductHandoff):
         revision = self.pull_request_checkout("main")
         self.api.consumer_run["head_sha"] = self.head_revision
         self.api.product_identities[self.head_revision] = self.contract["product_inputs"]
+        self.api.product_identities[revision] = self.contract["product_inputs"]
         report = {}
         self.assertTrue(self.restore_reuse(revision=revision, report=report))
         self.assertNotIn("consumer_revision_mismatch", report["miss_reasons"])
@@ -863,6 +864,10 @@ class ReuseProducts(TestProductHandoff):
                 self.assertFalse(self.consumer.exists())
 
     def test_unrelated_producer_inputs_rejected_before_download(self):
+        # A merge group producer compiled its head, so its head decides.
+        for run in (self.api.run, self.api.consumer_run):
+            run["event"] = "merge_group"
+            run.pop("pull_requests", None)
         original = self.api.product_identities["abc123"]
         self.api.product_identities["abc123"] = {
             **original,
@@ -1224,9 +1229,15 @@ class ReuseProducts(TestProductHandoff):
                 lambda: self.api.job.update({"conclusion": "failure"}),
                 "producer_compile_unsuccessful",
             ),
+            # A producer that compiled its head. A pull request producer's head
+            # does not name what it built, so its check waits for the download:
+            # test_unrelated_pull_request_producer_inputs_are_rejected_after_download.
             "product_inputs_changed": (
-                lambda: self.api.product_identities.__setitem__(
-                    "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                lambda: (
+                    [run.update(event="merge_group") for run in (self.api.run, self.api.consumer_run)],
+                    self.api.product_identities.__setitem__(
+                        "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                ),
                 "producer_product_inputs_mismatch",
             ),
             "oversize_archive": (
