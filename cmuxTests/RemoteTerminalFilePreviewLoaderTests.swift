@@ -8,6 +8,41 @@ import Testing
 #endif
 
 @Suite @MainActor struct RemoteTerminalFilePreviewLoaderTests {
+    @Test func nativeSSHPreviewRequiresTheProjectedConnection() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let catalog = SurfaceCatalog.shared
+        defer {
+            catalog.endProjections(panelID: panelID, reason: .replaced)
+            workspace.teardownAllPanels()
+        }
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "fixture@remote.invalid", port: 2222, identityFile: "/tmp/fixture-key",
+            sshOptions: ["ProxyJump=fixture-jump"], localProxyPort: nil, relayPort: nil,
+            relayID: nil, relayToken: nil, localSocketPath: nil, terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        workspace.remoteConfiguration = configuration
+        #expect(workspace.remoteTerminalFilePreviewConfiguration(for: panelID) == nil)
+        let resource = SurfaceResourceID(
+            machine: SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration).id),
+            kind: .terminal, key: "term_" + UUID().uuidString
+        )
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: resource)],
+                        workspaceID: workspace.id, restoringWorkspace: workspace)
+        #expect(workspace.activeRemoteTerminalSurfaceIds.isEmpty)
+        #expect(workspace.terminalLinkIsRemoteTerminal(panelID))
+        #expect(workspace.remoteTerminalFilePreviewConfiguration(for: panelID) == configuration)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "fixture@different.invalid", port: 2222, identityFile: "/tmp/fixture-key",
+            sshOptions: [], localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true
+        )
+        // An old projection must neither download from the replacement host nor resolve locally.
+        #expect(workspace.remoteTerminalFilePreviewConfiguration(for: panelID) == nil)
+        #expect(workspace.terminalLinkIsRemoteTerminal(panelID))
+    }
+
     @Test func downloadsRemoteBytesInsteadOfReadingLocalShadow() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

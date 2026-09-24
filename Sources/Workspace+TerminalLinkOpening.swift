@@ -17,9 +17,6 @@ extension Workspace: TerminalLinkOpenContainer {
     func terminalLinkIsRemoteTerminal(_ sourcePanelId: UUID) -> Bool {
         let surfaceID = surfaceOwnershipTarget(for: sourcePanelId)?.surfaceID
             ?? sourcePanelId
-        if SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: surfaceID)?.resource.machine.isSSH == true {
-            return true
-        }
         return !canResolveTerminalPathsAgainstLocalFilesystem(
             surfaceID: surfaceID
         )
@@ -30,7 +27,7 @@ extension Workspace: TerminalLinkOpenContainer {
         guard let configuration = remoteConfiguration, configuration.transport == .ssh else { return nil }
         if usesSSHTui {
             let expectedMachine = SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration).id)
-            guard SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: surfaceID)?.resource.machine == expectedMachine else {
+            guard machineOwningSurface(surfaceID) == expectedMachine else {
                 return nil
             }
         } else if !isRemoteTerminalSurface(surfaceID) {
