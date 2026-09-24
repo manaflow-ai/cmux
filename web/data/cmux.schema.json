@@ -441,6 +441,12 @@
           "descriptionKey": "schemaDescriptions.app.windowTitleTemplate",
           "description": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: {windowId}, {windowToken}, {activeWorkspace}, {activeDirectory}, {defaultTitle}, {appName}."
         },
+        "devWindowDisplay": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.app.devWindowDisplay",
+          "description": "DEBUG-only display name used when opening new windows. An empty value uses the system default."
+        },
         "menuBarOnly": {
           "type": "boolean",
           "default": false,

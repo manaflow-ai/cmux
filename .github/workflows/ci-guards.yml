@@ -262,6 +262,12 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./scripts/check-control-plane-types.sh
 
+      # Runs web/scripts/check-complexity.mjs against scratch repositories, so
+      # it needs the Bun set up above rather than the `ci` group's Python only.
+      - name: Validate web complexity source enumeration
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_web_complexity_source_enumeration.py
+
       - name: Set up Python 3.9 for nightly prune compatibility
         if: ${{ matrix.group == 'release-tooling' }}
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -286,6 +292,12 @@ jobs:
       - name: Validate Blacksmith Testbox broker trust boundary
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_testbox_broker_guard.py
+
+      - name: Validate contributor verification receipts and selection
+        if: ${{ matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_verification_receipt.py
+          python3 tests/test_verify_local.py
 
       - name: Validate local hook trust boundary
         if: ${{ matrix.group == 'ci' }}
@@ -669,13 +681,9 @@ jobs:
         if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_ci_virtual_display_lock.sh
 
-      - name: Validate nightly tag push auth
+      - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
-        run: ./tests/test_ci_nightly_tag_push_auth.sh
-
-      - name: Validate nightly tag push retries
-        if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_tag_push.py
+        run: python3 tests/test_update_release_tag.py
 
       - name: Validate nightly Xcode selection
         if: ${{ matrix.group == 'release-notary' }}

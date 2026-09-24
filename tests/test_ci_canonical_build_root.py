@@ -114,12 +114,49 @@ class CanonicalRootMaterializationTests(unittest.TestCase):
         (self.workspace / "sub" / "keep.txt").write_text("keep")
         self.root = self.base / "canon"
 
-    def run_script(self, workspace=None, root=None):
+    def run_script(self, workspace=None, root=None, extra_env=None):
         return subprocess.run(
             [str(ROOT / "scripts" / "ci" / "canonical-build-root.sh"), str(workspace or self.workspace)],
-            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(root or self.root)},
+            env={"PATH": "/usr/bin:/bin", "CMUX_CI_CANONICAL_ROOT": str(root or self.root), **(extra_env or {})},
             text=True, capture_output=True,
         )
+
+    def restored_packages(self) -> Path:
+        packages = self.workspace / ".ci-source-packages"
+        (packages / "checkouts" / "pkg").mkdir(parents=True)
+        (packages / "checkouts" / "pkg" / "Package.swift").write_text("restored")
+        return packages
+
+    def test_admission_moves_the_restored_package_cache_instead_of_copying_it(self):
+        # The restored `spm-` cache is most of the tree by bytes, and admission
+        # never reads the workspace copy again, so it moves it into place
+        # rather than paying a second full copy before resolve.
+        packages = self.restored_packages()
+        stale = self.root / "src" / ".ci-source-packages" / "checkouts" / "stale"
+        stale.mkdir(parents=True)
+        result = self.run_script(extra_env={"CMUX_CI_MOVE_SOURCE_PACKAGES": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        moved = self.root / "src" / ".ci-source-packages" / "checkouts" / "pkg" / "Package.swift"
+        self.assertEqual(moved.read_text(), "restored")
+        self.assertFalse(packages.exists())
+        # A reused runner's earlier packages must not survive the move.
+        self.assertFalse(stale.exists())
+        self.assertEqual((self.root / "src" / "sub" / "keep.txt").read_text(), "keep")
+
+    def test_moving_without_a_restored_cache_still_clears_stale_packages(self):
+        stale = self.root / "src" / ".ci-source-packages" / "checkouts" / "stale"
+        stale.mkdir(parents=True)
+        result = self.run_script(extra_env={"CMUX_CI_MOVE_SOURCE_PACKAGES": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "src" / ".ci-source-packages").exists())
+
+    def test_other_callers_keep_their_workspace_package_cache(self):
+        # app-host-test-rerun.yml reads the workspace copy after canonical
+        # resolve, so the move is opt-in.
+        packages = self.restored_packages()
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertTrue((packages / "checkouts" / "pkg" / "Package.swift").is_file())
+        self.assertTrue((self.root / "src" / ".ci-source-packages" / "checkouts" / "pkg" / "Package.swift").is_file())
 
     def test_runtime_source_alias_resolves_embedded_file_paths(self):
         result = subprocess.run(
