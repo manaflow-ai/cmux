@@ -55,8 +55,8 @@ class Prune(unittest.TestCase):
         bucket = FakeBucket([
             archive("admission-derived-data-v1-macOS-ARM64-fp-a", 4),
             archive("admission-derived-data-v1-macOS-ARM64-fp-b", 2),
-            archive("xcode-compilation-test-macOS-ARM64-fp-a", 8),
-            archive("xcode-compilation-test-macOS-ARM64-fp-b", 6),
+            archive("xcode-compilation-test-macOS-ARM64-fp-a", 4),
+            archive("xcode-compilation-test-macOS-ARM64-fp-b", 2),
             archive("spm-a", 31),
             archive("spm-b", 29),
         ], {})

@@ -18,8 +18,11 @@ Retention, by the first matching key prefix:
   admission-derived-data-  3 days. One snapshot per main commit, and every
                            consumer adopts the newest by prefix; an exact key
                            only matters for a pull request on a base that old.
-  xcode-compilation-       7 days. Seeds every 6 hours, restored newest by
-                           prefix; a cache from an older main mostly misses.
+  xcode-compilation-       3 days. Restored newest by prefix, and a cache from
+                           an older main misses for every changed module
+                           (#14015: 3 of 2,665 app jobs hit). On 2026-09-24
+                           these were 141 GiB of a 143 GiB bucket after five
+                           days, about 35 GiB a day.
   everything else          30 days. Keyed by content (a Package.resolved or
                            toolchain hash), so an old key stays exact for a
                            pull request whose base still has that input.
@@ -45,7 +48,7 @@ import r2_cache_census as census  # noqa: E402
 
 RETENTION_DAYS = (
     ("admission-derived-data-", 3),
-    ("xcode-compilation-", 7),
+    ("xcode-compilation-", 3),
     ("", 30),
 )
 ARCHIVE = re.compile(r"^(v1/[^/]+)/objects/(?P<name>[A-Za-z0-9._-]+)\.(?:tar\.zst|tar\.gz)$")
