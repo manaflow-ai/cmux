@@ -224,6 +224,9 @@ jobs:
         env:
           # With the seed ci-macos.yml restores, an exact hit resolves offline.
           CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
+          # Move the restored packages into the canonical root rather than
+          # copying them, as ci-macos.yml does; only that copy is read later.
+          CMUX_CI_MOVE_SOURCE_PACKAGES: "1"
         run: |
           set -euo pipefail
           python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
