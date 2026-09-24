@@ -139,6 +139,7 @@ CI_CONTROL_PLANE_ONLY = frozenset({
 # compile/test lanes. Validate publishing through its guards/release workflows.
 CI_PUBLISHING_ONLY = frozenset({
     "scripts/ci/download-run-artifact.py",
+    "scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh",
     "scripts/ci/nightly-sparkle-key.sh",
     "scripts/prebuild_sparkle_deltas.sh",
     "scripts/sparkle_generate_appcast.sh",

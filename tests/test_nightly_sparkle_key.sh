@@ -42,4 +42,9 @@ if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "
   exit 1
 fi
 
+if ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh previous-nightlies "$SPARKLE_PUBLIC_KEY"' "$WORKFLOW"; then
+  echo "FAIL: the appcast step must drop previous nightlies signed for another key before building deltas"
+  exit 1
+fi
+
 echo "PASS: nightly Sparkle key selection"
