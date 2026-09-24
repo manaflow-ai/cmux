@@ -144,9 +144,14 @@ class TestProductHandoff(unittest.TestCase):
                 (item.attrib.get("key"), item.attrib.get("value"), item.attrib.get("isEnabled"))
                 for item in test.findall("./EnvironmentVariables/EnvironmentVariable")
             )
+            # shouldUseLaunchSchemeArgsEnv makes test runs inherit
+            # LaunchAction arguments and environment, so it is contract too.
+            launch = scheme.find("./LaunchAction")
+            self.assertIsNotNone(launch)
             return {
                 "buildables": buildables,
                 "test_action": element_signature(test),
+                "launch_action": element_signature(launch),
                 "testables": testables,
                 "macro": tuple(
                     macro.attrib.get(key)
