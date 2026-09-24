@@ -249,14 +249,18 @@ enum MobileHostIrxTerminalLaneServer {
         _ input: MobileTerminalInputFrame,
         surfaceID: UUID
     ) async -> Bool {
-        await MainActor.run {
+        // Stamped before the main-actor hop so the Mac's receive-to-accept
+        // stage includes any queueing behind other main-actor work.
+        let receivedAtMicros = MobileTerminalByteTee.uptimeMicros()
+        return await MainActor.run {
             guard
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
                     id: surfaceID)
             else { return false }
             let result = MobileTerminalByteTee.shared.performMobileInput(
                 surfaceID: surfaceID,
-                sequence: input.sequence
+                sequence: input.sequence,
+                receivedAtMicros: receivedAtMicros
             ) { surface.sendInputResult(input.text) }
             switch result {
             case .sent:
