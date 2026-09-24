@@ -60,7 +60,9 @@ final class WorkspaceNavigationBarController: UIViewController {
                 .fixedSize()
                 .environment(\.self, environment))
             if let control = controls[value.id] {
-                control.view.update(content: content)
+                control.view.configuration = UIHostingConfiguration { content.ignoresSafeArea() }
+                    .margins(.all, 0)
+                    .minSize(width: 0, height: 0)
             } else {
                 let customView = UIHostingConfiguration { content.ignoresSafeArea() }
                     .margins(.all, 0)
