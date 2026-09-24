@@ -15,12 +15,14 @@ final class WorkspaceNavigationControlView: UIView {
         // The bar already places items around the device's safe area. Adding
         // it again here enlarges the end items by 17 points in landscape.
         insetsLayoutMarginsFromSafeArea = false
+        preservesSuperviewLayoutMargins = false
+        directionalLayoutMargins = .zero
         translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentView)
         NSLayoutConstraint.activate([
-            contentView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: 36),
         ])
@@ -36,7 +38,7 @@ final class WorkspaceNavigationControlView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        return CGSize(width: contentSize.width + layoutMargins.left + layoutMargins.right, height: 36)
+        return CGSize(width: contentSize.width, height: 36)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
