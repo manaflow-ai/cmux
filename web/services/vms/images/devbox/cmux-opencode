@@ -1,10 +1,12 @@
 #!/bin/bash
 # Every entrypoint, including exec and direct process spawn, prepares the same
 # authenticated provider configuration before starting the pinned executable.
+# The executable's path ends in `opencode` so the process is named opencode:
+# agent detection identifies the process by that name.
 set -e
 if [ "$#" -eq 1 ]; then
-  case "$1" in --version|-v|--help|-h) exec /usr/local/libexec/cmux-opencode-real "$@" ;; esac
+  case "$1" in --version|-v|--help|-h) exec /usr/local/libexec/cmux-opencode/opencode "$@" ;; esac
 fi
 . /etc/cmux/agent-config.sh
 cmux_ensure_opencode_config
-exec /usr/local/libexec/cmux-opencode-real "$@"
+exec /usr/local/libexec/cmux-opencode/opencode "$@"

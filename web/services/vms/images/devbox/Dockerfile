@@ -335,8 +335,8 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
 COPY cmux-opencode /etc/cmux/opencode
-RUN mkdir -p /usr/local/libexec \
-  && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real \
+RUN mkdir -p /usr/local/libexec/cmux-opencode \
+  && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode/opencode \
   && rm -f /usr/local/bin/opencode \
   && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode
 RUN bash -n /etc/cmux/agent-config.sh \
