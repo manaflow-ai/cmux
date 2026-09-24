@@ -398,7 +398,7 @@ struct SSHStartupManualReconnectTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(try String(contentsOf: attemptFile, encoding: .utf8).contains("auth\n"))
+        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "auth\n")
         #expect(try String(contentsOf: attachFile, encoding: .utf8) == "attached\n")
     }
 
