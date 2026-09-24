@@ -1056,7 +1056,7 @@ struct cmuxApp: App {
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
     }
-
+    /// Presents window navigation and stateful View commands for the focused content.
     @CommandsBuilder
     private var windowAndViewCommands: some Commands {
         CommandGroup(after: .windowArrangement) {
@@ -1162,7 +1162,7 @@ struct cmuxApp: App {
                     _ = activeTabManager.resetZoomFocusedBrowserOrTextFilePreview()
                 }
             }
-
+            FilePreviewWordWrapMenu(shortcut: menuShortcut(for: .toggleFileEditorWordWrap), target: { appDelegate.shortcutFocusedSavingTextView(in: NSApp.keyWindow ?? NSApp.mainWindow) })
             Button(String(localized: "menu.view.clearBrowserHistory", defaultValue: "Clear Browser History")) {
                 BrowserHistoryStore.shared.clearHistory()
             }

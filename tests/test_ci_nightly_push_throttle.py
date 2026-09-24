@@ -190,6 +190,26 @@ def summary_values(result) -> dict:
     return {row[0]["data"]: row[1] for row in result["tables"][0]}
 
 
+def ci_scripts():
+    """Import the CI scripts without leaving `scripts/ci` on the import path.
+
+    `main()` runs every test in this file in one process, so an entry left
+    behind here would sit in front of the import path for the tests after it.
+    Nothing in `scripts/ci` shadows a module they import today; restoring the
+    path is what keeps that true. `nightly_build_inputs` prepends the same
+    directory when it is imported, so put the whole list back rather than
+    dropping one copy of the entry.
+    """
+    original_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import detect_ci_change_areas as detect
+        import nightly_build_inputs as nightly
+    finally:
+        sys.path[:] = original_path
+    return detect, nightly
+
+
 def test_decision_summary_distinguishes_push_throttle_from_manual_build() -> None:
     push = run_decide(event="push", tag_age_hours=0.5)
     assert summary_values(push)["app build selected"] == "false"
@@ -312,9 +332,7 @@ def test_the_daily_catch_up_still_builds_as_a_backstop() -> None:
 
 def test_what_the_nightly_ships_is_read_back_from_the_project() -> None:
     """The bundled set is derived, not listed, so a new resource cannot slip."""
-    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-    import detect_ci_change_areas as detect
-    import nightly_build_inputs as nightly
+    detect, nightly = ci_scripts()
 
     bundled = nightly.bundled_paths(ROOT)
     # The derivation finds the folder resource the router already knows about,
