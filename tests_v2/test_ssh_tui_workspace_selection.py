@@ -109,7 +109,7 @@ def main():
                 arguments += ['--ssh-option', option]
             identify()
             result = subprocess.run(
-                [str(cli), '--socket', socket_path, '--json', *arguments],
+                [str(cli), '--socket', socket_path, '--json', '--id-format', 'uuids', *arguments],
                 env=environment, capture_output=True, text=True, timeout=120,
             )
             assert result.returncode == 0, f'cmux ssh failed (status {result.returncode})'
