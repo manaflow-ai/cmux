@@ -44,6 +44,14 @@ class LifecycleTests(unittest.TestCase):
         result = self.run_case("import signal; signal.pause()", "raise SystemExit(17)")
         self.assertEqual(result.returncode, 17, result.stderr)
 
+    def test_helper_deadline_with_real_processes_keeps_build(self):
+        # Nightly fork run 35976212299: the deadline kill raised EPERM on macOS,
+        # crashed the wrapper, and orphaned a healthy xcodebuild.
+        helper = "import subprocess,sys,signal; subprocess.Popen([sys.executable,'-c','import signal; signal.pause()']); signal.pause()"
+        result = self.run_case(helper, "import time; time.sleep(2); raise SystemExit(0)", timeout=1)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("reached its deadline", result.stdout)
+
     def simulated(self, helper_status, ticks):
         spec = importlib.util.spec_from_file_location("runner", SCRIPT)
         module = importlib.util.module_from_spec(spec)

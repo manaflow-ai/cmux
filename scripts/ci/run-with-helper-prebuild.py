@@ -12,16 +12,19 @@ def stop_group(process):
     if process is None:
         return
     # Kill the group even if its leader exited: grandchildren can still be alive.
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        process.wait()
-        return
-    time.sleep(0.2)
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+    # macOS fails killpg with EPERM when the group holds a zombie (such as the
+    # unreaped leader) but still signals the live members, so EPERM is not a
+    # reason to stop. Letting it escape killed the wrapper and orphaned the
+    # build when the helper hit its deadline.
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        if sig == signal.SIGTERM:
+            time.sleep(0.2)
     process.wait()
 
 
