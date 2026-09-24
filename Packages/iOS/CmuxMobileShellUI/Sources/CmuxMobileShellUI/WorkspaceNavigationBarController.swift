@@ -3,9 +3,10 @@ import SwiftUI
 import UIKit
 
 @MainActor
-final class WorkspaceNavigationBarController: UIViewController {
-    let bar = UINavigationBar()
-    private let item = UINavigationItem()
+final class WorkspaceNavigationBarController: UINavigationController {
+    private let contentHost = UIHostingController(rootView: AnyView(EmptyView()))
+    private var bar: UINavigationBar { navigationBar }
+    private var item: UINavigationItem { contentHost.navigationItem }
     private let titleHost = UIHostingController(rootView: AnyView(EmptyView()))
     private lazy var titleCapsule = WorkspaceNavigationTitleView(host: titleHost)
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
@@ -14,42 +15,42 @@ final class WorkspaceNavigationBarController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .clear
         bar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
-        bar.translatesAutoresizingMaskIntoConstraints = false
         bar.tintColor = .label
         bar.prefersLargeTitles = false
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithTransparentBackground()
-        bar.standardAppearance = appearance
-        bar.scrollEdgeAppearance = appearance
-        bar.compactAppearance = appearance
-        bar.compactScrollEdgeAppearance = appearance
-        view.addSubview(bar)
-        NSLayoutConstraint.activate([
-            bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bar.topAnchor.constraint(equalTo: view.topAnchor),
-            bar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        contentHost.view.backgroundColor = .clear
+        setViewControllers([contentHost], animated: false)
 
         titleHost.sizingOptions = .intrinsicContentSize
         titleHost.safeAreaRegions = []
-        addChild(titleHost)
+        contentHost.addChild(titleHost)
         item.style = .browser
         item.largeTitleDisplayMode = .never
-        bar.setItems([item], animated: false)
-        titleHost.didMove(toParent: self)
+        titleHost.didMove(toParent: contentHost)
     }
 
     func update(
         title: AnyView,
+        content: AnyView,
+        backgroundColor: UIColor,
+        scrollEdgeGlass: Bool,
         leadingItems: [WorkspaceNavigationBar.Item],
         trailingItems: [WorkspaceNavigationBar.Item],
         environment: EnvironmentValues
     ) {
         loadViewIfNeeded()
         overrideUserInterfaceStyle = environment.colorScheme == .dark ? .dark : .light
+        view.backgroundColor = backgroundColor
+        contentHost.rootView = AnyView(content.environment(\.self, environment))
+        let appearance = UINavigationBarAppearance()
+        if !scrollEdgeGlass {
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = backgroundColor
+        }
+        item.standardAppearance = appearance
+        item.scrollEdgeAppearance = scrollEdgeGlass ? nil : appearance
+        item.compactAppearance = appearance
+        item.compactScrollEdgeAppearance = scrollEdgeGlass ? nil : appearance
         titleHost.rootView = AnyView(title.environment(\.self, environment).buttonStyle(.plain))
         titleCapsule.invalidateIntrinsicContentSize()
         // A custom title must have a natural size before the bar resizes it.
@@ -81,7 +82,7 @@ final class WorkspaceNavigationBarController: UIViewController {
                 let host = UIHostingController(rootView: content)
                 host.sizingOptions = .intrinsicContentSize
                 host.safeAreaRegions = []
-                addChild(host)
+                contentHost.addChild(host)
                 addedHosts.append(host)
                 host.view.backgroundColor = .clear
                 host.view.setContentHuggingPriority(.required, for: .horizontal)
@@ -124,7 +125,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             control.host.removeFromParent()
         }
         for host in addedHosts {
-            host.didMove(toParent: self)
+            host.didMove(toParent: contentHost)
         }
         bar.setNeedsLayout()
     }

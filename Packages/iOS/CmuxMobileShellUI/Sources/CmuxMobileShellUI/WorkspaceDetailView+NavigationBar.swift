@@ -1,27 +1,21 @@
 #if os(iOS)
 import CmuxMobileSupport
 import SwiftUI
+import UIKit
 
 extension WorkspaceDetailView {
-    var workspaceNavigationBar: some View {
+    func workspaceNavigationBar<Content: View>(content: Content) -> some View {
         WorkspaceNavigationBar(
             title: AnyView(workspaceTitleMenu()),
+            content: AnyView(content),
+            backgroundColor: UIColor(store.activeTerminalTheme.terminalBackgroundColor),
+            scrollEdgeGlass: terminalScrollEdgeGlassActive,
             leadingItems: navigationBarLeadingItems,
             trailingItems: navigationBarTrailingItems
         )
-        // The native bar applies its own safe-area margins. Give it the same
-        // full-width coordinate space as the original navigation bar.
-        .ignoresSafeArea(.container, edges: .horizontal)
-        .background {
-            Group {
-                if terminalScrollEdgeGlassActive {
-                    Rectangle().fill(.regularMaterial)
-                } else {
-                    store.activeTerminalTheme.terminalBackgroundColor
-                }
-            }
-            .ignoresSafeArea(edges: .top)
-        }
+        // The navigation controller manages the status bar, navigation bar,
+        // and landscape margins as one native container.
+        .ignoresSafeArea(.container, edges: [.top, .leading, .trailing])
         .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
     }
 

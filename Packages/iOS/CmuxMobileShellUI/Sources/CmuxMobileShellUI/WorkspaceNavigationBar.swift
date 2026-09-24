@@ -2,8 +2,8 @@
 import SwiftUI
 import UIKit
 
-/// A native bar owns all horizontal layout. SwiftUI supplies the existing
-/// actions and menus, but never assigns a width to the navigation title.
+/// A UIKit navigation controller owns the detail content's navigation chrome
+/// and safe areas. SwiftUI supplies the existing content, actions, and menus.
 struct WorkspaceNavigationBar: UIViewControllerRepresentable {
     struct Item {
         enum ID: Hashable {
@@ -15,6 +15,9 @@ struct WorkspaceNavigationBar: UIViewControllerRepresentable {
     }
 
     let title: AnyView
+    let content: AnyView
+    let backgroundColor: UIColor
+    let scrollEdgeGlass: Bool
     let leadingItems: [Item]
     let trailingItems: [Item]
 
@@ -25,21 +28,15 @@ struct WorkspaceNavigationBar: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: WorkspaceNavigationBarController, context: Context) {
         controller.update(
             title: title,
+            content: content,
+            backgroundColor: backgroundColor,
+            scrollEdgeGlass: scrollEdgeGlass,
             leadingItems: leadingItems,
             trailingItems: trailingItems,
             environment: context.environment
         )
     }
 
-    func sizeThatFits(
-        _ proposal: ProposedViewSize,
-        uiViewController: WorkspaceNavigationBarController,
-        context: Context
-    ) -> CGSize? {
-        guard let width = proposal.width else { return nil }
-        let size = uiViewController.bar.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: width, height: size.height)
-    }
 }
 
 #endif

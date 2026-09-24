@@ -197,22 +197,7 @@ struct WorkspaceDetailView: View {
         }
 
         #if os(iOS)
-        let navigationContent = content
-            .navigationTitle(systemNavigationTitle)
-            // With the scroll-edge band active (iOS 26, terminal surface),
-            // the bar stays system glass and the terminal's overscan rows
-            // render under it; other surfaces keep the opaque themed bar.
-            .mobileTerminalNavigationChrome(
-                theme: store.activeTerminalTheme,
-                scrollEdgeGlass: terminalScrollEdgeGlassActive
-            )
-            // Paint the navigation container, including the status-bar safe
-            // area, with the same theme as the terminal surface below it. A
-            // plain view background only covers the content bounds, leaving
-            // the split view's top safe area on the default system color.
-            .mobileNavigationContainerBackground(store.activeTerminalTheme.terminalBackgroundColor)
-
-        detailNavigationChrome(navigationContent)
+        detailNavigationChrome(content)
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
                 syncSimulatorStreamPanels()
@@ -309,11 +294,8 @@ struct WorkspaceDetailView: View {
     /// NavigationStack still owns routing and interactive back navigation.
     @ViewBuilder
     private func detailNavigationChrome<Content: View>(_ content: Content) -> some View {
-        content
+        workspaceNavigationBar(content: content)
             .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                workspaceNavigationBar
-            }
     }
 #endif
 
