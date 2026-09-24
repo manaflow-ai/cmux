@@ -761,6 +761,21 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func notificationReorderKeepsPinnedGroupMemberFirst() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let ids = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(name: "G", childWorkspaceIds: [ids[1], ids[2], ids[3]]))
+        let pinned = try #require(manager.tabs.first { $0.id == ids[1] })
+        manager.setPinned(pinned, pinned: true)
+
+        manager.moveTabToTopForNotification(ids[3])
+
+        let members = manager.tabs.filter { $0.groupId == groupId }
+        #expect(members.map(\.id) == [ids[1], ids[3], ids[2]])
+    }
+
     @Test func addingWorkspaceToGroupPreservesGroupTopLevelPosition() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

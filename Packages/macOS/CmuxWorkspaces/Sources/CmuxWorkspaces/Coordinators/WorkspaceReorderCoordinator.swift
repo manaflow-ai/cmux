@@ -74,6 +74,10 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIdsIncludingEmptyGroups()
             guard !pinnedTopLevelIds.contains(topLevelId) else { return }
             model.moveWorkspaceGroupMembersAfterAnchors(workspaceIds: [tabId])
+            // A pinned member is a floor within its group. Keep the group's
+            // anchor and pinned members ahead of notification bumps so the
+            // pinned workspace remains the first useful row below the header.
+            moveNotificationTabAfterPinnedGroupMembers(tabId)
             var desiredTopLevelIds = model.sidebarTopLevelWorkspaceIdsIncludingEmptyGroups()
             guard let fromIndex = desiredTopLevelIds.firstIndex(of: topLevelId) else { return }
             let pinnedCount = desiredTopLevelIds.reduce(into: 0) { count, id in
@@ -99,6 +103,23 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         if model.tabs.map(\.id) != previousOrder {
             host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
         }
+    }
+
+    private func moveNotificationTabAfterPinnedGroupMembers(_ tabId: UUID) {
+        guard let tab = model.tabs.first(where: { $0.id == tabId }),
+              let groupId = tab.groupId,
+              model.workspaceGroups.contains(where: { $0.id == groupId }),
+              !tab.isPinned,
+              model.tabs.contains(where: { $0.groupId == groupId && $0.isPinned }) else { return }
+        let members = model.tabs.filter { $0.groupId == groupId }
+        guard let memberIndex = model.tabs.firstIndex(where: { $0.id == tabId }),
+              let runStart = model.tabs.firstIndex(where: { $0.groupId == groupId }),
+              let runEnd = model.tabs.lastIndex(where: { $0.groupId == groupId }) else { return }
+        let pinnedCount = members.filter { $0.isPinned }.count
+        let value = model.tabs.remove(at: memberIndex)
+        let adjustedEnd = min(runEnd, model.tabs.count)
+        let insertion = min(runStart + 1 + pinnedCount - (tab.isPinned ? 1 : 0), adjustedEnd)
+        model.tabs.insert(value, at: insertion)
     }
 
     // MARK: - Single reorder
