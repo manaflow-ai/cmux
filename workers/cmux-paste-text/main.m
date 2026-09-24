@@ -121,6 +121,8 @@ static BOOL isPlainTextType(NSString *typeIdentifier) {
 }
 
 static BOOL hasDisallowedType(NSString *typeIdentifier) {
+    // RTFD may carry attachments even alongside plain text. Keep its existing
+    // rich-text/image selection policy in the full worker.
     if ([typeIdentifier isEqualToString:NSPasteboardTypeFileURL] ||
         [typeIdentifier isEqualToString:NSPasteboardTypeURL] ||
         [typeIdentifier isEqualToString:@"NSFilenamesPboardType"] ||
@@ -187,12 +189,16 @@ static int runWorker(NSArray<NSString *> *arguments) {
 
     NSArray<NSPasteboardType> *types = pasteboard.types ?: @[];
     BOOL hasPlainText = NO;
-    BOOL hasDisallowedPayload = NO;
+    BOOL hasRichText = [types containsObject:NSPasteboardTypeHTML] ||
+        [types containsObject:NSPasteboardTypeRTF] ||
+        [types containsObject:NSPasteboardTypeRTFD];
     for (NSPasteboardType type in types) {
+        if (hasDisallowedType(type)) {
+            return kIneligibleStatus;
+        }
         hasPlainText = hasPlainText || isPlainTextType(type);
-        hasDisallowedPayload = hasDisallowedPayload || hasDisallowedType(type);
     }
-    if (!hasPlainText || hasDisallowedPayload) {
+    if (!hasPlainText) {
         return kIneligibleStatus;
     }
 
@@ -217,8 +223,23 @@ static int runWorker(NSArray<NSString *> *arguments) {
         return 0;
     }
     if (text == nil) {
+        if (hasRichText) {
+            return kIneligibleStatus;
+        }
         writeResponse(workingDirectory, NO);
         return 0;
+    }
+
+    // Match PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss:
+    // the full worker can recover characters lost by the plain-text exporter.
+    if (hasRichText) {
+        NSUInteger questionMarks = 0;
+        for (NSUInteger index = 0; index < text.length; index++) {
+            unichar character = [text characterAtIndex:index];
+            if (character == 0xFFFD || (character == '?' && ++questionMarks >= 2)) {
+                return kIneligibleStatus;
+            }
+        }
     }
 
     NSData *payload = [text dataUsingEncoding:NSUTF8StringEncoding allowLossyConversion:NO];
