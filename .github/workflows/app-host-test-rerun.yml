@@ -313,8 +313,13 @@ jobs:
           find "$products/PackageFrameworks" -maxdepth 1 -type d -name 'CmuxAgentJournal*_PackageProduct.framework' | grep -q .
           # The receipt binds the products to the revision they were built
           # from, so validate with that revision checked out; the plan job
-          # proved it differs from the tested one only under cmuxTests/.
-          git checkout -q --detach "$SOURCE_SHA"
+          # proved it differs from the tested one only in paths no app target reads.
+          # The blob-less fetch leaves the differing files to fetch here.
+          for attempt in 1 2 3; do
+            git checkout -q --detach "$SOURCE_SHA" && break
+            [ "$attempt" -lt 3 ] || exit 1
+            sleep 10
+          done
           python3 scripts/ci/app_host_test_products.py restore "$derived"
           git checkout -q --detach "$TEST_SHA"
 
