@@ -24,7 +24,7 @@ actor CloudBrowserProxyProcess {
 
     init(addresses: [String]) { self.addresses = addresses }
 
-    /// The browser carrier authenticates with its generated CONNECT credential
+    /// The browser carrier authenticates with its generated proxy credential
     /// and its explicit state directory. It must not inherit app login material
     /// or dogfood passwords from the GUI process environment.
     nonisolated static func sanitizedEnvironment(_ environment: [String: String]) -> [String: String] {
@@ -35,7 +35,7 @@ actor CloudBrowserProxyProcess {
         process?.isRunning == true && !stopped ? endpoint : nil
     }
 
-    func start(client: URL, arguments: [String], releaseHub: @escaping @Sendable () async -> Void) async throws -> CloudBrowserProxyEndpoint {
+    func start(client: URL, arguments: [String], environment: [String: String]? = nil, releaseHub: @escaping @Sendable () async -> Void) async throws -> CloudBrowserProxyEndpoint {
         guard !stopped else {
             await releaseHub()
             throw CancellationError()
@@ -48,7 +48,7 @@ actor CloudBrowserProxyProcess {
         let ready = CloudLinkFirstValue<CloudBrowserProxyEndpoint>()
         child.executableURL = client
         child.arguments = arguments
-        child.environment = Self.sanitizedEnvironment(ProcessInfo.processInfo.environment)
+        child.environment = Self.sanitizedEnvironment(environment ?? ProcessInfo.processInfo.environment)
         child.standardInput = FileHandle.nullDevice
         child.standardOutput = output
         child.standardError = errors

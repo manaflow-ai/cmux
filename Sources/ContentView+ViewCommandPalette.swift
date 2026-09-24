@@ -1,4 +1,6 @@
+import AppKit
 import CmuxCommandPalette
+import CmuxFoundation
 import Foundation
 
 extension ContentView {
@@ -13,6 +15,16 @@ extension ContentView {
                 title: constant(String(localized: "command.triggerFlash.title", defaultValue: "Flash Focused Panel")),
                 subtitle: constant(String(localized: "command.triggerFlash.subtitle", defaultValue: "View")),
                 keywords: ["flash", "highlight", "focus", "panel"]
+            ),
+            CommandPaletteCommandContribution(
+                commandId: "palette.swapWithSession",
+                title: constant(CmuxPaneSwapStrings().swapWithSession),
+                subtitle: constant(CmuxPaneSwapStrings().terminalPane),
+                keywords: ["swap", "pane", "session", "terminal", "exchange"],
+                when: { context in
+                    context.bool(CommandPaletteContextKeys.panelIsTerminal)
+                        && context.bool(CommandPaletteContextKeys.panelHasPane)
+                }
             ),
             CommandPaletteCommandContribution(
                 commandId: "palette.openTaskManager",
@@ -74,6 +86,11 @@ extension ContentView {
     func registerViewCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.triggerFlash") {
             tabManager.triggerFocusFlash()
+        }
+        registry.register(commandId: "palette.swapWithSession") {
+            if !PaneSwapSelectionController().beginFocused(in: tabManager) {
+                NSSound.beep()
+            }
         }
         registry.register(commandId: "palette.openTaskManager") {
             TaskManagerWindowController.shared.show()
