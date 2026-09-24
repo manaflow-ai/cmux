@@ -28,7 +28,7 @@ owners = []
 pid = os.getpid()
 while pid > 1:
     root = pathlib.Path('/proc') / str(pid)
-    owners.append(root.joinpath('comm').read_text().strip())
+    owners.append(root.joinpath('exe').resolve().name)
     fields = root.joinpath('stat').read_text().rsplit(')', 1)[1].split()
     pid = int(fields[1])
 print('@' + token + ':pid=' + str(os.getpid()), flush=True)
