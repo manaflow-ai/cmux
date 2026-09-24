@@ -51,7 +51,7 @@ final class HookPromptLengthUITests: XCTestCase {
         let handle = try FileHandle(forWritingTo: output)
         defer { try? handle.close() }
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.executableURL = try pythonExecutable()
         process.arguments = ["-c", Self.probe, cli, socketPath, root.path,
             FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmuxterm/events.jsonl").path]
         process.standardOutput = handle
@@ -68,6 +68,19 @@ final class HookPromptLengthUITests: XCTestCase {
         attachment.name = "14024-prompt-length-results"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    /// `/usr/bin/python3` is an xcrun shim that refuses the XCTest sandbox.
+    private func pythonExecutable() throws -> URL {
+        let applications = try FileManager.default.contentsOfDirectory(
+            at: URL(fileURLWithPath: "/Applications"), includingPropertiesForKeys: nil
+        )
+        let candidates = applications.filter { $0.lastPathComponent.hasPrefix("Xcode") }
+            .sorted { $0.path < $1.path }
+            .map { $0.appendingPathComponent("Contents/Developer/usr/bin/python3").resolvingSymlinksInPath() }
+        return try XCTUnwrap(candidates.first {
+            FileManager.default.isExecutableFile(atPath: $0.path)
+        }, "Expected Xcode's Python executable, not the system xcrun shim")
     }
 
     private static let probe = #"""
