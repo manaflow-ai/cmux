@@ -1335,6 +1335,106 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse((self.producer.parent / 'escape').exists())
 
 
+class ContractParity(unittest.TestCase):
+    """PR compile admission and E2E dispatches must name one product alike.
+
+    The artifact name is the hash of `contract()`, so any control one lane
+    hashes differently from the other gives the same compiled revision two
+    names, and the E2E lane can never find what a pull request compiled.
+    """
+
+    ROOT = Path(__file__).resolve().parents[1]
+    # Setup steps that put a tool `contract()` fingerprints on PATH, matched
+    # against what a step executes: its `uses` action, or a `run` command.
+    TOOL_SETUP = {
+        "rust": re.compile(r"^(?:(?:bash|sh)\s+)?(?:\S*/)?install-rust-ci\.sh(?:\s|;|$)"),
+        "bun": re.compile(r"^oven-sh/setup-bun@"),
+        "zig": re.compile(r"^(?:(?:bash|sh)\s+)?(?:\S*/)?install-zig-ci\.sh(?:\s|;|$)"),
+        "node": re.compile(r"^actions/setup-node@"),
+        "go": re.compile(r"^actions/setup-go@"),
+    }
+
+    def jobs(self):
+        import yaml
+        identity = reuse.product_inputs
+        admission = yaml.safe_load((self.ROOT / identity.CI_WORKFLOW).read_text())
+        e2e = yaml.safe_load((self.ROOT / identity.E2E_WORKFLOW).read_text())
+        return {"admission": admission["jobs"][identity.MACOS_ADMISSION_JOB],
+                "e2e": e2e["jobs"][identity.E2E_BUILD_JOB]}
+
+    def job_env(self, job):
+        # As a step sees them: YAML `true` reaches it as the string "true".
+        return {name: str(value).lower() if isinstance(value, bool) else str(value)
+                for name, value in job.get("env", {}).items()}
+
+    def executed(self, step):
+        """What a step runs: its action, and each non-comment line of `run`."""
+        lines = [step["uses"]] if "uses" in step else []
+        lines += [line.strip() for line in str(step.get("run", "")).splitlines()
+                  if line.strip() and not line.strip().startswith("#")]
+        return lines
+
+    def tools(self, steps):
+        return {tool for step in steps for line in self.executed(step)
+                for tool, pattern in self.TOOL_SETUP.items() if pattern.search(line)}
+
+    def tools_before_key(self, job):
+        steps = job["steps"]
+        key_step = next(index for index, step in enumerate(steps)
+                        if any("reuse_app_host_products.py key" in line
+                               for line in self.executed(step)))
+        return self.tools(steps[:key_step])
+
+    def test_tool_scan_counts_what_a_step_runs_not_what_it_mentions(self):
+        self.assertEqual(self.tools([
+            {"name": "Note", "run": "# ./scripts/install-zig-ci.sh is not needed\necho oven-sh/setup-bun"},
+            {"name": "Echo", "run": 'echo "installing via ./scripts/install-rust-ci.sh"'},
+        ]), set())
+        self.assertEqual(self.tools([
+            {"name": "Setup Bun", "uses": "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"},
+            {"name": "Install zig", "run": "set -e\n./scripts/install-zig-ci.sh"},
+            {"name": "Install Rust", "run": "bash scripts/install-rust-ci.sh --profile ci"},
+        ]), {"bun", "zig", "rust"})
+        self.assertEqual(self.job_env({"env": {"A": True, "B": 1}}), {"A": "true", "B": "1"})
+
+    def contract_with(self, environ, xcode="Xcode 26.6\nBuild version 17F113"):
+        answers = {"xcodebuild": xcode, "xcrun": "25F70", "sw_vers": "25D125"}
+        with mock.patch.dict(os.environ, environ, clear=True), \
+                mock.patch.object(reuse, "read", side_effect=lambda *args: answers[args[0]]), \
+                mock.patch.object(reuse.shutil, "which", return_value=None), \
+                mock.patch.object(reuse.product_inputs, "local_identity", return_value={"source": "s"}):
+            return reuse.contract()
+
+    def test_contract_names_the_selected_xcode_not_its_selector(self):
+        # Admission pins Xcode by path; an E2E dispatch picks the same Xcode by
+        # its SDK. Both select Xcode 26.6, so both must name one product.
+        pinned = self.contract_with({
+            "CMUX_CI_XCODE_APP": "/Applications/Xcode_26.6.app",
+            "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR": "26",
+            "CMUX_SKIP_ZIG_BUILD": "1",
+        })
+        selected = self.contract_with({"CMUX_SKIP_ZIG_BUILD": "1"})
+        self.assertEqual(reuse.key(pinned), reuse.key(selected))
+        # What was selected still separates products.
+        other_xcode = self.contract_with(
+            {"CMUX_SKIP_ZIG_BUILD": "1"}, xcode="Xcode 26.7\nBuild version 17G1")
+        self.assertNotEqual(reuse.key(selected), reuse.key(other_xcode))
+        # A real build control still does too.
+        zig_built = self.contract_with({"CMUX_SKIP_ZIG_BUILD": ""})
+        self.assertNotEqual(reuse.key(selected), reuse.key(zig_built))
+
+    def test_both_lanes_set_every_hashed_build_control_alike(self):
+        envs = {name: self.job_env(job) for name, job in self.jobs().items()}
+        for control in reuse.CONTRACT_ENVIRONMENT:
+            with self.subTest(control=control):
+                self.assertEqual(envs["admission"].get(control), envs["e2e"].get(control))
+
+    def test_both_lanes_install_the_same_fingerprinted_tools_before_keying(self):
+        tools = {name: self.tools_before_key(job) for name, job in self.jobs().items()}
+        self.assertIn("rust", tools["admission"])
+        self.assertEqual(tools["admission"], tools["e2e"])
+
+
 class FakeGitHub:
     repository = "manaflow-ai/cmux"
 
