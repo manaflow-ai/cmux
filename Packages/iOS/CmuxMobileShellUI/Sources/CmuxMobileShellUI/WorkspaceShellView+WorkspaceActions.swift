@@ -339,6 +339,17 @@ extension WorkspaceShellView {
         let store = store
         return { id in
             Task { @MainActor in
+                // SSH workspaces close on their own host (cmux-tui workspace,
+                // tmux session, or plain shell), never through a Mac RPC.
+                if let row = store.workspaces.first(where: { $0.id == id }),
+                   let deviceID = row.macDeviceID,
+                   store.sshHostID(computerDeviceID: deviceID) != nil {
+                    let scopedID = store.sshHostID(computerDeviceID: row.rpcWorkspaceID.rawValue) != nil
+                        ? row.rpcWorkspaceID.rawValue
+                        : id.rawValue
+                    await store.sshComputers.closeWorkspace(scopedID: scopedID)
+                    return
+                }
                 let result = await store.closeWorkspace(id: id)
                 handleWorkspaceActionResult(result, action: .closeWorkspace)
             }
@@ -421,22 +432,22 @@ extension WorkspaceShellView {
     }
 
     var createWorkspaceInGroupInCompactStackClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCreateInGroup else { return nil }
+        guard store.supportsWorkspaceCreateInGroup, sshCreateHostID == nil else { return nil }
         return { groupID in createWorkspaceInCompactStack(inGroup: groupID) }
     }
 
     var createWorkspaceInGroupIfConnectedClosure: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCreateInGroup else { return nil }
+        guard store.supportsWorkspaceCreateInGroup, sshCreateHostID == nil else { return nil }
         return { groupID in createWorkspaceIfConnected(inGroup: groupID) }
     }
 
     var createWorkspaceGroupInCompactStackClosure: (() -> Void)? {
-        guard store.supportsWorkspaceGroupCreate else { return nil }
+        guard store.supportsWorkspaceGroupCreate, sshCreateHostID == nil else { return nil }
         return { createWorkspaceGroupIfConnected() }
     }
 
     var createWorkspaceGroupIfConnectedClosure: (() -> Void)? {
-        guard store.supportsWorkspaceGroupCreate else { return nil }
+        guard store.supportsWorkspaceGroupCreate, sshCreateHostID == nil else { return nil }
         return { createWorkspaceGroupIfConnected() }
     }
 
@@ -446,6 +457,10 @@ extension WorkspaceShellView {
 
     func createWorkspaceInCompactStack(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
         guard canCreateWorkspaceForMacSelection else { return }
+        if let hostID = sshCreateHostID {
+            createSSHWorkspace(hostID: hostID)
+            return
+        }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         if store.usesLocalWorkspaceCreationFallback {
@@ -475,6 +490,10 @@ extension WorkspaceShellView {
 
     func createWorkspaceIfConnected(inGroup groupID: MobileWorkspaceGroupPreview.ID?) {
         guard canCreateWorkspaceForMacSelection else { return }
+        if let hostID = sshCreateHostID {
+            createSSHWorkspace(hostID: hostID)
+            return
+        }
         if store.usesLocalWorkspaceCreationFallback {
             store.createWorkspace(inGroup: groupID)
             return
@@ -489,10 +508,25 @@ extension WorkspaceShellView {
     }
 
     func createWorkspaceGroupIfConnected() {
-        guard canCreateWorkspaceForMacSelection else { return }
+        guard canCreateWorkspaceForMacSelection, sshCreateHostID == nil else { return }
         Task { @MainActor in
             let result = await store.createWorkspaceGroup()
             handleWorkspaceActionResult(result, action: .createWorkspaceGroup)
+        }
+    }
+
+    /// New Workspace on an SSH computer (PRD D22): a cmux-tui workspace, a
+    /// tmux session, or a plain shell, then open it. Failures land on the
+    /// computer's status (shown by the list's SSH banner), not a toast.
+    func createSSHWorkspace(hostID: UUID) {
+        let store = store
+        let compact = usesCompactStack
+        Task { @MainActor in
+            guard let id = await store.createSSHWorkspace(hostID: hostID) else { return }
+            store.selectedWorkspaceID = id
+            if compact {
+                compactNavigationPath = [id]
+            }
         }
     }
 

@@ -217,6 +217,8 @@ struct WorkspaceShellView: View {
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
+    /// Present the SSH computer form (PRD D6). `nil` hides SSH add actions.
+    var showAddSSHComputer: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
     let compactNavigationPolicy = WorkspaceShellCompactNavigationPolicy()
     @Environment(MobileDisplaySettings.self) private var displaySettings
@@ -865,7 +867,8 @@ struct WorkspaceShellView: View {
     }
 
     private var taskComposerAction: (() -> Void)? {
-        guard store.supportsTaskComposer else { return nil }
+        // The task composer creates workspaces through a Mac.
+        guard store.supportsTaskComposer, selectedSSHHostID == nil else { return nil }
         return openTaskComposer
     }
 
@@ -1306,6 +1309,9 @@ struct WorkspaceShellView: View {
             filterState: workspaceListFilterState,
             searchText: searchText
         )
+        #if os(iOS)
+        .sshWorkspaceListPanel(sshWorkspaceListPanel, actions: sshWorkspaceListPanelActions)
+        #endif
     }
 
     #if os(iOS)
@@ -1326,7 +1332,10 @@ struct WorkspaceShellView: View {
     /// connection story: reauth and initial restore render their own chrome,
     /// transient degradation renders only this line.
     private var toolbarConnectionStatusLine: WorkspaceConnectionStatusLine? {
-        WorkspaceListConnectionChrome(
+        // An SSH computer's state is shown by its own banner; the Mac
+        // connection's status line would describe a different computer.
+        guard selectedSSHHostID == nil else { return nil }
+        return WorkspaceListConnectionChrome(
             hasStore: true,
             connectionRequiresReauth: store.connectionRequiresReauth,
             connectionRecoveryFailed: store.connectionRecoveryFailed,
@@ -1374,6 +1383,9 @@ struct WorkspaceShellView: View {
         for mac in store.pairedMacs + store.displayPairedMacs {
             names[mac.macDeviceID] = mac.resolvedName
             names[mac.id] = mac.resolvedName
+        }
+        for host in store.sshComputers.hosts {
+            names[store.sshComputerDeviceID(hostID: host.id)] = host.name
         }
         if let buildScope = MobileIOSBuildScope.current() {
             names = names.mapValues(buildScope.computerDisplayName)
@@ -1683,9 +1695,52 @@ struct WorkspaceShellView: View {
     }
 
     var canCreateWorkspaceForMacSelection: Bool {
-        macSelectionScope.canCreateWorkspace(
+        if sshCreateHostID != nil {
+            return pendingMacSwitchID == nil
+        }
+        return macSelectionScope.canCreateWorkspace(
             base: canCreateWorkspace,
             switchPending: pendingMacSwitchID != nil
+        )
+    }
+
+    /// The SSH computer the workspace list is scoped to, if any.
+    var selectedSSHHostID: UUID? {
+        guard case .machine(let id) = macSelection,
+              let hostID = store.sshHostID(computerDeviceID: id),
+              store.sshComputers.host(id: hostID) != nil else { return nil }
+        return hostID
+    }
+
+    /// Where New Workspace goes when it targets an SSH computer: the selected
+    /// one, or the only one when no Mac is connected (signed-out SSH shell).
+    var sshCreateHostID: UUID? {
+        if let selectedSSHHostID { return selectedSSHHostID }
+        guard store.connectionState != .connected,
+              case .all = macSelectionScope.visibleSelection,
+              store.sshComputers.hosts.count == 1 else { return nil }
+        return store.sshComputers.hosts.first?.id
+    }
+
+    /// Status and empty state for the selected SSH computer.
+    private var sshWorkspaceListPanel: SSHWorkspaceListPanel? {
+        guard let hostID = selectedSSHHostID,
+              let host = store.sshComputers.host(id: hostID) else { return nil }
+        let deviceID = store.sshComputerDeviceID(hostID: hostID)
+        return SSHWorkspaceListPanel(
+            hostID: hostID,
+            hostName: host.name,
+            status: store.sshComputers.statusByHost[hostID] ?? .idle,
+            persistence: host.persistence,
+            hasWorkspaces: store.workspaces.contains { $0.macDeviceID == deviceID }
+        )
+    }
+
+    private var sshWorkspaceListPanelActions: SSHWorkspaceListPanelActions {
+        let store = store
+        return SSHWorkspaceListPanelActions(
+            retry: { hostID in Task { await store.openSSHComputer(hostID: hostID) } },
+            newSession: { hostID in createSSHWorkspace(hostID: hostID) }
         )
     }
 
@@ -1726,6 +1781,7 @@ struct WorkspaceShellView: View {
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             foregroundInstanceTag: store.connectedMacInstanceTag,
+            locallyServedMachineIDs: Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) }),
             aliasesFor: {
                 store.pairedMacAliasIDs(for: $0, instanceTag: $1)
             }

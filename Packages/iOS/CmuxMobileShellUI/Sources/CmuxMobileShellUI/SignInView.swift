@@ -22,6 +22,10 @@ struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
+    #if os(iOS)
+    /// Enters the account-free SSH shell (PRD D5); `nil` hides the action.
+    @Environment(\.mobileSSHOnlyEntry) private var sshOnlyEntry
+    #endif
     @State private var email = ""
     @State private var code = ""
     @State private var emailEntryMode = EmailEntryMode.methods
@@ -150,6 +154,28 @@ struct SignInView: View {
                 if let error {
                     errorText(error)
                 }
+
+                #if os(iOS)
+                if let sshOnlyEntry {
+                    Button {
+                        sshOnlyEntry()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.ssh.signIn.connectWithSSH", defaultValue: "Connect to a Computer with SSH"),
+                            systemImage: "terminal"
+                        )
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(isAuthInProgress)
+                    .accessibilityHint(L10n.string(
+                        "mobile.ssh.signIn.connectWithSSH.hint",
+                        defaultValue: "Use SSH without a cmux account."
+                    ))
+                    .accessibilityIdentifier("ssh.signIn.connectWithSSH")
+                }
+                #endif
             }
         }
         .opacity(isAuthInProgress ? 0.6 : 1.0)

@@ -18,6 +18,69 @@ struct MobileSettingsAccountSection: View {
     @State private var signOutAfterDeleteAccountFailureAcknowledgement = false
 
     var body: some View {
+        Group {
+            if authManager.isAuthenticated {
+                accountSection
+            } else {
+                signedOutSection
+            }
+        }
+        .alert(
+            L10n.string("mobile.settings.deleteAccountTitle", defaultValue: "Delete Account?"),
+            isPresented: $showingDeleteAccountConfirmation
+        ) {
+            Button(L10n.string("mobile.settings.deleteAccountCancel", defaultValue: "Cancel"), role: .cancel) {}
+            Button(
+                L10n.string("mobile.settings.deleteAccountConfirm", defaultValue: "Delete Account"),
+                role: .destructive
+            ) {
+                deleteAccount()
+            }
+        } message: {
+            Text(L10n.string(
+                "mobile.settings.deleteAccountMessage",
+                defaultValue: "This permanently deletes your cmux account and cmux data. You will be signed out on this device."
+            ))
+        }
+        .alert(
+            deleteAccountFailureKind.localizedTitle,
+            isPresented: $showingDeleteAccountFailure
+        ) {
+            Button(L10n.string("mobile.settings.deleteAccountFailureOK", defaultValue: "OK"), role: .cancel) {
+                acknowledgeDeleteAccountFailure()
+            }
+        } message: {
+            Text(deleteAccountFailureKind.localizedMessage)
+        }
+    }
+
+    /// Signed out in the SSH shell (PRD D5): no account to show or delete.
+    /// `signOut` here returns to the sign-in screen.
+    private var signedOutSection: some View {
+        Section {
+            if let signOut {
+                Button {
+                    signOut()
+                    dismiss()
+                } label: {
+                    Label(
+                        L10n.string("mobile.ssh.settings.signIn", defaultValue: "Sign In to cmux"),
+                        systemImage: "person.crop.circle"
+                    )
+                }
+                .accessibilityIdentifier("ssh.settings.signIn")
+            }
+        } header: {
+            Text(L10n.string("mobile.settings.account", defaultValue: "Account"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.ssh.settings.signedOut.footer",
+                defaultValue: "SSH computers work without an account. Sign in to pair a Mac running cmux."
+            ))
+        }
+    }
+
+    private var accountSection: some View {
         Section {
             LabeledContent {
                 Text(accountEmail)
@@ -60,33 +123,6 @@ struct MobileSettingsAccountSection: View {
                 "mobile.settings.accountFooter",
                 defaultValue: "This device must be signed in to the same cmux account as the computer you pair with."
             ))
-        }
-        .alert(
-            L10n.string("mobile.settings.deleteAccountTitle", defaultValue: "Delete Account?"),
-            isPresented: $showingDeleteAccountConfirmation
-        ) {
-            Button(L10n.string("mobile.settings.deleteAccountCancel", defaultValue: "Cancel"), role: .cancel) {}
-            Button(
-                L10n.string("mobile.settings.deleteAccountConfirm", defaultValue: "Delete Account"),
-                role: .destructive
-            ) {
-                deleteAccount()
-            }
-        } message: {
-            Text(L10n.string(
-                "mobile.settings.deleteAccountMessage",
-                defaultValue: "This permanently deletes your cmux account and cmux data. You will be signed out on this device."
-            ))
-        }
-        .alert(
-            deleteAccountFailureKind.localizedTitle,
-            isPresented: $showingDeleteAccountFailure
-        ) {
-            Button(L10n.string("mobile.settings.deleteAccountFailureOK", defaultValue: "OK"), role: .cancel) {
-                acknowledgeDeleteAccountFailure()
-            }
-        } message: {
-            Text(deleteAccountFailureKind.localizedMessage)
         }
     }
 

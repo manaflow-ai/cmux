@@ -26,6 +26,8 @@ struct PairingView: View {
     let cancelPairing: () -> Void
     let cancel: () -> Void
     let onPairingResult: ((MobilePairingURLConnectionResult) -> Void)?
+    /// Switches this sheet to the SSH computer form (PRD D6). `nil` hides it.
+    let connectWithSSH: (() -> Void)?
 
     @State private var isShowingScanner: Bool
     @State private var deviceName = UITestConfig.addDeviceName
@@ -51,7 +53,8 @@ struct PairingView: View {
         connectManualHost: @escaping (String, String, Int) async -> MobilePairingURLConnectionResult,
         cancelPairing: @escaping () -> Void,
         cancel: @escaping () -> Void,
-        onPairingResult: ((MobilePairingURLConnectionResult) -> Void)? = nil
+        onPairingResult: ((MobilePairingURLConnectionResult) -> Void)? = nil,
+        connectWithSSH: (() -> Void)? = nil
     ) {
         _pairingCode = pairingCode
         self.initialPresentation = initialPresentation
@@ -64,6 +67,7 @@ struct PairingView: View {
         self.cancelPairing = cancelPairing
         self.cancel = cancel
         self.onPairingResult = onPairingResult
+        self.connectWithSSH = connectWithSSH
         _isShowingScanner = State(initialValue: initialPresentation.showsScanner)
     }
 
@@ -156,6 +160,23 @@ struct PairingView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .accessibilityIdentifier("MobileScanQRCodeButton")
+                    }
+                    if let connectWithSSH {
+                        Section {
+                            Button(action: connectWithSSH) {
+                                Label(
+                                    L10n.string("mobile.ssh.pairing.connectWithSSH", defaultValue: "Connect with SSH Instead"),
+                                    systemImage: "terminal"
+                                )
+                                .frame(maxWidth: .infinity)
+                            }
+                            .accessibilityIdentifier("ssh.pairing.connectWithSSH")
+                        } footer: {
+                            Text(L10n.string(
+                                "mobile.ssh.pairing.connectWithSSH.footer",
+                                defaultValue: "For any computer with an SSH server, including Linux servers. It doesn't need the cmux app."
+                            ))
+                        }
                     }
                     #endif
 

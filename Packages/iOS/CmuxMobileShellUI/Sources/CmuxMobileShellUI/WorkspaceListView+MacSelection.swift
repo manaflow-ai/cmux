@@ -25,10 +25,17 @@ extension WorkspaceListView {
             displayPairedMacs: displayPairedMacsForPicker,
             foregroundMacDeviceID: store?.connectedMacDeviceID ?? store?.activeTicket?.macDeviceID,
             foregroundInstanceTag: store?.connectedMacInstanceTag,
+            locallyServedMachineIDs: sshComputerMachineIDs,
             aliasesFor: {
                 store?.pairedMacAliasIDs(for: $0, instanceTag: $1) ?? []
             }
         )
+    }
+
+    /// SSH computers' ids, so they are selectable before listing a workspace.
+    var sshComputerMachineIDs: Set<String> {
+        guard let store else { return [] }
+        return Set(store.sshComputers.hosts.map { store.sshComputerDeviceID(hostID: $0.id) })
     }
 
     var activeFilter: MobileWorkspaceListFilter {
@@ -81,6 +88,11 @@ extension WorkspaceListView {
         for mac in displayPairedMacsForPicker {
             names[mac.macDeviceID] = mac.resolvedName
             names[mac.id] = mac.resolvedName
+        }
+        if let store {
+            for host in store.sshComputers.hosts {
+                names[store.sshComputerDeviceID(hostID: host.id)] = host.name
+            }
         }
         guard let buildScope = MobileIOSBuildScope.current() else { return names }
         return names.mapValues(buildScope.computerDisplayName)
