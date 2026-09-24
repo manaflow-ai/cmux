@@ -1294,38 +1294,53 @@ class ContractParity(unittest.TestCase):
     """
 
     ROOT = Path(__file__).resolve().parents[1]
-    # Setup steps that put a tool `contract()` fingerprints on PATH.
+    # Setup steps that put a tool `contract()` fingerprints on PATH, matched
+    # against what a step executes: its `uses` action, or a `run` command.
     TOOL_SETUP = {
         "rust": re.compile(r"install-rust-ci\.sh"),
-        "bun": re.compile(r"oven-sh/setup-bun"),
+        "bun": re.compile(r"^oven-sh/setup-bun@"),
         "zig": re.compile(r"install-zig-ci\.sh"),
-        "node": re.compile(r"actions/setup-node"),
-        "go": re.compile(r"actions/setup-go"),
+        "node": re.compile(r"^actions/setup-node@"),
+        "go": re.compile(r"^actions/setup-go@"),
     }
 
     def jobs(self):
+        import yaml
         identity = reuse.product_inputs
-        admission = identity._job_block(
-            (self.ROOT / identity.CI_WORKFLOW).read_text(), identity.MACOS_ADMISSION_JOB)
-        e2e = identity._job_block(
-            (self.ROOT / identity.E2E_WORKFLOW).read_text(), identity.E2E_BUILD_JOB)
-        return {"admission": admission, "e2e": e2e}
+        admission = yaml.safe_load((self.ROOT / identity.CI_WORKFLOW).read_text())
+        e2e = yaml.safe_load((self.ROOT / identity.E2E_WORKFLOW).read_text())
+        return {"admission": admission["jobs"][identity.MACOS_ADMISSION_JOB],
+                "e2e": e2e["jobs"][identity.E2E_BUILD_JOB]}
 
     def job_env(self, job):
-        block = dict(reuse.product_inputs._job_level_blocks(job))["env"]
-        values = {}
-        for line in block.splitlines()[1:]:
-            match = re.match(r"^      ([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$", line)
-            if match:
-                values[match.group(1)] = match.group(2)
-        return values
+        return {name: str(value) for name, value in job.get("env", {}).items()}
+
+    def executed(self, step):
+        """What a step runs: its action, and each non-comment line of `run`."""
+        lines = [step["uses"]] if "uses" in step else []
+        lines += [line.strip() for line in str(step.get("run", "")).splitlines()
+                  if line.strip() and not line.strip().startswith("#")]
+        return lines
+
+    def tools(self, steps):
+        return {tool for step in steps for line in self.executed(step)
+                for tool, pattern in self.TOOL_SETUP.items() if pattern.search(line)}
 
     def tools_before_key(self, job):
-        steps = reuse.product_inputs._step_blocks(job)
-        key_step = next(index for index, (_, block) in enumerate(steps)
-                        if "reuse_app_host_products.py key" in block)
-        return {tool for _, block in steps[:key_step]
-                for tool, pattern in self.TOOL_SETUP.items() if pattern.search(block)}
+        steps = job["steps"]
+        key_step = next(index for index, step in enumerate(steps)
+                        if any("reuse_app_host_products.py key" in line
+                               for line in self.executed(step)))
+        return self.tools(steps[:key_step])
+
+    def test_tool_scan_counts_what_a_step_runs_not_what_it_mentions(self):
+        self.assertEqual(self.tools([
+            {"name": "Note", "run": "# ./scripts/install-zig-ci.sh is not needed\necho oven-sh/setup-bun"},
+        ]), set())
+        self.assertEqual(self.tools([
+            {"name": "Setup Bun", "uses": "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"},
+            {"name": "Install zig", "run": "set -e\n./scripts/install-zig-ci.sh"},
+        ]), {"bun", "zig"})
 
     def contract_with(self, environ, xcode="Xcode 26.6\nBuild version 17F113"):
         answers = {"xcodebuild": xcode, "xcrun": "25F70", "sw_vers": "25D125"}
