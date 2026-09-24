@@ -241,10 +241,6 @@ Xcode, which is also the Xcode the owned label names. Every pull request macOS
 pool, reads `github.run_attempt > 1 && inputs.pr_retry_runner` first. It is
 empty for a run on Blacksmith, so those re-run where they ran.
 
-An owned-pool run never publishes a persistent-compile route request
-(`CI_PERSISTENT_MAC_COMPILE`): its compile admission already runs on an owned
-Mac, and the two would compete for the same machines.
-
 The queue janitor treats an owned label as one more macOS pool. A stale pull
 request run (category b: closed, merged or superseded) is cancelled there on
 every sweep whatever the queue, which frees minis for current work. The other

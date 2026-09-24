@@ -617,11 +617,6 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("OWNED_JOBS_PER_RUN", env)
         self.assertEqual(changes["outputs"]["macos_pr_retry_runner"], "${{ steps.macos-pool.outputs.retry_runner }}")
 
-    def test_an_owned_pool_run_never_requests_the_persistent_compile_route(self):
-        steps = self.workflow("ci.yml")["jobs"]["changes"]["steps"]
-        request = next(step for step in steps if step.get("id") == "persistent-route-request")
-        self.assertIn("steps.macos-pool.outputs.persistent != 'true'", request["if"])
-
     def lanes(self, name):
         text = (WORKFLOWS / name).read_text()
         return [match.group("lane") for match in PR_ROUTE.finditer(text)]
