@@ -138,9 +138,6 @@ ROUTING_POLICY_PATHS = frozenset({
     "tests/test_ci_fork_runner_routing.py",
     "tests/test_ci_linux_guard_routing.py",
     "tests/test_ci_guard_workflow_structure.py",
-    "tests/test_ci_app_host_guard_structure.py",
-    "tests/test_ci_quality_guard_structure.py",
-    "tests/test_ci_release_guard_structure.py",
 })
 
 DETERMINISM_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs")

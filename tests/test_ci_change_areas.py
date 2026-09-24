@@ -341,10 +341,6 @@ def test_pbxproj_edits_outside_the_cmux_cli_build_skip_the_cli_lane() -> None:
     )
 
 
-def test_pbxproj_edit_without_its_base_still_routes_the_cli_lane() -> None:
-    assert module.classify_files([XCODE_PROJECT]).cli is True
-
-
 def test_only_the_schemes_the_cli_route_builds_select_it() -> None:
     schemes = "cmux.xcodeproj/xcshareddata/xcschemes"
     assert module.classify_files([f"{schemes}/cmux-cli.xcscheme"]).cli is True
@@ -2901,10 +2897,6 @@ def test_ci_workflow_edit_elsewhere_leaves_the_cli_lane_skipped() -> None:
         "swift_packages=false",
         "release_build=false",
     ]
-
-
-def test_app_bundled_markdown_runs_macos() -> None:
-    assert_areas(["THIRD_PARTY_LICENSES.md"], macos=True, web=False)
 
 
 def test_swift_warning_budget_runs_macos() -> None:

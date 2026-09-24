@@ -188,7 +188,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "new-area/input",
             ".github/workflows/ci-guards.yml",
             "scripts/ci/workflow_guard_groups.py",
-            "tests/test_ci_release_guard_structure.py",
+            "tests/test_ci_guard_workflow_structure.py",
         ):
             with self.subTest(changed=changed):
                 _, groups = route_decision([changed])

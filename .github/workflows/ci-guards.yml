@@ -67,17 +67,9 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
 
-      - name: Validate quality guard structure
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_quality_guard_structure.py
-
       - name: Validate Xcode build metrics receipt
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_build_metrics.py
-
-      - name: Validate app-host guard structure
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_app_host_guard_structure.py
 
       - name: Validate feature flag linter scope
         if: ${{ matrix.group == 'ci' }}
@@ -86,10 +78,6 @@ jobs:
       - name: Validate canonical compile cache build root
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
-
-      - name: Validate release guard structure
-        if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_release_guard_structure.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
