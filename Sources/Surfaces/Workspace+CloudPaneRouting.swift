@@ -103,7 +103,7 @@ final class CloudWorkspaceRenameService {
             resources: snapshot.resources
         ) else { return }
         if let binding = workspace.cloudVMBinding,
-           binding.vmID != target.machine.cloudMachineID {
+           binding.vmID != target.machine.tuiMachineID {
             return
         }
         catalog.bindCloudWorkspace(
@@ -122,7 +122,7 @@ final class CloudWorkspaceRenameService {
         projectedResources: [SurfaceResource]
     ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
         if let binding, let remote = binding.remoteWorkspaceID, !remote.isEmpty {
-            return (.cloud(binding.vmID), remote)
+            return (SurfaceMachineID(rawValue: binding.vmID), remote)
         }
         var seen = Set<CloudWorkspaceRemoteIdentity>()
         var found: (SurfaceMachineID, String)?
@@ -312,7 +312,7 @@ extension CloudWorkspaceRenameService {
         isBase: Bool? = nil,
         generatedTitle: String? = nil
     ) {
-        guard let vmID = machine.cloudMachineID,
+        guard let vmID = machine.tuiMachineID,
               let manager = environment.tabManager(localWorkspaceID),
               let workspace = manager.workspacesById[localWorkspaceID] else { return }
         let previousBinding = workspace.cloudVMBinding
