@@ -847,6 +847,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # The lane reads only these: about 500 files instead of the whole
+          # 17,000-file tree, which took this Mac about 30 s to check out.
+          sparse-checkout: |
+            Resources/bin
+            scripts/ci
+            tests
       - name: Find an existing Node runtime
         id: node
         run: |
