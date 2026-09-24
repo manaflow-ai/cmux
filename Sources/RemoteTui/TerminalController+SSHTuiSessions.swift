@@ -68,12 +68,19 @@ extension TerminalController {
               let legacyPayload = legacyRaw as? [String: Any] else {
             return .err(code: "internal_error", message: CloudDiagnosticFailure.response.localizedDescription, data: nil)
         }
-        return .ok([
+        let workspaceCount = (tuiPayload["workspace_count"] as? Int ?? 0)
+            + (legacyPayload["workspace_count"] as? Int ?? 0)
+        var sessions = tuiPayload["sessions"] as? [[String: Any]] ?? []
+        sessions.append(contentsOf: legacyPayload["sessions"] as? [[String: Any]] ?? [])
+        var errors = tuiPayload["errors"] as? [[String: Any]] ?? []
+        errors.append(contentsOf: legacyPayload["errors"] as? [[String: Any]] ?? [])
+        let payload: [String: Any] = [
             "all_workspaces": true,
-            "workspace_count": (tuiPayload["workspace_count"] as? Int ?? 0) + (legacyPayload["workspace_count"] as? Int ?? 0),
-            "sessions": (tuiPayload["sessions"] as? [[String: Any]] ?? []) + (legacyPayload["sessions"] as? [[String: Any]] ?? []),
-            "errors": (tuiPayload["errors"] as? [[String: Any]] ?? []) + (legacyPayload["errors"] as? [[String: Any]] ?? [])
-        ])
+            "workspace_count": workspaceCount,
+            "sessions": sessions,
+            "errors": errors
+        ]
+        return .ok(payload)
     }
 
     @MainActor
