@@ -13,6 +13,11 @@ Everything a pull request can only break by editing the registry itself --
 malformed entries, unknown fields, entries pointing at files that no longer
 exist, lanes no workflow runs -- stays a hard failure.
 
+`--write` registers every unregistered test whose lane can be derived (a
+workflow already runs the file) and leaves the rest for a person to place.
+The pre-commit hook runs it, so wiring a new test into ci-guards.yml is
+enough to register it.
+
 Duplicate registrations sit between the two. Two pull requests that each
 register the same test merge cleanly into a duplicate nobody wrote, so a
 duplicate already present on the base branch warns and one this branch
@@ -108,7 +113,8 @@ def registration_hint(path: str, workflows: Path = WORKFLOWS, live_lanes: set[st
             f'      or lane = "manual" with a reason = "..." when it cannot run in CI.'
         )
     return (
-        "\n      Paste into tests/test-execution.toml:\n\n"
+        "\n      Run python3 scripts/ci/validate_test_execution_registry.py --write, or paste into\n"
+        "      tests/test-execution.toml:\n\n"
         "          [[test]]\n"
         f'          path = "{path}"\n'
         f'          lane = "{lane}"\n\n'
@@ -140,6 +146,22 @@ def comparison_point(base_sha: str, root: Path = ROOT) -> str:
     files this branch has and the base branch does not.
     """
     return merge_base(base_sha, root) or base_sha
+
+
+def register_derivable(root: Path = ROOT) -> list[str]:
+    """Append an entry for each unregistered test a workflow already runs; return their paths."""
+    manifest = root / "tests" / "test-execution.toml"
+    workflows = root / ".github" / "workflows"
+    registered = {entry.get("path") for entry in load_registry(manifest)}
+    discovered = sorted(
+        path.relative_to(root).as_posix() for path in (root / "tests").glob("test_*.py") if path.is_file()
+    )
+    added = [path for path in discovered if path not in registered and workflow_running(path, workflows)]
+    if added:
+        text = manifest.read_text(encoding="utf-8")
+        blocks = "".join(f'\n[[test]]\npath = "{path}"\nlane = "{DIRECT_RUN_LANE}"\n' for path in added)
+        manifest.write_text(text.rstrip("\n") + "\n" + blocks, encoding="utf-8")
+    return added
 
 
 def newly_added_tests(base_sha: str, root: Path = ROOT) -> set[str]:
@@ -345,7 +367,17 @@ def report_warnings(warnings: list[str]) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-sha", default="")
+    parser.add_argument("--write", action="store_true",
+                        help="register unregistered tests a workflow already runs, then validate")
     args = parser.parse_args(argv)
+
+    if args.write:
+        try:
+            for path in register_derivable(ROOT):
+                print(f"registered {path} on lane {DIRECT_RUN_LANE}")
+        except (OSError, ValueError) as error:
+            print(error, file=sys.stderr)
+            return 1
 
     try:
         errors, warnings, lane_counts = validate(ROOT, args.base_sha)
