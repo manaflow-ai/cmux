@@ -42,9 +42,16 @@ extension CMUXCLI {
 
     func execRestoreInvocation(
         _ invocation: AgentRestoreInvocation,
-        appliedWorkingDirectory: String?
+        appliedWorkingDirectory: String?,
+        admittedScope: RestoreLaunchAdmissionClaim? = nil
     ) throws {
         var invocationEnvironment = invocation.environment
+        if let admittedScope {
+            invocationEnvironment["CMUX_WORKSPACE_ID"] = admittedScope.workspaceID
+            invocationEnvironment["CMUX_TAB_ID"] = admittedScope.workspaceID
+            invocationEnvironment["CMUX_SURFACE_ID"] = admittedScope.surfaceID
+            invocationEnvironment["CMUX_PANEL_ID"] = admittedScope.surfaceID
+        }
         if let appliedWorkingDirectory {
             invocationEnvironment["PWD"] = appliedWorkingDirectory
         }

@@ -178,6 +178,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.fileExplorerOpenSelection`
 - `shortcuts.bindings.fileExplorerOpenSelectionFinderAlias`
 - `shortcuts.bindings.saveFilePreview`
+- `shortcuts.bindings.toggleFileEditorWordWrap`
 - `shortcuts.bindings.toggleFileExplorer`
 - `shortcuts.bindings.toggleReactGrab`
 

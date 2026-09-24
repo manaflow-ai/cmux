@@ -1,3 +1,4 @@
+import CmuxBrowser
 import XCTest
 import AppKit
 import Bonsplit

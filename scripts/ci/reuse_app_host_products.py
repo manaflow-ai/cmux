@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import gzip
+import http.client
 import json
 import math
 import os
@@ -29,6 +30,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import app_host_test_products as products
+import parallel_artifact_download as parallel
 import product_input_identity as product_inputs
 
 RECEIPT = "cmux-product-reuse.json"
@@ -36,12 +38,6 @@ PREFIX = "app-host-products-v1-"
 # Current product archives are ~0.8 GiB compressed. Bound every expansion layer
 # independently, including hardlink copies, with room for the UI product set.
 MAX_ARCHIVE_BYTES = 2 * 1024**3
-# Below this rate a download is losing to the compile it exists to replace, so
-# giving up and compiling is the right answer. Above it, the budget has to
-# cover the largest archive this will accept -- a flat 120 s did not, and an
-# 785 MB product was silently refused after two minutes on every attempt.
-MIN_TRANSFER_BYTES_PER_SECOND = 8 * 1024**2
-DOWNLOAD_TIMEOUT = math.ceil(MAX_ARCHIVE_BYTES / MIN_TRANSFER_BYTES_PER_SECOND)
 MAX_MEMBER_BYTES = 4 * 1024**3
 MAX_EXPANDED_BYTES = 16 * 1024**3
 MAX_TAR_BYTES = 20 * 1024**3
@@ -54,16 +50,24 @@ LOOKUP_ATTEMPTS = 3
 ARTIFACTS_PER_PAGE = 100
 MAX_CANDIDATES = 6
 
-# Producer events permitted for each consumer event. Pull-request consumers are
-# further restricted to the same pull request; merge groups may adopt an exact
-# product from either an in-repository PR or an earlier merge-group run.
+# Producer events permitted for each consumer event. A pull request consumer
+# may adopt an earlier run of the same pull request, or a product a push to main
+# compiled; merge groups may adopt an exact product from either an
+# in-repository PR or an earlier merge-group run.
+#
+# The main push producer is seed-derived-data.yml, which builds main on the
+# pool, Xcode and canonical paths pull request admission uses. A pull request
+# that changes no product input then adopts its base's product instead of
+# compiling it again. Only reviewed main code ran that build, so it is at least
+# as trusted as the same-repository pull request that adopts it. `push` is not a
+# consumer event, so nothing a pull request compiled can reach main.
 #
 # A dispatch consumer is at least as trusted as a merge group, because starting
 # one requires write access, so it may adopt any exact product CI compiled as
 # well as the ones earlier dispatches of its own lane compiled. Nothing adopts a
 # dispatch product in the other direction: CI's trust surface is unchanged.
 PERMITTED_PRODUCERS = {
-    "pull_request": {"pull_request"},
+    "pull_request": {"pull_request", "push"},
     "merge_group": {"pull_request", "merge_group"},
     "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch"},
 }
@@ -75,6 +79,13 @@ TRUSTED_WORKFLOWS = {
     "pull_request": ".github/workflows/ci.yml",
     "merge_group": ".github/workflows/ci.yml",
     "workflow_dispatch": ".github/workflows/test-e2e.yml",
+    "push": ".github/workflows/seed-derived-data.yml",
+}
+
+# The branch a run of that event must have run on. A push to any other branch
+# runs whatever that branch's copy of the workflow says, so only main is trusted.
+TRUSTED_BRANCHES = {
+    "push": "main",
 }
 
 # The job, and the step inside it, that must have compiled a product before that
@@ -86,33 +97,94 @@ COMPILE_JOBS = {
     ".github/workflows/test-e2e.yml": (
         "build", "Build the app-host and UI test product",
     ),
+    ".github/workflows/seed-derived-data.yml": (
+        "seed", "Build",
+    ),
 }
+
+
+# Build controls the product contract hashes. Only non-secret values belong
+# here, because the contract is published in the artifact receipt.
+#
+# CMUX_CI_XCODE_APP and CMUX_CI_REQUIRED_MACOS_SDK_MAJOR are left out on
+# purpose. They only tell scripts/select-ci-xcode.sh which Xcode to pick, and
+# the Xcode it picked is already `xcode` and `sdk` in the contract. Hashing the
+# selectors as well split one product into two names: compile admission pins
+# Xcode by path while an E2E dispatch picks the same Xcode by SDK, so neither
+# lane could adopt the other's product.
+CONTRACT_ENVIRONMENT = (
+    "CMUX_SKIP_ZIG_BUILD",
+    "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
+    "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
+    "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS",
+)
+
+# Where compile admission and the nightly seeder compile. Every runner pool can
+# reproduce this path, and every app-host consumer aliases its `src` checkout at
+# run time (restore-app-host-test-product.sh), so a product compiled here runs
+# on any pool.
+CANONICAL_DERIVED_DATA = (
+    Path(os.environ.get("CMUX_CI_CANONICAL_ROOT", "/private/tmp/cmux-ci"))
+    / "derived-data-compile-admission"
+)
 
 
 def read(*args):
     return subprocess.check_output(args, text=True, timeout=30).strip()
 
 
-def contract():
+def contract(derived=None):
+    """Fingerprint everything that decides a compiled product's bytes.
+
+    With `derived`, the app-host product compiled into that DerivedData, the
+    contract names no runner pool. The pool used to be hashed as a stand-in
+    for three things, and each is now keyed directly:
+
+    - the toolchain: `xcode` and `sdk` are the exact Xcode and SDK builds, and
+      `tools` the exact version of every other compiler a build phase can
+      reach. Two pools with the same toolchain produce the same product.
+    - the host: `macos` is the host's major version. The compilers come from
+      Xcode, not from the host, so a point release of the host cannot change
+      what they emit; the major version stays in so that a product never
+      crosses to a host the lane has not been validated on.
+    - the paths baked into the product: `build_location` is the DerivedData
+      directory it was compiled into. A product compiled under a checkout
+      carries that checkout's absolute path, which differs by pool, so it only
+      matches another job at the same path. A product compiled at the
+      canonical root carries a path every pool reproduces.
+
+    Nothing about the runner's size, provider or image version is left, so a
+    6 and a 12 vCPU runner, or a Blacksmith and a GitHub-hosted runner with the
+    same toolchain, name one product.
+
+    Without `derived` (the Release product contract) the pool is still hashed.
+    """
     versions = {}
     for command in ("rustc", "cargo", "go", "zig", "node", "bun"):
         executable = shutil.which(command)
         versions[command] = read(executable, "version" if command in {"go", "zig"} else "--version") if executable else "absent"
-    return {
+    value = {
         "product_inputs": product_inputs.local_identity(),
         "xcode": read("xcodebuild", "-version"),
         "sdk": read("xcrun", "--sdk", "macosx", "--show-sdk-build-version"),
-        "os": read("sw_vers", "-buildVersion"),
         "architecture": platform.machine(),
         "tools": versions,
-        # Only non-secret build controls belong in the public artifact receipt.
-        "environment": {k: os.environ.get(k, "") for k in (
-            "CMUX_CI_XCODE_APP", "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR", "CMUX_SKIP_ZIG_BUILD",
-            "SDKROOT", "MACOSX_DEPLOYMENT_TARGET", "SWIFT_ACTIVE_COMPILATION_CONDITIONS",
-            "OTHER_SWIFT_FLAGS", "OTHER_CFLAGS", "OTHER_CPLUSPLUSFLAGS", "OTHER_LDFLAGS",
-            "RUSTFLAGS", "CFLAGS", "CXXFLAGS", "LDFLAGS", "ImageOS", "ImageVersion")},
-        "runner": os.environ.get("CMUX_PRODUCT_RUNNER", ""),
+        "environment": {k: os.environ.get(k, "") for k in CONTRACT_ENVIRONMENT},
     }
+    if derived is None:
+        value["os"] = read("sw_vers", "-buildVersion")
+        value["environment"].update(
+            {k: os.environ.get(k, "") for k in ("ImageOS", "ImageVersion")})
+        value["runner"] = os.environ.get("CMUX_PRODUCT_RUNNER", "")
+        return value
+    value["macos"] = read("sw_vers", "-productVersion").split(".", 1)[0]
+    value["build_location"] = str(Path(derived).resolve())
+    return value
+
+
+def portable_contract(value):
+    """The same product compiled at the canonical root, which runs on any pool."""
+    return {**value, "build_location": str(CANONICAL_DERIVED_DATA.resolve())}
 
 
 def key(value):
@@ -172,10 +244,13 @@ class GitHub:
     def get(self, path):
         return json.loads(read("gh", "api", f"repos/{self.repository}/{path}"))
 
-    def download(self, artifact_id, target):
-        with target.open("wb") as out:
-            subprocess.run(["gh", "api", f"repos/{self.repository}/actions/artifacts/{artifact_id}/zip"],
-                           stdout=out, check=True, timeout=DOWNLOAD_TIMEOUT)
+    def download(self, artifact_id, target, size):
+        # One connection to the artifact blob sustains about 2 MB/s on the
+        # Blacksmith macOS fleet, so a ~900 MB product took longer than any
+        # budget worth waiting for and every candidate timed out into a
+        # compile. The test job reads the same blob in under a minute over
+        # parallel range requests; this uses that transport.
+        parallel.download_zip(self.repository, artifact_id, target, size)
 
 
 def record_reason(reasons, reason):
@@ -259,10 +334,12 @@ def attested_producer_revision(api, run, revision, product_inputs):
         if actual_workflow.get("e2e_recipe") != product_inputs.get("e2e_recipe"):
             return False
         return github_product_identity(api, revision) == product_inputs
-    if revision == head:
-        return True
     if run.get("event") != "pull_request":
-        return False
+        # Checked against these product inputs before download.
+        return revision == head
+    if revision == head:
+        # `select` defers a pull request producer's head check to here.
+        return github_product_identity(api, revision) == product_inputs
     parents = api.get(f"git/commits/{revision}").get("parents")
     if not isinstance(parents, list) or len(parents) != 2:
         return False
@@ -273,12 +350,14 @@ def attested_producer_revision(api, run, revision, product_inputs):
 
 
 def trusted_ci_run(run, repository):
-    """Require the event's own trusted workflow and an in-repository source."""
+    """Require the event's own trusted workflow, branch and an in-repository source."""
     head_repository = run.get("head_repository")
     event = run.get("event")
     return (
-        event in PERMITTED_PRODUCERS
+        event in TRUSTED_WORKFLOWS
         and run.get("path") == TRUSTED_WORKFLOWS[event]
+        and (event not in TRUSTED_BRANCHES
+             or run.get("head_branch") == TRUSTED_BRANCHES[event])
         and isinstance(head_repository, dict)
         and str(head_repository.get("full_name", "")).casefold() == repository.casefold()
     )
@@ -289,8 +368,15 @@ def permitted_pair(producer, consumer, repository):
     if not trusted_ci_run(producer, repository) or not trusted_ci_run(consumer, repository):
         return False
     consumer_event = consumer["event"]
+    if consumer_event not in PERMITTED_PRODUCERS:
+        return False
     if producer["event"] not in PERMITTED_PRODUCERS[consumer_event]:
         return False
+    if producer["event"] == "push":
+        # A main push compiled its own head, which `select` re-fingerprints
+        # against these product inputs before download. No pull request
+        # number applies to it.
+        return True
     if consumer_event == "pull_request":
         producer_prs = pull_request_numbers(producer)
         consumer_prs = pull_request_numbers(consumer)
@@ -330,15 +416,24 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if str(run.get("run_attempt")) != str(current_attempt):
             record_reason(reasons, "consumer_attempt_mismatch")
             return None
-        if not trusted_ci_run(run, api.repository):
+        # A trusted producer event is not necessarily a consumer: a main push
+        # never adopts a product.
+        if run.get("event") not in PERMITTED_PRODUCERS or not trusted_ci_run(run, api.repository):
             record_reason(reasons, "consumer_untrusted")
             return None
         # A dispatch takes the revision under test as a workflow input, so its
         # `head_sha` names the workflow definition's ref and attests nothing
         # about the checkout. The binding that matters is the same either way:
         # the tree this job fingerprinted has to equal GitHub's immutable copy
-        # of the revision it claims, which is checked directly below. A locally
-        # modified checkout still cannot adopt anything.
+        # of the revision it checked out, which is checked directly below. A
+        # locally modified checkout still cannot adopt anything.
+        #
+        # That revision is the checkout, not `head_sha`. A pull request run
+        # checks out the merge of its head into the base, and once the base
+        # has changed product inputs the head alone fingerprints differently,
+        # so comparing against the head refused every pull request that was
+        # behind its base. `attested_checkout` has already bound the merge to
+        # the attested head.
         dispatched = run.get("event") == "workflow_dispatch"
         head = current_revision if dispatched else run.get("head_sha")
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
@@ -347,7 +442,7 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if not dispatched and not attested_checkout(run, current_revision):
             record_reason(reasons, "consumer_revision_mismatch")
             return None
-        if github_product_identity(api, head) != value["product_inputs"]:
+        if github_product_identity(api, current_revision) != value["product_inputs"]:
             record_reason(reasons, "consumer_product_inputs_mismatch")
             return None
         return run
@@ -445,7 +540,15 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 if actual_workflow.get("e2e_recipe") != value["product_inputs"].get("e2e_recipe"):
                     record_reason(reasons, "producer_recipe_mismatch")
                     continue
-            elif github_product_identity(api, head) != value["product_inputs"]:
+            elif (run.get("event") != "pull_request"
+                    and github_product_identity(api, head) != value["product_inputs"]):
+                # A pull request producer compiled the merge of its head into
+                # the base, which this listing does not name, so its head alone
+                # can differ while the merge it sealed matches exactly. Its
+                # sealed merge is re-fingerprinted from GitHub after download,
+                # in `attested_producer_revision`; every other producer,
+                # including a main push, compiled its head and is rejected
+                # here, before download.
                 record_reason(reasons, "producer_product_inputs_mismatch")
                 continue
             jobs = []
@@ -754,8 +857,11 @@ def restore(api, value, derived, current_run, current_identity, current_attempt=
             archive = staging / "artifact.zip"
             transfer_started = time.monotonic()
             try:
-                api.download(artifact["id"], archive)
-            except (OSError, subprocess.SubprocessError):
+                api.download(artifact["id"], archive, artifact["size_in_bytes"])
+            # urllib surfaces a truncated or malformed response as
+            # HTTPException, not OSError; any transport failure is a miss.
+            except (OSError, ValueError, EOFError, http.client.HTTPException,
+                    parallel.TransportError):
                 record_reason(reasons, "artifact_download_error")
                 continue
             transfer_seconds = time.monotonic() - transfer_started
@@ -863,7 +969,7 @@ def main():
     mode, derived_raw = sys.argv[1:]
     derived = Path(derived_raw)
     try:
-        value = contract()
+        value = contract(derived)
     except (OSError, subprocess.SubprocessError):
         value = None
         print("Build environment cannot be fingerprinted; compiling normally.")
@@ -897,15 +1003,28 @@ def main():
             if value is None:
                 report["miss_reasons"] = "fingerprint_unavailable"
             elif os.environ.get("GITHUB_EVENT_NAME") in PERMITTED_PRODUCERS:
-                hit = restore(
-                    GitHub(os.environ["GITHUB_REPOSITORY"]),
-                    value,
-                    derived,
-                    os.environ["GITHUB_RUN_ID"],
-                    products.identity(),
-                    os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
-                    report,
-                )
+                api = GitHub(os.environ["GITHUB_REPOSITORY"])
+                # A product this job would compile, then the same product
+                # compiled at the canonical root, which this job can also run.
+                wanted = [value]
+                if portable_contract(value) != value:
+                    wanted.append(portable_contract(value))
+                reasons = []
+                for candidate in wanted:
+                    hit = restore(
+                        api,
+                        candidate,
+                        derived,
+                        os.environ["GITHUB_RUN_ID"],
+                        products.identity(),
+                        os.environ.get("GITHUB_RUN_ATTEMPT", "1"),
+                        report,
+                    )
+                    reasons.extend(r for r in report["miss_reasons"].split(",")
+                                   if r and r not in reasons)
+                    if hit:
+                        break
+                report["miss_reasons"] = ",".join(reasons)
             else:
                 report["miss_reasons"] = "consumer_event_disallowed"
         except (TypeError, AttributeError, ValueError, KeyError, OSError,

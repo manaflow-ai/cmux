@@ -1,6 +1,8 @@
+import CmuxCloudTui
 import CmuxCore
 import CmuxFoundation
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 /// One cloud machine's resources: its cmux-tui terminals (over the headless link), its
 /// noVNC screen, and its forwarded ports. Terminals live in the machine's cmux-tui
@@ -8,9 +10,9 @@ import Foundation
 @MainActor
 final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let machineID: String
-    var machine: SurfaceMachineID { .cloud(machineID) }
+    var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
-    var summary: VMSummary
+    var summary: RemoteTuiMachine
     /// This machine's notification sync: VM rows in, local notifications and
     /// `notification.ack` round trips out. Fed after every accepted state.
     var notificationSync: CloudNotificationSync?
@@ -21,7 +23,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// change, not a daemon state; it re-runs the fold so rows that had no
     /// local target get delivered.
     var notificationPlacementObserver: NSObjectProtocol?
-    let links: CloudMachineLinkManager
+    let links: any RemoteTuiLinkManaging
     unowned let catalog: SurfaceCatalog
     /// Loopback forwards into this machine's private address over the hub; nil
     /// when the build has no hub. Owned by the registry, shared by every provider.
@@ -113,8 +115,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
     var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
     init(
-        summary: VMSummary,
-        links: CloudMachineLinkManager,
+        summary: RemoteTuiMachine,
+        links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
@@ -130,7 +132,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in
-            guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
+            guard summary.cloudSummary != nil, let client = VMClient.shared else { throw ProviderError.notSignedIn }
             return try await client.exec(id: summary.id, command: command, timeoutMs: timeout)
         }
         self.browserPolicy = browserPolicy
@@ -155,7 +157,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             || self.summary.image != summary.image || self.summary.resolvedKind != summary.resolvedKind {
             displayCoordinator.invalidate()
         }
-        self.summary = summary
+        self.summary = .cloud(summary)
         if !supportsPortPreviews {
             portsCache = nil
         }
@@ -231,7 +233,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let hasDesktop = summary.resolvedKind.hasDesktop
         let previousResources = catalog.authoritativeSnapshot.resources(on: machine)
         let preservedNonPortResources = previousResources.filter { !$0.id.isForwardedPort }
-        let vmClient = VMClient.shared
+        let vmClient = summary.cloudSummary == nil ? nil : VMClient.shared
         let privateAddress = summary.preferredPrivateAddress
         var scannedPorts: [Int]?
         if !supportsPortPreviews {
@@ -244,7 +246,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
         let currentPorts = scannedPorts ?? portsCache?.ports ?? []
-        guard isAwake, let client = vmClient else {
+        guard isAwake, summary.cloudSummary == nil || vmClient != nil else {
             tabByTerminal = [:]
             let remoteWorkspaces = remoteWorkspaces(for: cloudState)
             let linkState: SurfaceLinkState = isAwake ? .unavailable : .asleep
@@ -278,7 +280,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if hasDesktop, catalog.authoritativeSnapshot.resources(on: machine).isEmpty {
             catalog.replaceResources(displayResources, on: machine, info: info, from: self)
         }
-        let statsRead = Task { try? await client.stats(id: machineID) }
+        let statsRead = Task { try? await vmClient?.stats(id: machineID) }
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         // A decoded snapshot is not automatically an authorization boundary. It
@@ -1240,25 +1242,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     // MARK: - internals
-
-    static func info(from summary: VMSummary, linkState: SurfaceLinkState, linkError: String?, stats: VMStats?, remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil) -> SurfaceMachineInfo {
-        SurfaceMachineInfo(
-            id: .cloud(summary.id),
-            name: summary.preferredName,
-            status: summary.status,
-            image: summary.image,
-            hasDesktop: summary.resolvedKind.hasDesktop,
-            memoryMb: stats?.memoryTotalMb,
-            diskMb: stats?.diskTotalMb,
-            linkState: linkState,
-            linkError: linkError,
-            cpuPercent: stats?.cpuPercent,
-            memoryUsedMb: stats?.memoryUsedMb,
-            diskUsedMb: stats?.diskUsedMb,
-            remoteWorkspaces: remoteWorkspaces,
-            privateAddress: summary.preferredPrivateAddress
-        )
-    }
 
     /// Appends preserved resources without repeatedly scanning the growing
     /// snapshot array. Refresh fallback paths run on the main actor, so keeping
