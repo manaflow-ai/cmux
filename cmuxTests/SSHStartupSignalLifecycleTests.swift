@@ -1279,7 +1279,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(try? String(contentsOf: attemptFile, encoding: .utf8), "ssh\n")
+        // The count is not the contract: the ControlPath preflight also runs
+        // ssh. An unreset inherited signal retires the wrapper before any.
+        XCTAssertTrue(((try? String(contentsOf: attemptFile, encoding: .utf8)) ?? "").hasPrefix("ssh\n"))
     }
 
     /// Generates the legacy SSH startup wrapper. `cmux ssh` hands TTY
