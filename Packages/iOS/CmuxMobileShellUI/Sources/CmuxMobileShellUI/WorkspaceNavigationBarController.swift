@@ -8,7 +8,7 @@ import UIKit
 final class WorkspaceNavigationBarController: UIViewController {
     private let titleCapsule = WorkspaceNavigationTitleView()
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
-    private var leadingButtons: [UIBarButtonItem] = []
+    private var leadingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
     private weak var owner: UIViewController?
@@ -63,7 +63,13 @@ final class WorkspaceNavigationBarController: UIViewController {
                 )
             }
         }
-        leadingButtons = leadingItems.compactMap { controls[$0.id]?.button }
+        let nextLeadingButtons = leadingItems.compactMap { controls[$0.id]?.button }
+        if !leadingGroup.barButtonItems.elementsEqual(nextLeadingButtons, by: { $0 === $1 }) {
+            leadingGroup = UIBarButtonItemGroup(
+                barButtonItems: nextLeadingButtons,
+                representativeItem: nil
+            )
+        }
         let nextTrailingIDs = trailingItems.map(\.id)
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs
@@ -98,8 +104,9 @@ final class WorkspaceNavigationBarController: UIViewController {
         if item.titleView !== titleCapsule {
             item.titleView = titleCapsule
         }
-        if !(item.leftBarButtonItems ?? []).elementsEqual(leadingButtons, by: { $0 === $1 }) {
-            item.setLeftBarButtonItems(leadingButtons, animated: false)
+        let desiredLeadingGroups = leadingGroup.barButtonItems.isEmpty ? [] : [leadingGroup]
+        if !item.leadingItemGroups.elementsEqual(desiredLeadingGroups, by: { $0 === $1 }) {
+            item.leadingItemGroups = desiredLeadingGroups
         }
         if item.pinnedTrailingGroup !== trailingGroup {
             item.pinnedTrailingGroup = trailingGroup
@@ -114,8 +121,8 @@ final class WorkspaceNavigationBarController: UIViewController {
             item.style = originalItem.style
             item.largeTitleDisplayMode = originalItem.largeTitleDisplayMode
         }
-        if (item.leftBarButtonItems ?? []).elementsEqual(leadingButtons, by: { $0 === $1 }) {
-            item.setLeftBarButtonItems(originalItem.leadingButtons, animated: false)
+        if item.leadingItemGroups.elementsEqual([leadingGroup], by: { $0 === $1 }) {
+            item.leadingItemGroups = originalItem.leadingGroups
         }
         if item.pinnedTrailingGroup === trailingGroup {
             item.pinnedTrailingGroup = originalItem.trailingGroup
@@ -133,14 +140,14 @@ final class WorkspaceNavigationBarController: UIViewController {
         let titleView: UIView?
         let style: UINavigationItem.ItemStyle
         let largeTitleDisplayMode: UINavigationItem.LargeTitleDisplayMode
-        let leadingButtons: [UIBarButtonItem]?
+        let leadingGroups: [UIBarButtonItemGroup]
         let trailingGroup: UIBarButtonItemGroup?
 
         init(item: UINavigationItem) {
             titleView = item.titleView
             style = item.style
             largeTitleDisplayMode = item.largeTitleDisplayMode
-            leadingButtons = item.leftBarButtonItems
+            leadingGroups = item.leadingItemGroups
             trailingGroup = item.pinnedTrailingGroup
         }
     }
