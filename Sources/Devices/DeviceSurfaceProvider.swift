@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
 

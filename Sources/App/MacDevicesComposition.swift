@@ -1,5 +1,6 @@
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The executable's construction boundary for device preferences, discovery, and Settings actions.
