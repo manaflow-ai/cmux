@@ -5,7 +5,7 @@ import Testing
 struct CLICodexQueuedHookContractTests {
     @Test("Codex queues non-decision hooks but keeps decision hooks direct")
     func wrapperInjectionPreservesDecisionSemantics() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-codex-queued-contract-\(UUID().uuidString)",
             isDirectory: true
@@ -55,7 +55,7 @@ struct CLICodexQueuedHookContractTests {
 
     @Test("Codex generated decision hooks propagate CLI failure while lifecycle hooks fail open")
     func generatedScriptsPreserveFailureSemantics() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-codex-generated-hook-failure-\(UUID().uuidString)",
             isDirectory: true

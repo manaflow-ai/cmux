@@ -57,6 +57,8 @@ UNRELATED_PREFIXES = (
     "TunnelExtension/",
     "Resources/",
     "cmuxTests/",
+    "cmuxCLITests/",
+    "cmuxCLITestSupport/",
     "cmuxUITests/",
     "cmux.xcodeproj/",
     "cmux.xcworkspace/",

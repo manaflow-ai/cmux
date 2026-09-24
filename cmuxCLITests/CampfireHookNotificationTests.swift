@@ -238,6 +238,9 @@ struct CampfireHookNotificationTests {
         clientFD: Int32
     ) {
         defer { Darwin.close(clientFD) }
+        // A hook may exit before its response arrives. A closed client must
+        // not terminate the host-free test runner.
+        guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
         var pending = Data()
         var buffer = [UInt8](repeating: 0, count: 4096)
         while true {
@@ -254,9 +257,7 @@ struct CampfireHookNotificationTests {
                 guard let line = String(data: lineData, encoding: .utf8) else { continue }
                 context.state.append(line)
                 let response = agentHookMockResponse(line: line, context: context) + "\n"
-                _ = response.withCString { ptr in
-                    Darwin.write(clientFD, ptr, strlen(ptr))
-                }
+                guard writeAllToFixtureSocket(response, fd: clientFD) else { return }
             }
         }
     }
@@ -293,42 +294,18 @@ struct CampfireHookNotificationTests {
         standardInput: String,
         timeout: TimeInterval
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = stdinPipe
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-        stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-        try? stdinPipe.fileHandleForWriting.close()
-
-
-        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
-        if timedOut {
-            process.terminate()
-            if waitForProcessExit(process, timeout: 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = waitForProcessExit(process, timeout: 1)
-            }
-        }
-
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let result = CLIHookProcessRunner.run(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: timeout
+        )
         return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
+            status: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut
         )
     }
 

@@ -156,6 +156,9 @@ func handleCodexHookMockSocketClient(
     processBinding: CodexHookMockProcessBinding? = nil
 ) {
     defer { Darwin.close(clientFD) }
+    // Hook clients can time out or exit before a delayed response. Keep a
+    // disconnected client from terminating the host-free test runner.
+    guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
     var pending = Data()
     var buffer = [UInt8](repeating: 0, count: 4096)
     while true {
@@ -181,9 +184,7 @@ func handleCodexHookMockSocketClient(
                 surfaceId: surfaceId,
                 processBinding: processBinding
             ) + "\n"
-            _ = response.withCString { ptr in
-                Darwin.write(clientFD, ptr, strlen(ptr))
-            }
+            guard writeAllToFixtureSocket(response, fd: clientFD) else { return }
         }
     }
 }
@@ -270,7 +271,7 @@ func runCodexHookProcess(
 ) -> CodexHookProcessRunResult {
 let result: CodexHookProcessRunResult
     if !fileBackedStandardInput {
-        let shared = CLINotifyProcessIntegrationRegressionTests.runProcess(
+        let shared = CLIHookProcessRunner.run(
             executablePath: executablePath,
             arguments: arguments,
             environment: environment,

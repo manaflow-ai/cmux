@@ -6,7 +6,7 @@ import Testing
 struct CLIWorkspaceStableIDTests {
     @Test("Default pane inspection JSON keeps IDs for agent targeting")
     func paneInspectionJSONKeepsIDsByDefault() async throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let commands: [(command: [String], key: String, id: String, ref: String)] = [
             (
                 ["list-panes", "--workspace", "workspace:1", "--json"],
@@ -41,7 +41,7 @@ struct CLIWorkspaceStableIDTests {
 
     @Test("Explicit pane inspection ID formats remain respected")
     func explicitIDFormatsStillShapePaneInspectionJSON() async throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let expectations: [(mode: String, hasID: Bool, hasRef: Bool)] = [
             ("refs", false, true),
             ("uuids", true, false),
@@ -86,7 +86,7 @@ struct CLIWorkspaceStableIDTests {
 
     @Test("Workspace inspection JSON keeps mirror UUIDs by default")
     func workspaceInspectionJSONKeepsMirrorUUIDsByDefault() async throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let commands = [
             ["list-workspaces", "--window", Self.windowID, "--json"],
             ["workspace", "list", "--window", Self.windowID, "--json"],
@@ -114,7 +114,7 @@ struct CLIWorkspaceStableIDTests {
 
     @Test("Explicit ID formats still shape workspace inspection JSON")
     func explicitIDFormatsStillShapeWorkspaceInspectionJSON() async throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let expectations: [(mode: String, hasID: Bool, hasRef: Bool)] = [
             ("refs", false, true),
             ("uuids", true, false),

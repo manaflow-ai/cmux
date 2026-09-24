@@ -7,6 +7,7 @@ struct CLISSHPTYResizeInputTests {
     @Test
     func attachReportsPTYSizeChangeBeforeForwardingInput() throws {
         let cliPath = try bundledCLIPath()
+        let cliVersion = try BundledCLITestSupport.appVersion(cliPath: cliPath)
         let socketPath = makeSocketPath("sshptyinputresize")
         var listenerFD = try bindUnixSocket(at: socketPath)
         let bridge = try bindLoopbackTCP()
@@ -51,7 +52,7 @@ struct CLISSHPTYResizeInputTests {
                     id: id,
                     ok: true,
                     result: [
-                        "host": "127.0.0.1", "daemon_version": BundledCLITestSupport.appVersion,
+                        "host": "127.0.0.1", "daemon_version": cliVersion,
                         "port": bridge.port,
                         "token": token,
                         "session_id": sessionId,
@@ -386,6 +387,10 @@ struct CLISSHPTYResizeInputTests {
                     }
                 }
                 if clientFD >= 0 {
+                    guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else {
+                        Darwin.close(clientFD)
+                        continue
+                    }
                     // Darwin inherits O_NONBLOCK; the line reader needs blocking reads.
                     let clientFlags = fcntl(clientFD, F_GETFL, 0)
                     _ = fcntl(clientFD, F_SETFL, clientFlags & ~O_NONBLOCK)
@@ -458,6 +463,7 @@ struct CLISSHPTYResizeInputTests {
             }
             guard clientFD >= 0 else { return }
             defer { Darwin.close(clientFD) }
+            guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 1024)
@@ -472,9 +478,7 @@ struct CLISSHPTYResizeInputTests {
             }
 
             let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\n"
-            ready.withCString { ptr in
-                _ = Darwin.write(clientFD, ptr, strlen(ptr))
-            }
+            guard writeAllToFixtureSocket(ready, fd: clientFD) else { return }
             bridgeReady.signal()
             while true {
                 let count = Darwin.read(clientFD, &buffer, buffer.count)

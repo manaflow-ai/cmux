@@ -2,12 +2,6 @@ import Darwin
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
-
 @Suite(.serialized)
 struct CodexTeamsAppServerProcessTests {
     @Test("closing the launcher lifetime terminates the app-server process tree")
@@ -94,28 +88,6 @@ struct CodexTeamsAppServerProcessTests {
     }
 
     private func bundledCLIPath() throws -> String {
-        let appBundleURL = Bundle(for: BundleToken.self)
-            .bundleURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let cliURL = appBundleURL
-            .appendingPathComponent("Contents", isDirectory: true)
-            .appendingPathComponent("Resources", isDirectory: true)
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: false)
-        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-            throw NSError(
-                domain: "CodexTeamsAppServerProcessTests",
-                code: 1,
-                userInfo: [
-                    NSLocalizedDescriptionKey:
-                        "Bundled cmux CLI not found at \(cliURL.path)"
-                ]
-            )
-        }
-        return cliURL.path
+        try BundledCLITestSupport.bundledCLIPath()
     }
-
-    private final class BundleToken {}
 }

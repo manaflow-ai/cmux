@@ -54,6 +54,7 @@ WEB_JOBS = (
 MACOS_JOBS = (
     "macos-compile-admission",
     "app-host-unit-tests",
+    "cli-product-tests",
     "swift-package-tests",
     "tests-build-and-lag",
     "release-admission",
@@ -1646,8 +1647,10 @@ def test_macos_workflow_job_edits_select_release_only_for_release_jobs() -> None
     change_areas = module.macos_workflow_change_areas
     mac_only = areas(macos=True)
     with_release = areas(macos=True, release_build=True)
-    for job in ("macos-compile-admission", "app-host-unit-tests", "tests-build-and-lag"):
+    for job in ("app-host-unit-tests", "tests-build-and-lag"):
         assert change_areas(real, edit_job(real, job)) == mac_only, job
+    # Admission builds the product the CLI lane restores, so it also runs that lane.
+    assert change_areas(real, edit_job(real, "macos-compile-admission")) == areas(macos=True, cli=True)
     # swift-package-tests produces the helper release-build consumes through
     # its outputs, and macos-status reports the Release verdict.
     for job in ("release-admission", "release-build", "swift-package-tests", "macos-status"):
@@ -1686,7 +1689,35 @@ def test_macos_workflow_release_feeders_are_derived_from_outputs() -> None:
 def test_macos_workflow_areas_route_through_classify_files() -> None:
     path = ".github/workflows/ci-macos.yml"
     assert module.classify_files([path], macos_workflow_areas=areas(macos=True)) == areas(macos=True)
-    assert module.classify_files([path]) == areas(macos=True, release_build=True)
+    assert module.classify_files([path], macos_workflow_areas=areas(macos=True, cli=True)) == areas(
+        macos=True, cli=True,
+    )
+    # Without a job-by-job comparison every job runs, the CLI lane included.
+    assert module.classify_files([path]) == areas(macos=True, release_build=True, cli=True)
+
+
+def test_macos_workflow_cli_lane_edits_route_the_cli_lane() -> None:
+    real = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    change_areas = module.macos_workflow_change_areas
+    assert change_areas(real, edit_job(real, "cli-product-tests")).cli
+    assert change_areas(real, edit_job(real, "macos-compile-admission")).cli
+    assert not change_areas(real, edit_job(real, "app-host-unit-tests")).cli
+
+
+def test_cli_product_lane_scripts_route_the_cli_lane() -> None:
+    # Every repository script cli-product-tests runs is a CLI lane input.
+    real = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    start = real.index("\n  cli-product-tests:\n")
+    following = re.compile(r"\n  [a-z0-9-]+:\n").search(real, start + 5)
+    block = real[start:following.start() if following else len(real)]
+    scripts = set(re.findall(r"(scripts/[A-Za-z0-9_./-]+\.(?:py|sh))", block))
+    assert "scripts/ci/restore-app-host-test-product.sh" in scripts
+    # And what the restore script runs in turn.
+    scripts |= {"scripts/ci/app_host_test_products.py", "scripts/ci/canonical-build-root.sh"}
+    for script in sorted(scripts):
+        assert module.classify_files([script]).cli, script
+    for action in set(re.findall(r"uses: \./(\.github/actions/[A-Za-z0-9_-]+)", block)):
+        assert module.classify_files([f"{action}/action.yml"]).cli, action
 
 
 def test_workflow_routes_macos_shard_edit_without_release_build() -> None:
@@ -2407,11 +2438,13 @@ def test_owned_control_plane_helper_reaches_detector_instead_of_fail_open_guard(
     ):
         result, outputs = run_detect_step_for_paths([path])
         assert "CI router changed; running all CI areas." not in result.stdout, path
+        # cli-product-tests restores its product through app_host_test_products.py.
+        cli = "true" if path == "scripts/ci/app_host_test_products.py" else "false"
         assert outputs == [
             "macos=true",
             "web=false",
             "agent_session_web=false",
-            "cli=false",
+            f"cli={cli}",
             "swift_packages=false",
             "release_build=false",
         ], path
@@ -3145,10 +3178,12 @@ def test_macos_workflow_call_starts_after_cheap_static_gate() -> None:
     assert (
         "needs.changes.outputs.full_suite == 'true' "
         "|| needs.changes.outputs.unit_suite == 'true' "
+        "|| needs.changes.outputs.cli == 'true' "
         "|| needs.changes.outputs.compile_admitted != 'true'"
     ) in caller
     for route in (
         "macos",
+        "cli",
         "full_suite",
         "unit_suite",
         "compile_admitted",
@@ -4638,7 +4673,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
-    assert "for scheme in cmux cmux-unit cmux-numeric-locale; do" in compile_script
+    assert "for scheme in cmux cmux-unit cmux-numeric-locale cmux-cli-tests; do" in compile_script
     assert "actions/cache@27d5ce7" in admission or "uses: ./.github/actions/cache-restore" in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "steps.upload-products.outputs.artifact-digest" in admission
@@ -5061,7 +5096,15 @@ def test_package_lane_routing_leaves_the_full_suite_jobs_alone() -> None:
         for job in yaml.safe_load(workflow)["jobs"]
         if "inputs.full_suite == 'true'" in workflow_job_block(job, MACOS_WORKFLOW)
     }
-    assert gated_jobs == full_suite_only | {"swift-package-tests", "macos-compile-admission"}, gated_jobs
+    assert gated_jobs == full_suite_only | {
+        "swift-package-tests", "macos-compile-admission", "cli-product-tests"
+    }, gated_jobs
+    # Package routing must not independently request the targeted CLI lane.
+    cli_condition = next(
+        line for line in workflow_job_block("cli-product-tests", MACOS_WORKFLOW).splitlines()
+        if line.strip().startswith("if:")
+    )
+    assert "swift_packages" not in cli_condition, cli_condition
 
 
 def test_routed_package_lane_skips_the_release_helper_build() -> None:

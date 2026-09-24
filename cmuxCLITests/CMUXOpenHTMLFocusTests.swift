@@ -234,6 +234,7 @@ final class CMUXOpenHTMLFocusTests {
                 Darwin.close(clientFD)
                 handled.signal()
             }
+            guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
@@ -251,10 +252,7 @@ final class CMUXOpenHTMLFocusTests {
                     pending.removeSubrange(0...newlineRange.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.append(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
-                    }
+                    guard writeAllToFixtureSocket(handler(line) + "\n", fd: clientFD) else { return }
                 }
             }
         }

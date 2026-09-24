@@ -95,6 +95,11 @@ final class CodexTeamsSocketFixture: @unchecked Sendable {
     private func acceptAndServe() {
         let accepted = Darwin.accept(listenerFD, nil, nil)
         guard accepted >= 0 else { return }
+        // Configure before publishing the descriptor to the fixture's stop path.
+        guard ignoreSIGPIPE(onAcceptedFixtureSocket: accepted) else {
+            Darwin.close(accepted)
+            return
+        }
         stateLock.lock()
         guard !stopped else {
             stateLock.unlock()

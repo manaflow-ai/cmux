@@ -2,6 +2,45 @@ import Darwin
 import XCTest
 
 final class CLIStdioSIGPIPERegressionTests: XCTestCase {
+    func testSharedRunnerDrainsOutputWhileWritingLargeInput() {
+        let result = CLIHookProcessRunner.run(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "dd if=/dev/zero bs=65536 count=16 2>/dev/null; dd if=/dev/zero bs=65536 count=16 >&2 2>/dev/null; cat >/dev/null"],
+            environment: ["PATH": "/usr/bin:/bin"],
+            standardInput: String(repeating: "x", count: 1024 * 1024),
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout.utf8.count, 1024 * 1024)
+        XCTAssertEqual(result.stderr.utf8.count, 1024 * 1024)
+    }
+
+    func testSharedRunnerTimeoutInterruptsBlockedInput() {
+        let started = Date()
+        let result = CLIHookProcessRunner.run(
+            executablePath: "/bin/sleep",
+            arguments: ["30"],
+            environment: [:],
+            standardInput: String(repeating: "x", count: 1024 * 1024),
+            timeout: 0.1
+        )
+        XCTAssertTrue(result.timedOut)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+
+    func testSharedRunnerToleratesChildClosingInput() {
+        let result = CLIHookProcessRunner.run(
+            executablePath: "/usr/bin/true",
+            arguments: [],
+            environment: [:],
+            standardInput: String(repeating: "x", count: 1024 * 1024),
+            timeout: 5
+        )
+        XCTAssertFalse(result.timedOut)
+        XCTAssertEqual(result.status, 0)
+    }
+
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String

@@ -1141,7 +1141,7 @@ struct CLICodexHookTimeoutRegressionTests {
     }
 
     private func bundledCLIPath() throws -> String {
-        try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
     }
 
     private func injectedCodexHookEventNames(_ output: String) -> [String] {

@@ -212,7 +212,7 @@ struct CLICoderouterBootstrapTests {
         let socketPath: String
 
         init() throws {
-            cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+            cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
             root = fileManager.temporaryDirectory
                 .appendingPathComponent("cmux-coderouter-bootstrap-\(UUID().uuidString)", isDirectory: true)
             home = root.appendingPathComponent("home", isDirectory: true)

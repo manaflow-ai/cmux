@@ -455,14 +455,20 @@ def _release_jobs(jobs: dict[str, str]) -> frozenset[str]:
         consumers |= feeders
 
 
+# The ci-macos.yml jobs the CLI product lane runs through: its own job, and
+# the admission job that builds and publishes the product it restores.
+MACOS_CLI_LANE_JOBS = frozenset({"cli-product-tests", "macos-compile-admission"})
+
+
 def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     """The areas a ci-macos.yml edit selects, compared job by job, or None for all.
 
     Every job the workflow owns runs behind the macOS area. Only a job that
     mentions `release_build` (the Release jobs, the steps that produce their
     helper, the status gate that reports them), or whose outputs such a job
-    reads, needs the Release build as well. The preamble, which holds the
-    workflow_call inputs, reaches every job.
+    reads, needs the Release build as well. The CLI lane runs only when
+    cli-product-tests or the admission job that builds its product changed.
+    The preamble, which holds the workflow_call inputs, reaches every job.
     """
     diff = _changed_workflow_jobs(base, head)
     if diff is None:
@@ -470,7 +476,8 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     base_jobs, head_jobs, changed = diff
     release = _release_jobs(base_jobs) | _release_jobs(head_jobs)
     return ChangeAreas(
-        macos=True, web=False, agent_session_web=False, cli=False,
+        macos=True, web=False, agent_session_web=False,
+        cli=bool(changed & MACOS_CLI_LANE_JOBS),
         swift_packages=False, release_build=bool(changed & release),
     )
 
@@ -616,14 +623,31 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/generate-cmux-config-schema.py",
     "web/data/cmux.schema.json",
     "skills/cmux-settings/scripts/cmux-settings",
+    # ci-macos.yml's cli-product-tests restores the compiled product and runs
+    # the host-free bundle through these. Without them here, a change to one
+    # would compile admission without ever running the lane that reads it.
+    "scripts/ci/node_product_cache.py",
+    "scripts/ci/peer_product_source.py",
+    "scripts/ci/restore-r2-artifact.py",
+    "scripts/ci/parallel_artifact_download.py",
+    "scripts/ci/restore-app-host-test-product.sh",
+    "scripts/ci/run-and-capture.sh",
+    "scripts/ci/require_selected_test_execution.sh",
+    # What restore-app-host-test-product.sh itself runs.
+    "scripts/ci/app_host_test_products.py",
+    "scripts/ci/canonical-build-root.sh",
 })
 
 CLI_LANE_INPUT_PREFIXES = (
     "CLI/",
+    "cmuxCLITests/",
+    "cmuxCLITestSupport/",
     # The lane builds the cmux-cli scheme of this project and keys its package
     # cache on the project's Package.resolved.
     "cmux.xcodeproj/",
     ".github/actions/cache-restore/",
+    # cli-product-tests' canonical fallback download of the compiled product.
+    ".github/actions/download-test-product/",
     # The lane runs `swift test` in this package directly.
     "Packages/macOS/CmuxFoundation/",
 )
@@ -1493,7 +1517,7 @@ _PACKAGE_TESTS_RE = re.compile(r"Packages/[^/]+/[^/]+/Tests/")
 def is_test_only_source(path: str) -> bool:
     # The Release app builds only the cmux target, so test sources cannot reach
     # it. A new test file also edits project.pbxproj, which is not matched here.
-    return path.startswith(("cmuxTests/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
+    return path.startswith(("cmuxTests/", "cmuxCLITests/", "cmuxCLITestSupport/", "cmuxUITests/")) or bool(_PACKAGE_TESTS_RE.match(path))
 
 
 RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
@@ -1658,6 +1682,8 @@ def classify_files(paths: Iterable[str], *,
             macos = True
             if macos_workflow_areas is None or macos_workflow_areas.release_build:
                 release_build = True
+            if macos_workflow_areas is None or macos_workflow_areas.cli:
+                cli = True
             continue
         if path == WEB_WORKFLOW_PATH:
             # A reusable web workflow edit must exercise every job body it owns.

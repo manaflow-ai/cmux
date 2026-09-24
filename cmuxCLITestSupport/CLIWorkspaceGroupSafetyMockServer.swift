@@ -60,6 +60,8 @@ struct CLIWorkspaceGroupSafetyMockServer: Sendable {
             }
             guard clientDescriptor >= 0 else { return nil }
             defer { Darwin.close(clientDescriptor) }
+            // A disconnected CLI must not terminate the host-free test runner.
+            guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientDescriptor) else { return nil }
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4_096)

@@ -820,6 +820,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 return
             }
             defer { Darwin.close(clientFD) }
+            guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else {
+                state.recordError("mock socket server could not set SO_NOSIGPIPE, errno \(errno)")
+                return
+            }
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
@@ -838,10 +842,7 @@ struct CLIExplicitSurfaceRoutingTests {
                     pending.removeSubrange(0...newlineRange.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.record(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { pointer in
-                        Darwin.write(clientFD, pointer, strlen(pointer))
-                    }
+                    guard writeAllToFixtureSocket(handler(line) + "\n", fd: clientFD) else { return }
                 }
             }
         }

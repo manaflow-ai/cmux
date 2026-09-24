@@ -11,7 +11,7 @@ struct CLIRelayQueuedHookRegressionTests {
 
     @Test("Relay admission carries portable TTY evidence in one RPC")
     func relayAdmissionCarriesPortableTTYInOneRPC() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let relay = try RelayQueuedHookMockServer(
             ttyName: "8535",
             workspaceID: remoteWorkspaceID,
@@ -48,7 +48,7 @@ struct CLIRelayQueuedHookRegressionTests {
 
     @Test("Relay compaction preserves Claude background-work evidence")
     func relayCompactionPreservesClaudeBackgroundWorkEvidence() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let relay = try RelayQueuedHookMockServer(
             ttyName: "8540",
             workspaceID: remoteWorkspaceID,
@@ -111,7 +111,7 @@ struct CLIRelayQueuedHookRegressionTests {
 
     @Test("Relay admission carries transcript-only Codex failures into local replay")
     func relayAdmissionPreservesCodexFailureEvidence() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-codex-evidence-\(UUID().uuidString)",
             isDirectory: true
@@ -179,7 +179,7 @@ struct CLIRelayQueuedHookRegressionTests {
 
     @Test("Relay admission resolves the Rovo session on the remote filesystem")
     func relayAdmissionPreservesRovoSessionIdentity() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-rovo-session-\(UUID().uuidString)",
             isDirectory: true
@@ -253,7 +253,7 @@ struct CLIRelayQueuedHookRegressionTests {
 
     @Test("Relay replay strips remote filesystem identity and omits a synthetic local agent PID")
     func relayReplayUsesOnlyPortableFeedIdentity() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-portable-feed-\(UUID().uuidString)",
             isDirectory: true
@@ -329,7 +329,7 @@ struct CLIRelayQueuedHookRegressionTests {
 
     @Test("Relay replay preserves a Claude fork's parent through start and early end")
     func relayReplayPreservesClaudeForkParentRecord() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-claude-fork-\(UUID().uuidString)",
             isDirectory: true
@@ -458,7 +458,7 @@ struct CLIRelayQueuedHookRegressionTests {
 
     @Test("Relay replay creates its isolated hook state directory before locking")
     func relayReplayCreatesFreshHookStateDirectory() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-relay-fresh-hook-state-\(UUID().uuidString)",
             isDirectory: true
@@ -751,6 +751,10 @@ private final class RelayQueuedHookMockServer: @unchecked Sendable {
             while true {
                 let clientFD = Darwin.accept(listenerFD, nil, nil)
                 guard clientFD >= 0 else { return }
+                guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else {
+                    Darwin.close(clientFD)
+                    continue
+                }
                 handle(clientFD: clientFD)
             }
         }

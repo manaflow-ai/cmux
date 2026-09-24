@@ -94,6 +94,7 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
     private let surfaceID: String
     private let lock = NSLock()
     private var recordedCommands: [String] = []
+    private let notifications = AgentHookTestNotificationPipeline()
     private let finished = DispatchSemaphore(value: 0)
 
     var commands: [String] {
@@ -150,6 +151,7 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
             }
             guard clientFD >= 0 else { return }
             defer { Darwin.close(clientFD) }
+            guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
 
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
@@ -166,7 +168,12 @@ private final class CodexTerminalErrorSocketServer: @unchecked Sendable {
                     let lineData = pending.subdata(in: 0..<newline.lowerBound)
                     pending.removeSubrange(0...newline.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                    lock.withLock { recordedCommands.append(line) }
+                    lock.withLock {
+                        // The CLI submits semantic journal events. Record only
+                        // effects admitted by production reconciliation, so this
+                        // assertion still proves delivery of the terminal error.
+                        recordedCommands.append(contentsOf: [line] + notifications.effects(for: line))
+                    }
                     let response = response(for: line) + "\n"
                     guard Self.writeAll(response, to: clientFD) else { return }
                 }

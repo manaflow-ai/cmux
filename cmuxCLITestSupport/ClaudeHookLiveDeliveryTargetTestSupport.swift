@@ -49,7 +49,7 @@ enum ClaudeHookLiveDeliveryHarness {
             .appendingPathComponent("cli-\(name.prefix(6))-\(shortID).sock")
             .path
         return Context(
-            cliPath: try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self),
+            cliPath: try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self),
             socketPath: socketPath,
             listenerFD: try bindUnixSocket(at: socketPath),
             state: ServerState(),
@@ -326,13 +326,10 @@ enum ClaudeHookLiveDeliveryHarness {
                         Darwin.close(clientFD)
                         handled.signal()
                     }
-
-                    func writeResponse(_ response: String) {
-                        let line = response + "\n"
-                        _ = line.withCString { ptr in
-                            Darwin.write(clientFD, ptr, strlen(ptr))
-                        }
-                    }
+                    // Hook clients may disconnect before their response arrives.
+                    // Protect the host-free test runner without changing signals
+                    // for any other socket or subprocess.
+                    guard ignoreSIGPIPE(onAcceptedFixtureSocket: clientFD) else { return }
 
                     var pending = Data()
                     var buffer = [UInt8](repeating: 0, count: 4096)
@@ -350,7 +347,7 @@ enum ClaudeHookLiveDeliveryHarness {
                             pending.removeSubrange(0...newlineRange.lowerBound)
                             guard let line = String(data: lineData, encoding: .utf8) else { continue }
                             state.append(line)
-                            writeResponse(handler(line))
+                            guard writeAllToFixtureSocket(handler(line) + "\n", fd: clientFD) else { return }
                         }
                     }
                 }

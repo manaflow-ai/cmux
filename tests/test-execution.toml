@@ -412,6 +412,10 @@ path = "tests/test_ci_persistent_mac_compile.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cli_product_routing.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_product_publication.py"
 lane = "linux-guard"
 
