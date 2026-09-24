@@ -75,7 +75,7 @@ jobs:
     # The wrapper dispatches to manaflow-ai/cmux, so a fork keeps its own
     # `tests` job.
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -120,13 +120,13 @@ jobs:
     if: ${{ !(github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests) }}
     # Keep this lane on the repository's normal macOS runner and do not
     # expose a provider override.
-    runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           # The self-hosted fleet also carries a macos-26 label, so a macos-*

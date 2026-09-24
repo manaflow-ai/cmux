@@ -35,7 +35,7 @@ jobs:
   route:
     name: Route persistent Mac compile
     if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && (vars.CI_PERSISTENT_MAC_COMPILE == 'pilot' || vars.CI_PERSISTENT_MAC_COMPILE == 'all' || vars.CI_PERSISTENT_MAC_COMPILE == 'on' || vars.CI_PERSISTENT_MAC_COMPILE == 'true' || vars.CI_PERSISTENT_MAC_COMPILE == '1') }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The wait below may use 600s, and the dispatch step that follows bounds
     # itself by CI_PERSISTENT_MAC_QUEUE_SECONDS + CI_PERSISTENT_MAC_EXECUTION_SECONDS,
     # which persistent_mac_route.py admits up to 600s in total. 15 minutes no

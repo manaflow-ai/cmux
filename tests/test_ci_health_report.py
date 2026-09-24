@@ -612,7 +612,7 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_the_runner_comes_from_a_repository_variable(self):
         self.assertIn(
-            "runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", self.text
+            "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", self.text
         )
 
     def test_it_can_read_runs_and_write_issue_comments_but_not_cancel(self):

@@ -16,20 +16,61 @@ not need the same first step. Run commands from the repository root.
 
 ```bash
 git diff --check
-./scripts/check-pbxproj.sh
-./scripts/lint-pbxproj-test-wiring.sh
+python3 scripts/verify-local.py
 ```
 
 The project checks matter when adding or moving app/test files. An unwired test can
-silently execute zero tests. For changed Swift files, `swiftc -D DEBUG -parse` followed
-by their paths is an early syntax check only: it does not type-check imports, compile
+silently execute zero tests. The plain command discovers the local default-branch base and changed Swift files;
+use `--all` for the complete static recipe. The [command guide](verification-receipts.md)
+covers focused checks, piped paths and JSON receipts. Parsing is an early check only: it does not type-check imports, compile
 the test target, or run assertions. Use the owning script/package's tests for logic
 changes instead of tests that merely search source text for the new implementation.
 
 For a bug fix, add a behavior regression that fails without the fix, then make it
 pass. Keep the failing regression and repair in separate commits so reviewers can
-reproduce both states. Do not describe an infrastructure failure as the expected
+reproduce both states. Record the same focused command failing before and passing
+after; push both commits together when that proof is available locally. Use CI for
+CI-only reproductions and retain final-head checks. Do not describe an infrastructure failure as the expected
 regression failure.
+
+## Trust boundary
+
+Run the fast recipe first, before committing or paying for a build, **on a
+reviewed checkout**. Static analysis describes what the checks examine; the
+Python/shell analyzers and normalizer tests are still executable repository code.
+`--repo` chooses whose scripts run, not a data-only input. Even help/list commands
+load repository Python modules. Inspect unfamiliar code without executing it.
+
+There is deliberately no automatic pre-push checker. A pushed branch or tag can
+contain a replaced checker, imported helper, shell script, or package lifecycle
+hook. A temporary Git snapshot is not a security sandbox. Nor is a trusted
+wrapper sufficient if it invokes candidate-controlled children. The tracked
+pre-commit hook, which normalizes the project and registers new Python tests with
+`scripts/ci/validate_test_execution_registry.py --write`, also runs repository
+code and requires a trusted checkout; tracked Git hooks are not a stable trust
+anchor across arbitrary branch changes.
+
+The default fast recipe installs no dependencies and invokes no package-manager
+lifecycle scripts. Dependency installation and app/test execution remain explicit
+separate steps. Before automatically analyzing untrusted source, use a reviewed,
+fixed analyzer that treats candidate files only as data, or a meaningful execution
+boundary without host credentials, host-write access, network access, or writable
+caches shared with trusted release jobs. No such sandbox is supplied by this PR.
+Required CI remains required; a local pass is not a supply-chain safety attestation.
+
+## PR check progression
+
+Run the local command first on trusted code. On a PR, the existing workflow runs
+Fast static checks before workflow guards and routed Linux checks; the Linux
+preflight gate precedes applicable macOS compile admission and native checks.
+There is no need to add a second workflow scheduler. Required checks, review and
+the merge queue retain their existing authority.
+
+Apply the repository's maintainer-approval policy before untrusted workflow runs
+where configured. The effective GitHub fork-approval setting was not verifiable
+in this audit; it is not claimed enabled. Passing cheap checks does not make
+candidate code trusted. Do not run candidate code with privileged
+`pull_request_target` credentials or reuse its writable caches in release jobs.
 
 ## 2. Test the owning package
 

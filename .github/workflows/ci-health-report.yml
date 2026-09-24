@@ -49,7 +49,7 @@ concurrency:
 jobs:
   report:
     name: Report CI health
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Measured against this repo: a window's run listings plus ~160 job
     # listings is a few hundred calls, and the Actions API answers each one
     # in seconds on a repo this size. 15 minutes was not enough headroom.
