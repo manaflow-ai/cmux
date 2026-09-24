@@ -7542,6 +7542,12 @@ final class cmuxUITests: XCTestCase {
             }
             tap(surface, in: app)
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
+            // A fresh simulator may cover the keyboard with Apple's typing
+            // introduction. Compare the actual keyboard in both builds.
+            let typingIntroduction = app.buttons["Continue"]
+            if typingIntroduction.waitForExistence(timeout: 1) {
+                typingIntroduction.tap()
+            }
             captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-keyboard")
             XCUIDevice.shared.orientation = .landscapeLeft
             RunLoop.current.run(until: Date().addingTimeInterval(1))
@@ -7585,6 +7591,9 @@ final class cmuxUITests: XCTestCase {
             dismissOpenMenu(in: app)
         }
         tap(app.buttons["MobileTerminalAltScreenNoticeButton"], in: app)
+        let dismissNotice = app.buttons["MobileTerminalAltScreenNoticeDismissPermanentlyButton"]
+        XCTAssertTrue(dismissNotice.waitForExistence(timeout: 4))
+        tap(dismissNotice, in: app)
         XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForNonExistence(timeout: 4))
         assertNativeWorkspaceToolbarFits(in: app, includesChanges: true)
     }
@@ -7593,11 +7602,13 @@ final class cmuxUITests: XCTestCase {
     private func captureWorkspaceToolbarPresentation(in app: XCUIApplication, name: String) {
         // The app screenshot can inherit the portrait keyboard window's crop
         // during rotation. The display screenshot preserves the whole bar.
+        // Resolve the app first so XCTest settles pending UI animations.
+        let description = app.debugDescription
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         screenshot.name = "toolbar-\(name)"
         screenshot.lifetime = .keepAlways
         add(screenshot)
-        let hierarchy = XCTAttachment(string: app.debugDescription)
+        let hierarchy = XCTAttachment(string: description)
         hierarchy.name = "toolbar-\(name)-hierarchy"
         hierarchy.lifetime = .keepAlways
         add(hierarchy)

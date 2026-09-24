@@ -36,7 +36,10 @@ extension WorkspaceDetailView {
         var items: [WorkspaceNavigationBar.Item] = []
         if altScreenNoticeIsVisible {
             items.append(.init(id: .alternateScreen, content: AnyView(
-                AltScreenNoticeButton { displaySettings.showAltScreenNotice = false }
+                AltScreenNoticeButton(
+                    dismissNotice: { displaySettings.showAltScreenNotice = false },
+                    foregroundColor: .primary
+                )
             )))
         }
         if workspaceChangesAreAvailable {

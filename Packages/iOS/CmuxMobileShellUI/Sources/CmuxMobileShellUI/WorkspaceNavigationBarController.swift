@@ -5,6 +5,7 @@ import UIKit
 @MainActor
 final class WorkspaceNavigationBarController: UINavigationController {
     private let contentHost = UIHostingController(rootView: AnyView(EmptyView()))
+    private let barScrollAnchor = UIScrollView()
     private var bar: UINavigationBar { navigationBar }
     private var item: UINavigationItem { contentHost.navigationItem }
     private let titleCapsule = WorkspaceNavigationTitleView()
@@ -17,8 +18,13 @@ final class WorkspaceNavigationBarController: UINavigationController {
         bar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
         bar.tintColor = .label
         bar.prefersLargeTitles = false
+        bar.insetsLayoutMarginsFromSafeArea = false
         contentHost.view.backgroundColor = .clear
         setViewControllers([contentHost], animated: false)
+        // Preserve the existing pinned bar on browser/chat surfaces. Owning
+        // the controller lets us set this public association directly.
+        barScrollAnchor.isScrollEnabled = false
+        contentHost.setContentScrollView(barScrollAnchor, for: .top)
 
         item.style = .browser
         item.largeTitleDisplayMode = .never
@@ -51,7 +57,10 @@ final class WorkspaceNavigationBarController: UINavigationController {
         item.scrollEdgeAppearance = appearance
         item.compactAppearance = appearance
         item.compactScrollEdgeAppearance = appearance
-        titleCapsule.update(content: AnyView(title.environment(\.self, environment).buttonStyle(.plain)))
+        titleCapsule.update(content: AnyView(title
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .environment(\.self, environment)))
         titleCapsule.invalidateIntrinsicContentSize()
         // A custom title must have a natural size before the bar resizes it.
         // The bar owns the final frame between the leading and trailing items.
@@ -63,10 +72,10 @@ final class WorkspaceNavigationBarController: UINavigationController {
 
         for value in leadingItems + trailingItems {
             let content = AnyView(value.content
-                .environment(\.self, environment)
                 .buttonStyle(.plain)
                 .imageScale(.large)
-                .fixedSize())
+                .fixedSize()
+                .environment(\.self, environment))
             if let control = controls[value.id] {
                 control.view.update(content: content)
             } else {

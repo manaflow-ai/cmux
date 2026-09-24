@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AltScreenNoticeButton: View {
     let dismissNotice: () -> Void
+    var foregroundColor: Color = .orange
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @State private var isPresentingExplanation = false
 
@@ -21,7 +22,7 @@ struct AltScreenNoticeButton: View {
             Label(buttonAccessibilityLabel, systemImage: "exclamationmark.triangle.fill")
         }
         .labelStyle(.iconOnly)
-        .foregroundStyle(.orange)
+        .foregroundStyle(foregroundColor)
         .accessibilityLabel(buttonAccessibilityLabel)
         .accessibilityIdentifier("MobileTerminalAltScreenNoticeButton")
         .popover(isPresented: explanationPresentation.isPresented) {
