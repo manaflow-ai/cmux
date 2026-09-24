@@ -36,7 +36,10 @@ struct CloudOperationRecorderTests {
         while ContinuousClock.now < deadline {
             let data = try Data(contentsOf: queueURL)
             let entries = try #require(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
-            if entries.isEmpty { acknowledged = true; break }
+            if entries.isEmpty, await PlacementReceiptURLProtocol.captured(status: status) != nil {
+                acknowledged = true
+                break
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(acknowledged)

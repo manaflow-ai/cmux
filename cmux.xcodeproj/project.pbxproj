@@ -870,6 +870,7 @@
 		C13151C0000000000000000C /* CloudReadRequestCoordinator+Waiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C0000000000000000B /* CloudReadRequestCoordinator+Waiter.swift */; };
 		C12625A00000000000000004 /* CloudReadRequestCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */; };
 		C12625B00000000000000004 /* CloudReadRequestCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */; };
+		9F046FC7A14BBDB098F471B3 /* CloudReadResponseGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9A79D080D5B1E7996CC8586 /* CloudReadResponseGate.swift */; };
 		C13151C00000000000000023 /* CloudRefreshAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000022 /* CloudRefreshAuthClient.swift */; };
 		C13151C00000000000000021 /* CloudRefreshFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000020 /* CloudRefreshFixture.swift */; };
 		C12625000000000000000004 /* CloudRefreshURLProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000003 /* CloudRefreshURLProtocol.swift */; };
@@ -5145,6 +5146,7 @@
 		C13151C0000000000000000B /* CloudReadRequestCoordinator+Waiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadRequestCoordinator+Waiter.swift"; sourceTree = "<group>"; };
 		C12625A00000000000000003 /* CloudReadRequestCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRequestCoordinator.swift; sourceTree = "<group>"; };
 		C12625B00000000000000003 /* CloudReadRequestCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudReadRequestCoordinatorTests.swift; sourceTree = "<group>"; };
+		E9A79D080D5B1E7996CC8586 /* CloudReadResponseGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudReadResponseGate.swift"; sourceTree = "<group>"; };
 		C13151C00000000000000022 /* CloudRefreshAuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshAuthClient.swift; sourceTree = "<group>"; };
 		C13151C00000000000000020 /* CloudRefreshFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshFixture.swift; sourceTree = "<group>"; };
 		C12625000000000000000003 /* CloudRefreshURLProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRefreshURLProtocol.swift; sourceTree = "<group>"; };
@@ -12577,6 +12579,7 @@
 				52476C8E96AAA6928BA35B95 /* CloudDesktopOpenActionTests.swift */,
 				AC9CBF6AD1163240A7A1E161 /* CloudDesktopOpenFixture.swift */,
 				C09C35915CA32C6A8B13F0A0 /* CloudDesktopOpenTestProvider.swift */,
+				E9A79D080D5B1E7996CC8586 /* CloudReadResponseGate.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16584,6 +16587,7 @@
 				C13151C00000000000000031 /* CloudReadIdentityAuthClient.swift in Sources */,
 				C12625B00000000000000006 /* CloudReadManualClock.swift in Sources */,
 				C12625B00000000000000004 /* CloudReadRequestCoordinatorTests.swift in Sources */,
+				9F046FC7A14BBDB098F471B3 /* CloudReadResponseGate.swift in Sources */,
 				C13151C00000000000000023 /* CloudRefreshAuthClient.swift in Sources */,
 				C13151C00000000000000021 /* CloudRefreshFixture.swift in Sources */,
 				C12625000000000000000004 /* CloudRefreshURLProtocol.swift in Sources */,

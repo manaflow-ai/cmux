@@ -250,6 +250,7 @@ try:
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 except Exception as error:
     rollback_error = None
+    restore_failed = False
     try:
         cleanup_generated()
     except Exception as cleanup_error:
@@ -259,11 +260,12 @@ except Exception as error:
             restore_paths()
     except Exception as restore_error:
         rollback_error = restore_error
+        restore_failed = True
     try:
         cleanup_created_directories(before_directories if "before_directories" in globals() else {})
     except Exception as directory_error:
         rollback_error = directory_error
-    if backup_root:
+    if backup_root and not restore_failed:
         try:
             shutil.rmtree(backup_root)
         except Exception as backup_error:

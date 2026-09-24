@@ -22,6 +22,30 @@ extension MachinesPanelViewModel {
         }
     }
 
+    /// Samples machines advertising stats support. Sleeping machines report
+    /// `asleep` without being woken, so polling never costs the user anything.
+    /// Older servers omitting the flag retain the desktop-only polling policy
+    /// through capability decoding; explicit support overrides that fallback.
+    func refreshUsage() {
+        guard isCloudEnabled(), usageTask == nil else { return }
+        if let retryNotBefore = usageRetryNotBefore, retryNotBefore > Date() { return }
+        guard let client = MachineUsageClient.shared else { return }
+        let generation = refreshGeneration
+        usageTask = Task { [weak self] in
+            defer { if generation == self?.refreshGeneration { self?.usageTask = nil } }
+            do {
+                let usage = (try await client.teamUsage()).byMachineID
+                guard !Task.isCancelled, let self, self.isCloudEnabled() else { return }
+                self.usageFailureCount = 0; self.usageRetryNotBefore = nil
+                self.applyUsage(usage)
+            } catch is CancellationError { return } catch {
+                guard !Task.isCancelled, let self else { return }
+                self.usageFailureCount = min(self.usageFailureCount + 1, 4)
+                self.usageRetryNotBefore = Date().addingTimeInterval(Self.usageBackoffDelay(failureCount: self.usageFailureCount))
+            }
+        }
+    }
+
     func startPolling() {
         wantsPolling = true
         guard isCloudEnabled() else { pausePolling(); return }
