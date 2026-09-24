@@ -24,6 +24,7 @@ public actor MobileIrxRuntimeComposition {
         CmxConnectivityDeferredTransportFactory(provider: self)
     }
     let journal: IrxJournal
+    let diagnosticLog: DiagnosticLog?
     let installation: MobileIrohV2InstallationStore
     let localPaths: MobileIrohV2LocalPathStore
     let stateStore: V2FileStateStore
@@ -58,10 +59,11 @@ public actor MobileIrxRuntimeComposition {
 
     /// Dependencies are owned here; authentication is supplied later without copying its persistence.
     public init(configuration: MobileIrohV2Configuration, macListAuthState: MobileMacListAuthState, keychainAccessGroup: String? = nil,
-                session: URLSession = .shared) {
+                session: URLSession = .shared, diagnosticLog: DiagnosticLog? = nil) {
         self.macListAuthState = macListAuthState
         self.configuration = configuration
         self.urlSession = session
+        self.diagnosticLog = diagnosticLog
         localPaths = MobileIrohV2LocalPathStore(root: configuration.stateDirectory)
         installation = MobileIrohV2InstallationStore(configuration: configuration, accessGroup: keychainAccessGroup)
         stateStore = V2FileStateStore(rootDirectory: configuration.stateDirectory, fileManager: FileManager())

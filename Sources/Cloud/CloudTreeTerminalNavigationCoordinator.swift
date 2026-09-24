@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Routes an ordinary Cloud tree terminal activation to its parent workspace.

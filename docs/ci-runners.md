@@ -4,10 +4,8 @@ Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
 
-Linux uses Blacksmith. macOS uses Blacksmith cloud runners, with same-repository
-pull-request app-host shards deliberately striped across Blacksmith and
-GitHub-hosted macOS 15/26 capacity. The self-hosted Tart fleet described below
-carries specific lanes as they are qualified. WarpBuild is paid overflow and is
+Linux uses Blacksmith. macOS uses Blacksmith cloud runners. The self-hosted
+Tart fleet described below carries specific lanes as they are qualified. WarpBuild is paid overflow and is
 not a steady state for any lane. Non-urgent macOS work also uses free
 GitHub-hosted runners through the background lane described below.
 
@@ -24,8 +22,8 @@ gh variable list --repo manaflow-ai/cmux
 | `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_PR` | **pull-request** macOS jobs except the striped `app-host-unit-tests` matrix, in `ci-macos.yml`, `cli-pipe-regressions.yml`, `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
-| `MACOS_RUNNER_TESTS` | the manual test-debugging lanes: `test-e2e.yml` and `test-macos-suite.yml` | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml` |
+| `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `cli-pipe-regressions.yml`, `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
 | `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_LARGE` | the larger macOS 26 machine: changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26` |
@@ -60,8 +58,31 @@ The pull-request lane also has a toolchain variable, set together with
 
 Not every job on the pool reads it. `ci.yml`'s `claude-wrapper` never selects an
 Xcode, and the two `terminal-hang-diagnostics.yml` jobs run
-`scripts/select-ci-xcode.sh` with no pin at all, so they auto-select the newest
-stable Xcode on whichever image they land on.
+`scripts/select-ci-xcode.sh` with no pin of their own, so they take the pool
+pin described next.
+
+### Which Xcode a job gets
+
+Every macOS job that uses Xcode runs `scripts/select-ci-xcode.sh`, and
+`tests/test_ci_macos_xcode_selection.py` fails when one does not. The script
+chooses, in order:
+
+1. the job's own `CMUX_CI_XCODE_APP` (the lane variables above), if set;
+2. otherwise the version `scripts/ci/xcode-pins.txt` names for the runner's
+   macOS major: Xcode 26.3 on macOS 15 and Xcode 26.6 on macOS 26 today.
+
+Either way it stops with one `::error::` when the Xcode is below the major in
+`.xcode-version` (26), or when the pinned Xcode is not installed, instead of
+building with the image's default. On GitHub's `macos-15` image that default is
+Xcode 16.4. When a job's own pin differs from the pool pin, the job still runs
+and warns, because jobs on one pool with different Xcodes cannot share
+compilation caches or products. To move a pool to a new Xcode, edit its line in
+`scripts/ci/xcode-pins.txt` and the matching `CMUX_CI_XCODE_APP_MACOS_*`
+variable together.
+
+The deliberate exceptions are listed with reasons in the guard's `EXEMPT`
+table: the Zig-only Ghostty builds, the macOS 14 compatibility lane, and
+`relay-tls.yml`'s Xcode 16.2 job.
 
 ## Lanes
 
@@ -81,8 +102,17 @@ the same cost profile or the same urgency.
   Blacksmith fallback. PR runs are cancelled on supersession by design, so
   they are the wrong place to spend elastic paid capacity. A fork uses the
   GitHub-hosted branch described below instead.
-- **Manual test debugging** (`test-e2e.yml`, `test-macos-suite.yml`) resolves through
-  `MACOS_RUNNER_TESTS`, and deliberately does **not** follow `MACOS_RUNNER_15`.
+- **Test-only lanes** (`test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml`
+  on `auto`, the `iroh-v2.yml` client) resolve through
+  `MACOS_RUNNER_TESTS` first, and deliberately do **not** follow `MACOS_RUNNER_15`.
+  Setting it moves every test lane off a backed-up pool in one edit without
+  touching `MACOS_RUNNER_IOS` or `MACOS_RUNNER_26`, which also route release,
+  nightly, TestFlight and App Store signing. A GitHub-hosted value (`macos-15`,
+  `macos-26`) is checked by each job's first step: the self-hosted fleet also
+  carries a `macos-26` label, so a job that lands anywhere but GitHub-hosted
+  capacity fails before checkout. `app-host-test-rerun.yml` does not follow it:
+  a rerun must build with the exact Xcode the products were compiled with, so it
+  stays on the Blacksmith macOS 15 pool it has always resolved to.
   Re-running one test to chase a flake should never reach for paid capacity.
   Both fallbacks stay on Blacksmith for that reason; `test-e2e.yml` falls back
   to macOS 26 because the macOS 15 pool's queue-to-start p90 was 83 min against
@@ -92,16 +122,66 @@ the same cost profile or the same urgency.
   real focused-run traffic. It splits only that free default: a
   `MACOS_RUNNER_TESTS` value naming any other pool is used unchanged.
 
+### Pull request pool preference
+
+When `MACOS_RUNNER_PR` is `blacksmith-6vcpu-macos-26`, `ci.yml`'s `changes`
+job picks one pool for the whole pull request run with
+`scripts/ci/pr_runner_pool.py`, and every pull-request macOS job in the run
+reads it: compile admission and its product consumers, `tests-build-and-lag`,
+`claude-wrapper`, `cli-pipe-regressions.yml` and `remote-daemon.yml`. A run is
+never split across pools, so the app-host product always meets the Xcode that
+linked it. The run takes the first pool in `CI_PR_POOL_ORDER` with fewer than
+`CI_PR_POOL_MAX_QUEUED` (default 3) jobs queued and no queued release or
+nightly job, or else the pool with the fewest queued jobs.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CI_PR_POOL_OVERFLOW` | unset (on) | `0` turns the preference off; every job takes its `MACOS_RUNNER_PR` route |
+| `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted, and an unknown label turns the preference off |
+| `CI_PR_POOL_MAX_QUEUED` | `3` | a pool has headroom below this many queued macOS jobs |
+
+The two macOS 26 pools share the lane's Xcode. A run on
+`blacksmith-6vcpu-macos-15` builds with `CMUX_CI_XCODE_APP_MACOS_15`, the pool
+and Xcode `main`'s own compile admission uses, and the build-input fingerprint
+follows that Xcode. Every Blacksmith pool is sponsored, so cost does not rank
+them; the order is speed first.
+
+The queue comes from the queue janitor: each sweep publishes the per-pool demand
+it already listed as the `macos-pool-load` artifact, and the `changes` job
+reads the newest copy uploaded from `main` of this repository. Pull request
+runs created since that sweep and still in flight are replayed through the
+same rule first, each
+filling a pool's idle slots (about 10 per Blacksmith macOS pool, less what is
+running) before it counts as queued, so a burst of pushes spreads across
+pools. The whole choice costs three API
+requests. A snapshot older than 45 minutes, an API error, or any event other
+than `pull_request` keeps today's route. The step summary of `changes` names
+the pool, the reason, and the queue it saw.
+
+A fork pull request gets no repository variables, so the janitor copies
+`MACOS_RUNNER_PR` and the three settings above into the snapshot and fork runs
+follow those: `CI_PR_POOL_OVERFLOW=0` or a lane other than
+`blacksmith-6vcpu-macos-26` keeps them on the Blacksmith macOS 15 fallback as
+before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
+26 Xcode) and only use ephemeral `blacksmith-*` pools.
+
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
 non-zero on a pinned path that is absent.
 
-Same-repository pull-request app-host shards are the exception: they span
-pools whose images carry different Xcodes (26.3 on `macos-15`, 26.6 on
-`macos-26`), so they pin none. Each takes the newest stable Xcode with the
-macOS 26 SDK on its machine, and `app_host_test_products.py restore` accepts
-the compile-admission product under any Xcode of the same major version. It
-still rejects another revision, architecture or major Xcode.
+Every job that consumes the compile-admission product runs on
+`macos-compile-admission`'s pool and pins its Xcode. `app-host-unit-tests`
+reads both from the admission's `runner` and `xcode_app` outputs, so it follows
+any routing change there. `tests-build-and-lag` restates the admission's
+expressions (paid overflow may move its non-PR runs to `MACOS_RUNNER_DISPLAY`
+under the same macOS 15 pin), and `tests/test_ci_change_areas.py` fails when
+the two drift apart. The cmuxTests bundle only
+loads under the Xcode that linked it: a bundle linked by 26.6 (`macos-26`)
+imports Testing.framework symbols 26.3 (`macos-15`) lacks and fails to dlopen
+before running a test. `app_host_test_products.py restore` refuses a product
+built by a newer Xcode than the job's, naming both, as well as another
+revision, architecture or major Xcode. `app-host-test-rerun.yml` runs on the
+Blacksmith pool whose macOS matches the source run's compile admission.
 
 For the other pull-request jobs, the pin follows `MACOS_RUNNER_PR` through
 `CMUX_CI_XCODE_APP_PR`, and the two are set together:
@@ -160,10 +240,30 @@ workflows reached through `workflow_call` — has an explicit repository-owner
 branch before runner variables are consulted. On `manaflow-ai/cmux`, existing
 repository variables and their Blacksmith fallbacks behave exactly as above. On
 every other owner, Linux jobs use `ubuntu-24.04` and macOS jobs use
-`macos-15` from GitHub Actions.
+`macos-26` from GitHub Actions: the image and Xcode (26.6) main compiles with,
+so a fork's own CI can hit main's caches, which anyone can read from
+`https://ci-cache.cmux.com`. Only the jobs that build the SDK 15 Ghostty CLI
+helper (`swift-package-tests`, release and nightly), `plain-paste-worker.yml`'s
+`macos-15` job and `ci-macos-compat.yml`'s macOS 15 row keep a `macos-15` fork
+branch, because they need that image. Fork jobs set no Xcode pin, so they take
+the pool pin from `scripts/ci/xcode-pins.txt` (26.6 on `macos-26`, the Xcode
+main compiles with). When a hosted image no longer carries that Xcode, a fork
+falls back to the image's newest stable Xcode with a warning, so a newer image
+Xcode is a cache miss, never a failure. Runs in `manaflow-ai` fail on a missing
+pool Xcode instead. The self-hosted guard allows a literal `macos-26` only in this exact
+`github.repository_owner != 'manaflow-ai' && 'macos-26'` form, which evaluates
+solely outside `manaflow-ai`, where the fleet's `macos-26` label does not exist.
+
+Scheduled, dispatched and push-only workflows take the same owner branch, so
+a fork's own nightly, release, SDK and dispatch runs never wait on Blacksmith
+either. Dispatch inputs that default to a Blacksmith label (`reload-build.yml`,
+`test-e2e.yml`, `test-ios.yml`, `perf-activation.yml`) are overridden by the
+owner branch; `test-e2e.yml` applies it to the pool its runner job picks. The
+Blacksmith Testbox warmup has no hosted equivalent, so it is skipped outside
+`manaflow-ai`.
 
 That is the fork contract: **a fork needs zero runner variables and zero runner
-provider setup to run its pull-request workflows.** Blacksmith is an
+provider setup to run its workflows.** Blacksmith is an
 organization-level GitHub App; naming a `blacksmith-*` label in a personal
 fork does not produce a useful error, it leaves the job queued indefinitely.
 The fork branch therefore short-circuits before any `MACOS_RUNNER_*` or
@@ -172,7 +272,10 @@ The fork branch therefore short-circuits before any `MACOS_RUNNER_*` or
 `tests/test_ci_fork_runner_routing.py` discovers every `pull_request`
 workflow, recursively follows its local reusable-workflow calls, and requires
 every variable-routed `runs-on` in that closure to contain a hosted fork
-branch. The upstream branch still keeps literal Blacksmith fallbacks so deleting
+branch. Across every workflow, it also rejects a Blacksmith label that a
+zero-configuration run outside `manaflow-ai` could select: each expression
+holding one must start with the owner branch, unless the job itself is
+owner-gated or the line is allow-listed there with a reason. The upstream branch still keeps literal Blacksmith fallbacks so deleting
 a repository variable cannot silently change `manaflow-ai/cmux` capacity.
 
 ## Background lane
@@ -340,8 +443,15 @@ admission or is draining, pressured, or unavailable.
 
 ## Break-glass: switch a runner type to a paid provider
 
-There is no automatic overflow. If the Tart pool is unavailable or its queue is
-too long, set the affected variable to a paid provider. Restore Tart after the
+There is no automatic overflow for the runner variables. If the Tart pool is
+unavailable or its queue is too long, set the affected variable to a paid
+provider.
+
+The two owned-Mac producer lanes are the exception, because they never own a
+result: the persistent compile route and the nightly route
+(`scripts/ci/nightly_mini_route.py`) wait a bounded time for a mini and fall
+back to the hosted build automatically on a queue timeout, an overrun, a
+producer failure or a refused product. Restore Tart after the
 fleet recovers.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
@@ -475,6 +585,10 @@ The sole direct-host exception is the dispatch-only
 workflow-restricted `cmux-persistent-compile` runner group and
 `cmux-persistent-macos-compile` label. It performs compile-only Debug work,
 carries no repository secrets, and grants its hot state zero result authority.
+The second is the dispatch-only nightly producer (`nightly-mini-build.yml`,
+`cmux-nightly-mini` group, `cmux-nightly-mini-build` label), which compiles the
+unsigned nightly app for a hosted job that revalidates and signs it; see
+[mac-fleet.md, Nightly lane](ci/mac-fleet.md#nightly-lane).
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` enforces that exact exception and rejects

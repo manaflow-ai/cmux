@@ -33,12 +33,38 @@ def identity() -> dict[str, str]:
 def xcode_major(version: str | None) -> str | None:
     """The major Xcode version from `xcodebuild -version`, e.g. "26".
 
-    Pools carry different point releases of one Xcode (26.3 on macos-15
-    images, 26.6 on macos-26), and a product built by one runs under the
-    other. Output that does not parse is compared whole.
+    Output that does not parse is compared whole.
     """
     match = re.match(r"Xcode (\d+)(?:\.|\s|$)", version or "")
     return match.group(1) if match else version
+
+
+def xcode_release(version: str | None) -> tuple[int, ...] | None:
+    """The numeric Xcode release from `xcodebuild -version`, e.g. (26, 6)."""
+    match = re.match(r"Xcode (\d+(?:\.\d+)*)", version or "")
+    return tuple(int(part) for part in match.group(1).split(".")) if match else None
+
+
+def check_xcode(produced: str | None, current: str) -> None:
+    """Refuse products this job's Xcode cannot load.
+
+    A test bundle imports Testing.framework and XCTest symbols from the Xcode
+    that linked it, and an older Xcode's frameworks can lack them: a bundle
+    linked by 26.6 fails to dlopen under 26.3 before running any test. A
+    different major is refused outright; within one major, this job's Xcode
+    must be at least the producer's.
+    """
+    if xcode_major(produced) != xcode_major(current):
+        raise ValueError("test products xcode does not match this job")
+    built, running = xcode_release(produced), xcode_release(current)
+    if built and running and running < built:
+        def name(version: str | None) -> str:
+            return (version or "").splitlines()[0] if version else "unknown"
+
+        raise ValueError(
+            f"test products xcode is {name(produced)}, newer than this job's {name(current)}; "
+            "its test bundle cannot load here. Run this job on compile admission's pool with its Xcode."
+        )
 
 
 def manifests(products: Path) -> dict[str, Path]:
@@ -111,8 +137,7 @@ def restore(derived: Path, current: dict[str, str]) -> dict[str, str]:
     for key in ("revision", "architecture"):
         if receipt.get(key) != current[key]:
             raise ValueError(f"test products {key} does not match this job")
-    if xcode_major(receipt.get("xcode")) != xcode_major(current["xcode"]):
-        raise ValueError("test products xcode does not match this job")
+    check_xcode(receipt.get("xcode"), current["xcode"])
     replacements = [(receipt["derived"], str(derived.resolve()))]
     replacements += [(receipt[key], current[key]) for key in ("checkout", "developer")]
     outputs = {}
