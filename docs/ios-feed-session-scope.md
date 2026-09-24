@@ -182,6 +182,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 - [Full-text reader](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedFullTextView.swift), [retained content and paging](../Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamFullText.swift).
 - [Timeline, filtering, and swipe actions](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedView.swift).
 - [Row controls and reply states](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedRow.swift), [composer](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedReplyComposer.swift).
+- [Multi-question answer composition](../Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/AgentFeedQuestionAnswerComposer.swift), [pager tests](../Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/AgentFeedQuestionAnswerComposerTests.swift).
 - [Feed synchronization, routing, submission, and stop matching](../Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite+AgentFeed.swift).
 - [Item identity, reply eligibility, and triage semantics](../Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileAgentFeedItem.swift).
 - [Mac terminal submission](../Sources/TerminalController.swift), [active-provider submit-key selection](../Sources/TextBoxAgentDetection.swift).
@@ -193,6 +194,7 @@ These are outstanding parts of existing scope or limits that affect its acceptan
 
 | Date | Change |
 | --- | --- |
+| 2026-09-24 | Added Claude multi-question handling to the iOS Feed. Each AskUserQuestion round now keeps per-question drafts, presents one question per swipeable page with page indicators and explicit Next/Previous controls, and submits ordered human-readable answers only after every page is answered. The design follows Apple's [Page controls HIG](https://developer.apple.com/design/human-interface-guidelines/page-controls) and [Scroll views HIG](https://developer.apple.com/design/human-interface-guidelines/scroll-views). |
 | 2026-09-23 | Added notification-to-Feed projection, combined source revisions, durable Workstream mutation replay, durable reply state, and explicit `feed_event_id` reply identity. Started a fresh `feedsim` Mac build from `9bf90380b426`; the current iOS simulator rebuild is queued after two fleet simulator-phase failures, and the physical phone remains unreachable and queued. |
 | 2026-09-23 | Built F28–F31, verified inline expansion, shared controls, Feed search, and event context menus in hosted UI, and passed focused routing/search tests. Saved screenshot/video proof and updated the HTML walkthrough. Installed/authenticated Mac 6dd5a1ad6f4; signed and queued the matching phone update after the device became unreachable (V35–V39). |
 | 2026-09-23 | Completed authenticated Mac/iPhone delivery and persisted reconnect (V34). Added the source-backed HTML architecture walkthrough (F27), with durability/ownership/compatibility findings clearly separated from approved implementation scope. User added inline expansion, shared computer controls, active-tab search, and event context navigation (F28–F31). |

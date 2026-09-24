@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 /// Store-free action closures the Feed rows invoke. Rows never retain the
@@ -546,107 +547,323 @@ private struct AgentFeedExitPlanControls: View {
     }
 }
 
-/// Option chips (single-select answers immediately, multi-select accumulates
-/// behind Send) plus an "Other…" free-text lane, mirroring the Mac Feed
-/// panel's question semantics.
+/// Option cards for one or more questions. Multi-question rounds use a
+/// swipeable page at a time and submit one ordered, human-readable answer per
+/// page, mirroring Claude's desktop question flow.
 private struct AgentFeedQuestionControls: View {
     let item: MobileAgentFeedItem
     let isReplyPending: Bool
     let actions: AgentFeedActions
-    @State private var selectedOptionIDs: Set<String> = []
+    @State private var selectedOptionIDsByQuestion: [String: Set<String>] = [:]
+    @State private var customTextByQuestion: [String: String] = [:]
+    @State private var pageIndex = 0
+    @State private var editingCustomAnswerForQuestionID: String?
+    @FocusState private var focusedCustomAnswerQuestionID: String?
 
-    private var question: MobileAgentFeedQuestion? { item.questions.first }
-    private var isMultiSelect: Bool { question?.multiSelect ?? false }
+    private var questions: [MobileAgentFeedQuestion] {
+        if item.questions.isEmpty {
+            return [MobileAgentFeedQuestion(id: "q0", prompt: "")]
+        }
+        return item.questions
+    }
+
+    private var isPaged: Bool { questions.count > 1 }
+
+    private var canSubmitAll: Bool {
+        AgentFeedQuestionAnswerComposer.answers(
+            for: questions,
+            drafts: drafts
+        ) != nil
+    }
+
+    private var drafts: [String: AgentFeedQuestionAnswerDraft] {
+        Dictionary(uniqueKeysWithValues: questions.map { question in
+            (
+                question.id,
+                AgentFeedQuestionAnswerDraft(
+                    selectedOptionIDs: selectedOptionIDsByQuestion[question.id] ?? [],
+                    customText: customTextByQuestion[question.id] ?? ""
+                )
+            )
+        })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Poll-style stacked options; a pending question whose prompt
-            // failed to parse still gets the free-text lane, so no
-            // respondable row is ever a dead end.
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(question?.options ?? [], id: \.id) { option in
-                    optionChip(option)
+            if isPaged {
+                pagerHeader
+                TabView(selection: $pageIndex) {
+                    ForEach(Array(questions.enumerated()), id: \.element.id) { index, question in
+                        questionPage(question, index: index)
+                            .tag(index)
+                    }
                 }
-                otherChip
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(minHeight: 212)
+                .animation(.snappy, value: pageIndex)
+                pagerFooter
+            } else if let question = questions.first {
+                questionPage(question, index: 0)
+                submitButton(title: String(
+                    localized: "mobile.agentFeed.question.send",
+                    defaultValue: "Send",
+                    bundle: .module
+                ))
             }
-            if isMultiSelect, !selectedOptionIDs.isEmpty {
-                Button {
-                    let ordered = (question?.options ?? [])
-                        .map(\.id)
-                        .filter { selectedOptionIDs.contains($0) }
-                    actions.questionReply(item, ordered)
-                } label: {
-                    Text(String(
-                        localized: "mobile.agentFeed.question.send",
-                        defaultValue: "Send",
+        }
+        .disabled(isReplyPending)
+        .onAppear {
+            pageIndex = min(pageIndex, max(questions.count - 1, 0))
+        }
+        .onChange(of: item.id) { _, _ in
+            pageIndex = 0
+            selectedOptionIDsByQuestion = [:]
+            customTextByQuestion = [:]
+            editingCustomAnswerForQuestionID = nil
+        }
+    }
+
+    private var pagerHeader: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(String(
+                    format: L10n.string(
+                        "mobile.agentFeed.question.progress",
+                        defaultValue: "Question %lld of %lld",
                         bundle: .module
+                    ),
+                    Int64(pageIndex + 1),
+                    Int64(questions.count)
+                ))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Text(String(
+                    format: L10n.string(
+                        "mobile.agentFeed.question.answered",
+                        defaultValue: "%lld answered",
+                        bundle: .module
+                    ),
+                    Int64(answeredQuestionCount)
+                ))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            }
+            HStack(spacing: 5) {
+                ForEach(questions.indices, id: \.self) { index in
+                    Button {
+                        withAnimation(.snappy) { pageIndex = index }
+                    } label: {
+                        Capsule()
+                            .fill(index == pageIndex ? Color.accentColor : Color.secondary.opacity(0.22))
+                            .frame(maxWidth: index == pageIndex ? 26 : 8, minHeight: 6, maxHeight: 6)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(
+                        format: L10n.string(
+                            "mobile.agentFeed.question.pageLabel",
+                            defaultValue: "Question %lld",
+                            bundle: .module
+                        ),
+                        Int64(index + 1)
                     ))
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var pagerFooter: some View {
+        HStack(spacing: 8) {
+            if pageIndex > 0 {
+                Button {
+                    withAnimation(.snappy) { pageIndex -= 1 }
+                } label: {
+                    Label(String(
+                        localized: "mobile.agentFeed.question.previous",
+                        defaultValue: "Previous",
+                        bundle: .module
+                    ), systemImage: "chevron.left")
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+            if pageIndex < questions.count - 1 {
+                Button {
+                    withAnimation(.snappy) { pageIndex += 1 }
+                } label: {
+                    Label(String(
+                        localized: "mobile.agentFeed.question.next",
+                        defaultValue: "Next",
+                        bundle: .module
+                    ), systemImage: "chevron.right")
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .disabled(!hasAnswer(for: questions[pageIndex]))
+            } else {
+                submitButton(title: String(
+                    localized: "mobile.agentFeed.question.submitAll",
+                    defaultValue: "Submit all answers",
+                    bundle: .module
+                ))
             }
         }
     }
 
-    private func optionChip(_ option: MobileAgentFeedQuestionOption) -> some View {
-        let isSelected = selectedOptionIDs.contains(option.id)
-        return Button {
-            if isMultiSelect {
-                if isSelected {
-                    selectedOptionIDs.remove(option.id)
-                } else {
-                    selectedOptionIDs.insert(option.id)
-                }
-            } else {
-                actions.questionReply(item, [option.id])
+    private var answeredQuestionCount: Int {
+        questions.reduce(into: 0) { count, question in
+            if hasAnswer(for: question) { count += 1 }
+        }
+    }
+
+    @ViewBuilder
+    private func questionPage(_ question: MobileAgentFeedQuestion, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if let header = question.header, !header.isEmpty {
+                Text(header)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(option.label)
+            if !question.prompt.isEmpty {
+                Text(question.prompt)
                     .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
-                if let description = option.description {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if question.multiSelect {
+                Label(String(
+                    localized: "mobile.agentFeed.question.multiSelect",
+                    defaultValue: "Select all that apply",
+                    bundle: .module
+                ), systemImage: "checklist")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.orange)
+            }
+            ForEach(question.options, id: \.id) { option in
+                optionChip(option, question: question)
+            }
+            customAnswerControl(for: question)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 1)
+        .padding(.vertical, 2)
+        .accessibilityIdentifier("MobileAgentFeedQuestionPage-\(index + 1)")
+    }
+
+    private func submitButton(title: String) -> some View {
+        Button {
+            guard let answers = AgentFeedQuestionAnswerComposer.answers(for: questions, drafts: drafts) else { return }
+            actions.questionReply(item, answers)
+        } label: {
+            Text(title)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .disabled(!canSubmitAll || isReplyPending)
+        .accessibilityIdentifier("MobileAgentFeedQuestionSubmit")
+    }
+
+    private func hasAnswer(for question: MobileAgentFeedQuestion) -> Bool {
+        (drafts[question.id] ?? AgentFeedQuestionAnswerDraft()).hasAnswer
+    }
+
+    private func optionChip(
+        _ option: MobileAgentFeedQuestionOption,
+        question: MobileAgentFeedQuestion
+    ) -> some View {
+        let isSelected = selectedOptionIDsByQuestion[question.id]?.contains(option.id) == true
+        return Button {
+            var selected = selectedOptionIDsByQuestion[question.id] ?? []
+            if question.multiSelect {
+                if isSelected { selected.remove(option.id) } else { selected.insert(option.id) }
+            } else {
+                selected = [option.id]
+            }
+            selectedOptionIDsByQuestion[question.id] = selected
+            customTextByQuestion[question.id] = ""
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(option.label)
+                        .font(.subheadline.weight(.medium))
+                        .multilineTextAlignment(.leading)
+                    if let description = option.description, !description.isEmpty {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
+                Spacer(minLength: 4)
+                Image(systemName: question.multiSelect
+                    ? (isSelected ? "checkmark.square.fill" : "square")
+                    : (isSelected ? "checkmark.circle.fill" : "circle"))
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.55))
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: 10).fill(
-                    isSelected
-                        ? Color.accentColor.opacity(0.22)
-                        : Color.secondary.opacity(0.12)
+                    isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.12)
                 )
             )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var otherChip: some View {
-        Button {
-            actions.beginCompose(item, .questionOther)
-        } label: {
-            Text(String(
-                localized: "mobile.agentFeed.question.other",
-                defaultValue: "Other…",
-                bundle: .module
-            ))
-            .font(.subheadline.weight(.medium))
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
+            .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .strokeBorder(Color.secondary.opacity(0.35))
+                    .stroke(isSelected ? Color.accentColor.opacity(0.55) : .clear, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("MobileAgentFeedQuestionOption-\(question.id)-\(option.id)")
+    }
+
+    @ViewBuilder
+    private func customAnswerControl(for question: MobileAgentFeedQuestion) -> some View {
+        let isEditing = editingCustomAnswerForQuestionID == question.id
+        if isEditing || question.options.isEmpty {
+            TextField(
+                String(
+                    localized: "mobile.agentFeed.question.otherPlaceholder",
+                    defaultValue: "Your answer",
+                    bundle: .module
+                ),
+                text: Binding(
+                    get: { customTextByQuestion[question.id] ?? "" },
+                    set: {
+                        customTextByQuestion[question.id] = $0
+                        selectedOptionIDsByQuestion[question.id] = []
+                    }
+                ),
+                axis: .vertical
+            )
+            .lineLimit(2...5)
+            .focused($focusedCustomAnswerQuestionID, equals: question.id)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.28), lineWidth: 1))
+            .onAppear {
+                if isEditing { focusedCustomAnswerQuestionID = question.id }
+            }
+        } else {
+            Button {
+                editingCustomAnswerForQuestionID = question.id
+                focusedCustomAnswerQuestionID = question.id
+            } label: {
+                Label(String(
+                    localized: "mobile.agentFeed.question.other",
+                    defaultValue: "Other…",
+                    bundle: .module
+                ), systemImage: "pencil")
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.35)))
+            }
+            .buttonStyle(.plain)
+        }
     }
 }
 
