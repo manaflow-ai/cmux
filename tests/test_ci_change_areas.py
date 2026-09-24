@@ -591,6 +591,7 @@ def test_operational_ci_helpers_skip_product_areas() -> None:
         "scripts/ci/triage-radar.py",
         "scripts/ci/notify-indexnow.py",
         "scripts/ci/r2_cache_census.py",
+        "scripts/ci/r2_cache_prune.py",
         "scripts/ci/verify-r2-canary.py",
         "scripts/ci/build_graph_health.py",
         "scripts/ci/validate_test_execution_registry.py",
