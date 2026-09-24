@@ -1273,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux yapılandırması. Genel cmux.json; uygulama ayarlarını, kısayolları, eylemleri, özel komutları, bildirim hook'larını ve çalışma alanı düzenlerini destekler. Projeye özel .cmux/cmux.json veya cmux.json; eylemleri, komutları, bildirim hook'larını, UI eylem bağlantılarını, Agent Chat geçersiz kılmalarını, vault ajanlarını, çalışma alanı grubu geçersiz kılmalarını ve çalışma alanı başlatma ile düğme yapılandırmasını destekler.",
         "rightSidebar": "cmux.json içinde korunan eski ve uzantılara ait sağ kenar çubuğu yapılandırması.",
+        "packs": {
+          "description": "Bu yapılandırmadan önce yüklenen yerel cmux paket dosyaları veya dizinleri. Dizinler cmux.pack.json olarak çözümlenir. Bir yol dizesi veya path alanı olan bir nesne kullanın.",
+          "path": "Mutlak değilse bu yapılandırma dosyasına göre belirlenen yerel dosya veya dizin yolu."
+        },
         "paneBorderColor": "Bölünmüş çalışma alanlarında cmux bölme ayırıcı rengini geçersiz kılar. Bu, Ghostty iç bölmelerini değil cmux bölme sınırlarını etkiler.",
         "activePaneBorderColor": "Bölünmüş çalışma alanlarında odaktaki cmux bölmesinin etrafına çizilen isteğe bağlı kenarlık rengi.",
         "automation": {

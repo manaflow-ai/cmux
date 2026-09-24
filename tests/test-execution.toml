@@ -204,6 +204,10 @@ path = "tests/test_issue_9356_bash_shim_noclobber.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_issue_10926_watcher_pid_reuse_guard.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_issue_13343_claude_integration_toggle.py"
 lane = "macos-cli-no-socket"
 
@@ -324,10 +328,6 @@ path = "tests/test_ci_replay_app_host_verdict.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_app_host_guard_structure.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_app_host_home_isolation.py"
 lane = "linux-guard"
 
@@ -424,10 +424,6 @@ path = "tests/test_ci_pull_request_caches_are_read_only.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_quality_guard_structure.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_queue_janitor.py"
 lane = "linux-guard"
 
@@ -437,10 +433,6 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_required_checks_drift.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_release_guard_structure.py"
 lane = "linux-guard"
 
 [[test]]
@@ -734,10 +726,6 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_workflow_path_filter_parity.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_ubuntu_apt_https.py"
-lane = "legacy"
 
 [[test]]
 path = "tests/test_ci_workflow_guards_are_wired.py"

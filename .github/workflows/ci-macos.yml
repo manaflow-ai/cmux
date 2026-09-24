@@ -42,6 +42,16 @@ on:
         required: false
         default: ""
         type: string
+      # "true" when compile admission runs the unit_selectors suites itself,
+      # on the runner that just built the product, instead of handing them to
+      # a separate `app-host unit tests` worker. choose_ci_suite.py sets it
+      # only when no strict step owns a selected suite and the diff leaves the
+      # consumer path alone, which the separate worker still has to prove.
+      # Empty (a caller that predates it) keeps the separate worker.
+      unit_in_admission:
+        required: false
+        default: ""
+        type: string
       product_artifacts:
         required: false
         default: "layered"
@@ -88,12 +98,18 @@ jobs:
     # repeated six times.
     if: ${{ inputs.macos == 'true' && inputs.compile_admitted != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
-    timeout-minutes: 75
+    # A changed-suites run adds its tests after the compile: the same
+    # 30-minute batch ceiling the separate worker had.
+    timeout-minutes: ${{ inputs.unit_in_admission == 'true' && 105 || 75 }}
     permissions:
       contents: read
       actions: read
       pull-requests: read
     outputs:
+      # The outcome of the changed suites this job ran after compiling, so
+      # macOS status can tell a test failure from a compile failure. Empty
+      # when the job ran none.
+      changed_suites: ${{ steps.run-changed-suites.outcome }}
       artifact_id: ${{ steps.upload-products.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-products.outputs.artifact-digest }}
       layer_index_artifact_id: ${{ steps.upload-layer-index.outputs.artifact-id }}
@@ -123,6 +139,21 @@ jobs:
       # here at the canonical root matches on any pool with the same Xcode.
       # The macOS runner guard still requires it to track runs-on.
       CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+      # What the changed-suites steps at the end of this job read, with the
+      # values `app-host unit tests` gives its changed-suites worker, shard 8.
+      # The compile reads none of them: it runs plain xcodebuild and bakes the
+      # isolation condition in itself, and SWIFT_BACKTRACE only changes how a
+      # crashing Swift process reports. product_input_identity.py keeps them
+      # out of the product recipe.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: "8"
+      CMUX_APP_HOST_UNIT_SELECTORS: ${{ inputs.unit_selectors }}
+      CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
+      CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
+      CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "1200"
+      CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET: "2"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+      CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
@@ -495,6 +526,32 @@ jobs:
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
+      # The key names only the Xcode version and the canonical paths, so it is
+      # known before the source tree is copied there.
+      - name: Compute test compilation cache key
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
+
+      # The seed download (~40 s) needs only that key, so it runs while
+      # packages resolve instead of after them. "Adopt the nightly DerivedData
+      # seed" below reuses the seed this step picked and waits for it; if this
+      # step fails, adopt picks and downloads itself.
+      - name: Start the DerivedData seed download
+        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true' && github.event_name == 'pull_request' && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        env:
+          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+          # ci.yml reads it off the checked-out merge commit and verifies that
+          # commit is GITHUB_SHA; base.sha is only the fallback.
+          MERGED_ONTO: ${{ inputs.source_parent1 || github.event.pull_request.base.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py start \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX" "$MERGED_ONTO"
+
       # Nothing here reads the workspace package cache after resolve, so it
       # moves into the canonical root instead of a second copy, and an exact
       # cache hit resolves without fetching every package remote. See
@@ -514,13 +571,6 @@ jobs:
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
-
-      - name: Compute test compilation cache key
-        if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
-        id: compilation-cache-key
-        run: |
-          set -euo pipefail
-          echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
 
       # No test compilation cache restore. Swift keys each compile job on its
       # whole module, so `cmux` and cmuxUITests missed on every file even with
@@ -990,12 +1040,118 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      - name: Seed node-local compiled product cache
+        if: steps.publish-products.outputs.publish == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ steps.upload-products.outputs.artifact-id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ steps.upload-products.outputs.artifact-digest }}
+          EXPECTED_SHA256: ${{ steps.package-products.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ steps.product-key.outputs.key }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ github.sha }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ github.run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: python3 scripts/ci/node_product_cache.py seed "$RUNNER_TEMP/app-host-products.tar.gz"
+
+      # A changed-suites run (inputs.unit_in_admission) tests here, on the
+      # runner that just built the product, rather than queueing a separate
+      # `app-host unit tests` worker to download it again. Everything above has
+      # already packaged and uploaded the product, so a test failure below
+      # still leaves it for reruns (app-host-test-rerun.yml) and reuse. These
+      # steps run the same scripts, in the same order, as that worker's
+      # changed-suites run; only the product's source differs. The restore
+      # unpacks the uploaded archive into a DerivedData of its own, so the
+      # tests run the exact bytes the other consumers download.
+      - name: Prepare isolated DerivedData
+        id: test-derived-data
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: |
+          set -euo pipefail
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-derived-data-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${CMUX_APP_HOST_SHARD}"
+          rm -rf "$DERIVED_DATA_PATH"
+          mkdir -p "$DERIVED_DATA_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Restore compiled app-host test product
+        id: restore-test-products
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        env:
+          ARTIFACT_ID: ${{ steps.upload-products.outputs.artifact-id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ steps.upload-products.outputs.artifact-digest }}
+          EXPECTED_SHA256: ${{ steps.package-products.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ steps.product-key.outputs.key }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ github.sha }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ github.run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CMUX_PRODUCT_FROM_PRODUCER: "true"
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/app-host-products"
+          ln -f "$RUNNER_TEMP/app-host-products.tar.gz" "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
+          scripts/ci/restore-app-host-test-product.sh
+
+      - name: Prepare isolated app-host home
+        id: prepare-app-host-home
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: scripts/ci/prepare-app-host-home.sh
+
+      - name: Enumerate built app-host tests
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: scripts/ci/enumerate-app-host-tests.sh
+
+      - name: Upload built app-host test inventory
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-test-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.json
+            ${{ runner.temp }}/cmux-app-host-test-inventory.json
+            ${{ runner.temp }}/cmux-app-host-test-enumeration.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enable XCTest automation mode
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: scripts/ci/enable-xctest-automation-mode.sh
+
+      - name: Run changed app-host suites
+        id: run-changed-suites
+        if: ${{ inputs.unit_in_admission == 'true' }}
+        run: scripts/ci/run-app-host-unit-batches.sh
+
+      - name: Report a changed-suites failure apart from the compile
+        if: ${{ failure() && steps.run-changed-suites.outcome == 'failure' }}
+        run: |
+          echo "::error title=Changed suites failed::The app-host product compiled and was uploaded; the changed suites failed in 'Run changed app-host suites'. app-host-test-rerun.yml can rerun them against this run's product."
+
+      - name: Collect app-host failure diagnostics
+        id: collect-app-host-diagnostics
+        if: ${{ (failure() || cancelled()) && steps.test-derived-data.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: scripts/ci/collect-app-host-diagnostics.sh
+
+      - name: Upload app-host failure diagnostics
+        id: upload-app-host-diagnostics
+        if: ${{ (failure() || cancelled()) && steps.test-derived-data.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Report evidence collection outcomes
         if: ${{ always() }}
         env:
           EVIDENCE_OUTCOMES: >-
             upload-admission-metrics=${{ steps.upload-admission-metrics.outcome }}
             upload-build-metrics=${{ steps.upload-build-metrics.outcome }}
+            collect-app-host-diagnostics=${{ steps.collect-app-host-diagnostics.outcome }}
+            upload-app-host-diagnostics=${{ steps.upload-app-host-diagnostics.outcome }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -1029,19 +1185,25 @@ jobs:
                   )
           PY
 
-      - name: Seed node-local compiled product cache
-        if: steps.publish-products.outputs.publish == 'true'
-        continue-on-error: true
+      - name: Clean up isolated app-host home
+        if: ${{ always() && inputs.unit_in_admission == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_ID: ${{ steps.upload-products.outputs.artifact-id }}
-          ARTIFACT_PROVIDER_DIGEST: ${{ steps.upload-products.outputs.artifact-digest }}
-          EXPECTED_SHA256: ${{ steps.package-products.outputs.sha256 }}
-          CMUX_PRODUCT_CONTRACT: ${{ steps.product-key.outputs.key }}
-          CMUX_PRODUCT_SOURCE_REVISION: ${{ github.sha }}
-          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ github.run_id }}
-          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: python3 scripts/ci/node_product_cache.py seed "$RUNNER_TEMP/app-host-products.tar.gz"
+          CMUX_APP_HOST_PREPARATION_OUTCOME: ${{ steps.prepare-app-host-home.outcome }}
+        run: |
+          # The same contract as the cleanup in `app-host unit tests`: once
+          # setup starts, even partial or cancelled preparation needs cleanup.
+          case "$CMUX_APP_HOST_PREPARATION_OUTCOME" in
+            skipped|"")
+              echo "App-host preparation did not start; no isolated home to clean."
+              ;;
+            success|failure|cancelled)
+              scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
+              ;;
+            *)
+              echo "::error::Unexpected app-host preparation outcome: $CMUX_APP_HOST_PREPARATION_OUTCOME"
+              exit 1
+              ;;
+          esac
 
   app-host-unit-tests:
     permissions:
@@ -1055,7 +1217,9 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') }}
+    # A changed-suites run that compile admission ran itself
+    # (inputs.unit_in_admission) needs no worker here.
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') && inputs.unit_in_admission != 'true' }}
     name: ${{ inputs.unit_selectors != '' && 'app-host unit tests (changed suites)' || format('app-host unit tests ({0}/7)', matrix.shard) }}
     # Every consumer runs on compile admission's pool and pins its Xcode,
     # both read from the admission's outputs. The shards run test-without-building
@@ -1352,26 +1516,7 @@ jobs:
         run: scripts/ci/prepare-app-host-home.sh
 
       - name: Enumerate built app-host tests
-        run: |
-          set -euo pipefail
-          enumeration_json="$RUNNER_TEMP/cmux-app-host-test-enumeration.json"
-          inventory_json="$RUNNER_TEMP/cmux-app-host-test-inventory.json"
-          enumeration_log="$RUNNER_TEMP/cmux-app-host-test-enumeration.log"
-          rm -f -- "$enumeration_json" "$inventory_json" "$enumeration_log"
-          bash scripts/ci/run-and-capture.sh "$enumeration_log" \
-            scripts/ci/run-in-console-session.sh \
-            xcodebuild test-without-building \
-            -enumerate-tests \
-            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-            -destination "platform=macOS" \
-            -test-enumeration-style hierarchical \
-            -test-enumeration-format json \
-            -test-enumeration-output-path "$enumeration_json"
-          test -s "$enumeration_json"
-          python3 scripts/ci/app_host_result_accounting.py inventory \
-            "$enumeration_json" --output "$inventory_json"
-          test -s "$inventory_json"
-          echo "CMUX_APP_HOST_TEST_INVENTORY=$inventory_json" >> "$GITHUB_ENV"
+        run: scripts/ci/enumerate-app-host-tests.sh
 
       - name: Upload built app-host test inventory
         if: ${{ matrix.shard == 1 || inputs.unit_selectors != '' }}
@@ -1386,17 +1531,7 @@ jobs:
           retention-days: 14
 
       - name: Enable XCTest automation mode
-        run: |
-          set -euo pipefail
-          if ! command -v automationmodetool >/dev/null 2>&1; then
-            echo "::warning::automationmodetool is unavailable; XCTest will use its default automation-mode setup"
-            exit 0
-          fi
-          if sudo -n true 2>/dev/null; then
-            sudo -n automationmodetool enable-automationmode-without-authentication
-          else
-            echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
-          fi
+        run: scripts/ci/enable-xctest-automation-mode.sh
 
       - name: Run My Devices regressions
         if: ${{ (matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run My Devices regressions|')) }}
@@ -1833,253 +1968,7 @@ jobs:
 
       - name: Run unit tests
         if: ${{ matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
-        run: |
-          set -euo pipefail
-          PHYSICAL_SHARD="${{ matrix.shard }}"
-          PHYSICAL_SHARD_TOTAL=6
-          LOGICAL_BATCHES_PER_WORKER=2
-          LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
-          LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
-          if [ -n "${CMUX_APP_HOST_UNIT_SELECTORS:-}" ]; then
-            # A changed-suites run: one batch holding exactly those suites.
-            LOGICAL_SHARD_TOTAL=1
-            LOGICAL_SHARDS=(1)
-          fi
-
-          # Each worker runs two balanced batches sequentially. Every invocation
-          # writes to a regular file, and this script mirrors that file into the
-          # Actions log itself. Detached test descendants therefore cannot retain
-          # the CI capture pipe after xcodebuild exits.
-          #
-          # Mirroring in-process rather than from a background `tail -f` is what
-          # makes the last write observable. A tail had to be given some margin
-          # to deliver it before being killed, and a loaded runner could miss
-          # that margin and drop the final lines -- the ones saying why a batch
-          # died. Tracking the byte offset here has no margin to miss.
-          stream_offset=0
-          emit_batch_output() {
-            local file="$1" size
-            size="$(wc -c <"$file" 2>/dev/null || echo 0)"
-            size="${size//[[:space:]]/}"
-            if [ "${size:-0}" -gt "$stream_offset" ]; then
-              # Read exactly the byte range included in the size snapshot.
-              # Reading to EOF here would race a concurrent writer: bytes
-              # appended after wc(1) could be emitted now while stream_offset
-              # advances only to the old size, duplicating them next poll.
-              python3 -c '
-          import sys
-          path, start, end = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-          with open(path, "rb") as stream:
-              stream.seek(start)
-              sys.stdout.buffer.write(stream.read(end - start))
-          ' "$file" "$stream_offset" "$size"
-              stream_offset="$size"
-            fi
-          }
-          run_unit_test_batch() {
-            local logical_shard="$1"
-            local execution_attempt="$2"
-            local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
-            local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}-run-${execution_attempt}.txt"
-            local batch_tag="unit-physical-${PHYSICAL_SHARD}-logical-${logical_shard}-run-${execution_attempt}"
-            local result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
-            local reserve_args=()
-            local reservation
-            for reservation in ${CMUX_APP_HOST_RESERVED_WALL_SECONDS:-}; do
-              reserve_args+=(--reserve "$reservation")
-            done
-            if [ -n "${CMUX_APP_HOST_UNIT_SELECTORS:-}" ]; then
-              # Suites a strict step owns ran in that step, not this batch.
-              python3 - "$shard_args" <<'PY'
-          import os
-          import sys
-          sys.path.insert(0, "scripts/ci")
-          from cmux_unit_test_shard import FOCUSED_GATE_SELECTORS
-          with open(sys.argv[1], "w", encoding="utf-8") as handle:
-              for selector in os.environ["CMUX_APP_HOST_UNIT_SELECTORS"].split():
-                  if selector not in FOCUSED_GATE_SELECTORS:
-                      handle.write(f"-only-testing:{selector}\n")
-          PY
-              if [ ! -s "$shard_args" ]; then
-                echo "Every changed suite ran in its strict step; no shared batch."
-                return 0
-              fi
-            else
-              python3 scripts/ci/cmux_unit_test_shard.py \
-                --shard-index "$logical_shard" \
-                --shard-total "$LOGICAL_SHARD_TOTAL" \
-                --physical-shard-total "$PHYSICAL_SHARD_TOTAL" \
-                ${reserve_args[@]+"${reserve_args[@]}"} \
-                --output "$shard_args" || {
-                  local shard_status=$?
-                  echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
-                  return "$shard_status"
-                }
-            fi
-            if [ ! -r "$shard_args" ]; then
-              echo "Missing selector file for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
-              return 1
-            fi
-            local only_testing_args=()
-            while IFS= read -r arg; do
-              [ -n "$arg" ] && only_testing_args+=("$arg")
-            done < "$shard_args"
-            if [ "${#only_testing_args[@]}" -eq 0 ]; then
-              echo "No selectors generated for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
-              return 1
-            fi
-
-            # CmuxBundledBinPathIntegrationTests includes fish-specific coverage
-            # that is enabled only when fish exists. Install it only on the
-            # worker/batch that actually owns that selector.
-            if grep -Fq 'CmuxBundledBinPathIntegrationTests' "$shard_args"; then
-              if ! command -v fish >/dev/null 2>&1; then
-                HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
-              fi
-              command -v fish >/dev/null 2>&1 || {
-                echo "fish is required for CmuxBundledBinPathIntegrationTests" >&2
-                return 1
-              }
-            fi
-
-            echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
-            : >"$batch_output"
-            stream_offset=0
-            CMUX_TAG="$batch_tag" \
-              scripts/ci/run-in-console-session.sh \
-              scripts/ci/run-app-host-xcodebuild.sh \
-              -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
-              -destination "platform=macOS" \
-              "${only_testing_args[@]}" \
-              -test-timeouts-enabled YES \
-              -default-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
-              -maximum-test-execution-time-allowance "${CMUX_UNIT_TEST_CASE_TIMEOUT_SECONDS:-300}" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              test-without-building >"$batch_output" 2>&1 &
-            local xcodebuild_pid=$!
-
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-            local deadline=$((SECONDS + timeout_seconds))
-            local timed_out=0
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                local unfinished="$RUNNER_TEMP/cmux-unit-unfinished-${logical_shard}-run-${execution_attempt}.txt"
-                grep -E "Test Case .* started|[◇◆] Test .* started\." "$batch_output" \
-                  | tail -40 >"$unfinished" || true
-                {
-                  echo "xcodebuild unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} timeout after ${timeout_seconds}s; terminating"
-                  echo "Last observed test starts:"
-                  cat "$unfinished" 2>/dev/null || true
-                  # shellcheck disable=SC2009 # include parent/group/elapsed diagnostics
-                  ps -axo pid,ppid,pgid,etime,command 2>/dev/null \
-                    | grep -E 'xcodebuild|xctest|run-app-host-xcodebuild|app_host_test_lock|Contents/MacOS/cmux' \
-                    | grep -v grep || true
-                } >>"$batch_output" 2>&1
-                for hang_pid in $(pgrep -f 'Contents/MacOS/cmux DEV( |$)' 2>/dev/null | head -2); do
-                  hang_sample="$RUNNER_TEMP/app-host-hang-sample-${logical_shard}-run-${execution_attempt}-${hang_pid}.txt"
-                  if sample "$hang_pid" 3 -mayDie -file "$hang_sample" >/dev/null 2>&1; then
-                    {
-                      echo "app-host hang sample: $hang_sample"
-                      awk '/^Call graph:/{p=1} p' "$hang_sample" | head -900
-                    } >>"$batch_output" 2>&1
-                  fi
-                done
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                pkill -TERM -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
-                sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                pkill -KILL -f "$CMUX_DERIVED_DATA_PATH" 2>/dev/null || true
-                timed_out=1
-                break
-              fi
-              emit_batch_output "$batch_output"
-              sleep 5
-            done
-
-            local batch_status
-            set +e
-            wait "$xcodebuild_pid"
-            batch_status=$?
-            set -e
-            if [ "$timed_out" -eq 1 ]; then
-              batch_status=124
-            fi
-
-            emit_batch_output "$batch_output"
-
-            shopt -s nullglob
-            local typed_results=("$result_bundle_root"/cmux-app-host-xcodebuild-"$batch_tag"-pid-*.tests.json)
-            shopt -u nullglob
-            if [ "${#typed_results[@]}" -eq 0 ]; then
-              echo "No typed xcresult test JSON found for $batch_tag" >&2
-              if [ "$batch_status" -ne 0 ]; then
-                return "$batch_status"
-              fi
-              return 1
-            fi
-
-            local accounting_status
-            set +e
-            python3 scripts/ci/app_host_result_accounting.py check-run \
-              --inventory "$CMUX_APP_HOST_TEST_INVENTORY" \
-              --selectors "$shard_args" \
-              --known scripts/ci/app-host-known-failures.json \
-              --log "$batch_output" \
-              --xcode-status "$batch_status" \
-              --tests-json "${typed_results[@]}"
-            accounting_status=$?
-            set -e
-            if [ "$accounting_status" -eq 0 ]; then
-              return 0
-            fi
-            if [ "$batch_status" -ne 0 ]; then
-              return "$batch_status"
-            fi
-            return "$accounting_status"
-          }
-
-          run_unit_tests() {
-            local execution_attempt="$1"
-            local logical_shard combined_status=0
-            for logical_shard in "${LOGICAL_SHARDS[@]}"; do
-              run_unit_test_batch "$logical_shard" "$execution_attempt" || {
-                local batch_status=$?
-                if [ "$combined_status" -eq 0 ]; then
-                  combined_status="$batch_status"
-                fi
-              }
-            done
-            return "$combined_status"
-          }
-
-          TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
-          collect_unit_test_output() {
-            : >"$TEST_OUTPUT"
-            local output_path
-            shopt -s nullglob
-            # The unquoted expansion is the glob this line exists to perform.
-            # shellcheck disable=SC2206
-            local output_paths=("$RUNNER_TEMP"/cmux-unit-output-*-of-${LOGICAL_SHARD_TOTAL}-run-*.txt)
-            shopt -u nullglob
-            for output_path in "${output_paths[@]}"; do
-              {
-                echo "===== $(basename "$output_path") ====="
-                cat "$output_path"
-                echo
-              } >>"$TEST_OUTPUT"
-            done
-          }
-
-          set +e
-          run_unit_tests 1
-          EXIT_CODE=$?
-          set -e
-          collect_unit_test_output
-
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "App-host unit-test batch failed with status ${EXIT_CODE}"
-            exit "$EXIT_CODE"
-          fi
+        run: scripts/ci/run-app-host-unit-batches.sh
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
@@ -2215,75 +2104,7 @@ jobs:
         if: ${{ failure() || cancelled() }}
         continue-on-error: true
         shell: bash
-        run: |
-          set -u
-          diagnostics="$RUNNER_TEMP/cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}"
-          rm -rf -- "$diagnostics"
-          mkdir -p "$diagnostics/captures"
-
-          {
-            echo "run_id=${{ github.run_id }}"
-            echo "run_attempt=${{ github.run_attempt }}"
-            echo "sha=${{ github.sha }}"
-            echo "physical_shard=${{ matrix.shard }}"
-            echo "derived_data=${CMUX_DERIVED_DATA_PATH:-}"
-            echo "result_bundle_root=${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
-          } >"$diagnostics/manifest.txt"
-
-          shopt -s nullglob
-          capture_files=(
-            "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.log
-            "$RUNNER_TEMP"/cmux-app-host-xcodebuild-*.meta
-            "$RUNNER_TEMP"/cmux-unit-output-*.txt
-            "$RUNNER_TEMP"/cmux-unit-unfinished-*.txt
-            "$RUNNER_TEMP"/cmux-unit-shard-*.args
-            "$RUNNER_TEMP"/app-host-hang-sample-*.txt
-            "$RUNNER_TEMP"/cmux-remote-tmux-mirror-*.txt
-            "$RUNNER_TEMP"/cmux-main-window-zoom-placement.txt
-            "$RUNNER_TEMP"/cmux-global-search-shortcuts.txt
-            "$RUNNER_TEMP"/cmux-cloud-ordering-*.txt
-            "$RUNNER_TEMP"/cmux-notification-*.txt
-          )
-          if [ "${#capture_files[@]}" -gt 0 ]; then
-            cp "${capture_files[@]}" "$diagnostics/captures/" || true
-          fi
-
-          result_bundle_root="${CMUX_APP_HOST_RESULT_BUNDLE_ROOT:-${RUNNER_TEMP:-/tmp}/cmux-app-host-xcresults}"
-          if [ -d "$result_bundle_root" ]; then
-            cp -R "$result_bundle_root" "$diagnostics/xcresults" || true
-          fi
-
-          # Preserve reports from the isolated XCTest HOME before the always-
-          # running cleanup removes that run scope.
-          if [ -n "${CMUX_APP_HOST_HOME:-}" ]; then
-            ci_script_dir="${GITHUB_WORKSPACE:-$PWD}/scripts/ci"
-            # shellcheck source=scripts/ci/app-host-isolation.sh
-            source "$ci_script_dir/app-host-isolation.sh"
-            if cmux_validate_published_app_host_identity_values; then
-              for crash_relative in ".local/state/cmux/crash" "Library/Logs/DiagnosticReports"; do
-                crash_source="$CMUX_RESOLVED_APP_HOST_HOME/$crash_relative"
-                case "$crash_relative" in
-                  .local/*) crash_destination="$diagnostics/ghostty-crash-reports" ;;
-                  *) crash_destination="$diagnostics/macos-diagnostic-reports" ;;
-                esac
-                if [ -d "$crash_source" ] \
-                  || sudo -n test -d "$crash_source" 2>/dev/null; then
-                  rm -rf -- "$crash_destination"
-                  if cp -R "$crash_source" "$crash_destination" 2>/dev/null; then
-                    :
-                  elif sudo -n true 2>/dev/null; then
-                    if sudo -n cp -R "$crash_source" "$crash_destination"; then
-                      sudo -n chown -R "$(id -u):$(id -g)" "$crash_destination" || true
-                    fi
-                  fi
-                fi
-              done
-            else
-              echo "::warning::app-host identity validation failed; crash reports were not collected" >&2
-            fi
-          fi
-
-          find "$diagnostics" -type f -print | sort || true
+        run: scripts/ci/collect-app-host-diagnostics.sh
 
       - name: Upload app-host failure diagnostics
         id: upload-app-host-diagnostics
@@ -2291,8 +2112,8 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ matrix.shard }}-run-${{ github.run_attempt }}
+          name: cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cmux-app-host-diagnostics-shard-${{ env.CMUX_APP_HOST_SHARD }}-run-${{ github.run_attempt }}
           if-no-files-found: warn
           retention-days: 7
 
@@ -3720,9 +3541,12 @@ jobs:
           # fail rather than read as a job nobody routed. Empty or missing
           # means a caller that predates the input.
           unit_suite = inputs.get("unit_suite", "") == "true"
+          # A changed-suites run compile admission runs itself replaces the
+          # separate worker, so admission's success is what proves the tests.
+          in_admission = inputs.get("unit_in_admission", "") == "true"
           required = {
-              "macos-compile-admission": macos and inputs["compile_admitted"] != "true",
-              "app-host-unit-tests": macos and (full_suite or unit_suite),
+              "macos-compile-admission": macos and (inputs["compile_admitted"] != "true" or in_admission),
+              "app-host-unit-tests": macos and (full_suite or unit_suite) and not in_admission,
               "swift-package-tests": (macos and full_suite) or swift_packages,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
@@ -3737,7 +3561,15 @@ jobs:
                   bad[job] = result
           if bad:
               for job, result in bad.items():
-                  print(f"{job}: {result}", file=sys.stderr)
+                  detail = ""
+                  if job == "macos-compile-admission":
+                      # Only set when admission ran the changed suites.
+                      suites = needs[job].get("outputs", {}).get("changed_suites", "")
+                      if suites == "failure":
+                          detail = " (the product compiled and uploaded; the changed suites failed)"
+                      elif suites in {"", "skipped"} and in_admission:
+                          detail = " (before the changed suites ran)"
+                  print(f"{job}: {result}{detail}", file=sys.stderr)
               sys.exit(1)
           for job, wanted in sorted(required.items()):
               print(f"{job}: required={str(wanted).lower()} result={needs[job]['result']}")

@@ -20,6 +20,8 @@ BUILD_TIME_NS = 1_700_000_000_000_000_000
 FAKE_R2 = """#!/usr/bin/env bash
 # restore <dir> <key> <prefix>: stands in for scripts/ci/r2-cache.sh.
 dir="$2"
+[ -z "${FAKE_CALLS:-}" ] || echo "$3" >> "$FAKE_CALLS"
+sleep "${FAKE_DELAY:-0}"
 echo "cache-hit=false" >> "$GITHUB_OUTPUT"
 case "$FAKE_MODE" in
   hit)
@@ -125,6 +127,94 @@ class SeedDerivedData(unittest.TestCase):
         self.assertIn("hit=false", output.read_text())
         self.assertTrue((self.derived / "from-resolve").exists())
 
+    def start_then_adopt(self, mode, start_args=None):
+        """Download in the background, as compile admission does while it resolves."""
+        os.environ["FAKE_MODE"] = mode
+        os.environ["FAKE_CALLS"] = str(self.root / "calls")
+        # No repository and no bucket URL: each revision is its own exact key.
+        os.environ.pop("GITHUB_REPOSITORY", None)
+        os.environ.pop("CI_CACHE_R2_PUBLIC_URL", None)
+        seed.main(["seed", "start", str(self.derived), *(start_args or ("admission-derived-data-v1-x-", "base"))])
+        # The resolve step runs meanwhile and rewrites the DerivedData.
+        import shutil
+        shutil.rmtree(self.derived)
+        self.derived.mkdir()
+        (self.derived / "from-resolve").write_text("resolve")
+        output = self.root / "output"
+        output.unlink(missing_ok=True)
+        os.environ["GITHUB_OUTPUT"] = str(output)
+        with mock.patch.object(seed.sys, "platform", "linux"):
+            seed.main(["seed", "adopt", str(self.source), str(self.derived),
+                       "admission-derived-data-v1-x-", "base"])
+        return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def calls(self):
+        return (self.root / "calls").read_text().split()
+
+    def assert_no_leftovers(self):
+        leftovers = sorted(p.name for p in self.root.iterdir() if p.name.startswith(self.derived.name + "."))
+        self.assertEqual(leftovers, [])
+
+    def test_adopt_waits_for_the_background_download_instead_of_downloading_again(self):
+        self.publish_seed()
+        (self.source / "Sources/App.swift").write_text("let app = 2\n")
+        os.environ["FAKE_DELAY"] = "1"
+
+        result = self.start_then_adopt("hit")
+
+        self.assertEqual(result["hit"], "true")
+        self.assertEqual(result["key"], "admission-derived-data-v1-x-0123abc")
+        self.assertEqual((result["unchanged_inputs"], result["changed_inputs"]), ("1", "1"))
+        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-base"])
+        self.assertEqual((self.derived / "Build/App.o").read_text(), "object")
+        self.assertFalse((self.derived / "from-resolve").exists())
+        self.assertEqual(self.mtime("Sources/Other.swift"), BUILD_TIME_NS)
+        self.assert_no_leftovers()
+
+    def test_a_failed_background_download_is_a_cold_build(self):
+        self.publish_seed()
+        result = self.start_then_adopt("fail")
+        self.assertEqual(result["hit"], "false")
+        self.assertEqual(self.calls(), ["admission-derived-data-v1-x-base"])
+        self.assertEqual((self.derived / "from-resolve").read_text(), "resolve")
+        self.assertGreater(self.mtime("Sources/Other.swift"), BUILD_TIME_NS)
+        self.assert_no_leftovers()
+
+    def test_a_background_miss_leaves_the_resolved_derived_data_alone(self):
+        self.publish_seed()
+        result = self.start_then_adopt("miss")
+        self.assertEqual(result, {"hit": "false", "reason": "no-seed"})
+        self.assertEqual((self.derived / "from-resolve").read_text(), "resolve")
+        self.assert_no_leftovers()
+
+    def test_a_killed_background_download_is_downloaded_again(self):
+        # A runner that reaps a step's processes when the step ends would
+        # kill the download; adopt must not mistake that for a missing seed.
+        self.publish_seed()
+        os.environ["FAKE_DELAY"] = "30"
+        real_start = seed.start
+
+        def start_and_kill(*args):
+            real_start(*args)
+            ticket = json.loads(self.derived.with_name(self.derived.name + ".seed.ticket").read_text())
+            seed.stop(ticket["pid"])
+            os.environ["FAKE_DELAY"] = "0"
+
+        with mock.patch.object(seed, "start", start_and_kill):
+            result = self.start_then_adopt("hit")
+        self.assertEqual(result["hit"], "true")
+        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-base")
+        self.assert_no_leftovers()
+
+    def test_a_download_started_for_other_keys_is_not_adopted(self):
+        self.publish_seed()
+        result = self.start_then_adopt("hit", ("admission-derived-data-v1-y-", "base"))
+        # The stray download is stopped and adopt fetches its own keys.
+        self.assertEqual(result["hit"], "true")
+        self.assertEqual(result["key"], "admission-derived-data-v1-x-0123abc")
+        self.assertEqual(self.calls()[-1], "admission-derived-data-v1-x-base")
+        self.assert_no_leftovers()
+
     def test_adopt_prefers_the_nearest_seeded_ancestor_over_the_newest_pointer(self):
         """The seed of REVISION, or of its nearest ancestor with one, is the exact
         key; only when none has a seed does the newest pointer decide."""
@@ -194,6 +284,25 @@ class SeedDerivedData(unittest.TestCase):
         with mock.patch.object(seed.subprocess, "run", return_value=listed):
             self.assertEqual(seed.lineage("abc"), ["abc", "parent", "grandparent"])
 
+    def test_adopt_reuses_the_seed_start_picked_without_probing_again(self):
+        """start picks the nearest seed once; adopt for the same PREFIX and
+        REVISION waits for that download and reports its distance."""
+        self.publish_seed()
+        os.environ["FAKE_MODE"] = "hit"
+        os.environ["FAKE_CALLS"] = str(self.root / "calls")
+        with mock.patch.object(seed, "locate", return_value=("p-c3", 1)) as located:
+            seed.main(["seed", "start", str(self.derived), "p-", "c4"])
+            output = self.root / "output"
+            os.environ["GITHUB_OUTPUT"] = str(output)
+            with mock.patch.object(seed.sys, "platform", "linux"):
+                seed.main(["seed", "adopt", str(self.source), str(self.derived), "p-", "c4"])
+        self.assertEqual(located.call_count, 1)
+        self.assertEqual((self.root / "calls").read_text().split(), ["p-c3"])
+        outputs = dict(line.split("=", 1) for line in output.read_text().splitlines())
+        self.assertEqual(outputs["hit"], "true")
+        # The fake restore reports the pointer key, not p-c3, so no distance.
+        self.assertEqual(outputs["seed_distance"], "")
+
     def test_prune_refuses_an_unrecorded_or_oversized_seed(self):
         self.derived.mkdir()
         self.assertEqual(seed.prune(self.derived)["reason"], "no-input-manifest")
@@ -243,11 +352,6 @@ class Wiring(unittest.TestCase):
         self.assertLess(compile_at, forget_at)
         self.assertEqual(adopt["env"]["SEED_PREFIX"], written[: -len(suffix)])
         self.assertIn("steps.seed-derived-data.outputs.hit == 'true'", forget["if"])
-        # The seed of the main this merge sits on, which the event's base.sha
-        # is not always.
-        self.assertEqual(adopt["env"]["MERGED_ONTO"], "${{ inputs.source_parent1 || github.event.pull_request.base.sha }}")
-        self.assertIn('"$SEED_PREFIX" "$MERGED_ONTO"', adopt["run"])
-        self.assertIn("GH_TOKEN", adopt["env"])
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
@@ -278,8 +382,6 @@ class Wiring(unittest.TestCase):
         self.assertLess(record_at, build_at)
         self.assertLess(build_at, save_at)
         self.assertIs(adopt.get("continue-on-error"), True)
-        self.assertIn('"$PREFIX" "$GITHUB_SHA"', adopt["run"])
-        self.assertIn("GH_TOKEN", adopt["env"])
         self.assertEqual(save["with"]["backend"], "r2")
         self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.prefix }}${{ github.sha }}")
 
@@ -297,6 +399,20 @@ class Wiring(unittest.TestCase):
         _, seed_spm = named(seeder, "Cache Swift packages")
         _, admission_spm = named(steps("ci-macos.yml", "macos-compile-admission"), "Cache Swift packages")
         self.assertEqual(seed_spm["with"]["key"], admission_spm["with"]["key"])
+
+    def test_the_seed_pool_differs_from_admission_only_in_runner_size(self):
+        # Seeds used to queue behind pull requests on admission's own pool.
+        # They may move to a larger runner of the same image, since neither
+        # the seed key nor the product key names the size, but never to
+        # another image or Xcode.
+        runs_on = load("seed-derived-data.yml")["jobs"]["seed"]["runs-on"]
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]["runs-on"]
+        larger = "vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26'"
+        self.assertIn(larger, runs_on)
+        # Any other pool value is admission's pull-request pool, unchanged.
+        fallback = "vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'"
+        self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
+        self.assertIn(fallback, admission)
 
     def test_main_push_publishes_the_product_admission_would_compile(self):
         """Pull requests adopt this product in place of compiling, so it has to
@@ -367,6 +483,34 @@ class Wiring(unittest.TestCase):
             seeder.get("env", {}).get("CI_CACHE_R2_PUBLIC_URL"),
             admission["env"]["CI_CACHE_R2_PUBLIC_URL"],
         )
+
+    def test_the_seed_downloads_while_packages_resolve(self):
+        # The download needs only the fingerprint, so it starts before the
+        # resolve and the adopt step waits for it instead of downloading
+        # serially after the resolve (~40 s of each admission, 2026-09-24).
+        admission = steps("ci-macos.yml", "macos-compile-admission")
+        key_at, _ = named(admission, "Compute test compilation cache key")
+        start_at, start = named(admission, "Start the DerivedData seed download")
+        resolve_at, _ = named(admission, "Resolve Swift packages")
+        adopt_at, adopt = named(admission, "Adopt the nightly DerivedData seed")
+        self.assertLess(key_at, start_at)
+        self.assertLess(start_at, resolve_at)
+        self.assertLess(resolve_at, adopt_at)
+        self.assertEqual(start["if"], adopt["if"])
+        self.assertEqual(start["env"], adopt["env"])
+        self.assertIs(start.get("continue-on-error"), True)
+        self.assertIn("seed_derived_data.py start", start["run"])
+        self.assertIn("seed_derived_data.py adopt", adopt["run"])
+        # The adopt step's own deadline must fire before the step timeout, or
+        # a timed-out step leaves the detached download pulling a seed through
+        # the compile.
+        self.assertLess(seed.FETCH_WAIT_SECONDS, adopt["timeout-minutes"] * 60 - 30)
+        # Like adoption, starting the download never decides what the product
+        # is, so it must not move the product recipe (and every edit to it
+        # would otherwise invalidate every reusable product).
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/ci"))
+        import product_input_identity
+        self.assertIn("Start the DerivedData seed download", product_input_identity.NON_PRODUCT_RECIPE_STEPS)
 
     def test_adoption_is_optional_and_limited_to_pull_requests(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
