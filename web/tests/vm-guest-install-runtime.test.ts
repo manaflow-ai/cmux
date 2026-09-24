@@ -57,7 +57,7 @@ function guest(options: { corruptUpload?: boolean; promptFails?: boolean; publis
 describe("guest CLI publication in an isolated filesystem", () => {
   test("successful create installs the complete executable CLI and answers help", async () => {
     const { fixture, target, root } = guest();
-    const handle = await fixture.provider.create(guestCreateOptions);
+    const handle = await fixture.createWithGuestInstall(guestCreateOptions);
     expect(handle.status).toBe("running");
     expect(readFileSync(target, "utf8")).toBe(GUEST_CMUX_SHIM);
     for (const file of GUEST_BROWSER_FILES.filter((file) => file.path.startsWith("/usr/local/bin/"))) {
@@ -84,11 +84,11 @@ describe("guest CLI publication in an isolated filesystem", () => {
 
   test("a fresh prompt install keeps its identity when an older revision attaches", async () => {
     const { fixture, root } = guest();
-    await fixture.provider.create({
+    await fixture.createWithGuestInstall({
       ...guestCreateOptions,
       promptIdentity: { machineId: "synthetic", name: "fresh-machine", revision: 10 },
     });
-    await fixture.provider.create({
+    await fixture.createWithGuestInstall({
       ...guestCreateOptions,
       promptIdentity: { machineId: "synthetic", name: "stale-machine", revision: 9 },
     });
@@ -103,7 +103,7 @@ describe("guest CLI publication in an isolated filesystem", () => {
     const unrelated = join(root, "unrelated");
     writeFileSync(unrelated, "preserve me");
     symlinkSync(unrelated, target);
-    await fixture.provider.create(guestCreateOptions);
+    await fixture.createWithGuestInstall(guestCreateOptions);
     expect(readFileSync(unrelated, "utf8")).toBe("preserve me");
     expect(readFileSync(target, "utf8")).toBe(GUEST_CMUX_SHIM);
   });
@@ -111,7 +111,7 @@ describe("guest CLI publication in an isolated filesystem", () => {
   test("a directory destination fails instead of moving the shim inside and reporting ready", async () => {
     const { fixture, target } = guest();
     mkdirSync(target);
-    const result = await fixture.provider.create(guestCreateOptions).then(() => "ready", () => "failed");
+    const result = await fixture.createWithGuestInstall(guestCreateOptions).then(() => "ready", () => "failed");
     expect(result).toBe("failed");
     expect(fixture.liveVms.size).toBe(0);
   });
@@ -119,7 +119,7 @@ describe("guest CLI publication in an isolated filesystem", () => {
   test("rejects a corrupted upload before replacing the previous generation", async () => {
     const { fixture, target } = guest({ corruptUpload: true });
     writeFileSync(target, "previous generation");
-    const result = await fixture.provider.create(guestCreateOptions).then(() => "ready", () => "failed");
+    const result = await fixture.createWithGuestInstall(guestCreateOptions).then(() => "ready", () => "failed");
     expect(result).toBe("failed");
     expect(readFileSync(target, "utf8")).toBe("previous generation");
     expect(fixture.liveVms.size).toBe(0);
@@ -135,7 +135,7 @@ describe("guest CLI publication in an isolated filesystem", () => {
     writeFileSync(join(root, "etc/bashrc"), "previous bashrc generation");
     writeFileSync(join(root, "etc/.prompt-identity"), "previous identity");
     writeFileSync(join(root, "etc/vm-name"), "previous name\n");
-    const failure = await fixture.provider.create({
+    const failure = await fixture.createWithGuestInstall({
       ...guestCreateOptions,
       promptIdentity: { machineId: "synthetic", name: "synthetic", revision: 1 },
     }).then(() => undefined, (error) => error);
@@ -164,7 +164,7 @@ describe("guest CLI publication in an isolated filesystem", () => {
     writeFileSync(join(root, "etc/bashrc"), "previous bashrc generation");
     writeFileSync(join(root, "etc/.prompt-identity"), "previous identity");
     writeFileSync(join(root, "etc/vm-name"), "previous name\n");
-    const failure = await fixture.provider.create({
+    const failure = await fixture.createWithGuestInstall({
       ...guestCreateOptions,
       promptIdentity: { machineId: "synthetic", name: "synthetic", revision: 1 },
     }).then(() => undefined, (error) => error);

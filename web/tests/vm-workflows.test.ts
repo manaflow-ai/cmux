@@ -204,7 +204,7 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer({
       ...unusedProviderGateway(),
       create: (_, options) => Effect.tryPromise({
-        try: () => fixture.provider.create(options),
+        try: () => fixture.createWithGuestInstall(options),
         catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
       }),
     });
@@ -238,7 +238,7 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer({
       ...unusedProviderGateway(),
       create: (_, options) => Effect.tryPromise({
-        try: () => fixture.provider.create(options),
+        try: () => fixture.createWithGuestInstall(options),
         catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
       }),
     });
@@ -282,7 +282,7 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer({
       ...unusedProviderGateway(),
       create: (_, options) => Effect.tryPromise({
-        try: () => fixture.provider.create(options),
+        try: () => fixture.createWithGuestInstall(options),
         catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
       }),
       destroy: (_, providerVmId) => Effect.sync(() => {
@@ -327,7 +327,7 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer({
       ...unusedProviderGateway(),
       create: (_, options) => Effect.tryPromise({
-        try: () => fixture.provider.create(options),
+        try: () => fixture.createWithGuestInstall(options),
         catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
       }),
       destroy: () => Effect.sync(() => {
@@ -371,7 +371,7 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer({
       ...unusedProviderGateway(),
       create: (_, options) => Effect.tryPromise({
-        try: () => fixture.provider.create(options),
+        try: () => fixture.createWithGuestInstall(options),
         catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
       }),
       destroy: (_, providerVmId) => Effect.sync(() => {
@@ -413,7 +413,7 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer({
       ...unusedProviderGateway(),
       create: (_, options) => Effect.tryPromise({
-        try: () => fixture.provider.create(options),
+        try: () => fixture.createWithGuestInstall(options),
         catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
       }),
     });
@@ -470,7 +470,7 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer({
       ...unusedProviderGateway(),
       create: (_, options) => Effect.tryPromise({
-        try: () => fixture.provider.create({ ...options, imageSize: guestCreateOptions.imageSize }),
+        try: () => fixture.createWithGuestInstall({ ...options, imageSize: guestCreateOptions.imageSize }),
         catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
       }),
     });
@@ -506,7 +506,7 @@ describe("VM Effect workflows", () => {
     const layer = providerLayer({
       ...unusedProviderGateway(),
       create: (_, options) => Effect.tryPromise({
-        try: () => fixture.provider.create(options),
+        try: () => fixture.createWithGuestInstall(options),
         catch: (cause) => new VmProviderOperationError({ provider: "freestyle", operation: "create", cause }),
       }),
       destroy: (_, providerVmId) => Effect.sync(() => {

@@ -1679,7 +1679,9 @@ jobs:
           # Separate invocations prove each selector executed tests; a healthy
           # suite cannot mask a miswired or accidentally empty selector.
           set -euo pipefail
-          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests; do
+          for suite in CloudMachineDragSourceTests CloudMachineOrderingTests \
+            CloudOperationRecorderTests CloudReadRequestCoordinatorTests \
+            VMClientReadCoalescingTests; do
             test_log="$RUNNER_TEMP/cmux-cloud-ordering-${suite}.txt"
             bash scripts/ci/run-and-capture.sh "$test_log" \
               scripts/ci/run-in-console-session.sh \

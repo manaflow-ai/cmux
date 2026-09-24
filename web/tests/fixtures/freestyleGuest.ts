@@ -4,8 +4,12 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { Effect } from "effect";
 import { Freestyle } from "freestyle";
 import { FreestyleProvider } from "../../services/vms/drivers/freestyle";
+import { installFreestyleGuestCli } from "../../services/vms/drivers/freestyleGuestCli";
+import { rollbackFreestyleCreate } from "../../services/vms/drivers/providerCreateCleanup";
+import { ProviderError, type CreateOptions } from "../../services/vms/drivers/types";
 import type { GuestCliDistribution } from "../../services/vms/guestCliDistribution";
 
 export type GuestExecRequest = {
@@ -96,10 +100,38 @@ export function freestyleGuestFixture(options: {
   });
   const provider = new FreestyleProvider({
     client,
-    resolveDaemonSource: async () => { throw new Error("fixture must never resolve a live daemon"); },
-    guestCliDistribution: options.guestCliDistribution ?? testDistribution,
   });
-  return { provider, client, requests, writes, removals, liveVms, allocations: () => allocations };
+  /**
+   * Exercise guest bootstrap as a separate workflow. The production provider's
+   * create path follows snapshot-v2 and intentionally performs no guest setup.
+   */
+  const createWithGuestInstall = async (createOptions: CreateOptions) => {
+    const handle = await provider.create(createOptions);
+    const install = await Effect.runPromise(Effect.either(installFreestyleGuestCli(
+      client,
+      handle.providerVmId,
+      createOptions.promptIdentity,
+      options.guestCliDistribution ?? testDistribution,
+    )));
+    if (install._tag === "Right") {
+      return handle;
+    }
+    const rollback = await Effect.runPromise(Effect.either(
+      rollbackFreestyleCreate(client, handle.providerVmId, install.left),
+    ));
+    if (rollback._tag === "Left") throw rollback.left;
+    throw new ProviderError("freestyle", "guest bootstrap failed", install.left);
+  };
+  return {
+    provider,
+    client,
+    createWithGuestInstall,
+    requests,
+    writes,
+    removals,
+    liveVms,
+    allocations: () => allocations,
+  };
 }
 
 export const guestCreateOptions = {
