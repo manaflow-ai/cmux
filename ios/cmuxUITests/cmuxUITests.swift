@@ -4607,12 +4607,17 @@ final class cmuxUITests: XCTestCase {
             // Finish every page rather than tapping its obscured toolbar.
             let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
             if whatsNewSheet.waitForExistence(timeout: 4) {
-                let continueButton = app.buttons.matching(
+                // Every page carries a Continue button; tap only the one on
+                // screen, after the sheet finishes sizing itself.
+                let continueButtons = app.buttons.matching(
                     NSPredicate(format: "label == %@", "Continue")
-                ).firstMatch
-                for _ in 0..<4 where whatsNewSheet.exists {
-                    XCTAssertTrue(continueButton.waitForExistence(timeout: 4))
-                    continueButton.tap()
+                )
+                let deadline = Date().addingTimeInterval(30)
+                while whatsNewSheet.exists, Date() < deadline {
+                    if let visible = continueButtons.allElementsBoundByIndex.first(where: \.isHittable) {
+                        visible.tap()
+                    }
+                    Thread.sleep(forTimeInterval: 0.5)
                 }
                 XCTAssertTrue(whatsNewSheet.waitForNonExistence(timeout: 5))
             }
