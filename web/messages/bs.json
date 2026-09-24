@@ -1273,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "Konfiguracija za cmux. Globalni cmux.json podržava postavke aplikacije, prečice, radnje, prilagođene komande, hookove obavijesti i rasporede radnih prostora. Projektni .cmux/cmux.json ili cmux.json podržava radnje, komande, hookove obavijesti, povezivanje UI radnji, Agent Chat izmjene, vault agente, izmjene grupa radnih prostora te konfiguraciju pokretanja i dugmadi radnog prostora.",
         "rightSidebar": "Naslijeđena konfiguracija desne bočne trake kojom upravljaju ekstenzije i koja se čuva u cmux.json.",
+        "packs": {
+          "description": "Lokalne datoteke ili direktoriji cmux paketa koji se učitavaju prije ove konfiguracije. Direktoriji upućuju na cmux.pack.json. Koristite tekstualnu putanju ili objekt s poljem path.",
+          "path": "Putanja lokalne datoteke ili direktorija, relativna u odnosu na ovu konfiguracijsku datoteku ako nije apsolutna."
+        },
         "paneBorderColor": "Zamijenite boju razdjelnika cmux okana u podijeljenim radnim prostorima. Ovo utiče na granice cmux okana, ne na interne Ghostty podjele.",
         "activePaneBorderColor": "Opcionalna boja ivice koja se crta oko fokusiranog cmux okna u podijeljenim radnim prostorima.",
         "automation": {

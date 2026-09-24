@@ -78,7 +78,7 @@ Ordered by blast radius times likelihood.
 | 13 | `.github/test-determinism-allowlist.txt` | live test files | **duplicate-prone**: two PRs appending the same `path<TAB>rule` merge cleanly; nothing rejects duplicates. Also silently stale when the test is renamed | offending PR once detected; never, for a stale line | No, but staleness is detectable |
 | 14 | `.github/swift-warning-budget.tsv` (114 rows) | actual compiler output | two PRs adding rows for the same path with different messages merge into a valid-looking, wrong budget | next merge-queue entry, i.e. **everyone** | No. It *is* the baseline |
 | 15 | `web/oxlint-complexity-baseline.txt` | grandfathered findings; read from the trusted base checkout | same append/duplicate hazard | `push: main`, so **everyone** | No |
-| 16 | `tests/test_ci_{release,app_host,quality,source_lint}_guard_structure.py` (~66 step-name→group pairs) | `- name:` + `if: matrix.group ==` pairs in `ci-guards.yml` | renaming any guard step fails these | offending PR | Partially. `workflow_guard_groups.guard_steps()` already parses the same pairs |
+| 16 | `tests/test_ci_source_lint_guard_structure.py` (3 step-name→group pairs) | `- name:` + `if: matrix.group ==` pairs in `ci-guards.yml` | renaming any guard step fails it | offending PR | Partially. `workflow_guard_groups.guard_steps()` already parses the same pairs. The release, app-host and quality copies (~63 pairs) were deleted: ownership is derived from those pairs and `test_ci_linux_guard_routing.py` checks every step names a known group |
 | 17 | `.github/actionlint.yaml:8-29` runner labels, `tests/test_ci_self_hosted_guard.sh:1132` `allowed=`, `docs/ci-runners.md:30` | the literal labels used in workflows and the `*_RUNNER` variable values — three copies | an unlisted literal label fails actionlint on every PR *and* every push to main | **everyone** (`testbox-broker-guard.yml` has no path filter) | Partially |
 | 18 | `.github/workflows/ci.yml:136,196,290,477` `/tmp/cmux-ci-changed-files.txt` | nothing — but a fixed path is shared state | two runs or two local test copies collide; a stale file from an earlier run is read as this run's diff | flaky, locally and in theory on a reused runner | Yes. `$RUNNER_TEMP`/`mktemp` |
 | 19 | `.github/review-bot-rules/README.md:11-38` | the 29 `.md` files in that directory | **already drifted**: `test-determinism.md` exists and is not indexed. Nothing validates it | nobody, ever | Yes, trivially. Glob the directory |
@@ -97,7 +97,7 @@ Ordered by blast radius times likelihood.
 Two more that are the same shape but sit outside `.github/`, `scripts/ci/` and
 `tests/`, noted so they are not rediscovered: `scripts/ci/workflow_guard_groups.py:80-92`
 `ROUTING_POLICY_PATHS` omits `tests/test_ci_source_lint_guard_structure.py`
-though it is the same class of file as the four it does list (a `tests/test_ci_*guard_structure.py`
+though it is the same class of file as `tests/test_ci_guard_workflow_structure.py`, which it lists (a `tests/test_ci_*guard*_structure.py`
 glob fixes it); and `.github/workflows/ci-cache-receipts.yml:4-27` writes ten
 paths twice and is currently in sync — the not-yet-drifted twin of row 4.
 

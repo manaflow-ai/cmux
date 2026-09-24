@@ -61,8 +61,9 @@ Required CI remains required; a local pass is not a supply-chain safety attestat
 ## PR check progression
 
 Run the local command first on trusted code. On a PR, the existing workflow runs
-Fast static checks before workflow guards and routed Linux checks; the Linux
-preflight gate precedes applicable macOS compile admission and native checks.
+Fast static checks beside workflow guards and routed Linux checks; macOS work
+waits for Fast static checks, and the Linux preflight gate precedes applicable
+macOS compile admission and native checks.
 There is no need to add a second workflow scheduler. Required checks, review and
 the merge queue retain their existing authority.
 

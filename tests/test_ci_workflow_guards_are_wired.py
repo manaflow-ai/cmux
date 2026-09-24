@@ -101,8 +101,7 @@ def test_every_workflow_guard_is_run_by_a_workflow() -> None:
         "these tests read .github/workflows/ but no workflow runs them, so the "
         "invariants they assert are not enforced:\n  "
         + "\n  ".join(unwired)
-        + "\n\nAdd a step to .github/workflows/ci-guards.yml (and the expected "
-        "map in the matching tests/test_ci_*_guard_structure.py), or add an "
+        + "\n\nAdd a step to .github/workflows/ci-guards.yml, or add an "
         "entry to UNWIRED in this file explaining why not."
     )
 
