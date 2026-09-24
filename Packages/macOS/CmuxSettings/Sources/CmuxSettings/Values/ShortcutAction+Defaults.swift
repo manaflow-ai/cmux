@@ -68,6 +68,7 @@ extension ShortcutAction {
     private var builtInDefaultStroke: ShortcutStroke? {
         switch self {
         case .openSettings: return ShortcutStroke(key: ",", command: true)
+        case .openTeamPicker: return ShortcutStroke(key: "t", command: true, shift: true, option: true)
         case .reloadConfiguration: return ShortcutStroke(key: ",", command: true, shift: true)
         case .showHideAllWindows: return ShortcutStroke(key: ".", command: true, option: true, control: true)
         case .globalSearch: return ShortcutStroke(key: "f", command: true, option: true)
@@ -190,6 +191,7 @@ extension ShortcutAction {
         case .fileExplorerOpenSelectionFinderAlias: return ShortcutStroke(key: "↓", command: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
+        case .toggleFileEditorWordWrap: return ShortcutStroke(key: "z", option: true)
         case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)
         case .focusBrowserAddressBar: return ShortcutStroke(key: "l", command: true)
         case .browserBack: return ShortcutStroke(key: "[", command: true)

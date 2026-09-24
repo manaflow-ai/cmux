@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 struct ClaudeHookProcessGeneration: Codable, Equatable {
     let pid: Int

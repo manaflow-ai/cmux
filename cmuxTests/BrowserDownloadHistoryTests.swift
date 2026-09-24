@@ -123,11 +123,16 @@ struct BrowserDownloadHistoryTests {
             NSPasteboard.PasteboardType($0)
         }
 
-        for _ in 0..<2 {
+        // A residual file URL on the drag pasteboard must not intercept hover.
+        #expect(!TerminalPaneDropTargetView.shouldCaptureHitTesting(
+            pasteboardTypes: pasteboardTypes,
+            eventType: .cursorUpdate
+        ))
+        for eventType in [NSEvent.EventType.leftMouseDragged, .leftMouseUp] {
             #expect(
                 TerminalPaneDropTargetView.shouldCaptureHitTesting(
                     pasteboardTypes: pasteboardTypes,
-                    eventType: .cursorUpdate
+                    eventType: eventType
                 )
             )
             let plan = TerminalImageTransferPlanner.plan(

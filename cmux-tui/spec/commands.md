@@ -3739,7 +3739,7 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
-    source: "detected"|"socket"|"hook",
+    source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
   }>
@@ -3786,9 +3786,11 @@ to `session.events`. The server generates an internal mutation identity for
 this raw command.
 
 Each live terminal has at most one current agent projection. Hook reports have
-authority over socket reports. A socket report received after a hook retains
-the hook value while still advancing the resource revision and publishing that
-retained value. Restart restores the current projection. Closing the terminal
+authority over socket reports. A socket report that does not change the
+effective projection is a replay-equivalent no-op at the current revision and
+does not publish another event. A socket report received after an unchanged
+hook therefore retains the hook value without advancing the resource
+revision. Restart restores the current projection. Closing the terminal
 deletes it, so historical reports cannot recreate an agent. Browser surfaces,
 surfaces without durable terminal identity, and terminal-less default reports
 are rejected.
@@ -3799,7 +3801,7 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Surface associated with the agent |
 | `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
-| `source` | `string` | required | `"socket"` or `"hook"` |
+| `source` | `string` | required | `"socket"` or `"hook"` for `report-agent`; list responses can also contain `"detected"` or `"plugin"` |
 | `session` | `string` | default null | Optional upstream agent session id |
 
 Result:

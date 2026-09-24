@@ -21,7 +21,7 @@ function span(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
-function batch(spans = [span()]) { return { version: 1, client: { channel: "nightly", version: "0.1.0", build: "123", revision: "abcdef1234567", osVersion: "26.0", architecture: "arm64" }, spans }; }
+function batch(spans = [span()], channel = "nightly") { return { version: 1, client: { channel, version: "0.1.0", build: "123", revision: "abcdef1234567", osVersion: "26.0", architecture: "arm64" }, spans }; }
 function request(body: unknown = batch(), headers: Record<string, string> = {}) {
   return new Request("https://cmux.test/api/observability/cloud", {
     method: "POST", headers: { "content-type": "application/json", ...headers },
@@ -30,6 +30,94 @@ function request(body: unknown = batch(), headers: Record<string, string> = {}) 
 }
 
 describe("Cloud diagnostic boundary", () => {
+  test("acknowledges and exports placement failures without dropping neighboring spans", async () => {
+    const { exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
+    const payload = batch([
+      span({ operation: "terminal", phase: "materialize", failure: "placement" }),
+      span({ eventId: "8cc333de-a1bc-4eb1-8d69-1decd01e17a9" }),
+    ]);
+    const accepted: unknown[] = [];
+    const sent: { url: string; body: any }[] = [];
+    const handler = makeCloudTelemetryHandler({
+      authenticate: async () => ({ id: "synthetic-owner" }),
+      checkIngress: async () => true,
+      accept: async (userId, value) => {
+        accepted.push(value);
+        await exportCloudDiagnostics(value.spans.map((span) => ({
+          userId, eventId: span.eventId, attempts: 1, payload: { client: value.client, span },
+        })), {
+          origin: "https://us-east-1.aws.edge.axiom.co", token: "test-only",
+          identityKey: "test-only-identity-key".repeat(2), tracesDataset: "test-traces",
+          errorsDataset: "test-errors", environment: "preview", revision: "abcdef123",
+        }, (async (url, init) => {
+          sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+          return new Response("{}");
+        }) as typeof fetch);
+        return value.spans.length;
+      },
+      scheduleDrain: () => {}, now: () => now,
+    });
+    const response = await handler(request(payload));
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({
+      accepted: 2, eventIds: payload.spans.map((span) => span.eventId),
+    });
+    expect(accepted).toEqual([payload]);
+    const errors = sent.find((item) => item.url.endsWith("/v1/ingest/test-errors"))!.body;
+    expect(errors.map((item: any) => item.failure)).toEqual(["placement", "network"]);
+    expect(errors[0]).toMatchObject({
+      event_id: payload.spans[0]!.eventId, operation_id: payload.spans[0]!.operationId,
+      trace_id: payload.spans[0]!.traceId, span_id: payload.spans[0]!.spanId,
+      operation: "terminal", phase: "materialize", outcome: "failure",
+    });
+    const spans = sent.find((item) => item.url.endsWith("/v1/traces"))!.body.resourceSpans;
+    expect(spans[0].scopeSpans[0].spans[0].attributes).toContainEqual({
+      key: "error.type", value: { stringValue: "placement" },
+    });
+    expect(JSON.stringify(sent)).not.toContain("synthetic-owner");
+  });
+
+  test("accepts authenticated RC diagnostics and exports rc separately from production", async () => {
+    const { exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
+    const sent: { url: string; body: any }[] = [];
+    const configuration = {
+      origin: "https://us-east-1.aws.edge.axiom.co", token: "test-only",
+      identityKey: "test-only-identity-key".repeat(2), tracesDataset: "test-traces",
+      errorsDataset: "test-errors", environment: "production", revision: "abcdef123",
+    } as const;
+    const handler = makeCloudTelemetryHandler({
+      authenticate: async () => ({ id: "synthetic-owner" }),
+      checkIngress: async () => true,
+      accept: async (userId, value) => {
+        await exportCloudDiagnostics(value.spans.map((span) => ({
+          userId, eventId: span.eventId, attempts: 1, payload: { client: value.client, span },
+        })), configuration, (async (url, init) => {
+          sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+          return new Response("{}");
+        }) as typeof fetch);
+        return value.spans.length;
+      },
+      scheduleDrain: () => {}, now: () => now,
+    });
+    const rcPayload = batch([span({ eventId: "e51c27bc-b0ad-4149-9d92-0fc79c5d2292" })], "rc");
+    const productionPayload = batch([span({ eventId: "8cc333de-a1bc-4eb1-8d69-1decd01e17a9" })], "production");
+
+    const rcResponse = await handler(request(rcPayload));
+    const productionResponse = await handler(request(productionPayload));
+    expect(rcResponse.status).toBe(202);
+    expect(productionResponse.status).toBe(202);
+    expect((await rcResponse.json()).accepted).toBe(1);
+    expect((await productionResponse.json()).accepted).toBe(1);
+
+    const errorChannels = sent.filter((item) => item.url.endsWith("/v1/ingest/test-errors"))
+      .flatMap((item) => item.body.map((row: any) => row.client_channel)).sort();
+    expect(errorChannels).toEqual(["production", "rc"]);
+    const traceChannels = sent.filter((item) => item.url.endsWith("/v1/traces"))
+      .map((item) => item.body.resourceSpans[0].resource.attributes
+        .find((attribute: any) => attribute.key === "cmux.client.channel").value.stringValue).sort();
+    expect(traceChannels).toEqual(["production", "rc"]);
+  });
+
   test("accepts a timed operation with a real parent span", () => {
     expect(parseCloudTelemetryBatch(batch(), now)?.spans[0]).toEqual(span());
   });
@@ -141,6 +229,7 @@ describe("shared development error destination", () => {
     const errors = sent.find((item) => item.url.includes("/ingest/"))!.body;
     expect(errors.map((item: any) => item.source)).toEqual(["client", "server"]);
     expect(errors[0].backend_tag).toBe("errhub");
+    expect(errors[0].client_tag).toBeUndefined();
     expect(errors[0].backend_revision).toBe("a".repeat(40));
     expect(errors[0].backend_source_sha256).toBe("b".repeat(64));
     expect(JSON.stringify(sent)).not.toContain("private-account");
@@ -153,5 +242,11 @@ describe("shared development error destination", () => {
       CMUX_CLOUD_AXIOM_TOKEN: "test", CMUX_CLOUD_TELEMETRY_ID_KEY: "k".repeat(32),
     } as unknown as NodeJS.ProcessEnv)!;
     expect(config.errorsDataset).toBe("cmux-cloud-errors-prod");
+  });
+
+  test("client tags survive the strict diagnostics boundary", () => {
+    const original = batch();
+    const value = { ...original, client: { ...original.client, tag: "pr-123-cloud" } };
+    expect(parseCloudTelemetryBatch(value, now)?.client.tag).toBe("pr-123-cloud");
   });
 });

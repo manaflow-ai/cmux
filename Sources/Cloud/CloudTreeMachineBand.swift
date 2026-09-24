@@ -11,6 +11,8 @@ struct CloudTreeMachineBand<Content: View>: View {
     var body: some View {
         if style.machineBand {
             content()
+                // Inset the whole identity inside the band; this is independent
+                // of the shared icon-to-label gap used within the content.
                 .padding(.leading, 6)
                 .padding(.vertical, GlobalFontMagnification.scaledSize(
                     style.machineBandVerticalPadding, percent: magnification
@@ -19,10 +21,10 @@ struct CloudTreeMachineBand<Content: View>: View {
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(Color.primary.opacity(0.06))
                 )
-                .padding(.trailing, CloudTreeRowGrid.trailingPadding - 2)
+                .padding(.trailing, style.rowGrid.trailingPadding - 2)
         } else {
             content()
-                .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+                .padding(.trailing, style.rowGrid.trailingPadding)
         }
     }
 }

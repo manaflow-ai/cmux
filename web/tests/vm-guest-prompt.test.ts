@@ -61,7 +61,7 @@ describe("Cloud Bash prompt", () => {
       .update(readFileSync(path.join(directory, name), "utf8").replaceAll(directory, "/etc/cmux"))
       .digest("hex");
     expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
-      bashrc: "bd10a566dba17a1ad7c519badfa2587df2dc4b2cb0e9ca9c380fe9fc15fbe89f",
+      bashrc: "b5229855c3edd1961e8bd695ea1254b410ca2146a8f37903d7c2b9db588692c8",
       prompt: "71dd0bdc75bf70c12de5e01c9844b2801a37c5d0bbb80e346b00e2199f502134",
     });
   });
@@ -228,4 +228,28 @@ finally:
     install(directory, "clone-name", 50, "vm-two");
     expect(readFileSync(path.join(directory, "vm-name"), "utf8")).toBe("clone-name\n");
   });
+
+  test("prompt sync treats a name written into vm-name as published, and ignores the baked default", () => {
+    const directory = fixture();
+    writeFileSync(path.join(directory, "vm-name"), "cmux\n");
+    const script = path.join(import.meta.dirname, "../services/vms/images/devbox/cmux-prompt-sync");
+    const result = spawnSync("python3", ["-c", String.raw`
+import importlib.util, importlib.machinery, pathlib, sys, threading, time
+sys.dont_write_bytecode = True
+loader = importlib.machinery.SourceFileLoader("prompt_sync", sys.argv[1])
+spec = importlib.util.spec_from_loader("prompt_sync", loader)
+module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+directory = pathlib.Path(sys.argv[2])
+ready = threading.Event()
+thread = threading.Thread(target=module.watch_local_name, args=(directory, ready, 5.0), daemon=True)
+thread.start()
+time.sleep(0.5)
+print("default", ready.is_set())
+(directory / "vm-name").write_text("shiny-cobalt-lizard\n")
+print("named", ready.wait(2.0))
+`, script, directory], { encoding: "utf8" });
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim().split("\n")).toEqual(["default False", "named True"]);
+  });
 });
+

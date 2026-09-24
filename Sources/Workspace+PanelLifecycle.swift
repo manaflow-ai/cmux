@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Bonsplit
 import CmuxSettings
 import CmuxCore
@@ -196,6 +197,9 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
+        for changedPanelID in Set([previous.panelId, panelId].compactMap { $0 }) {
+            syncTerminalTabAgentIconAsset(forPanelId: changedPanelID)
+        }
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -342,12 +346,16 @@ extension Workspace {
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
         }
+        if didChange, let changedPanelId = ownedPanelId ?? panelId {
+            syncTerminalTabAgentIconAsset(forPanelId: changedPanelId)
+        }
         return didChange
     }
 
     /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
@@ -478,6 +486,9 @@ extension Workspace {
         let shouldPreserveRemoteDisconnectOnClose =
             origin == "tab_close" ||
             origin == "pane_close"
+        // Retire work belonging to the old surface before the last-session
+        // close records a fresh disconnected replacement intent.
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldPreserveRemoteDisconnectOnClose,
            panel is TerminalPanel {
             markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
@@ -486,7 +497,6 @@ extension Workspace {
             shouldPreserveRemoteDisconnectOnClose &&
             remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
-        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldRefreshRemoteDisconnectPlaceholder,
            let remoteConfiguration {
             rememberPendingRemoteDisconnectReplacement(

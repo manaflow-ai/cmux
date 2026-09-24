@@ -49,9 +49,6 @@ function providerWith(snapshots: {
   } as unknown as Freestyle;
   const provider = new FreestyleProvider({
     client: () => client,
-    resolveDaemonSource: async () => {
-      throw new Error("unused");
-    },
   });
   return { provider, calls };
 }

@@ -14,6 +14,7 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
     let provisionalToken: ProvisionalDragWriterOwnership.Token
     var dragID: UUID { registration.id }
     let registration: CloudTreeDragRegistration
+    let machineOrdering: CloudMachineOrderingActions?
     private var sourceView: NSOutlineView?
     private var coordinator: CloudTreeOutlineView.Coordinator?
 
@@ -22,9 +23,11 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         sourceView: NSOutlineView,
         coordinator: CloudTreeOutlineView.Coordinator,
         provisionalToken: ProvisionalDragWriterOwnership.Token,
-        nodeID: String? = nil
+        nodeID: String? = nil,
+        machineOrdering: CloudMachineOrderingActions? = nil
     ) {
         self.registration = registration
+        self.machineOrdering = machineOrdering
         self.sourceView = sourceView
         self.coordinator = coordinator
         self.provisionalToken = provisionalToken

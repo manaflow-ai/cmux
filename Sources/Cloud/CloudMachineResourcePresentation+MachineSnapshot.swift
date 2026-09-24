@@ -31,6 +31,7 @@ extension CloudMachineResourcePresentation {
         self.init(
             availability: availability,
             cpuPercent: stats?.cpuPercent,
+            cpus: stats?.cpus,
             memoryUsedMb: stats?.memoryUsedMb,
             memoryTotalMb: stats?.memoryTotalMb,
             diskUsedMb: stats?.diskUsedMb,

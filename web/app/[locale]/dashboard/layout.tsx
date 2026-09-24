@@ -1,4 +1,4 @@
-import { StackProvider, StackTheme } from "@stackframe/stack";
+import { StackProvider, StackTheme } from "@hexclave/next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import {

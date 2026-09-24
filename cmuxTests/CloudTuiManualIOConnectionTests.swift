@@ -5,6 +5,8 @@ import Testing
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
+#elseif canImport(CloudCommandFixture)
+@testable import CloudCommandFixture
 #endif
 
 @Suite struct CloudTuiManualIOConnectionTests {
@@ -166,7 +168,7 @@ import Testing
     }
 
     @Test func persistentDeadlineCompletesWithoutAReplyOrClosingSiblings() async throws {
-        let clock = SidebarTestManualClock()
+        let clock = CloudCommandDeadlineClock()
         try await Self.withResourceConnection(clock: clock) { channel, peer in
             let expired = Task { try await channel.request(CloudTuiRequest("session.ping"), timeout: .milliseconds(100)) }
             _ = try await Self.blocking { try Self.readLine(peer) }
@@ -225,8 +227,12 @@ import Testing
     @Test func persistentWirePreservesPayloadAndMutationKey() async throws {
         try await Self.withResourceConnection { channel, peer in
             let bytes = Data("--name secret\n\0payload".utf8)
-            var write = CloudTuiRequests.writeBytes(terminalID: "term_test", data: bytes)
-            write.idempotencyKey = "same-logical-input"
+            // Immutable so the `async let` capture is Sendable-clean under Swift 6 diagnostics.
+            let write: CloudTuiRequest = {
+                var request = CloudTuiRequests.writeBytes(terminalID: "term_test", data: bytes)
+                request.idempotencyKey = "same-logical-input"
+                return request
+            }()
             async let result = channel.request(write)
             let captured = try await Self.blocking { try Self.readLine(peer) }
             let request = try Self.object(captured)
@@ -238,18 +244,18 @@ import Testing
         }
     }
 
-    private static func object(_ data: Data) throws -> [String: Any] {
+    static func object(_ data: Data) throws -> [String: Any] {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw socketError() }
         return object
     }
 
-    private static func response(_ request: [String: Any], result: [String: Any], raw: Bool = false) throws -> Data {
+    static func response(_ request: [String: Any], result: [String: Any], raw: Bool = false) throws -> Data {
         var response: [String: Any] = ["id": request["id"]!, "ok": true, raw ? "data" : "result": result]
         if !raw { response["protocol"] = "cmux.protocol/2"; response["type"] = "response" }
         return try JSONSerialization.data(withJSONObject: response) + Data([10])
     }
 
-    private static func withResourceConnection(
+    static func withResourceConnection(
         clock: any Clock<Duration> = ContinuousClock(),
         _ body: (CloudTuiPersistentResourceConnection, Int32) async throws -> Void
     ) async throws {
@@ -316,7 +322,7 @@ import Testing
         try await body(connection, peer)
     }
 
-    private static func write(_ descriptor: Int32, _ data: Data) throws {
+    static func write(_ descriptor: Int32, _ data: Data) throws {
         try data.withUnsafeBytes { raw in
             var offset = 0
             while offset < raw.count {
@@ -328,7 +334,7 @@ import Testing
         }
     }
 
-    private static func readLine(_ descriptor: Int32) throws -> Data {
+    static func readLine(_ descriptor: Int32) throws -> Data {
         var result = Data()
         var byte: UInt8 = 0
         while true {
@@ -343,7 +349,7 @@ import Testing
 
     /// Blocking peer I/O stays off Swift's cooperative executor and the client's
     /// dispatch queue. Each test owns its descriptors until these jobs finish.
-    private static func blocking<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
+    static func blocking<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global().async { continuation.resume(with: Result { try operation() }) }
         }

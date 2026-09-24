@@ -15,6 +15,7 @@ final class AgentHookTestNotificationPipeline {
     private let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     private var store: AgentJournalStore?
     private var reconciler = AgentNotificationReconciler()
+    private(set) var admittedCorrelationKeys: [String] = []
 
     deinit {
         store?.close()
@@ -29,13 +30,22 @@ final class AgentHookTestNotificationPipeline {
             let outcome = try store.append(draft)
             let event = AgentJournalEvent(sequence: outcome.sequence, committedAtMs: outcome.committedAtMs, draft: draft)
             let decision = reconciler.apply(event)
+            let invalidations: [String]
+            if let workspace = draft.workspaceId, let surface = draft.surfaceId {
+                invalidations = decision.invalidatedCorrelationKeys.map {
+                    "clear_notifications --tab=\(workspace) --panel=\(surface) --correlation-key=\($0)"
+                }
+            } else {
+                invalidations = []
+            }
             // A resolution can release a delayed completion: render the event the
             // reconciler accepted, which is not always the input.
             let accepted = (decision.notificationEvent ?? event).draft
             guard decision.disposition == .accepted, let identity = decision.identity,
                   try store.claimNotification(identity: identity),
-                  let rendered = Self.presentation(accepted) else { return [] }
-            return [rendered]
+                  let rendered = Self.presentation(accepted) else { return invalidations }
+            admittedCorrelationKeys.append(accepted.attention?.notification?.correlationKey ?? identity)
+            return invalidations + [rendered]
         } catch {
             Issue.record("Hook fixture journal failed: \(error)")
             return []
