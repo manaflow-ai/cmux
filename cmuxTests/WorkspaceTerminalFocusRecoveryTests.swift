@@ -154,10 +154,16 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             panel.hostedView.suppressReparentFocus()
             #expect(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
             #expect(window.makeFirstResponder(surfaceView))
+            func diag(_ stage: String) {
+                print("FOCUSDIAG \(stage) bounds=\(surfaceView.bounds) frame=\(surfaceView.frame) suppressing=\(panel.hostedView.debugIsSuppressingReparentFocusForTesting()) pending=\(panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting()) desired=\(panel.surface.debugDesiredFocusState()) firstResponder=\(String(describing: window.firstResponder)) visible=\(panel.hostedView.debugPortalVisibleInUI) osVersion=\(ProcessInfo.processInfo.operatingSystemVersionString)")
+            }
+            diag("after-makeFirstResponder")
             await AppKitTestEventPump().drain()
+            diag("after-drain")
             _ = await AppKitTestEventPump().waitUntil {
                 !panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting()
             }
+            diag("after-wait")
             #expect(!panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting())
             #expect(!panel.surface.debugDesiredFocusState())
 
