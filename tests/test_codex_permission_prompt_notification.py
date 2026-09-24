@@ -30,6 +30,7 @@ from test_codex_feed_hooks import (
 )
 from test_codex_monitor_memory import test_codex_monitor_rss_reaches_a_plateau
 
+
 EXPECTED_NOTIFY = {
     "kind": "agent.approval.requested", "source": "codex",
     "workspace_id": FAKE_WORKSPACE_ID, "surface_id": FAKE_SURFACE_ID,

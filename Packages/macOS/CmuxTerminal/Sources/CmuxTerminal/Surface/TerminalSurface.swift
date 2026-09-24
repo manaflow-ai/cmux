@@ -33,6 +33,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // nested TerminalSurface.NamedKeySendResult/.InputSendResult names that
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
+    public typealias TextSendResult = CmuxTerminalCore.TextSendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
     public typealias AgentCommandShimSet = TerminalSurfaceAgentCommandShimSet
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
@@ -331,6 +332,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
     var agentCommandShims: AgentCommandShimSet?
+    var agentCommandShimSpawnPolicy: TerminalSurfaceSpawnPolicy?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
     var agentCommandShimCompletionTask: Task<Void, Never>?
     var agentCommandShimDeadlineTask: Task<Void, Never>?

@@ -20,6 +20,18 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// (`CMUX_CUSTOM_CLAUDE_PATH`), if set.
     public var customClaudePath: String?
 
+    /// Agent command shims enabled for this spawn.
+    ///
+    /// Claude's integration toggle controls command interception entirely;
+    /// the other wrappers keep their existing launch behavior.
+    public var enabledAgentCommandShims: Set<TerminalSurfaceAgentCommand> {
+        var commands = Set(TerminalSurfaceAgentCommand.allCases)
+        if !claudeHooksEnabled {
+            commands.remove(.claude)
+        }
+        return commands
+    }
+
     /// The environment key carrying the subagent-notification suppression
     /// flag.
     public var subagentNotificationEnvironmentKey: String

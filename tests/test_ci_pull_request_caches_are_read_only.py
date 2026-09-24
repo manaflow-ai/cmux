@@ -108,10 +108,12 @@ def main() -> int:
     # Exercise the actual decision script: manual cache seeding must not
     # start app builds or publish, even when other dispatch flags are set.
     nightly = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
-    decision = nightly["jobs"]["decide"]["steps"][0]["with"]["script"]
+    decision = next(
+        step for step in nightly["jobs"]["decide"]["steps"] if step.get("id") == "decide"
+    )["with"]["script"]
     harness = """
     const outputs = {};
-    const core = {setOutput: (k,v) => outputs[k]=v,
+    const core = {setOutput: (k,v) => outputs[k]=v, notice() {},
       summary: {addHeading(){return this},addTable(){return this},async write(){}}};
     const context = {repo:{owner:'test',repo:'test'},ref:'refs/heads/main',sha:'test-head'};
     const github = {rest:{git:{getRef:async()=>({data:{object:{type:'commit',sha:'old'}}})}}};

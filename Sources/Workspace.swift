@@ -2027,8 +2027,13 @@ extension Workspace {
             // that id (duplicate-workspace / restore-into-live can collide);
             // otherwise fall back to a fresh id and let the old->new remap
             // handle it, exactly as before.
-            let reusableSurfaceId: UUID? =
-                GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : nil
+            // A colliding restore must still present a restore identity: since
+            // #13098, `newTerminalSurfaceOutcome` treats a nil `restoredSurfaceId`
+            // as an interactive create and routes it to the selected pane's Cloud
+            // source, which replaces a legacy managed-Cloud SSH attach with a
+            // remote tab create. A fresh id is free by construction.
+            let reusableSurfaceId: UUID =
+                GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil ? snapshot.id : UUID()
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -2908,6 +2913,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
+    /// Terminal pairings belong to the workspace currently owning the agent
+    /// panel. Moving an agent panel drops the old pairing and lets the new
+    /// workspace lazily establish its own terminal on the next command.
+    private var agentSessionPairedTerminalPanelIds: [UUID: UUID] = [:]
 
     /// Aggregate media-device activity across every browser pane in this
     /// workspace (audio / microphone / camera), surfaced to the sidebar
@@ -5166,8 +5175,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     func discardAgentSessionPanelSubscription(panelId: UUID, panel: (any Panel)?) {
         if let agentPanel = panel as? AgentSessionPanel {
             agentPanel.onDisplayStateChanged = nil
+            agentPanel.onRunCommand = nil
         }
         agentSessionPanelCallbackIds.remove(panelId)
+        agentSessionPairedTerminalPanelIds.removeValue(forKey: panelId)
     }
 
     func discardBrowserPanelSubscription(panelId _: UUID, panel: (any Panel)?) {
@@ -7614,7 +7625,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             "cmux_freestyle_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_freestyle_cli\" ] || [ ! -x \"$cmux_freestyle_cli\" ]; then cmux_freestyle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_freestyle_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for Cloud VM SSH attach.' >&2; exit 127; fi",
-            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-\(SSHReconnectBudget().maximumLimit)}\"",
             "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",
@@ -9068,6 +9079,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
+        preserveBonsplitSelectionWhenUnfocused: Bool = false,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
@@ -9088,6 +9100,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
+            preserveBonsplitSelectionWhenUnfocused: preserveBonsplitSelectionWhenUnfocused,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
@@ -9113,6 +9126,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate,
         autoRefreshMetadata: Bool = true,
         preserveFocusWhenUnfocused: Bool = true,
+        preserveBonsplitSelectionWhenUnfocused: Bool = false,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         restoredSurfaceId: UUID? = nil,
@@ -9179,6 +9193,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             runtimeSpawnPolicy: runtimeSpawnPolicy,
             autoRefreshMetadata: autoRefreshMetadata,
             preserveFocusWhenUnfocused: preserveFocusWhenUnfocused,
+            preserveBonsplitSelectionWhenUnfocused: preserveBonsplitSelectionWhenUnfocused,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             restoredSurfaceId: restoredSurfaceId,
@@ -9202,6 +9217,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy,
         autoRefreshMetadata: Bool,
         preserveFocusWhenUnfocused: Bool,
+        preserveBonsplitSelectionWhenUnfocused: Bool,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         restoredSurfaceId: UUID?,
@@ -9213,6 +9229,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
+        let previousFocusedPaneId = bonsplitController.focusedPaneId
+        let previousSelectedTabId = previousFocusedPaneId.flatMap {
+            bonsplitController.selectedTab(inPane: $0)?.id
+        }
 
         var inheritedConfig = terminalFontSizeCreationPolicy.applying(
             to: inheritedTerminalConfig(inPane: paneId)
@@ -9327,6 +9347,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             bonsplitController.selectTab(newTabId)
             newPanel.focus()
             applyTabSelection(tabId: newTabId, inPane: paneId)
+        } else if preserveBonsplitSelectionWhenUnfocused {
+            clearNonFocusSplitFocusReassert()
+            if let previousFocusedPaneId {
+                bonsplitController.focusPane(previousFocusedPaneId)
+                if let previousSelectedTabId {
+                    bonsplitController.selectTab(previousSelectedTabId)
+                }
+            }
+            newPanel.unfocus()
         } else if preserveFocusWhenUnfocused || owningTabManager?.selectedTabId == id {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -10454,8 +10483,72 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         }
 
         installAgentSessionPanelSubscription(agentPanel)
+        installAgentSessionCommandRouting(agentPanel)
 
         return agentPanel
+    }
+
+    /// Binds composer command routing to this workspace's current ownership.
+    private func installAgentSessionCommandRouting(_ agentPanel: AgentSessionPanel) {
+        agentPanel.onRunCommand = { [weak self, weak agentPanel] command in
+            guard let self, let agentPanel,
+                  self.panels[agentPanel.id] === agentPanel,
+                  agentPanel.workspaceId == self.id else {
+                throw AgentSessionBridgeError.unsupportedTransport("terminal")
+            }
+            return try self.runAgentSessionCommand(command, for: agentPanel)
+        }
+    }
+
+    /// Creates the paired command terminal without arming the generic deferred
+    /// focus-repair path. Bonsplit selection is restored synchronously so later
+    /// user or layout selection changes remain authoritative.
+    private func newAgentSessionBackgroundTerminalSurface(
+        inPane paneId: PaneID,
+        workingDirectory: String?
+    ) -> TerminalPanel? {
+        newTerminalSurface(
+            inPane: paneId,
+            focus: false,
+            workingDirectory: workingDirectory,
+            autoRefreshMetadata: false,
+            preserveFocusWhenUnfocused: false,
+            preserveBonsplitSelectionWhenUnfocused: true
+        )
+    }
+
+    /// Routes composer shell commands to a terminal owned by this workspace.
+    /// The terminal is created once and reused so stateful commands such as `cd`
+    /// remain in effect for subsequent commands.
+    private func runAgentSessionCommand(
+        _ command: String,
+        for agentPanel: AgentSessionPanel
+    ) throws -> [String: Any] {
+        let resolvedTerminalPanel: TerminalPanel?
+        if let pairedTerminalPanelId = agentSessionPairedTerminalPanelIds[agentPanel.id],
+           let existing = terminalPanel(for: pairedTerminalPanelId) {
+            resolvedTerminalPanel = existing
+        } else {
+            agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
+            guard let paneId = paneId(forPanelId: agentPanel.id),
+                  let created = newAgentSessionBackgroundTerminalSurface(
+                      inPane: paneId,
+                      workingDirectory: agentPanel.workingDirectory
+                  ) else {
+                throw AgentSessionBridgeError.unsupportedTransport("terminal")
+            }
+            agentSessionPairedTerminalPanelIds[agentPanel.id] = created.id
+            resolvedTerminalPanel = created
+        }
+
+        guard let terminalPanel = resolvedTerminalPanel,
+              terminalPanel.sendInputResult(command + "\n").accepted else {
+            throw AgentSessionBridgeError.unsupportedTransport("terminal")
+        }
+        return [
+            "accepted": true,
+            "terminalPanelId": terminalPanel.id.uuidString
+        ]
     }
 
     @discardableResult
@@ -10920,6 +11013,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         var detached = splitLayout.takeDetachedTransfer(tabId)
         detached?.surfaceMachine = surfaceMachine
         detached?.origin = .workspace(id)
+        if detached != nil, let agentPanel = sourcePanel as? AgentSessionPanel {
+            // A detached panel is between owners. Drop this workspace's command
+            // route immediately; attachDetachedSurface installs the destination
+            // route after ownership has moved.
+            agentPanel.onRunCommand = nil
+            agentSessionPairedTerminalPanelIds.removeValue(forKey: agentPanel.id)
+        }
         if detached == nil {
             (sourcePanel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             AgentHibernationController.shared.discardTrackingStateForClosedPanel(
@@ -11157,6 +11257,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if !agentSessionPanelCallbackIds.contains(agentPanel.id) {
                 installAgentSessionPanelSubscription(agentPanel)
             }
+            installAgentSessionCommandRouting(agentPanel)
         }
         if detached.directoryIsTrustedRemoteReport {
             remoteDirectoryReportPanelIds.insert(detached.panelId); remoteDirectoryTrustRequiredPanelIds.insert(detached.panelId)

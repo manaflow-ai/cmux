@@ -108,6 +108,82 @@ describe("iOS mobile network observability route", () => {
     expect(flushTimeouts).toEqual([1_000]);
   });
 
+  test("accepts task model discovery failures for Axiom root-cause spans", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_task_model_discovery",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "model_list",
+        outcome: "failure",
+        duration_ms: 850,
+        model_count: 0,
+        failure: "hostUnreachable",
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      outcome: "failure",
+      durationMs: 850,
+      modelCount: 0,
+      failure: "hostUnreachable",
+    });
+  });
+
+  test("accepts task model retry decisions and rejects unknown stop reasons", async () => {
+    const retry = {
+      event: "ios_task_model_discovery",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "model_list", phase: "retry_scheduled", outcome: "failure",
+        duration_ms: 0, model_count: 0, failure: "timedOut",
+        attempt: 8, retry_delay_ms: 15_000, correlation_id: 42,
+      },
+    };
+    const stopped = {
+      ...retry,
+      properties: {
+        operation: "model_list", phase: "retry_stopped", outcome: "failure",
+        duration_ms: 0, model_count: 0, failure: "authorizationFailed",
+        stop_reason: "authorizationRequired",
+      },
+    };
+    const response = await POST(outcomeRequest([retry, stopped]));
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch).toMatchObject([
+      { discoveryPhase: "retry_scheduled", attempt: 8, retryDelayMs: 15_000, correlationId: 42 },
+      { discoveryPhase: "retry_stopped", stopReason: "authorizationRequired" },
+    ]);
+    const invalid = await POST(outcomeRequest([{
+      ...stopped, properties: { ...stopped.properties, stop_reason: "private error text" },
+    }]));
+    expect(invalid.status).toBe(400);
+  });
+
+  test("accepts task model result metadata", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_task_model_result",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "model_list",
+        provider: "codex",
+        source: "discovered",
+        effort_count: 6,
+        correlation_id: 42,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      provider: "codex",
+      source: "discovered",
+      effortCount: 6,
+      correlationId: 42,
+    });
+  });
+
   test("accepts a terminal latency window with bounded percentile fields", async () => {
     const response = await POST(outcomeRequest([terminalWindow()]));
 

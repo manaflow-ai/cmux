@@ -7,6 +7,7 @@ or be replaced by the path inventory. See test_cli_config_doctor.py.
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -119,6 +120,43 @@ class SupportedPathsTests(unittest.TestCase):
                 self.assertIn("terminal.copyOnSelect", result.stdout.splitlines())
                 self.assertIn("browser.urlAllowlist", result.stdout.splitlines())
                 self.assertEqual(result.stderr, "")
+
+
+class ShortcutActionReferenceTests(unittest.TestCase):
+    """The shortcut reference must list exactly the schema's action ids.
+
+    skills/cmux-keyboard-shortcuts/SKILL.md tells agents to validate action ids
+    against this reference, so an id the schema accepts but the file omits reads
+    as invented. Drift here silently blocks a real binding.
+    """
+
+    def test_reference_lists_every_schema_action(self):
+        schema = json.loads(
+            (REPO_ROOT / "web" / "data" / "cmux.schema.json").read_text()
+        )
+        enum = schema["properties"]["shortcuts"]["properties"]["bindings"][
+            "propertyNames"
+        ]["enum"]
+        reference = (
+            REPO_ROOT
+            / "skills"
+            / "cmux-settings"
+            / "references"
+            / "shortcut-actions.md"
+        ).read_text()
+        listed = set(
+            re.findall(r"^-\s+`shortcuts\.bindings\.([A-Za-z0-9-]+)`", reference, re.M)
+        )
+        self.assertEqual(
+            sorted(set(enum) - listed),
+            [],
+            "shortcut-actions.md is missing action ids the schema accepts",
+        )
+        self.assertEqual(
+            sorted(listed - set(enum)),
+            [],
+            "shortcut-actions.md lists action ids the schema rejects",
+        )
 
 
 if __name__ == "__main__":
