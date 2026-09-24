@@ -5274,7 +5274,7 @@ mod tests {
 
     #[test]
     fn browser_proxy_loopback_is_opt_in_for_ssh_carriers() {
-        let rejected = remote_browser_proxy::parse_browser_proxy_args(&[
+        let rejected = parse_browser_proxy_args(&[
             "ssh://host".into(),
             "--workspace-root".into(),
             "/".into(),
@@ -5283,7 +5283,7 @@ mod tests {
         ]);
         assert!(rejected.is_err());
 
-        let parsed = remote_browser_proxy::parse_browser_proxy_args(&[
+        let parsed = parse_browser_proxy_args(&[
             "ssh://host".into(),
             "--workspace-root".into(),
             "/".into(),

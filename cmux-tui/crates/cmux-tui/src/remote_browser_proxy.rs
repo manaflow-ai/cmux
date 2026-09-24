@@ -162,6 +162,7 @@ pub(super) async fn serve_browser_proxy(
     io::stdout().flush()?;
     let credentials = format!("{username}:{password}");
     let allowed_hosts = Arc::new(parsed.allowed_hosts);
+    let allow_loopback = parsed.allow_loopback;
     let mut finished = runtime.subscribe_finished();
     let parent = parsed.owner;
     let mut tasks = tokio::task::JoinSet::new();
@@ -188,7 +189,17 @@ pub(super) async fn serve_browser_proxy(
                 let workspace = workspace.clone();
                 let websocket_token = websocket_token.clone();
                 tasks.spawn(async move {
-                    let _ = serve_browser_connection(socket, client, workspace, allowed_hosts, credentials, websocket_token, proxy_port).await;
+                    let _ = serve_browser_connection(
+                        socket,
+                        client,
+                        workspace,
+                        allowed_hosts,
+                        credentials,
+                        websocket_token,
+                        proxy_port,
+                        allow_loopback,
+                    )
+                    .await;
                 });
             }
             _ = parent_check.tick() => {
@@ -209,6 +220,7 @@ async fn serve_browser_connection(
     credentials: String,
     websocket_token: String,
     proxy_port: u16,
+    allow_loopback: bool,
 ) -> anyhow::Result<()> {
     let mut first = [0_u8; 1];
     tokio::time::timeout(BROWSER_PROXY_HEADER_TIMEOUT, socket.peek(&mut first)).await??;
@@ -220,6 +232,7 @@ async fn serve_browser_connection(
             allowed_hosts,
             websocket_token,
             Vec::new(),
+            allow_loopback,
         )
         .await;
     }
@@ -231,6 +244,7 @@ async fn serve_browser_connection(
         credentials,
         websocket_token,
         proxy_port,
+        allow_loopback,
     )
     .await
 }
@@ -243,6 +257,7 @@ async fn serve_connect_connection(
     credentials: String,
     websocket_token: String,
     proxy_port: u16,
+    allow_loopback: bool,
 ) -> anyhow::Result<()> {
     let handshake_deadline = tokio::time::Instant::now() + BROWSER_PROXY_HEADER_TIMEOUT;
     let mut request = Vec::with_capacity(4096);
@@ -297,6 +312,7 @@ async fn serve_connect_connection(
             allowed_hosts,
             websocket_token,
             initial_payload,
+            allow_loopback,
         )
         .await;
     }
@@ -425,6 +441,7 @@ async fn serve_websocket_bridge(
     allowed_hosts: Arc<Vec<String>>,
     websocket_token: String,
     initial_payload: Vec<u8>,
+    allow_loopback: bool,
 ) -> anyhow::Result<()> {
     let deadline = tokio::time::Instant::now() + BROWSER_PROXY_HEADER_TIMEOUT;
     let (request, pending) = read_http_headers(&mut socket, deadline, initial_payload).await?;
@@ -440,7 +457,7 @@ async fn serve_websocket_bridge(
     let encoded =
         target.strip_prefix(prefix).ok_or_else(|| anyhow!("invalid WebSocket bridge path"))?;
     let (authority, path) = encoded.split_once('/').unwrap_or((encoded, ""));
-    let (host, port) = parse_connect_authority(authority)?;
+    let (host, port) = parse_connect_authority_with_loopback(authority, allow_loopback)?;
     if !allowed_hosts.iter().any(|allowed| allowed == &host) || port == 0 || port == 1337 {
         return Err(anyhow!("WebSocket bridge target is not allowed"));
     }
