@@ -266,10 +266,13 @@ jobs:
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
-      # Compile admission's pull-request pin. The DerivedData seed key hashes
-      # `xcodebuild -version`, so a different Xcode here can never adopt a
-      # seed, and the product contract hashes it too.
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # The DerivedData seed key hashes `xcodebuild -version`, and
+      # seed-derived-data.yml builds seeds on the macOS 26 pull-request pool
+      # with CMUX_CI_XCODE_APP_PR. On a macOS 26 runner take that pin so a seed
+      # can match; elsewhere keep select-ci-xcode.sh's pool default, which is
+      # the only Xcode the macOS 15 image carries (as pr_runner_pool.py pairs
+      # them).
+      CMUX_CI_XCODE_APP: ${{ contains(needs.runner.outputs.label, 'macos-26') && vars.CMUX_CI_XCODE_APP_PR || '' }}
       # Match the compile-admission contract so an E2E dispatch can adopt the
       # product a pull request already compiled for the same revision.
       # contract() hashes the Xcode and SDK that were selected, not the
