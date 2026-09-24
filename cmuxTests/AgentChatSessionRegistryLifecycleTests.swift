@@ -1,6 +1,6 @@
 import CMUXAgentLaunch
 import CmuxFoundation
-import CmuxMobileHost
+@testable import CmuxMobileHost
 import Foundation
 import Testing
 

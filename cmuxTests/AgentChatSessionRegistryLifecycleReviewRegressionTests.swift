@@ -1,6 +1,6 @@
 import CMUXAgentLaunch
 import CmuxAgentChat
-import CmuxMobileHost
+@testable import CmuxMobileHost
 import Foundation
 @preconcurrency import Network
 import Testing
