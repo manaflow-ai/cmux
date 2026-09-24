@@ -105,9 +105,7 @@ final class CodexTeamsAppServerFixture: @unchecked Sendable {
         let accepted = Darwin.accept(listenerFD, nil, nil)
         guard accepted >= 0 else { return }
         // Configure before publishing the descriptor to the fixture's stop path.
-        var noSignal: Int32 = 1
-        guard setsockopt(accepted, SOL_SOCKET, SO_NOSIGPIPE, &noSignal,
-                         socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+        guard ignoreSIGPIPE(onAcceptedFixtureSocket: accepted) else {
             Darwin.close(accepted)
             return
         }
