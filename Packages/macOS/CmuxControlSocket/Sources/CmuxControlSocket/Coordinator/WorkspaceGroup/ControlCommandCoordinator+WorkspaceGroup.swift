@@ -359,31 +359,45 @@ extension ControlCommandCoordinator {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        // `hex` is the canonical key and `color` its alias (mirrors the
-        // `custom_color` response field callers naturally echo). Accept
-        // "hex"/"color": null to clear the override, or omit it entirely.
-        let rawColor: String?
-        if params["hex"] != nil {
-            rawColor = rawString(params, "hex")
-        } else if params["color"] != nil {
-            rawColor = rawString(params, "color")
-        } else {
-            rawColor = nil
+        let colorParam = Self.aliasStringParam(params, canonical: "hex", alias: "color")
+        // `custom_color` is the response field name, not an accepted input
+        // key: echoed back alone it would read as a set while actually
+        // clearing the override (#9594 class). Point the caller at the real
+        // keys instead.
+        if params["custom_color"] != nil, case .absent = colorParam {
+            return .err(
+                code: "invalid_params",
+                message: "unknown key custom_color; set_color accepts hex or color",
+                data: .object(["custom_color": params["custom_color"] ?? .null])
+            )
         }
-        let trimmedColor = rawColor.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        // `hex` is the canonical key and `color` its alias. Accept
+        // "hex"/"color": null to clear the override, or omit both entirely.
         let normalized: String?
-        if let trimmedColor, !trimmedColor.isEmpty {
-            guard Self.isValidHexColor(trimmedColor) else {
-                let key = params["hex"] != nil ? "hex" : "color"
+        switch colorParam {
+        case .absent:
+            normalized = nil
+        case .supplied(let raw):
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                normalized = nil
+            } else if let canonical = Self.normalizeHexColor(trimmed) {
+                // Store the renderer's canonical spelling so a request cannot
+                // park a value the renderer would refuse to display.
+                normalized = canonical
+            } else {
                 return .err(
                     code: "invalid_params",
-                    message: "color must be a hex string like #RRGGBB",
-                    data: .object([key: .string(trimmedColor)])
+                    message: "color must be a 6-digit hex color like #FF3EA5 (leading # optional)",
+                    data: .object([params["hex"] != nil ? "hex" : "color": .string(raw)])
                 )
             }
-            normalized = trimmedColor
-        } else {
-            normalized = nil
+        case .typeMismatch(let value):
+            return .err(
+                code: "invalid_params",
+                message: "color must be a string holding a hex color",
+                data: .object([params["hex"] != nil ? "hex" : "color": value])
+            )
         }
         guard let ok = context?.controlSetWorkspaceGroupColor(
             routing: routingSelectors(params), groupID: gid, hex: normalized
@@ -400,18 +414,31 @@ extension ControlCommandCoordinator {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        // `symbol` is the canonical key and `icon` its alias (mirrors the
-        // `icon_symbol` response field callers naturally echo).
-        let rawSymbol: String?
-        if params["symbol"] != nil {
-            rawSymbol = rawString(params, "symbol")
-        } else if params["icon"] != nil {
-            rawSymbol = rawString(params, "icon")
-        } else {
-            rawSymbol = nil
+        let symbolParam = Self.aliasStringParam(params, canonical: "symbol", alias: "icon")
+        // `icon_symbol` is the response field name, not an accepted input
+        // key: echoed back alone it would read as a set while actually
+        // clearing the symbol. Point the caller at the real keys instead.
+        if params["icon_symbol"] != nil, case .absent = symbolParam {
+            return .err(
+                code: "invalid_params",
+                message: "unknown key icon_symbol; set_icon accepts symbol or icon",
+                data: .object(["icon_symbol": params["icon_symbol"] ?? .null])
+            )
         }
-        let symbol = rawSymbol.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
+        let normalized: String?
+        switch symbolParam {
+        case .absent:
+            normalized = nil
+        case .supplied(let raw):
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            normalized = trimmed.isEmpty ? nil : trimmed
+        case .typeMismatch(let value):
+            return .err(
+                code: "invalid_params",
+                message: "symbol must be a string",
+                data: .object([params["symbol"] != nil ? "symbol" : "icon": value])
+            )
+        }
         guard let result = context?.controlSetWorkspaceGroupIcon(
             routing: routingSelectors(params), groupID: gid, symbol: normalized
         ) else {
@@ -472,16 +499,50 @@ extension ControlCommandCoordinator {
 
     // MARK: - Local helpers
 
-    /// Whether `value` is a hex color (`#RGB`, `#RGBA`, `#RRGGBB`, or
-    /// `#RRGGBBAA`). Named colors are rejected so the caller learns the value
-    /// was not applied instead of silently clearing the override.
-    static func isValidHexColor(_ value: String) -> Bool {
-        guard value.first == "#" else { return false }
-        let digits = value.dropFirst()
-        guard [3, 4, 6, 8].contains(digits.count) else { return false }
-        return digits.allSatisfy { $0.isHexDigit }
+    /// How a string-typed RPC parameter (and its alias) was supplied.
+    enum AliasStringParam {
+        /// Neither key present, or the winning key is JSON `null` — the
+        /// documented spelling for "clear the override".
+        case absent
+        /// The winning key holds a JSON string (untrimmed).
+        case supplied(String)
+        /// The winning key holds some other JSON type. Surfacing this as
+        /// `invalid_params` keeps a mistyped value from silently clearing.
+        case typeMismatch(JSONValue)
     }
 
+    /// Resolves `canonical` — falling back to `alias` — in `params`. The
+    /// canonical key wins whenever it is present, so an alias can never
+    /// override an explicit canonical `null` clear.
+    static func aliasStringParam(
+        _ params: [String: JSONValue],
+        canonical: String,
+        alias: String
+    ) -> AliasStringParam {
+        for key in [canonical, alias] {
+            guard let value = params[key] else { continue }
+            if case .string(let string) = value {
+                return .supplied(string)
+            }
+            if case .null = value {
+                return .absent
+            }
+            return .typeMismatch(value)
+        }
+        return .absent
+    }
+
+    /// The canonical stored spelling for a group color: `#RRGGBB` (uppercase,
+    /// `#`-prefixed). This mirrors the renderer's own rule
+    /// (`WorkspaceTabColorSettings.normalizedHex`), which accepts a missing
+    /// leading `#` but only ever displays 6-digit values — so short and alpha
+    /// forms are rejected here rather than stored where they would silently
+    /// never render.
+    static func normalizeHexColor(_ value: String) -> String? {
+        let body = value.hasPrefix("#") ? String(value.dropFirst()) : value
+        guard body.count == 6, body.allSatisfy({ $0.isHexDigit }) else { return nil }
+        return "#" + body.uppercased()
+    }
 
     /// The localized workspace-group error strings, resolved by the app
     /// conformance against the app bundle.

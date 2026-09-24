@@ -7,6 +7,13 @@ import Testing
 /// override whenever the request spelled the value key anything other than
 /// `hex` / `symbol` — silently clearing the stored value instead of setting it
 /// or naming the offending parameter.
+///
+/// Review follow-ups on the same silent-clear class: colors are normalized to
+/// the renderer's canonical `#RRGGBB` spelling (leading `#` optional, since
+/// `set-color --hex FF3EA5` already worked through the renderer; short and
+/// alpha forms rejected because they store but never render), and echo-back
+/// response keys (`custom_color`, `icon_symbol`) plus non-string values return
+/// `invalid_params` instead of silently clearing.
 @MainActor
 @Suite("Control command workspace-group color and icon setters")
 struct ControlCommandCoordinatorWorkspaceGroupColorIconTests {
@@ -99,9 +106,11 @@ struct ControlCommandCoordinatorWorkspaceGroupColorIconTests {
         let context = FakeWorkspaceGroupColorIconContext()
         let coordinator = ControlCommandCoordinator(context: context)
 
-        // Five- and seven-digit payloads pass a naive length window but are
-        // not hex colors; they must be rejected, not stored or cleared.
-        for badValue in ["#12345", "#1234567", "#12", "#123456789", "123456"] {
+        // Short and alpha forms would store a value the display path never
+        // renders (it only accepts 6-digit RRGGBB), and the off-by-one
+        // lengths are not hex colors at all; all must be rejected, not
+        // stored or cleared.
+        for badValue in ["#F3A", "#F3AB", "#12345", "#1234567", "#FF3EA5C8", "#12", "#123456789"] {
             guard case .err(let code, _, _) = coordinator.handle(request(
                 "workspace.group.set_color",
                 [
@@ -116,7 +125,10 @@ struct ControlCommandCoordinatorWorkspaceGroupColorIconTests {
         }
         #expect(context.setColors.isEmpty)
 
-        for goodValue in ["#F3A", "#F3AB", "#FF3EA5", "#FF3EA5C8"] {
+        // Bare 6-digit hex is accepted: the renderer's `normalizedHex` takes
+        // it with or without the leading `#`, so rejecting it here would
+        // regress `set-color --hex FF3EA5`.
+        for goodValue in ["#FF3EA5", "FF3EA5"] {
             guard case .ok = coordinator.handle(request(
                 "workspace.group.set_color",
                 [
@@ -128,7 +140,95 @@ struct ControlCommandCoordinatorWorkspaceGroupColorIconTests {
                 continue
             }
         }
-        #expect(context.setColors.count == 4)
+        #expect(context.setColors.count == 2)
+    }
+
+    @Test func bareAndLowercaseHexNormalizeToCanonicalRRGGBB() {
+        let context = FakeWorkspaceGroupColorIconContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        // Whatever spelling arrives, the stored override and the echoed
+        // `custom_color` must be the renderer's canonical `#RRGGBB`, so a
+        // lowercase or bare value can never sit in storage unrendered.
+        for raw in ["FF3EA5", "ff3ea5", "  #ff3ea5  "] {
+            guard case .ok(.object(let payload)) = coordinator.handle(request(
+                "workspace.group.set_color",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    "hex": .string(raw),
+                ]
+            )) else {
+                Issue.record("\(raw) was rejected")
+                continue
+            }
+            #expect(context.setColors.last?.hex == "#FF3EA5")
+            #expect(payload["custom_color"] == .string("#FF3EA5"))
+        }
+        #expect(context.setColors.count == 3)
+    }
+
+    @Test func customColorEchoKeyAloneIsRejectedNotAClear() {
+        let context = FakeWorkspaceGroupColorIconContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        // `custom_color` is the response field name; echoing it back alone
+        // must return invalid_params instead of reading as a clear.
+        for echoed in [JSONValue.string("#FF3EA5"), .null] {
+            guard case .err(let code, let message, _) = coordinator.handle(request(
+                "workspace.group.set_color",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    "custom_color": echoed,
+                ]
+            )) else {
+                Issue.record("custom_color-only request was not rejected")
+                continue
+            }
+            #expect(code == "invalid_params")
+            #expect(message.contains("hex"))
+        }
+        #expect(context.setColors.isEmpty)
+    }
+
+    @Test func nonStringHexValueIsRejectedNotAClear() {
+        let context = FakeWorkspaceGroupColorIconContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        for badValue in [JSONValue.int(123), .bool(true), .object(["value": .string("#FF3EA5")])] {
+            guard case .err(let code, _, _) = coordinator.handle(request(
+                "workspace.group.set_color",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    "hex": badValue,
+                ]
+            )) else {
+                Issue.record("non-string hex was not rejected")
+                continue
+            }
+            #expect(code == "invalid_params")
+        }
+        #expect(context.setColors.isEmpty)
+    }
+
+    @Test func nullHexAndNullColorStillClear() {
+        let context = FakeWorkspaceGroupColorIconContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        for key in ["hex", "color"] {
+            guard case .ok(.object(let payload)) = coordinator.handle(request(
+                "workspace.group.set_color",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    key: .null,
+                ]
+            )) else {
+                Issue.record("null \(key) clear did not succeed")
+                continue
+            }
+            #expect(context.setColors.last?.hex == nil)
+            #expect(payload["custom_color"] == .null)
+        }
+        #expect(context.setColors.count == 2)
     }
 
     @Test func nonHexHexValueIsRejectedNamingTheParameter() {
@@ -190,6 +290,70 @@ struct ControlCommandCoordinatorWorkspaceGroupColorIconTests {
 
         #expect(context.setIcons.first?.symbol == "person.fill")
         #expect(payload["icon_symbol"] == .string("person.fill"))
+    }
+
+    @Test func iconSymbolEchoKeyAloneIsRejectedNotAClear() {
+        let context = FakeWorkspaceGroupColorIconContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        // `icon_symbol` is the response field name; echoing it back alone
+        // must return invalid_params instead of reading as a clear.
+        for echoed in [JSONValue.string("person.fill"), .null] {
+            guard case .err(let code, let message, _) = coordinator.handle(request(
+                "workspace.group.set_icon",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    "icon_symbol": echoed,
+                ]
+            )) else {
+                Issue.record("icon_symbol-only request was not rejected")
+                continue
+            }
+            #expect(code == "invalid_params")
+            #expect(message.contains("symbol"))
+        }
+        #expect(context.setIcons.isEmpty)
+    }
+
+    @Test func nonStringSymbolValueIsRejectedNotAClear() {
+        let context = FakeWorkspaceGroupColorIconContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        for badValue in [JSONValue.int(3), .bool(false)] {
+            guard case .err(let code, _, _) = coordinator.handle(request(
+                "workspace.group.set_icon",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    "symbol": badValue,
+                ]
+            )) else {
+                Issue.record("non-string symbol was not rejected")
+                continue
+            }
+            #expect(code == "invalid_params")
+        }
+        #expect(context.setIcons.isEmpty)
+    }
+
+    @Test func nullSymbolAndNullIconStillClear() {
+        let context = FakeWorkspaceGroupColorIconContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        for key in ["symbol", "icon"] {
+            guard case .ok(.object(let payload)) = coordinator.handle(request(
+                "workspace.group.set_icon",
+                [
+                    "group_id": .string(UUID().uuidString),
+                    key: .null,
+                ]
+            )) else {
+                Issue.record("null \(key) clear did not succeed")
+                continue
+            }
+            #expect(context.setIcons.last?.symbol == nil)
+            #expect(payload["icon_symbol"] == .null)
+        }
+        #expect(context.setIcons.count == 2)
     }
 
     private func request(
