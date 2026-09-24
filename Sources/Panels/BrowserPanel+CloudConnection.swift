@@ -2,6 +2,15 @@ import Foundation
 import WebKit
 
 extension BrowserPanel {
+    /// Keeps the browser-owned readiness callback installed while a committed
+    /// WebKit document is rebound to a new same-VM route.
+    func bindCloudBrowserNavigation() {
+        cloudAccess.automaticallyNavigate { [weak self] url in
+            guard let self, !self.isClosingWebViewLifecycle else { return }
+            _ = self.navigate(to: url)
+        }
+    }
+
     /// Activates an admitted Cloud route independently of the SwiftUI host.
     /// Callers validate resource ownership before reaching this boundary.
     func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
@@ -14,10 +23,7 @@ extension BrowserPanel {
         // A cached model can navigate synchronously. Its machine/profile store
         // must be installed first, including on reconfiguration and duplication.
         cloudAccess.configure(model: model, url: url, resourceID: resourceID)
-        cloudAccess.automaticallyNavigate { [weak self] url in
-            guard let self, !self.isClosingWebViewLifecycle else { return }
-            _ = self.navigate(to: url)
-        }
+        bindCloudBrowserNavigation()
         model.connect()
     }
 

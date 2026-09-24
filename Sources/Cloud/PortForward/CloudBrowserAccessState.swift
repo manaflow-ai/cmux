@@ -50,13 +50,20 @@ final class CloudBrowserAccessState {
         self.resourceID = resourceID
         self.model = model
         remoteURL = url
-        navigationURL = nil
+        // WebKit has already committed this URL. Retain that identity so the
+        // delegate's finish/desktop callbacks are accepted without issuing a
+        // second request after a same-VM redirect.
+        navigationURL = url
+        hasCommittedNavigation = true
+        loaded = false
         error = nil
         desktopFailure = nil
         dismissedFailure = nil
-        activeNavigationID = nil
+        desktopConnected = false
         connectionDeadline.cancel()
+        startDeadline()
         trace("route_adopted")
+        observeRoute()
     }
 
     func retainResource(_ resource: SurfaceResourceID) { resourceID = resource }

@@ -112,6 +112,7 @@ extension CmuxTuiSurfaceProvider {
         browser.retainTransferredSurfaceMachine(machine)
         if preserveCurrentNavigation {
             browser.prepareCloudBrowserStore(machineID: machineID)
+            browser.bindCloudBrowserNavigation()
             browser.cloudAccess.adoptCommittedRoute(model: model, url: privateURL, resourceID: resourceID)
             model.connect()
         } else {

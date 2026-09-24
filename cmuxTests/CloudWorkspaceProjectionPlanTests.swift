@@ -15,7 +15,12 @@ struct CloudWorkspaceProjectionPlanTests {
     @Test("A local Desktop preview survives a refresh with a remote placement")
     func localDisplayPreviewIsNotClosedAsObsolete() {
         let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
-        let preview = SurfaceProjection(resource: display, workspaceID: UUID(), panelID: UUID())
+        let preview = SurfaceProjection(
+            resource: display,
+            workspaceID: UUID(),
+            panelID: UUID(),
+            remoteWorkspaceID: "remote-workspace"
+        )
         let desired = SurfaceResourcePlacement(
             resource: display,
             remoteWorkspaceID: "remote-workspace",
@@ -25,6 +30,16 @@ struct CloudWorkspaceProjectionPlanTests {
         let plan = CloudWorkspaceProjectionPlan(desired: [desired], existing: [preview])
 
         #expect(plan.obsolete.isEmpty)
+        #expect(plan.missing == [desired])
+    }
+
+    @Test("A preview whose remote placement was deleted is retired")
+    func deletedRemotePlacementIsNotMistakenForPreview() {
+        let display = SurfaceResourceID(machine: machine, kind: .display, key: "display:1")
+        let deleted = SurfaceProjection(resource: display, workspaceID: UUID(), panelID: UUID())
+        let plan = CloudWorkspaceProjectionPlan(desired: [], existing: [deleted])
+
+        #expect(plan.obsolete == [deleted])
         #expect(plan.missing.isEmpty)
     }
 
