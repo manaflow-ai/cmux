@@ -162,6 +162,41 @@ struct CloudHubConnectorHedgeTests {
         #expect(ledger.count(0) > 1)
     }
 
+    private final class DialCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var dials = 0
+        func next() -> Int { lock.withLock { dials += 1; return dials } }
+    }
+
+    @Test("Ticks skipped while the other family is pending do not spend the refused family's redials")
+    func skippedTicksDoNotSpendRedials() async throws {
+        let ledger = PerCandidateLedger()
+        let preferredDials = DialCounter()
+        let value = try await CloudHubConnector.hedged(
+            candidates: 2,
+            fallbackDelay: .milliseconds(50),
+            redialInterval: .milliseconds(20),
+            maxRedials: 3,
+            timeout: .seconds(2),
+            clock: ContinuousClock(),
+            attempt: { index in
+                ledger.start(index)
+                // The other family is blackholed: its attempts never answer.
+                if index == 1 {
+                    try await Task.sleep(for: .seconds(60))
+                    return index
+                }
+                // The preferred family refuses its first dial; its listener is
+                // open by the next one.
+                if preferredDials.next() == 1 { throw Refused() }
+                return index
+            },
+            discard: { _ in }
+        )
+        #expect(value == 0)
+        #expect(ledger.count(0) == 2, "Only launched redials count against the cap")
+    }
+
     @Test("Every success other than the winner is discarded, so no stream leaks")
     func extraSuccessesAreDiscarded() async throws {
         let ledger = Ledger()
