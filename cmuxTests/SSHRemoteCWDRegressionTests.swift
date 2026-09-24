@@ -45,15 +45,10 @@ struct SSHRemoteCWDRegressionTests {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
         return ProcessRunResult(
             status: process.terminationStatus,
