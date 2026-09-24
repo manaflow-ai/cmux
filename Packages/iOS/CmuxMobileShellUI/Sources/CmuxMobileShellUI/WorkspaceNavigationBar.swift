@@ -2,8 +2,8 @@
 import SwiftUI
 import UIKit
 
-/// A UIKit navigation controller owns the detail content's navigation chrome
-/// and safe areas. SwiftUI supplies the existing content, actions, and menus.
+/// Installs native items on the containing screen's navigation bar without
+/// rehosting its content or introducing a second navigation stack.
 struct WorkspaceNavigationBar: UIViewControllerRepresentable {
     struct Item {
         enum ID: Hashable {
@@ -15,9 +15,6 @@ struct WorkspaceNavigationBar: UIViewControllerRepresentable {
     }
 
     let title: AnyView
-    let content: AnyView
-    let backgroundColor: UIColor
-    let scrollEdgeGlass: Bool
     let leadingItems: [Item]
     let trailingItems: [Item]
 
@@ -28,15 +25,14 @@ struct WorkspaceNavigationBar: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: WorkspaceNavigationBarController, context: Context) {
         controller.update(
             title: title,
-            content: content,
-            backgroundColor: backgroundColor,
-            scrollEdgeGlass: scrollEdgeGlass,
             leadingItems: leadingItems,
             trailingItems: trailingItems,
             environment: context.environment
         )
     }
 
+    static func dismantleUIViewController(_ controller: WorkspaceNavigationBarController, coordinator: ()) {
+        controller.restoreConfiguration()
+    }
 }
-
 #endif

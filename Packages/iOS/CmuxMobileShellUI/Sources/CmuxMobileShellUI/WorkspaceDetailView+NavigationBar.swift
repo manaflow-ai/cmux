@@ -5,26 +5,21 @@ import UIKit
 
 extension WorkspaceDetailView {
     func workspaceNavigationBar<Content: View>(content: Content) -> some View {
-        WorkspaceNavigationBar(
-            title: AnyView(workspaceTitleMenu()),
-            content: AnyView(content),
-            backgroundColor: UIColor(store.activeTerminalTheme.terminalBackgroundColor),
-            scrollEdgeGlass: terminalScrollEdgeGlassActive,
-            leadingItems: navigationBarLeadingItems,
-            trailingItems: navigationBarTrailingItems
-        )
-        // The navigation controller manages the status bar, navigation bar,
-        // and landscape margins as one native container.
-        // The terminal owns the bottom keyboard dock and needs the controller
-        // to retain the full window height. UIKit will otherwise size the
-        // representable to the visible area above the software keyboard,
-        // moving the dock and keyboard shortcut row upward in landscape.
-        // This controller is the detail surface's full-screen owner. The
-        // terminal's own dock consumes keyboard/home-indicator overlap, so the
-        // representable must receive the unmodified window bounds.
-        .ignoresSafeArea()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
+        content
+            .navigationTitle(systemNavigationTitle)
+            .mobileTerminalNavigationChrome(
+                theme: store.activeTerminalTheme,
+                scrollEdgeGlass: terminalScrollEdgeGlassActive
+            )
+            .mobileNavigationContainerBackground(store.activeTerminalTheme.terminalBackgroundColor)
+            .mobilePinnedNavigationBar()
+            .background {
+                WorkspaceNavigationBar(
+                    title: AnyView(workspaceTitleMenu()),
+                    leadingItems: navigationBarLeadingItems,
+                    trailingItems: navigationBarTrailingItems
+                )
+            }
     }
 
     private var navigationBarLeadingItems: [WorkspaceNavigationBar.Item] {

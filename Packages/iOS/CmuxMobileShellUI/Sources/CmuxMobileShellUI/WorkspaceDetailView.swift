@@ -290,12 +290,11 @@ struct WorkspaceDetailView: View {
     }
 
 #if os(iOS)
-    /// UIKit owns the detail bar's title and fixed controls. The surrounding
-    /// NavigationStack still owns routing and interactive back navigation.
+    /// The existing navigation stack owns content and routing. UIKit installs
+    /// the compressible title and pinned actions on that screen's native item.
     @ViewBuilder
     private func detailNavigationChrome<Content: View>(_ content: Content) -> some View {
         workspaceNavigationBar(content: content)
-            .toolbar(.hidden, for: .navigationBar)
     }
 #endif
 

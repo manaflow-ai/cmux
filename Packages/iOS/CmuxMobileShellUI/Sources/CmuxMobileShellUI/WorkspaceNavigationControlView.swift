@@ -10,19 +10,17 @@ final class WorkspaceNavigationControlView: UIView {
     private var width: NSLayoutConstraint?
 
     init(content: AnyView) {
-        contentView = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
+        contentView = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
         super.init(frame: .zero)
         // The bar already places items around the device's safe area. Adding
         // it again here enlarges the end items by 17 points in landscape.
         insetsLayoutMarginsFromSafeArea = false
-        preservesSuperviewLayoutMargins = false
-        directionalLayoutMargins = .zero
         translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentView)
         NSLayoutConstraint.activate([
-            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: 36),
         ])
@@ -38,7 +36,7 @@ final class WorkspaceNavigationControlView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        return CGSize(width: contentSize.width, height: 36)
+        return CGSize(width: contentSize.width + layoutMargins.left + layoutMargins.right, height: 36)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
@@ -51,7 +49,7 @@ final class WorkspaceNavigationControlView: UIView {
     }
 
     func update(content: AnyView) {
-        contentView.configuration = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0)
+        contentView.configuration = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0)
         refreshContentSize()
     }
 

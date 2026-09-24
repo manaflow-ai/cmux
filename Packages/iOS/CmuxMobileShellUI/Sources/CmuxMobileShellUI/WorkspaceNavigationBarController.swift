@@ -2,107 +2,51 @@
 import SwiftUI
 import UIKit
 
+/// Configures the containing screen's native navigation item. The existing
+/// navigation stack remains the sole owner of routing and content safe areas.
 @MainActor
-final class WorkspaceNavigationBarController: UINavigationController {
-    private let contentHost = UIHostingController(rootView: AnyView(EmptyView()))
-    private let barScrollAnchor = UIScrollView()
-    private var bar: UINavigationBar { navigationBar }
-    private var item: UINavigationItem { contentHost.navigationItem }
+final class WorkspaceNavigationBarController: UIViewController {
     private let titleCapsule = WorkspaceNavigationTitleView()
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
-    private var leadingIDs: [WorkspaceNavigationBar.Item.ID] = []
+    private var leadingButtons: [UIBarButtonItem] = []
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
+    private var trailingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
+    private weak var owner: UIViewController?
+    private var originalItem: OriginalItem?
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        bar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
-        bar.tintColor = .label
-        bar.prefersLargeTitles = false
-        bar.preservesSuperviewLayoutMargins = false
-        bar.insetsLayoutMarginsFromSafeArea = false
-        updateLandscapeMargins()
-        contentHost.view.backgroundColor = .clear
-        setViewControllers([contentHost], animated: false)
-        // Preserve the existing pinned bar on browser/chat surfaces. Owning
-        // the controller lets us set this public association directly.
-        barScrollAnchor.isScrollEnabled = false
-        contentHost.setContentScrollView(barScrollAnchor, for: .top)
-
-        item.style = .browser
-        item.largeTitleDisplayMode = .never
+        view.backgroundColor = .clear
+        view.isUserInteractionEnabled = false
     }
 
-    override func viewSafeAreaInsetsDidChange() {
-        super.viewSafeAreaInsetsDidChange()
-        updateLandscapeMargins()
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        applyConfiguration()
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        // UINavigationBar reapplies its safe-area margins during layout. Set
-        // the public margins after that pass so custom items use the same
-        // landscape leading inset as the original SwiftUI bar.
-        updateLandscapeMargins()
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        applyConfiguration()
     }
 
-    private func updateLandscapeMargins() {
-        // SwiftUI's original toolbar extends 6 points farther into the
-        // landscape leading safe area. Keep UIKit's native safe-area handling
-        // and express that difference through the bar's public margins.
-        let landscapeLeadingAdjustment: CGFloat = view.safeAreaInsets.left > 0 ? 39 : 16
-        bar.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 0,
-            leading: landscapeLeadingAdjustment,
-            bottom: 0,
-            trailing: 0
-        )
-        bar.layoutMargins = UIEdgeInsets(
-            top: 0,
-            left: landscapeLeadingAdjustment,
-            bottom: 0,
-            right: 0
-        )
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        applyConfiguration()
     }
 
     func update(
         title: AnyView,
-        content: AnyView,
-        backgroundColor: UIColor,
-        scrollEdgeGlass: Bool,
         leadingItems: [WorkspaceNavigationBar.Item],
         trailingItems: [WorkspaceNavigationBar.Item],
         environment: EnvironmentValues
     ) {
         loadViewIfNeeded()
-        overrideUserInterfaceStyle = environment.colorScheme == .dark ? .dark : .light
-        view.backgroundColor = backgroundColor
-        contentHost.rootView = AnyView(content.environment(\.self, environment))
-        let appearance: UINavigationBarAppearance?
-        if scrollEdgeGlass {
-            // Preserve the system's transparent bar and scroll-edge effect.
-            appearance = nil
-        } else {
-            let opaqueAppearance = UINavigationBarAppearance()
-            opaqueAppearance.configureWithOpaqueBackground()
-            opaqueAppearance.backgroundColor = backgroundColor
-            appearance = opaqueAppearance
-        }
-        item.standardAppearance = appearance
-        item.scrollEdgeAppearance = appearance
-        item.compactAppearance = appearance
-        item.compactScrollEdgeAppearance = appearance
         titleCapsule.update(content: AnyView(title
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
             .environment(\.self, environment)))
-        titleCapsule.invalidateIntrinsicContentSize()
-        // A custom title must have a natural size before the bar resizes it.
-        // The bar owns the final frame between the leading and trailing items.
         titleCapsule.frame.size = titleCapsule.intrinsicContentSize
-        if item.titleView !== titleCapsule {
-            item.titleView = titleCapsule
-        }
-        titleCapsule.setNeedsLayout()
 
         for value in leadingItems + trailingItems {
             let content = AnyView(value.content
@@ -114,42 +58,91 @@ final class WorkspaceNavigationBarController: UINavigationController {
                 control.view.update(content: content)
             } else {
                 let customView = WorkspaceNavigationControlView(content: content)
-                let button = UIBarButtonItem(customView: customView)
-                controls[value.id] = HostedControl(button: button, view: customView)
+                controls[value.id] = HostedControl(
+                    button: UIBarButtonItem(customView: customView), view: customView
+                )
             }
         }
-
-        let nextLeadingIDs = leadingItems.map(\.id)
+        leadingButtons = leadingItems.compactMap { controls[$0.id]?.button }
         let nextTrailingIDs = trailingItems.map(\.id)
-        if leadingIDs != nextLeadingIDs {
-            leadingIDs = nextLeadingIDs
-            item.setLeftBarButtonItems(
-                leadingIDs.compactMap { controls[$0]?.button },
-                animated: false
-            )
-        }
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs
-            // This group contains the actions that must remain available.
-            // UIKit reserves its width before laying out the compressible title.
-            item.pinnedTrailingGroup = UIBarButtonItemGroup(
+            // Pin essential actions so the native bar compresses its title first.
+            trailingGroup = UIBarButtonItemGroup(
                 barButtonItems: trailingIDs.compactMap { controls[$0]?.button },
                 representativeItem: nil
             )
         }
+        let visibleIDs = Set((leadingItems + trailingItems).map(\.id))
+        controls = controls.filter { visibleIDs.contains($0.key) }
+        applyConfiguration()
+    }
 
-        let visibleIDs = Set(leadingIDs + trailingIDs)
-        for id in Array(controls.keys) where !visibleIDs.contains(id) {
-            guard let control = controls.removeValue(forKey: id) else { continue }
-            control.view.removeFromSuperview()
+    private func applyConfiguration() {
+        // Public view-controller containment identifies this screen's item.
+        // Never configure another screen via navigationController.topViewController.
+        var ancestor = parent
+        while let candidate = ancestor, !(candidate.parent is UINavigationController) {
+            ancestor = candidate.parent
         }
-        bar.setNeedsLayout()
+        guard let target = ancestor, let navigation = target.parent as? UINavigationController else { return }
+        if owner !== target {
+            restoreConfiguration()
+            owner = target
+            originalItem = OriginalItem(item: target.navigationItem)
+        }
+        let item = target.navigationItem
+        navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
+        item.style = .browser
+        item.largeTitleDisplayMode = .never
+        if item.titleView !== titleCapsule {
+            item.titleView = titleCapsule
+        }
+        if !(item.leftBarButtonItems ?? []).elementsEqual(leadingButtons, by: { $0 === $1 }) {
+            item.setLeftBarButtonItems(leadingButtons, animated: false)
+        }
+        if item.pinnedTrailingGroup !== trailingGroup {
+            item.pinnedTrailingGroup = trailingGroup
+        }
+    }
+
+    func restoreConfiguration() {
+        guard let owner, let originalItem else { return }
+        let item = owner.navigationItem
+        if item.titleView === titleCapsule {
+            item.titleView = originalItem.titleView
+            item.style = originalItem.style
+            item.largeTitleDisplayMode = originalItem.largeTitleDisplayMode
+        }
+        if (item.leftBarButtonItems ?? []).elementsEqual(leadingButtons, by: { $0 === $1 }) {
+            item.setLeftBarButtonItems(originalItem.leadingButtons, animated: false)
+        }
+        if item.pinnedTrailingGroup === trailingGroup {
+            item.pinnedTrailingGroup = originalItem.trailingGroup
+        }
+        self.owner = nil
+        self.originalItem = nil
     }
 
     private struct HostedControl {
         let button: UIBarButtonItem
         let view: WorkspaceNavigationControlView
     }
-}
 
+    private struct OriginalItem {
+        let titleView: UIView?
+        let style: UINavigationItem.Style
+        let largeTitleDisplayMode: UINavigationItem.LargeTitleDisplayMode
+        let leadingButtons: [UIBarButtonItem]?
+        let trailingGroup: UIBarButtonItemGroup?
+
+        init(item: UINavigationItem) {
+            titleView = item.titleView
+            style = item.style
+            largeTitleDisplayMode = item.largeTitleDisplayMode
+            leadingButtons = item.leftBarButtonItems
+            trailingGroup = item.pinnedTrailingGroup
+        }
+    }
+}
 #endif
