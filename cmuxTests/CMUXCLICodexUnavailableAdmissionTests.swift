@@ -8,8 +8,10 @@ import Testing
 @testable import cmux
 #endif
 
+/// Exercises the CLI handoff from conservative Codex verification to app admission.
 @Suite(.serialized)
 struct CMUXCLICodexUnavailableAdmissionTests {
+    /// An unreadable Codex database must reach shared admission and launch only after its claim.
     @Test("Unreadable Codex evidence is handed to shared admission instead of returning busy")
     func unavailableEvidenceUsesAdmission() throws {
         let harness = CMUXCLIErrorOutputRegressionTests()
@@ -18,7 +20,7 @@ struct CMUXCLICodexUnavailableAdmissionTests {
             .appendingPathComponent("cmux-codex-unavailable-admission-\(UUID().uuidString)", isDirectory: true)
         let workingDirectory = root.appendingPathComponent("saved cwd", isDirectory: true)
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
-        let marker = root.appendingPathComponent("restore-started", isDirectory: false)
+        let marker = codexHome.appendingPathComponent("restore-started", isDirectory: false)
         let executable = root.appendingPathComponent("codex", isDirectory: false)
         let checkpointID = "01a03bc1-7649-7ec3-bdf7-03acf979e086"
         let workspaceID = UUID().uuidString.lowercased()
@@ -27,7 +29,7 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         try Data("not-a-sqlite-database".utf8)
             .write(to: codexHome.appendingPathComponent("state_5.sqlite"), options: .atomic)
-        try "#!/bin/sh\nprintf 'started\\n' > \"$RESTORE_MARKER\"\n"
+        try "#!/bin/sh\nprintf 'started\\n' > \"$CODEX_HOME/restore-started\"\n"
             .write(to: executable, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -48,12 +50,12 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         let record: [String: Any] = [
             "mode": "resumeAgent", "kind": "codex", "checkpoint_id": checkpointID,
             "source": "agent-hook", "working_directory": workingDirectory.path,
-            "environment": ["CODEX_HOME": codexHome.path, "RESTORE_MARKER": marker.path],
+            "environment": ["CODEX_HOME": codexHome.path],
             "launch_command": [
                 "launcher": "codex", "executable_path": executable.path,
                 "arguments": [executable.path, "resume", checkpointID],
                 "working_directory": workingDirectory.path,
-                "environment": ["CODEX_HOME": codexHome.path, "RESTORE_MARKER": marker.path]
+                "environment": ["CODEX_HOME": codexHome.path]
             ],
             "prepared_arguments": [executable.path, "resume", checkpointID]
         ]
@@ -99,6 +101,7 @@ struct CMUXCLICodexUnavailableAdmissionTests {
         #expect(!result.stderr.localizedCaseInsensitiveContains("could not read its saved session records"), Comment(rawValue: diagnostics))
     }
 
+    /// Encodes a successful v2 socket result for the CLI fixture.
     private func jsonResponse(result: [String: Any]) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: ["ok": true, "result": result])
         return String(decoding: data, as: UTF8.self)
