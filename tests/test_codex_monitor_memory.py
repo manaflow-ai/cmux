@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Regression: a retained Codex transcript monitor must release parser temporaries
-between transcript updates.
+Regression: one retained Codex transcript monitor must reach a bounded RSS
+plateau as synchronized transcript updates are processed.
 
-The test drives the real CLI monitor against FakeCmuxSocket and synthetic JSONL.
-Each large assistant append is paired with a unique request_user_input marker;
-the test waits until the monitor publishes that marker before the next append,
-so every RSS checkpoint follows a known completed monitor wake instead of a
-fixed timing delay.
+The test drives the real CLI monitor against FakeCmuxSocket. Each synthetic
+update includes a large assistant row plus a unique request_user_input marker.
+The notification for that marker is the parser-progress signal before the next
+write, so checkpoints do not depend on fixed sleeps or scheduler timing.
 """
 
 from __future__ import annotations
@@ -28,18 +27,18 @@ from test_codex_feed_hooks import (
     FAKE_WORKSPACE_ID,
     FakeCmuxSocket,
     monitor_pids_for_session,
+    wait_for_monitor_pids,
 )
 
 
 TRANSCRIPT_WRITES = 60
 TRANSCRIPT_MESSAGE_BYTES = 30_000
-CHECKPOINT_INTERVAL = 20
+CHECKPOINT_WRITES = {20, 40, 60}
 MAX_LATE_GROWTH_KB = 16 * 1024
-POLL_INTERVAL_SECONDS = 0.02
 
 
 def monitor_rss_kb(pid: int) -> int:
-    """Return the monitor's resident set size in KiB."""
+    """Return the monitor's current resident set size in KiB."""
     result = subprocess.run(
         ["ps", "-axo", "pid=,rss=,command="],
         capture_output=True,
@@ -56,46 +55,19 @@ def monitor_rss_kb(pid: int) -> int:
     raise AssertionError(f"monitor pid {pid} disappeared while sampling RSS")
 
 
-def wait_for_monitor_count(
-    session_id: str,
-    expected_count: int,
+def wait_for_raw_command(
+    server: FakeCmuxSocket,
+    needle: str,
     *,
-    timeout: float = 5,
-) -> list[int]:
-    """Wait until the synthetic session has exactly the expected monitor count."""
-    deadline = time.monotonic() + timeout
-    last: list[int] = []
-    while time.monotonic() < deadline:
-        last = monitor_pids_for_session(session_id)
-        if len(last) == expected_count:
-            return last
-        time.sleep(POLL_INTERVAL_SECONDS)
-    raise AssertionError(
-        f"expected {expected_count} monitor(s) for {session_id}, saw {last}"
-    )
-
-
-def wait_for_monitor_marker(
-    fake: FakeCmuxSocket,
-    marker: str,
-    *,
-    session_id: str,
-    monitor_pid: int,
-    timeout: float = 10,
+    timeout: float = 5.0,
 ) -> None:
-    """Wait for the monitor to publish one unique transcript marker."""
+    """Wait on the notification emitted by the transcript parser."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        for frame in list(fake.frames):
-            raw = frame.get("raw") if isinstance(frame, dict) else None
-            if isinstance(raw, str) and marker in raw:
-                return
-        if monitor_pid not in monitor_pids_for_session(session_id):
-            raise AssertionError(
-                f"monitor pid {monitor_pid} exited before publishing {marker}"
-            )
-        time.sleep(POLL_INTERVAL_SECONDS)
-    raise AssertionError(f"monitor did not publish transcript marker {marker}")
+        if any(needle in frame.get("raw", "") for frame in list(server.frames)):
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"monitor did not publish parser checkpoint {needle!r}")
 
 
 def run_codex_hook(
@@ -105,7 +77,7 @@ def run_codex_hook(
     payload: dict[str, str],
     environment: dict[str, str],
 ) -> None:
-    """Run one Codex lifecycle hook against the isolated fake socket."""
+    """Run one Codex hook against the isolated fake socket."""
     result = subprocess.run(
         [cli_path, "--socket", str(socket_path), "hooks", "codex", subcommand],
         input=json.dumps(payload),
@@ -122,8 +94,58 @@ def run_codex_hook(
         )
 
 
+def append_synchronized_update(
+    transcript_path: Path,
+    *,
+    turn_id: str,
+    index: int,
+) -> str:
+    """Append one large parse workload plus a unique observable checkpoint."""
+    question = f"memory checkpoint {index}"
+    assistant_row = {
+        "type": "response_item",
+        "payload": {
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "output_text",
+                    "text": "synthetic " + "x" * TRANSCRIPT_MESSAGE_BYTES,
+                }
+            ],
+        },
+    }
+    checkpoint_row = {
+        "type": "event_msg",
+        "payload": {
+            "type": "request_user_input",
+            "call_id": f"memory-checkpoint-{index}",
+            "turn_id": turn_id,
+            "questions": [
+                {
+                    "id": f"memory-{index}",
+                    "header": "Memory",
+                    "question": question,
+                    "options": [
+                        {
+                            "label": "Continue",
+                            "description": "Synthetic monitor progress marker",
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+    with transcript_path.open("a", encoding="utf-8") as transcript:
+        transcript.write(json.dumps(assistant_row) + "\n")
+        transcript.write(json.dumps(checkpoint_row) + "\n")
+        transcript.flush()
+        os.fsync(transcript.fileno())
+    return question
+
+
 def test_codex_monitor_rss_reaches_a_plateau(cli_path: str, root: Path) -> None:
-    """Verify repeated transcript parses stop adding retained RSS after warm-up."""
+    """Verify one monitor stops accumulating parser temporaries across wakes."""
     socket_path = root / "cmux-monitor-memory.sock"
     state_dir = root / "hook-state-memory"
     transcript_path = root / "codex-session-memory.jsonl"
@@ -160,11 +182,12 @@ def test_codex_monitor_rss_reaches_a_plateau(cli_path: str, root: Path) -> None:
         }
     )
 
+    monitor_pid: int | None = None
     with FakeCmuxSocket(
         socket_path,
         None,
         surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
-    ) as fake:
+    ) as server:
         try:
             run_codex_hook(
                 cli_path, socket_path, "session-start", hook_payload, environment
@@ -175,7 +198,7 @@ def test_codex_monitor_rss_reaches_a_plateau(cli_path: str, root: Path) -> None:
                     cli_path, socket_path, "prompt-submit", hook_payload, environment
                 )
                 monitor_counts.append(
-                    len(wait_for_monitor_count(session_id, 1, timeout=5))
+                    len(wait_for_monitor_pids(session_id, present=True, timeout=5))
                 )
             if monitor_counts != [1, 1, 1]:
                 raise AssertionError(
@@ -183,79 +206,53 @@ def test_codex_monitor_rss_reaches_a_plateau(cli_path: str, root: Path) -> None:
                     f"counts={monitor_counts}"
                 )
 
-            monitor_pids = wait_for_monitor_count(session_id, 1, timeout=5)
+            monitor_pids = wait_for_monitor_pids(
+                session_id, present=True, timeout=5
+            )
+            if len(monitor_pids) != 1:
+                raise AssertionError(
+                    f"expected one synthetic monitor, saw {monitor_pids}"
+                )
             monitor_pid = monitor_pids[0]
+            baseline_kb = monitor_rss_kb(monitor_pid)
+
             samples: list[int] = []
-
-            for index in range(TRANSCRIPT_WRITES):
-                marker = f"cmux-memory-sync-{index:03d}"
-                assistant_row = json.dumps(
-                    {
-                        "type": "response_item",
-                        "payload": {
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [
-                                {
-                                    "type": "output_text",
-                                    "text": (
-                                        f"synthetic {index:03d} "
-                                        + "x" * TRANSCRIPT_MESSAGE_BYTES
-                                    ),
-                                }
-                            ],
-                        },
-                    }
+            for index in range(1, TRANSCRIPT_WRITES + 1):
+                question = append_synchronized_update(
+                    transcript_path,
+                    turn_id=turn_id,
+                    index=index,
                 )
-                marker_row = json.dumps(
-                    {
-                        "type": "event_msg",
-                        "payload": {
-                            "type": "request_user_input",
-                            "turn_id": turn_id,
-                            "call_id": marker,
-                            "questions": [{"question": marker}],
-                        },
-                    }
-                )
-                with transcript_path.open("a", encoding="utf-8") as transcript:
-                    transcript.write(assistant_row + "\n")
-                    transcript.write(marker_row + "\n")
+                wait_for_raw_command(server, question)
 
-                wait_for_monitor_marker(
-                    fake,
-                    marker,
-                    session_id=session_id,
-                    monitor_pid=monitor_pid,
-                )
-
-                if (index + 1) % CHECKPOINT_INTERVAL == 0:
-                    current_pids = wait_for_monitor_count(session_id, 1, timeout=5)
+                if index in CHECKPOINT_WRITES:
+                    current_pids = monitor_pids_for_session(session_id)
                     if current_pids != [monitor_pid]:
                         raise AssertionError(
-                            "single monitor changed during transcript updates: "
-                            f"expected={monitor_pid} saw={current_pids}"
+                            "single monitor identity changed during memory run: "
+                            f"expected={[monitor_pid]} current={current_pids}"
                         )
                     samples.append(monitor_rss_kb(monitor_pid))
 
-            if len(samples) != 3:
-                raise AssertionError(f"expected three RSS checkpoints, saw {samples}")
+            if len(samples) != len(CHECKPOINT_WRITES):
+                raise AssertionError(f"missing RSS checkpoints: {samples}")
             late_growth_kb = samples[-1] - samples[0]
             if late_growth_kb > MAX_LATE_GROWTH_KB:
                 raise AssertionError(
-                    "monitor RSS did not plateau after transcript-tail warm-up: "
-                    f"samples={samples} late_growth_kb={late_growth_kb}"
+                    "monitor RSS kept growing after transcript-tail warm-up: "
+                    f"baseline={baseline_kb} samples={samples} "
+                    f"late_growth_kb={late_growth_kb}"
                 )
 
             run_codex_hook(cli_path, socket_path, "stop", hook_payload, environment)
-            wait_for_monitor_count(session_id, 0, timeout=30)
+            wait_for_monitor_pids(session_id, present=False, timeout=30)
         finally:
             for pid in monitor_pids_for_session(session_id):
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
 def main() -> int:
-    """Run the isolated monitor memory regression."""
+    """Run the isolated monitor memory regression and report its result."""
     try:
         cli_path = resolve_cmux_cli()
     except Exception as exc:

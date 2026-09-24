@@ -1,5 +1,16 @@
 {
   "vmErrors": {
+    "guestInstall": {
+      "title": "Configuration de la Cloud VM incomplète",
+      "reason": "La configuration invitée de la Cloud VM n'est pas terminée.",
+      "message": "cmux n'a pas pu terminer la configuration de la Cloud VM.",
+      "action": "Réessayez. Si le problème persiste, contactez le support."
+    },
+    "createCleanupPending": {
+      "title": "Nettoyage de la VM Cloud en attente",
+      "message": "La configuration de la VM Cloud a échoué et le nettoyage est encore en attente.",
+      "action": "Contactez le support avec l’identifiant de trace avant de créer une autre machine."
+    },
     "unsupported": {
       "title": "Opération de Cloud VM indisponible",
       "reason": "Ce type de machine ne propose pas cette opération.",

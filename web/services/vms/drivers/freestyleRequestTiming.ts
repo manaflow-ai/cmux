@@ -12,6 +12,7 @@ export type FreestyleRequestTiming = {
 
 type Options = {
   readonly timeoutMs: number;
+  readonly signal?: AbortSignal;
   readonly fetch?: typeof fetch;
   readonly record?: (event: FreestyleRequestTiming) => void;
   readonly now?: () => number;
@@ -22,9 +23,11 @@ export function freestyleRequestFetch(options: Options): typeof fetch {
   const fetchImpl = options.fetch ?? fetch;
   const timeoutSignal = () => AbortSignal.timeout(options.timeoutMs);
   const request = ((input, init) => fetchImpl(input, {
-    ...(init ?? {}), signal: init?.signal
-      ? AbortSignal.any([init.signal, timeoutSignal()])
-      : timeoutSignal(),
+    ...(init ?? {}), signal: AbortSignal.any([
+      timeoutSignal(),
+      ...[options.signal, init?.signal ?? (input instanceof Request ? input.signal : undefined)]
+        .filter((signal): signal is AbortSignal => !!signal),
+    ]),
   })) as typeof fetch;
   if (!options.record) return request;
 
