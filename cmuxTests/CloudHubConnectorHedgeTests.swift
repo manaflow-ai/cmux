@@ -134,6 +134,34 @@ struct CloudHubConnectorHedgeTests {
         #expect(ledger.count(0) > 1)
     }
 
+    @Test("A refused family is redialed once the other family stays silent past its head start")
+    func refusedFamilyIsRedialedWhileTheOtherIsBlackholed() async throws {
+        let ledger = PerCandidateLedger()
+        let reachableAt = ContinuousClock.now + .milliseconds(150)
+        let value = try await CloudHubConnector.hedged(
+            candidates: 2,
+            fallbackDelay: .milliseconds(50),
+            redialInterval: .milliseconds(20),
+            maxRedials: 50,
+            timeout: .seconds(2),
+            clock: ContinuousClock(),
+            attempt: { index in
+                ledger.start(index)
+                // The other family is blackholed: its attempts never answer.
+                if index == 1 {
+                    try await Task.sleep(for: .seconds(60))
+                    return index
+                }
+                // The preferred family refuses until its listener opens.
+                if ContinuousClock.now < reachableAt { throw Refused() }
+                return index
+            },
+            discard: { _ in }
+        )
+        #expect(value == 0)
+        #expect(ledger.count(0) > 1)
+    }
+
     @Test("Every success other than the winner is discarded, so no stream leaks")
     func extraSuccessesAreDiscarded() async throws {
         let ledger = Ledger()
