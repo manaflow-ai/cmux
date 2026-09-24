@@ -25,6 +25,14 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
     )
 
+    /// Conversations: opt-in unified coding-agent session navigation in the
+    /// left sidebar. Disabling it hides the provider while preserving sessions.
+    public let conversationSidebar = DefaultsKey<Bool>(
+        id: "sidebar.beta.conversations.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sidebar.beta.conversations.enabled"
+    )
+
     /// Extensions: the experimental ExtensionKit sidebar-extension surface
     /// (puzzle button, sidebar-toggle provider menu, installed-extension
     /// host, and the extensions browser). Defaults off; while off, every

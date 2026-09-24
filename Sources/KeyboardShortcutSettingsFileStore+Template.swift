@@ -139,6 +139,9 @@ extension CmuxSettingsFileStore {
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
                     "workspaceDescriptionColor": NSNull(),
                     "beta": [
+                        "conversations": [
+                            "enabled": SettingCatalog().betaFeatures.conversationSidebar.defaultValue,
+                        ],
                         "workspaceTodos": [
                             "controls": [
                                 "enabled": SettingCatalog().betaFeatures.workspaceTodoControls.defaultValue,

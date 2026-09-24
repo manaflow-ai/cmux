@@ -359,6 +359,58 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("conversation sidebar rollout flag honors default, local override, and remote precedence")
+    func conversationSidebarRolloutFlagPrecedence() async throws {
+        let flag = CmuxFeatureFlags.conversationSidebarFlag
+        #expect(flag.key == "conversation-sidebar-release")
+        #expect(!flag.defaultWhenUnavailable)
+
+        let suiteName = "cmux.feature.flags.conversation-sidebar.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValues: [String: Any] = [:]
+        let probe = FeatureFlagRemoteLoaderProbe()
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { remoteValues[$0] },
+            remoteFlagLoader: { await probe.load() }
+        )
+
+        #expect(!flags.isConversationSidebarAvailable)
+        flags.setOverride(true, for: flag)
+        #expect(flags.overrideValue(for: flag) == true)
+        #expect(flags.isConversationSidebarAvailable)
+
+        remoteValues[flag.key] = false
+        flags.applyLoadedFlags()
+        #expect(flags.remoteValue(for: flag) == false)
+        #expect(!flags.isConversationSidebarAvailable)
+
+        remoteValues.removeValue(forKey: flag.key)
+        flags.applyLoadedFlags()
+        // An unavailable legacy read preserves the kill switch. Only a
+        // successful control-plane response establishes that it was removed.
+        #expect(flags.remoteValue(for: flag) == false)
+        #expect(!flags.isConversationSidebarAvailable)
+        await confirmation("remote feature flags applied") { applied in
+            let observer = NotificationCenter.default.addObserver(
+                forName: .cmuxFeatureFlagsDidChange,
+                object: flags,
+                queue: nil
+            ) { _ in
+                applied()
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+
+            flags.start()
+            await probe.waitUntilCalled()
+        }
+        #expect(flags.remoteValue(for: flag) == nil)
+        #expect(flags.isConversationSidebarAvailable)
+    }
+
+    @MainActor
     @Test("feature flag overrides persist through UserDefaults")
     func featureFlagOverridePersistenceRoundTrip() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })

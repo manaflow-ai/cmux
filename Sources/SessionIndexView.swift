@@ -27,9 +27,14 @@ enum SessionEntryResumeCoordinator {
     /// Keeping target discovery separate from the focus mutation lets the Vault
     /// row expose an honest enabled/disabled state without focusing anything
     /// while SwiftUI is rendering a context menu.
+    ///
+    /// Pass `schedulingIndexRefresh: false` from a view body: it reads the
+    /// cached live index without starting a refresh, and the caller schedules
+    /// refreshes from its lifecycle hooks instead.
     static func activeTarget(
         for entry: SessionEntry,
-        tabManager: TabManager
+        tabManager: TabManager,
+        schedulingIndexRefresh: Bool = true
     ) -> (workspaceID: UUID, surfaceID: UUID)? {
         // Prefer the tab manager's authoritative surface snapshots. This
         // catches an open-but-idle session even while the process index is
@@ -51,7 +56,10 @@ enum SessionEntryResumeCoordinator {
 
         // Process-detected sessions can still be present in the live index
         // before their snapshot has been projected into the tab manager.
-        guard let index = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
+        let liveIndex = schedulingIndexRefresh
+            ? SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            : SharedLiveAgentIndex.shared.index
+        guard let index = liveIndex,
               let match = index.forkValidationEntries().first(where: { panelKey, observation in
                   observation.processLiveness == .running
                       && observation.snapshot.kind.rawValue == entry.agent.rawValue

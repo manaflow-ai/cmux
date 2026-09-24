@@ -1324,6 +1324,11 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "beta": {
+            "conversations": {
+              "enabled": "在侧边栏选择器中显示统一的对话视图。"
+            }
+          },
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },

@@ -1420,6 +1420,7 @@
 		C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE45000000000000000002 /* CmuxExtensionKit */; };
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
 		C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */; };
+		C0A0B0040000000000000001 /* CmuxExtensionSidebarSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A0B0030000000000000001 /* CmuxExtensionSidebarSelection.swift */; };
 		CE527FE5291C4D828E1EE3D4 /* CmuxFeatureFlagDefinition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16B58D58F664C2CBB6671BD /* CmuxFeatureFlagDefinition.swift */; };
 		8605127E5F154D86ADFC1E8A /* CmuxFeatureFlagOverrideCapability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2446055B21D4AB88C3BC59C /* CmuxFeatureFlagOverrideCapability.swift */; };
 		134DB2CE782A4440BD3D261B /* CmuxFeatureFlagOverridePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74EABFF19CEB4854A0DFBC05 /* CmuxFeatureFlagOverridePolicy.swift */; };
@@ -1744,6 +1745,9 @@
 		11295000000000000000000E /* ControlSurfaceResumeTarget+ContinuationRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11295000000000000000000D /* ControlSurfaceResumeTarget+ContinuationRecord.swift */; };
 		D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */; };
 		93300005A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */; };
+		C0A0B00A0000000000000001 /* ConversationSidebarRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A0B0090000000000000001 /* ConversationSidebarRegressionTests.swift */; };
+		C0A0B0060000000000000001 /* ConversationSidebarSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A0B0050000000000000001 /* ConversationSidebarSupport.swift */; };
+		C0A0B0020000000000000001 /* ConversationSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A0B0010000000000000001 /* ConversationSidebarView.swift */; };
 		C11538000000000000000003 /* CopyOnlyTextSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11538000000000000000004 /* CopyOnlyTextSelection.swift */; };
 		C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11538000000000000000002 /* CopyOnlyTextSelectionTests.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
@@ -5720,6 +5724,7 @@
 		E7E000000000000000000008 /* CmuxEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventPublishing.swift; sourceTree = "<group>"; };
 		E7E000000000000000000002 /* CmuxEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventStream.swift; sourceTree = "<group>"; };
 		C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxExtensionSidebarSelection+CustomSidebarName.swift"; sourceTree = "<group>"; };
+		C0A0B0030000000000000001 /* CmuxExtensionSidebarSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExtensionSidebarSelection.swift; sourceTree = "<group>"; };
 		A16B58D58F664C2CBB6671BD /* CmuxFeatureFlagDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxFeatureFlagDefinition.swift; sourceTree = "<group>"; };
 		B2446055B21D4AB88C3BC59C /* CmuxFeatureFlagOverrideCapability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxFeatureFlagOverrideCapability.swift; sourceTree = "<group>"; };
 		74EABFF19CEB4854A0DFBC05 /* CmuxFeatureFlagOverridePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxFeatureFlagOverridePolicy.swift; sourceTree = "<group>"; };
@@ -5979,6 +5984,9 @@
 		11295000000000000000000D /* ControlSurfaceResumeTarget+ContinuationRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ControlSurfaceResumeTarget+ContinuationRecord.swift"; sourceTree = "<group>"; };
 		D86840000000000000000010 /* ControlSurfaceResumeTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSurfaceResumeTarget.swift; sourceTree = "<group>"; };
 		93300006A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlTerminalSocketBindingState.swift; sourceTree = "<group>"; };
+		C0A0B0090000000000000001 /* ConversationSidebarRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSidebarRegressionTests.swift; sourceTree = "<group>"; };
+		C0A0B0050000000000000001 /* ConversationSidebarSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSidebarSupport.swift; sourceTree = "<group>"; };
+		C0A0B0010000000000000001 /* ConversationSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationSidebarView.swift; sourceTree = "<group>"; };
 		C11538000000000000000004 /* CopyOnlyTextSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyOnlyTextSelection.swift; sourceTree = "<group>"; };
 		C11538000000000000000002 /* CopyOnlyTextSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CopyOnlyTextSelectionTests.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
@@ -11325,6 +11333,9 @@
 				FE003004 /* SessionIndexStore+CodexSQL.swift */,
 				FE003005 /* RovoDevIndex.swift */,
 				F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */,
+				C0A0B0010000000000000001 /* ConversationSidebarView.swift */,
+				C0A0B0030000000000000001 /* CmuxExtensionSidebarSelection.swift */,
+				C0A0B0050000000000000001 /* ConversationSidebarSupport.swift */,
 				FE003006 /* SessionAgentPresentation.swift */,
 				D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */,
 				D4476F020000000000000002 /* SessionIndexIconImage.swift */,
@@ -12505,6 +12516,7 @@
 				850000000000000000000007 /* SessionIndexSyntheticCorpus.swift */,
 				850000000000000000000001 /* SessionIndexTableViewportTests.swift */,
 				42D69572C8D276745E502B94 /* SessionIndexViewTests.swift */,
+				C0A0B0090000000000000001 /* ConversationSidebarRegressionTests.swift */,
 				F1C3F1DBF6BF5D7223C4A30C /* SidebarMarkdownRendererTests.swift */,
 				14A7DC53B9CA33BE2A421711 /* WorkspacePullRequestSidebarTests.swift */,
 				5659A0045659A0045659A004 /* WorkspaceSidebarObservationTests.swift */,
@@ -14279,6 +14291,7 @@
 				E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
 				E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 				C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */,
+				C0A0B0040000000000000001 /* CmuxExtensionSidebarSelection.swift in Sources */,
 				CE527FE5291C4D828E1EE3D4 /* CmuxFeatureFlagDefinition.swift in Sources */,
 				8605127E5F154D86ADFC1E8A /* CmuxFeatureFlagOverrideCapability.swift in Sources */,
 				134DB2CE782A4440BD3D261B /* CmuxFeatureFlagOverridePolicy.swift in Sources */,
@@ -14457,6 +14470,8 @@
 				11295000000000000000000E /* ControlSurfaceResumeTarget+ContinuationRecord.swift in Sources */,
 				D8684000000000000000000F /* ControlSurfaceResumeTarget.swift in Sources */,
 				93300005A1B2C3D4E5F60718 /* ControlTerminalSocketBindingState.swift in Sources */,
+				C0A0B0060000000000000001 /* ConversationSidebarSupport.swift in Sources */,
+				C0A0B0020000000000000001 /* ConversationSidebarView.swift in Sources */,
 				C11538000000000000000003 /* CopyOnlyTextSelection.swift in Sources */,
 				5B9168A5518C325BFE3ECCBE /* CurrentWorkInput.swift in Sources */,
 				4968BF255B858F36FB675B22 /* CurrentWorkPalettePresentation.swift in Sources */,
@@ -17015,6 +17030,7 @@
 				C0DE77770000000000000001 /* ConfiguredShortcutMatcherTests.swift in Sources */,
 				B88356000000000000000003 /* ControlledPastePreparationDeadlines.swift in Sources */,
 				B88356000000000000000001 /* ControlledPastePreparationOperation.swift in Sources */,
+				C0A0B00A0000000000000001 /* ConversationSidebarRegressionTests.swift in Sources */,
 				C11538000000000000000001 /* CopyOnlyTextSelectionTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
 				46FF4C2573735348394EB428 /* CurrentWorkCommandPaletteTests.swift in Sources */,
