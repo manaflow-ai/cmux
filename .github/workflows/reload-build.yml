@@ -673,11 +673,18 @@ jobs:
             CMUX_IROH_BROKER_BASE_URL=https://cmux.com \
             CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev \
             CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
-            CODE_SIGNING_ALLOWED=NO \
+            AppIdentifierPrefix=7WLXT3NR37. \
+            CODE_SIGNING_ALLOWED=YES \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY=- \
+            PROVISIONING_PROFILE_SPECIFIER= \
             "${swift_workaround_args[@]}"
           sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Release-iphonesimulator/cmux.app"
+          for bin in "$sim_app/PlugIns/NotificationService.appex/NotificationService" "$sim_app/cmux"; do
+            echo "== simulated entitlements: $bin"
+            otool -s __TEXT __entitlements "$bin" | head -3 || true
+          done
           [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
 
           mkdir -p artifact
