@@ -1006,7 +1006,8 @@ func browserLoadRequest(
             return nil
         }
         if let cmuxWebView = webView as? CmuxWebView,
-           BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(url.scheme?.lowercased() ?? "") {
+           BrowserURLAllowlistPolicy.trustedInternalSchemes.contains(url.scheme?.lowercased() ?? "")
+            || ChromeExtensionsManagerPage.isManagerPageURL(url) {
             cmuxWebView.markTrustedInternalNavigation(url)
         }
     }
@@ -1035,6 +1036,7 @@ private let browserEmbeddedNavigationSchemes: Set<String> = [
 
 func browserShouldOpenURLExternally(_ url: URL) -> Bool {
     guard let scheme = url.scheme?.lowercased(), !scheme.isEmpty else { return false }
+    if ChromeExtensionsManagerPage.isManagerPageURL(url) { return false }
     return !browserEmbeddedNavigationSchemes.contains(scheme)
 }
 
@@ -3018,18 +3020,7 @@ final class BrowserPanel: Panel, ObservableObject {
         websiteDataStore: WKWebsiteDataStore
     ) {
         if #available(macOS 15.4, *) {
-            BrowserExtensions.attach(configuration, websiteDataStore: websiteDataStore)
-            configuration.userContentController.add(
-                BrowserExtensions.storeOfferMessageHandler,
-                name: BrowserExtensions.storeOfferMessageName
-            )
-            configuration.userContentController.addUserScript(
-                WKUserScript(
-                    source: BrowserExtensions.storeOfferScriptSource,
-                    injectionTime: .atDocumentEnd,
-                    forMainFrameOnly: true
-                )
-            )
+            BrowserExtensions.configure(configuration, websiteDataStore: websiteDataStore)
         }
         configuration.mediaTypesRequiringUserActionForPlayback = []
         // Ensure browser cookies/storage persist across navigations and launches.
@@ -4910,6 +4901,9 @@ final class BrowserPanel: Panel, ObservableObject {
     // MARK: - Panel Protocol
 
     func focus() {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.didFocus(self)
+        }
         if shouldSuppressWebViewFocus() {
             return
         }
@@ -5008,6 +5002,9 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func close() {
+        if #available(macOS 15.4, *) {
+            BrowserExtensions.shared.unregister(panelID: id)
+        }
         cloudAccess.leave()
         cancelHiddenWebViewDiscard()
         isClosingWebViewLifecycle = true
@@ -5923,9 +5920,8 @@ final class BrowserPanel: Panel, ObservableObject {
     deinit {
         if #available(macOS 15.4, *) {
             let panelID = id
-            let websiteDataStore = websiteDataStore
             Task { @MainActor in
-                BrowserExtensions.shared.unregister(panelID: panelID, websiteDataStore: websiteDataStore)
+                BrowserExtensions.shared.unregister(panelID: panelID)
             }
         }
         hiddenWebViewDiscardManager.stop()

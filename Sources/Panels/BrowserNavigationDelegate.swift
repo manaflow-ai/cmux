@@ -419,9 +419,25 @@ import WebKit
             if isMainFrame, !isTrustedInternal {
                 (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
             }
+            // cmux://extensions opens only from cmux itself (omnibar, menus,
+            // app code), from history, or from its own links. A website can
+            // neither link to it nor frame it, as with chrome:// in Chrome.
+            let isManagerPage = ChromeExtensionsManagerPage.isManagerPageURL(url)
+            if isManagerPage {
+                let source = navigationAction.sourceFrame.securityOrigin
+                let fromManagerPage = source.protocol.lowercased() == ChromeExtensionsManagerPage.scheme
+                    && source.host.lowercased() == ChromeExtensionsManagerPage.host
+                let fromHistory = navigationAction.navigationType == .reload
+                    || navigationAction.navigationType == .backForward
+                guard isMainFrame, isTrustedInternal || fromHistory || fromManagerPage else {
+                    decisionHandler(.cancel)
+                    return
+                }
+            }
             let isTrustedDocument = isMainFrame && url.isFileURL
                 && owner?.isTrustedLocalFileDocument(url) == true
             if !isTrustedInternal,
+               !isManagerPage,
                !isTrustedDocument,
                url.scheme?.lowercased() != AuthEnvironment.callbackScheme.lowercased(),
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
@@ -819,9 +835,25 @@ import WebKit
             if isMainFrame, !isTrustedInternal {
                 (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
             }
+            // cmux://extensions opens only from cmux itself (omnibar, menus,
+            // app code), from history, or from its own links. A website can
+            // neither link to it nor frame it, as with chrome:// in Chrome.
+            let isManagerPage = ChromeExtensionsManagerPage.isManagerPageURL(url)
+            if isManagerPage {
+                let source = navigationAction.sourceFrame.securityOrigin
+                let fromManagerPage = source.protocol.lowercased() == ChromeExtensionsManagerPage.scheme
+                    && source.host.lowercased() == ChromeExtensionsManagerPage.host
+                let fromHistory = navigationAction.navigationType == .reload
+                    || navigationAction.navigationType == .backForward
+                guard isMainFrame, isTrustedInternal || fromHistory || fromManagerPage else {
+                    decisionHandler(.cancel)
+                    return
+                }
+            }
             let isTrustedDocument = isMainFrame && url.isFileURL
                 && owner?.isTrustedLocalFileDocument(url) == true
             if !isTrustedInternal,
+               !isManagerPage,
                !isTrustedDocument,
                !BrowserURLAllowlistPolicy(defaults: .standard).allows(url) {
                 decisionHandler(.cancel)

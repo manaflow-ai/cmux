@@ -3390,5 +3390,43 @@
     "source": "cmux layout delete <name>",
     "class": "syntax",
     "reason": "Literal command, executable, JSON path, or filesystem path in CLI/CMUXCLI+DocsSettings.swift. Kept invariant for execution and configuration."
+  },
+  "browser.extensions.page.fromStore": {
+    "source": "Chrome Web Store",
+    "identityLocales": {
+      "de": "Chrome Web Store is Google's product name, which Google does not translate in this locale.",
+      "es": "Chrome Web Store is Google's product name, which Google does not translate in this locale.",
+      "fr": "Chrome Web Store is Google's product name, which Google does not translate in this locale."
+    }
+  },
+  "browser.extensions.page.id": {
+    "source": "ID",
+    "identityLocales": {
+      "de": "ID is the standard abbreviation for identifier in this locale.",
+      "es": "ID is the standard abbreviation for identifier in this locale.",
+      "fr": "ID is the standard abbreviation for identifier in this locale.",
+      "ja": "ID is the standard abbreviation for identifier in this locale.",
+      "ko": "ID is the standard abbreviation for identifier in this locale.",
+      "zh-Hans": "ID is the standard abbreviation for identifier in this locale.",
+      "zh-Hant": "ID is the standard abbreviation for identifier in this locale."
+    }
+  },
+  "browser.extensions.page.options": {
+    "source": "Options",
+    "identityLocales": {
+      "fr": "Options has the same spelling in French."
+    }
+  },
+  "browser.extensions.page.title": {
+    "source": "Extensions",
+    "identityLocales": {
+      "fr": "Extensions has the same spelling in French, as in Chrome's French UI."
+    }
+  },
+  "browser.extensions.toolbar.help": {
+    "source": "Extensions",
+    "identityLocales": {
+      "fr": "Extensions has the same spelling in French, as in Chrome's French UI."
+    }
   }
 }

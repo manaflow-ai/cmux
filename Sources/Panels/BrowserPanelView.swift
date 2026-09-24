@@ -1058,13 +1058,6 @@ struct BrowserPanelView: View {
         .overlay(browserFindOverlayView)
         .overlay(focusFlashOverlayView)
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
-        .overlay(alignment: .topTrailing) {
-            if #available(macOS 15.4, *) {
-                BrowserExtensionStoreOffer(panel: panel)
-                    .padding(.top, chromeState.isOmnibarVisible ? addressBarHeight + 10 : 10)
-                    .padding(.trailing, 14)
-            }
-        }
         .overlay(alignment: .bottom) {
             // WebView-backed cases host the composer in the AppKit portal slot
             // (WindowBrowserSlotView.setDesignComposer) so it layers above the
@@ -1199,9 +1192,7 @@ struct BrowserPanelView: View {
                     browserScreenshotCopiedIndicator
                     browserProfileButton
                     browserThemeModeButton
-                    if #available(macOS 15.4, *) {
-                        BrowserExtensionsToolbarButton()
-                    }
+                    browserExtensionsButton
                     browserOverflowMenu
                 } else {
                     // Keep the stable wide-row sizing and place Inspect/DevTools
@@ -1219,9 +1210,7 @@ struct BrowserPanelView: View {
                     }
                     browserProfileButton
                     browserThemeModeButton
-                    if #available(macOS 15.4, *) {
-                        BrowserExtensionsToolbarButton()
-                    }
+                    browserExtensionsButton
                     developerToolsButton
                     browserOverflowMenu
                 }
@@ -1521,6 +1510,19 @@ struct BrowserPanelView: View {
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         .safeHelp(developerToolsButtonHelp)
         .accessibilityIdentifier("BrowserToggleDevToolsButton")
+    }
+
+    @ViewBuilder
+    private var browserExtensionsButton: some View {
+        if #available(macOS 15.4, *) {
+            BrowserExtensionsToolbarButton(
+                panel: panel,
+                iconPointSize: devToolsButtonIconSize,
+                hitSize: addressBarButtonSize,
+                tint: devToolsColorOption.color,
+                colorScheme: resolvedColorScheme
+            )
+        }
     }
 
     private var browserProfileButton: some View {

@@ -4,18 +4,22 @@ cmux includes the following third-party software:
 
 ---
 
-## Search browser extension support
+## Search (Chrome extension support)
 
-cmux's WebKit Chrome extension integration adapts the CRX3 verification and
-WebKit extension-hosting patterns from Search, a small WebKit browser for
-macOS by Office Commun.
+cmux's Chrome extension support adapts code and patterns from Search, a
+WebKit browser for macOS by Office Commun: CRX3 download and signature
+verification, the `WKWebExtensionController` tab and window adapters, and the
+Chrome Web Store page script that replaces the "Switch to Chrome" prompts with
+an install button.
 
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2026 Office Commun
 - **Source:** https://github.com/driceroland/Search
-- **Reference revision:** `bbc0c6e1f580cae01a2db853a790125fc8bf0fc0`
-- **Adapted files:** `Sources/BrowserExtensionArchive.swift` and
-  `Sources/BrowserExtensions.swift`
+- **Reference revisions:** `bbc0c6e1f580cae01a2db853a790125fc8bf0fc0`,
+  `491f3214063212fac176a7ad95467f0821040451`
+- **Adapted files:** `Sources/BrowserExtensions.swift`,
+  `Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Extensions/ChromeExtensionPackage.swift`,
+  `Packages/macOS/CmuxBrowser/Sources/CmuxBrowser/Extensions/ChromeWebStorePage.swift`
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
