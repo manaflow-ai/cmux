@@ -239,6 +239,16 @@ Blacksmith, which is sound only while both carry the same Xcode build: on
 2026-09-24 the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images all
 reported Xcode 26.6 build 17F113 (jobs 107712770707 and 107710434810).
 
+A refused job goes back to the fleet once before Blacksmith. Attempt 2 may
+take the owned pool again where a job's `runs-on` reads
+`github.run_attempt == 2 && inputs.pr_refused_retry_runner` first. GitHub
+sends no `requested` event for a re-run, so the watch that re-ran the failed
+jobs follows attempt 2 itself, until its owned jobs have run past the
+120-second refusal window. A job refused, or queued past the budget, on
+attempt 2 gets its failed jobs re-run once more, keeping what passed, and
+attempt 3 and later always take `retry_runner` on Blacksmith, so a busy fleet
+costs at most one extra refusal and never loops.
+
 "Re-run failed jobs" is different: `changes` passed, so it is not re-run, and
 the failed jobs read attempt 1's outputs, owned pool included, with no watcher
 (the rescue follows attempt 1 only). So a persistent choice also names
