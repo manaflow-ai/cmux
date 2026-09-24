@@ -30,13 +30,11 @@ extension MobileShellComposite {
         guard phonePushKeyExchangeHooks != nil,
               let accountID = identityProvider?.currentUserID,
               !accountID.isEmpty,
-              let macDeviceID = status.macDeviceID,
               let macInstanceTag = status.macInstanceTag,
               let macClientNamespace = status.macClientNamespace else {
             let missing = [
                 phonePushKeyExchangeHooks == nil ? "hooks" : nil,
                 (identityProvider?.currentUserID ?? "").isEmpty ? "account" : nil,
-                status.macDeviceID == nil ? "mac_device" : nil,
                 status.macInstanceTag == nil ? "mac_instance_tag" : nil,
                 status.macClientNamespace == nil ? "mac_namespace" : nil,
             ].compactMap { $0 }
@@ -54,7 +52,6 @@ extension MobileShellComposite {
                 let exchanged = await self.performPhonePushKeyExchange(
                     client: client,
                     accountID: accountID,
-                    macDeviceID: macDeviceID,
                     macInstanceTag: macInstanceTag,
                     macClientNamespace: macClientNamespace
                 )
@@ -80,7 +77,6 @@ extension MobileShellComposite {
     private func performPhonePushKeyExchange(
         client: MobileCoreRPCClient,
         accountID: String,
-        macDeviceID: String,
         macInstanceTag: String,
         macClientNamespace: String
     ) async -> Bool {
@@ -96,12 +92,11 @@ extension MobileShellComposite {
                   identityProvider?.currentUserID == accountID else { return false }
             // Name the mismatched field (never its value) so a rejected reply
             // is diagnosable from device logs.
-            let mismatches = [
-                response.accountID == accountID ? nil : "account",
-                response.macDeviceID == macDeviceID ? nil : "mac_device",
-                response.macInstanceTag == macInstanceTag ? nil : "mac_instance_tag",
-                response.matchesMacClientNamespace(macClientNamespace) ? nil : "mac_namespace",
-            ].compactMap { $0 }
+            let mismatches = response.mismatchedFields(
+                accountID: accountID,
+                macInstanceTag: macInstanceTag,
+                macClientNamespace: macClientNamespace
+            )
             guard mismatches.isEmpty else {
                 phonePushKeyExchangeLog.error(
                     "key exchange reply rejected: \(mismatches.joined(separator: ","), privacy: .public)"
