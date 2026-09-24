@@ -16734,7 +16734,7 @@ struct TabItemView: View, Equatable {
         }
         switch level {
         case .info: return .secondary
-        case .progress: return .blue
+        case .progress: return Color(nsColor: cmuxAccentNSColor(for: colorScheme))
         case .success: return .green
         case .warning: return .orange
         case .error: return .red
