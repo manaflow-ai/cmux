@@ -510,8 +510,10 @@ jobs:
       # its whole module, and `cmux` is one module. Xcode's incremental build
       # tracks dependencies per file, but only against an existing DerivedData,
       # and a fresh checkout makes every file look new. Adopt the DerivedData
-      # nightly.yml `refresh-test-compilation-cache` built on this runner, Xcode
-      # and path, restore the recorded time onto every byte-identical input, and
+      # seed-derived-data.yml built for the base commit (every main push that
+      # changes the build), or the newest seed including nightly.yml's cold one,
+      # built on this runner, Xcode and path. Restore the recorded time onto
+      # every byte-identical input, and
       # Xcode rebuilds only what differs. Pull requests only: merge-group and
       # dispatch builds stay clean. Any miss or failure is today's cold build.
       # CI_ADMISSION_SEED_DERIVED_DATA=0 turns it off.

@@ -131,8 +131,12 @@ class SeedDerivedData(unittest.TestCase):
             seed.MAX_RAW_BYTES = limit
 
 
+def load(workflow):
+    return yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
+
+
 def steps(workflow, job):
-    return yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"][job]["steps"]
+    return load(workflow)["jobs"][job]["steps"]
 
 
 def named(step_list, name):
@@ -167,9 +171,40 @@ class Wiring(unittest.TestCase):
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
             text = path.read_text()
-            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml"}:
+            if "admission-derived-data-" in text and path.name not in {"nightly.yml", "ci-macos.yml", "seed-derived-data.yml"}:
                 self.fail(f"{path.name} names the admission DerivedData seed")
         self.assertNotIn("secrets.", json.dumps(adopt))
+
+    def test_every_main_push_seeds_incrementally_under_the_key_admission_reads(self):
+        workflow = load("seed-derived-data.yml")
+        triggers = workflow.get("on", workflow.get(True))
+        # Only trusted main code may write a seed pull requests adopt.
+        self.assertEqual(set(triggers), {"push", "workflow_dispatch"})
+        self.assertEqual(triggers["push"]["branches"], ["main"])
+        self.assertIs(workflow["concurrency"]["cancel-in-progress"], False)
+
+        seeder = steps("seed-derived-data.yml", "seed")
+        resolve_at, _ = named(seeder, "Resolve Swift packages")
+        adopt_at, adopt = named(seeder, "Adopt the newest seed")
+        record_at, _ = named(seeder, "Record seed inputs")
+        build_at, _ = named(seeder, "Build")
+        save_at, save = named(seeder, "Save seed")
+        self.assertLess(resolve_at, adopt_at)
+        self.assertLess(adopt_at, record_at)
+        self.assertLess(record_at, build_at)
+        self.assertLess(build_at, save_at)
+        self.assertIs(adopt.get("continue-on-error"), True)
+        self.assertEqual(save["with"]["backend"], "r2")
+        self.assertEqual(save["with"]["key"], "${{ steps.key.outputs.prefix }}${{ github.sha }}")
+
+        # Same key shape, runner and Xcode as the nightly seeder, or pull
+        # requests would never match what this writes.
+        _, key = named(seeder, "Compute seed key")
+        self.assertIn("admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-", key["run"])
+        nightly = load("nightly.yml")["jobs"]["refresh-test-compilation-cache"]
+        job = workflow["jobs"]["seed"]
+        self.assertEqual(job["runs-on"], nightly["runs-on"])
+        self.assertEqual(job["env"]["CMUX_CI_XCODE_APP"], nightly["env"]["CMUX_CI_XCODE_APP"])
 
     def test_adoption_is_optional_and_limited_to_pull_requests(self):
         admission = steps("ci-macos.yml", "macos-compile-admission")
