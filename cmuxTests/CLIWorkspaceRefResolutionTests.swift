@@ -70,19 +70,29 @@ struct CLIWorkspaceRefResolutionTests {
         )
     }
 
-    /// When `window.list` is unavailable the CLI cannot enumerate anything, so it must
-    /// keep the historical pass-through instead of inventing a "not found". A remote
-    /// CLI relay denies `window.list` outright, and its host still resolves the ref.
+    /// When `window.list` is unavailable the CLI cannot enumerate every window, so a
+    /// ref the parameterless `workspace.list` snapshot did not contain must keep the
+    /// historical pass-through instead of inventing a "not found". A remote CLI relay
+    /// denies `window.list` outright, and its host still resolves the ref.
+    ///
+    /// The ref here is one the snapshot does not hold: a ref the snapshot does hold
+    /// resolves to its UUID before `window.list` is ever consulted.
     @Test func windowListDeniedFallsBackToPassThrough() throws {
         let (requests, result) = try runReorderWorkspace(
-            arguments: ["--workspace", Self.liveRef, "--index", "0"],
+            arguments: ["--workspace", Self.staleRef, "--index", "0"],
             topology: .windowListDenied
         )
 
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let methods = requests.compactMap { $0["method"] as? String }
+        #expect(methods.contains("window.list"), Comment(rawValue: methods.joined(separator: ",")))
         let reorder = try #require(requests.last { $0["method"] as? String == "workspace.reorder" })
         let params = try #require(reorder["params"] as? [String: Any])
-        #expect(params["workspace_id"] as? String == Self.liveRef)
+        #expect(params["workspace_id"] as? String == Self.staleRef)
+        #expect(
+            !result.stderr.contains("not found"),
+            Comment(rawValue: "a denied window.list must not be reported as absence: \(result.stderr)")
+        )
     }
 
     /// A window that goes away between `window.list` and its `workspace.list` leaves
