@@ -130,11 +130,13 @@ extension Workspace {
             case .split:
                 return try splitCloudManualMirrorPane(panel, target: pane, direction: .right, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
             }
-        case .tab(_, let paneID, _):
+        case .tab(_, let paneID, let index):
             guard let pane = Self.pane(paneID, in: self) else {
                 throw SurfaceCatalogError.destinationNotFound("pane (paneID)")
             }
-            return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
+            return try insertCloudManualMirrorTab(
+                panel, in: pane, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName, index: index
+            )
         case .split(_, let paneID, let direction):
             guard let pane = Self.pane(paneID, in: self) else {
                 throw SurfaceCatalogError.destinationNotFound("pane (paneID)")
@@ -148,7 +150,8 @@ extension Workspace {
         in pane: PaneID,
         focus: Bool,
         isLoading: Bool,
-        iconAssetName: String?
+        iconAssetName: String?,
+        index: Int? = nil
     ) throws -> UUID {
         let previousPane = bonsplitController.focusedPaneId
         let previousTab = previousPane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
@@ -169,6 +172,14 @@ extension Workspace {
             throw SurfaceCatalogError.unsupported("manual cloud terminal tab")
         }
         bindSurface(tab, toPanelId: panel.id)
+        if let index {
+            let tabs = bonsplitController.tabs(inPane: pane)
+            if let current = tabs.firstIndex(where: { $0.id == tab }) {
+                let target = min(max(index, 0), tabs.count - 1)
+                // Bonsplit accepts an insertion gap, not the final tab index.
+                _ = bonsplitController.reorderTab(tab, toIndex: target + (current < target ? 1 : 0))
+            }
+        }
         rememberTerminalConfigInheritanceSource(panel)
         panel.surface.flushPendingManualSizeReportIfAttached()
         if focus {

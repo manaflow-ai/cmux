@@ -1,4 +1,11 @@
-name: Run macOS tests
+# A whole macOS test target, compiled cold on the repository's pool.
+#
+# For one test, or a few, use `./scripts/run-e2e.sh <selector> --ref <sha>`
+# instead. It runs the same app-host tests through test-e2e.yml, reuses a run
+# already in flight at that commit, refuses a selector that already failed
+# there, and batches several selectors against one compile. This workflow does
+# none of that, so a single-test dispatch here pays a full cold build.
+name: Run macOS test suite
 run-name: >-
   macOS tests @ ${{ inputs.ref || github.ref_name }} ·
   unit=${{ inputs.skip_unit_tests && 'off' || inputs.unit_test_suites || 'all' }} ·
@@ -42,7 +49,7 @@ on:
         default: false
         type: boolean
       unit_test_suites:
-        description: "Comma-separated unit suites; empty runs the full unit target"
+        description: "Comma-separated unit suites; empty runs the full unit target. For one test use ./scripts/run-e2e.sh, which reuses compiles and in-flight runs"
         required: false
         default: ""
       test_filter:
@@ -62,8 +69,8 @@ jobs:
 
   tests:
     needs: resolve-ref
-    # Depot is retired for cmux CI. Keep this reusable test lane on the
-    # repository's normal macOS runner and do not expose a provider override.
+    # Keep this lane on the repository's normal macOS runner and do not
+    # expose a provider override.
     runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
@@ -149,7 +156,7 @@ jobs:
           path: .ci-source-packages
           # Consume the existing E2E dependency cache without publishing caches
           # from a manually selected revision. Test products remain fresh.
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -235,12 +242,18 @@ jobs:
             IFS=',' read -r -a suites <<< "$UNIT_TEST_SUITES"
             local failed=0
             for suite in "${suites[@]}"; do
-              if [[ ! "$suite" =~ ^[A-Za-z0-9_]+$ ]]; then
+              # A suite, or one test in it: `Suite/testName` for XCTest,
+              # `Suite/testName()` for Swift Testing. Without the parens a
+              # Swift Testing selector matches nothing, and the positive-summary
+              # check below fails the run rather than reporting a pass.
+              if [[ ! "$suite" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+(\(\))?)?$ ]]; then
                 echo "Invalid unit suite identifier" >&2
                 return 1
               fi
               local suite_status=0
-              local output_path="$TEST_RESULTS_ROOT/$suite.log"
+              local log_name="${suite//\//.}"
+              log_name="${log_name%()}"
+              local output_path="$TEST_RESULTS_ROOT/$log_name.log"
               set +e
               run_unit_suite "$output_path" "-only-testing:cmuxTests/$suite"
               suite_status=$?

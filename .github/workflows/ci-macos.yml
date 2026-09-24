@@ -18,6 +18,16 @@ on:
         required: false
         default: ""
         type: string
+      # Label-derived selection for `app-host unit tests`. The full suite
+      # already implies it; this lets `unit-ci` ask for compile admission plus
+      # that one job, which reads the product admission already built, without
+      # waking the package, lag, release-admission and Release-build lanes.
+      # Optional and defaulted for the same reason as swift_packages: a caller
+      # that predates this input leaves it empty, which reads as "not routed".
+      unit_suite:
+        required: false
+        default: ""
+        type: string
       product_artifacts:
         required: false
         default: "layered"
@@ -63,7 +73,7 @@ jobs:
     # cannot fan out across every macOS worker and a successful build is not
     # repeated six times.
     if: ${{ inputs.macos == 'true' && inputs.compile_admitted != 'true' }}
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     permissions:
       contents: read
@@ -91,7 +101,7 @@ jobs:
       # Part of the compiled product contract, so it has to name the pool this
       # job actually ran on: two pools lay the workspace out differently, and a
       # product built under one cannot be relocated into the other.
-      CMUX_PRODUCT_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     steps:
       - name: Reject stale pull request rerun
         if: ${{ github.event_name == 'pull_request' }}
@@ -456,7 +466,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -596,6 +606,7 @@ jobs:
         id: publish-products
         env:
           PRODUCT_FULL_SUITE: ${{ inputs.full_suite }}
+          PRODUCT_UNIT_SUITE: ${{ inputs.unit_suite }}
           PRODUCT_EVENT: ${{ github.event_name }}
           PRODUCT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           PRODUCT_REPOSITORY: ${{ github.repository }}
@@ -604,8 +615,12 @@ jobs:
           import os
           head = os.environ.get("PRODUCT_HEAD_REPOSITORY", "").strip()
           repository = os.environ.get("PRODUCT_REPOSITORY", "").strip()
+          # `unit-ci` makes app-host unit tests a consumer of this product
+          # under the compile-only policy, so the fork product stops being
+          # unused and must still be packaged and uploaded.
           unused_fork_product = (
               os.environ.get("PRODUCT_FULL_SUITE") == "false"
+              and os.environ.get("PRODUCT_UNIT_SUITE") != "true"
               and os.environ.get("PRODUCT_EVENT") == "pull_request"
               and bool(head) and bool(repository)
               and head.casefold() != repository.casefold()
@@ -631,7 +646,10 @@ jobs:
           python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           archive="$RUNNER_TEMP/app-host-products.tar.gz"
-          tar -chzf "$archive" -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products
+          # COPYFILE_DISABLE: see the matching note in test-e2e.yml. gzip -1
+          # takes about a third of the default level's time on this product
+          # for an archive about 11% larger.
+          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products | gzip -1 > "$archive"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       - name: Upload compiled app-host test product
@@ -950,21 +968,51 @@ jobs:
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true') }}
     name: app-host unit tests (${{ matrix.shard }}/7)
-    # App-host XCTest needs a runner that can broker testmanagerd control
-    # sessions, so route through the shared MACOS_RUNNER_15 var like the other
-    # macOS jobs. The fallback is what fork pull requests get, because
-    # repository variables are not exposed to them, so it names the same
-    # Blacksmith pool main uses and never the paid overflow provider.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    # Same-repository pull requests stripe the seven app-host consumers across
+    # Blacksmith 15/26 and GitHub-hosted 15/26 so one saturated provider cannot
+    # serialize the whole suite. Fork pull requests stay on Blacksmith: their
+    # workflow YAML is contributor-controlled and must never select an owned
+    # self-hosted label that may overlap a hosted macOS label.
+    #
+    # Non-PR events keep the ordinary MACOS_RUNNER_15 routing below. The PR
+    # pools carry different Xcodes (26.3 on macos-15, 26.6 on macos-26), so
+    # PR shards pin none and app_host_test_products.py accepts the
+    # compile-admission product under any Xcode of the same major version.
+    #
+    # A workflow running in a fork's own repository has no Blacksmith, so it
+    # splits the shards over GitHub-hosted macos-15 and macos-26 by the OS
+    # of each shard's pool (#14023 sends its other macOS jobs to macos-15).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && matrix.hosted_runner || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && matrix.pr_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
       # only needs a verdict, and the first failure already is one.
       fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7]
+        include:
+          - shard: 1
+            pr_runner: blacksmith-6vcpu-macos-15
+            hosted_runner: macos-15
+          - shard: 2
+            pr_runner: blacksmith-6vcpu-macos-26
+            hosted_runner: macos-26
+          - shard: 3
+            pr_runner: macos-15
+            hosted_runner: macos-15
+          - shard: 4
+            pr_runner: macos-26
+            hosted_runner: macos-26
+          - shard: 5
+            pr_runner: blacksmith-6vcpu-macos-15
+            hosted_runner: macos-15
+          - shard: 6
+            pr_runner: blacksmith-6vcpu-macos-26
+            hosted_runner: macos-26
+          - shard: 7
+            pr_runner: macos-26
+            hosted_runner: macos-26
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
       CMUX_NODE_PRODUCT_CACHE_MAX_BYTES: ${{ vars.CMUX_NODE_PRODUCT_CACHE_MAX_BYTES }}
@@ -976,7 +1024,11 @@ jobs:
       CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
       CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
       CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # Same-repository pull-request shards span pools whose images carry
+      # different Xcodes, so they pin none: select-ci-xcode.sh takes the
+      # newest stable Xcode with the macOS 26 SDK the machine has, and
+      # restore accepts any Xcode of the admission build's major version.
+      CMUX_CI_XCODE_APP: ${{ !(github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork) && (github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15) || '' }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
       # Global search owns a seventh consumer because its serialized container
@@ -1013,6 +1065,20 @@ jobs:
       SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
       CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
     steps:
+      # Runs before checkout so a misrouted shard never checks out the PR.
+      - name: Verify GitHub-hosted PR route
+        if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && startsWith(matrix.pr_runner, 'macos-') }}
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ matrix.pr_runner }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+            echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+            exit 1
+          fi
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -1691,9 +1757,35 @@ jobs:
           LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
 
           # Each worker runs two balanced batches sequentially. Every invocation
-          # writes to a regular file; a separately-owned tail process mirrors
-          # that file into the Actions log. Detached test descendants therefore
-          # cannot retain the CI capture pipe after xcodebuild exits.
+          # writes to a regular file, and this script mirrors that file into the
+          # Actions log itself. Detached test descendants therefore cannot retain
+          # the CI capture pipe after xcodebuild exits.
+          #
+          # Mirroring in-process rather than from a background `tail -f` is what
+          # makes the last write observable. A tail had to be given some margin
+          # to deliver it before being killed, and a loaded runner could miss
+          # that margin and drop the final lines -- the ones saying why a batch
+          # died. Tracking the byte offset here has no margin to miss.
+          stream_offset=0
+          emit_batch_output() {
+            local file="$1" size
+            size="$(wc -c <"$file" 2>/dev/null || echo 0)"
+            size="${size//[[:space:]]/}"
+            if [ "${size:-0}" -gt "$stream_offset" ]; then
+              # Read exactly the byte range included in the size snapshot.
+              # Reading to EOF here would race a concurrent writer: bytes
+              # appended after wc(1) could be emitted now while stream_offset
+              # advances only to the old size, duplicating them next poll.
+              python3 -c '
+          import sys
+          path, start, end = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+          with open(path, "rb") as stream:
+              stream.seek(start)
+              sys.stdout.buffer.write(stream.read(end - start))
+          ' "$file" "$stream_offset" "$size"
+              stream_offset="$size"
+            fi
+          }
           run_unit_test_batch() {
             local logical_shard="$1"
             local execution_attempt="$2"
@@ -1744,6 +1836,7 @@ jobs:
 
             echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}, execution ${execution_attempt}"
             : >"$batch_output"
+            stream_offset=0
             CMUX_TAG="$batch_tag" \
               scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
@@ -1757,8 +1850,6 @@ jobs:
               test-without-building >"$batch_output" 2>&1 &
             local xcodebuild_pid=$!
 
-            tail -n +1 -f "$batch_output" &
-            local stream_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
             local deadline=$((SECONDS + timeout_seconds))
             local timed_out=0
@@ -1793,6 +1884,7 @@ jobs:
                 timed_out=1
                 break
               fi
+              emit_batch_output "$batch_output"
               sleep 5
             done
 
@@ -1805,9 +1897,7 @@ jobs:
               batch_status=124
             fi
 
-            sleep 0.2
-            kill "$stream_pid" 2>/dev/null || true
-            wait "$stream_pid" 2>/dev/null || true
+            emit_batch_output "$batch_output"
 
             shopt -s nullglob
             local typed_results=("$result_bundle_root"/cmux-app-host-xcodebuild-"$batch_tag"-pid-*.tests.json)
@@ -2193,7 +2283,7 @@ jobs:
       ghostty_helper_toolchain_sha256: ${{ steps.ghostty-helper-identity.outputs.toolchain_sha256 }}
       ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
-    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 40
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -2651,7 +2741,7 @@ jobs:
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && inputs.macos == 'true' && inputs.full_suite == 'true' }}
     # Reuse compile admission's app and UI test products; this runner only
     # performs display and runtime verification.
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -2664,7 +2754,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -3007,7 +3097,7 @@ jobs:
       - swift-package-tests
       - macos-compile-admission
     if: ${{ !cancelled() && needs.swift-package-tests.result == 'success' && needs.macos-compile-admission.result == 'success' && inputs.release_build == 'true' && inputs.full_suite == 'true' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     steps:
       - name: Wait for routed Linux preflight
@@ -3087,9 +3177,9 @@ jobs:
     # Keep the app build on macOS 26 so SDK-gated SwiftUI Liquid Glass code
     # compiles into the same artifact shape as nightly and stable releases.
     # Release builds need enough disk for a universal Release build plus the
-    # restored SwiftPM cache. Default to a clean paid macOS 26 runner instead
-    # of the generic persistent macOS 26 pool.
-    runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+    # restored SwiftPM cache, which the macOS 26 image already carries. The
+    # variable names that image, not this lane.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     timeout-minutes: 60
     permissions:
       actions: read
@@ -3099,7 +3189,7 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      CMUX_PRODUCT_RUNNER: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
+      CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -3253,7 +3343,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: .spm-cache
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
@@ -3275,6 +3365,7 @@ jobs:
           CMUX_SKIP_ZIG_BUILD=1 xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
             -destination 'generic/platform=macOS' \
             -clonedSourcePackagesDirPath .spm-cache \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
             ARCHS="$RELEASE_ARCHS" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
@@ -3478,7 +3569,7 @@ jobs:
       - release-admission
       - release-build
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check routed macOS jobs
@@ -3494,7 +3585,7 @@ jobs:
           inputs = json.loads(os.environ["MACOS_INPUTS"])
           needs = json.loads(os.environ["MACOS_NEEDS"])
           # The caller leaves compile_admitted unset when its build-input reuse
-          # steps are skipped (full suite) or fail; unset means "compile", the
+          # steps are skipped (full suite or unit-ci) or fail; unset means "compile", the
           # same reading the macos-compile-admission job condition uses.
           if inputs.get("compile_admitted") == "":
               inputs["compile_admitted"] = "false"
@@ -3512,9 +3603,14 @@ jobs:
           # The package lane is routed from changed paths, so it is required
           # whenever the router selected it even under the compile-only suite.
           swift_packages = inputs["swift_packages"] == "true"
+          # `unit-ci` asks for app-host unit tests without the full suite, and
+          # clears suite-coverage on the strength of them, so a skip here must
+          # fail rather than read as a job nobody routed. Empty or missing
+          # means a caller that predates the input.
+          unit_suite = inputs.get("unit_suite", "") == "true"
           required = {
               "macos-compile-admission": macos and inputs["compile_admitted"] != "true",
-              "app-host-unit-tests": macos and full_suite,
+              "app-host-unit-tests": macos and (full_suite or unit_suite),
               "swift-package-tests": (macos and full_suite) or swift_packages,
               "tests-build-and-lag": macos and full_suite,
               "release-admission": macos and full_suite and inputs["release_build"] == "true",
