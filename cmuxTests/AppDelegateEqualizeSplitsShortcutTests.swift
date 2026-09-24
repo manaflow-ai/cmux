@@ -8115,7 +8115,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         Dictionary(uniqueKeysWithValues: snapshot.panes.map { ($0.paneId, $0.frame) })
     }
 
-    /// The published `tmuxLayoutSnapshot` once it satisfies `predicate`.
+    /// The recorded `tmuxLayoutSnapshot` once it satisfies `predicate`.
     ///
     /// Since a27969a38b the geometry callback hands its work to
     /// `geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce)`,

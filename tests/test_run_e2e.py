@@ -79,7 +79,10 @@ if args[0] == "api" and "/actions/" in args[-1]:
     now = datetime.datetime.now(datetime.timezone.utc)
     stamp = lambda minutes: (now - datetime.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
     endpoint = args[-1]
-    if "/actions/artifacts?" in endpoint:
+    if "/actions/runs?head_sha=" in endpoint:
+        # CI runs of the tested commit, for reusing their app-host products.
+        print(json.dumps({"workflow_runs": json.loads(os.environ.get("LAUNCHER_CI_RUNS", "[]"))}))
+    elif "/actions/artifacts?" in endpoint:
         artifacts = [] if queue is None else [{
             "id": 77, "expired": False, "created_at": stamp(queue["age"] - 1),
             "archive_download_url": "https://api.github.com/unused",
@@ -188,6 +191,17 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertIn("/actions/runs/123", result.stdout)
         self.assertNotIn("/actions/runs/999", result.stdout)
 
+    def test_only_unpinned_cmux_tests_look_for_ci_products(self):
+        for args in (["cmuxTests/ExampleTests"], ["cmuxTests/ExampleTests", "--full-build"],
+                     ["cmuxTests/ExampleTests", "--runner", SMALL], ["ExampleUITests"]):
+            with self.subTest(args=args):
+                (self.root / "calls.jsonl").unlink(missing_ok=True)
+                result = self.launch(*args)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                looked = any("head_sha=" in call[-1] for call in self.calls() if call[:1] == ["api"])
+                self.assertEqual(looked, args == ["cmuxTests/ExampleTests"])
+                self.assertEqual(self.dispatch()["ref"], HEAD)
+
     def test_explicit_remote_ref_is_resolved_before_dispatch(self):
         result = self.launch("cmuxTests/ExampleTests/testOne", "--ref", "topic/fix")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -206,7 +220,7 @@ class FocusedLauncherTests(unittest.TestCase):
 
     def queue_reads(self):
         return [call for call in self.calls()
-                if call[:1] == ["api"] and "/actions/" in call[-1]]
+                if call[:1] == ["api"] and "/actions/" in call[-1] and "head_sha=" not in call[-1]]
 
     def routed(self, state, *args, **env):
         result = self.launch("cmuxTests/ExampleTests", *args, LAUNCHER_QUEUE=json.dumps(state), **env)
@@ -1313,6 +1327,130 @@ class SuiteWorkflowForwardsFocusedRuns(unittest.TestCase):
         self.assertTrue(run.rstrip().endswith("exit 1"))
         self.assertIn('"cmuxTests/$suite"', run)
         self.assertEqual(jobs["focused"]["permissions"], {"actions": "write", "contents": "read"})
+
+
+class CIProductReuseTests(unittest.TestCase):
+    """cmuxTests selectors run against products CI compiled instead of a second full build."""
+
+    PLAN = {"source_run_id": "500", "source_sha": "d" * 40, "sha": HEAD}
+    PRODUCTS = {"id": 7, "name": "app-host-products-v1-x-1", "expired": False}
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location(
+            "focused_dispatch_reuse", ROOT / "scripts/ci/dispatch-focused-test.py"
+        )
+        cls.dispatch = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.dispatch)
+
+    def setUp(self):
+        rerun = self.dispatch.rerun
+        for name, value in {
+            "fetch_commit": mock.Mock(),
+            "gh_api": mock.Mock(side_effect=AssertionError("unexpected API read")),
+        }.items():
+            patcher = mock.patch.object(rerun, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.run_command = mock.patch.object(self.dispatch.subprocess, "run").start()
+        self.addCleanup(mock.patch.stopall)
+        self.find_run = mock.patch.object(
+            self.dispatch, "find_run", return_value={"databaseId": 9, "url": "https://x/runs/9"}
+        ).start()
+        mock.patch.object(self.dispatch, "wait_for_retry", return_value=False).start()
+
+    def reuse(self, entries=("cmuxTests/ExampleTests",)):
+        return self.dispatch.reuse_ci_products(HEAD, list(entries), None, False)
+
+    def dispatched_fields(self):
+        command = self.run_command.call_args.args[0]
+        self.assertEqual(command[:4], ["gh", "workflow", "run", "app-host-test-rerun.yml"])
+        return dict(arg.split("=", 1) for arg in command if "=" in arg)
+
+    def test_existing_products_dispatch_the_rerun_instead_of_a_build(self):
+        with mock.patch.object(self.dispatch, "planned_products", return_value=self.PLAN) as plan:
+            self.assertEqual(self.reuse(), 0)
+        plan.assert_called_once_with(HEAD, "cmuxTests/ExampleTests")
+        fields = self.dispatched_fields()
+        self.assertEqual(
+            {key: fields[key] for key in ("ref", "only_testing", "source_run_id")},
+            {"ref": HEAD, "only_testing": "cmuxTests/ExampleTests", "source_run_id": "500"},
+        )
+        self.assertTrue(fields["dispatch_id"])
+        self.assertEqual(self.find_run.call_args.kwargs["workflow"], "app-host-test-rerun.yml")
+
+    def test_ci_still_compiling_the_commit_is_awaited_not_duplicated(self):
+        ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "in_progress",
+              "event": "pull_request", "html_url": "https://x/runs/500", "head_sha": HEAD}
+        artifacts = iter([None, self.PRODUCTS])
+        rerun = self.dispatch.rerun
+        rerun.gh_api.side_effect = lambda path: (
+            {"workflow_runs": [ci]} if "head_sha=" in path
+            else {"jobs": [{"name": "macOS / macOS compile admission", "conclusion": None}]} if "/jobs" in path
+            else {"status": "in_progress"}
+        )
+        with mock.patch.object(self.dispatch, "planned_products", side_effect=[None, self.PLAN]) as plan, \
+                mock.patch.object(rerun, "built_revision", return_value="e" * 40), \
+                mock.patch.object(rerun, "non_test_changes", return_value=[]), \
+                mock.patch.object(rerun, "products_artifact", side_effect=lambda *a: next(artifacts)):
+            self.assertEqual(self.reuse(), 0)
+        self.assertEqual(plan.call_args_list[-1].args, (HEAD, "cmuxTests/ExampleTests", "500"))
+        self.assertEqual(self.dispatched_fields()["source_run_id"], "500")
+
+    def test_a_merge_that_moved_app_code_is_not_awaited(self):
+        ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "in_progress",
+              "event": "pull_request", "html_url": "https://x/runs/500", "head_sha": HEAD}
+        rerun = self.dispatch.rerun
+        rerun.gh_api.side_effect = lambda path: {"workflow_runs": [ci]}
+        with mock.patch.object(self.dispatch, "planned_products", return_value=None), \
+                mock.patch.object(rerun, "built_revision", return_value="e" * 40), \
+                mock.patch.object(rerun, "non_test_changes", return_value=["Sources/App.swift"]), \
+                mock.patch.object(rerun, "products_artifact") as artifact:
+            self.assertIsNone(self.reuse())
+        artifact.assert_not_called()
+        self.run_command.assert_not_called()
+
+    def test_ci_that_finishes_without_products_falls_back_to_a_full_build(self):
+        ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "queued",
+              "event": "push", "html_url": "https://x/runs/500", "head_sha": HEAD}
+        rerun = self.dispatch.rerun
+        rerun.gh_api.side_effect = lambda path: (
+            {"workflow_runs": [ci]} if "head_sha=" in path else {"status": "completed"}
+        )
+        with mock.patch.object(self.dispatch, "planned_products", return_value=None), \
+                mock.patch.object(rerun, "built_revision", return_value=HEAD), \
+                mock.patch.object(rerun, "non_test_changes", return_value=[]), \
+                mock.patch.object(rerun, "products_artifact", return_value=None):
+            self.assertIsNone(self.reuse())
+        self.run_command.assert_not_called()
+
+    def test_ci_that_skips_its_macos_compile_is_not_awaited(self):
+        ci = {"id": 500, "path": ".github/workflows/ci.yml", "status": "in_progress",
+              "event": "workflow_dispatch", "html_url": "https://x/runs/500", "head_sha": HEAD}
+        rerun = self.dispatch.rerun
+        rerun.gh_api.side_effect = lambda path: (
+            {"workflow_runs": [ci]} if "head_sha=" in path
+            else {"jobs": [{"name": "macOS / macOS compile admission", "conclusion": "skipped"}]} if "/jobs" in path
+            else {"status": "in_progress"}
+        )
+        with mock.patch.object(self.dispatch, "planned_products", return_value=None), \
+                mock.patch.object(rerun, "built_revision", return_value=HEAD), \
+                mock.patch.object(rerun, "non_test_changes", return_value=[]), \
+                mock.patch.object(rerun, "products_artifact", return_value=None), \
+                mock.patch.object(self.dispatch, "wait_for_retry", side_effect=AssertionError("waited")):
+            self.assertIsNone(self.reuse())
+        self.run_command.assert_not_called()
+
+    def test_a_refused_rerun_dispatch_falls_back_to_a_full_build(self):
+        self.run_command.side_effect = subprocess.CalledProcessError(1, ["gh"])
+        with mock.patch.object(self.dispatch, "planned_products", return_value=self.PLAN):
+            self.assertIsNone(self.reuse())
+        self.find_run.assert_not_called()
+
+    def test_selectors_the_rerun_cannot_express_fall_back_to_a_full_build(self):
+        with mock.patch.object(self.dispatch, "planned_products") as plan:
+            self.assertIsNone(self.reuse(["cmuxTests/ExampleTests/method(label:)"]))
+        plan.assert_not_called()
 
 
 if __name__ == "__main__":

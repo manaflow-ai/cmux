@@ -109403,65 +109403,6 @@
         }
       }
     },
-    "cli.ssh.autoReconnect.inputDiscard": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] input typed while disconnected is discarded."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 切断中に入力した内容は破棄されます。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 断开期间输入的内容将被丢弃。"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] Während der Trennung getätigte Eingaben werden verworfen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] la saisie effectuée pendant la déconnexion est rejetée."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] تم تجاهل الإدخال الذي تمت كتابته أثناء انقطاع الاتصال."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] la entrada escrita mientras se estaba desconectado se descarta."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 連線中斷時輸入的內容已被捨棄。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 연결이 끊어진 동안 입력된 내용은 무시됩니다."
-          }
-        }
-      }
-    },
     "cli.ssh.autoReconnect.recovered": {
       "extractionState": "manual",
       "localizations": {

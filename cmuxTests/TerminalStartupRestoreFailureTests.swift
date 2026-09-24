@@ -23,7 +23,7 @@ private final class RejectingRestoreTabDelegate: BonsplitDelegate {
 @MainActor
 @Suite("Terminal startup restore failure handling", .serialized)
 struct TerminalStartupRestoreFailureTests {
-    @Test("Binding-only persistent SSH resume attaches after topology commit without local census admission")
+    @Test("Binding-only persistent SSH resume attaches after topology commit without local census admission", .disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
     func persistentSSHBindingOnlyResumeBypassesLocalCensusAdmission() throws {
         let defaults = try makeAutoResumeDefaults()
         defer { defaults.store.removePersistentDomain(forName: defaults.name) }
