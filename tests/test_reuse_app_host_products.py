@@ -211,8 +211,8 @@ class ReuseProducts(TestProductHandoff):
         )
 
         unclassified_job_key = mutate_admission(
-            "    timeout-minutes: 75\n",
-            "    timeout-minutes: 75\n    container: future-image\n",
+            "    permissions:\n",
+            "    container: future-image\n    permissions:\n",
         )
         with self.assertRaisesRegex(ValueError, "unclassified.*container"):
             identity.identity_from_tree_lines(base, unclassified_job_key)

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import copy
 import ctypes
 import fcntl
 import hashlib
@@ -72,23 +73,34 @@ def mutation_message(key: str) -> str:
     return catalog.get(locale, catalog.get(locale.split("-")[0], catalog["en"]))[key]
 
 
-def mutation_conflict(code: str, key: str | None = None) -> SystemExit:
-    """Print a structured conflict without config values; return the exit."""
+def mutation_conflict(
+    code: str,
+    key: str | None = None,
+    issues: list[dict[str, str]] | None = None,
+) -> SystemExit:
+    """Print a structured conflict without config values; return the exit.
+
+    `issues` carries validator findings (path and message), which name schema
+    constraints, not config values.
+    """
     message_key = {
         "writer_busy": "busy",
         "undo_conflict": "undoConflict",
         "unsafe_lock": "unsafeLock",
         "invalid_config": "invalidCandidate",
+        "receipt_exists": "receiptExists",
     }.get(code, "sourceChanged")
-    if code.startswith("receipt_"):
+    if code.startswith("receipt_") and code != "receipt_exists":
         message_key = "receiptInvalid"
-    print(
-        json.dumps(
-            {"status": "conflict", "code": code, "key": key, "message": mutation_message(message_key)},
-            ensure_ascii=False,
-        ),
-        file=sys.stderr,
-    )
+    payload: dict[str, Any] = {
+        "status": "conflict",
+        "code": code,
+        "key": key,
+        "message": mutation_message(message_key),
+    }
+    if issues is not None:
+        payload["issues"] = issues
+    print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
     return SystemExit(1)
 
 
@@ -497,13 +509,33 @@ def semantic_scope_for(path: Path, explicit_scope: str | None = None) -> str:
     return "global"
 
 
-def report_validation_failure(result: subprocess.CompletedProcess[str]) -> None:
+class ValidatorFailure(Exception):
+    """`cmux config validate` failed without reporting per-path issues.
+
+    Nothing can be diffed against a baseline, so the write is refused outright.
+    `issues` holds one `$` entry with the command's output.
+    """
+
+    def __init__(self, issues: list[dict[str, str]]):
+        super().__init__(issues)
+        self.issues = issues
+
+
+def validation_issues(result: subprocess.CompletedProcess[str]) -> list[dict[str, str]]:
+    """Return `cmux --json config validate` findings as path/message pairs.
+
+    Raises ValidatorFailure when a failed run reports no per-path issue (an
+    unreadable file, an older CLI, a crash), so a refusal is never empty and
+    an unstructured failure is never mistaken for a pre-existing issue.
+    """
+    if result.returncode == 0:
+        return []
     try:
         payload = json.loads(result.stdout)
     except json.JSONDecodeError:
         payload = None
 
-    found_issue = False
+    found: list[dict[str, str]] = []
     if isinstance(payload, dict):
         findings = payload.get("findings")
         if isinstance(findings, list):
@@ -515,22 +547,36 @@ def report_validation_failure(result: subprocess.CompletedProcess[str]) -> None:
                     for issue in issues:
                         if not isinstance(issue, dict):
                             continue
-                        path = issue.get("path", "$")
-                        message = issue.get("message", "invalid configuration")
-                        print(f"error: {path}: {message}", file=sys.stderr)
-                        found_issue = True
+                        found.append({
+                            "path": str(issue.get("path", "$")),
+                            "message": str(issue.get("message", "invalid configuration")),
+                        })
                 if not issues and finding.get("status") == "error":
                     message = finding.get("message")
-                    if isinstance(message, str):
-                        print(f"error: {message}", file=sys.stderr)
-                        found_issue = True
-    if not found_issue:
+                    raise ValidatorFailure([{
+                        "path": "$",
+                        "message": message if isinstance(message, str) else "invalid configuration",
+                    }])
+    if not found:
         detail = result.stderr.strip() or result.stdout.strip()
-        if detail:
-            print(detail, file=sys.stderr)
+        raise ValidatorFailure([{"path": "$", "message": detail or "invalid configuration"}])
+    return found
 
 
-def validate_file_with_cmux(path: Path, scope: str) -> bool:
+def print_issues(issues: list[dict[str, str]]) -> None:
+    for issue in issues:
+        print(f"error: {issue['path']}: {issue['message']}", file=sys.stderr)
+
+
+def report_validation_failure(result: subprocess.CompletedProcess[str]) -> None:
+    try:
+        print_issues(validation_issues(result))
+    except ValidatorFailure as failure:
+        print_issues(failure.issues)
+
+
+def run_cmux_validate(path: Path, scope: str) -> subprocess.CompletedProcess[str] | None:
+    """Run `cmux --json config validate`, or return None when no CLI is found."""
     cli = find_cmux_cli()
     if cli is None:
         print(
@@ -538,8 +584,8 @@ def validate_file_with_cmux(path: Path, scope: str) -> bool:
             "set CMUX_CLI_BIN if it is not on PATH",
             file=sys.stderr,
         )
-        return False
-    result = subprocess.run(
+        return None
+    return subprocess.run(
         [
             cli,
             "--json",
@@ -554,17 +600,27 @@ def validate_file_with_cmux(path: Path, scope: str) -> bool:
         capture_output=True,
         check=False,
     )
+
+
+def validate_file_with_cmux(path: Path, scope: str) -> bool:
+    result = run_cmux_validate(path, scope)
+    if result is None:
+        return False
     if result.returncode == 0:
         return True
     report_validation_failure(result)
     return False
 
 
-def validate_candidate(
+def candidate_issues(
     data: dict[str, Any],
     source_path: Path,
     explicit_scope: str | None = None,
-) -> bool:
+) -> list[dict[str, str]] | None:
+    """Validate an in-memory config; return its issues, or None if no CLI ran.
+
+    Raises ValidatorFailure when validation fails without per-path issues.
+    """
     encoded = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", delete=False, suffix=".cmux.json"
@@ -572,12 +628,49 @@ def validate_candidate(
         tmp.write(encoded)
         candidate = Path(tmp.name)
     try:
-        return validate_file_with_cmux(
-            candidate,
-            semantic_scope_for(source_path, explicit_scope),
-        )
+        result = run_cmux_validate(candidate, semantic_scope_for(source_path, explicit_scope))
     finally:
         candidate.unlink(missing_ok=True)
+    return None if result is None else validation_issues(result)
+
+
+def validate_candidate(
+    data: dict[str, Any],
+    source_path: Path,
+    explicit_scope: str | None = None,
+) -> bool:
+    try:
+        issues = candidate_issues(data, source_path, explicit_scope)
+    except ValidatorFailure as failure:
+        issues = failure.issues
+    if issues is None:
+        return False
+    print_issues(issues)
+    return not issues
+
+
+def introduced_issues(
+    candidate: dict[str, Any],
+    baseline: dict[str, Any],
+    source_path: Path,
+    explicit_scope: str | None = None,
+) -> list[dict[str, str]] | None:
+    """Return the candidate's issues that the baseline doesn't already have.
+
+    Matches the native store: a write is refused only for what it breaks, not
+    for a key from a newer build or an invalid value on another path. Issues
+    are identified by path and message. The baseline is validated only when
+    the candidate has issues. Returns None when no validator could run, and
+    raises ValidatorFailure when either run fails without per-path issues.
+    """
+    issues = candidate_issues(candidate, source_path, explicit_scope)
+    if not issues:
+        return issues
+    existing = candidate_issues(baseline, source_path, explicit_scope)
+    if existing is None:
+        return None
+    known = {(issue["path"], issue["message"]) for issue in existing}
+    return [issue for issue in issues if (issue["path"], issue["message"]) not in known]
 
 
 def flatten(prefix: str, value: Any) -> list[str]:
@@ -694,6 +787,7 @@ def mutate_setting(args: argparse.Namespace, restore: dict, undo: dict | None = 
         if expected_revision is not None and expected_revision != revision:
             raise mutation_conflict("source_changed", args.key)
         data = load_settings(path)
+        baseline = copy.deepcopy(data)
         source = source_for_edit(path, data)
         before = owned_value(data, parts)
         if undo is not None and (
@@ -723,8 +817,15 @@ def mutate_setting(args: argparse.Namespace, restore: dict, undo: dict | None = 
             raise SystemExit(f"error: refusing unsafe JSONC edit for {args.key}: {error}")
         if not isinstance(candidate, dict):
             raise mutation_conflict("invalid_config", args.key)
-        if not unchanged and not validate_candidate(candidate, path, args.scope):
-            return 1
+        if not unchanged:
+            try:
+                introduced = introduced_issues(candidate, baseline, path, args.scope)
+            except ValidatorFailure as failure:
+                raise mutation_conflict("invalid_config", args.key, issues=failure.issues)
+            if introduced is None:
+                return 1
+            if introduced:
+                raise mutation_conflict("invalid_config", args.key, issues=introduced)
 
         receipt = {
             "version": 1,
@@ -752,11 +853,18 @@ def mutate_setting(args: argparse.Namespace, restore: dict, undo: dict | None = 
                 if destination.resolve(strict=False) in (path, Path(str(path) + ".cmux-write.lock")):
                     raise mutation_conflict("receipt_path_conflict", args.key)
                 # Exclusive creation: a receipt is never overwritten or shared.
-                fd = os.open(
-                    destination,
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    0o600,
-                )
+                try:
+                    fd = os.open(
+                        destination,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                    )
+                except FileExistsError:
+                    raise mutation_conflict("receipt_exists", args.key)
+                except OSError:
+                    # A missing parent, a permission error, or a symlinked
+                    # ancestor: nothing was written yet.
+                    raise mutation_conflict("receipt_unwritable", args.key)
                 output = os.fdopen(fd, "w", encoding="utf-8")
             if resolved_write_path(configured) != path:
                 raise mutation_conflict("source_changed", args.key)

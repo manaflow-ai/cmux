@@ -1372,6 +1372,17 @@ def load_macos_ios_package_closure() -> Optional[frozenset[str]]:
         return None
 
 
+# Lint scripts that only Linux guard jobs, or Linux-only guard tests, execute.
+# No build, app source or macOS job runs them, so an edit needs no Mac. Keep
+# this an exact list: test_linux_guard_only_scripts_reach_no_other_runner
+# fails if anything else starts naming one.
+LINUX_GUARD_ONLY_SCRIPTS = frozenset({
+    "scripts/check-package-resolved-policy.py",
+    "scripts/check-sidebar-lazy-layout.py",
+    "scripts/lint-stored-dispatch-work-items.py",
+})
+
+
 def is_macos_neutral(
     path: str,
     macos_ios_packages: Optional[frozenset[str]],
@@ -1420,6 +1431,8 @@ def is_macos_neutral(
         "CONTRIBUTING.md",
         ".github/pull_request_template.md",
     }:
+        return True
+    if path in LINUX_GUARD_ONLY_SCRIPTS:
         return True
 
     if (
@@ -1480,9 +1493,22 @@ def is_test_only_source(path: str) -> bool:
 
 RELEASE_BUILD_NEUTRAL_INPUTS = frozenset({
     # Runtime script contents are copied into the app bundle; changing them does
-    # not exercise Swift/Release compilation. Their focused regression suite is
-    # the useful signal, so avoid paying for a universal app build.
+    # not exercise Swift/Release compilation, and the Release lane validates only
+    # compiled binaries' slices. Their focused regression suites and app-host
+    # tests are the useful signal, so avoid paying for a universal app build.
+    # Text scripts only: test_resources_bin_release_neutral_inputs_are_text_scripts
+    # fails if one of these becomes a binary. cmux-claude-wrapper is absent
+    # because its own standalone lane already owns it.
+    "Resources/bin/cmux-amp-wrapper",
+    "Resources/bin/cmux-codex-wrapper",
+    "Resources/bin/cmux-hermes-agent-wrapper",
+    "Resources/bin/cmux-hermes-python-wrapper",
+    "Resources/bin/cmux-hermes-sitecustomize.py",
+    "Resources/bin/cmux-sudo",
+    "Resources/bin/grok",
     "Resources/bin/open",
+    "Resources/bin/start-cmux-profiling",
+    "Resources/bin/submit-cmux-profile",
     "tests/test_open_wrapper.py",
 })
 

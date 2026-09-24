@@ -211,6 +211,29 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertEqual(validator.register_derivable(root), [])  # idempotent
 
+    def test_a_test_a_workflow_runs_through_a_workload_profile_is_live(self) -> None:
+        root = self.make_root(
+            tests=["test_kept.py", "test_profiled.py"],
+            registry=self.kept_registry()
+            + '\n[[test]]\npath = "tests/test_profiled.py"\nlane = "linux-guard"\n',
+        )
+        workflow = root / ".github" / "workflows" / "ci-guards.yml"
+        workflow.write_text(
+            GUARD_WORKFLOW + "      - run: python3 scripts/ci/cmux_workload_profile.py run test.guard\n",
+            encoding="utf-8",
+        )
+        (root / "scripts" / "ci" / "workloads").mkdir(parents=True)
+        (root / "scripts" / "ci" / "cmux-workload-profiles.json").write_text(
+            '{"profiles": [{"id": "test.guard", "entrypoint": "scripts/ci/workloads/guard.sh"}]}',
+            encoding="utf-8",
+        )
+        (root / "scripts" / "ci" / "workloads" / "guard.sh").write_text(
+            "python3 tests/test_profiled.py\n", encoding="utf-8"
+        )
+
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertEqual(errors, [])
+
     def test_write_leaves_a_test_no_workflow_runs_for_a_person_to_place(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_orphan.py"], registry=self.kept_registry())
         before = (root / "tests" / "test-execution.toml").read_text(encoding="utf-8")
