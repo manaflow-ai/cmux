@@ -50,6 +50,14 @@ belong to release or nightly runs. ci-queue-janitor.yml uploads it as the
 pick a pull request run's pool (and, through it, e2e_runner_pool.py an E2E
 run's) without listing every in-flight run's jobs itself.
 
+An owned Mac pool (``glaeda-<class>-xcode-<version>``) is one more pool
+here: stale pull request runs (b) on it are cancelled whatever its queue,
+which frees minis, and the other categories only while it is backed up. With
+CI_PR_POOL_OWNED on, the snapshot also carries each owned pool's
+``committed`` machines: the peak each run holding it declared in its
+``macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>`` marker, read with one
+artifact listing per run that may hold one.
+
 Orphaned runs are a separate pass (find_orphans): a job the runner scheduler
 lost holds nothing on any pool, so that pass ignores the queue threshold,
 has its own cap, and may end main schedules, nightly and TestFlight runs,
@@ -74,6 +82,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
 
 
@@ -343,12 +352,43 @@ POOL_SETTINGS_ENV = {
 }
 
 
+MAX_ARTIFACT_PAGES = 5
+# ci.yml's `changes` job uploads this marker when the picker chose an owned
+# pool: macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>.
+OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)-(?P<pool>.+)")
+
+
+def owned_marker(run: Mapping[str, Any], names: Iterable[str]) -> tuple[str, int] | None:
+    """(pool, peak jobs) from this attempt's owned-pool marker, or None."""
+    for name in names:
+        match = OWNED_MARKER.fullmatch(str(name))
+        if (match and int(match["run"]) == run.get("id") and int(match["attempt"]) == (run.get("run_attempt") or 1)
+                and owned_pool(match["pool"])):
+            return match["pool"], min(int(match["jobs"]), MAX_RUN_JOBS)
+    return None
+
+
+def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """A run whose marker is worth an artifact listing: it may hold an owned pool.
+
+    Only attempt 1 of a same-repository pull request run of CI can (a retry
+    never takes one). Its other macOS jobs say nothing: swift-package-tests
+    always runs on a Blacksmith pool beside a run on an owned one.
+    """
+    if run.get("event") != "pull_request" or (run.get("run_attempt") or 1) != 1:
+        return False
+    if (run.get("head_repository") or {}).get("id") != (run.get("repository") or {}).get("id"):
+        return False
+    return str(run.get("path") or "").endswith("/ci.yml")
+
+
 def pool_load_snapshot(
     runs: Sequence[Mapping[str, Any]],
     jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
     *,
     now: dt.datetime,
     settings: Mapping[str, str] | None = None,
+    markers: Mapping[int, tuple[str, int]] | None = None,
 ) -> dict[str, Any]:
     """Per-pool macOS demand from the jobs this sweep already listed.
 
@@ -363,12 +403,26 @@ def pool_load_snapshot(
 
     A job on an owned pool (`glaeda-<class>-xcode-<version>`) is keyed by
     that label (runner_pool); its counts are how pr_runner_pool.py knows how
-    many of the pool's machines are taken.
+    many of the pool's machines are taken. An owned pool also gets
+    `committed`: for each run holding it, the larger of the jobs seen there
+    and the peak its marker declares (`markers`, run id -> (pool, jobs)), so
+    a run whose later jobs do not exist yet still counts them.
     """
     pools: dict[str, dict[str, Any]] = {}
     oldest: dict[str, dt.datetime] = {}
+    committed: dict[str, int] = {}
     for run in runs:
         reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
+        seen: dict[str, int] = {}
+        for job in jobs_by_run.get(run.get("id"), ()):
+            if is_macos_job(job) and owned_label(job) and job.get("status") in (
+                    POOL_QUEUED_JOB_STATUSES | RUNNING_JOB_STATUSES):
+                seen[runner_pool(job)] = seen.get(runner_pool(job), 0) + 1
+        marker = (markers or {}).get(run.get("id"))
+        if marker and run.get("status") != "completed":
+            seen[marker[0]] = max(seen.get(marker[0], 0), marker[1])
+        for label, count in seen.items():
+            committed[label] = committed.get(label, 0) + count
         for job in jobs_by_run.get(run.get("id"), ()):
             if not is_macos_job(job):
                 continue
@@ -389,6 +443,9 @@ def pool_load_snapshot(
                 oldest[pool] = created
     for pool, created in oldest.items():
         pools[pool]["oldest_queued_minutes"] = max(0, int((now - created).total_seconds() // 60))
+    for pool, count in committed.items():
+        pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
+                                "oldest_queued_minutes": 0})["committed"] = count
     return {
         "version": POOL_LOAD_VERSION,
         "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1141,6 +1198,18 @@ class GitHub:
                     break
         return list(runs.values())
 
+    def artifact_names(self, run_id: int, *, stop: str) -> list[str]:
+        """The run's artifact names, page by page until one starts with `stop`."""
+        names: list[str] = []
+        for page in range(1, MAX_ARTIFACT_PAGES + 1):
+            query = urllib.parse.urlencode({"per_page": 100, "page": page})
+            payload = self.request("GET", f"/repos/{self.repo}/actions/runs/{run_id}/artifacts?{query}")
+            batch = [str(item.get("name") or "") for item in payload.get("artifacts") or []]
+            names.extend(batch)
+            if len(batch) < 100 or any(name.startswith(stop) for name in batch):
+                break
+        return names
+
     def jobs(self, run_id: int) -> list[dict[str, Any]]:
         jobs: list[dict[str, Any]] = []
         for page in range(1, MAX_JOB_PAGES + 1):
@@ -1248,8 +1317,23 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Before any cancellation: pr_runner_pool.py wants the demand a new run
         # would queue behind, and the janitor's cancels are capped anyway.
         pool_settings = {key: os.environ.get(name, "") for name, key in POOL_SETTINGS_ENV.items()}
+        # Owned pools on: one artifact listing per run that may hold one, for
+        # the peak its marker declares. Off: no request at all.
+        markers: dict[int, tuple[str, int]] = {}
+        if os.environ.get("PR_POOL_OWNED", "").strip() == "1":
+            for run in runs:
+                if run.get("id") in jobs_by_run and may_hold_owned_pool(run, jobs_by_run[run["id"]]):
+                    try:
+                        found = owned_marker(run, github.artifact_names(
+                            run["id"], stop=f"macos-pool-persistent-{run['id']}-{run.get('run_attempt') or 1}-"))
+                    except RuntimeError as error:
+                        print(f"queue-janitor: owned-pool marker for run {run['id']}: {error}", file=sys.stderr)
+                        continue
+                    if found:
+                        markers[run["id"]] = found
         args.pool_load.write_text(
-            json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings), indent=2) + "\n",
+            json.dumps(pool_load_snapshot(runs, jobs_by_run, now=now, settings=pool_settings, markers=markers),
+                       indent=2) + "\n",
             encoding="utf-8")
 
     plan = build_plan(

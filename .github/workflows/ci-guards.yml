@@ -79,6 +79,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_canonical_build_root.py
 
+      - name: Validate seeded macOS checkout
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_git_seed.py
+
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
         run: |
@@ -343,6 +347,10 @@ jobs:
       - name: Validate pull request macOS pool choice
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
+
+      - name: Validate owned Mac build state
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_build_state.py
 
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
@@ -609,6 +617,10 @@ jobs:
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_testflight_archive_log.py
 
+      - name: Validate TestFlight migration candidate preparation
+        if: ${{ matrix.group == 'release-ios' }}
+        run: python3 ios/tests/test_testflight_prepare_only.py
+
       - name: Validate iOS upload lean checkout
         if: ${{ matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_upload_lean_checkout.py
@@ -774,6 +786,7 @@ jobs:
           python3 tests/test_app_host_test_products.py
           python3 tests/test_reuse_app_host_products.py
           python3 tests/test_e2e_warm_derived_data.py
+          python3 tests/test_e2e_sibling_build.py
           python3 tests/test_seed_derived_data.py
           python3 tests/test_seed_decide.py
           python3 tests/test_ci_product_publication.py
@@ -830,6 +843,10 @@ jobs:
       - name: Validate bash shell integration job control
         if: ${{ matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
+
+      - name: Validate shell surface-scoped environment keys
+        if: ${{ matrix.group == 'quality-determinism' }}
+        run: python3 tests/test_shell_surface_scoped_keys.py
 
       - name: Validate focused Dock shortcut routing guard
         if: ${{ matrix.group == 'quality-determinism' }}
