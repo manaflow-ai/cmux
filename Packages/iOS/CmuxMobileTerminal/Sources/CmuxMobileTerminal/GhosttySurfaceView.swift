@@ -1480,7 +1480,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func noteKeyboardTransitionPresentationOutputApplied() {
         keyboardTransitionPresentationFreeze?.noteOutputApplied(lastIssuedToken: nextSurfaceOperationID)
-        if keyboardTransitionPresentationFreeze?.transitionEnded == true {
+        // Only output after the confirmation counts as progress; a busy TUI
+        // must not hold the frame forever if the confirmation was lost.
+        if keyboardTransitionPresentationFreeze?.transitionEnded == true,
+           keyboardTransitionPresentationFreeze?.reportConfirmed == true {
             armKeyboardTransitionPresentationTimeout()
         }
     }
