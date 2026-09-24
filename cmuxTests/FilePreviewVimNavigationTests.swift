@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,31 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct FilePreviewVimNavigationTests {
+    @Test func savedReadOnlyModeAppliesOnFirstHostedRender() throws {
+        let suite = "cmux.preview-vim.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "filePreviewVimKeys")
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: "/tmp/cmux-vim-fixture.txt", startFileWatcher: false)
+        defer { panel.close() }
+        let editor = FilePreviewTextEditor(
+            panel: panel,
+            isVisibleInUI: true,
+            themeBackgroundColor: .textBackgroundColor,
+            themeForegroundColor: .textColor,
+            drawsBackground: true,
+            gutterBackgroundColor: .textBackgroundColor,
+            wordWrap: true
+        ).defaultAppStorage(defaults)
+        let host = NSHostingView(rootView: editor)
+        host.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+        let window = NSWindow(contentRect: host.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let view = try #require(panel.textView)
+        #expect(!view.isEditable)
+    }
+
     @Test func focusedReadOnlyPreviewDrawsInsertionPoint() {
         let view = SavingTextView.makeFilePreviewTextView()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: .borderless, backing: .buffered, defer: false)
