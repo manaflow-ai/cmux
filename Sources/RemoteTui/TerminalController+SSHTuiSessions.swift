@@ -68,19 +68,21 @@ extension TerminalController {
               let legacyPayload = legacyRaw as? [String: Any] else {
             return .err(code: "internal_error", message: CloudDiagnosticFailure.response.localizedDescription, data: nil)
         }
-        let workspaceCount = (tuiPayload["workspace_count"] as? Int ?? 0)
-            + (legacyPayload["workspace_count"] as? Int ?? 0)
-        var sessions = tuiPayload["sessions"] as? [[String: Any]] ?? []
-        sessions.append(contentsOf: legacyPayload["sessions"] as? [[String: Any]] ?? [])
-        var errors = tuiPayload["errors"] as? [[String: Any]] ?? []
-        errors.append(contentsOf: legacyPayload["errors"] as? [[String: Any]] ?? [])
-        let payload: [String: Any] = [
+        // Typed locals keep this literal cheap for the type checker; the inline
+        // `as? ?? +` form timed out on slower CI runners.
+        let tuiCount: Int = tuiPayload["workspace_count"] as? Int ?? 0
+        let legacyCount: Int = legacyPayload["workspace_count"] as? Int ?? 0
+        let tuiSessions: [[String: Any]] = tuiPayload["sessions"] as? [[String: Any]] ?? []
+        let legacySessions: [[String: Any]] = legacyPayload["sessions"] as? [[String: Any]] ?? []
+        let tuiErrors: [[String: Any]] = tuiPayload["errors"] as? [[String: Any]] ?? []
+        let legacyErrors: [[String: Any]] = legacyPayload["errors"] as? [[String: Any]] ?? []
+        let merged: [String: Any] = [
             "all_workspaces": true,
-            "workspace_count": workspaceCount,
-            "sessions": sessions,
-            "errors": errors
+            "workspace_count": tuiCount + legacyCount,
+            "sessions": tuiSessions + legacySessions,
+            "errors": tuiErrors + legacyErrors,
         ]
-        return .ok(payload)
+        return .ok(merged)
     }
 
     @MainActor
