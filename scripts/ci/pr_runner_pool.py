@@ -189,13 +189,18 @@ def decide(
     xcode_pins: Mapping[str, str],
     routed_since: int = 0,
     auto_xcode: bool = False,
+    placed: Mapping[str, int] | None = None,
+    choose_from: Sequence[str] | None = None,
 ) -> Choice:
     """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
 
     `routed_since` runs were created after the snapshot and each already took
-    a pool by this rule; they are replayed first. `auto_xcode` (a fork run,
-    which has no pins) lets every pool fall back to each job selecting its
-    pool's newest SDK 26 Xcode.
+    a pool by this rule; they are replayed first. `placed` counts runs created
+    since the snapshot whose pool is already known (an E2E run names it), one
+    job each. `auto_xcode` (a fork run, which has no pins) lets every pool
+    fall back to each job selecting its pool's newest SDK 26 Xcode.
+    `choose_from` limits the final pick to some pools of the order (E2E stays
+    on macOS 26) while the replay still spreads over the whole order.
     """
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return Choice("", "", "no readable pool snapshot")
@@ -216,14 +221,18 @@ def decide(
     usable = [label for label in limits.order if load[label]["reserved_queued"] == 0 and xcode(label) is not None]
     if not usable:
         return Choice("", "", "every pool in the order is reserved or has no Xcode pin")
+    candidates = [label for label in usable if choose_from is None or label in choose_from]
+    if not candidates:
+        return Choice("", "", "every pool this run may take is reserved or has no Xcode pin")
     skipped = [label for label in limits.order if label not in usable]
     note = f"; skipped {', '.join(skipped)} (reserved or no Xcode pin)" if skipped else ""
-    added = {label: 0 for label in usable}
+    added = {label: max(0, int((placed or {}).get(label) or 0)) for label in usable}
     for _ in range(max(0, routed_since)):
         earlier, _ = pick(load, added, usable, limits.max_queued)
         added[earlier] += 1
-    label, headroom = pick(load, added, usable, limits.max_queued)
-    replay = f" after replaying {routed_since} newer run(s)" if routed_since else ""
+    label, headroom = pick(load, added, candidates, limits.max_queued)
+    replayed = sum(added.values())
+    replay = f" after replaying {replayed} newer run(s)" if replayed else ""
     why = (f"first pool in order with headroom (< {limits.max_queued} queued){replay}" if headroom
            else f"no pool has headroom{replay}; fewest queued")
     return Choice(label, xcode(label) or "", why + note)
@@ -306,6 +315,20 @@ def trusted_snapshot_artifact(artifact: Mapping[str, Any], branch: str) -> bool:
     )
 
 
+def newest_snapshot_artifact(artifacts: Sequence[Any], *, now: dt.datetime,
+                             branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
+    """The newest trusted snapshot artifact young enough to read, or None."""
+    trusted = [artifact for artifact in artifacts
+               if isinstance(artifact, Mapping) and trusted_snapshot_artifact(artifact, branch)]
+    if not trusted:
+        return None
+    newest = max(trusted, key=lambda artifact: str(artifact.get("created_at") or ""))
+    created = parse_time(newest.get("created_at"))
+    if created is None or (now - created).total_seconds() / 60 > MAX_SNAPSHOT_MINUTES:
+        return None
+    return newest
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args: Any, **kwargs: Any) -> None:
         return None
@@ -329,17 +352,18 @@ class GitHub:
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
         """The newest trusted, unexpired janitor snapshot, in two API requests."""
         artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page={PAGE_SIZE}").get("artifacts") or []
-        trusted = [artifact for artifact in artifacts if trusted_snapshot_artifact(artifact, branch)]
-        if not trusted:
+        newest = newest_snapshot_artifact(artifacts, now=now, branch=branch)
+        if newest is None:
             return None
-        newest = max(trusted, key=lambda artifact: str(artifact.get("created_at") or ""))
-        created = parse_time(newest.get("created_at"))
-        if created is None or (now - created).total_seconds() / 60 > MAX_SNAPSHOT_MINUTES:
-            return None
+        archive = zipfile.ZipFile(io.BytesIO(self.download(newest)))
+        return json.loads(archive.read(SNAPSHOT_FILE))
+
+    def download(self, artifact: Mapping[str, Any]) -> bytes:
+        """One artifact's zip archive (one API request)."""
         # The download answers with a redirect to signed blob storage, which must
         # not receive the token, so follow it by hand.
         opener = urllib.request.build_opener(_NoRedirect)
-        download = urllib.request.Request(str(newest["archive_download_url"]), headers=self.headers)
+        download = urllib.request.Request(str(artifact["archive_download_url"]), headers=self.headers)
         try:
             opener.open(download, timeout=15)
             raise RuntimeError("artifact download did not redirect")
@@ -349,8 +373,13 @@ class GitHub:
                 raise RuntimeError(f"artifact download failed ({error.code})") from error
         blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
         with urllib.request.urlopen(blob, timeout=30) as response:
-            archive = zipfile.ZipFile(io.BytesIO(response.read()))
-        return json.loads(archive.read(SNAPSHOT_FILE))
+            return response.read()
+
+    def runs_since(self, workflow: str, since: str, **filters: str) -> list[Mapping[str, Any]]:
+        """One page of `workflow`'s runs created at or after `since` (one request)."""
+        query = urllib.parse.urlencode({**filters, "created": f">={since}", "per_page": PAGE_SIZE})
+        runs = self.get(f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or []
+        return [run for run in runs if isinstance(run, Mapping)]
 
     def pull_request_runs_since(self, since: str, *, exclude_run_id: int | None) -> int:
         """CI pull request runs created at or after `since` and still in flight (one request).
@@ -360,8 +389,7 @@ class GitHub:
         job, its compile admission: pull request runs are compile-only by
         default, so a full-suite run's shards are under-counted.
         """
-        query = urllib.parse.urlencode({"event": "pull_request", "created": f">={since}", "per_page": PAGE_SIZE})
-        runs = self.get(f"/actions/workflows/{CI_WORKFLOW}/runs?{query}").get("workflow_runs") or []
+        runs = self.runs_since(CI_WORKFLOW, since, event="pull_request")
         return count_in_flight(runs, exclude_run_id=exclude_run_id)
 
 

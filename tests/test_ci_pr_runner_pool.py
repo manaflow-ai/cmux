@@ -121,6 +121,25 @@ class PreferenceOrder(unittest.TestCase):
                 {"id": 3, "status": "completed"}, {"id": 4, "status": "pending"}, {"id": 5, "status": "waiting"}]
         self.assertEqual(pool.count_in_flight(runs, exclude_run_id=2), 3)
 
+    def test_placed_runs_and_a_narrower_pick_for_e2e(self):
+        # e2e_runner_pool.py reuses this rule: runs whose pool is known count
+        # where they are, and the final pick may be limited to some pools
+        # while the replay still spreads over the whole order.
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][LARGE]["running"] = 8
+        args = dict(now=NOW, xcode_pins=PINS)
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 4}, **args).runner, LARGE)
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).runner, SMALL)
+        self.assertIn("replaying 5", pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).reason)
+        # A pool outside the order is ignored rather than trusted.
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={"tart-small": 9}, **args).runner, LARGE)
+        busy = backlog(small=8, large=9, old=0)
+        self.assertEqual(pool.decide(busy, pool.Settings(), **args).runner, OLD)
+        self.assertEqual(pool.decide(busy, pool.Settings(), choose_from=(LARGE, SMALL), **args).runner, SMALL)
+        reserved = backlog(large_reserved=1)
+        reserved["pools"][SMALL]["reserved_queued"] = 1
+        self.assertEqual(pool.decide(reserved, pool.Settings(), choose_from=(LARGE, SMALL), **args).runner, "")
+
     def test_counting_errors_keep_the_default(self):
         choice = choose(backlog(), routed=RuntimeError("GET /actions/workflows/ci.yml/runs failed (500)"))
         self.assertEqual((choice.runner, choice.xcode_app), ("", ""))
@@ -242,6 +261,16 @@ class TrustedArtifact(unittest.TestCase):
                                                         "main"))
         self.assertFalse(pool.trusted_snapshot_artifact({**self.artifact(), "expired": True}, "main"))
         self.assertFalse(pool.trusted_snapshot_artifact({"expired": False}, "main"))
+
+
+    def test_newest_young_artifact_only(self):
+        def at(minutes, **run):
+            stamp = (NOW - dt.timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            return {**self.artifact(**run), "created_at": stamp}
+        newest = pool.newest_snapshot_artifact([at(20), at(5), at(1, head_branch="x"), "junk"], now=NOW)
+        self.assertEqual(newest["created_at"], at(5)["created_at"])
+        self.assertIsNone(pool.newest_snapshot_artifact([at(pool.MAX_SNAPSHOT_MINUTES + 1)], now=NOW))
+        self.assertIsNone(pool.newest_snapshot_artifact([], now=NOW))
 
 
 class JanitorSnapshot(unittest.TestCase):
