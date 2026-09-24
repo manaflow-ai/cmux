@@ -296,6 +296,18 @@ public final class ComputerUseRuntimeService {
             return status()
         }
         cachedStatus = cachedStatus.applyingProbeResult(latest)
+        // TCC grants are authoritative for the daemon readiness gate. If a
+        // previous onboarding attempt was dismissed or interrupted, the
+        // persisted phase can remain `.onboarding` even after the helper
+        // reports both grants. Promote that stale phase immediately so the
+        // daemon can serve MCP requests; direct-capture consent remains a
+        // separate onboarding concern.
+        if latest?.isKnown == true,
+           latest?.accessibility == true,
+           latest?.screenRecording == true
+        {
+            transitionPermissionPhase(.onboardingCompleted)
+        }
         return status()
     }
 

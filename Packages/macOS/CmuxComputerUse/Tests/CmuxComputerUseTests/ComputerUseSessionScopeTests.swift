@@ -13,6 +13,13 @@ struct ComputerUseSessionScopeTests {
         #expect(!scope.matches(driverSessionID: nil))
     }
 
+    @Test func completedPermissionsReleaseAStaleOnboardingPhase() {
+        let phase = ComputerUseRuntimePermissionPhase.onboarding
+            .applying(.onboardingCompleted)
+        #expect(phase == .ready)
+        #expect(phase.isReady)
+    }
+
     @Test func helperReplacementRequiresOnboardingAgain() {
         let phase = ComputerUseRuntimePermissionPhase.ready.applying(.helperReplaced)
         #expect(phase == .onboardingRequired)
