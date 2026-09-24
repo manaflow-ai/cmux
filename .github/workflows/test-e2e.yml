@@ -395,7 +395,23 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
+          JOB_TIMEOUT_MINUTES: ${{ inputs.job_timeout || '45' }}
+        run: |
+          set -euo pipefail
+          # Dispatches of one commit with other selectors run in other
+          # concurrency groups. When an earlier one is still compiling this
+          # revision, wait for its product (e2e_sibling_build.py) and restore
+          # that, leaving 25 minutes of the job for a compile if it fails.
+          first="$RUNNER_TEMP/reuse-first-attempt.out"
+          GITHUB_OUTPUT="$first" python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
+          if ! grep -qx 'hit=true' "$first" \
+            && [ -f scripts/ci/e2e_sibling_build.py ] \
+            && CMUX_E2E_SIBLING_WAIT_SECONDS=$(( (JOB_TIMEOUT_MINUTES - 25) * 60 )) \
+              python3 scripts/ci/e2e_sibling_build.py wait; then
+            python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
+          else
+            cat "$first" >> "$GITHUB_OUTPUT"
+          fi
 
       # Only an input to compiling, and not part of the product contract, so an
       # adopted product never needs it.
