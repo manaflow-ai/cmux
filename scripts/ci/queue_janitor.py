@@ -357,6 +357,10 @@ def pr_labels(pr: Mapping[str, Any]) -> set[str]:
     return {str(n.get("name")) for n in ((pr.get("labels") or {}).get("nodes") or ())}
 
 
+def labels_complete(pr: Mapping[str, Any]) -> bool:
+    return not ((pr.get("labels") or {}).get("pageInfo") or {}).get("hasNextPage")
+
+
 @dataclasses.dataclass(frozen=True)
 class Candidate:
     run: Mapping[str, Any]
@@ -529,7 +533,9 @@ def build_plan(
 
     def deliberate(candidate: Candidate) -> bool:
         pr = candidate.pr or {}
-        return (candidate.run.get("run_attempt") or 1) > 1 or JANITOR_OPT_OUT_LABEL in pr_labels(pr)
+        # An unread label page may hold no-janitor, so treat it as present.
+        return ((candidate.run.get("run_attempt") or 1) > 1 or JANITOR_OPT_OUT_LABEL in pr_labels(pr)
+                or not labels_complete(pr))
 
     candidates.sort(key=order)
     decisions: list[Decision] = []
@@ -578,7 +584,7 @@ def branches_to_resolve(
 PR_FIELDS = """
         number state headRefOid url
         headRepositoryOwner { login }
-        labels(first: 50) { nodes { name } }
+        labels(first: 100) { pageInfo { hasNextPage } nodes { name } }
         files(first: 100) { pageInfo { hasNextPage } nodes { path } }
         timelineItems(last: 50, itemTypes: [LABELED_EVENT, UNLABELED_EVENT]) {
           nodes {
