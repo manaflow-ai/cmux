@@ -105,8 +105,8 @@ if [ "$move_packages" = true ] && { [ -e "$workspace/.ci-source-packages" ] || [
   mv "$workspace/.ci-source-packages" "$incoming"
 fi
 rm -rf "$src"
-if ! cp -cpR "$workspace"/. "$src" 2>/dev/null; then
-  echo "canonical-build-root: clone failed; copying with rsync" >&2
+if ! clone_error="$(cp -cpR "$workspace"/. "$src" 2>&1)"; then
+  echo "canonical-build-root: clone failed (${clone_error%%$'\n'*}); copying with rsync" >&2
   rm -rf "$src"
   mkdir -p "$src"
   rsync -a --delete "$workspace"/ "$src"/
