@@ -50,6 +50,14 @@ GROUPS = (
 PATH_OWNERS = {
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
 
+    # test_ci_runner_capability_resolver.py reads the capability map, the
+    # resolver it imports, the reusable workflow that publishes the map, and
+    # the one workflow wired to consume it.
+    ".github/runners.json": frozenset(("ci",)),
+    ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
+    ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
+    "scripts/ci/resolve_runners.py": frozenset(("ci",)),
+
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),
@@ -84,6 +92,9 @@ PATH_OWNERS = {
     "scripts/ci/restore-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/reuse_app_host_products.py": frozenset(("preflight",)),
     "scripts/ci/run_python_test_lane.py": frozenset(("preflight",)),
+    "scripts/ci/ci_process_tree.py": frozenset(("app-host-execution",)),
+    "scripts/ci/hung_test_watchdog.py": frozenset(("app-host-execution",)),
+    "scripts/ci/run_with_timeout.py": frozenset(("app-host-execution",)),
     "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     "scripts/ci/sanitize-xcode-source-packages-cache.py": frozenset(("preflight",)),
@@ -109,6 +120,7 @@ ROUTING_POLICY_PATHS = frozenset({
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
     "tests/test_ci_change_areas.py",
+    "tests/test_ci_fork_runner_routing.py",
     "tests/test_ci_linux_guard_routing.py",
     "tests/test_ci_guard_workflow_structure.py",
     "tests/test_ci_app_host_guard_structure.py",
