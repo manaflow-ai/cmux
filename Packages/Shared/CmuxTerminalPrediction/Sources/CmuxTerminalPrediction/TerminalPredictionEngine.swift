@@ -225,6 +225,14 @@ public struct TerminalPredictionEngine: Sendable {
         guard entries.count < configuration.maximumSpeculativeGlyphs else {
             return withdrawAll(countingMisprediction: false, at: now, sendingKeystroke: true) || expired
         }
+        if let deadline = untrackedEchoDeadline, now < deadline {
+            // Readline and zle redraw pending input as one net change, so
+            // this key's echo may arrive merged with the untracked ones, or
+            // not at all when it undoes one of them. Matching it would re-arm
+            // a run cells away from the remote, so it is untracked too.
+            untrackedEchoDeadline = max(deadline, now + untrackedEchoSettle)
+            return expired
+        }
 
         let display = status(at: now) == .predicting
         entries.append(Entry(
