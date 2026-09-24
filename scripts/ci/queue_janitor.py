@@ -90,6 +90,11 @@ GHOST_QUEUED_RUN_AGE = dt.timedelta(hours=24)
 # 26-minute median on the most backed-up macOS 15 pool, a 45-minute outlier).
 DEFAULT_ORPHAN_MINUTES = 120
 MIN_ORPHAN_MINUTES = 30
+# A ghost still queued this long has been offered to cancel and force-cancel
+# many times over: the rotation below reaches every ghost within a few hours.
+# What is left is on GitHub's side (the 2026-09-13 set answers 409 to both),
+# so it is reported once, as a count, and no longer costs calls every sweep.
+GHOST_GIVE_UP_AGE = dt.timedelta(hours=72)
 # Orphans burn no runner time, so relieving them is never urgent: a small cap
 # of their own keeps them from spending the backlog cap and bounds the calls
 # a sweep spends on runs GitHub refuses to cancel.
@@ -821,7 +826,7 @@ def orphan_branches(orphans: Iterable[Orphan]) -> list[str]:
 @dataclasses.dataclass
 class OrphanDecision:
     orphan: Orphan
-    action: str  # "cancel" or "skip"
+    action: str  # "cancel", "skip" or "github-side" (past GHOST_GIVE_UP_AGE)
     note: str = ""
 
 
@@ -838,17 +843,25 @@ def build_orphan_plan(
     Lost assignments go first, oldest first: they are the ones holding a
     pull request's required check or a concurrency group today. Runs stuck in
     `queued` for days follow, in an order that rotates every sweep, so a run
-    GitHub refuses to cancel cannot hold the cap forever.
+    GitHub refuses to cancel cannot hold the cap forever. Past
+    GHOST_GIVE_UP_AGE a ghost is left to GitHub and never tried again.
     """
     lost = sorted((o for o in orphans if o.job_name is not None and o.run["id"] not in exclude_ids),
                   key=lambda o: (o.queued_since or now, o.run["id"]))
     ghosts = sorted((o for o in orphans if o.job_name is None and o.run["id"] not in exclude_ids),
                     key=lambda o: o.run["id"])
+    decisions: list[OrphanDecision] = []
+    retry: list[Orphan] = []
+    for ghost in ghosts:
+        if ghost.queued_since is not None and now - ghost.queued_since >= GHOST_GIVE_UP_AGE:
+            decisions.append(OrphanDecision(ghost, "github-side"))
+        else:
+            retry.append(ghost)
+    ghosts = retry
     if ghosts:
         offset = int(now.timestamp() // 600) % len(ghosts)
         ghosts = ghosts[offset:] + ghosts[:offset]
 
-    decisions: list[OrphanDecision] = []
     cancels = 0
     for orphan in lost + ghosts:
         run = orphan.run
@@ -958,6 +971,15 @@ def render_orphan_summary(
     ]
     if not decisions:
         lines.append("No orphaned runs found.")
+        return "\n".join(lines) + "\n"
+    given_up = [d for d in decisions if d.action == "github-side"]
+    decisions = [d for d in decisions if d.action != "github-side"]
+    if given_up:
+        oldest = min(d.orphan.queued_since for d in given_up if d.orphan.queued_since)
+        lines.append(f"{len(given_up)} run(s) still queued after {format_age(GHOST_GIVE_UP_AGE)} are left to "
+                     f"GitHub, which refuses to cancel them; oldest queued {format_age(now - oldest)}.")
+        lines.append("")
+    if not decisions:
         return "\n".join(lines) + "\n"
     lines.append("| Decision | Run | Workflow | Evidence | Queued age |")
     lines.append("| --- | --- | --- | --- | --- |")
