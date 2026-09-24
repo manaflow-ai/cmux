@@ -120,6 +120,14 @@ extension AppDelegate {
     }
 
     func reconcileMainWindowFramesAfterScreenChange() {
+        guard !isReconcilingMainWindowFrames else {
+#if DEBUG
+            cmuxDebugLog("monitorMemory.reconcile skipped= reentrant")
+#endif
+            return
+        }
+        isReconcilingMainWindowFrames = true
+        defer { isReconcilingMainWindowFrames = false }
         // Never fight a deliberate frame the restore path or teardown is
         // applying, and never persist a frame clamped against transient
         // mid-teardown geometry. Leaving suppression armed fails closed; restore
