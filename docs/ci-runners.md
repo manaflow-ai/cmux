@@ -122,6 +122,36 @@ the same cost profile or the same urgency.
   real focused-run traffic. It splits only that free default: a
   `MACOS_RUNNER_TESTS` value naming any other pool is used unchanged.
 
+### Pull request pool preference
+
+When `MACOS_RUNNER_PR` is `blacksmith-6vcpu-macos-26`, `ci.yml`'s `changes`
+job picks one pool for the whole pull request run with
+`scripts/ci/pr_runner_pool.py`, and every pull-request macOS job in the run
+reads it: compile admission and its product consumers, `tests-build-and-lag`,
+`claude-wrapper`, `cli-pipe-regressions.yml` and `remote-daemon.yml`. A run is
+never split across pools, so the app-host product always meets the Xcode that
+linked it. The run takes the first pool in `CI_PR_POOL_ORDER` with fewer than
+`CI_PR_POOL_MAX_QUEUED` (default 3) jobs queued and no queued release or
+nightly job, or else the pool with the fewest queued jobs.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `CI_PR_POOL_OVERFLOW` | unset (on) | `0` turns the preference off; every job takes its `MACOS_RUNNER_PR` route |
+| `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted, and an unknown label turns the preference off |
+| `CI_PR_POOL_MAX_QUEUED` | `3` | a pool has headroom below this many queued macOS jobs |
+
+The two macOS 26 pools share the lane's Xcode. A run on
+`blacksmith-6vcpu-macos-15` builds with `CMUX_CI_XCODE_APP_MACOS_15`, the pool
+and Xcode `main`'s own compile admission uses, and the build-input fingerprint
+follows that Xcode. Every Blacksmith pool is sponsored, so cost does not rank
+them; the order is speed first.
+
+The queue comes from the queue janitor: each sweep publishes the per-pool demand
+it already listed as the `macos-pool-load` artifact, and the `changes` job
+reads the newest one for two API requests. A snapshot older than 45 minutes,
+an API error, a fork head, or any other event keeps today's route. The step
+summary of `changes` names the pool, the reason, and the queue it saw.
+
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
 non-zero on a pinned path that is absent.
