@@ -154,7 +154,8 @@ struct CloudTreeNodeActions {
                             resource,
                             into: .workspace(id: workspaceID, placement: placement),
                             focus: true,
-                            reuseExisting: reuseExisting
+                            reuseExisting: reuseExisting,
+                            reuseInWorkspace: resource.kind == .display ? workspaceID : nil
                         )
                     }
                     let projection = opened.projection
@@ -169,11 +170,13 @@ struct CloudTreeNodeActions {
                 // A daemon view must use the same captured destination as a pool resource.
                 let target = Result { try destination(placement) }
                 run(openingLabel(resource.machine)) { catalog in
+                    let target = try target.get()
                     _ = try await catalog.project(
                         resource,
-                        into: try target.get(),
+                        into: target,
                         focus: true,
                         reuseExisting: reuseExisting,
+                        reuseInWorkspace: resource.kind == .display ? target.workspaceID : nil,
                         remoteView: view
                     )
                 }

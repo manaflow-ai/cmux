@@ -649,7 +649,7 @@ final class SurfaceCatalog {
             // An explicit placement must match an explicit projection. A legacy
             // projection with no tab id is not safe to reuse because it may be
             // showing another tab of the same terminal.
-            return resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID
+            return resolvedRemoteView == nil || $0.remoteTabID == resolvedRemoteView?.tabID || ($0.resource.kind == .display && $0.isLocalWorkspaceView)
         }) {
             try claimCompletedMaterializationIfNeeded(materializationKey, projection: existing)
             if let loadingReservation, existing.panelID != loadingReservation.panelID {
@@ -1149,6 +1149,7 @@ final class SurfaceCatalog {
     @discardableResult
     private func attachRemoteView(_ view: SurfaceRemoteView?, to projection: SurfaceProjection) -> SurfaceProjection {
         guard let view,
+              !projection.isLocalWorkspaceView,
               projection.remoteTabID == nil || projection.remoteTabID == view.tabID else { return projection }
         projections.remove(projection)
         var updated = projection
@@ -1256,7 +1257,6 @@ final class SurfaceCatalog {
         }
         notifyChange()
     }
-
 
     /// Resolves an agent-provided remote placement against the latest accepted
     /// graph. A workspace id alone is valid only when it identifies one view;
