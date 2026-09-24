@@ -47,6 +47,13 @@ selects the newest SDK 26 Xcode on the pool it lands on, and the product
 consumers restate compile admission's empty pin), and only lands on
 ephemeral Blacksmith pools.
 
+A retry attempt (GITHUB_RUN_ATTEMPT above 1) never takes a persistent pool
+either. A job queued on a persistent pool waits for it however long it stays
+busy, so owned_pool_rescue.py cancels such a run and re-runs it, and the
+re-run has to land somewhere with capacity. A rerun after a job failed on an
+owned Mac lands on Blacksmith for the same reason. The `persistent` output
+tells ci.yml to publish the marker the rescue watcher looks for.
+
 Anything uncertain keeps today's route: an event other than pull_request, a
 lane (MACOS_RUNNER_PR) naming another pool or unset (the documented way back
 to the macOS 15 lane), an API error, a missing, stale or malformed snapshot,
@@ -251,6 +258,7 @@ def choose(
     fetch: Callable[[], Mapping[str, Any] | None],
     count_routed: Callable[[str], int] = lambda since: 0,
     now: dt.datetime,
+    run_attempt: int = 1,
 ) -> tuple[Choice, Mapping[str, Any] | None]:
     """The pool for this run and the snapshot it was read from (None when none was read)."""
     if event != "pull_request":
@@ -287,6 +295,11 @@ def choose(
             label for label in limits.order if label.startswith(EPHEMERAL_PREFIX)))
         if not limits.order:
             return Choice("", "", "fork head; no ephemeral pool in the order"), snapshot
+    retry = run_attempt > 1
+    if retry:
+        limits = dataclasses.replace(limits, order=tuple(label for label in limits.order if not persistent(label)))
+        if not limits.order:
+            return Choice("", "", f"retry attempt {run_attempt}; no ephemeral pool in the order"), snapshot
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return Choice("", "", "no readable pool snapshot"), snapshot
     try:
@@ -297,7 +310,14 @@ def choose(
                     routed_since=routed, auto_xcode=fork)
     if fork and choice.runner:
         choice = dataclasses.replace(choice, reason=f"fork head; {choice.reason}")
+    if retry and choice.runner:
+        choice = dataclasses.replace(choice, reason=f"retry attempt {run_attempt}; {choice.reason}")
     return choice, snapshot
+
+
+def persistent(label: str) -> bool:
+    """A pool whose machines outlive the job, so a queued job there can wait for good."""
+    return bool(label) and not label.startswith(EPHEMERAL_PREFIX)
 
 
 def count_in_flight(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None) -> int:
@@ -416,6 +436,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     repo = env.get("GITHUB_REPOSITORY") or ""
     token = env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or ""
     run_id = (env.get("GITHUB_RUN_ID") or "").strip()
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
 
     def client() -> GitHub:
         if not token or not repo:
@@ -445,6 +466,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         fetch=fetch,
         count_routed=count_routed,
         now=now,
+        run_attempt=int(attempt) if attempt.isdigit() else 1,
     )
     text = summary(choice, snapshot, now=now)
     print(text)
@@ -453,7 +475,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             handle.write(text)
     if env.get("GITHUB_OUTPUT"):
         with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
-            handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n")
+            handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n"
+                         f"persistent={'true' if persistent(choice.runner) else 'false'}\n")
     return 0
 
 

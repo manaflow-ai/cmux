@@ -11,6 +11,7 @@ import re
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import yaml
@@ -54,7 +55,7 @@ def backlog(small=21, large=0, old=4, large_reserved=0, old_reserved=0, age=5, s
 
 
 def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL,
-           overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0):
+           overflow="", order="", max_queued="", pins=PINS, fetch=None, routed=0, attempt=1):
     def count_routed(since):
         if isinstance(routed, Exception):
             raise routed
@@ -62,7 +63,7 @@ def choose(snap, *, event="pull_request", head="manaflow-ai/cmux", default=SMALL
     return pool.choose(
         event=event, repo="manaflow-ai/cmux", head_repo=head, default_runner=default,
         overflow=overflow, order=order, max_queued=max_queued, xcode_pins=pins,
-        fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW,
+        fetch=fetch or (lambda: snap), count_routed=count_routed, now=NOW, run_attempt=attempt,
     )[0]
 
 
@@ -241,7 +242,7 @@ class FailSafe(unittest.TestCase):
                 self.assertEqual(pool.main(["--snapshot", str(snap_path)], env), 0)
             finally:
                 sys.stdout = old
-            self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\n")
+            self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -321,6 +322,58 @@ class JanitorSnapshot(unittest.TestCase):
 PR_ROUTE = re.compile(r"&& \((?P<lane>[^()]*vars\.MACOS_RUNNER_PR[^()]*)\)")
 
 
+MINI = "glaeda-mini-std"
+
+
+class RetryAttempts(unittest.TestCase):
+    """A retry never takes a persistent pool, so a rescued run lands on Blacksmith."""
+
+    def setUp(self):
+        patcher = unittest.mock.patch.dict(pool.POOLS, {MINI: ""})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_first_attempt_may_take_an_idle_persistent_pool(self):
+        self.assertEqual(choose(backlog(small=0), order=f"{MINI},{SMALL}").runner, MINI)
+
+    def test_retry_skips_the_persistent_pool(self):
+        choice = choose(backlog(small=0), order=f"{MINI},{SMALL}", attempt=2)
+        self.assertEqual(choice.runner, SMALL)
+        self.assertTrue(choice.reason.startswith("retry attempt 2; "), choice.reason)
+
+    def test_retry_with_only_persistent_pools_keeps_todays_route(self):
+        choice = choose(backlog(small=0), order=MINI, attempt=2)
+        self.assertEqual((choice.runner, choice.xcode_app), ("", ""))
+        self.assertIn("no ephemeral pool", choice.reason)
+
+    def test_retry_on_blacksmith_only_changes_nothing(self):
+        self.assertEqual(choose(backlog(), attempt=3).runner, choose(backlog()).runner)
+
+    def test_persistent_is_anything_outside_blacksmith(self):
+        self.assertTrue(pool.persistent(MINI))
+        self.assertFalse(pool.persistent(SMALL))
+        self.assertFalse(pool.persistent(""))
+
+    def output(self, order, attempt):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = Path(tmp, "snap.json")
+            fresh = backlog(small=0)
+            fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            snapshot.write_text(json.dumps(fresh))
+            out = Path(tmp, "out")
+            env = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                   "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "POOL_ORDER": order,
+                   "GITHUB_RUN_ATTEMPT": str(attempt), "GITHUB_OUTPUT": str(out)}
+            with unittest.mock.patch("sys.stdout", io.StringIO()):
+                pool.main(["--snapshot", str(snapshot)], env)
+            return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_main_reports_a_persistent_choice(self):
+        self.assertEqual(self.output(f"{MINI},{SMALL}", 1)["persistent"], "true")
+        retried = self.output(f"{MINI},{SMALL}", 2)
+        self.assertEqual((retried["runner"], retried["persistent"]), (SMALL, "false"))
+
+
 class Wiring(unittest.TestCase):
     """Every pull-request macOS route in one CI run reads the one chosen pool."""
 
@@ -336,6 +389,13 @@ class Wiring(unittest.TestCase):
         self.assertIs(step["continue-on-error"], True)
         self.assertEqual(step["run"], "python3 scripts/ci/pr_runner_pool.py")
         self.assertEqual(step["env"]["DEFAULT_RUNNER"], "${{ vars.MACOS_RUNNER_PR }}")
+
+    def test_a_persistent_choice_publishes_the_rescue_marker(self):
+        steps = self.workflow("ci.yml")["jobs"]["changes"]["steps"]
+        mark = next(step for step in steps if step.get("id") == "macos-pool-marker")
+        self.assertEqual(mark["if"], "${{ steps.macos-pool.outputs.persistent == 'true' }}")
+        upload = next(step for step in steps if step.get("name") == "Upload the persistent pool marker")
+        self.assertEqual(upload["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}")
 
     def lanes(self, name):
         text = (WORKFLOWS / name).read_text()
