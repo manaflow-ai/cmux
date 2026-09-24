@@ -221,13 +221,36 @@ def job_lines(workflow: str, job: str) -> range | None:
     return range(start, end)
 
 
+def admission_route_lines(workflow: str) -> set[int]:
+    """1-based lines of compile admission that route the product's consumers.
+
+    Its `outputs:` block, and the CMUX_PRODUCT_RUNNER and CMUX_CI_XCODE_APP
+    env the `runner` and `xcode_app` outputs read: the shards run on that pool
+    and pin that Xcode (#14163).
+    """
+    job = job_lines(workflow, "macos-compile-admission")
+    if job is None:
+        return set()
+    lines = workflow.splitlines()
+    route: set[int] = set()
+    in_outputs = False
+    for number in job:
+        text = lines[number - 1]
+        if re.match(r"^    [A-Za-z_-]+:", text):
+            in_outputs = text.startswith("    outputs:")
+        if in_outputs or re.match(r"^      (CMUX_PRODUCT_RUNNER|CMUX_CI_XCODE_APP):", text):
+            route.add(number)
+    return route
+
+
 def consumer_canary_selectors(
     root: Path, paths: Iterable[str] | None, diff: str | None
 ) -> list[str]:
     """[CONSUMER_CANARY_SELECTOR] when the diff edits the app-host consumer path.
 
     A ci-macos.yml edit counts only when one of its hunks sits inside
-    `app-host unit tests`; most of that file is other jobs, which the lanes
+    `app-host unit tests` or compile admission's consumer route
+    (admission_route_lines); most of that file is other jobs, which the lanes
     they define already judge. When the diff has no hunks for it, the edit
     cannot be placed and counts. An unreadable file list returns [] because
     the caller already runs every unit suite for it.
@@ -247,7 +270,8 @@ def consumer_canary_selectors(
     except (OSError, UnicodeError):
         return [CONSUMER_CANARY_SELECTOR]
     job = job_lines(workflow, APP_HOST_CONSUMER_JOB)
-    if job is None or any(line in job for line in hunks):
+    route = admission_route_lines(workflow)
+    if job is None or any(line in job or line in route for line in hunks):
         return [CONSUMER_CANARY_SELECTOR]
     return []
 
