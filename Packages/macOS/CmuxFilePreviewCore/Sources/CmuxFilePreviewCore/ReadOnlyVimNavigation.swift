@@ -194,11 +194,16 @@ public struct ReadOnlyVimNavigation {
             if key == "y" {
                 let end = buffer.vertical(cursor, delta: repetitions - 1, column: 0)
                 yank(NSRange(location: buffer.line(cursor).location, length: NSMaxRange(buffer.line(end)) - buffer.line(cursor).location))
-            } else {
+            } else if key == "l" {
+                var end = cursor
+                let lineEnd = buffer.end(cursor)
+                for _ in 0..<repetitions { end = min(lineEnd, buffer.next(end)) }
+                if end > cursor { yank(NSRange(location: cursor, length: end - cursor)) }
+            } else if ["h", "w", "W", "b", "B", "e", "E", "0", "^", "$", "j", "k", "{", "}"].contains(key) {
                 motion(key, count: repetitions)
                 let low = min(original, cursor)
                 let high = max(original, cursor)
-                let inclusive = ["e", "E", "$", "l"].contains(key)
+                let inclusive = ["e", "E", "$"].contains(key)
                 yank(NSRange(location: low, length: (inclusive ? buffer.next(high) : high) - low))
                 cursor = original
             }
@@ -228,9 +233,11 @@ public struct ReadOnlyVimNavigation {
     private mutating func find(_ key: String, backwards: Bool, till: Bool, count: Int) {
         guard key.count == 1 else { return }
         var position = cursor
+        let lineStart = buffer.line(cursor).location
+        let lineEnd = buffer.end(cursor)
         for _ in 0..<count {
             var candidate = backwards ? buffer.previous(position) : buffer.next(position)
-            while candidate >= buffer.line(cursor).location && candidate < buffer.end(cursor) && candidate != position {
+            while candidate >= lineStart && candidate < lineEnd && candidate != position {
                 if buffer.character(candidate) == key { break }
                 let next = backwards ? buffer.previous(candidate) : buffer.next(candidate)
                 if next == candidate { return }

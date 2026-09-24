@@ -10,6 +10,18 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct FilePreviewVimNavigationTests {
+    @Test func focusedReadOnlyPreviewDrawsInsertionPoint() {
+        let view = SavingTextView.makeFilePreviewTextView()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: .borderless, backing: .buffered, defer: false)
+        window.contentView = view
+        view.string = "alpha"
+        view.updateVimNavigation(enabled: true)
+        #expect(window.makeFirstResponder(view))
+        #expect(view.shouldDrawInsertionPoint)
+        view.setSelectedRange(NSRange(location: 0, length: 2))
+        #expect(!view.shouldDrawInsertionPoint)
+    }
+
     @Test func disablingVimRestoresExistingReadOnlyState() {
         let view = SavingTextView.makeFilePreviewTextView()
         view.isEditable = false
@@ -37,17 +49,11 @@ struct FilePreviewVimNavigationTests {
     }
 
     @Test func configuredPreviewMovesWithoutEditing() throws {
-        let defaults = UserDefaults.standard
-        let previous = defaults.object(forKey: "filePreviewVimKeys")
-        defer {
-            if let previous { defaults.set(previous, forKey: "filePreviewVimKeys") }
-            else { defaults.removeObject(forKey: "filePreviewVimKeys") }
-        }
-        defaults.set(true, forKey: "filePreviewVimKeys")
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: "/tmp/cmux-vim-fixture.txt", startFileWatcher: false)
         defer { panel.close() }
         let view = SavingTextView.makeFilePreviewTextView()
         view.panel = panel
+        view.updateVimNavigation(enabled: true)
         view.string = "one two\nthree four\nfive six\n"
         let original = view.string
         for key in ["2", "j", "0", "w"] {

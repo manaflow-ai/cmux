@@ -37,7 +37,8 @@ struct ReadOnlyVimBuffer {
     }
     func firstNonblank(_ offset: Int) -> Int {
         var index = line(offset).location
-        while index < end(offset), character(index).allSatisfy({ $0 == " " || $0 == "\t" }) {
+        let lineEnd = end(offset)
+        while index < lineEnd, character(index).allSatisfy({ $0 == " " || $0 == "\t" }) {
             index = next(index)
         }
         return min(index, last(offset))
@@ -81,9 +82,10 @@ struct ReadOnlyVimBuffer {
             if candidate == target || candidate >= length { break }
             target = candidate
         }
+        let lastColumn = last(target)
         for _ in 0..<column {
             let candidate = next(target)
-            if candidate > last(target) { break }
+            if candidate > lastColumn { break }
             target = candidate
         }
         return target

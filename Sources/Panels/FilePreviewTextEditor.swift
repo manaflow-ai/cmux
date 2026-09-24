@@ -439,6 +439,7 @@ final class SavingTextView: NSTextView {
     let wordWrapSettings: FilePreviewWordWrapSettings
     weak var panel: (any FilePreviewTextEditingPanel)?
     private var vimController: FilePreviewVimController?
+    private var editableBeforeVim = true
     // NSTextView undo bypasses shouldChangeText and isEditable. Route focused
     // preview undo to an empty manager while retaining its editing history.
     private let readOnlyUndoManager = UndoManager()
@@ -448,19 +449,29 @@ final class SavingTextView: NSTextView {
     }
 
     func updateVimNavigation(enabled: Bool) {
-        isEditable = !enabled
+        guard enabled != (vimController != nil) else { return }
         if enabled, vimController == nil {
+            editableBeforeVim = isEditable
+            isEditable = false
             vimController = FilePreviewVimController(textView: self)
-        } else if !enabled {
+        } else if !enabled, vimController != nil {
             vimController?.cancelPendingInput()
             vimController = nil
+            isEditable = editableBeforeVim
         }
+        updateInsertionPointStateAndRestartTimer(true)
+    }
+
+    override var shouldDrawInsertionPoint: Bool {
+        if vimController != nil {
+            return window?.firstResponder === self && selectedRange().length == 0
+        }
+        return super.shouldDrawInsertionPoint
     }
 
     func resetVimDocument() { vimController?.resetDocument() }
 
     override func keyDown(with event: NSEvent) {
-        updateVimNavigation(enabled: panel is FilePreviewPanel && AppCatalogSection().filePreviewVimKeys.value(in: .standard))
         if vimController?.handle(event) == true { return }
         super.keyDown(with: event)
     }
