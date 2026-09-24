@@ -2,6 +2,19 @@ name: CLI pipe regressions
 
 on:
   workflow_call:
+    inputs:
+      # The pool (and, when it differs from the pull-request lane's, the
+      # Xcode) ci.yml's `changes` job chose for this pull request run with
+      # scripts/ci/pr_runner_pool.py. Empty, which is every other event and
+      # every caller that predates it, keeps the MACOS_RUNNER_PR route.
+      pr_runner:
+        required: false
+        default: ""
+        type: string
+      pr_xcode_app:
+        required: false
+        default: ""
+        type: string
   workflow_dispatch:
 
 permissions:
@@ -13,10 +26,10 @@ concurrency:
 
 jobs:
   cli-pipe-regressions:
-    runs-on: ${{ github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && (inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 30
     env:
-      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ${{ github.event_name == 'pull_request' && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15) || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       # Caller workflow env does not reach a reusable workflow; the R2 cache
       # restore needs this set here.
       CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
@@ -29,13 +42,7 @@ jobs:
         run: git submodule update --init --depth 1 vendor/bonsplit
 
       - name: Select Xcode
-        run: |
-          if [ -n "${CMUX_CI_XCODE_APP:-}" ]; then
-            sudo xcode-select --switch "$CMUX_CI_XCODE_APP/Contents/Developer"
-            xcodebuild -version
-          else
-            ./scripts/select-ci-xcode.sh
-          fi
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Initialize Ghostty and download its binary framework
         run: |

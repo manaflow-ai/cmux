@@ -1,0 +1,234 @@
+name: Nightly owned-Mac app build
+run-name: nightly-mini-build-${{ inputs.request_id }}
+
+# Compile-only producer for nightly.yml. It builds the unsigned universal
+# Release app on an owned Mac mini whose warm DerivedData survives between
+# runs, and hands the products back as an artifact. It never signs,
+# notarizes, uploads dSYMs or publishes; those stay on hosted runners, which
+# adopt these products only after checking the source and the toolchain.
+#
+# nightly.yml dispatches it through scripts/ci/nightly_mini_route.py, which
+# cancels it and builds on Blacksmith when no mini picks it up in time, when it
+# overruns, or when it fails. See docs/ci/mac-fleet.md, "Nightly lane".
+#
+# The runner group must restrict workflow access to
+# manaflow-ai/cmux/.github/workflows/nightly-mini-build.yml@refs/heads/main.
+# A fork has no minis; its hosted branch exists so the whole route can be
+# exercised there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique caller identity (nightly run id and attempt)
+        required: true
+        type: string
+      source_sha:
+        description: Exact commit to build; must be on the dispatched ref
+        required: true
+        type: string
+      icon_name:
+        description: Channel app icon asset name
+        required: true
+        type: string
+
+permissions: {}
+
+# No concurrency group. A runner takes one job at a time and each mini builds
+# in its own work directory, so a second mini can take a request while the
+# first is busy. nightly.yml still runs one full nightly per branch at a time.
+# A request no mini picks up within the queue budget is cancelled by the
+# router and compiled on Blacksmith.
+
+jobs:
+  build:
+    name: Nightly mini app build
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON('{"group":"cmux-nightly-mini","labels":["self-hosted","macOS","ARM64","cmux-nightly-mini-build"]}') }}
+    timeout-minutes: 75
+    permissions: {}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      # Export DEVELOPER_DIR for this job only; never change the mini's
+      # global xcode-select.
+      CMUX_CI_SKIP_XCODE_SELECT: "1"
+    steps:
+      - name: Prepare exact nightly source
+        id: source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "invalid source sha" >&2; exit 1; }
+          workspace="$GITHUB_WORKSPACE"
+          remote="https://github.com/${GITHUB_REPOSITORY}.git"
+          cd "$RUNNER_TEMP"
+
+          initialize_checkout() {
+            rm -rf "$workspace"
+            mkdir -p "$workspace"
+            git -C "$workspace" init -q
+            git -C "$workspace" remote add origin "$remote"
+          }
+
+          if [ ! -d "$workspace/.git" ] || [ "$(git -C "$workspace" remote get-url origin 2>/dev/null || true)" != "$remote" ]; then
+            initialize_checkout
+          fi
+          rm -f "$workspace/.git/index.lock"
+          git -C "$workspace" reset --hard -q || initialize_checkout
+          git -C "$workspace" submodule foreach --recursive 'git reset --hard -q; git clean -ffdx -q' || true
+          # Warm state is acceleration, never authority: the hosted job that
+          # adopts these products rechecks the source and the toolchain.
+          git -C "$workspace" clean -ffdx -q -e build-universal/ -e .spm-cache/ -e GhosttyKit.xcframework
+
+          # Public fetch; this job holds no token. The commit must already be
+          # on the ref the producer was dispatched from, which the runner
+          # group pins to main.
+          git -C "$workspace" fetch --no-tags --force origin "$SOURCE_SHA" "refs/heads/$SOURCE_REF:refs/remotes/origin/$SOURCE_REF"
+          git -C "$workspace" merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/$SOURCE_REF" || {
+            echo "source $SOURCE_SHA is not on $SOURCE_REF" >&2
+            exit 1
+          }
+          git -C "$workspace" checkout --detach -f -q "$SOURCE_SHA"
+          git -C "$workspace" submodule sync --recursive
+          git -C "$workspace" submodule update --init --recursive --force
+          git -C "$workspace" submodule foreach --recursive 'git reset --hard -q; git clean -ffdx -q'
+          [ "$(git -C "$workspace" rev-parse HEAD)" = "$SOURCE_SHA" ]
+          echo "tree=$(git -C "$workspace" rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install compilation dependencies
+        run: |
+          ./scripts/install-rust-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .spm-cache
+
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      # Same invocation as nightly.yml's hosted build, minus the remote
+      # compilation cache: the persistent build-universal directory is the cache.
+      - name: Build nightly app (Release)
+        id: build
+        env:
+          CHANNEL_ICON_NAME: ${{ inputs.icon_name }}
+        run: |
+          set -euo pipefail
+          [[ "$CHANNEL_ICON_NAME" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "invalid icon name" >&2; exit 1; }
+          archs="arm64 x86_64"
+          started="$(date +%s)"
+          # Keep intermediates and the compilation cache warm, but rebuild the
+          # products: an incremental build never deletes a resource, framework
+          # or dSYM the source has since removed, and those would ship.
+          rm -rf build-universal/Build/Products
+          # On a Manaflow mini, take the host lock the build-fleet controller
+          # holds while it builds, so a nightly and a dev build take turns
+          # instead of splitting the machine. Hosted and fork runs have no
+          # lock tool and build as before. Use bin/, not recipes/: recipes is a
+          # symlink and its lock path does not resolve.
+          lock=()
+          host_lock=/Users/Shared/cmux-build-fleet/bin/with-host-lock
+          if [ -x "$host_lock" ]; then lock=("$host_lock"); fi
+          set +e
+          ${lock[@]+"${lock[@]}"} python3 scripts/ci/run-with-helper-prebuild.py \
+            --derived-data build-universal --configuration Release --archs "$archs" \
+            --log "$RUNNER_TEMP/helper-prebuild.log" -- \
+          ./scripts/ci/run-xcodebuild-with-diagnostics.sh -- \
+            env CMUX_SKIP_ZIG_BUILD=1 xcodebuild -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            -packageCachePath "$PWD/.spm-cache/.package-cache" \
+            -showBuildTimingSummary \
+            ARCHS="$archs" \
+            ONLY_ACTIVE_ARCH=NO \
+            COMPILATION_CACHE_ENABLE_CACHING=YES \
+            COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME="$CHANNEL_ICON_NAME" build
+          status=$?
+          set -e
+          if [ "$status" -eq 75 ] && [ ${#lock[@]} -gt 0 ]; then
+            # with-host-lock refuses a job below its free-disk floor. The router
+            # reads the failed producer as producer_failure and the nightly
+            # compiles on Blacksmith.
+            echo "::error::exit 75: the host lock refuses a build below its free-disk floor, so this nightly compiles on Blacksmith"
+          fi
+          [ "$status" -eq 0 ] || exit "$status"
+          echo "seconds=$(( $(date +%s) - started ))" >> "$GITHUB_OUTPUT"
+
+      - name: Prune dead compilation cache generations
+        run: |
+          python3 scripts/ci/prune-xcode-compilation-cache.py build-universal/CompilationCache.noindex \
+            || echo "::warning::Xcode compilation cache pruning failed"
+
+      - name: Package nightly products
+        id: package
+        env:
+          REQUEST_ID: ${{ inputs.request_id }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ steps.source.outputs.tree }}
+          BUILD_SECONDS: ${{ steps.build.outputs.seconds }}
+        run: |
+          set -euo pipefail
+          products="build-universal/Build/Products"
+          test -d "$products/Release/cmux.app"
+          python3 - "$products/nightly-mini-product.json" <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+
+          def run(*argv):
+              return subprocess.run(argv, check=True, capture_output=True, text=True).stdout.strip()
+
+          json.dump(
+              {
+                  "schema_version": 1,
+                  "request_id": os.environ["REQUEST_ID"],
+                  "source_sha": os.environ["SOURCE_SHA"],
+                  "source_tree": os.environ["SOURCE_TREE"],
+                  "xcode_version": run("xcodebuild", "-version"),
+                  "macos_sdk_version": run("xcrun", "--sdk", "macosx", "--show-sdk-version"),
+                  "archs": ["arm64", "x86_64"],
+                  "build_seconds": int(os.environ.get("BUILD_SECONDS") or 0),
+                  "runner_name": os.environ.get("RUNNER_NAME", ""),
+              },
+              open(sys.argv[1], "w", encoding="utf-8"),
+              indent=2,
+              sort_keys=True,
+          )
+          PY
+          archive="$RUNNER_TEMP/nightly-mini-products.tar.gz"
+          COPYFILE_DISABLE=1 tar -cf - -C "$products" Release nightly-mini-product.json | gzip -1 > "$archive"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload nightly products
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-mini-build-${{ inputs.request_id }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Summarize producer
+        if: always()
+        env:
+          BUILD_SECONDS: ${{ steps.build.outputs.seconds }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          {
+            echo "### Nightly owned-Mac build"
+            echo
+            echo "- source: \`$SOURCE_SHA\`"
+            echo "- runner: \`$RUNNER_NAME\`"
+            echo "- build seconds, including any wait for the host lock: \`${BUILD_SECONDS:-n/a}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

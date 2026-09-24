@@ -3063,32 +3063,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         return window
     }
 
-    /// A live portal-rendering authority for a standalone surface fixture.
-    ///
-    /// `setVisibleInUI` and `setActive` both fold their request through
-    /// `Workspace.portalRenderingEnabled(for:)`, which denies any workspace id
-    /// the app delegate cannot resolve to a *selected* tab. A surface built
-    /// with a made-up `tabId` is therefore never actually made visible or
-    /// active, so it never takes Ghostty focus and never schedules a
-    /// visibility-restore redraw: the fixture silently stops exercising the
-    /// behavior under test. Register a real selected workspace and build the
-    /// surface with its id so the fixture gets the authority the app grants
-    /// the selected tab.
-    ///
-    /// Returns `nil` only when no app delegate is installed, where the
-    /// authority already defaults to allowing the portal.
-    private func makeLivePortalWorkspace() -> (id: UUID, tearDown: @MainActor () -> Void)? {
-        guard let appDelegate = AppDelegate.shared else { return nil }
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        guard let workspace = manager.selectedWorkspace else { return nil }
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        return (workspace.id, {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
-            manager.finalizeAllWorkspacesForWindowClose()
-        })
-    }
-
     private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
             with: type,
@@ -3374,11 +3348,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        let livePortalWorkspace = makeLivePortalWorkspace()
-        defer { livePortalWorkspace?.tearDown() }
+        let livePortalWorkspace = try makeAuthorizedPortalTabId()
+        defer { livePortalWorkspace.tearDown() }
 
         let surface = TerminalSurface(
-            tabId: livePortalWorkspace?.id ?? UUID(),
+            tabId: livePortalWorkspace.id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -3713,11 +3687,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        let livePortalWorkspace = makeLivePortalWorkspace()
-        defer { livePortalWorkspace?.tearDown() }
+        let livePortalWorkspace = try makeAuthorizedPortalTabId()
+        defer { livePortalWorkspace.tearDown() }
 
         let surface = TerminalSurface(
-            tabId: livePortalWorkspace?.id ?? UUID(),
+            tabId: livePortalWorkspace.id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -3770,11 +3744,11 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
-        let livePortalWorkspace = makeLivePortalWorkspace()
-        defer { livePortalWorkspace?.tearDown() }
+        let livePortalWorkspace = try makeAuthorizedPortalTabId()
+        defer { livePortalWorkspace.tearDown() }
 
         let surface = TerminalSurface(
-            tabId: livePortalWorkspace?.id ?? UUID(),
+            tabId: livePortalWorkspace.id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             workingDirectory: nil
@@ -4288,8 +4262,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
         // The app host installs an app delegate, so portal visibility is authorized
         // per workspace: a surface whose tab id no manager has selected is never
         // shown, and its renderer is never presented.
-        let liveWorkspace = AppDelegate.shared?.registerLivePortalWorkspaceForTesting()
-        defer { liveWorkspace?.tearDown() }
+        let liveWorkspace = try makeAuthorizedPortalTabId()
+        defer { liveWorkspace.tearDown() }
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1_280, height: 800),
@@ -4298,7 +4272,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             defer: false
         )
         let surfaces = (0..<5).map { _ in
-            makeTrackedTerminalSurface(tabId: liveWorkspace?.id ?? UUID())
+            makeTrackedTerminalSurface(tabId: liveWorkspace.id)
         }
         var didTeardown = false
         defer {
@@ -4382,7 +4356,18 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             XCTAssertTrue(surface.releaseRenderer(), "Initial target-scale eviction must release each hidden renderer")
         }
         XCTAssertTrue(hiddenSurfaces.allSatisfy { !$0.isRendererRealized })
-        var oneRendererBaseline = try settledFootprint("one-renderer baseline")
+        // Fixed for every cycle. This previously advanced to each cycle's
+        // measured target, which made the reference drift upward with whatever
+        // that cycle happened to retain while the five-renderer peak drifted
+        // down (observed: 270 -> 245 -> 238 MB). The denominator shrank from
+        // both ends and each cycle inflated the next one's ratio until an
+        // unrelated cycle tripped the bound -- cycles 1 and 3 reading 0.0 with
+        // cycle 2 at 0.4819 against 0.45 is that artifact, not a regression.
+        //
+        // Holding it fixed is also the stricter test: cumulative retention
+        // across cycles now shows up as a rising ratio, where advancing the
+        // baseline measured only each cycle's increment and hid a steady leak.
+        let oneRendererBaseline = try settledFootprint("one-renderer baseline")
 
         for cycle in 1...3 {
             for surface in hiddenSurfaces {
@@ -4410,6 +4395,7 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
             let targetFootprint = try settledFootprint("cycle \(cycle) one-renderer target")
             let realizedDelta = fiveRendererPeak - oneRendererBaseline
+
             let retainedDelta = targetFootprint > oneRendererBaseline
                 ? targetFootprint - oneRendererBaseline
                 : 0
@@ -4420,14 +4406,15 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
             print(
                 "renderer-memory cycle=\(cycle) one=\(oneRendererBaseline) " +
                 "five=\(fiveRendererPeak) target=\(targetFootprint) " +
+                "realized_delta=\(realizedDelta) noise_allowance=\(sampleNoiseAllowance) " +
                 "retained_ratio=\(normalizedRetainedRatio)"
             )
             XCTAssertLessThanOrEqual(
                 normalizedRetainedRatio,
                 0.45,
-                "Cycle \(cycle) retained too much of the four-renderer memory delta after eviction"
+                "Cycle \(cycle) cumulative retention above the one-renderer baseline "
+                + "exceeds 45% of the five-renderer delta"
             )
-            oneRendererBaseline = targetFootprint
         }
 
         for surface in surfaces {

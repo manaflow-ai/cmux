@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import CmuxIrxTransport
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 

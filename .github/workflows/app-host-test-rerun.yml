@@ -7,7 +7,8 @@ run-name: >-
 # compiled from a revision whose app is identical, recompiles only the cmuxTests
 # bundle against them, and runs the selected tests. See
 # scripts/ci/app_host_test_rerun.py for how the products are chosen and how the
-# test target is cut loose from its dependencies.
+# test target is cut loose from its dependencies. A pull_request run compiled
+# refs/pull/N/merge, not its head_sha, so the plan compares against that merge.
 #
 # A change outside cmuxTests/ fails the plan job and names the files; use
 # test-depot.yml for a full build then.
@@ -54,6 +55,7 @@ jobs:
       artifact_id: ${{ steps.plan.outputs.artifact_id }}
       artifact_name: ${{ steps.plan.outputs.artifact_name }}
       selectors: ${{ steps.plan.outputs.selectors }}
+      runner: ${{ steps.plan.outputs.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -102,7 +104,10 @@ jobs:
     needs: plan
     # A fork has no Blacksmith installation and no runner variables; the owner
     # check comes first so a fork is never pointed at a label it cannot run.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+    # Otherwise run on the Blacksmith pool whose macOS matches the one that
+    # compiled the products (plan reads it from the source run's compile
+    # admission): only that image carries the products' Xcode.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.plan.outputs.runner || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 60
     env:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"

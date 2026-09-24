@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloudMachines
+import CmuxCloudTui
 import Foundation
 
 /// Owns one ephemeral opener subscription per connected VM. The daemon holds

@@ -228,29 +228,34 @@ struct CampfireHookNotificationTests {
                 }
                 accepted += 1
 
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer { Darwin.close(clientFD) }
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            context.state.append(line)
-                            let response = agentHookMockResponse(line: line, context: context) + "\n"
-                            _ = response.withCString { ptr in
-                                Darwin.write(clientFD, ptr, strlen(ptr))
-                            }
-                        }
-                    }
+                serveAgentHookMockClient(context: context, clientFD: clientFD)
+            }
+        }
+    }
+
+    private func serveAgentHookMockClient(
+        context: HookContext,
+        clientFD: Int32
+    ) {
+        defer { Darwin.close(clientFD) }
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(clientFD, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                return
+            }
+            if count == 0 { return }
+            pending.append(buffer, count: count)
+            while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                pending.removeSubrange(0...newlineRange.lowerBound)
+                guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                context.state.append(line)
+                let response = agentHookMockResponse(line: line, context: context) + "\n"
+                _ = response.withCString { ptr in
+                    Darwin.write(clientFD, ptr, strlen(ptr))
                 }
             }
         }
@@ -307,18 +312,13 @@ struct CampfireHookNotificationTests {
         stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdinPipe.fileHandleForWriting.close()
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+            if waitForProcessExit(process, timeout: 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
 

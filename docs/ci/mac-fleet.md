@@ -98,9 +98,11 @@ Split by pool (`labels[0]` on each job):
 | `warp-macos-26-arm64-12x` | 9 | 448 | 0.67 | 4 |
 | `blacksmith-6vcpu-macos-26` | 11 | 443 | 0.58 | 5 |
 
-`blacksmith-6vcpu-macos-15` is the pull-request lane, because `MACOS_RUNNER_PR`
-is unset and every PR macOS job falls back to it
-(`ci-macos.yml:57,878,2404,2773`). The required/`main` lanes currently point at
+`blacksmith-6vcpu-macos-15` was the pull-request lane in this window, because
+`MACOS_RUNNER_PR` was unset and every PR macOS job fell back to it
+(`ci-macos.yml:57,878,2404,2773` at the time). Since 2026-09-24 `MACOS_RUNNER_PR` is
+`blacksmith-6vcpu-macos-26`, so re-read `gh variable list` before comparing a
+new measurement against this one. The required/`main` lanes then pointed at
 Warp (`MACOS_RUNNER_15=warp-macos-15-arm64-6x`), so PR pain and release pain
 are separate problems and only the first one is in scope here.
 
@@ -200,7 +202,10 @@ them (section 5).
    XCTest, and it is a required check. Its home is the isolated Tart pool
    (18 slots, `ci-runners.md`), where each job gets a fresh VM clone and an
    Aqua login session. A shared mini cannot give it either.
-4. **`release-build`, signing, notarization, nightly, TestFlight** - never.
+4. **Nightly app compile** - compile only, behind `NIGHTLY_MAC_MINI`. See
+   [Nightly lane](#nightly-lane). Signing, notarization and publication stay
+   hosted.
+5. **`release-build`, signing, notarization, TestFlight** - never.
    Unchanged from `ci-runners.md`.
 
 ## 2. Security
@@ -346,9 +351,17 @@ not a relabelled dev-build machine.
 
 ### 3.3 Xcode versions
 
-The mini must carry the exact app at `vars.CMUX_CI_XCODE_APP_MACOS_15`
-(currently `/Applications/Xcode_26.3.app`) with a macOS SDK major of 26, and
-`scripts/select-ci-xcode.sh` must resolve it.
+The mini must carry the exact app at `vars.CMUX_CI_XCODE_APP_PR ||
+vars.CMUX_CI_XCODE_APP_MACOS_15` with a macOS SDK major of 26, and
+`scripts/select-ci-xcode.sh` must resolve it. `scripts/persistent-compile`
+reads those variables rather than a copy of the path, so `up` and the doctor
+check each mini against the value CI uses today and print it.
+The build number matters too: revalidation compares the full `xcodebuild
+-version`, so the mini's Xcode must be the same build as the hosted image's.
+`up` checks only that the app exists. Before routing a mini, compare its
+`xcodebuild -version` against the `Build version` line that a current hosted
+`macOS compile admission` log prints after `Selected pinned Xcode`. When the
+variable moves, every mini needs the new app at that exact path.
 
 Drift is now a guard failure rather than a silent waste:
 `check_persistent_compile_owned_mac_occupancy` compares the producer's
@@ -406,57 +419,74 @@ Symptoms, in the order they show up:
 | `Xcode identity mismatch` in revalidation | hosted job log | toolchain drift; see 3.3 |
 | Producer queued > `CI_PERSISTENT_MAC_QUEUE_SECONDS` | router summary | fleet is undersized or wedged |
 
-Sweep for the last 50 PR runs:
+Sweep for the last 50 PR runs. The admission metrics step logs its record as
+one sorted JSON line, so match that line: the route step prints its own
+`fallback_reason` JSON, and counting both would double every routed run.
+`persistent_route_unused` means the route step was skipped (selector off,
+untrusted author, or a product-reuse hit). An empty reason is a run that
+adopted the persistent product.
 
 ```sh
 gh run list --repo manaflow-ai/cmux --workflow ci.yml --limit 50 \
   --json databaseId --jq '.[].databaseId' | while read -r id; do
   gh run view "$id" --repo manaflow-ai/cmux --log 2>/dev/null |
-    grep -o 'fallback_reason=[a-z_]*' || true
+    grep -F '{"artifact_publication_seconds"' |
+    grep -oE '"fallback_reason": "[a-z_]*"' || true
 done | sort | uniq -c | sort -rn
 ```
 
-Drain one mini:
+Drain one mini, on the mini:
 
 ```sh
-python3 scripts/cmux_fleet.py transition-apply "$ENROLLMENT" --to draining
-bash scripts/cmux-fleet status "$ENROLLMENT" --acceptance "$ACCEPTANCE"
+scripts/persistent-compile drain          # waits for a running job; --now does not
+scripts/persistent-compile resume         # back to eligible, service started
 ```
 
-Then remove the runner from the `cmux-persistent-compile` group, or stop its
-launchd job. **Draining in Glaeda does not stop GitHub from assigning jobs** -
-they are separate control planes, and this is the sharpest operational trap in
-the whole design. Until glaeda #1058's drain primitive lands, draining is two
-actions, and doing only the first one leaves the machine taking work.
+**Draining in Glaeda does not stop GitHub from assigning jobs** - they are
+separate control planes, and this is the sharpest operational trap in the
+whole design. `drain` does both: it moves the enrollment to `draining` and,
+once the runner is idle, stops and disables its launchd agent so it stays
+stopped across logins and reboots. A job GitHub assigns in the seconds between
+the last one ending and the stop is cancelled and falls back to the hosted
+compile. Until glaeda #1058's drain
+primitive lands, do not drain with `cmux_fleet.py transition-apply` alone; that
+leaves the machine taking work.
 
-Quarantine, with one of the eight reviewed reasons (`toolchain_mismatch`,
-`disk_pressure`, `failed_acceptance`, `dirty_canonical_checkout`,
-`service_mismatch`, `hardware_failure`, `stale_glaeda_generation`,
-`unexplained_process_settlement`):
+Quarantine, on the mini, with one of the eight reviewed reasons
+(`toolchain_mismatch`, `disk_pressure`, `failed_acceptance`,
+`dirty_canonical_checkout`, `service_mismatch`, `hardware_failure`,
+`stale_glaeda_generation`, `unexplained_process_settlement`):
 
 ```sh
-python3 scripts/cmux_fleet.py transition-apply "$ENROLLMENT" \
-  --to quarantined --reason disk_pressure
+scripts/persistent-compile quarantine disk_pressure   # --now does not wait for a running job
+scripts/persistent-compile up                         # once fixed: re-runs acceptance, then starts the runner
 ```
+
+Like `drain`, it moves Glaeda and stops the runner. Quarantining with
+`cmux_fleet.py transition-apply` alone has the same trap as draining with it.
 
 ### 3.6 When a mini is offline
 
-Nothing happens, and that is the design. The router's artifact poll finds no
-producer and prints "No trusted persistent route request was published; hosted
-admission remains authoritative", then exits 0. The hosted job's
-`--observe-only --ready-only` probe reports `producer_not_ready` and compiles
-hosted immediately, without waiting. `route.fallback()` always returns 0: a
-hosted fallback is not an error.
+PRs still pass, but each routed one wastes a little. The PR publishes its
+route request, the router dispatches a producer, and the producer's job waits
+for a runner that never comes. After `CI_PERSISTENT_MAC_QUEUE_SECONDS` (90 by
+default) the router cancels it and records `queue_timeout`. Meanwhile the hosted
+job's `--observe-only --ready-only` probe has already reported
+`producer_not_ready` and compiled hosted without waiting. `route.fallback()`
+always returns 0: a hosted fallback is not an error.
 
-The failure mode to watch for is not "the fleet is down". It is "the fleet is
-up, slow, and every PR pays the observation without getting the artifact" -
-which costs seconds, not minutes, but shows up as a hit rate near zero in the
-metrics.
+So an offline fleet costs one Linux router job of about 90 seconds per routed
+PR, not a slower check. `scripts/persistent-compile` reports routing that is on
+with no healthy runner, and `all` asks before it turns routing on in that state.
+
+The other failure mode is "the fleet is up, slow, and every PR pays the
+observation without getting the artifact". That costs seconds, not minutes, but
+shows up as a hit rate near zero in the metrics.
 
 Full stop, one command, no deploy:
 
 ```sh
-gh variable set CI_PERSISTENT_MAC_COMPILE --repo manaflow-ai/cmux -b off
+scripts/persistent-compile off
 ```
 
 ## 4. Who owns what
@@ -519,6 +549,34 @@ after) and is where that requirement belongs.
 
 ## 5. Rollout
 
+`scripts/persistent-compile` runs every step below that can be scripted. Run
+it with no arguments from anywhere to see what is set up and the one command
+to run next. Commands that change something show their plan and ask first
+(`-y` skips the question).
+
+| Who | Where | Command |
+| --- | --- | --- |
+| Org admin | anywhere with `gh` | `scripts/persistent-compile group` |
+| Operator | the mini, in a cmux checkout | `scripts/persistent-compile up --node-id cmux-mac-NNN` |
+| Maintainer | anywhere | `scripts/persistent-compile pilot <PR>`, later `all` |
+
+Before `up`, reserve the mini through its existing owner (#13491 step 1); `up`
+does not take machines from other schedulers. `up` clones Glaeda if needed and
+runs `glaeda-mini-setup`. It then downloads the reviewed Glaeda candidate
+pinned in `scripts/ci/persistent_compile_fleet.py` (`CANDIDATE_*`) and has
+`glaeda-mini-enroll` verify and stage those exact bytes, then enroll and
+accept the mini with them; no Rust is built on the node. Last, it registers
+the runner and starts it. It stops at the first
+step that needs sudo or a human, prints that step, and resumes from there when
+run again. It refuses to register a mini whose Glaeda enrollment is not
+`eligible`. The runner is the pinned `actions-runner` (sha256 checked) in
+`~/actions-runner-cmux-persistent-compile`, registered with the exact labels in
+3.2 and run as a launchd agent. The registration token comes from the
+operator's `gh` login. An operator who is not an org admin gets one from an
+admin instead: the admin runs `scripts/persistent-compile token`, and the
+operator runs `CMUX_RUNNER_TOKEN=<token> scripts/persistent-compile up`. The
+token is valid for one hour.
+
 ### Stage 0 - preconditions (maintainer only)
 
 - [ ] Organization runner group `cmux-persistent-compile` exists, allows this
@@ -528,16 +586,21 @@ after) and is where that requirement belongs.
       `glaeda-cmux-fleet-acceptance/v2` receipt and state `eligible` (#13491).
 - [ ] That mini registered as an Actions runner in that group with exactly the
       labels in 3.2.
-- [ ] `/Applications/Xcode_26.3.app` present and selected by
-      `scripts/select-ci-xcode.sh`.
+- [ ] The Xcode that `scripts/persistent-compile` names from the CI
+      variables present and selected by `scripts/select-ci-xcode.sh`.
 - [ ] Free space above one full cold build plus three cache generations.
 
 ### Stage 1 - canary, one mini, one lane, one PR
 
 ```sh
-gh variable set CI_PERSISTENT_MAC_COMPILE        --repo manaflow-ai/cmux -b pilot
-gh variable set CI_PERSISTENT_MAC_COMPILE_COHORT --repo manaflow-ai/cmux -b 13198
+scripts/persistent-compile pilot <PR number or head branch>
 ```
+
+That sets `CI_PERSISTENT_MAC_COMPILE=pilot` and
+`CI_PERSISTENT_MAC_COMPILE_COHORT` to the value given. The cohort must name an
+open same-repository pull request by an org `MEMBER` or `OWNER` whose CI
+touches macOS. #13198 is the RFC issue, not a pull request, so no run can match
+it.
 
 `pilot` + a cohort restricts routing to matching PR numbers or head branch
 names. Every other PR is untouched. Leave it here for at least 20 routed runs.
@@ -604,9 +667,77 @@ A contributor with write access can build and test the entire routing path
 with the variable unset, which is exactly the state the repository is in
 today. Nothing they merge takes effect until a maintainer sets one variable.
 
+## Nightly lane
+
+Direction from Manaflow (2026-09-24): dev builds, nightlies and CI/CD run on
+the minis first and spill over to Blacksmith. The nightly takes the same shape
+as the compile lane above: the mini produces, a hosted job decides.
+
+| Piece | Where |
+| --- | --- |
+| Producer | `.github/workflows/nightly-mini-build.yml`: dispatch-only, `permissions: {}`, no secrets, public `git fetch`, and it builds only a commit already on the dispatched ref |
+| Router | `route-nightly-mini` in `nightly.yml`, running `scripts/ci/nightly_mini_route.py` |
+| Adoption | `build-nightly-app` step `Adopt owned-Mac products`: source SHA, tree, full `xcodebuild -version` and archs must match, or it compiles hosted |
+| Guard | `check_nightly_mini_lane` plus one exact-line exemption in `check_no_self_hosted_fleet_runners` |
+
+```yaml
+runs-on: group cmux-nightly-mini, labels [self-hosted, macOS, ARM64, cmux-nightly-mini-build]
+```
+
+The group must restrict workflow access to
+`manaflow-ai/cmux/.github/workflows/nightly-mini-build.yml@refs/heads/main`.
+The producer has no concurrency group: each mini runs one build at a time in
+its own work directory. `nightly.yml` already runs one full nightly per branch
+at a time and throttles pushes, so a second mini does not double publishing
+nightlies. It takes a `build_only` measurement run while the first mini builds
+a full nightly, and it covers for a mini that is offline or busy.
+
+On a Manaflow mini the producer builds under
+`/Users/Shared/cmux-build-fleet/bin/with-host-lock`, the same lock the
+build-fleet controller holds for dev builds, so the two take turns. Time spent
+waiting for the lock counts against `NIGHTLY_MAC_MINI_EXECUTION_SECONDS`, so a
+long wait plus the build can overrun it and fall back to Blacksmith. A lock that
+refuses admission (exit 75, below its free-disk floor) fails the producer, which
+also falls back.
+
+The label avoids the bare word `nightly`, which the HQ build-fleet controller
+reserves as a tag. It is a separate registration from the compile lane's runner.
+
+**Selector.** `NIGHTLY_MAC_MINI`:
+
+| Value | Effect |
+| --- | --- |
+| unset | nothing changes; the route job does not run |
+| `build-only` | unsigned `build_only` measurement runs try a mini first |
+| `all` | every non-fast nightly build tries a mini first, including the ones that are then signed and published |
+
+A manual `build_only` dispatch can pass `mac_mini: true` without the variable.
+`NIGHTLY_MAC_MINI_QUEUE_SECONDS` (default 300) bounds the wait for a mini, and
+`NIGHTLY_MAC_MINI_EXECUTION_SECONDS` (default 2700) bounds the build. Past
+either one, or on any producer failure, the router cancels its request and
+`build-nightly-app` compiles on Blacksmith exactly as before, only later: the
+fallback starts once the route gives up, so a nightly with no free mini is about
+5 minutes late and one whose mini build overruns is up to 50 minutes late at the
+default bounds. A route job that is skipped or fails changes nothing else: the
+hosted build runs on `!cancelled()`, and signing and publication gate on explicit
+job results rather than on the implicit `success()`, which would also check
+the skipped route job.
+
+**Trust decision (not made by this change).** `build-only` ships nothing, so
+it is safe to turn on once the runner exists. `all` means the signed nightly
+DMG contains bits compiled on a persistent machine that also keeps warm state
+across runs. Signing keys never reach the mini; the question is whether
+Developer ID should sign what a mini compiled. The adoption check proves which
+commit and toolchain the producer claims, not that the warm state was clean. That is
+for Leo and Manaflow to decide before `all` is set. Until then the published nightly
+is compiled on Blacksmith.
+
+**Rollback.** `gh variable delete NIGHTLY_MAC_MINI --repo manaflow-ai/cmux`.
+
 ## 7. Open gaps
 
-- The organization runner group does not exist, so the producer has never run
+- The organization runner group exists (2026-09-24) but has no runner, so the
+  producer has never run
   (`docs/ci/workflow-inventory.md` line 21). The router has 6,887 skipped runs
   out of 6,927 and zero successes: it creates one run per CI run and exits on
   the unset variable.

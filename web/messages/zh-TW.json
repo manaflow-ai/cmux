@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "偵測到的 harness 設定",
+    "selectionNotice": "選擇提供者不會啟動或啟用這些 harness。",
+    "selectProvider": "選擇 {provider}",
+    "foundPath": "找到 {path}",
+    "foundCommand": "找到命令 {command}",
+    "installed": "提供者已安裝",
+    "missing": "提供者未安裝",
+    "install": "使用以下命令安裝：{command}",
+    "benefitPi": "壓縮、記憶體和提供者路由",
+    "benefitOpenagent": "OpenCode 的平行專家與復原能力",
+    "benefitClaude": "Claude Code 的團隊協作與驗證",
+    "benefitSuperpowers": "規劃、TDD、子代理與審查"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM 設定未完成",
+      "reason": "Cloud VM 的來賓環境設定未完成。",
+      "message": "cmux 無法完成 Cloud VM 的設定。",
+      "action": "請重試此操作。如果問題持續，請聯絡支援。"
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM 清理待完成",
+      "message": "Cloud VM 設定失敗，清理仍未完成。",
+      "action": "建立另一台機器之前，請提供追蹤 ID 聯絡支援團隊。"
+    },
     "unsupported": {
       "title": "雲端虛擬機操作無法使用",
       "reason": "此機器類型不提供這項操作。",
@@ -1248,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux 設定。全域 cmux.json 支援應用程式設定、快捷鍵、動作、自訂命令、通知 hook 與工作區版面配置。專案本機的 .cmux/cmux.json 或 cmux.json 支援動作、命令、通知 hook、UI 動作綁定、Agent Chat 覆寫、vault 代理、工作區群組覆寫，以及工作區啟動與按鈕設定。",
         "rightSidebar": "保留在 cmux.json 中的舊版及擴充功能所擁有的右側邊欄設定。",
+        "packs": {
+          "description": "在此設定之前載入的本機 cmux 套件檔案或目錄。目錄會解析為 cmux.pack.json。請使用路徑字串或含有 path 欄位的物件。",
+          "path": "本機檔案或目錄路徑。非絕對路徑會相對於此設定檔案。"
+        },
         "paneBorderColor": "覆寫分割工作區中的 cmux 窗格分隔線顏色。此設定影響 cmux 窗格邊界，而不是 Ghostty 的內部分割。",
         "activePaneBorderColor": "在分割工作區中圍繞目前聚焦的 cmux 窗格繪製的選用邊框顏色。",
         "automation": {
@@ -1259,6 +1288,7 @@
         "app": {
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
           "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
+          "devWindowDisplay": "僅在 DEBUG 建置中開啟新視窗時使用的顯示器名稱。空值會使用系統預設值。",
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",

@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The geometry a machine workspace should open with on this Mac: the daemon screen's
