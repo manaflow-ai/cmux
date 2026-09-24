@@ -24,9 +24,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_impact import affected_suites  # noqa: E402
+from cmux_unit_test_shard import (  # noqa: E402
+    DEFAULT_TIMINGS_PATH,
+    FOCUSED_GATE_SELECTORS,
+    discover_selectors,
+    load_timings,
+    reweight_selectors,
+)
 
 COMPILE_ONLY_POLICY = "compile-only"
 FULL_SUITE_LABEL = "full-ci"
@@ -44,6 +55,11 @@ UNIT_SUITE_LABEL = "unit-ci"
 UNIT_JUDGED_PREFIXES = ("cmuxTests/",)
 UNJUDGED_BY_ANY_PR_JOB_PREFIXES = ("cmuxUITests/",)
 UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PREFIXES
+
+# Measured serial test time a changed-suites run may hold. One runner executes
+# it as a single batch, so it has to fit comfortably inside the batch timeout
+# a normal shard's batch fits in; a larger diff takes all seven shards.
+CHANGED_SUITES_BUDGET_MS = 10 * 60 * 1000
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -97,6 +113,61 @@ def wants_unit_suite(
     if paths is None:
         return True
     return any(path.strip().startswith(UNIT_JUDGED_PREFIXES) for path in paths)
+
+
+def strict_steps(workflow: str, suites: Iterable[str]) -> list[str] | None:
+    """Names of the app-host steps that run `suites` a strict step owns.
+
+    Such a suite gets an app host and settings of its own from its step, so a
+    changed-suites run runs that step rather than putting the suite in its
+    shared batch. None when a selected strict suite has no step that names it.
+    """
+    job = workflow[workflow.index("\n  app-host-unit-tests:\n") :]
+    job = job[: re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
+    owners: dict[str, set[str]] = {}
+    for block in job.split("\n      - name: ")[1:]:
+        name = block.split("\n", 1)[0].strip()
+        condition = re.search(r"^        if: (.*)$", block, re.M)
+        if condition is None or "_SHARD)" not in condition.group(1) or "!=" in condition.group(1):
+            continue
+        for selector in FOCUSED_GATE_SELECTORS:
+            if re.search(rf"\b{selector.split('/', 1)[1]}\b", block):
+                owners.setdefault(selector, set()).add(name)
+    names: set[str] = set()
+    for suite in suites:
+        if suite in FOCUSED_GATE_SELECTORS:
+            if suite not in owners:
+                return None
+            names |= owners[suite]
+    return sorted(names)
+
+
+def changed_unit_selectors(
+    root: Path, paths: Iterable[str] | None, diff: str | None = None
+) -> list[str]:
+    """Suite selectors for a unit run the diff selected, or [] for all of them.
+
+    A pull request that edits a few tests needs those tests run, not the
+    other few thousand across seven shards. An empty answer keeps the full
+    unit suite: see test_impact.affected_suites(), strict_steps(), and a
+    shared batch whose measured time would not fit one worker's.
+    """
+    if paths is None:
+        return []
+    suites = affected_suites(root, [path.strip() for path in paths], diff)
+    if not suites:
+        return []
+    workflow = (root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+    if strict_steps(workflow, suites) is None:
+        return []
+    wanted = {suite.split("/", 1)[1] for suite in suites}
+    selectors, _ = reweight_selectors(discover_selectors(root), load_timings(DEFAULT_TIMINGS_PATH))
+    cost = sum(
+        selector.weight for selector in selectors if selector.identifier.split("/")[1] in wanted
+    )
+    if cost > CHANGED_SUITES_BUDGET_MS:
+        return []
+    return suites
 
 
 def labels_from_event(event_path: str | Path) -> list[str] | None:
@@ -172,6 +243,11 @@ def main(argv: list[str]) -> int:
         "--files-from",
         help="changed paths, one per line; omit when the diff could not be read",
     )
+    parser.add_argument(
+        "--diff-from",
+        help="`git diff -U0` of cmuxTests/; omit to count every line of a changed file",
+    )
+    parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
 
     labels = None
@@ -189,12 +265,29 @@ def main(argv: list[str]) -> int:
         except (OSError, UnicodeError):
             paths = None
 
+    diff = None
+    if args.diff_from:
+        try:
+            diff = Path(args.diff_from).read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            diff = None
+
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
     unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
     gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
+    # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
+    # explicit requests for every suite.
+    asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
+    selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
+    steps: list[str] = []
+    if selectors:
+        workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        steps = strict_steps(workflow, selectors) or []
     lines = [
         f"full_suite={'true' if full else 'false'}",
         f"unit_suite={'true' if unit else 'false'}",
+        f"unit_selectors={' '.join(selectors)}",
+        f"unit_strict_steps={''.join(f'|{step}' for step in steps) + '|' if steps else ''}",
         f"coverage_gap={'true' if gap else 'false'}",
     ]
     for line in lines:

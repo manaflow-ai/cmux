@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "감지된 하네스 구성",
+    "selectionNotice": "제공자를 선택해도 이러한 하네스가 시작되거나 활성화되지는 않습니다.",
+    "selectProvider": "{provider} 선택",
+    "foundPath": "{path} 발견",
+    "foundCommand": "명령 {command} 발견",
+    "installed": "제공자가 설치되어 있습니다",
+    "missing": "제공자가 설치되어 있지 않습니다",
+    "install": "다음으로 설치: {command}",
+    "benefitPi": "압축, 메모리 및 제공자 라우팅",
+    "benefitOpenagent": "OpenCode의 병렬 전문가와 복구",
+    "benefitClaude": "Claude Code의 팀과 검증",
+    "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM 설정이 완료되지 않았습니다",
+      "reason": "Cloud VM 게스트 설정이 완료되지 않았습니다.",
+      "message": "cmux가 Cloud VM 설정을 완료하지 못했습니다.",
+      "action": "작업을 다시 시도하세요. 문제가 계속되면 지원팀에 문의하세요."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM 정리 대기 중",
+      "message": "Cloud VM 설정에 실패했으며 정리가 아직 완료되지 않았습니다.",
+      "action": "다른 머신을 만들기 전에 추적 ID와 함께 지원팀에 문의하세요."
+    },
     "unsupported": {
       "title": "Cloud VM 작업을 사용할 수 없음",
       "reason": "이 머신 종류는 이 작업을 제공하지 않습니다.",
