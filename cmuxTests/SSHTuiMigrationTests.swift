@@ -92,4 +92,31 @@ struct SSHTuiMigrationTests {
         #expect(decoded.remoteTabID == "tab_persistent")
         #expect(decoded.resource.machine.isSSH)
     }
+
+    @Test("Loopback links in SSH terminals retain remote routing")
+    func sshLoopbackLinkUsesItsMachineCarrier() throws {
+        let resource = SurfaceResource(
+            id: .init(machine: .ssh("fixture"), kind: .terminal, key: "term_remote"),
+            title: "shell", detail: "/home/alice", lifecycle: .running,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        )
+        let url = try #require(URL(string: "http://localhost:3000/project?view=source"))
+        let target = try #require(CmuxTuiSurfaceProvider.cloudTerminalLinkTarget(
+            url: url, resource: resource, privateAddress: "127.0.0.1"
+        ))
+        #expect(target.url.port == 3000)
+        #expect(target.url.path == "/project")
+        #expect(target.url.query == "view=source")
+    }
+
+    @Test("An unconfirmed SSH graph cannot publish its saved remote working directory")
+    @MainActor
+    func unconfirmedSSHDirectoryRemainsUntrusted() {
+        let resource = SurfaceResource(
+            id: .init(machine: .ssh("fixture"), kind: .terminal, key: "term_remote"),
+            title: "shell", detail: "/home/alice", lifecycle: .running,
+            agent: nil, remoteWorkspace: nil, port: nil, url: nil
+        )
+        #expect(SurfaceCatalog().resourceForPresentation(resource).detail == nil)
+    }
 }
