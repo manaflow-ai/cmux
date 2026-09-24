@@ -4533,6 +4533,29 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
 
     harness.adopt_template_terminal = true;
     harness.restart();
+    // The binding is written before the daemon listens, and the public
+    // terminal list must already show the terminal it names. A client that
+    // listed nothing here (the Cloud prompt sync) created a second workspace.
+    let bound = fs::read_to_string(harness.dir.join("bound")).unwrap();
+    let bound_terminal = bound
+        .lines()
+        .find_map(|line| line.strip_prefix("CMUX_TUI_TERMINAL_ID="))
+        .unwrap()
+        .to_string();
+    let listed = resource_request(
+        &harness.socket,
+        "template-terminal-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let listed_ids = listed["value"]
+        .as_array()
+        .unwrap_or_else(|| panic!("terminal.list failed: {listed}"))
+        .iter()
+        .filter_map(|terminal| terminal["id"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(listed_ids, vec![bound_terminal.as_str()], "{listed}");
     let deadline = Instant::now() + Duration::from_secs(15);
     let adopted_surface = loop {
         let resolved = request_response(
