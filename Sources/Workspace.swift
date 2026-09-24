@@ -637,7 +637,7 @@ extension Workspace {
                             processPresence: agentProcessPresence
                         ) ?? false
                 }
-                guard let effectiveRestorableAgent else { return nil }
+                guard let effectiveRestorableAgent else { return nil }; if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(snapshot: effectiveRestorableAgent, binding: resumeBinding, processLiveness: matchingObservation?.processLiveness) { return true }
                 let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
                     for: effectiveRestorableAgent,
                     panelId: panelId,
@@ -1650,10 +1650,15 @@ extension Workspace {
             // top of that binding.
             let restorableAgentCanAutoResume = restorableAgent != nil &&
                 (resumeBinding == nil || resumeBinding?.isAgentHookBinding == true)
-            let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
+            let usesExecutionAdmission = !restoresRemoteWorkspaceTerminalSnapshot &&
+                (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
+            let shouldCheckAgentOwnership = shouldAutoResumeAgent && !usesExecutionAdmission &&
+                restoredRemotePTYSessionID == nil &&
                 (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
             let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
-            let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex == nil
+            let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex?.isComplete(
+                forPanelId: snapshot.id, kind: restorableAgent?.kind.rawValue ?? resumeBinding?.kind
+            ) != true
             let expectedAgentKind = restorableAgent?.kind.rawValue ?? resumeBinding?.kind
             let expectedSessionId = restorableAgent?.sessionId ?? resumeBinding?.checkpointId
             let liveSessionOwner: LiveAgentSessionOwner? = if let expectedAgentKind,
@@ -1797,15 +1802,8 @@ extension Workspace {
                 )
             }
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
-            // A crash-restart can leave this exact agent session alive from the
-            // previous launch (or a duplicate panel can reference the same
-            // session in this same restore pass); firing another `codex
-            // resume`/`claude --resume` on top of it just piles up redundant
-            // processes contending for the same on-disk session data (#8446).
-            // Consult the same live-process index already used for "reopen
-            // closed tab" / Fork Conversation availability. Local commands
-            // claim at the CLI's pre-exec boundary; direct remote launches
-            // retain the in-app claim below.
+            // Local selectors always reach the same-build CLI admission gate.
+            // Only direct remote launches still need topology-time admission.
             var remoteRestoreClaim: AgentResumeLaunchGuard.Claim?
             let agentSessionAlreadyActive: Bool = {
                 guard shouldAutoResumeAgent, restorableAgentCanAutoResume,
@@ -1813,6 +1811,7 @@ extension Workspace {
                       let restorableAgent else {
                     return false
                 }
+                if usesExecutionAdmission || restoredRemotePTYSessionID != nil { return false }
                 if restoreIndexUnavailable {
                     // The off-main index refresh will resolve this staged panel.
                     return true
@@ -1883,17 +1882,10 @@ extension Workspace {
                 )
                 remoteRestoreClaim = nil
             }
-            let liveOwnerNoticeInput = liveSessionOwner.map {
-                AgentRestoreLiveOwnerNotice(processID: $0.processID).startupInput(
-                    dialect: restoresRemoteWorkspaceTerminalSnapshot
-                        ? .remoteHost
-                        : .loginShell
-                )
-            }
             // Build the candidate before arming the gate. A binding that is
             // disabled, unapproved, or cannot render a command must start as an
             // ordinary shell instead of waiting behind deferred admission.
-            let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
+            let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
@@ -1937,14 +1929,10 @@ extension Workspace {
                 hasResumeStartupWork: restoredBindingLaunch != nil ||
                     restoredAgentResumeLaunch != nil || deferredAgentResumeStartupInput != nil
             )
-            let restoredRemoteLiveOwnerNoticeCommand = restoredRemotePTYSessionID == nil
-                ? nil
-                : liveOwnerNoticeInput.flatMap(persistentSSHLiveOwnerNoticeCommand)
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(
                     sessionID: $0,
                     remoteCommand: effectivePersistentSSHResumeCommand
-                        ?? restoredRemoteLiveOwnerNoticeCommand
                 )
             }
             let restoredStartupCommand =
@@ -1953,15 +1941,13 @@ extension Workspace {
             let restoredStartupInput = restoredRemotePTYAttachCommand == nil
                 ? (restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
-                    deferredAgentResumeStartupInput ??
-                    liveOwnerNoticeInput)
+                    deferredAgentResumeStartupInput)
                 : nil
             let startupHandlesWorkingDirectory =
                 restoredTmuxStartupScript != nil ||
                 restoredAgentResumeLaunch != nil ||
                 restoredBindingLaunch != nil ||
-                deferredAgentResumeStartupInput != nil ||
-                liveOwnerNoticeInput != nil
+                deferredAgentResumeStartupInput != nil
             // Guarded startup commands cd themselves and tolerate deleted saved directories.
             // Passing the same cwd to Ghostty can fail before the guarded command runs.
             let suppressWorkspaceRemoteStartupCommand =
@@ -2006,8 +1992,9 @@ extension Workspace {
                     "kind=\(restorableAgent.kind.rawValue) session=\(sessionPreview) " +
                     "hasLaunch=\(restorableAgent.launchCommand == nil ? 0 : 1) " +
                     "launchArgc=\(launchArgc) hasResume=\(restoredAgentResumeLaunch == nil ? 0 : 1) " +
-                    "autoResume=\(autoResumeAgentSessions ? 1 : 0) typedStartup=\(restoredStartupInput == nil ? 0 : 1) " +
-                    "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
+                    "autoResume=\(autoResumeAgentSessions ? 1 : 0) savedWasRunning=\(snapshot.terminal?.wasAgentRunning == true ? 1 : 0) " +
+                    "restoreIndexUnavailable=\(restoreIndexUnavailable ? 1 : 0) startupBlocked=\(restoreStartupBlocked ? 1 : 0) " +
+                    "typedStartup=\(restoredStartupInput == nil ? 0 : 1) replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
             if let resumeBinding {
@@ -2015,6 +2002,7 @@ extension Workspace {
                     "session.restore.surfaceResume panel=\(snapshot.id.uuidString.prefix(5)) " +
                     "kind=\(resumeBinding.kind ?? "unknown") source=\(resumeBinding.source ?? "unknown") " +
                     "hasLaunch=\(restoredBindingLaunch == nil ? 0 : 1) " +
+                    "savedWasRunning=\(snapshot.terminal?.wasAgentRunning == true ? 1 : 0) " +
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
@@ -2099,6 +2087,7 @@ extension Workspace {
             terminalPanel.surface.setStartupRestoreAdmissionFallbackCommand(
                 deferredAdmissionFallbackCommand
             )
+            if deferredAgentResumeAdmission { terminalPanel.restoreRecovery.state = .checking }
             terminalPanel.adoptOwnedSessionScrollbackReplayArtifact(replayFileURL)
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(
@@ -13994,6 +13983,10 @@ extension Workspace: BonsplitDelegate {
         return true
     }
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        // bonsplit collapses a pane that lost its last tab inside closeTab
+        // without a didClosePane call; release projections of a split that
+        // just left the model (#13387).
+        releaseProvisionalSplitPaneGeometryForRemovedSplits()
         forceCloseTabIds.remove(tabId)
         tabStripCloseButtonByTabId.removeValue(forKey: tabId)
         let remoteTmuxWorkspaceCloseButton = remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
@@ -14294,6 +14287,7 @@ extension Workspace: BonsplitDelegate {
         let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
+        releaseProvisionalSplitPaneGeometryForRemovedSplits()
 
         publishCmuxPaneClosed(paneId, closedPanelIds: closedPanelIds, origin: "pane_close")
         if !closedPanelIds.isEmpty {
@@ -14379,29 +14373,18 @@ extension Workspace: BonsplitDelegate {
         guard !isRetiredFromOwningTabManager else { return }
         let finishWork = beginTerminalGeometryTransition(.split)
         defer { finishWork() }
+        // Same transaction as the tree update: no commit may show the split
+        // pane's terminal over the new pane (#13387).
+        applyProvisionalSplitPaneGeometry(originalPane: originalPane, newPane: newPane)
 #if DEBUG
-        let panelKindForTab: (TabID) -> String = { tabId in
-            guard let panelId = self.panelIdFromSurfaceId(tabId),
-                  let panel = self.panels[panelId] else { return "placeholder" }
-            if panel is TerminalPanel { return "terminal" }
-            if panel is BrowserPanel { return "browser" }
-            return String(describing: type(of: panel))
-        }
-        let paneKindSummary: (PaneID) -> String = { paneId in
-            let tabs = controller.tabs(inPane: paneId)
-            guard !tabs.isEmpty else { return "-" }
-            return tabs.map { tab in
-                String(panelKindForTab(tab.id).prefix(1))
-            }.joined(separator: ",")
-        }
-        let originalSelectedKind = controller.selectedTab(inPane: originalPane).map { panelKindForTab($0.id) } ?? "none"
-        let newSelectedKind = controller.selectedTab(inPane: newPane).map { panelKindForTab($0.id) } ?? "none"
+        let originalSelectedKind = controller.selectedTab(inPane: originalPane).map { debugSplitPanelKind(forTabId: $0.id) } ?? "none"
+        let newSelectedKind = controller.selectedTab(inPane: newPane).map { debugSplitPanelKind(forTabId: $0.id) } ?? "none"
         cmuxDebugLog(
             "split.didSplit original=\(originalPane.id.uuidString.prefix(5)) new=\(newPane.id.uuidString.prefix(5)) " +
             "orientation=\(orientation) programmatic=\(isProgrammaticSplit ? 1 : 0) " +
             "originalTabs=\(controller.tabs(inPane: originalPane).count) newTabs=\(controller.tabs(inPane: newPane).count) " +
             "originalSelected=\(originalSelectedKind) newSelected=\(newSelectedKind) " +
-            "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
+            "originalKinds=[\(debugSplitPaneKindSummary(controller, paneId: originalPane))] newKinds=[\(debugSplitPaneKindSummary(controller, paneId: newPane))]"
         )
 #endif
         let rearmBrowserPortalHostReplacement: (PaneID, String) -> Void = { paneId, reason in
@@ -14444,7 +14427,7 @@ extension Workspace: BonsplitDelegate {
                 "split.didSplit.drag original=\(originalPane.id.uuidString.prefix(5)) " +
                 "new=\(newPane.id.uuidString.prefix(5)) originalTabs=\(originalTabs.count) " +
                 "newTabs=\(controller.tabs(inPane: newPane).count) hasRealSurface=\(hasRealSurface ? 1 : 0) " +
-                "originalKinds=[\(paneKindSummary(originalPane))] newKinds=[\(paneKindSummary(newPane))]"
+                "originalKinds=[\(debugSplitPaneKindSummary(controller, paneId: originalPane))] newKinds=[\(debugSplitPaneKindSummary(controller, paneId: newPane))]"
             )
 #endif
             if !hasRealSurface {
@@ -14804,6 +14787,7 @@ extension Workspace: BonsplitDelegate {
             self.tmuxLayoutSnapshot = snapshot
             _ = self.surfaceList.registerGeometryChange()
             let topologyChanged = self.surfaceList.lastGeometryChangeChangedMembership
+            if topologyChanged { self.releaseProvisionalSplitPaneGeometryForRemovedSplits() }
             NotificationCenter.default.post(
                 name: .workspacePaneGeometryDidChange,
                 object: self,

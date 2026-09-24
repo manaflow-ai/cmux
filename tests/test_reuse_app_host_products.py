@@ -283,6 +283,56 @@ class ReuseProducts(TestProductHandoff):
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
         self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
 
+    def test_developer_tooling_outside_the_build_does_not_reach_product(self):
+        """Editing these must not force a compile: no build or macOS lane reads them."""
+        identity = reuse.product_inputs
+        tooling = (
+            ".claude/commands/review.md",
+            "agent-chat/server.ts",
+            "agent-chat/src/components/Chat.tsx",
+            "scripts/git-hooks/pre-commit",
+            "scripts/benchmark-dev-fleet-warm-slots.py",
+            "scripts/check-pbxproj.sh",
+            "scripts/check-test-determinism.py",
+            "scripts/dev-fleet-warm-slot.py",
+            "scripts/install-git-hooks.sh",
+            "scripts/merge-xcstrings.py",
+            "scripts/normalize-pbxproj.py",
+            "scripts/prune_nightly_release_assets.py",
+        )
+        for path in tooling:
+            self.assertFalse(identity.reaches_product(path), path)
+
+        # Neighbours that the build does read stay product inputs.
+        for path in (
+            "scripts/build-app-bundled-resources.sh",
+            "scripts/build-plain-text-paste-worker.sh",
+            "scripts/setup.sh",
+            "skills/cmux-cua/SKILL.md",
+            ".gitattributes",
+        ):
+            self.assertTrue(identity.reaches_product(path), path)
+
+        # Drift guard: if the Xcode project, the compile script, or either
+        # product workflow starts naming one of these, it is a build input again.
+        root = Path(__file__).resolve().parents[1]
+        readers = {
+            name: (root / name).read_text()
+            for name in (
+                "cmux.xcodeproj/project.pbxproj",
+                "scripts/ci/compile-app-host-test-product.sh",
+                "scripts/build-app-bundled-resources.sh",
+                ".github/workflows/ci-macos.yml",
+                ".github/workflows/test-e2e.yml",
+            )
+        }
+        # Check the module's own lists, not the samples above, so a reader
+        # naming any file under an excluded prefix fails here too.
+        needles = sorted(identity.NON_PRODUCT_TOOLING) + list(identity.NON_PRODUCT_TOOLING_PREFIXES)
+        for needle in needles:
+            for name, text in readers.items():
+                self.assertNotIn(needle, text, f"{name} reads {needle}")
+
     def test_product_identity_binds_the_e2e_build_recipe(self):
         identity = reuse.product_inputs
         root = Path(__file__).resolve().parents[1]
@@ -314,6 +364,27 @@ class ReuseProducts(TestProductHandoff):
             base,
             identity.identity_from_tree_lines(tree, workflow, changed_step),
         )
+
+    def test_e2e_identity_binds_the_helpers_its_build_job_runs(self):
+        identity = reuse.product_inputs
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/ci-macos.yml").read_text()
+        e2e_workflow = (root / ".github/workflows/test-e2e.yml").read_text()
+        source = f"100644 blob {'1' * 40}\tSources/App.swift"
+        helper = "scripts/ci/e2e_warm_derived_data.py"
+        base = identity.identity_from_tree_lines([source, f"100644 blob {'2' * 40}\t{helper}"], workflow, e2e_workflow)
+        edited = identity.identity_from_tree_lines([source, f"100644 blob {'3' * 40}\t{helper}"], workflow, e2e_workflow)
+
+        # Only the E2E component moves: the compile-admission identity does not.
+        self.assertNotEqual(base["e2e_recipe"], edited["e2e_recipe"])
+        self.assertEqual({k: v for k, v in base.items() if k != "e2e_recipe"},
+                         {k: v for k, v in edited.items() if k != "e2e_recipe"})
+        # A scripts/ci file the build job never names changes nothing.
+        unrelated = identity.identity_from_tree_lines(
+            [source, f"100644 blob {'2' * 40}\t{helper}", f"100644 blob {'4' * 40}\tscripts/ci/queue_janitor.py"],
+            workflow, e2e_workflow,
+        )
+        self.assertEqual(base, unrelated)
 
     def test_bundled_paste_worker_source_reaches_product(self):
         """cmux.xcodeproj compiles this into the bundle, so reuse must see it."""
