@@ -194,12 +194,17 @@ public struct ReadOnlyVimNavigation {
             if key == "y" {
                 let end = buffer.vertical(cursor, delta: repetitions - 1, column: 0)
                 yank(NSRange(location: buffer.line(cursor).location, length: NSMaxRange(buffer.line(end)) - buffer.line(cursor).location))
+            } else if key == "j" || key == "k" {
+                let target = buffer.vertical(cursor, delta: key == "j" ? repetitions : -repetitions, column: 0)
+                let start = buffer.line(min(cursor, target)).location
+                let end = NSMaxRange(buffer.line(max(cursor, target)))
+                yank(NSRange(location: start, length: end - start))
             } else if key == "l" {
                 var end = cursor
                 let lineEnd = buffer.end(cursor)
                 for _ in 0..<repetitions { end = min(lineEnd, buffer.next(end)) }
                 if end > cursor { yank(NSRange(location: cursor, length: end - cursor)) }
-            } else if ["h", "w", "W", "b", "B", "e", "E", "0", "^", "$", "j", "k", "{", "}"].contains(key) {
+            } else if ["h", "w", "W", "b", "B", "e", "E", "0", "^", "$", "{", "}"].contains(key) {
                 motion(key, count: repetitions)
                 let low = min(original, cursor)
                 let high = max(original, cursor)
