@@ -9,6 +9,7 @@ import UIKit
 final class WorkspaceNavigationControlView: UIView {
     private let contentView: UIView & UIContentView
     private var contentWidth: NSLayoutConstraint!
+    private var itemWidth: NSLayoutConstraint!
 
     init(content: AnyView) {
         contentView = UIHostingConfiguration { content.ignoresSafeArea() }
@@ -18,17 +19,17 @@ final class WorkspaceNavigationControlView: UIView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
-        contentWidth = contentView.widthAnchor.constraint(
-            equalToConstant: contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
-        )
+        addSubview(contentView)
+        let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        contentWidth = contentView.widthAnchor.constraint(equalToConstant: contentSize.width)
+        itemWidth = widthAnchor.constraint(equalToConstant: contentSize.width + 16)
         NSLayoutConstraint.activate([
             contentView.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             contentWidth,
-            widthAnchor.constraint(equalTo: contentView.widthAnchor, constant: 16),
+            itemWidth,
             heightAnchor.constraint(equalToConstant: 36),
         ])
-        addSubview(contentView)
         setContentCompressionResistancePriority(.required, for: .horizontal)
     }
 
@@ -53,6 +54,7 @@ final class WorkspaceNavigationControlView: UIView {
         contentView.invalidateIntrinsicContentSize()
         let size = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         contentWidth.constant = size.width
+        itemWidth.constant = size.width + 16
         invalidateIntrinsicContentSize()
     }
 }
