@@ -90,10 +90,18 @@ FORK_PULL_REQUEST_LABEL = re.compile(
 # today, but they are free-form like MACOS_RUNNER_*, and
 # docs/ci-runner-capability-labels.md maps them to self-hosted `linux` labels.
 # Nothing keeps them hosted except their current values, so they are gated too.
-OWNED_RUNNER_VARIABLE = re.compile(r"vars\.(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER)\b")
+# Context names are case-insensitive, and `vars['X']` reads the same value as
+# `vars.X`; _refs normalizes the index form before matching.
+OWNED_RUNNER_NAME = r"(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER)"
+OWNED_RUNNER_VARIABLE = re.compile(
+    rf"\bvars(?:\.{OWNED_RUNNER_NAME}\b|\[\s*'{OWNED_RUNNER_NAME}'\s*\])", re.IGNORECASE
+)
 OWNED_RUNNER_SELECTOR = re.compile(
-    r"vars\.(?:MACOS_RUNNER_\w+|LINUX_RUNNER|LINUX_ARM64_RUNNER)\b|matrix\.pr_runner\b"
-    r"|inputs\.pr_runner\b|needs\.changes\.outputs\.macos_pr_runner\b"
+    OWNED_RUNNER_VARIABLE.pattern
+    + r"|\bmatrix(?:\.pr_runner\b|\[\s*'pr_runner'\s*\])"
+    + r"|\binputs(?:\.pr_runner\b|\[\s*'pr_runner'\s*\])"
+    + r"|\bneeds\.changes\.outputs\.macos_pr_runner\b",
+    re.IGNORECASE,
 )
 # (workflow, stripped line) -> why a runner variable read there picks no runner.
 FORK_GATE_EXEMPT = {
@@ -258,7 +266,7 @@ def parse_expression(source: str) -> tuple:
 def _refs(node: tuple) -> list[str]:
     kind = node[0]
     if kind == "ref":
-        return [node[1]]
+        return [re.sub(r"\['([A-Za-z_][A-Za-z0-9_-]*)'\]", r".\1", node[1])]
     if kind in ("or", "and"):
         return [ref for child in node[1] for ref in _refs(child)]
     if kind == "not":
@@ -346,7 +354,8 @@ def _runner_value_error(
         # Anything else ahead of the fork branch must be a condition that picks
         # a literal label, such as the owner branch. A bare dispatch input is
         # empty on a pull_request run, but only if no caller can pass it.
-        if _guarded_literal(disjunct):
+        guarded = _guarded_literal(disjunct)
+        if guarded and FORK_PULL_REQUEST_LABEL.fullmatch(guarded[1]):
             continue
         if dispatch_inputs_are_empty and disjunct[0] == "ref" and disjunct[1].startswith("inputs."):
             continue
@@ -393,8 +402,12 @@ def pull_request_workflows() -> list[Path]:
 
 
 def has_workflow_call_trigger(text: str) -> bool:
-    """A reusable workflow's `inputs` come from its caller, even on pull_request."""
-    return bool(re.search(r"(?m)^  workflow_call:", text))
+    """A reusable workflow's `inputs` come from its caller, even on pull_request.
+
+    Any uncommented mention counts, so a flow-style or oddly indented `on:`
+    fails closed.
+    """
+    return bool(re.search(r"(?m)^[^#\n]*\bworkflow_call\b", text))
 
 
 def fork_exercised_workflows() -> list[Path]:
@@ -637,6 +650,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 "if: ${{ startsWith(vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26', 'tart-') }}"
             ),
             "unparseable": "runs-on: ${{ vars.MACOS_RUNNER_15 || ( }}",
+            "index form": "runs-on: ${{ vars['MACOS_RUNNER_15'] || 'blacksmith-6vcpu-macos-15' }}",
+            "other case": "runs-on: ${{ VARS.macos_runner_15 || 'blacksmith-6vcpu-macos-15' }}",
+            "self-hosted literal ahead of the fork branch": (
+                "runs-on: ${{ github.repository_owner == 'manaflow-ai' && 'tart-macos-15' || "
+                + clause + " && 'macos-26' || vars.MACOS_RUNNER_26 }}"
+            ),
             "second expression on the line": (
                 "run-name: ${{ " + clause + " && 'macos-26' || vars.MACOS_RUNNER_26 }}"
                 " on ${{ vars.MACOS_RUNNER_26 }}"
