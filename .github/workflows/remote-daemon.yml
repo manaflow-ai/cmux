@@ -1,15 +1,12 @@
 name: SSH remote daemon
 
 on:
-  pull_request:
-    paths:
-      - daemon/remote/**
-      - scripts/*remote_daemon*
-      - scripts/release_asset_guard*
-      - tests/*remote_daemon*
-      - .github/workflows/remote-daemon.yml
-      - .github/workflows/release.yml
-      - .github/workflows/nightly.yml
+  workflow_call:
+    inputs:
+      native_tests:
+        description: Exercise native Go behavior when daemon inputs changed
+        type: boolean
+        default: true
   push:
     branches: [main]
     paths:
@@ -30,8 +27,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  remote-daemon-admission:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Reject stale pull request rerun
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          current_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)"
+          if [ -z "$RUN_HEAD_SHA" ] || [ -z "$current_head" ]; then
+            echo "Could not resolve run/PR head identity; continuing with normal CI."
+            exit 0
+          fi
+          if [ "$current_head" != "$RUN_HEAD_SHA" ]; then
+            echo "Refusing stale PR run: run head $RUN_HEAD_SHA; current head $current_head." >&2
+            exit 1
+          fi
+
   remote-daemon-tests:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    needs: remote-daemon-admission
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -51,7 +73,14 @@ jobs:
         run: go -C daemon/remote test -race ./...
 
   remote-daemon-macos-tests:
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # Direct pushes/manual runs retain their full coverage; PR callers can
+    # request only Linux packaging validation for publishing-only changes.
+    if: ${{ github.event_name != 'pull_request' || inputs.native_tests }}
+    needs: remote-daemon-admission
+    # Plain `go test` with no Xcode or GUI: any Mac will do. Follow the same
+    # lanes as the other pull-request macOS jobs instead of pinning the
+    # contended macOS 26 pool.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && (vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

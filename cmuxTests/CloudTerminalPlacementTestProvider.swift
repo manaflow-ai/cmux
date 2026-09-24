@@ -13,7 +13,12 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
     let catalog: SurfaceCatalog
     let remote = SurfaceRemoteWorkspace(id: "ws-source", name: "source", index: 0, focused: true)
     let release = CloudLinkFirstValue<Bool>()
+    let creationStarted = CloudLinkFirstValue<Bool>()
+    let materializationFinished = CloudLinkFirstValue<Bool>()
+    private(set) var requestedCommands: [[String]?] = []
+    private(set) var closedTerminals: [SurfaceResourceID] = []
     private(set) var requestedWorkspaces: [String?] = []
+    private(set) var requestedDirectories: [String?] = []
     private(set) var materialized: [SurfaceProjection] = []
     private(set) var layoutSources: [(tabID: String, direction: SurfaceSplitDirection?)] = []
     var returnedWorkspaceID: String?
@@ -47,12 +52,18 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
         )
     }
 
+    func currentWorkingDirectory(of resource: SurfaceResource) async -> String? { resource.detail }
+
+    func closeTerminal(_ id: SurfaceResourceID) async throws { closedTerminals.append(id) }
     func refresh() async {}
     func projectionDidEnd(_ projection: SurfaceProjection) {}
 
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
         let key = "created-\(requestedWorkspaces.count)"
         requestedWorkspaces.append(remoteWorkspaceID)
+        requestedDirectories.append(cwd)
+        requestedCommands.append(command)
+        creationStarted.resolve(true)
         _ = await release.result
         try Task.checkCancellation()
         var workspace = remote
@@ -88,6 +99,7 @@ final class CloudTerminalPlacementTestProvider: SurfaceLayoutTerminalCreating {
             remoteTabID: remoteView?.tabID
         )
         materialized.append(projection)
+        materializationFinished.resolve(true)
         return projection
     }
 }

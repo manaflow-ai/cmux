@@ -12,7 +12,7 @@ import Testing
 /// must round-trip through session snapshots (with legacy snapshots that
 /// predate provenance decoding as user-owned).
 @MainActor
-@Suite struct WorkspaceTitleProvenanceTests {
+@Suite(.serialized) struct WorkspaceTitleProvenanceTests {
 
     // MARK: - Workspace titles
 

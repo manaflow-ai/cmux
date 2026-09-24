@@ -65,7 +65,8 @@ final class CloudNameAuthorityFixture {
         try await settle()
     }
 
-    func expectParity(_ name: String, workspaceName: String? = nil) throws {
+    func expectParity(_ name: String, workspaceName: String? = nil,
+                      sidebarName: String? = nil, sidebarWorkspaceName: String? = nil) throws {
         let native = try #require(workspace.surfaceIdFromPanelId(panelID))
         #expect(workspace.bonsplitController.tab(native)?.title == name)
         let nodes = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
@@ -77,10 +78,10 @@ final class CloudNameAuthorityFixture {
             }
             return false
         })
-        #expect(row.searchableTitle == name)
+        #expect(row.searchableTitle == (sidebarName ?? name))
         if let workspaceName {
             #expect(workspace.title == workspaceName)
-            #expect(nodes.first { $0.id == CloudTreeNodeBuilder.nodeID(workspace: "a", machine: provider.machine) }?.searchableTitle == workspaceName)
+            #expect(nodes.first { $0.id == CloudTreeNodeBuilder.nodeID(workspace: "a", machine: provider.machine) }?.searchableTitle == (sidebarWorkspaceName ?? workspaceName))
         }
     }
 }

@@ -15,6 +15,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var beforeRefresh: (@MainActor () throws -> Void)?
     var beforeMaterialize: (@MainActor (SurfaceResource, CloudTerminalPaneReservation?) async throws -> Void)?
     var beforeCreate: (@MainActor () async throws -> Void)?
+    var afterCreateWorkspace: (@MainActor (SurfaceRemoteWorkspace) async throws -> Void)?
     var usesReceipt = false
     var includesStarter = true
     var terminalError: Error?
@@ -23,6 +24,8 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var refreshes = 0
     var createdWorkspaces: [SurfaceRemoteWorkspace] = []
     var adoptedPanels: [UUID] = []
+    var closedTerminalIDs: [SurfaceResourceID] = []
+    var closedWorkspaceIDs: [String] = []
 
     init(catalog: SurfaceCatalog) {
         self.catalog = catalog
@@ -51,6 +54,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
 
     func createRemoteWorkspaceReceipt(name: String?) async throws -> SurfaceWorkspaceCreationReceipt {
         let workspace = try await createRemoteWorkspace(name: name)
+        try await afterCreateWorkspace?(workspace)
         return SurfaceWorkspaceCreationReceipt(workspace: workspace,
             terminal: usesReceipt && includesStarter ? terminal(in: workspace) : nil,
             cursor: usesReceipt ? .init(generation: "creation", revision: 10) : nil)
@@ -73,6 +77,14 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
         terminalRequests.append(request.id)
         return try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        closedTerminalIDs.append(id)
+    }
+
+    func closeRemoteWorkspace(id: String) async throws {
+        closedWorkspaceIDs.append(id)
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {

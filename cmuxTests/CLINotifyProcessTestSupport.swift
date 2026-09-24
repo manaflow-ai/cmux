@@ -170,7 +170,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startBridgeReadyThenCloseServer(
         listenerFD: Int32,
         replay: Data = Data(),
-        liveOutput: Data = Data()
+        liveOutput: Data = Data(),
+        beforeClose: (@Sendable () -> Void)? = nil
     ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready close server handled")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -223,6 +224,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     }
                 }
             }
+            beforeClose?()
         }
         return handled
     }
@@ -410,6 +412,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
         standardInput: String? = nil,
         timeout: TimeInterval
     ) -> ProcessRunResult {
+        Self.runProcess(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: processTimeout(timeout)
+        )
+    }
+
+    static func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -420,6 +438,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        let exitSignal = DispatchSemaphore(value: 0)
+        // Observe actual termination instead of scheduling a blocking waiter on
+        // the same global pool used to drain the child's output.
+        process.terminationHandler = { _ in exitSignal.signal() }
 
         do {
             try process.run()
@@ -454,13 +476,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             outputGroup.leave()
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut
+        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {

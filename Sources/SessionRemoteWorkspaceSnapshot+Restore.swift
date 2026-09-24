@@ -43,6 +43,8 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
+        if let configuration = tuiSSHConfiguration(agentSocketPath: overrideAgentSocketPath) { return configuration }
+
         let normalizedPersistentDaemonSlot = WorkspaceRemoteConfiguration.normalizedPersistentDaemonSlot(persistentDaemonSlot)
         let normalizedLocalSocketPath = WorkspaceRemoteConfiguration.normalizedOptionalValue(localSocketPath)
         let normalizedRelayPort = relayPort.flatMap { port in
@@ -105,7 +107,7 @@ extension SessionRemoteWorkspaceSnapshot {
             SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: normalizedDestination,
                 port: normalizedPort,
-                identityFile: Self.normalizedIdentityPath(identityFile),
+                identityFile: WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile),
                 sshOptions: restoredSSHOptions,
                 token: $0
             )
@@ -130,7 +132,7 @@ extension SessionRemoteWorkspaceSnapshot {
             terminalProfile: restoredTerminalProfile,
             destination: normalizedDestination,
             port: normalizedPort,
-            identityFile: Self.normalizedIdentityPath(identityFile),
+            identityFile: WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile),
             sshOptions: restoredSSHOptions,
             localProxyPort: nil,
             relayPort: restoreRelayNamespace ? normalizedRelayPort : nil,
@@ -490,7 +492,7 @@ extension SessionRemoteWorkspaceSnapshot {
         if let normalizedPort {
             arguments += ["-p", String(normalizedPort)]
         }
-        if let identityFile = Self.normalizedIdentityPath(identityFile) {
+        if let identityFile = WorkspaceRemoteConfiguration.normalizedIdentityPath(identityFile) {
             arguments += ["-i", identityFile]
         }
         let normalizedOptions = reconnectSSHOptions ?? Self.normalizedSSHOptions(sshOptions)
@@ -498,10 +500,6 @@ extension SessionRemoteWorkspaceSnapshot {
             arguments += ["-o", option]
         }
         return arguments
-    }
-
-    private static func normalizedIdentityPath(_ value: String?) -> String? {
-        WorkspaceRemoteConfiguration.normalizedIdentityPath(value)
     }
 
     private static func normalizedSSHOptions(_ options: [String]) -> [String] {
@@ -536,7 +534,7 @@ extension SessionRemoteWorkspaceSnapshot {
             "cmux_freestyle_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_freestyle_cli\" ] || [ ! -x \"$cmux_freestyle_cli\" ]; then cmux_freestyle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
             "if [ -z \"$cmux_freestyle_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for Cloud VM SSH attach.' >&2; exit 127; fi",
-            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-\(SSHReconnectBudget().maximumLimit)}\"",
             "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
             "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",
