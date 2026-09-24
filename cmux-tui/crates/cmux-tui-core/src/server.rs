@@ -19787,6 +19787,18 @@ mod tests {
                 retained_size,
                 "sized attachment must preserve the exited terminal's final geometry"
             );
+            handle_command(
+                &mux,
+                client,
+                Command::SetClientSizing {
+                    surface: id,
+                    client: None,
+                    enabled: true,
+                    exclusive: true,
+                },
+                &writer,
+            )
+            .expect("frontend sizing follow-up must accept a retained terminal");
             let initial = pop_json(&outbound);
             if mode == "bytes" {
                 assert_eq!(initial["event"], "vt-state");
