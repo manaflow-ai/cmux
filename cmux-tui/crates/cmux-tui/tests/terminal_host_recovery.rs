@@ -4615,6 +4615,35 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
     assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
     assert_eq!(workspaces["workspaces"][0]["name"], "Cloud", "{workspaces}");
+    // The template settings configure this daemon only. A terminal it spawns
+    // must not inherit them (the Cloud user's shells and agents).
+    let env_file = harness.dir.join("template-child-env");
+    let run = resource_request(
+        &harness.socket,
+        "template-child-env",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspaces["workspaces"][0]["resource_id"],
+            "argv":["/bin/sh","-c",format!("env > '{}.tmp' && mv '{0}.tmp' '{0}'", env_file.display())],
+        }),
+        Some("template-child-env"),
+    );
+    assert!(run["value"]["terminal_id"].is_string(), "{run}");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !env_file.exists() {
+        assert!(Instant::now() < deadline, "child never wrote its environment");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let child_env = fs::read_to_string(&env_file).unwrap();
+    for key in [
+        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
+        "CMUX_TUI_TEMPLATE_BOUND_FILE",
+        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
+    ] {
+        assert!(!child_env.lines().any(|line| line.starts_with(&format!("{key}="))), "{key} leaked");
+    }
     assert_ne!(workspaces["registry_id"], registry_before);
     let after = state_identity(&harness.state);
     assert_ne!(after.0, before.0, "machine id carried over from the template");
