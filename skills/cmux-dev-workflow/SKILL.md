@@ -43,7 +43,8 @@ An app build does not establish test-target compilation or execution. Follow
 uses objectVersion 60. The Intel/macOS 14 fallback uses Xcode 16.2/Swift 6.0;
 keep app-linked code compatible as specified in root `AGENTS.md`.
 
-The installed pre-commit hook normalizes staged project files. Preserve it and
+The installed pre-commit hook normalizes staged project files and registers new
+Python tests in `tests/test-execution.toml`. Preserve it and
 run `python3 scripts/verify-local.py --only project` after project edits. Toolchain
 pin changes are deliberate team decisions; see [project normalization](references/xcode-project-normalization.md).
 

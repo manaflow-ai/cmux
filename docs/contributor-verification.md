@@ -44,9 +44,11 @@ load repository Python modules. Inspect unfamiliar code without executing it.
 There is deliberately no automatic pre-push checker. A pushed branch or tag can
 contain a replaced checker, imported helper, shell script, or package lifecycle
 hook. A temporary Git snapshot is not a security sandbox. Nor is a trusted
-wrapper sufficient if it invokes candidate-controlled children. The existing
-pre-commit project normalizer also requires a trusted checkout; tracked Git hooks
-are not a stable trust anchor across arbitrary branch changes.
+wrapper sufficient if it invokes candidate-controlled children. The tracked
+pre-commit hook, which normalizes the project and registers new Python tests with
+`scripts/ci/validate_test_execution_registry.py --write`, also runs repository
+code and requires a trusted checkout; tracked Git hooks are not a stable trust
+anchor across arbitrary branch changes.
 
 The default fast recipe installs no dependencies and invokes no package-manager
 lifecycle scripts. Dependency installation and app/test execution remain explicit
