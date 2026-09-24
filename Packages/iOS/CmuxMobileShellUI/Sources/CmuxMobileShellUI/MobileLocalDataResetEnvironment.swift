@@ -6,10 +6,10 @@ import SwiftUI
 /// The root runs the normal sign-out, erases local data through
 /// ``MobileLocalDataEraser``, and replaces the UI with the reset screen, so the
 /// Settings row only needs to trigger it.
-public struct MobileResetLocalDataAction {
-    private let action: @MainActor () -> Void
+public struct MobileResetLocalDataAction: Sendable {
+    private let action: @MainActor @Sendable () -> Void
 
-    public init(_ action: @escaping @MainActor () -> Void) {
+    public init(_ action: @escaping @MainActor @Sendable () -> Void) {
         self.action = action
     }
 
