@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -81,9 +82,16 @@ def workflow_guards() -> set[str]:
 
 
 def invoked_by_workflows() -> set[str]:
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import workload_entrypoints
+
     invoked = set()
     for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
-        invoked.update(INVOKED_PATH.findall(workflow.read_text(encoding="utf-8")))
+        text = workflow.read_text(encoding="utf-8")
+        invoked.update(INVOKED_PATH.findall(text))
+        # A workload profile step runs everything its entrypoint names.
+        for _, script in workload_entrypoints.entrypoints(text, ROOT):
+            invoked.update(INVOKED_PATH.findall(script))
     return invoked
 
 
@@ -93,8 +101,7 @@ def test_every_workflow_guard_is_run_by_a_workflow() -> None:
         "these tests read .github/workflows/ but no workflow runs them, so the "
         "invariants they assert are not enforced:\n  "
         + "\n  ".join(unwired)
-        + "\n\nAdd a step to .github/workflows/ci-guards.yml (and the expected "
-        "map in the matching tests/test_ci_*_guard_structure.py), or add an "
+        + "\n\nAdd a step to .github/workflows/ci-guards.yml, or add an "
         "entry to UNWIRED in this file explaining why not."
     )
 
