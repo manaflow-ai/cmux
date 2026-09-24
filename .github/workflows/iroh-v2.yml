@@ -54,7 +54,7 @@ jobs:
               bindings = [{"name": item.get("name"), "type": item.get("type"), **({"service": item.get("service"), "environment": item.get("environment")} if item.get("type") == "service" else {})} for item in result.get("bindings", [])]
               print(json.dumps({"target": label, "settingsSuccess": settings.get("success"), "bindingNamesAndTypes": bindings}))
               canonical = next((item.get("service") for item in result.get("bindings", []) if item.get("name") == "CANONICAL" and item.get("type") == "service"), None)
-              if isinstance(canonical, str) and canonical.startswith("cmux-iroh-v2") and all(c.isalnum() or c in "-_" for c in canonical):
+              if isinstance(canonical, str) and canonical in {"cmux-v2-development"} and all(c.isalnum() or c in "-_" for c in canonical):
                   for suffix in ["settings", "secrets"]:
                       request = urllib.request.Request("https://api.cloudflare.com/client/v4/accounts/" + account + "/workers/scripts/" + canonical + "/" + suffix, headers={"Authorization": "Bearer " + token})
                       try:
