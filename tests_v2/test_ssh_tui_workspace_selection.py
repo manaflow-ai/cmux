@@ -18,7 +18,7 @@ import shlex
 import subprocess
 import time
 
-from cmux import cmux
+from cmux import cmux, cmuxError
 
 
 WORKLOAD = r'''
@@ -28,7 +28,7 @@ owners = []
 pid = os.getpid()
 while pid > 1:
     root = pathlib.Path('/proc') / str(pid)
-    owners.append(root.joinpath('comm').read_text().strip())
+    owners.append(root.joinpath('exe').resolve().name.removesuffix(' (deleted)'))
     fields = root.joinpath('stat').read_text().rsplit(')', 1)[1].split()
     pid = int(fields[1])
 print('@' + token + ':pid=' + str(os.getpid()), flush=True)
@@ -53,7 +53,7 @@ def main():
     cli = Path(os.environ['CMUXTERM_CLI']).resolve(strict=True)
     host = os.environ['CMUX_SSH_TEST_HOST']
     token = secrets.token_hex(4)
-    evidence = {'tag': tag, 'socket': socket_path, 'selections': [], 'head': os.environ.get('CMUX_TEST_SHA')}
+    evidence = {'tag': tag, 'socket': socket_path, 'selections': [], 'head': os.environ.get('CMUX_TEST_SHA'), 'workload_token': token}
     environment = {key: value for key, value in os.environ.items() if key not in {
         'CMUX_SOCKET', 'CMUX_SOCKET_PASSWORD', 'CMUX_WORKSPACE_ID',
         'CMUX_SURFACE_ID', 'CMUX_TAB_ID', 'CMUX_PANEL_ID', 'CMUXD_UNIX_PATH',
@@ -62,6 +62,18 @@ def main():
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open('a') as lock, cmux(socket_path) as client:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        raw_call = client._call
+        def call_with_backpressure(method, params=None, timeout_s=20.0):
+            deadline = time.monotonic() + timeout_s
+            while True:
+                try:
+                    return raw_call(method, params, timeout_s)
+                except cmuxError as error:
+                    if not str(error).startswith('rate_limited:') or time.monotonic() >= deadline:
+                        raise
+                    retry = re.search(r"retry_after_ms['\"]?: (\d+)", str(error))
+                    time.sleep(int(retry.group(1)) / 1000 if retry else 0.1)
+        client._call = call_with_backpressure
 
         def identify():
             identity = client._call('system.identify')
@@ -109,9 +121,12 @@ def main():
                 arguments += ['--ssh-option', option]
             identify()
             result = subprocess.run(
-                [str(cli), '--socket', socket_path, '--json', *arguments],
+                [str(cli), '--socket', socket_path, '--json', '--id-format', 'uuids', *arguments],
                 env=environment, capture_output=True, text=True, timeout=120,
             )
+            evidence['ssh_result'] = {'status': result.returncode, 'stderr': result.stderr}
+            if result.returncode:
+                evidence['catalog'] = client._call('surface.catalog', {})
             assert result.returncode == 0, f'cmux ssh failed (status {result.returncode})'
             created = json.loads(result.stdout)
             workspace = created['workspace_id']
@@ -151,7 +166,30 @@ def main():
                 evidence['selections'].append({'sequence': sequence, 'select_ms': selected_ms,
                     'hidden_read_ms': hidden_read_ms, 'response_present_ms': (time.monotonic()-started)*1000,
                     'render_before': before_render, 'render_after': after_render})
-            evidence['result'] = 'same cmux-tui-owned process responded after every selection'
+            old_pid = pid
+            replacement_token = secrets.token_hex(4)
+            replacement_code = WORKLOAD.replace("owners = []", "print('@' + token + ':cwd=' + os.getcwd(), flush=True)\nowners = []")
+            replacement_command = shlex.join(['python3', '-u', '-c', replacement_code, replacement_token])
+            response = mutate('surface.respawn', {
+                'workspace_id': workspace, 'surface_id': surface, 'command': replacement_command,
+                'working_directory': '/home/fixture', 'focus': False,
+            })
+            token = replacement_token
+            prefix = '@' + token
+            new_pid = wait_line(surface, prefix + r':pid=(\d+)', timeout=90).group(1)
+            assert new_pid != old_pid, 'Respawn did not replace the workload'
+            assert wait_line(surface, prefix + ':tui=([01])').group(1) == '1'
+            assert wait_line(surface, prefix + ':legacy=([01])').group(1) == '0'
+            wait_line(surface, prefix + ':cwd=/home/fixture')
+            assert response['surface_id'] == surface, response
+            mutate('surface.send_text', {'workspace_id': workspace, 'surface_id': surface,
+                'text': token + ':ping=after-respawn\n'})
+            wait_line(surface, prefix + ':pong=after-respawn:pid=' + new_pid)
+            evidence['respawn'] = {'response': response, 'old_pid': old_pid, 'new_pid': new_pid,
+                'cmux_tui': 1, 'cmuxd_remote': 0, 'cwd': '/home/fixture',
+                'result': 'same surface, replaced remote workload, bidirectional input verified'}
+            evidence['result'] = 'selection and native provider respawn verified'
+
         finally:
             try:
                 if surface is not None:
@@ -159,7 +197,6 @@ def main():
                         'workspace_id': workspace, 'surface_id': surface,
                         'text': f'{token}:quit\n',
                     })
-                    wait_line(surface, '@' + token + ':exited', timeout=10)
             finally:
                 mutate('window.close', {'window_id': window})
                 print(json.dumps(evidence, indent=2))

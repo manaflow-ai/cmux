@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -8,15 +9,29 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite("SSH cmux-tui migration")
+@Suite("SSH cmux-tui migration", .serialized)
 struct SSHTuiMigrationTests {
-    private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces") -> WorkspaceRemoteConfiguration {
+    private func configuration(options: [String] = [], command: String? = nil, identityFile: String = "/tmp/key with spaces", profile: WorkspaceRemoteTerminalProfile = .shell) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
-            destination: "alice@example.invalid", port: 2222, identityFile: identityFile,
+            terminalProfile: profile, destination: "alice@example.invalid", port: 2222, identityFile: identityFile,
             sshOptions: options, localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
             localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: command,
             preserveAfterTerminalExit: true
         )
+    }
+
+    @Test("Provider defaults retain the SSH command and terminal profile")
+    func providerDefaultUsesSSHLaunchConfiguration() {
+        let command = "printf configured-command"
+        let configured = SSHTuiConnection(configuration: configuration(command: command))
+        #expect(RemoteTuiMachine.ssh(configured).defaultTerminalCommand ==
+                ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -lc \"$1\"", "cmux-ssh", command])
+        let tmux = SSHTuiConnection(configuration: configuration(command: command, profile: .defaultTmux))
+        #expect(RemoteTuiMachine.ssh(tmux).defaultTerminalCommand ==
+                WorkspaceRemoteTerminalProfile.defaultTmux.remoteCommandArguments)
+        let shell = SSHTuiConnection(configuration: configuration())
+        #expect(RemoteTuiMachine.ssh(shell).defaultTerminalCommand ==
+                ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"])
     }
 
     @Test("OpenSSH resolves the cmux-tui carrier as a non-PTY exec channel")
@@ -183,6 +198,70 @@ struct SSHTuiMigrationTests {
         #expect(launch.initialTerminalInput.isEmpty)
         #expect(launch.startupRestoreAgent == nil)
         #expect(launch.autoConnectRemoteConfiguration)
+    }
+
+    @Test("Native SSH respawn preserves its surface and executes only through the provider")
+    @MainActor
+    func nativeSSHRespawnUsesProviderReplacement() async throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        let config = configuration()
+        let connection = SSHTuiConnection(configuration: config)
+        workspace.remoteConfiguration = config
+        let catalog = SurfaceCatalog.shared
+        let provider = CloudTerminalPlacementTestProvider(machine: .init(rawValue: connection.id))
+        catalog.register(provider)
+        defer {
+            provider.release.resolve(true)
+            catalog.unregister(machine: provider.machine)
+            workspace.teardownAllPanels()
+        }
+        let original = provider.resource(key: "original")
+        catalog.upsert(original, from: provider)
+        catalog.record(SurfaceProjection(resource: original.id, workspaceID: workspace.id, panelID: panelID,
+            remoteWorkspaceID: provider.remote.id, remoteTabID: "tab-original"))
+        let replacement = try #require(workspace.respawnTerminalSurface(
+            panelId: panelID, command: "printf remote-only", workingDirectory: "/remote/project", focus: false))
+        #expect(replacement.id == panelID)
+        #expect(replacement.surface.ioMode == .manualMirror)
+        #expect(workspace.surfaceIdFromPanelId(panelID) == tabID)
+        _ = await provider.creationStarted.result
+        #expect(provider.closedTerminals == [original.id])
+        #expect(provider.requestedCommands == [connection.commandArguments("printf remote-only")])
+        #expect(provider.requestedDirectories == ["/remote/project"])
+        #expect(provider.requestedWorkspaces == [provider.remote.id])
+        provider.release.resolve(true)
+        _ = await provider.materializationFinished.result
+        #expect(provider.materialized.last?.panelID == panelID)
+        #expect(provider.materialized.last?.resource.machine == provider.machine)
+    }
+
+    @Test("An all-session query with no native SSH workspaces retains legacy dispatch")
+    @MainActor
+    func allSessionsWithoutNativeWorkspacesFallsBack() async {
+        let result = await TerminalController.shared.tuiSSHSessions(params: ["all_workspaces": true])
+        #expect(result == nil)
+    }
+
+    @Test("All sessions includes both owners and preserves partial listing errors")
+    func mixedSessionListsPreserveRowsAndErrors() throws {
+        let result = TerminalController.shared.mergeRemotePTYSessionLists(
+            tui: .ok(["workspace_count": 2,
+                      "sessions": [["session_id": "term_native", "workspace_id": "native"]],
+                      "errors": [["workspace_id": "native-offline", "error": "offline"]]]),
+            legacy: .ok(["workspace_count": 2,
+                         "sessions": [["session_id": "legacy-session", "workspace_id": "legacy"]],
+                         "errors": [["workspace_id": "legacy-offline", "error": "offline"]]])
+        )
+        guard case .ok(let raw) = result else { Issue.record("Expected a combined session list"); return }
+        let payload = try #require(raw as? [String: Any])
+        #expect(payload["all_workspaces"] as? Bool == true)
+        #expect(payload["workspace_count"] as? Int == 4)
+        let sessions = try #require(payload["sessions"] as? [[String: Any]])
+        #expect(sessions.compactMap { $0["workspace_id"] as? String } == ["native", "legacy"])
+        let errors = try #require(payload["errors"] as? [[String: Any]])
+        #expect(errors.compactMap { $0["workspace_id"] as? String } == ["native-offline", "legacy-offline"])
     }
 
 }

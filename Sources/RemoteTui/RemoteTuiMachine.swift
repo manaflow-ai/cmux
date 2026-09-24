@@ -32,7 +32,7 @@ enum RemoteTuiMachine: Sendable {
     var defaultTerminalCommand: [String] {
         switch self {
         case .cloud: return CloudTuiCommandLine.defaultTerminalCommand
-        case .ssh: return ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"]
+        case .ssh(let connection): return connection.shellCommand
         }
     }
 }
