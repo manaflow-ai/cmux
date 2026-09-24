@@ -71,7 +71,8 @@ final class HookPromptLengthUITests: XCTestCase {
         if process.isRunning { process.terminate() }
         var diagnostics = (try? String(contentsOf: output, encoding: .utf8)) ?? "missing probe output"
         if !process.isRunning && process.terminationStatus != 0 {
-            diagnostics += "\nappRunning=\(app.isRunning) appExit=\(app.terminationStatus)"
+            diagnostics += "\nappRunning=\(app.isRunning)"
+            if !app.isRunning { diagnostics += " appExit=\(app.terminationStatus)" }
             diagnostics += "\n" + ((try? String(contentsOf: appDiagnosticsURL, encoding: .utf8)) ?? "missing app diagnostics")
         }
         XCTAssertFalse(process.isRunning, diagnostics)
