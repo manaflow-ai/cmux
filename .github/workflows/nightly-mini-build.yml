@@ -35,9 +35,10 @@ on:
 permissions: {}
 
 # No concurrency group. A runner takes one job at a time and each mini builds
-# in its own work directory, so every mini in the group can build a different
-# nightly at once. A request no mini picks up within the queue budget is
-# cancelled by the router and compiled on Blacksmith.
+# in its own work directory, so a second mini can take a request while the
+# first is busy. nightly.yml still runs one full nightly per branch at a time.
+# A request no mini picks up within the queue budget is cancelled by the
+# router and compiled on Blacksmith.
 
 jobs:
   build:
