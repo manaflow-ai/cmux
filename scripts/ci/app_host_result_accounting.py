@@ -402,6 +402,9 @@ def check_run(
         messages.append("xcodebuild exited 0 while typed test failures were present")
         return False, messages
 
+    known_failures = sorted(failures & set(known))
+    for identifier in known_failures:
+        messages.append(f"RATCHET_KNOWN_FAILURE {identifier}")
     now_passing = sorted(
         identifier for identifier in known if results.get(identifier) == "Passed"
     )
@@ -409,15 +412,12 @@ def check_run(
         messages.append(f"RATCHET_KNOWN_NOW_PASSING {identifier}")
     if changed_suites and now_passing:
         messages.append(
-            "this PR's changed suites pass tolerated known-main failures; remove them "
+            "this PR's selected suites pass tolerated known-main failures; remove them "
             "from scripts/ci/app-host-known-failures.json so the run has to prove the fix"
         )
         return False, messages
 
-    known_failures = sorted(failures & set(known))
     if known_failures:
-        for identifier in known_failures:
-            messages.append(f"RATCHET_KNOWN_FAILURE {identifier}")
         messages.append(
             f"known-main failures tolerated: {len(known_failures)}; "
             f"typed test cases: {len(results)}"
