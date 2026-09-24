@@ -25,7 +25,7 @@ extension CMUXCLI {
         // path so the CLI never execs an arbitrary command returned over the socket.
         let allowedSSHPaths: Set<String> = ["/usr/bin/ssh"]
         guard let executable = sshArgv.first, allowedSSHPaths.contains(executable) else {
-            throw CLIError(message: "ssh-tmux: refusing to run a non-standard ssh path for authentication")
+            throw CLIError(message: String(localized: "cli.ssh.authenticationSystemExecutableRequired", defaultValue: "SSH authentication requires the system SSH executable."))
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
@@ -62,7 +62,7 @@ extension CMUXCLI {
         do {
             try cliRunProcess(process)
         } catch {
-            throw CLIError(message: "ssh-tmux: failed to launch ssh: \(String(describing: error))")
+            throw CLIError(message: String(format: String(localized: "cli.ssh.authenticationLaunchFailed", defaultValue: "Could not launch SSH: %@"), String(describing: error)))
         }
         if originalForegroundProcessGroup > 0 {
             let childProcessGroup = getpgid(process.processIdentifier)
@@ -77,7 +77,7 @@ extension CMUXCLI {
                     _ = Darwin.kill(-childProcessGroup, SIGCONT)
                     process.terminate()
                     throw CLIError(
-                        message: "ssh-tmux: couldn't hand the terminal to ssh for \(destination); aborting to avoid a hang (\(String(describing: error)))"
+                        message: String(format: String(localized: "cli.ssh.authenticationForegroundFailed", defaultValue: "Could not hand the terminal to SSH for %@. Authentication was cancelled to avoid a hang (%@)."), destination, String(describing: error))
                     )
                 }
                 _ = Darwin.kill(-childProcessGroup, SIGCONT)
@@ -92,7 +92,7 @@ extension CMUXCLI {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw CLIError(
-                message: "ssh-tmux: ssh authentication to \(destination) failed (exit \(process.terminationStatus))"
+                message: String(format: String(localized: "cli.ssh.authenticationExitFailed", defaultValue: "SSH authentication to %@ failed (exit %@)."), destination, String(process.terminationStatus))
             )
         }
     }
