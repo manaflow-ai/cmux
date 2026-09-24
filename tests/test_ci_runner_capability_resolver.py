@@ -310,5 +310,19 @@ class WiringTests(unittest.TestCase):
         )
 
 
+class TheResolverStartsAnywhere(unittest.TestCase):
+    def test_the_resolver_job_does_not_run_on_a_fleet_it_resolves(self):
+        # A fork has no Blacksmith and no variables. If the resolver's own
+        # runs-on could fall back to an org-only label, it would queue forever
+        # before it could pick the hosted fleet.
+        import yaml
+
+        workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
+        jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
+        for name, job in jobs.items():
+            with self.subTest(job=name):
+                self.assertEqual(job["runs-on"], "ubuntu-24.04")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -6,6 +6,9 @@ need on whichever repository the run is happening in.
 This is foundation only. One workflow is wired to it
 (`ios-app-store.yml`); the other call sites still read `vars.MACOS_RUNNER_*`
 and [`ci-runners.md`](ci-runners.md) remains the live contract for them.
+A job wired to the map stops reading its old variable: `ios-app-store.yml`'s
+upload no longer follows `MACOS_RUNNER_IOS`, so moving it takes
+`CMUX_CI_RUNNER_OVERRIDES` or `CMUX_CI_RUNNER_FLEET` instead.
 [PR #14010](https://github.com/manaflow-ai/cmux/pull/14010) argues the general
 case for capability routing; this is the translation layer that proposal calls
 irreducible, built small enough to use.
@@ -30,12 +33,16 @@ resolve_runners: fleet=hosted (owner some-personal-account is not a mapped owner
 Zero configuration. `owners` lists `manaflow-ai: blacksmith`; every other owner
 falls to `default_fleet`, which is the free GitHub-hosted fleet.
 
-The hosted fleet is a working fleet, not an identical one. GitHub publishes no
-macOS 26 image, so `macos_26`, `macos_26_ios` and `macos_26_large` all resolve
-to `macos-15` there. A fork gets a runner that starts and an older OS, which is
-the trade this makes deliberately. `macos-26` is never used as a hosted
-fallback: the self-hosted mini fleet carries that label and GitHub prefers a
-matching self-hosted runner.
+The hosted fleet is a working fleet, not an identical one. `macos_26`,
+`macos_26_ios` and `macos_26_large` all resolve to `macos-15` there, so a fork
+gets a runner that starts and an older OS. GitHub does publish a hosted
+`macos-26` image; it is not used because the self-hosted mini fleet carries
+that label too, a matching self-hosted runner can take the job, and
+`tests/test_ci_self_hosted_guard.sh` forbids the label for that reason. A fork
+that needs macOS 26 behavior sets `CMUX_CI_RUNNER_OVERRIDES`.
+
+The resolver job itself runs on `ubuntu-24.04`, never on a mapped label, so it
+starts on any owner before anything is resolved.
 
 ## Capability keys
 

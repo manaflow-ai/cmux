@@ -45,7 +45,10 @@ permissions:
 jobs:
   resolve:
     name: Resolve runner capabilities
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Not a variable and not the map: the job that resolves the fleet cannot
+    # depend on the fleet. A Blacksmith fallback here queued forever on a fork,
+    # the one case this workflow exists for. GitHub-hosted Linux runs anywhere.
+    runs-on: ubuntu-24.04  # github-hosted-required: resolves the fleet, so cannot run on one
     timeout-minutes: 5
     outputs:
       map: ${{ steps.resolve.outputs.map }}
