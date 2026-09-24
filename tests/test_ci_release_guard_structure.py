@@ -43,7 +43,7 @@ def test_release_groups_are_parallel_and_owned() -> None:
         "Validate release tunnel extension identifiers": "release-ios",
         "Validate create-dmg version pinning": "release-notary",
         "Validate app bundle license compliance": "release-notary",
-        "Validate nightly tag push auth": "release-notary",
+        "Validate nightly API tag finalization": "release-notary",
         "Validate nightly Xcode selection": "release-notary",
         "Validate CI Xcode selection fast path": "release-notary",
         "Validate resumable GitHub release publication": "release-notary",
