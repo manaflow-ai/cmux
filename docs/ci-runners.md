@@ -289,11 +289,12 @@ with the caller's default whenever it says no. It is off unless
 - **Order, every job type:** `std` minis (48 GB), then `light` minis (16 GB),
   then Blacksmith, then GitHub-hosted. Pull request work first; nightly and
   cache warming only on idle owned slots, never ahead of pull request work.
-- **Where it asks:** `ci.yml`'s `changes` job, before the picker above (a
-  pull request run's macOS jobs, `slots` = `CI_OWNED_POOL_JOBS_PER_RUN`,
-  default 3), and `nightly.yml`'s `decide` job for the two cache-warming jobs.
-  When Glaeda answers with an owned pool, the picker is skipped and every job
-  reads that pool; otherwise the picker decides exactly as before.
+- **Where it asks:** `ci.yml`'s `changes` job, for a pull request run with
+  macOS work (`slots` = `CI_OWNED_POOL_JOBS_PER_RUN`, default 3), and
+  `nightly.yml`'s `decide` job for the compilation-cache warming job. The
+  test-compilation seed stays on its runner, because `seed-derived-data.yml`
+  must build it on the same one. The picker above still runs; when Glaeda
+  answers with an owned pool, every job reads that pool instead.
 - **Never asks:** a fork run (no variables, no secrets), a retry attempt, or
   a run without `GLAEDA_POOL_STATE` or the ledger App credentials.
 - **Inputs:** `vars.GLAEDA_POOL_STATE` (published by the Glaeda agent every

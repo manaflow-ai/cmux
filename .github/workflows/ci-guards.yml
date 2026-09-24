@@ -352,6 +352,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_runner_pool.py
 
+      - name: Validate the Glaeda route step
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_glaeda_route_action.py
+
       - name: Validate persistent compile fleet command
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_persistent_compile_fleet.py

@@ -111,17 +111,19 @@ class ActionShapeTests(unittest.TestCase):
 
 
 class WiringTests(unittest.TestCase):
-    def test_ci_changes_asks_glaeda_before_the_picker(self):
+    def test_ci_changes_asks_glaeda_only_for_runs_with_macos_work(self):
         job = load(WORKFLOWS / "ci.yml")["jobs"]["changes"]
         ids = [s.get("id") for s in job["steps"]]
-        self.assertLess(ids.index("glaeda-route"), ids.index("macos-pool"))
+        self.assertLess(ids.index("detect"), ids.index("glaeda-route"))
         ask = step(job["steps"], "glaeda-route")
         self.assertEqual(ask["uses"], "./.github/actions/glaeda-route")
-        self.assertEqual(ask["if"], "github.event_name == 'pull_request' && vars.GLAEDA_ROUTE == '1'")
+        self.assertEqual(ask["if"], "github.event_name == 'pull_request' && vars.GLAEDA_ROUTE == '1' "
+                                    "&& steps.detect.outputs.macos == 'true'")
         self.assertTrue(ask["continue-on-error"])
         self.assertEqual(ask["with"]["priority"], "pr")
         self.assertEqual(ask["with"]["xcode"], "${{ vars.CMUX_CI_XCODE_APP_PR }}")
-        self.assertEqual(step(job["steps"], "macos-pool")["if"], "steps.glaeda-route.outputs.owned != 'true'")
+        # The picker runs exactly as before; an owned answer only takes precedence in the outputs.
+        self.assertNotIn("if", step(job["steps"], "macos-pool"))
         self.assertEqual(job["outputs"]["macos_pr_runner"],
                          "${{ steps.glaeda-route.outputs.owned == 'true' && steps.glaeda-route.outputs.runs-on "
                          "|| steps.macos-pool.outputs.runner }}")
@@ -129,22 +131,19 @@ class WiringTests(unittest.TestCase):
         self.assertEqual(job["outputs"]["macos_pr_xcode_app"],
                          "${{ steps.glaeda-route.outputs.owned != 'true' && steps.macos-pool.outputs.xcode_app || '' }}")
 
-    def test_nightly_warm_jobs_ask_as_low_priority_and_keep_their_fallbacks(self):
+    def test_nightly_cache_warming_asks_as_low_priority_and_keeps_its_fallback(self):
         doc = load(WORKFLOWS / "nightly.yml")
         decide = doc["jobs"]["decide"]
-        for step_id, job_name, output in (("glaeda-warm-cache", "refresh-compilation-cache", "warm_cache_runner"),
-                                          ("glaeda-warm-test-cache", "refresh-test-compilation-cache",
-                                           "warm_test_cache_runner")):
-            ask = step(decide["steps"], step_id)
-            self.assertEqual(ask["with"]["priority"], "warm")
-            self.assertTrue(ask["if"].startswith("vars.GLAEDA_ROUTE == '1' && "))
-            self.assertIn(f"steps.{step_id}.outputs.owned == 'true'", decide["outputs"][output])
-            runs_on = doc["jobs"][job_name]["runs-on"]
-            # The owner branch still comes first, and the old expression follows the Glaeda answer.
-            self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                               f"needs.decide.outputs.{output} || "), runs_on)
-        kinds = [step(decide["steps"], i)["with"]["kind"] for i in ("glaeda-warm-cache", "glaeda-warm-test-cache")]
-        self.assertEqual(len(set(kinds)), 2, "each ask in a run needs its own kind (reservation id)")
+        ask = step(decide["steps"], "glaeda-warm-cache")
+        self.assertEqual(ask["with"]["priority"], "warm")
+        self.assertTrue(ask["if"].startswith("vars.GLAEDA_ROUTE == '1' && "))
+        self.assertIn("steps.glaeda-warm-cache.outputs.owned == 'true'", decide["outputs"]["warm_cache_runner"])
+        runs_on = doc["jobs"]["refresh-compilation-cache"]["runs-on"]
+        self.assertEqual(runs_on, "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+                                  "needs.decide.outputs.warm_cache_runner || vars.MACOS_RUNNER_26 || "
+                                  "'blacksmith-6vcpu-macos-26' }}")
+        # The test-compilation seed must match seed-derived-data.yml's runner, so it is not routed.
+        self.assertNotIn("glaeda", doc["jobs"]["refresh-test-compilation-cache"]["runs-on"])
 
     def test_no_workflow_names_an_owned_label_literally(self):
         owned = re.compile(r"glaeda-(?:std|light|xl)-xcode-")

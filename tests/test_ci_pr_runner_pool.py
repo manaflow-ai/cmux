@@ -329,8 +329,13 @@ class Wiring(unittest.TestCase):
 
     def test_changes_job_chooses_once(self):
         changes = self.workflow("ci.yml")["jobs"]["changes"]
-        self.assertEqual(changes["outputs"]["macos_pr_runner"], "${{ steps.macos-pool.outputs.runner }}")
-        self.assertEqual(changes["outputs"]["macos_pr_xcode_app"], "${{ steps.macos-pool.outputs.xcode_app }}")
+        # Glaeda answers first when GLAEDA_ROUTE is 1 (tests/test_ci_glaeda_route_action.py);
+        # otherwise the picker's choice passes through unchanged.
+        self.assertEqual(changes["outputs"]["macos_pr_runner"],
+                         "${{ steps.glaeda-route.outputs.owned == 'true' && steps.glaeda-route.outputs.runs-on "
+                         "|| steps.macos-pool.outputs.runner }}")
+        self.assertEqual(changes["outputs"]["macos_pr_xcode_app"],
+                         "${{ steps.glaeda-route.outputs.owned != 'true' && steps.macos-pool.outputs.xcode_app || '' }}")
         self.assertEqual(changes["permissions"]["actions"], "read")
         step = next(step for step in changes["steps"] if step.get("id") == "macos-pool")
         self.assertIs(step["continue-on-error"], True)

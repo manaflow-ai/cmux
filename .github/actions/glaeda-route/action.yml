@@ -3,7 +3,8 @@ description: >-
   One route decision from Glaeda (teamleaderleo/glaeda scripts/glaeda-route, glaeda#1174): an owned
   Mac pool label when a trusted run fits, else the caller's default (Blacksmith). Off unless the
   caller passes enabled=1. A fork run, a retry, or a missing pool state or credential answers with
-  the default before any call. Every failure answers with the default too.
+  the default before any call. Every failure answers with the default too. Runs on a Linux
+  runner (it uses GNU timeout and curl); the jobs that call it all run on Linux.
 
 # Glaeda owns the rule: pool order (std minis, then light minis), capacity, reservations and
 # rescue live in scripts/glaeda-route at the pinned commit below, not here. docs/GLAEDA_ROUTE.md
@@ -55,7 +56,7 @@ outputs:
     value: ${{ steps.route.outputs.owned == 'true' && 'true' || 'false' }}
   reason:
     description: Why.
-    value: ${{ steps.route.outputs.reason || steps.gate.outputs.reason || 'the Glaeda route step failed; default' }}
+    value: ${{ steps.route.outputs.reason || steps.gate.outputs.reason || steps.token.outcome == 'failure' && 'the ledger token could not be minted; default' || 'the Glaeda route step failed; default' }}
   reservation:
     description: The ledger reservation id, when owned.
     value: ${{ steps.route.outputs.reservation }}
@@ -120,8 +121,8 @@ runs:
       shell: bash
       env:
         # scripts/glaeda-route at a reviewed Glaeda commit, checked by digest before it runs.
-        GLAEDA_COMMIT: a7fb452e23891bcadd757925de9d5fb34b508d16
-        GLAEDA_ROUTE_SHA256: 7b7f444b570061de1ceb99077e4c353db2f8e1f233f54fca6aed9c47f10ecd18
+        GLAEDA_COMMIT: 0befae7204014b4b2d82a7945c3c9c79f142225f
+        GLAEDA_ROUTE_SHA256: c47342388c00c1ac670e74fc2917619dc0d278177439907e6f9272161c75769c
         GLAEDA_POOL_STATE: ${{ inputs.pool-state }}
         GLAEDA_LEDGER_TOKEN: ${{ steps.token.outputs.token }}
         HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}

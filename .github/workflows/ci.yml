@@ -101,28 +101,8 @@ jobs:
         with:
           fetch-depth: 2
 
-      # Glaeda owns the owned-Mac route (glaeda#1174): order, capacity,
-      # reservations and rescue live in teamleaderleo/glaeda scripts/glaeda-route.
-      # Off unless GLAEDA_ROUTE is 1. A fork run has no variables or secrets,
-      # so the step is skipped and the picker keeps it on Blacksmith.
-      - name: Ask Glaeda for an owned Mac pool
-        id: glaeda-route
-        if: github.event_name == 'pull_request' && vars.GLAEDA_ROUTE == '1'
-        continue-on-error: true
-        uses: ./.github/actions/glaeda-route
-        with:
-          enabled: ${{ vars.GLAEDA_ROUTE }}
-          kind: ci-macos
-          priority: pr
-          slots: ${{ vars.CI_OWNED_POOL_JOBS_PER_RUN || '3' }}
-          xcode: ${{ vars.CMUX_CI_XCODE_APP_PR }}
-          pool-state: ${{ vars.GLAEDA_POOL_STATE }}
-          ledger-app-client-id: ${{ vars.GLAEDA_LEDGER_APP_CLIENT_ID }}
-          ledger-app-private-key: ${{ secrets.GLAEDA_LEDGER_APP_PRIVATE_KEY }}
-
       - name: Choose the pull request macOS pool
         id: macos-pool
-        if: steps.glaeda-route.outputs.owned != 'true'
         # Fail-safe: any error leaves the outputs empty, which is today's route.
         continue-on-error: true
         timeout-minutes: 1
@@ -482,6 +462,27 @@ jobs:
             --event-name "$EVENT_NAME" \
             --base-sha "$BASE_SHA" \
             --head-sha "$HEAD_SHA"
+
+      # Glaeda owns the owned-Mac route (glaeda#1174): order, capacity,
+      # reservations and rescue live in teamleaderleo/glaeda scripts/glaeda-route.
+      # Off unless GLAEDA_ROUTE is 1, and asked only when the run has macOS
+      # work, so a docs-only run reserves nothing. A fork run has no variables
+      # or secrets, so the step is skipped. The picker above always runs; an
+      # owned answer here takes precedence in the job outputs.
+      - name: Ask Glaeda for an owned Mac pool
+        id: glaeda-route
+        if: github.event_name == 'pull_request' && vars.GLAEDA_ROUTE == '1' && steps.detect.outputs.macos == 'true'
+        continue-on-error: true
+        uses: ./.github/actions/glaeda-route
+        with:
+          enabled: ${{ vars.GLAEDA_ROUTE }}
+          kind: ci-macos
+          priority: pr
+          slots: ${{ vars.CI_OWNED_POOL_JOBS_PER_RUN || '3' }}
+          xcode: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          pool-state: ${{ vars.GLAEDA_POOL_STATE }}
+          ledger-app-client-id: ${{ vars.GLAEDA_LEDGER_APP_CLIENT_ID }}
+          ledger-app-private-key: ${{ secrets.GLAEDA_LEDGER_APP_PRIVATE_KEY }}
 
       - name: Route standalone project workflows
         id: standalone
