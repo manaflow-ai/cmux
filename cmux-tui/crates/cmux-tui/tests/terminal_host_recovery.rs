@@ -48,6 +48,7 @@ struct RecoveryHarness {
     host_ready_delay_ms: Option<u64>,
     reconnect_completion_failures: Option<u64>,
     adoption_insert_failures: Option<u64>,
+    adopt_template_terminal: bool,
 }
 
 impl RecoveryHarness {
@@ -64,6 +65,7 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            adopt_template_terminal: false,
             dir,
         };
         harness.restart();
@@ -122,6 +124,7 @@ impl RecoveryHarness {
             host_ready_delay_ms: None,
             reconnect_completion_failures: None,
             adoption_insert_failures: None,
+            adopt_template_terminal: false,
             dir,
         }
     }
@@ -151,6 +154,9 @@ impl RecoveryHarness {
         }
         if let Some(failures) = self.adoption_insert_failures {
             command.env("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES", failures.to_string());
+        }
+        if self.adopt_template_terminal {
+            command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
         }
         command
     }
@@ -4423,4 +4429,138 @@ fn decode_hex<const N: usize>(text: &str) -> anyhow::Result<[u8; N]> {
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
+}
+
+
+/// Every per-machine file the daemon creates under its state root. A cloned
+/// VM must never serve these from the snapshot it was restored from.
+fn state_identity(state: &Path) -> (Vec<u8>, Vec<u8>, String) {
+    let machine_id = fs::read(state.join("machine-id")).unwrap();
+    let pepper = fs::read(state.join("resource-effect-pepper")).unwrap();
+    let registry = walk_files(state)
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3"))
+        .expect("workspace registry");
+    let connection = rusqlite::Connection::open_with_flags(
+        &registry,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let session: String = connection
+        .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| row.get(0))
+        .unwrap();
+    (machine_id, pepper, session)
+}
+
+fn walk_files(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                pending.push(path);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// A memory snapshot keeps the terminal host (and its shell) running while
+/// the daemon is parked and its per-machine state is wiped. A clone's daemon
+/// must adopt that warm host into a brand-new registry: same PTY and screen,
+/// fresh machine id, pepper, session id, and registry.
+#[test]
+fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
+    let mut harness = RecoveryHarness::start("template-adopt");
+    let marker = format!("template-shell-{}", std::process::id());
+    let created = request(
+        &harness.socket,
+        serde_json::json!({"id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true}),
+    );
+    let original_surface = created["surface"].as_u64().unwrap();
+    let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": original_surface, "text": format!("{marker}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, original_surface, &marker).contains(&marker));
+    let before = state_identity(&harness.state);
+    let registry_before = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}))
+        ["registry_id"]
+        .clone();
+    let (_, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    let host_pid = record.host_pid;
+
+    // Park the daemon the way the bake does: a fenced shutdown leaves the
+    // host alive, then everything but the host records is wiped.
+    let identify = request(&harness.socket, serde_json::json!({"id": 4, "cmd": "identify"}));
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"].as_u64().unwrap(),
+            "generation": identify["generation"].as_str().unwrap(),
+        }),
+    );
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after fenced shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let host_root = harness.host_root();
+    for entry in fs::read_dir(&harness.state).unwrap().flatten() {
+        let path = entry.path();
+        if path == host_root {
+            continue;
+        }
+        if path.is_dir() { fs::remove_dir_all(&path).unwrap() } else { fs::remove_file(&path).unwrap() }
+    }
+    let _ = fs::remove_file(&harness.socket);
+
+    harness.adopt_template_terminal = true;
+    harness.restart();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let adopted_surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id": 6, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        if resolved["lifecycle"] == "running"
+            && resolved["terminal_incarnation"].as_str() == Some(incarnation.as_str())
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "fresh daemon did not adopt the template host");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(wait_for_screen(&harness.socket, adopted_surface, &marker).contains(&marker));
+    assert_eq!(wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid, host_pid);
+
+    let workspaces = request(&harness.socket, serde_json::json!({"id": 7, "cmd": "list-workspaces"}));
+    assert_eq!(workspaces["workspaces"].as_array().unwrap().len(), 1, "{workspaces}");
+    assert_ne!(workspaces["registry_id"], registry_before);
+    let after = state_identity(&harness.state);
+    assert_ne!(after.0, before.0, "machine id carried over from the template");
+    assert_ne!(after.1, before.1, "resource-effect pepper carried over from the template");
+    assert_ne!(after.2, before.2, "session id carried over from the template");
+
+    let typed = format!("after-template-{}", std::process::id());
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 8, "cmd": "send", "surface": adopted_surface, "text": format!("{typed}\n")}),
+    );
+    assert!(wait_for_screen(&harness.socket, adopted_surface, &typed).contains(&typed));
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 9, "cmd": "close-terminal", "terminal_id": terminal_id, "terminal_incarnation": incarnation}),
+    );
+    wait_for_no_host_records(&harness.host_root());
 }
