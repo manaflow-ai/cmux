@@ -94,7 +94,7 @@ struct SSHTuiMigrationTests {
     }
 
     @MainActor
-    @Test("Native SSH projections remain remote before and after provider restore")
+    @Test("Pending native SSH projections remain remote until removed")
     func nativeSSHProjectionOwnsAgentAndPathClassification() throws {
         let workspace = Workspace()
         let panelID = try #require(workspace.focusedPanelId)

@@ -53,7 +53,7 @@ def main():
     cli = Path(os.environ['CMUXTERM_CLI']).resolve(strict=True)
     host = os.environ['CMUX_SSH_TEST_HOST']
     token = secrets.token_hex(4)
-    evidence = {'tag': tag, 'socket': socket_path, 'selections': []}
+    evidence = {'tag': tag, 'socket': socket_path, 'selections': [], 'head': os.environ.get('CMUX_TEST_SHA')}
     environment = {key: value for key, value in os.environ.items() if key not in {
         'CMUX_SOCKET', 'CMUX_SOCKET_PASSWORD', 'CMUX_WORKSPACE_ID',
         'CMUX_SURFACE_ID', 'CMUX_TAB_ID', 'CMUX_PANEL_ID', 'CMUXD_UNIX_PATH',
@@ -97,6 +97,8 @@ def main():
         try:
             control = client._call('workspace.list', {'window_id': window})['workspaces'][0]['id']
             command = shlex.join(['python3', '-u', '-c', WORKLOAD, token])
+            if os.environ.get('CMUX_SSH_TEST_TMUX') == '1':
+                command = shlex.join(['tmux', 'new-session', '-s', 'cmux-selection-' + token, command])
             arguments = ['ssh', host, '--window', window, '--no-focus',
                          '--name', f'ssh-tui-selection-{token}', '--command', command]
             if os.environ.get('CMUX_SSH_TEST_PORT'):
@@ -126,17 +128,31 @@ def main():
             assert (tui, legacy) == ('1', '0'), evidence['ownership']
             for sequence in range(6):
                 mutate('workspace.select', {'workspace_id': control})
+                hidden_start = time.monotonic()
+                wait_line(surface, prefix + ':tui=1', timeout=1)
+                hidden_read_ms = (time.monotonic() - hidden_start) * 1000
+                identify()
                 started = time.monotonic()
-                mutate('workspace.select', {'workspace_id': workspace})
+                client._call('workspace.select', {'workspace_id': workspace})
                 selected_ms = (time.monotonic() - started) * 1000
                 assert identify()['focused']['workspace_id'] == workspace
                 assert client._call('surface.list', {'workspace_id': workspace})['surfaces'][0]['id'] == surface
+                before_render = client.render_stats(surface)
                 mutate('surface.send_text', {
                     'workspace_id': workspace, 'surface_id': surface,
                     'text': f'{token}:ping={sequence}\n',
                 })
                 wait_line(surface, prefix + f':pong={sequence}:pid={pid}', timeout=10)
-                evidence['selections'].append({'sequence': sequence, 'select_ms': selected_ms})
+                deadline = time.monotonic() + 5
+                while True:
+                    after_render = client.render_stats(surface)
+                    if after_render.get('presentCount', 0) > before_render.get('presentCount', 0):
+                        break
+                    assert time.monotonic() < deadline, 'No new renderer presentation after workload output'
+                    time.sleep(0.02)
+                evidence['selections'].append({'sequence': sequence, 'select_ms': selected_ms,
+                    'hidden_read_ms': hidden_read_ms, 'response_present_ms': (time.monotonic()-started)*1000,
+                    'render_before': before_render, 'render_after': after_render})
             evidence['result'] = 'same cmux-tui-owned process responded after every selection'
         finally:
             try:
