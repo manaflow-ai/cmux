@@ -8,7 +8,6 @@ import Foundation
 import SwiftUI
 
 #if os(iOS) && DEBUG
-import UIKit
 
 struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-delayed-terminal")
@@ -82,7 +81,6 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             if Self.showsToolbarComparison {
                 await deliverToolbarComparisonFrame()
                 for _ in 0..<60 {
-                    Self.logToolbarGeometry()
                     try? await ContinuousClock().sleep(for: .seconds(1))
                     guard !Task.isCancelled else { return }
                 }
@@ -90,24 +88,6 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             if Self.showsThemeParitySequence {
                 await runThemeParitySequence()
             }
-        }
-    }
-
-    @MainActor
-    private static func logToolbarGeometry() {
-        func visit(_ view: UIView) {
-            if let bar = view as? UINavigationBar, !bar.isHidden {
-                print("TOOLBAR_GEOMETRY bar frame=\(bar.frame) safe=\(bar.safeAreaInsets) margins=\(bar.layoutMargins) style=\(String(describing: bar.topItem?.style))")
-                for item in (bar.topItem?.leftBarButtonItems ?? []) + (bar.topItem?.rightBarButtonItems ?? []) + (bar.topItem?.pinnedTrailingGroup?.barButtonItems ?? []) {
-                    if let custom = item.customView {
-                        print("TOOLBAR_GEOMETRY item width=\(item.width) frame=\(custom.frame) intrinsic=\(custom.intrinsicContentSize) margins=\(custom.layoutMargins) safe=\(custom.safeAreaInsets)")
-                    }
-                }
-            }
-            for child in view.subviews { visit(child) }
-        }
-        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
-            for window in scene.windows { visit(window) }
         }
     }
 

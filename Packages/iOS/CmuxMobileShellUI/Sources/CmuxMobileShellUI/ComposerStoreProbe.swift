@@ -13,8 +13,6 @@ struct ComposerStoreProbe: View {
     let isComposerPresented: Bool
     let composerFocusRequest: Int
     let draftLength: Int
-    var terminalTopContentInset: CGFloat = 0
-    var terminalCapturedTopInset: CGFloat = 0
 
     var body: some View {
         Color.clear
@@ -27,8 +25,6 @@ struct ComposerStoreProbe: View {
                     "isComposerPresented=\(isComposerPresented ? 1 : 0)",
                     "composerFocusRequest=\(composerFocusRequest)",
                     "draftLength=\(draftLength)",
-                    "terminalTopContentInset=\(Int(terminalTopContentInset.rounded()))",
-                    "terminalCapturedTopInset=\(Int(terminalCapturedTopInset.rounded()))",
                 ].joined(separator: ";")
             )
     }

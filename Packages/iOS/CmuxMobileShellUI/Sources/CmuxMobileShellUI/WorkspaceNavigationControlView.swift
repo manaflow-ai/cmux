@@ -69,10 +69,6 @@ final class WorkspaceNavigationControlView: UIView {
         refreshContentSize()
     }
 
-    override func layoutSubviews() {
-        super.layoutSubviews()
-    }
-
     func update(content: AnyView) {
         contentView.configuration = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0)
         refreshContentSize()
