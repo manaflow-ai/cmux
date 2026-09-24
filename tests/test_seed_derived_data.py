@@ -329,7 +329,7 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|!|\(|\)|,|'(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_.-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
 
 
 def evaluate(expression, context):
@@ -338,6 +338,8 @@ def evaluate(expression, context):
     `a && b` is b when a is truthy, else a; `a || b` is a when truthy,
     else b. Names resolve by dotted path in `context`; a missing one is null,
     which compares equal to ''. startsWith() compares case-insensitively.
+    `<`, `>`, `<=` and `>=` compare as numbers, the way Actions coerces: null
+    and '' are 0, and a string that is not a number never compares true.
     """
     text = expression.strip()
     if text.startswith("${{") and text.endswith("}}"):
@@ -371,6 +373,8 @@ def evaluate(expression, context):
             return token[1:-1].replace("''", "'")
         if token in ("true", "false"):
             return token == "true"
+        if token[0].isdigit():
+            return float(token)
         if token == "startsWith" and peek() == "(":
             take()
             haystack = either()
@@ -386,12 +390,26 @@ def evaluate(expression, context):
             value = value.get(part) if isinstance(value, dict) else None
         return value
 
+    def number(value):
+        if value is None or value == "":
+            return 0.0
+        if isinstance(value, bool):
+            return float(value)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float("nan")
+
     def comparison():
         left = primary()
-        while peek() in ("==", "!="):
+        while peek() in ("==", "!=", ">", "<", ">=", "<="):
             operator, right = take(), primary()
-            equal = ("" if left is None else str(left)) == ("" if right is None else str(right))
-            left = equal if operator == "==" else not equal
+            if operator in ("==", "!="):
+                equal = ("" if left is None else str(left)) == ("" if right is None else str(right))
+                left = equal if operator == "==" else not equal
+            else:
+                a, b = number(left), number(right)
+                left = {">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b}[operator]
         return left
 
     def both():
@@ -418,7 +436,7 @@ def evaluate(expression, context):
 
 def github_context(event_name, ref="refs/heads/main", **variables):
     return {
-        "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai"},
+        "github": {"event_name": event_name, "ref": ref, "repository_owner": "manaflow-ai", "run_attempt": "1"},
         "vars": {
             "MACOS_RUNNER_PR": "pool-pr",
             "MACOS_RUNNER_15": "pool-15-paid",
@@ -709,6 +727,23 @@ class Wiring(unittest.TestCase):
                     "/Applications/Xcode-pr.app" if head == "manaflow-ai/cmux" else "/Applications/Xcode-15.app",
                 )
 
+    def test_a_rerun_of_an_owned_pool_run_takes_the_retry_runner(self):
+        # pr_runner_pool.py names pr_retry_runner only for an owned-pool pick; a
+        # re-run of failed jobs (attempt 2) reuses attempt 1's inputs.
+        admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
+        for attempt, retry, runner in (
+            ("1", "blacksmith-12vcpu-macos-26", "glaeda-std-xcode-26.6"),
+            ("2", "blacksmith-12vcpu-macos-26", "blacksmith-12vcpu-macos-26"),
+            ("2", "", "glaeda-std-xcode-26.6"),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry)
+            with self.subTest(attempt=attempt, retry=retry):
+                self.assertEqual(evaluate(admission["runs-on"], context), runner)
+                self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
+
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}
         self.assertEqual(evaluate("${{ vars.A && 'x' || 'y' }}", context), "x")
@@ -718,6 +753,11 @@ class Wiring(unittest.TestCase):
         self.assertIs(evaluate("${{ (vars.MISSING || '1') != '0' }}", context), True)
         self.assertIs(evaluate("${{ vars.A != 'b' && vars.A == 'a' }}", context), True)
         self.assertIs(evaluate("${{ startsWith(vars.A, 'A') }}", context), True)
+        numbers = {"github": {"run_attempt": "2"}, "vars": {"A": "a"}}
+        self.assertIs(evaluate("${{ github.run_attempt > 1 }}", numbers), True)
+        self.assertIs(evaluate("${{ github.run_attempt > 2 }}", numbers), False)
+        self.assertIs(evaluate("${{ vars.MISSING > 0 }}", numbers), False)
+        self.assertIs(evaluate("${{ vars.A > 0 || vars.A < 1 }}", numbers), False)
         self.assertIs(evaluate("${{ startsWith(vars.MISSING, 'a') }}", context), False)
 
     def test_no_workflow_compares_a_bare_variable_with_zero(self):

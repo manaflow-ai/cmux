@@ -4110,7 +4110,11 @@ def app_host_product_consumers(workflow: dict) -> dict[str, dict]:
     }
 
 
-PRODUCT_RUNNER_OUTPUT = "${{ needs.macos-compile-admission.outputs.runner }}"
+# A re-run of failed shards on a run the picker put on an owned pool moves to
+# the Blacksmith pool it named on the same Xcode (pr_runner_pool.py).
+PRODUCT_RUNNER_OUTPUT = (
+    "${{ github.run_attempt > 1 && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}"
+)
 PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
 
 

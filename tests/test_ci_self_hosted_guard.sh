@@ -44,8 +44,9 @@ check_macos_runner() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     # A product consumer inherits the compile admission pool, which this
-    # check covers on its own.
-    in_job && /runs-on:[[:space:]]*\$\{\{ needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    # check covers on its own, or on a re-run the Blacksmith pool the pull
+    # request picker named for a run on an owned pool (pr_retry_runner).
+    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt > 1 && inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -1340,8 +1341,14 @@ from pathlib import Path
 import yaml
 
 PICKED = "steps.macos-pool.outputs.runner"
+RETRY_PICKED = "steps.macos-pool.outputs.retry_runner"
 OUTPUT = "needs.changes.outputs.macos_pr_runner"
+RETRY_OUTPUT = "needs.changes.outputs.macos_pr_retry_runner"
 PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
+# Each input the picked pools reach a reusable workflow through, and its value.
+INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}"}
+MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
+          "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
 # The runs-on branches that may read the picked pool, each behind its
 # pull_request condition; a fork head keeps only a Blacksmith pick.
 GUARDED = (
@@ -1350,6 +1357,9 @@ GUARDED = (
     " || 'blacksmith-6vcpu-macos-15')",
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
     " || 'blacksmith-6vcpu-macos-15')",
+    # A re-run of failed jobs on an owned-pool run: the Blacksmith pool the
+    # picker named for it.
+    "github.event_name == 'pull_request' && github.run_attempt > 1 && needs.changes.outputs.macos_pr_retry_runner",
 )
 
 
@@ -1373,20 +1383,25 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
             allowed = (file.name == "ci.yml" and (
                 path == ("jobs", "changes", "outputs", "macos_pr_runner") and value == "${{ " + PICKED + " }}"
                 or path[:3] == ("jobs", "changes", "steps") and path[-2:] == ("env", "POOL")
-                and value == "${{ " + PICKED + " }}"))
+                and value == "${{ " + PICKED + " }}"
+                or path[:3] == ("jobs", "changes", "steps") and path[-2:] == ("with", "name") and value == MARKER))
             if not allowed:
                 violations.append(f"{where}: reads the picker's runner outside macos_pr_runner and the rescue marker")
-        if path[-1:] == ("pr_runner",) and len(path) >= 3 and path[-2] == "with":
-            if value != PASSED or file.name != "ci.yml":
-                violations.append(f"{where}: pr_runner must be exactly {PASSED}")
+        if RETRY_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_retry_runner")
+                and value == "${{ " + RETRY_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's retry runner outside macos_pr_retry_runner")
+        if len(path) >= 3 and path[-2] == "with" and path[-1] in INPUTS:
+            if value != INPUTS[path[-1]] or file.name != "ci.yml":
+                violations.append(f"{where}: {path[-1]} must be exactly {INPUTS[path[-1]]}")
             continue
-        if OUTPUT not in value:
+        if OUTPUT not in value and RETRY_OUTPUT not in value:
             continue
         if path[-1:] == ("runs-on",):
             rest = value
             for branch in GUARDED:
                 rest = rest.replace(branch, "")
-            if OUTPUT not in rest:
+            if OUTPUT not in rest and RETRY_OUTPUT not in rest:
                 continue
         violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
 print("\n".join(violations))
