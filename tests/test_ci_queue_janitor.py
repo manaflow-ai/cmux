@@ -467,6 +467,35 @@ class PlanTests(unittest.TestCase):
         result = plan(runs, jobs, prs, max_cancels=2)
         self.assertEqual([d.action for d in result.decisions], ["cancel", "cancel", "skip"])
 
+    def test_stale_runs_on_idle_pools_do_not_take_the_cap_from_a_backed_up_pool(self):
+        # A stale run on an idle pool frees nothing anyone waits for, so it is
+        # cancelled only after the runs that relieve the backed-up pool.
+        main_run, main_jobs = busy_main_push(queued=9)
+        idle_merged = make_run(branch="merged-branch", age=50)
+        doomed = make_run(branch="feature", sha="aaa", age=10)
+        runs = [main_run, idle_merged, doomed]
+        jobs = {main_run["id"]: main_jobs, idle_merged["id"]: mac_jobs(running=1, label="macos-26"),
+                doomed["id"]: doomed_jobs()}
+        prs = {"merged-branch": [make_pr(1, state="MERGED")], "feature": [make_pr(2)]}
+        result = plan(runs, jobs, prs, max_cancels=1)
+        self.assertEqual([c.category for c in result.to_cancel()], ["doomed"])
+
+    def test_a_rerun_or_opted_out_stale_run_waits_for_a_backed_up_pool(self):
+        # Someone re-ran it, or labelled the PR no-janitor, on purpose: keep it
+        # unless its pool is contended.
+        rerun = make_run(branch="moved-branch", sha="old", attempt=2, age=30)
+        opted_out = make_run(branch="kept-branch", sha="old", age=20)
+        prs = {"moved-branch": [make_pr(1, head="new")],
+               "kept-branch": [make_pr(2, head="new", labels=(janitor.JANITOR_OPT_OUT_LABEL,))]}
+        idle_jobs = {rerun["id"]: mac_jobs(running=1), opted_out["id"]: mac_jobs(running=1)}
+        idle = plan([rerun, opted_out], idle_jobs, prs)
+        self.assertEqual(idle.to_cancel(), [])
+        self.assertTrue(all("not over" in d.note for d in idle.decisions))
+
+        main_run, main_jobs = busy_main_push(queued=9)
+        busy = plan([main_run, rerun, opted_out], {main_run["id"]: main_jobs, **idle_jobs}, prs)
+        self.assertEqual([c.run["id"] for c in busy.to_cancel()], [rerun["id"], opted_out["id"]])
+
     def test_cancel_cap(self):
         main_run, main_jobs = busy_main_push(queued=30)
         exps = [make_run(event="push", branch=f"exp/incremental-{i}") for i in range(4)]
