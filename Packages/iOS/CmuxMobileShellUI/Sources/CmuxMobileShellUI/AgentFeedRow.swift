@@ -235,13 +235,13 @@ struct AgentFeedRow: View, Equatable {
             lineLimit: lineLimit
         )
         .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 12)
+        .padding(.leading, 12 + AgentFeedBubbleShape.tailWidth)
+        .padding(.trailing, 12)
         .padding(.vertical, 7)
         .overlay(
             AgentFeedBubbleShape()
                 .stroke(Color.secondary.opacity(0.45), lineWidth: 1)
         )
-        .padding(.leading, AgentFeedBubbleShape.tailOverhang)
     }
 
     private func barQuote(_ message: String) -> some View {
@@ -342,16 +342,16 @@ struct AgentFeedRow: View, Equatable {
             ))
             .font(.caption)
             .foregroundStyle(.secondary)
-            .padding(.leading, AgentFeedBubbleShape.tailOverhang + 12)
+            .padding(.leading, AgentFeedBubbleShape.tailWidth + 12)
             AgentFeedMarkdownText(markdown: reply, font: .subheadline)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 12)
+                .padding(.leading, 12 + AgentFeedBubbleShape.tailWidth)
+                .padding(.trailing, 12)
                 .padding(.vertical, 8)
                 .background(
                     AgentFeedBubbleShape()
                         .fill(Color(uiColor: .systemGray5))
                 )
-                .padding(.leading, AgentFeedBubbleShape.tailOverhang)
         }
         .padding(.top, 2)
     }
