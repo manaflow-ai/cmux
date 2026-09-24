@@ -119,6 +119,7 @@ export default function (amp: PluginAPI) {
     }
   }
   function forgetThread(threadId: string): void {
+    cancelStateSettle(threadId);
     const lifecycle = lifecycleByThread.get(threadId);
     if (lifecycle) retainLifecycleSnapshot(threadId, lifecycle);
     try { titleSubscriptions.get(threadId)?.unsubscribe?.(); } catch (_) {}
@@ -483,6 +484,108 @@ export default function (amp: PluginAPI) {
         }
       })
       .catch(() => {});
+  }
+  // After agent.end, the authoritative thread.state read can race the turn
+  // teardown: a stale "running" snapshot, a discarded read (version or thread
+  // identity guard), or a dead subscription would leave the staged turn
+  // outcome undelivered forever — the tab sticks on "Running" and no
+  // completion hook ever fires. Settle by re-reading state briefly, then
+  // trust agent.end so completion is never lost.
+  //
+  // One settle job is owned by the staged turn (identified by its turn id):
+  // duplicate agent.end events never reset its deadline, and a follow-up
+  // turn cancels it. Each poll resolves the currently remembered thread
+  // handle so same-ID handle replacements are followed, not raced.
+  //
+  // thread.state stays the single source of truth whenever it shows signs of
+  // life: any state-subscription emission during the settle window aborts the
+  // job and leaves completion to the authoritative path. Only a provably
+  // silent observable (no emissions all window, every read still "running")
+  // falls back to the staged agent.end outcome — the one case where nothing
+  // else will ever report.
+  const STATE_SETTLE_ATTEMPTS = 8;
+  const STATE_SETTLE_INTERVAL_MS = Math.min(
+    5000,
+    Math.max(50, Number(process.env.CMUX_AMP_SETTLE_INTERVAL_MS) || 750),
+  );
+  const settleJobsByThread = new Map<string, {
+    timer: NodeJS.Timeout;
+    turnId: string | null;
+    startObservationVersion: number;
+  }>();
+
+  function cancelStateSettle(threadId: string): void {
+    const job = settleJobsByThread.get(threadId);
+    if (!job) return;
+    clearTimeout(job.timer);
+    settleJobsByThread.delete(threadId);
+  }
+
+  function scheduleStateSettle(threadId: string): void {
+    const lifecycle = lifecycleFor(threadId);
+    if (!lifecycle) return;
+    const turnId = lifecycle.pendingTurn?.turnId ?? null;
+    const existing = settleJobsByThread.get(threadId);
+    if (existing && existing.turnId === turnId) return;
+    cancelStateSettle(threadId);
+    const job: {
+      timer: NodeJS.Timeout;
+      turnId: string | null;
+      startObservationVersion: number;
+    } = { timer: null as never, turnId, startObservationVersion: lifecycle.observationVersion };
+    settleJobsByThread.set(threadId, job);
+    let attempt = 0;
+    const tick = (): void => {
+      if (settleJobsByThread.get(threadId) !== job) return;
+      const current = lifecycleByThread.get(threadId);
+      if (!current || current !== lifecycle) {
+        settleJobsByThread.delete(threadId);
+        return;
+      }
+      if (current.terminalEventEmitted) {
+        settleJobsByThread.delete(threadId);
+        return;
+      }
+      // A follow-up agent.start consumed the staged turn outcome; do not
+      // force-idle a legitimately running follow-up turn.
+      if (!current.pendingTurn) {
+        settleJobsByThread.delete(threadId);
+        return;
+      }
+      if (current.authoritativeState === "idle" || current.authoritativeState === "error") {
+        settleJobsByThread.delete(threadId);
+        reconcileThreadState(threadId, current.authoritativeState);
+        return;
+      }
+      // needs-input is authoritative and demonstrably alive; it owns
+      // completion, so a lagging agent.end must not synthesize one.
+      if (current.authoritativeState === "awaiting-approval") {
+        settleJobsByThread.delete(threadId);
+        return;
+      }
+      // The observable emitted during the window, so it is alive and owns
+      // completion (e.g. a follow-up turn re-armed through a state
+      // transition); a silent observable is the only fallback case.
+      if (current.observationVersion !== job.startObservationVersion) {
+        settleJobsByThread.delete(threadId);
+        return;
+      }
+      attempt += 1;
+      if (attempt >= STATE_SETTLE_ATTEMPTS) {
+        // Fence reads issued before settlement so a late stale "running"
+        // result cannot undo the synthetic completion, then trust agent.end.
+        current.stateReadVersion += 1;
+        settleJobsByThread.delete(threadId);
+        reconcileThreadState(
+          threadId,
+          current.pendingTurn.outcome === "error" ? "error" : "idle",
+        );
+        return;
+      }
+      refreshThreadState(threadId, threadById.get(threadId));
+      job.timer = setTimeout(tick, STATE_SETTLE_INTERVAL_MS);
+    };
+    job.timer = setTimeout(tick, STATE_SETTLE_INTERVAL_MS);
   }
   function watchThreadState(threadId: string, thread?: AmpThread): void {
     const observable = thread?.state;
