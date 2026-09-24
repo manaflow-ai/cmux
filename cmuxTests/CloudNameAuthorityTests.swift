@@ -164,30 +164,46 @@ extension SetAutoTitleSocketTests {
         }
     }
 
+    /// The fixture's next accepted snapshot: same generation, next revision.
+    private func nextFixtureState(
+        _ fixture: CloudNameAuthorityFixture,
+        edit: (inout [String: Any]) throws -> Void
+    ) throws -> CloudVMState {
+        var document = try #require(fixture.provider.graph.snapshotObject())
+        let cursor = try #require(fixture.provider.graph.cursor)
+        document["cursor"] = ["generation": cursor.generation, "revision": String(cursor.revision + 1)]
+        try edit(&document)
+        return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: fixture.provider.machine))
+    }
+
     @Test("A tab opened after the process title shows that title")
     func cloudTitleAppliesWhenProjectionRecorded() async throws {
         try await withCloudNameFixture { fixture in
-            let projection = try #require(fixture.catalog.projection(forPanel: fixture.panelID))
-            fixture.catalog.endProjections(panelID: fixture.panelID, reason: .replaced)
-            var document = try #require(fixture.provider.graph.snapshotObject())
-            var terminals = try #require(document["terminals"] as? [[String: Any]])
-            terminals[0]["title"] = "vim README.md"
-            document["terminals"] = terminals
-            #expect(fixture.provider.install(try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: fixture.provider.machine))))
-            let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(fixture.panelID))
-            #expect(fixture.workspace.bonsplitController.tab(tabID)?.title != "vim README.md")
-            // Opening the tab now must not wait for the next title change.
-            fixture.catalog.record(projection)
-            try fixture.expectParity("vim README.md")
+            #expect(fixture.provider.install(try nextFixtureState(fixture) { document in
+                var terminals = try #require(document["terminals"] as? [[String: Any]])
+                let index = try #require(terminals.firstIndex { $0["id"] as? String == "term_b" })
+                terminals[index]["title"] = "vim README.md"
+                document["terminals"] = terminals
+            }))
+            // The title is already current when this tab opens; no later
+            // title change will arrive to deliver it.
+            let panel = try #require(fixture.workspace.newTerminalSurfaceInFocusedPane(focus: false))
+            defer { fixture.catalog.endProjections(panelID: panel.id, reason: .replaced) }
+            fixture.catalog.record(SurfaceProjection(
+                resource: .init(machine: fixture.provider.machine, kind: .terminal, key: "term_b"),
+                workspaceID: fixture.workspace.id, panelID: panel.id,
+                remoteWorkspaceID: "b", remoteTabID: "tab_b"))
+            let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(panel.id))
+            #expect(fixture.workspace.bonsplitController.tab(tabID)?.title == "vim README.md")
         }
     }
 
     @Test("A local OSC title update keeps the Cloud agent's tab icon")
     func cloudAgentTabIconSurvivesTitleUpdate() async throws {
         try await withCloudNameFixture { fixture in
-            var document = try #require(fixture.provider.graph.snapshotObject())
-            document["agents"] = [["terminal_id": "term_a", "state": "working", "source": "hook", "agent": "claude"]]
-            #expect(fixture.provider.install(try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: fixture.provider.machine))))
+            #expect(fixture.provider.install(try nextFixtureState(fixture) { document in
+                document["agents"] = [["terminal_id": "term_a", "state": "working", "source": "hook", "agent": "claude"]]
+            }))
             let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(fixture.panelID))
             #expect(fixture.workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
             _ = fixture.workspace.updatePanelTitle(panelId: fixture.panelID, title: "✳ Claude Code")
