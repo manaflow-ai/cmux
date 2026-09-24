@@ -7550,8 +7550,114 @@ final class cmuxUITests: XCTestCase {
             context: "long workspace title"
         )
         assertToolbarOverflowButtonDoesNotExist(in: app)
+        assertNativeWorkspaceToolbarFits(in: app)
         tap(terminalDropdown, in: app)
         assertTerminalMenuItemExists("terminal-delayed", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceDetailToolbarPresentationComparison() throws {
+        defer { XCUIDevice.shared.orientation = .portrait }
+        for scenario in ["reference", "long-title", "alternate-screen"] {
+            XCUIDevice.shared.orientation = .portrait
+            let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+                "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
+                "CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD": "1",
+                "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": scenario == "reference" ? "0" : "1",
+                "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": scenario == "alternate-screen" ? "1" : "0",
+            ])
+            let surface = app.otherElements["MobileTerminalSurface"]
+            try XCTUnwrap(surface.waitForExistence(timeout: 8) ? true : nil)
+            _ = app.buttons["MobileChangesButton"].waitForExistence(timeout: 8)
+            // Capture before assertions so a visual regression still leaves usable evidence.
+            captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-portrait")
+            if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
+                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                                 includesAlternateScreen: scenario == "alternate-screen")
+                assertWorkspaceToolbarTitlePresentation(in: app)
+            }
+            tap(surface, in: app)
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))
+            // A fresh simulator may cover the keyboard with Apple's typing
+            // introduction. Compare the actual keyboard in both builds.
+            let typingIntroduction = app.buttons["Continue"]
+            if typingIntroduction.waitForExistence(timeout: 1) {
+                typingIntroduction.tap()
+            }
+            captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-keyboard")
+            XCUIDevice.shared.orientation = .landscapeLeft
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-landscape")
+            if app.navigationBars["MobileWorkspaceNavigationBar"].exists {
+                assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
+                                                 includesAlternateScreen: scenario == "alternate-screen")
+                assertWorkspaceToolbarTitlePresentation(in: app)
+            }
+            XCUIDevice.shared.orientation = .portrait
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            let picker = app.buttons["MobileTerminalDropdown"]
+            if picker.exists, picker.isHittable {
+                tap(picker, in: app)
+                assertTerminalMenuItemExists("terminal-delayed", in: app)
+                captureWorkspaceToolbarPresentation(in: app, name: "\(scenario)-terminal-menu")
+                dismissOpenMenu(in: app)
+            }
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testWorkspaceDetailToolbarDoesNotOverflowWithChangesChip() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON": "1",
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
+            "CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN": "1",
+            "CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD": "1",
+        ])
+        try XCTUnwrap(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) ? true : nil)
+        try XCTUnwrap(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForExistence(timeout: 8) ? true : nil)
+        defer { XCUIDevice.shared.orientation = .portrait }
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait] {
+            XCUIDevice.shared.orientation = orientation
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            captureWorkspaceToolbarPresentation(in: app, name: "crowded-\(orientation.rawValue)")
+            assertNativeWorkspaceToolbarFits(in: app, includesChanges: true, includesAlternateScreen: true)
+            tap(app.buttons["MobileTerminalDropdown"], in: app)
+            assertTerminalMenuItemExists("terminal-delayed", in: app)
+            dismissOpenMenu(in: app)
+        }
+        tap(app.buttons["MobileTerminalAltScreenNoticeButton"], in: app)
+        let dismissNotice = app.buttons["MobileTerminalAltScreenNoticeDismissPermanentlyButton"]
+        XCTAssertTrue(dismissNotice.waitForExistence(timeout: 4))
+        tap(dismissNotice, in: app)
+        XCTAssertTrue(app.buttons["MobileTerminalAltScreenNoticeButton"].waitForNonExistence(timeout: 4))
+        assertNativeWorkspaceToolbarFits(in: app, includesChanges: true)
+    }
+
+    @MainActor
+    private func captureWorkspaceToolbarPresentation(in app: XCUIApplication, name: String) {
+        // The app screenshot can inherit the portrait keyboard window's crop
+        // during rotation. The display screenshot preserves the whole bar.
+        // Resolve the app first so XCTest settles pending UI animations.
+        let description = app.debugDescription
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "toolbar-\(name)"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        let hierarchy = XCTAttachment(string: description)
+        hierarchy.name = "toolbar-\(name)-hierarchy"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
+    }
+
+    @MainActor
+    private func assertWorkspaceToolbarTitlePresentation(in app: XCUIApplication) {
+        let title = workspaceTitleElement(in: app)
+        let back = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertLessThanOrEqual(title.frame.width, 200,
+                                 "The title must retain the base capsule width in landscape")
+        XCTAssertLessThanOrEqual(title.frame.minX - back.frame.maxX, 44,
+                                 "The title must remain beside Back, including in landscape")
     }
 
     @MainActor
@@ -8336,7 +8442,12 @@ final class cmuxUITests: XCTestCase {
             launchEnvironment[key] = value
         }
         let app = launchApp(mockData: false, environment: launchEnvironment)
-        XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        if environment["CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON"] == "1" {
+            XCTAssertTrue(app.otherElements["MobileWorkspaceShell"].waitForExistence(timeout: 8))
+            XCTAssertNoThrow(try dismissLaunchAnnouncements(in: app))
+        } else {
+            XCTAssertTrue(workspaceTitleElement(in: app).waitForExistence(timeout: 8))
+        }
         return app
     }
 
@@ -8401,21 +8512,43 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
+    private func dismissLaunchAnnouncements(in app: XCUIApplication) throws {
         grantNotificationAuthorizationIfRequested()
-        let whatsNewContinue = app.buttons["MobileWhatsNewSheet"].firstMatch
-        if whatsNewContinue.waitForExistence(timeout: 4) {
-            tap(whatsNewContinue, in: app)
-            XCTAssertTrue(whatsNewContinue.waitForNonExistence(timeout: 4))
+        let whatsNewSheet = app.collectionViews["MobileWhatsNewSheet"].firstMatch
+        if whatsNewSheet.waitForExistence(timeout: 4) {
+            // On iOS 26 the sheet identifier can be inherited by its footer.
+            // Continue advances a page, so finish the range before opening a workspace.
+            let continueButton = app.buttons.matching(
+                NSPredicate(format: "label == %@", "Continue")
+            ).firstMatch
+            for _ in 0..<8 where whatsNewSheet.exists {
+                let button = try XCTUnwrap(continueButton.waitForExistence(timeout: 4) ? continueButton : nil)
+                tap(button, in: app)
+            }
+            _ = try XCTUnwrap(
+                whatsNewSheet.waitForNonExistence(timeout: 5) ? true : nil,
+                "Dismiss What's New before checking the workspace toolbar"
+            )
         }
+        let banner = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            .descendants(matching: .any)["NotificationShortLookView"].firstMatch
+        _ = try XCTUnwrap(banner.waitForNonExistence(timeout: 15) ? true : nil)
+    }
+
+    @MainActor
+    private func openSelectedWorkspaceIfNeeded(_ app: XCUIApplication) throws {
+        try dismissLaunchAnnouncements(in: app)
         if app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) {
             return
         }
 
         let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
-        XCTAssertTrue(row.waitForExistence(timeout: 8))
+        _ = try XCTUnwrap(row.waitForExistence(timeout: 8) ? true : nil, "Workspace fixture must connect")
         row.tap()
-        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        _ = try XCTUnwrap(
+            app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8) ? true : nil,
+            "Open the workspace before checking its controls"
+        )
     }
 
     @MainActor
@@ -8583,6 +8716,44 @@ final class cmuxUITests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    @MainActor
+    private func assertNativeWorkspaceToolbarFits(
+        in app: XCUIApplication,
+        includesChanges: Bool = false,
+        includesAlternateScreen: Bool = false,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let bar = app.navigationBars["MobileWorkspaceNavigationBar"]
+        guard bar.waitForExistence(timeout: 4) else {
+            XCTFail("Workspace details must use a native navigation bar", file: file, line: line)
+            return
+        }
+        var controls: [XCUIElement] = []
+        for identifier in ["MobileSplitSidebarToggle", "MobileWorkspaceBackButton"] {
+            if bar.buttons[identifier].exists { controls.append(bar.buttons[identifier]) }
+        }
+        controls.append(workspaceTitleElement(in: app))
+        if includesAlternateScreen { controls.append(app.buttons["MobileTerminalAltScreenNoticeButton"]) }
+        if includesChanges { controls.append(app.buttons["MobileChangesButton"]) }
+        controls.append(app.buttons["MobileTerminalDropdown"])
+        let fits = NSPredicate { _, _ in
+            guard controls.allSatisfy({ $0.exists && $0.isHittable }) else { return false }
+            let barFrame = bar.frame.insetBy(dx: -1, dy: -1)
+            let frames = controls.map(\.frame)
+            return frames.allSatisfy { !$0.isEmpty && barFrame.contains($0) }
+                && zip(frames, frames.dropFirst()).allSatisfy { $0.0.maxX <= $0.1.minX }
+        }
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: fits, object: nil)], timeout: 5),
+            .completed,
+            "Toolbar controls must fit without overlapping: \(controls.map(\.frame))",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(bar.buttons["More"].exists, "Essential controls must stay out of overflow", file: file, line: line)
     }
 
     @MainActor
@@ -10737,6 +10908,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
     private let advertisesWorkspaceMetadata: Bool
+    private let advertisesWorkspaceChanges: Bool
     private let advertisesCaffeineControl: Bool
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
@@ -10825,10 +10997,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
         advertisesWorkspaceMetadata: Bool = false,
+        advertisesWorkspaceChanges: Bool = false,
         advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
-        macInstanceTag: String = mockHostInstanceTag()
+        macInstanceTag: String = mockHostInstanceTag(),
+        mainWorkspaceTitle: String? = nil
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
@@ -10839,10 +11013,12 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
         self.advertisesWorkspaceMetadata = advertisesWorkspaceMetadata
+        self.advertisesWorkspaceChanges = advertisesWorkspaceChanges
         self.advertisesCaffeineControl = advertisesCaffeineControl
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
         self.macInstanceTag = macInstanceTag
+        if let mainWorkspaceTitle { workspaces[0].title = mainWorkspaceTitle }
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -11367,6 +11543,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
             ]
         case "mobile.host.status":
             result = mobileHostStatusResult()
+        case "mobile.workspace.changes.summary":
+            result = workspaceChangesSummaryResult(params: params)
         case "caffeine.status":
             result = ["enabled": caffeineEnabled]
         case "caffeine.set":
@@ -11454,6 +11632,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         }
         if advertisesWorkspaceMetadata {
             capabilities.append("workspace.metadata.v1")
+        }
+        if advertisesWorkspaceChanges {
+            capabilities.append("workspace.changes.v1")
         }
         if advertisesCaffeineControl {
             capabilities.append("caffeine.control.v1")
@@ -11663,6 +11844,24 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                             "is_focused": terminal.id == selectedTerminalID,
                         ] as [String: Any]
                     },
+                ] as [String: Any]
+            },
+        ]
+    }
+
+    private func workspaceChangesSummaryResult(params: [String: Any]) -> [String: Any] {
+        let workspaceIDs = params["workspace_ids"] as? [String] ?? []
+        return [
+            "summaries": workspaceIDs.map { workspaceID in
+                [
+                    "workspace_id": workspaceID,
+                    "is_repo": true,
+                    "repo_root": "/Users/test/cmux",
+                    "branch": "main",
+                    "base_ref": "origin/main",
+                    "files_changed": 461,
+                    "additions": 461,
+                    "deletions": 65,
                 ] as [String: Any]
             },
         ]

@@ -1,0 +1,64 @@
+#if os(iOS)
+import SwiftUI
+import UIKit
+
+/// Custom bar content follows UIKit's margins, including the glass padding.
+/// Its natural width changes with the label instead of a per-control estimate.
+@MainActor
+final class WorkspaceNavigationControlView: UIView {
+    private let contentView: UIView & UIContentView
+    private var width: NSLayoutConstraint?
+
+    init(content: AnyView) {
+        contentView = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
+        super.init(frame: .zero)
+        // The bar already places items around the device's safe area. Adding
+        // it again here enlarges the end items by 17 points in landscape.
+        insetsLayoutMarginsFromSafeArea = false
+        preservesSuperviewLayoutMargins = false
+        directionalLayoutMargins = .zero
+        translatesAutoresizingMaskIntoConstraints = false
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(contentView)
+        NSLayoutConstraint.activate([
+            contentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            heightAnchor.constraint(equalToConstant: 36),
+        ])
+        width = widthAnchor.constraint(equalToConstant: intrinsicContentSize.width)
+        width?.isActive = true
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is unavailable")
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        return CGSize(width: contentSize.width, height: 36)
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        intrinsicContentSize
+    }
+
+    override func layoutMarginsDidChange() {
+        super.layoutMarginsDidChange()
+        refreshContentSize()
+    }
+
+    func update(content: AnyView) {
+        contentView.configuration = UIHostingConfiguration { content }.margins(.all, 0).minSize(width: 0, height: 0)
+        refreshContentSize()
+    }
+
+    private func refreshContentSize() {
+        contentView.invalidateIntrinsicContentSize()
+        invalidateIntrinsicContentSize()
+        width?.constant = intrinsicContentSize.width
+    }
+}
+#endif

@@ -8,6 +8,8 @@ import Foundation
 import SwiftUI
 
 #if os(iOS) && DEBUG
+import UIKit
+
 struct WorkspaceDetailDelayedTerminalPreviewView: View {
     private static let workspaceID = MobileWorkspacePreview.ID(rawValue: "workspace-delayed-terminal")
     private static let terminalID = MobileTerminalPreview.ID(rawValue: "terminal-delayed")
@@ -32,6 +34,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             signOut: {},
             showAddDevice: nil
         )
+        .preferredColorScheme(Self.showsToolbarComparison ? .dark : nil)
         .environment(browserStore)
         .environment(browserStreamStore)
         .environment(simulatorStreamStore)
@@ -47,6 +50,12 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             guard !didStartFixture else { return }
             didStartFixture = true
             store.selectedWorkspaceID = Self.workspaceID
+            if Self.showsToolbarComparison {
+                store.seedWorkspaceToolbarPreview(
+                    workspaceID: Self.workspaceID.rawValue,
+                    chip: .init(filesChanged: 3, additions: 461, deletions: 65)
+                )
+            }
             if Self.usesRefreshingTerminalMenu {
                 store.selectedTerminalID = Self.refreshingTerminalID(0)
                 for generation in 1...80 {
@@ -67,12 +76,60 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
                     MobileTerminalPreview(id: Self.terminalID, name: Self.terminalTitle),
                 ]
             )
-            store.replaceForegroundWorkspaceState([workspace])
+            store.replaceForegroundWorkspaceState(Self.fixtureWorkspaces(workspace))
             store.selectedWorkspaceID = Self.workspaceID
             store.selectedTerminalID = Self.terminalID
+            if Self.showsToolbarComparison {
+                await deliverToolbarComparisonFrame()
+                for _ in 0..<60 {
+                    Self.logToolbarGeometry()
+                    try? await ContinuousClock().sleep(for: .seconds(1))
+                    guard !Task.isCancelled else { return }
+                }
+            }
             if Self.showsThemeParitySequence {
                 await runThemeParitySequence()
             }
+        }
+    }
+
+    @MainActor
+    private static func logToolbarGeometry() {
+        func visit(_ view: UIView) {
+            if let bar = view as? UINavigationBar, !bar.isHidden {
+                print("TOOLBAR_GEOMETRY bar frame=\(bar.frame) safe=\(bar.safeAreaInsets) margins=\(bar.layoutMargins) style=\(String(describing: bar.topItem?.style))")
+                for item in (bar.topItem?.leftBarButtonItems ?? []) + (bar.topItem?.rightBarButtonItems ?? []) + (bar.topItem?.pinnedTrailingGroup?.barButtonItems ?? []) {
+                    if let custom = item.customView {
+                        print("TOOLBAR_GEOMETRY item width=\(item.width) frame=\(custom.frame) intrinsic=\(custom.intrinsicContentSize) margins=\(custom.layoutMargins) safe=\(custom.safeAreaInsets)")
+                    }
+                }
+            }
+            for child in view.subviews { visit(child) }
+        }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            for window in scene.windows { visit(window) }
+        }
+    }
+
+    private static var showsToolbarComparison: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_COMPARISON"] == "1"
+    }
+
+    private func deliverToolbarComparisonFrame() async {
+        guard var frame = try? themeParityFrame(
+            background: "#171717", foreground: "#e6edf3", revision: 1
+        ) else { return }
+        frame.rowSpans = [
+            .init(row: 0, column: 0, text: "$ git diff --stat"),
+            .init(row: 1, column: 0, text: "3 files changed, +461 / -65"),
+        ]
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_ALT_SCREEN"] == "1" {
+            frame.activeScreen = .alternate
+        }
+        for _ in 0..<100 {
+            guard !Task.isCancelled else { return }
+            if store.deliverThemeParityPreviewFrame(frame) { return }
+            try? await ContinuousClock().sleep(for: .milliseconds(50))
         }
     }
 
@@ -141,24 +198,35 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     }
 
     private static var workspaceTitle: String {
-        usesLongTitle ? longWorkspaceTitle : "New Workspace"
+        usesLongTitle ? longWorkspaceTitle : (showsToolbarComparison ? "wlist-profile-27" : "New Workspace")
     }
 
     private static var terminalTitle: String {
-        usesLongTitle ? longTerminalTitle : "Terminal 1"
+        usesLongTitle ? longTerminalTitle : (showsToolbarComparison ? "abdulazizalbahar@MacBook-Pro" : "Terminal 1")
     }
 
     private static var initialWorkspaces: [MobileWorkspacePreview] {
         if usesRefreshingTerminalMenu {
             return [refreshingWorkspace(generation: 0)]
         }
-        return [
-            MobileWorkspacePreview(
-                id: workspaceID,
-                name: workspaceTitle,
-                terminals: []
-            ),
-        ]
+        return fixtureWorkspaces(MobileWorkspacePreview(
+            id: workspaceID,
+            name: workspaceTitle,
+            terminals: []
+        ))
+    }
+
+    private static func fixtureWorkspaces(_ workspace: MobileWorkspacePreview) -> [MobileWorkspacePreview] {
+        guard ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD"] == "1" else {
+            return [workspace]
+        }
+        return [workspace, MobileWorkspacePreview(
+            id: "workspace-unread",
+            name: "Unread workspace",
+            hasUnread: true,
+            unreadCount: 1,
+            terminals: []
+        )]
     }
 
     private static func refreshingWorkspace(generation: Int) -> MobileWorkspacePreview {

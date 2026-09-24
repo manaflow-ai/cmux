@@ -99,8 +99,7 @@ extension WorkspaceListView {
                             }
                             if let sidebarToggleAction {
                                 WorkspaceSidebarToggleButton(
-                                    action: sidebarToggleAction,
-                                    usesSystemToolbarChrome: true
+                                    action: sidebarToggleAction
                                 )
                             }
                         }
