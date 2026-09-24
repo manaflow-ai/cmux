@@ -29,6 +29,7 @@ usage() {
   echo "usage: $0 fingerprint <derived-data>" >&2
   echo "       $0 resolve <derived-data> <source-packages>" >&2
   echo "       $0 build <derived-data> <source-packages> <cas-path> [log]" >&2
+  echo "prefix fingerprint/resolve/build with canonical- for the shared CI paths" >&2
   exit 64
 }
 
@@ -118,6 +119,41 @@ build() {
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }
+
+# The workflow opts both cache writer and reader into this contract together.
+# Resolve refreshes the real source tree after dependency downloads. Fingerprint
+# needs only the stable cwd; never recopy after resolve, which would erase SPM.
+case "${1:-}" in
+  canonical-fingerprint|canonical-resolve|canonical-build)
+    operation="${1#canonical-}"
+    shift
+    case "$operation:$#" in
+      fingerprint:1|resolve:2|build:3|build:4) ;;
+      *) usage ;;
+    esac
+    [ "${1%/*}" = "$CANONICAL_BUILD_ROOT" ] || { echo "noncanonical DerivedData" >&2; exit 1; }
+    if [ "$operation" = resolve ]; then
+      "$SCRIPT_DIR/canonical-build-root.sh" "$PWD"
+    fi
+    # A previous test-only consumer may have left a runtime source alias.
+    # Never key, resolve, or compile through its pool-specific realpath: the
+    # compiler records the path it opens, so a build behind the alias writes
+    # pool-specific cache entries under the pool-independent canonical key.
+    # `resolve` re-copies the tree through canonical-build-root.sh above, which
+    # strips the alias itself; `fingerprint` and `build` have only this.
+    if [ -L "$CANONICAL_BUILD_ROOT/src" ]; then
+      rm "$CANONICAL_BUILD_ROOT/src"
+    fi
+    mkdir -p "$CANONICAL_BUILD_ROOT/src"
+    cd "$CANONICAL_BUILD_ROOT/src"
+    case "$operation" in
+      fingerprint) fingerprint "$1" ;;
+      resolve) resolve "$1" "$PWD/.ci-source-packages" ;;
+      build) build "$1" "$PWD/.ci-source-packages" "$3" "${4:-/dev/null}" ;;
+    esac
+    exit
+    ;;
+esac
 
 case "${1:-}" in
   fingerprint)
