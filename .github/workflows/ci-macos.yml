@@ -609,13 +609,53 @@ jobs:
           CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
+          # CANARY: pristine package dir for the probe below, and a process sampler.
+          rm -rf "$RUNNER_TEMP/pristine-packages"
+          cp -cR .ci-source-packages "$RUNNER_TEMP/pristine-packages"
+          manifests="$HOME/Library/Caches/org.swift.swiftpm/manifests"
+          echo "== manifest cache before resolve: entries=$(sqlite3 "$manifests/manifest.db" 'select count(*) from MANIFEST_CACHE' 2>/dev/null || echo none)"
+          ( while sleep 2; do echo "== ps $(date -u +%T) $(ps -Ao comm= | sed 's|.*/||' | sort | uniq -c | sort -rn | head -8 | tr -s ' \n' ' ')"; done ) &
+          sampler=$!
           started="$(python3 -c 'import time; print(time.monotonic())')"
           rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
+          kill "$sampler" || true
+          echo "== manifest cache after resolve: entries=$(sqlite3 "$manifests/manifest.db" 'select count(*) from MANIFEST_CACHE' 2>/dev/null || echo none)"
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+
+      # CANARY: resolve again from the pristine package dir, with the manifest
+      # cache hit, moved aside, and hit again.
+      - name: Canary probe manifest cache
+        if: steps.hosted-package-readiness.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          src="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src"
+          manifests="$HOME/Library/Caches/org.swift.swiftpm/manifests"
+          mv "$src/.ci-source-packages" "$RUNNER_TEMP/resolved-packages"
+          probe() {
+            local name="$1"
+            rm -rf "$src/.ci-source-packages" "$RUNNER_TEMP/probe-dd"
+            cp -cR "$RUNNER_TEMP/pristine-packages" "$src/.ci-source-packages"
+            local started=$SECONDS
+            (cd "$src" && scripts/ci/swiftpm-manifest-cache.sh run xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+              -derivedDataPath "$RUNNER_TEMP/probe-dd" \
+              -clonedSourcePackagesDirPath "$src/.ci-source-packages" \
+              -packageCachePath "$src/.ci-source-packages/.package-cache" \
+              -skipPackageUpdates -resolvePackageDependencies > "$RUNNER_TEMP/probe-$name.txt" 2>&1)
+            local rc=$?
+            echo "== probe $name: $((SECONDS - started))s rc=$rc entries=$(sqlite3 "$manifests/manifest.db" 'select count(*) from MANIFEST_CACHE' 2>/dev/null || echo none)"
+          }
+          probe hit
+          mv "$manifests" "$manifests.aside"
+          probe miss
+          rm -rf "$manifests"; mv "$manifests.aside" "$manifests"
+          probe hit-again
+          rm -rf "$src/.ci-source-packages" "$RUNNER_TEMP/probe-dd"
+          mv "$RUNNER_TEMP/resolved-packages" "$src/.ci-source-packages"
 
       # No test compilation cache restore. Swift keys each compile job on its
       # whole module, so `cmux` and cmuxUITests missed on every file even with
