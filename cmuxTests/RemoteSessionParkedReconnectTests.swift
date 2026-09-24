@@ -16,7 +16,7 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct RemoteSessionParkedReconnectTests {
-    @Test
+    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
     func reconnectStartsAReplacementAfterASessionThatNeverProvisionedTheRemote() async throws {
         // The first session never got a daemon, so it never wrote relay
         // metadata. Its transport cleanup then finds no slot file and the
@@ -124,7 +124,7 @@ struct RemoteSessionParkedReconnectTests {
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == sessionID)
     }
 
-    @Test(.timeLimit(.minutes(1)))
+    @Test(.timeLimit(.minutes(1)), .disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
     func aWaitingAttachFailsAtOnceWhenTheWorkspaceCannotCreateAController() async throws {
         // A cleanup that genuinely failed leaves the workspace in `.error`
         // with no controller. Nothing will create one until the user

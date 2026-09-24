@@ -699,7 +699,7 @@ struct RemoteResumeBindingTests {
         ))
     }
 
-    @Test
+    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
     func bundledKiroSessionStartRegistersAuthenticatedRemoteBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
@@ -890,7 +890,7 @@ struct RemoteResumeBindingTests {
         #expect(bindingAfterRejectedRegistrations is NSNull)
     }
 
-    @Test
+    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
     func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
@@ -910,7 +910,7 @@ struct RemoteResumeBindingTests {
         #expect(environment["ANTHROPIC_API_KEY"] == nil)
     }
 
-    @Test
+    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
     func persistentRestoreRunsRemoteResumeOnlyWhenSessionMustBeCreated() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
@@ -983,7 +983,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    @Test
+    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
@@ -1017,7 +1017,7 @@ struct RemoteResumeBindingTests {
         #expect(!startupCommand.contains("REMOTE_FLAG"), "\(startupCommand)")
     }
 
-    @Test
+    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
     func legacyRemoteSnapshotWithoutWorkspaceIDMigratesBindingIntoPersistentSSHContext() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }

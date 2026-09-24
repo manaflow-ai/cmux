@@ -409,6 +409,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
     }
 
     func testRetryableChildExitPreservesPersistentRemoteIdentityAndReconnectsExistingPTY() throws {
+        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,
               let remotePanelId = workspace.focusedPanelId else {
