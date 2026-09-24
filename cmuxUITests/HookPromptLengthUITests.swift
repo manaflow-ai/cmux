@@ -10,23 +10,42 @@ final class HookPromptLengthUITests: XCTestCase {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let socketPath = "/tmp/cmux-debug-hook-length-\(UUID().uuidString.prefix(8)).sock"
-        let app = XCUIApplication.cmuxTestApplication()
-        app.launchArguments += ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
-        app.launchEnvironment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
-        app.launchEnvironment["CMUX_TAG"] = "ui-tests-14024-hook-length"
-        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launch()
-        defer { app.terminate() }
-
         let products = Bundle(for: Self.self).bundleURL
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
-        let cli = try XCTUnwrap(["cmux DEV", "cmux"].map {
-            products.appendingPathComponent("\($0).app/Contents/Resources/bin/cmux").path
-        }.first(where: FileManager.default.isExecutableFile(atPath:)))
+        let appURL = try XCTUnwrap(["cmux DEV", "cmux"].map {
+            products.appendingPathComponent("\($0).app")
+        }.first { FileManager.default.isExecutableFile(atPath:
+            $0.appendingPathComponent("Contents/MacOS/\($0.deletingPathExtension().lastPathComponent)").path
+        ) })
+        let cli = appURL.appendingPathComponent("Contents/Resources/bin/cmux").path
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: cli))
+        // No AX interaction is required. XCUIApplication.launch waits for
+        // foreground activation and fails on otherwise usable headless hosts.
+        let app = Process()
+        app.executableURL = appURL.appendingPathComponent(
+            "Contents/MacOS/\(appURL.deletingPathExtension().lastPathComponent)"
+        )
+        app.arguments = ["-socketControlMode", "allowAll", "-NSAppSleepDisabled", "YES"]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_SOCKET_ENABLE"] = "1"
+        environment["CMUX_SOCKET_MODE"] = "allowAll"
+        environment["CMUX_ALLOW_SOCKET_OVERRIDE"] = "1"
+        environment["CMUX_TAG"] = "ui-tests-14024-hook-length"
+        environment["CMUX_UI_TEST_PROCESS"] = "1"
+        environment["CMUX_UI_TEST_MODE"] = "1"
+        app.environment = environment
+        app.standardOutput = FileHandle.nullDevice
+        app.standardError = FileHandle.nullDevice
+        try app.run()
+        defer {
+            if app.isRunning { app.terminate() }
+            let stopped = XCTNSPredicateExpectation(
+                predicate: NSPredicate { _, _ in !app.isRunning }, object: nil
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [stopped], timeout: 5), .completed)
+        }
         let output = root.appendingPathComponent("result.txt")
         _ = FileManager.default.createFile(atPath: output.path, contents: nil)
         let handle = try FileHandle(forWritingTo: output)
