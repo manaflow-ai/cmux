@@ -270,10 +270,12 @@ def attested_producer_revision(api, run, revision, product_inputs):
         if actual_workflow.get("e2e_recipe") != product_inputs.get("e2e_recipe"):
             return False
         return github_product_identity(api, revision) == product_inputs
-    if revision == head:
-        return True
     if run.get("event") != "pull_request":
-        return False
+        # Checked against these product inputs before download.
+        return revision == head
+    if revision == head:
+        # `select` defers a pull request producer's head check to here.
+        return github_product_identity(api, revision) == product_inputs
     parents = api.get(f"git/commits/{revision}").get("parents")
     if not isinstance(parents, list) or len(parents) != 2:
         return False
@@ -348,8 +350,15 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         # `head_sha` names the workflow definition's ref and attests nothing
         # about the checkout. The binding that matters is the same either way:
         # the tree this job fingerprinted has to equal GitHub's immutable copy
-        # of the revision it claims, which is checked directly below. A locally
-        # modified checkout still cannot adopt anything.
+        # of the revision it checked out, which is checked directly below. A
+        # locally modified checkout still cannot adopt anything.
+        #
+        # That revision is the checkout, not `head_sha`. A pull request run
+        # checks out the merge of its head into the base, and once the base
+        # has changed product inputs the head alone fingerprints differently,
+        # so comparing against the head refused every pull request that was
+        # behind its base. `attested_checkout` has already bound the merge to
+        # the attested head.
         dispatched = run.get("event") == "workflow_dispatch"
         head = current_revision if dispatched else run.get("head_sha")
         if not isinstance(head, str) or not re.fullmatch(r"[0-9a-f]{6,40}", head):
@@ -358,7 +367,7 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if not dispatched and not attested_checkout(run, current_revision):
             record_reason(reasons, "consumer_revision_mismatch")
             return None
-        if github_product_identity(api, head) != value["product_inputs"]:
+        if github_product_identity(api, current_revision) != value["product_inputs"]:
             record_reason(reasons, "consumer_product_inputs_mismatch")
             return None
         return run
@@ -456,7 +465,14 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 if actual_workflow.get("e2e_recipe") != value["product_inputs"].get("e2e_recipe"):
                     record_reason(reasons, "producer_recipe_mismatch")
                     continue
-            elif github_product_identity(api, head) != value["product_inputs"]:
+            elif (run.get("event") != "pull_request"
+                    and github_product_identity(api, head) != value["product_inputs"]):
+                # A pull request producer compiled the merge of its head into
+                # the base, which this listing does not name, so its head alone
+                # can differ while the merge it sealed matches exactly. Its
+                # sealed merge is re-fingerprinted from GitHub after download,
+                # in `attested_producer_revision`; every other producer
+                # compiled its head and is rejected here, before download.
                 record_reason(reasons, "producer_product_inputs_mismatch")
                 continue
             jobs = []
