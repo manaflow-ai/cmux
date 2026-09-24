@@ -12,6 +12,12 @@ name: Seed DerivedData
 #
 # Separate from ci.yml on purpose: nothing waits on it. A pull request whose
 # base has no seed yet adopts the newest one, and a miss is today's cold build.
+#
+# A push to main also publishes the app-host test product this build compiled,
+# under the artifact name compile admission publishes it under. A pull request
+# whose product inputs equal main's then adopts it in "Reuse exact compatible
+# compiled products" instead of compiling (scripts/ci/reuse_app_host_products.py
+# trusts only this workflow, on a main push, in this repository).
 
 on:
   push:
@@ -34,12 +40,12 @@ env:
 # push replaces that pending run, so the published seed is never more than
 # about one build behind main. tests/test_seed_derived_data.py pins this.
 concurrency:
-  group: seed-derived-data-${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+  group: seed-derived-data-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
   cancel-in-progress: false
 
 jobs:
   decide:
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     outputs:
       build: ${{ steps.inputs.outputs.build }}
@@ -77,7 +83,11 @@ jobs:
     if: needs.decide.outputs.build == 'true'
     # Must match pull-request compile admission: the seed key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
-    runs-on: ${{ vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    # The 12 vCPU macOS 26 pool runs the same image and Xcode as the 6 vCPU
+    # one admission uses, but pull requests do not queue on it: on 2026-09-24
+    # seeds waited 19-25 minutes for a 6 vCPU runner while 12 vCPU jobs
+    # started in 15 s. Neither key names the runner size.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 60
     env:
@@ -123,6 +133,13 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
+
+      # The same contract compile admission computes: product inputs, Xcode,
+      # SDK, host major, tool versions and the canonical build location. It
+      # reads rustc and cargo, so it follows the install above.
+      - name: Identify reusable compiled products
+        id: product-key
+        run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
       - name: Cache Swift packages
         uses: ./.github/actions/cache-restore
@@ -191,6 +208,63 @@ jobs:
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
           key: ${{ steps.key.outputs.prefix }}${{ github.sha }}
 
+      # Publish the product exactly as ci-macos.yml compile admission does
+      # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
+      # rewrite Build/Products, so these follow "Save seed". Only a main push
+      # is a producer pull requests trust; a dispatch would publish a product
+      # nothing adopts. A failure here costs pull requests the adoption, never
+      # the seed.
+      - name: Stage compiled package frameworks
+        id: stage-products
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          products="$CMUX_COMPILE_ADMISSION_DERIVED_DATA/Build/Products/Debug"
+          stable="/private/tmp/cmux-app-host-package-frameworks"
+          mkdir -p "$stable"
+          framework_source="$(find "$products" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit 2>/dev/null || true)"
+          test -n "$framework_source"
+          framework_root="$(dirname "$framework_source")"
+          rsync -aL "$framework_root/" "$stable/"
+          if [ -L "$products/PackageFrameworks" ]; then
+            rm "$products/PackageFrameworks"
+          fi
+          mkdir -p "$products/PackageFrameworks"
+          rsync -aL "$framework_root/" "$products/PackageFrameworks/"
+          test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct.framework/Versions/A/CmuxAgentJournal_27B6EF8727F6C277_PackageProduct"
+
+      - name: Package compiled app-host test product
+        id: package-products
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.stage-products.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Fresh manifests embed the canonical checkout. Stamp that producer
+          # before relocating into this job's workspace, as admission does.
+          (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")
+          python3 scripts/ci/app_host_test_products.py restore "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          python3 scripts/ci/app_host_test_products.py stamp "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          archive="$RUNNER_TEMP/app-host-products.tar.gz"
+          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" Build/Products | gzip -1 > "$archive"
+          echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
+      # Three days, as admission keeps its own: a pull request only matches
+      # the newest main whose product inputs it shares, so an older product is
+      # useful only until main's inputs change again.
+      - name: Upload compiled app-host test product
+        id: upload-products
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.package-products.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-products.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
       - name: Summarize
         if: always()
         env:
@@ -200,6 +274,8 @@ jobs:
           CHANGED: ${{ steps.adopt.outputs.changed_inputs }}
           BUILD_SECONDS: ${{ steps.build.outputs.seconds }}
           SAVED: ${{ steps.bound.outputs.save }}
+          PRODUCT_KEY: ${{ steps.product-key.outputs.key }}
+          PRODUCT_UPLOAD: ${{ steps.upload-products.outcome }}
         run: |
           {
             echo "### DerivedData seed for \`${GITHUB_SHA:0:10}\`"
@@ -210,4 +286,5 @@ jobs:
             fi
             echo "- build: ${BUILD_SECONDS:-?} s"
             echo "- saved: ${SAVED:-false}"
+            echo "- app-host product \`${PRODUCT_KEY:-?}\`: ${PRODUCT_UPLOAD:-skipped}"
           } >> "$GITHUB_STEP_SUMMARY"

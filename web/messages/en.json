@@ -2516,6 +2516,10 @@
       "schemaDescriptions": {
         "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
         "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
+        "packs": {
+          "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
+          "path": "Local file or directory path, relative to this configuration file unless absolute."
+        },
         "computerUse": {
           "description": "Local computer-use tools and menu-bar visibility.",
           "enabled": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",
@@ -2552,6 +2556,7 @@
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
           "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "DEBUG-only display name used when opening new windows. An empty value uses the system default.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",

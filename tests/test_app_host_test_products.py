@@ -96,6 +96,14 @@ class TestProductHandoff(unittest.TestCase):
         self.transfer()
         module.restore(self.consumer, {**self.identity, "xcode": "Xcode 26.6\nBuild version 17F113"})
 
+    def test_rejects_an_xcode_older_than_the_producers(self):
+        # Xcode 26.3's Testing.framework lacks symbols a 26.6-linked bundle
+        # imports; refuse with both versions named instead of a dlopen crash.
+        self.identity["xcode"] = "Xcode 26.6\nBuild version 17F113"
+        self.transfer()
+        with self.assertRaisesRegex(ValueError, r"xcode.*26\.6.*26\.3"):
+            module.restore(self.consumer, {**self.identity, "xcode": "Xcode 26.3\nBuild version 17C529"})
+
     def test_rejects_another_major_xcode(self):
         self.transfer()
         with self.assertRaisesRegex(ValueError, "xcode"):

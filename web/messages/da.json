@@ -1273,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux-konfiguration. Den globale cmux.json understøtter appindstillinger, genveje, handlinger, brugerdefinerede kommandoer, notifikations-hooks og arbejdsområdelayouts. En projektspecifik .cmux/cmux.json eller cmux.json understøtter handlinger, kommandoer, notifikations-hooks, kobling af UI-handlinger, tilsidesættelser for Agent Chat, vault-agenter, tilsidesættelser for arbejdsområdegrupper samt konfiguration af opstart og knapper for arbejdsområder.",
         "rightSidebar": "Ældre og udvidelsesejet konfiguration af højre sidepanel, som bevares i cmux.json.",
+        "packs": {
+          "description": "Lokale cmux-pakkefiler eller mapper, der indlæses før denne konfiguration. Mapper peger på cmux.pack.json. Brug en stistreng eller et objekt med et path-felt.",
+          "path": "Lokal fil- eller mappesti, relativ til denne konfigurationsfil, medmindre den er absolut."
+        },
         "paneBorderColor": "Tilsidesæt farven på cmux-rudeadskilleren i opdelte arbejdsområder. Dette påvirker cmux-rudegrænser, ikke Ghosttys interne opdelinger.",
         "activePaneBorderColor": "Valgfri kantfarve, der tegnes omkring den fokuserede cmux-rude i opdelte arbejdsområder.",
         "automation": {
@@ -1284,6 +1288,7 @@
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
           "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Skærmnavn, der kun bruges i DEBUG-builds, når nye vinduer åbnes. En tom værdi bruger systemets standard.",
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",

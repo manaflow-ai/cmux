@@ -5960,6 +5960,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle { _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true) }
+        // The restored agent's resume state may have just changed (for
+        // example, completed when the shell prompt returned).
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
 #if DEBUG
         cmuxDebugLog(
             "surface.shellState workspace=\(id.uuidString.prefix(5)) " +
@@ -6560,9 +6563,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         recomputeListeningPorts()
     }
 
+    /// Panel ids in on-screen order, read from pane order only.
+    ///
+    /// The sidebar row projection calls this from a SwiftUI `body`, so it must
+    /// not touch split geometry: `treeSnapshot()` reads the Bonsplit container
+    /// frame to build pixel rects, which subscribed the sidebar body to
+    /// `SplitViewController.containerFrame`. Revealing the sidebar resizes that
+    /// container, so every workspace row was projected a second time in the same
+    /// run-loop turn. `allPaneIds` walks the same depth-first first/second
+    /// recursion the tree snapshot reports, without reading a frame.
     func sidebarOrderedPanelIds() -> [UUID] {
+        let orderedPaneIds = bonsplitController.allPaneIds
         let paneTabs: [String: [UUID]] = Dictionary(
-            uniqueKeysWithValues: bonsplitController.allPaneIds.map { paneId in
+            uniqueKeysWithValues: orderedPaneIds.map { paneId in
                 let panelIds = bonsplitController
                     .tabs(inPane: paneId)
                     .compactMap { panelIdFromSurfaceId($0.id) }
@@ -6571,11 +6584,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
 
         let fallbackPanelIds = panels.keys.sorted { $0.uuidString < $1.uuidString }
-        let tree = bonsplitController.treeSnapshot()
-        return tree.orderedPanelIds(
-            paneTabs: paneTabs,
-            fallbackPanelIds: fallbackPanelIds
-        )
+        return SpatialPanelOrder(orderedPaneIds: orderedPaneIds.map { $0.id.uuidString })
+            .panelIds(
+                paneTabs: paneTabs,
+                fallbackPanelIds: fallbackPanelIds
+            )
     }
 
     func sidebarFinderDirectory() -> String? {
