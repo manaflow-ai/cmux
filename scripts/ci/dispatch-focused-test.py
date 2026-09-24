@@ -175,8 +175,12 @@ def cancellation_scope():
             signal.signal(signum, handler)
 
 
-def recent_dispatches() -> list[dict]:
-    """Recent dispatches of this workflow, or nothing when history is unreadable.
+def recent_dispatches(workflow_ref: str) -> list[dict]:
+    """Recent dispatches of this workflow from the definition on `workflow_ref`,
+    or nothing when history is unreadable.
+
+    Filtering on the server keeps the page to this definition's runs, so
+    dispatches from other refs cannot push them past the listing limit.
 
     One listing answers every pre-dispatch question, for every selector in a
     batch. Asking per selector repeated the same request once per entry and
@@ -185,7 +189,8 @@ def recent_dispatches() -> list[dict]:
     try:
         payload = output(
             "gh", "run", "list", "--repo", REPO, "--workflow", WORKFLOW,
-            "--event", "workflow_dispatch", "--limit", str(PRIOR_ATTEMPT_LIMIT),
+            "--event", "workflow_dispatch", "--branch", workflow_ref,
+            "--limit", str(PRIOR_ATTEMPT_LIMIT),
             "--json", "databaseId,displayTitle,conclusion,status,url,headBranch",
             timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
         )
@@ -465,7 +470,7 @@ def main() -> int:
         # this filtered history.
         workflow_ref = args.workflow_ref or DEFAULT_WORKFLOW_REF
         history = [
-            run for run in recent_dispatches()
+            run for run in recent_dispatches(workflow_ref)
             if run.get("headBranch") == workflow_ref
         ]
         # Which pool this dispatch will actually land on. None means the

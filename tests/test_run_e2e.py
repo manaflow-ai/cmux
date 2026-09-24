@@ -466,6 +466,22 @@ class FocusedLauncherTests(unittest.TestCase):
                              LAUNCHER_PRIOR_RUNS=self._live(workflow_ref="ci/other-definition"))
         self.assertNotIn("reusing", result.stdout)
 
+    def test_history_is_filtered_by_workflow_definition_on_the_server(self):
+        # Dispatches from other refs must not push this definition's runs off
+        # the one page the guards read.
+        for extra, expected in (((), "main"), (("--workflow-ref", "ci/under-test"), "ci/under-test")):
+            with self.subTest(workflow_ref=expected):
+                (self.root / "calls.jsonl").unlink(missing_ok=True)
+                result = self.launch("cmuxTests/ExampleTests", *extra, LAUNCHER_PRIOR_RUNS="[]")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                guard_reads = [
+                    call for call in self.calls()
+                    if call[:2] == ["run", "list"] and any("conclusion" in arg for arg in call)
+                ]
+                self.assertEqual(len(guard_reads), 1, guard_reads)
+                branch = guard_reads[0].index("--branch")
+                self.assertEqual(guard_reads[0][branch + 1], expected)
+
     def test_a_run_without_a_dispatch_id_is_still_seen(self):
         # A run started from the GitHub UI shares the concurrency group and its
         # compile is just as real. Requiring the trailing "[" hid exactly the
