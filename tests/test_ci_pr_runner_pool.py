@@ -96,8 +96,8 @@ class PreferenceOrder(unittest.TestCase):
         # The macOS 15 pool has no seed, so it counts COLD_QUEUE_PENALTY more.
         self.assertEqual(choose(backlog(small=21, large=6, old=4)).runner, LARGE)
         self.assertEqual(choose(backlog(small=21, large=20, old=4)).runner, OLD)
-        self.assertIn("counting 12 more", choose(backlog(small=21, large=20, old=4)).reason)
-        self.assertIn("counting 12 more", choose(backlog(small=21, large=6, old=4)).reason)
+        self.assertIn("counting 4 more", choose(backlog(small=21, large=20, old=4)).reason)
+        self.assertIn("counting 4 more", choose(backlog(small=21, large=6, old=4)).reason)
         self.assertNotIn("counting", choose(backlog(small=21, large=6, old=9)).reason)
         # A threshold above the penalty still gives the cold pool no headroom.
         self.assertEqual(choose(backlog(small=20, large=20, old=0), max_queued="30").runner, LARGE)
@@ -121,12 +121,12 @@ class PreferenceOrder(unittest.TestCase):
     def test_runs_since_the_snapshot_spread_a_burst(self):
         # 12vcpu has 9 of its 10 slots idle (1 running), 6vcpu 26 has 6
         # queued, macOS 15 is full with nothing queued: pushes after a sweep
-        # fill 12vcpu's idle slots and queue there until it is as deep as
-        # 6vcpu 26, then alternate; macOS 15 waits for both to reach 12.
+        # fill 12vcpu's idle slots and queue there until macOS 15, which counts
+        # COLD_QUEUE_PENALTY (4) more, is shallower; then all three share it.
         snap = backlog(small=6, large=0, old=0)
         snap["pools"][OLD]["running"] = pool.POOL_CAPACITY
         picks = [choose(snap, routed=n).runner for n in range(30)]
-        self.assertEqual(picks, [LARGE] * 16 + [SMALL, LARGE] * 6 + [SMALL, OLD])
+        self.assertEqual(picks, [LARGE] * 14 + [OLD, LARGE] * 2 + [SMALL, OLD, LARGE] * 4)
         self.assertIn("replaying 4", choose(backlog(small=6), routed=4).reason)
 
     def test_idle_slots_absorb_recent_runs(self):
