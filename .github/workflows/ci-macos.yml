@@ -145,7 +145,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && ((github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' admission ')) && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     # A changed-suites run adds its tests after the compile: the same
     # 30-minute batch ceiling the separate worker had.
-    timeout-minutes: ${{ inputs.unit_in_admission == 'true' && 105 || 75 }}
+    timeout-minutes: 240
     permissions:
       contents: read
       actions: read
@@ -600,6 +600,27 @@ jobs:
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
           exit "$status"
+
+      # CANARY (do not merge): what one app edit costs cmuxTests, cache on/off.
+      - name: Canary probe cmuxTests incremental rebuilds
+        if: always() && steps.hosted-compile.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 150
+        run: |
+          scripts/ci/canary-cmuxtests-incremental.sh \
+            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS" \
+            cached uncached uncached-implicit
+          tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/canary-probe-logs.tgz" $(cd "$RUNNER_TEMP" && ls probe-*.txt)
+
+      - name: Canary upload probe logs
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-cmuxtests-probe-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/canary-probe-logs.tgz
+          retention-days: 5
+          if-no-files-found: warn
 
       # Adoption sets a per-user Xcode default. Only a build whose inputs were
       # just replayed should ignore inode changes, so a reused runner does not
