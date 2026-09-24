@@ -262,9 +262,14 @@ jobs:
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
       sha256: ${{ steps.package.outputs.sha256 }}
       product_contract: ${{ steps.product-key.outputs.key }}
+      xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      # Compile admission's pull-request pin. The DerivedData seed key hashes
+      # `xcodebuild -version`, so a different Xcode here can never adopt a
+      # seed, and the product contract hashes it too.
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       # Match the compile-admission contract so an E2E dispatch can adopt the
       # product a pull request already compiled for the same revision.
       # contract() hashes the Xcode and SDK that were selected, not the
@@ -686,6 +691,9 @@ jobs:
     timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
     env:
       CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      # The build job's pin, so this job selects the Xcode that linked the
+      # product it runs.
+      CMUX_CI_XCODE_APP: ${{ needs.build.outputs.xcode_app }}
       # The product is compiled with CMUX_CI_APP_HOST_ISOLATION_REQUIRED, so
       # the app host demands the prepared home and refuses to start without
       # it. ci-macos.yml feeds the shard from its test matrix; this lane runs
