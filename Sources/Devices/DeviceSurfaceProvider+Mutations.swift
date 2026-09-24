@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The mutation half of ``DeviceSurfaceProvider``: every verb the Cloud tree,

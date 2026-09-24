@@ -2930,22 +2930,17 @@ final class CMUXOpenCommandTests: XCTestCase {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
 
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
         if let stdinText, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(stdinText.utf8))
             stdinPipe.fileHandleForWriting.closeFile()
         }
 
-        let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+            if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
 
@@ -3011,14 +3006,9 @@ final class CMUXOpenCommandTests: XCTestCase {
     private func terminateProcess(_ process: Process) {
         guard process.isRunning else { return }
         process.terminate()
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .utility).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
-        if finished.wait(timeout: .now() + 1) == .timedOut, process.isRunning {
+        if waitForProcessExit(process, timeout: 1) == .timedOut, process.isRunning {
             kill(process.processIdentifier, SIGKILL)
-            _ = finished.wait(timeout: .now() + 1)
+            _ = waitForProcessExit(process, timeout: 1)
         }
     }
 

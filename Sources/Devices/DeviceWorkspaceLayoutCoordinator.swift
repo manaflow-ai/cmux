@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Orders local layout intents and projects the owning Mac's accepted snapshots.
