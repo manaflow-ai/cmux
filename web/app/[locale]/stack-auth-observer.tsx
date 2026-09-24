@@ -28,9 +28,9 @@ function StackAuthObserver() {
 
 /**
  * Tells the analytics identity tracker when the Hexclave session changes
- * without a navigation. Mount it only inside a route that already needs a
- * Hexclave provider. `useUser` throws when Hexclave is unreachable, even
- * with `or: "return-null"`, so the observer fails silently on its own.
+ * without a navigation. `useUser` throws when a Hexclave request fails, even
+ * with `or: "return-null"`, so the observer fails silently on its own
+ * instead of unmounting the page.
  */
 export function IsolatedStackAuthObserver() {
   return (

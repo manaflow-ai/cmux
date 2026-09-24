@@ -10,7 +10,6 @@ import {
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { isVaultEnabled } from "@/services/vault/config";
 import { IsolatedErrorBoundary } from "@/app/components/error-boundary";
-import { IsolatedStackAuthObserver } from "../stack-auth-observer";
 import { DashboardQueryProvider } from "./components/query-provider";
 import {
   DashboardAccountMenu,
@@ -35,7 +34,6 @@ export default function DashboardLayout({
   return (
     <StackProvider app={getStackServerApp()}>
       <StackTheme>
-        <IsolatedStackAuthObserver />
         <DashboardQueryProvider>
           <DashboardShell
             vaultEnabled={isVaultEnabled()}

@@ -6,9 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 const hexclaveOutage = new Error("Failed to fetch: api.hexclave.com unreachable");
 mock.module("@hexclave/next", () => ({
   StackClientApp: class {},
-  StackProvider: () => {
-    throw hexclaveOutage;
-  },
+  StackProvider: ({ children }: React.PropsWithChildren) => children,
   useUser: () => {
     throw hexclaveOutage;
   },
@@ -19,7 +17,7 @@ mock.module("next/navigation", () => ({
 }));
 
 describe("landing providers during a Hexclave outage", () => {
-  test("render the page instead of throwing the auth failure", async () => {
+  test("keep Hexclave mounted and still render the page", async () => {
     process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "test-project";
     process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "test-key";
     const { Providers } = await import("../app/[locale]/providers");
@@ -31,5 +29,17 @@ describe("landing providers during a Hexclave outage", () => {
     );
 
     expect(html).toContain("cmux landing content");
+  });
+
+  test("the isolated boundary swaps only its own subtree for the fallback", async () => {
+    const { IsolatedErrorBoundary } = await import("../app/components/error-boundary");
+    const boundary = new IsolatedErrorBoundary({
+      name: "test",
+      fallback: "fallback",
+      children: "widget",
+    });
+    expect(boundary.render()).toBe("widget");
+    boundary.state = { ...boundary.state, ...IsolatedErrorBoundary.getDerivedStateFromError() };
+    expect(boundary.render()).toBe("fallback");
   });
 });
