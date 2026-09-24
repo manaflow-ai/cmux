@@ -128,7 +128,7 @@ extension SetAutoTitleSocketTests {
             try fixture.expectParity("Agent after clear")
         }
     }
-    @Test("An unacknowledged user rename keeps layout/sidebar parity and rejects a racing auto result")
+    @Test("An unacknowledged user rename projects in the sidebar and rejects a racing auto result")
     func cloudPendingNameParity() async throws {
         try await withCloudNameFixture { fixture in
             let context = try #require(fixture.catalog.cloudAgentNameContext(workspaceID: fixture.workspace.id, panelID: fixture.panelID))
@@ -137,12 +137,12 @@ extension SetAutoTitleSocketTests {
                 for await _ in gate.stream { break }
             }
             #expect(fixture.workspace.setPanelCustomTitle(panelId: fixture.panelID, title: "Chosen name"))
-            try fixture.expectParity("terminal")
+            try fixture.expectParity("terminal", sidebarName: "Chosen name")
             let response = try await fixture.call("surface.sync_codex_native_title", extra: [
                 "title": "Racing agent", "cloud_name_context": try #require(context.wire)
             ])
             #expect(response["applied"] as? Bool == false)
-            try fixture.expectParity("terminal")
+            try fixture.expectParity("terminal", sidebarName: "Chosen name")
             gate.continuation.yield(())
             gate.continuation.finish()
             try await fixture.settle()
@@ -182,7 +182,8 @@ extension SetAutoTitleSocketTests {
             fixture.workspace.cloudVMBinding = nil
             #expect(fixture.manager.setCustomTitle(tabId: fixture.workspace.id, title: "machine: User's exact name"))
             #expect(fixture.workspace.cloudVMBinding?.remoteWorkspaceID == "a")
-            try fixture.expectParity("terminal", workspaceName: "Same workspace")
+            try fixture.expectParity("terminal", workspaceName: "Same workspace",
+                                     sidebarWorkspaceName: "machine: User's exact name")
             try await fixture.settle()
             try fixture.expectParity("terminal", workspaceName: "machine: User's exact name")
         }

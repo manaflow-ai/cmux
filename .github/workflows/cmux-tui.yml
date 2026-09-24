@@ -36,7 +36,7 @@ permissions:
 jobs:
   validate-inputs:
     name: validate exact commit request
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Validate dispatch inputs
@@ -82,7 +82,7 @@ jobs:
   msrv-check:
     name: Rust MSRV (1.91)
     needs: validate-inputs
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -116,7 +116,7 @@ jobs:
   web-frontend:
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -161,9 +161,9 @@ jobs:
       matrix:
         include:
           - os: macos
-            runner: blacksmith-6vcpu-macos-15
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
-            runner: blacksmith-4vcpu-ubuntu-2404
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -220,7 +220,7 @@ jobs:
     name: valgrind-leak-check (startup)
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Full behavior stays in the normal macOS and Linux suites. Valgrind owns
     # the bounded startup parsers and terminal replay state only.
     timeout-minutes: 40
@@ -406,7 +406,7 @@ jobs:
     name: valgrind-leak-check
     if: always() && inputs.mode == 'full'
     needs: valgrind-leak-check-shard
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 2
     steps:
       - name: Require every Valgrind shard
@@ -424,9 +424,9 @@ jobs:
       matrix:
         include:
           - os: macos
-            runner: blacksmith-6vcpu-macos-15
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
-            runner: blacksmith-4vcpu-ubuntu-2404
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -465,6 +465,19 @@ jobs:
 
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
+
+      - name: cargo fmt
+        id: rustfmt-check
+        working-directory: cmux-tui
+        run: cargo fmt --check
+
+      - name: userland agent plugin package tests
+        working-directory: cmux-tui
+        # The reference plugin is an independent Cargo workspace, so the
+        # daemon workspace test does not compile it. Keep this explicit check
+        # in both hosted OS lanes.
+        run: cargo test --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
+
 
       - name: focused Linux journal process-fence test
         if: inputs.mode == 'focused' && runner.os == 'Linux'
@@ -650,9 +663,9 @@ jobs:
       matrix:
         include:
           - os: macos
-            runner: blacksmith-6vcpu-macos-15
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
-            runner: blacksmith-4vcpu-ubuntu-2404
+            runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -720,7 +733,7 @@ jobs:
   bindings-e2e:
     needs: validate-inputs
     if: inputs.mode == 'full'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -819,10 +832,11 @@ jobs:
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
-      build_cloudflare_relay: false
+      # Build the exact reference plugin beside the daemon artifact.
+      build_agent_plugin: true
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
-      macos_runner: blacksmith-6vcpu-macos-15
-      linux_runner: blacksmith-4vcpu-ubuntu-2404
+      macos_runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+      linux_runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
       windows_runner: windows-latest
       checkout_ref: ${{ inputs.commit }}
 
@@ -840,7 +854,7 @@ jobs:
       - cdp-browser-smoke
       - bindings-e2e
       - build-artifacts
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     env:
       MODE: ${{ inputs.mode }}

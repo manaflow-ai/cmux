@@ -12,6 +12,16 @@ final class WorkspaceCloudBindingState {
         }
     }
     private(set) var revision: UInt64 = 0
+    private(set) var projectedResources: [UUID: SurfaceResourceID] = [:]
+    private(set) var machineNames: [String: String] = [:]
+
+    /// An immutable projection of catalog ownership and names, delivered above the sidebar list.
+    func updateCatalogMetadata(resources: [UUID: SurfaceResourceID], machineNames: [String: String]) {
+        guard projectedResources != resources || self.machineNames != machineNames else { return }
+        projectedResources = resources
+        self.machineNames = machineNames
+        cloudBindingDidChange()
+    }
     @ObservationIgnored
     private var observers: [UUID: AsyncStream<UInt64>.Continuation] = [:]
 

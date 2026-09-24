@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "検出されたハーネス設定",
+    "selectionNotice": "プロバイダーを選択しても、これらのハーネスは起動または有効化されません。",
+    "selectProvider": "{provider}を選択",
+    "foundPath": "{path}を検出",
+    "foundCommand": "コマンド{command}を検出",
+    "installed": "プロバイダーはインストール済みです",
+    "missing": "プロバイダーはインストールされていません",
+    "install": "次でインストール: {command}",
+    "benefitPi": "圧縮、メモリ、プロバイダールーティング",
+    "benefitOpenagent": "OpenCode向けの並列スペシャリストと復旧",
+    "benefitClaude": "Claude Code向けのチームと検証",
+    "benefitSuperpowers": "計画、TDD、サブエージェント、レビュー"
+  },
   "coderouterAuth": {
     "title": "認証を受け取りました",
     "description": "ターミナルに戻ってセットアップを完了してください。"
@@ -136,6 +150,17 @@
     "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM のセットアップを完了できませんでした",
+      "reason": "Cloud VM のゲストセットアップが完了しませんでした。",
+      "message": "cmux は Cloud VM のセットアップを完了できませんでした。",
+      "action": "操作を再試行してください。問題が続く場合はサポートにお問い合わせください。"
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM のクリーンアップが保留中です",
+      "message": "Cloud VM のセットアップに失敗し、クリーンアップがまだ完了していません。",
+      "action": "別のマシンを作成する前に、トレース ID を添えてサポートにお問い合わせください。"
+    },
     "artifactUnavailable": {
       "title": "Cloud VM のセットアップを利用できません",
       "message": "Cloud VM のセットアップを一時的に利用できません。",
@@ -172,6 +197,11 @@
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
     },
+    "displayName": {
+      "title": "マシン名が無効です",
+      "message": "マシン名は {maxLength} 文字以内の表示可能なテキストにしてください。",
+      "action": "制御文字を含まない短い名前を使うか、空にして名前をクリアしてください。"
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB のマシンには cmux {plan} が必要です。現在のプランの上限は {max} GiB です。",
@@ -184,8 +214,7 @@
     "memoryUnavailable": {
       "message": "このマシンサイズは現在利用できません。{max} GiB 以下を選択してください。",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go では実行中の VM を含めて 2 台まで保存できます。",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -195,7 +224,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go は 2 vCPU、4 GiB RAM、16 GiB ディスクに対応しています。",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -283,6 +313,7 @@
   "authError": {
     "emailUnverifiedTitle": "続行するにはメールアドレスを確認してください",
     "emailUnverifiedBody": "最初に使用した方法でサインインし、このサインイン方法を使う前にメールアドレスを確認してください。",
+    "signupPendingBody": "すでにアカウントをお持ちの場合は、以前に使用した方法でサインインしてください。新しくアカウントを作成した場合は、サインインする前にメールアドレスを確認してください。",
     "genericTitle": "サインインを完了できませんでした",
     "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
     "backToSignIn": "サインインに戻る"
@@ -317,12 +348,12 @@
       "vaultSessions": "セッション",
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概要",
-      "iosGroup": "iOS",
+      "remoteControlGroup": "Remote control",
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH デバイス"
+      "mobileDevices": "モバイルデバイス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -459,7 +490,34 @@
       "cancelAction": "キャンセル",
       "shareWithTeam": "チームと共有",
       "makePrivate": "非公開にする",
-      "privateImportHint": "新しいアカウントは非公開です。共有すると、このチームの Cloud VM で利用できます。"
+      "privateImportHint": "新しいアカウントは非公開です。共有すると、このチームの Cloud VM で利用できます。",
+      "apiKeysTitle": "APIキー",
+      "apiKeysDescription": "スクリプトやエージェント用の長期キーを作成できます。秘密鍵は一度だけ表示されます。",
+      "apiKeysCount": "{count, plural, one {# 個のキー} other {# 個のキー}}",
+      "apiKeysLoading": "APIキーを読み込んでいます…",
+      "apiKeysLoadError": "APIキーを読み込めませんでした。しばらくしてから再試行してください。",
+      "apiKeysRetry": "再試行",
+      "apiKeysEmptyBody": "APIキーはまだありません。CodeRouterクライアント用に作成してください。",
+      "apiKeyPrefixColumn": "キー",
+      "apiKeyStatusColumn": "状態",
+      "apiKeySecretTitle": "今すぐこのキーをコピー",
+      "apiKeySecretBody": "この秘密鍵は再表示されません。",
+      "apiKeyCopy": "APIキーをコピー",
+      "apiKeyCopied": "コピーしました",
+      "apiKeyCreatedAt": "作成 {at}",
+      "apiKeyLastUsed": "最終使用 {at}",
+      "apiKeyRevoked": "失効",
+      "apiKeyLabelPlaceholder": "例: CI または本番",
+      "createApiKeyAction": "APIキーを作成",
+      "creatingApiKeyAction": "作成中",
+      "apiKeyCreateError": "APIキーを作成できませんでした。",
+      "revokeApiKeyAction": "失効させる",
+      "revokingApiKeyAction": "失効中",
+      "apiKeyRevokeError": "APIキーを失効できませんでした。",
+      "revokeApiKeyConfirmTitle": "このAPIキーを失効させますか？",
+      "revokeApiKeyConfirmBody": "このキーを使うクライアントは直ちに認証できなくなります。",
+      "apiKeyUsageDetail": "過去30日間: {completions} 回の完了 · {tokens} トークン ({input} 入力 / {output} 出力) · API換算 {value}",
+      "apiKeyUsageUnavailable": "使用状況を取得できません"
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -550,7 +608,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 で、マシンごとに最大 64 GB RAM を利用できます。月払いのみです。"
+        "upsell": "Max は月額 $200 の月払いで、最大 50 台の Cloud VM が 64 GB RAM と 16 vCPU を共有します。"
       }
     },
     "testflight": {
@@ -597,23 +655,34 @@
         "leave": "TestFlightから退出"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
-      "team": "Team",
-      "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
-      "mutationError": "The device change could not be completed.",
-      "revoke": "Revoke access",
-      "deviceId": "Device",
-      "revision": "Revision",
-      "status": "Status",
-      "active": "Active",
-      "revoked": "Revoked",
-      "relaySettings": "Relay settings",
-      "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+    "mobileDevices": {
+      "title": "モバイルデバイス",
+      "description": "接続済みのコンピュータ、スマートフォン、タブレットへのアクセスを管理します。",
+      "team": "チーム",
+      "teamSwitchError": "チームを切り替えられませんでした。もう一度お試しください。",
+      "loading": "デバイスを読み込んでいます…",
+      "empty": "このチームには登録済みのデバイスがありません。",
+      "unavailable": "デバイスを読み込めませんでした。ページを更新してもう一度お試しください。",
+      "retry": "もう一度試す",
+      "mutationError": "デバイスの変更を完了できませんでした。",
+      "revoke": "アクセスを取り消す",
+      "deviceId": "デバイス",
+      "revision": "リビジョン",
+      "status": "ステータス",
+      "active": "有効",
+      "revoked": "取り消し済み",
+      "relaySettings": "リレー設定",
+      "relaySettingsDescription": "このチームで使用するリレーサーバーを選択します。1 行に 1 つ URL を入力してください。",
+      "saveRelaySettings": "リレー設定を保存",
+      "eyebrow": "クラウド / デバイス",
+      "scopeActive": "このチームを表示中",
+      "emptyTitle": "接続済みのデバイスはまだありません",
+      "emptyDescription": "cmuxデバイスをこのチームとペアリングすると、プラットフォーム、バージョン、アクセス管理がここに表示されます。",
+      "revoking": "取り消し中…",
+      "registeredDevices": "登録済みデバイス",
+      "activeDevices": "有効なデバイス",
+      "directoryRevision": "一覧のリビジョン",
+      "savingRelaySettings": "保存中…"
     }
   },
   "vault": {
@@ -919,8 +988,8 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "マシンごとに最大 64 GB RAM",
-        "Pro のすべて: 50 台の Cloud VM、無制限のワークスペース、iOS アプリ"
+        "最大 50 台の Cloud VM で 64 GB RAM と 16 vCPU を共有",
+        "無制限のワークスペースと iOS アプリ"
       ]
     },
     "team": {
@@ -1028,7 +1097,7 @@
           "label": "すべての Cloud VM で共有するリソース",
           "free": "false",
           "pro": "24 GB RAM と 6 vCPUをすべての VM で共有",
-          "max": "各 VM に 64 GB RAM と 16 vCPU",
+          "max": "すべての VM で 64 GB RAM と 16 vCPU を共有",
           "team": "ユーザーあたり 24 GB RAM と 6 vCPUを、そのユーザーの VM で共有",
           "enterprise": "カスタム",
           "go": "2 vCPU、4 GiB RAM、16 GiB ディスク"
@@ -1140,7 +1209,7 @@
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、32 GB または 64 GB RAM の Cloud VM を利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
+          "a": "Max は月払いで $200/月です。最大 50 台の Cloud VM で合計 64 GB RAM と 16 vCPU を共有します。Pro のすべてを含み、この共有リソースの範囲内で 32 GB と 64 GB のマシンを利用できます。Pro、Team、Free のマシンは最大 24 GB RAM です。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -1922,6 +1991,54 @@
     }
   },
   "docs": {
+    "iosSetup": {
+      "title": "iPhone・iPad で cmux を設定する",
+      "intro": "iOS 版 cmux は Mac で動作する cmux に接続します。シェルとエージェントは Mac で実行を続け、スマートフォンやタブレットからワークスペースを表示・操作できます。",
+      "checklistTitle": "始める前に",
+      "checklist1": "Mac に最新版の cmux をインストールし、ワークスペースを 1 つ以上開いた状態で起動しておきます。iOS 側で新しい Mac 版が必要と表示されたら、接続先の cmux アプリを更新してください。",
+      "checklist2": "iPhone または iPad に cmux をインストールします。ベータ版の場合は TestFlight の招待を受け入れ、TestFlight から cmux BETA をインストールします。",
+      "checklist3": "両方の端末をインターネットに接続し、同じ cmux アカウントを使います。チームを利用している場合は、両方で同じチームを選択します。",
+      "downloadMac": "Mac 版 cmux をダウンロード",
+      "downloadIOS": "iOS 版 cmux を入手",
+      "macTitle": "1. Mac でペアリングを有効にする",
+      "mac1": "Mac で cmux を開き、cmux アカウントにログインします。",
+      "mac2": "cmux の設定で「モバイル」を選び、「iOS ペアリングを有効にする」をオンにします。スマートフォンから使いたい Mac 上の各 cmux アプリで設定してください。",
+      "mac3": "cmux を起動したまま、Mac をスリープさせずに保ちます。Mac がスリープ、シャットダウン、または切断されると、スマートフォンからターミナルに接続できません。",
+      "pairingNote": "ペアリングは初期状態ではオフです。オフの間、その Mac は iOS に表示されません。ログインするだけではペアリングは有効になりません。",
+      "phoneTitle": "2. iOS からログインして接続する",
+      "phone1": "iPhone または iPad で cmux を開き、Mac と同じ cmux アカウントでログインします。複数のアカウントを持っている場合は、両方のメールアドレスを確認してください。",
+      "phone2": "アプリの案内に従います。「通知を有効にする」を選ぶか、「後で」を選んで後から設定します。ペアリングのページで、Mac の iOS ペアリングを有効にしたことを確認します。",
+      "phone3": "「自動接続」を選び、「自分の Mac を確認」をタップします。同じアカウントにログインしている対応 Mac が検出されます。自動接続に Tailscale のインストールは不要です。",
+      "phone4": "Mac が接続されたら「ワークスペースを開く」をタップします。ワークスペースとターミナルを選ぶと、出力の表示や入力ができます。上部の「すべてのコンピュータ」で接続先を切り替えられます。",
+      "permissionsNote": "iOS から求められた場合は、ローカルネットワークへのアクセスを許可してください。以前拒否した場合は、iPhone・iPad の設定アプリで cmux を開き、ローカルネットワークを有効にしてから cmux に戻り、再試行します。",
+      "tailscaleTitle": "任意: Tailscale のみで接続する",
+      "tailscale1": "Mac と iPhone・iPad に Tailscale をインストールし、同じ Tailscale ネットワークにログインします。両方で Tailscale が接続されていることを確認します。",
+      "tailscale2": "cmux の設定 > モバイルで iOS ペアリングを有効にしておきます。iOS の接続方法で「Tailscale のみ」を選び、「ペアリングコードをスキャン」を選択します。",
+      "tailscale3": "Mac の cmux で Mobile Connect を開き、スマートフォンでペアリングコードを読み取ります。求められたらカメラへのアクセスを許可し、画面の案内に従います。",
+      "tailscale4": "このモードでは、Wi-Fi からモバイル通信に切り替える場合も含め、両方の端末で Tailscale を接続したままにします。Tailscale のアクセスルールで、スマートフォンから Mac への接続を許可する必要があります。",
+      "notificationsTitle": "3. エージェント通知を有効にする",
+      "notifications1": "アプリの案内で「通知を有効にする」をタップし、iOS の確認画面で許可します。スキップまたは拒否した場合は、iOS の設定 > 通知 > cmux で「通知を許可」を有効にします。",
+      "notifications2": "両方の端末で cmux の通知設定を確認し、転送設定が表示される場合は有効にします。新しいエージェント通知を送信できるよう、Mac を起動・接続したままにします。",
+      "notifications3": "設定済みのコーディングエージェントがあるワークスペースで通知を発生させます。cmux の通知タブとスマートフォンへの配信を確認します。集中モードや通知の要約により、通知が遅延または消音される場合があります。",
+      "notificationsLink": "ターミナルとエージェントの通知を設定する",
+      "verifyTitle": "4. 接続を確認する",
+      "verify1": "スマートフォンからターミナルを開き、pwd などの安全なコマンドを実行します。スマートフォンと Mac の同じワークスペースに出力が表示されることを確認します。",
+      "verify2": "別のワークスペースに切り替えてから戻ります。外出先で使う予定なら、Mac から離れる前にモバイル通信でも試してください。",
+      "verify3": "リモートアクセスには Mac を電源に接続し、スリープさせずに保ちます。設定中にスリープ防止の選択肢が表示された場合は、Mac を接続可能にしておくために利用できます。",
+      "troubleshootTitle": "ワークスペースが表示されない場合",
+      "troubleshootIntro": "設定を修正したらワークスペースに戻り、「再試行」をタップします。保存済みの Mac への再接続、またはワークスペース一覧とアカウントに保存された接続情報の更新を行います。",
+      "troubleshootPairingTitle": "Mac が見つからない",
+      "troubleshootPairing": "接続したい Mac アプリの設定 > モバイルで iOS ペアリングが有効か確認します。両方で同じ cmux アカウントとチームを選び、Mac アプリを起動したままにしてください。「コンピュータ」ボタンで利用可能な Mac を確認し、非表示にしていないか調べます。",
+      "troubleshootVersionTitle": "新しい Mac アプリを求められる",
+      "troubleshootVersion": "Mac の cmux を更新し、そのアプリを終了して開き直します。複数の cmux バージョンを使っている場合は、更新したものをスマートフォンで選択してください。iOS アプリに表示された最低バージョンに従います。",
+      "troubleshootNetworkTitle": "Mac は表示されるが接続できない",
+      "troubleshootNetwork": "Mac をスリープから復帰させ、両方のインターネット接続を確認します。求められた場合は iOS のローカルネットワークアクセスを許可します。「Tailscale のみ」では、両方が同じネットワークに接続し、アクセスルールが通信を許可していることを確認してから再試行します。",
+      "troubleshootEmptyTitle": "接続できるのに一覧が空",
+      "troubleshootEmpty": "Mac の cmux でワークスペースを作成するか開きます。スマートフォンで「すべてのコンピュータ」を選び、検索やフィルターを解除します。一覧を下に引いて更新するか、空の画面で「再試行」をタップします。",
+      "helpTitle": "解決しない場合",
+      "helpBody": "Mac と iOS の cmux バージョン、接続方法、正確なエラー、コンピュータ一覧に Mac が表示されるかをお知らせください。パスワードやペアリングコードは含めないでください。",
+      "helpLink": "cmux サポートに問い合わせる"
+    },
     "computerUse": {
       "title": "cmux Computer Use",
       "metaTitle": "cmux Computer Use: AIエージェントでMacを自動操作",
@@ -1993,6 +2110,8 @@
       "booleanType": "Boolean",
       "browserKeyDesc": "すべての内蔵ブラウザ面を無効化します：ブラウザペインとタブ、ターミナルリンクのインターセプト、自動化・レイアウト・セッション復元からのブラウザ作成。ポリシーの有効化時には表示中のブラウザペインを閉じ、リンクはシステムのデフォルトブラウザで開きます。同じゲートを共有する WebKit ベースのローカルビューア（差分ビューア、エージェントチャット、アプリ内アップグレードページ）も利用できなくなり、Mac は iOS アプリへのブラウザ機能のアドバタイズを停止します。",
       "remoteKeyDesc": "Mac が cmux iOS アプリのリモート表示・操作ホストとして動作することを無効化します：Iroh ホストランタイム（ローカルネットワークへのアドバタイズを含む）、旧式 TCP ペアリングリスナー、接続受け入れ、デバイスペアリング。ポリシーの有効化時には接続中のフォン接続を閉じ、ペアリングのトラストブローカーは新規ペア許可の発行を拒否します。送信専用の通知転送、アプリのアップデート、ローカル自動化ソケット、Mac をクライアントとする SSH は影響を受けません。",
+      "deviceDiscoveryKeyDesc": "My Devices で他の Mac の検出を無効化します。この Mac への受信アクセスは独立しているため、DisableIncomingDeviceAccess、または広範なホスト禁止には DisableRemoteControl を使用します。強制ポリシーはローカルの検出設定に優先し、実行中にも適用されます。",
+      "incomingDeviceAccessKeyDesc": "この Mac が Mac や iOS からの受信セッションをアドバタイズまたは受け入れることを防ぎます。送信側の Mac 検出は利用できます。有効化時には受信中のセッションを閉じ、ホストの検出可能状態を撤回します。DisableRemoteControl と DisableIrohNetworking はより広範な禁止です。",
       "cloudKeyDesc": "cmux Cloud Machines と cmux 管理のプライベートネットワークアクセスを無効化します：Cloud サイドバータブ、設定、パレットと新規ワークスペースの項目、Cloud ワークスペースのセッション復元、すべての Cloud VM サービス呼び出し（作成、オープン、接続、exec、SSH、デスクトップ、ポート、公開）、および vm ソケット／CLI コマンドは管理ポリシーエラーでフェイルクローズします。アプリはプライベートネットワークトンネルの登録・開始・再接続を行いません。cmux vpn up はフェイルクローズし、cmux vpn status、down、revoke はクリーンアップ用に引き続き使用できます。実行中にポリシーが有効化されると、稼働中の Cloud ワークスペースとリンクは切断され、管理対象の VPN 構成は削除されます。ローカルターミナル、ローカル自動化、ユーザーが構成した通常の SSH には影響しません。",
       "remoteConnectionsKeyDesc": "cmux が作成するリモート接続を無効化します：SSH、Mosh、リモート tmux セッション、およびリモートレジストリを、すべての入口（コマンドパレット、メニュー、cmux CLI、ソケット自動化、セッション復元）で無効にします。Cloud Machines も同じ仕組みで接続するため、このキーはそれらもブロックします。この Mac 上のターミナルには影響せず、ユーザーがシェルに自分で入力した ssh は意図的に対象外です：この制御は cmux が作成する接続を管理するものであり、シェルを管理するものではありません。",
       "fileTransferKeyDesc": "cmux を介したファイル転送を無効にします: リモートターミナルへのドラッグ＆ドロップおよび貼り付け画像のアップロード（設定されたカスタムアップロードコマンドを含む）、SSH ファイルエクスプローラーのリモートファイルプレビュー、iOS アプリ経由の iPhone と Mac 間の転送（添付ファイルのアップロード、成果物や変更ファイルの取得、画像の貼り付け）、および cmux vm push / cmux vm pull。拒否されたドロップや貼り付けにはポリシーメッセージが表示されます。ローカルターミナルへのローカルドロップは引き続き動作し、ユーザー自身がシェルで入力した scp や rsync は意図的に対象外です。",
@@ -2318,6 +2437,8 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "root": "cmux の設定。グローバルな cmux.json では、アプリ設定、ショートカット、アクション、カスタムコマンド、通知フック、ワークスペースのレイアウトを設定できます。プロジェクトローカルの .cmux/cmux.json または cmux.json では、アクション、コマンド、通知フック、UI アクションの割り当て、Agent Chat の上書き、Vault エージェント、ワークスペースグループの上書き、ワークスペースの起動とボタンを設定できます。",
+        "rightSidebar": "cmux.json に保持される、従来の右サイドバー設定および拡張機能が所有する右サイドバー設定。",
         "computerUse": {
           "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
           "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",
@@ -2354,6 +2475,7 @@
         "app": {
           "confirmQuit": "cmux の終了前に確認を求めるタイミングを制御します。DEV ビルドではこの設定に関係なく常にすぐ終了します。従来の app.warnBeforeQuit も boolean フォールバックとして引き続き受け付けます。",
           "windowTitleTemplate": "任意の NSWindow タイトルテンプレートです。空欄のままなら、現在のディレクトリへのフォールバックを含む cmux 既存の既定タイトル動作を保ちます。対応するプレースホルダー: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'。",
+          "devWindowDisplay": "新しいウィンドウを開くときに DEBUG ビルドでのみ使用するディスプレイ名です。空の値ではシステムのデフォルトを使用します。",
           "warnBeforeQuit": "終了確認用の従来の boolean フォールバックです。新しい設定では app.confirmQuit を使ってください。",
           "warnBeforeClosingTabXButton": "タブの閉じるボタンでタブを閉じる前に確認を表示します。",
           "hideTabCloseButton": "ペインのタブバーでタブの閉じるボタンを非表示にします。",
@@ -2504,7 +2626,7 @@
       "plusButtonScreenshotAlt": "Worktree Agents、New Terminal、New Browser を表示している cmux プラスボタンの右クリックメニュー",
       "plusButtonScreenshotCaption": "右クリックメニューは ui.newWorkspace.contextMenu の順序に従います。",
       "newWorkspaceButton": "プラスボタンのカスタムアクション",
-      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。 未設定の場合、メニューには cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) が現在のショートカットとともに表示されます。クラウドの項目は Cloud Machines が有効な場合のみ表示されます。",
+      "newWorkspaceButtonDesc": "<action>ui.newWorkspace.action</action> でプラスボタンの動作を上書きします。<contextMenu>ui.newWorkspace.contextMenu</contextMenu> (または別名 <rightClick>rightClick</rightClick>) で、右クリックメニューの順序を定義します。メニュー項目には、アクション ID、アクションオブジェクト、または <separator>{ \"type\": \"separator\" }</separator> を指定できます。 未設定の場合、メニューには cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L) が現在のショートカットとともに表示されます。新しい Cloud ワークスペースは最後に選択した Cloud ワークスペースのマシンを使い、そのマシンが現在のアカウントやチームで利用できない、または無効な場合は右側サイドバーの先頭のマシンを使います。New Cloud Machine はマシンを明示的に作成します。クラウドの項目は Cloud Machines が有効な場合のみ表示されます。",
       "newWorkspaceWorktreeNote": "この例では、通常のプラスクリックで <action>worktree-agents</action> アクションを実行します。<commands>commands</commands> のワークスペースコマンドは、見えるセットアップ用ターミナルを使って最初に Git <worktree>worktree</worktree> を作成します。Codex と Claude は同時に起動し、ワークスペース固有の状態ファイルを待ってから、作成されたディレクトリへ cd して exec します。",
       "workspaceActions": "ワークスペースレイアウト",
       "workspaceActionsDesc": "ワークスペースレイアウトは <workspace>workspace</workspace> アクションとして保存され、ワークスペース定義をアクション内に直接埋め込むため、別途 <commands>commands</commands> エントリは不要です。ワークスペースと同じフィールドに加えて、最初のターミナルにそのターミナル自身のコマンドより先に送信されるブートストラップコマンド <setup>setup</setup> をサポートします:",
@@ -2565,6 +2687,7 @@
       "workspaceActionsDefaultDesc": "<defaultMenu>新規ワークスペースのデフォルト</defaultMenu> サブメニューで、通常の新規ワークスペース作成時に実行する保存済みワークスペースレイアウトを選べます。「なし」を選ぶと空のターミナルに戻ります。保存ダイアログにも <checkbox>新規ワークスペースのデフォルトとして使用</checkbox> チェックボックスがあります。設定キーは <action>ui.newWorkspace.action</action> です。プロジェクトローカルの <localConfig>.cmux/cmux.json</localConfig> の値は <globalConfig>~/.config/cmux/cmux.json</globalConfig> より優先されます。"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "ファイルエディタの行折り返しを切り替え (Option+Z).",
       "title": "キーボードショートカット",
       "description": "cmuxのデフォルトショートカット一覧です。cmux管理のショートカットはすべて設定画面または ~/.config/cmux/cmux.json で変更でき、2段階のコードにも対応しています。",
       "chordsTitle": "ショートカットコード",

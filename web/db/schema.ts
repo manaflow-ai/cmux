@@ -116,6 +116,36 @@ export const cloudVms = pgTable(
   ],
 );
 
+/** Durable Hive identity. VM status and provider addresses remain owned by cloud_vms. */
+export const cloudRuntimes = pgTable("cloud_runtimes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerTeamId: text("owner_team_id").notNull(),
+  /** Null until a host explicitly binds its authoritative journal lineage. */
+  journalSessionId: text("journal_session_id"),
+  /** M0 pins one runtime to one VM; deleting compute retains the runtime. */
+  machineId: uuid("machine_id").references(() => cloudVms.id, { onDelete: "set null" }),
+  placementGeneration: integer("placement_generation").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("cloud_runtimes_owner_idx").on(table.ownerTeamId),
+  uniqueIndex("cloud_runtimes_machine_unique").on(table.machineId),
+  uniqueIndex("cloud_runtimes_journal_unique").on(table.journalSessionId),
+  check("cloud_runtimes_generation_positive", sql`${table.placementGeneration} > 0`),
+  check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
+]);
+
+/** Provider-owned agent identities; multiple root/child threads can share a runtime. */
+export const cloudRuntimeAgentBindings = pgTable("cloud_runtime_agent_bindings", {
+  runtimeId: uuid("runtime_id").notNull().references(() => cloudRuntimes.id, { onDelete: "cascade" }),
+  codexThreadId: text("codex_thread_id").notNull(),
+  rootChatId: text("root_chat_id").notNull(),
+  parentChatId: text("parent_chat_id"),
+}, (table) => [
+  primaryKey({ columns: [table.runtimeId, table.codexThreadId] }),
+  check("cloud_runtime_agent_bindings_thread_nonempty", sql`length(trim(${table.codexThreadId})) > 0`),
+  check("cloud_runtime_agent_bindings_root_nonempty", sql`length(trim(${table.rootChatId})) > 0`),
+]);
+
 export const accountDeletionTombstones = pgTable(
   "account_deletion_tombstones",
   {

@@ -42,8 +42,7 @@ final class AppCompositionRoot {
     /// host view lifetime.
     let keyboardFrameTracker = MobileKeyboardFrameTracker()
     private var pushReachabilityTask: Task<Void, Never>? = nil
-    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
-    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    /// The legacy connection-method choice used only by onboarding and migration UI.
     let connectionMethodStore: MobileConnectionMethodStore
     /// One-time BETA migration eligibility, snapshotted before launch writes.
     let autoConnectMigrationStore: MobileAutoConnectMigrationStore
@@ -236,7 +235,7 @@ final class AppCompositionRoot {
             let signingOutAccountID = auth.coordinator.currentUser?.id
             let signingOutScope = auth.coordinator.authenticatedTeamScope
             return { accessToken, refreshToken in
-                PhonePushActiveAccountStore.clear()
+                PhonePushActiveAccountStore().clear()
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(
@@ -358,7 +357,7 @@ final class AppCompositionRoot {
     /// Bundle-owned build identity used in explicit diagnostic exports.
     /// Values come only from signed app metadata, never user input.
     static var diagnosticBuildStamp: String {
-        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
+        DiagnosticReport.buildStamp(infoDictionary: Bundle.main.infoDictionary)
     }
 
     private static var crashReportingEnabled: Bool {
@@ -396,6 +395,7 @@ final class AppCompositionRoot {
         switch phase {
         case .active:
             analytics.terminalLatencyReporter.setForeground(true)
+            analytics.terminalTraceReporter.setForeground(true)
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
             let isFullForegroundReturn = !hasForegrounded || wasBackgrounded
@@ -430,12 +430,14 @@ final class AppCompositionRoot {
             hasForegrounded = true
         case .inactive:
             analytics.terminalLatencyReporter.setForeground(false)
+            analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
             break
         case .background:
             analytics.terminalLatencyReporter.setForeground(false)
+            analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBackgrounded)
             wasBackgrounded = true
             Task { await irx.didEnterBackground() }

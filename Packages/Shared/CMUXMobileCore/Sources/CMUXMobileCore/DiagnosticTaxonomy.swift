@@ -590,6 +590,10 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     /// ``DiagnosticFailureKind/attachmentCountLimitReached`` and aggregate
     /// bytes for ``DiagnosticFailureKind/attachmentAggregateSizeLimitReached``.
     case taskAttachmentLimitReached = 270
+    /// A transient task model discovery failure scheduled another attempt.
+    case taskModelListRetryScheduled = 271
+    /// Task model discovery stopped because the owner cancelled or reached a permanent failure.
+    case taskModelListRetryStopped = 272
 
     // MARK: Agent chat (280-309)
     case chatOpened = 280
@@ -868,6 +872,10 @@ public enum DiagnosticAppEventKind: Int, Sendable, Codable, CaseIterable {
     case authBootstrapCompleted = 664
     /// A DEBUG launch attach route was admitted by the startup coordinator.
     case dogfoodAttachStarted = 665
+    /// A visible task model result records its provider, source, and total
+    /// effort count for root-cause queries. `b` is the provider,
+    /// `c` is the source, and `ms` is the effort count.
+    case taskModelListResultObserved = 666
 }
 
 /// The user's configured connection method, mirrored from the settings picker
@@ -876,6 +884,21 @@ public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
     case automatic = 0
     case tailscale = 1
     case direct = 2
+}
+
+/// Provider identifier carried by task model discovery diagnostics.
+public enum DiagnosticTaskModelProvider: Int, Sendable, Codable, CaseIterable {
+    case claude = 1
+    case codex = 2
+    case openCode = 3
+}
+
+/// Source identifier carried by task model discovery diagnostics.
+public enum DiagnosticTaskModelSource: Int, Sendable, Codable, CaseIterable {
+    case discovered = 1
+    case backend = 2
+    case augmented = 3
+    case fallback = 4
 }
 
 /// High-level lifecycle state for one phone-controlled Simulator stream.

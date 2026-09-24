@@ -16,6 +16,7 @@ workspace = true
 [workspace]
 resolver = "2"
 members = [
+    "crates/cmux-cloud-cli",
     "bindings/rust",
     "bindings/rust-sidebar",
     "crates/ghostty-vt-sys",
@@ -34,6 +35,7 @@ members = [
     "crates/cmux-wg",
 ]
 default-members = [
+    "crates/cmux-cloud-cli",
     "bindings/rust",
     "bindings/rust-sidebar",
     "crates/ghostty-vt-sys",

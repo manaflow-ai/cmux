@@ -136,7 +136,7 @@ struct SSHConfiguredRemoteCommandHostTests {
                 return processSupport.malformedRequestResponse(raw: line)
             }
             switch method {
-            case "workspace.remote.foreground_auth_ready":
+            case "workspace.remote.terminal_session_launching", "workspace.remote.terminal_session_end", "workspace.remote.foreground_auth_ready":
                 return processSupport.v2Response(id: id, ok: true, result: [
                     "workspace_id": workspaceID,
                     "workspace_ref": "workspace:9",
@@ -145,6 +145,9 @@ struct SSHConfiguredRemoteCommandHostTests {
             case "workspace.remote.pty_bridge":
                 return processSupport.v2Response(id: id, ok: true, result: [
                     "host": "127.0.0.1",
+                    // ssh-pty-attach rejects a daemon whose version it cannot
+                    // verify before it connects to the bridge (#12726).
+                    "daemon_version": BundledCLITestSupport.appVersion,
                     "port": bridge.port,
                     "token": "bridge-token",
                     "session_id": sessionID,
@@ -168,14 +171,17 @@ struct SSHConfiguredRemoteCommandHostTests {
             }
         }
 
+        var startupEnvironment = harness.startupEnvironment(
+            socketPath: socketPath,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID
+        )
+        startupEnvironment["CMUX_BUNDLED_CLI_PATH"] = cliPath
+        startupEnvironment["CMUX_TERMINAL_LIFECYCLE_ID"] = UUID().uuidString
         let startupResult = processSupport.runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", executableStartupCommand],
-            environment: harness.startupEnvironment(
-                socketPath: socketPath,
-                workspaceID: workspaceID,
-                surfaceID: surfaceID
-            ),
+            environment: startupEnvironment,
             timeout: 10
         )
 
@@ -486,10 +492,6 @@ struct SSHConfiguredRemoteCommandHostTests {
             Restore foreground auth must not forward the durable caller RemoteCommand \
             alongside cmux's override; command: \(command)
             """
-        )
-        #expect(
-            command.components(separatedBy: "/usr/bin/uuidgen").count - 1 == 2,
-            "The restored wrapper needs one persistent lifecycle UUID and one per-attempt readiness UUID: \(command)"
         )
         #expect(!command.contains("-$$"), Comment(rawValue: command))
         #expect(

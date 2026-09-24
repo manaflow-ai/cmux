@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 import Testing
@@ -12,18 +13,89 @@ import Testing
 @MainActor
 @Suite("Cloud leading identity geometry")
 struct CloudSidebarPinGeometryTests {
-    @Test("Pin reserves space before content at narrow and wide widths", arguments: [100.0, 320.0], [75, 100, 150, 200])
+    @Test("The first machine pin repaints the native cell before a refresh", arguments: [220.0, 380.0])
+    func machinePinRepaintsImmediately(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: width, height: 560))
+        let store = CloudMachinePinStore(defaults: fixture.defaults, scopeProvider: { "pin-render-test" })
+        let catalog = fixture.snapshot()
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
+            machinePinStore: store, catalogProvider: { catalog }
+        )
+        model.localWorkspacesProvider = { [] }
+        model.readCatalog()
+        let coordinator = fixture.coordinator
+        coordinator.machineActions.setPinned = { id, pinned in model.setMachinePinned(pinned, id: id) }
+        coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(
+            machines: model.sidebarMachines, snapshot: catalog, localWorkspaces: [], includeLocalMachine: false
+        ))
+        let outline = try #require(coordinator.outlineView)
+        let machine = try #require(coordinator.nodes.first)
+        outline.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+
+        // Capture the production cell as the outline presents it. Do not call
+        // configure or apply after the menu action: that would hide the delay.
+        func capture() throws -> NSBitmapImageRep {
+            fixture.container.layoutSubtreeIfNeeded()
+            let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
+            cell.layoutSubtreeIfNeeded()
+            let bitmap = try #require(cell.bitmapImageRepForCachingDisplay(in: cell.bounds))
+            cell.cacheDisplay(in: cell.bounds, to: bitmap)
+            return bitmap
+        }
+        func choose(_ pinned: Bool) throws {
+            let menu = try #require(coordinator.contextMenu(forRow: 0))
+            let title = pinned
+                ? String(localized: "machines.row.pin", defaultValue: "Pin Machine")
+                : String(localized: "machines.row.unpin", defaultValue: "Unpin Machine")
+            let item = try #require(menu.items.first { $0.title == title })
+            #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        }
+        let unpinned = try capture()
+        try choose(true)
+        #expect(store.isPinned(fixture.machine.rawValue))
+        #expect(coordinator.nodes.first?.isPinned == true)
+        let pinned = try capture()
+        let changes = try #require(try differenceBounds(unpinned, pinned))
+        let scale = CGFloat(pinned.pixelsWide) / outline.frameOfCell(atColumn: 0, row: 0).width
+        #expect(changes.minX / scale < 20, "The leading pin must appear immediately")
+        #expect(outline.selectedRow == 0)
+        #expect(outline.isItemExpanded(machine))
+        #if compiler(>=6.2)
+        Attachment.record(try #require(pinned.representation(using: .png, properties: [:])), named: "machine-first-pin-\(Int(width)).png")
+        #endif
+
+        try choose(false)
+        #expect(coordinator.nodes.first?.isPinned == false)
+        let restored = try capture()
+        #expect(restored.tiffRepresentation == unpinned.tiffRepresentation)
+    }
+
+    @Test("Pin reserves space before content at narrow and wide widths", arguments: [100.0, 320.0], [50, 75, 100, 150, 200])
     func leadingPin(width: Double, percent: Int) throws {
-        let unpinned = try contentBounds(width: width, pinned: false, percent: percent)
-        let pinned = try contentBounds(width: width, pinned: true, percent: percent)
+        let unpinned = try contentBounds(width: width, pinned: false, percent: percent, unread: false)
+        let pinned = try contentBounds(width: width, pinned: true, percent: percent, unread: false)
         #expect(pinned.minX > unpinned.minX + 4, "The pin must precede the identity instead of consuming its trailing edge")
         #expect(abs(pinned.maxX - unpinned.maxX) <= 1, "Trailing alignment must not move when pinning")
     }
 
+    @Test("Read rows stay compact and unread rows reserve the leading attention column",
+          arguments: [50, 75, 100, 150, 200])
+    func attentionSlotPrecedesContent(percent: Int) throws {
+        let read = try contentBounds(width: 220, pinned: false, percent: percent, unread: false)
+        let unread = try contentBounds(width: 220, pinned: false, percent: percent, unread: true)
+        let slot = GlobalFontMagnification.scaledSize(CloudTreeStyle.compact.rowGrid.attentionSlot, percent: percent)
+        #expect(read.minX <= 1, "Read rows must not reserve an empty leading gutter: \(read.minX)")
+        #expect(unread.minX >= slot + 1,
+                "Unread content must follow the leading attention slot: \(unread.minX), \(slot)")
+    }
+
     @Test("Pin geometry follows the same magnification as row text")
     func pinMagnification() throws {
-        let small = try contentBounds(width: 140, pinned: true, percent: 75)
-        let large = try contentBounds(width: 140, pinned: true, percent: 200)
+        let small = try contentBounds(width: 140, pinned: true, percent: 75, unread: false)
+        let large = try contentBounds(width: 140, pinned: true, percent: 200, unread: false)
         #expect(large.minX > small.minX + 4)
         #expect(abs(large.maxX - small.maxX) <= 1)
     }
@@ -149,9 +221,12 @@ struct CloudSidebarPinGeometryTests {
         return bounds
     }
 
-    private func contentBounds(width: Double, pinned: Bool, percent: Int) throws -> CGRect {
-        let host = NSHostingView(rootView: Color.blue
-            .modifier(CloudSidebarRowDecoration(isPinned: pinned, showsAttentionSlot: true, hasUnreadNotification: false))
+    private func contentBounds(width: Double, pinned: Bool, percent: Int, unread: Bool) throws -> CGRect {
+        // Fill the proposed content area so both edges measure layout, not
+        // the intrinsic width and side bearings of a centered text glyph.
+        let host = NSHostingView(rootView: Color.green
+            .modifier(CloudSidebarRowDecoration(isPinned: pinned, showsAttentionSlot: true, hasUnreadNotification: unread))
+            .accentColor(.blue)
             .environment(\.cmuxGlobalFontMagnificationPercent, percent))
         host.frame = NSRect(x: 0, y: 0, width: width, height: 28)
         let window = NSWindow(contentRect: host.frame, styleMask: [], backing: .buffered, defer: false)
@@ -163,13 +238,14 @@ struct CloudSidebarPinGeometryTests {
         var xs: [Int] = []
         for x in 0..<bitmap.pixelsWide {
             let color = try #require(bitmap.colorAt(x: x, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
-            if color.blueComponent > color.redComponent + 0.3 { xs.append(x) }
+            if color.greenComponent > color.redComponent + 0.15,
+               color.greenComponent > color.blueComponent + 0.15 { xs.append(x) }
         }
         let scale = Double(bitmap.pixelsWide) / width
         let left = Double(try #require(xs.min())) / scale
         let right = Double(try #require(xs.max())) / scale
         #if compiler(>=6.2)
-        Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])), named: "pin-\(pinned)-\(Int(width))-\(percent).png")
+        Attachment.record(try #require(bitmap.representation(using: .png, properties: [:])), named: "pin-\(pinned)-\(Int(width))-\(percent)-unread-\(unread).png")
         #endif
         return CGRect(x: left, y: 0, width: right - left, height: 28)
     }

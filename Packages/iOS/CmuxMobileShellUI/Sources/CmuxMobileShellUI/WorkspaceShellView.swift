@@ -201,6 +201,9 @@ private struct WorkspaceShellRenderPresentation {
 #endif
 
 struct WorkspaceShellView: View {
+    #if os(iOS) && DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
     @Bindable var store: CMUXMobileShellStore
     let signOut: @MainActor @Sendable () -> Void
     var isInitialConnectionLoading = false
@@ -270,7 +273,7 @@ struct WorkspaceShellView: View {
     /// sidebar it actually renders in, not the full screen.
     @State private var splitSidebarWidth: CGFloat = 0
     #endif
-    @State private var macSelection: WorkspaceMacSelection = .all
+    @AppStorage(WorkspaceMacSelection.storageKey) private var macSelection: WorkspaceMacSelection = .all
     /// Legacy fallback while the toast presenter is disabled: the old
     /// dismissible bottom banner for workspace-action failures.
     @State var workspaceActionToast: WorkspaceActionToastContent?
@@ -841,6 +844,11 @@ struct WorkspaceShellView: View {
         }
         .onAppear {
             workspacesStackIsOnScreen = true
+            #if os(iOS) && DEBUG
+            if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
+                releaseGateUIProbe.closeWorkspace = { popCompactStack() }
+            }
+            #endif
             autoOpenSelectedWorkspaceForSoakIfNeeded()
             consumePendingPrimarySearchNavigation(for: .workspaces)
         }
@@ -893,6 +901,16 @@ struct WorkspaceShellView: View {
         .navigationSplitViewStyle(.balanced)
         .onAppear {
             hasPresentedSplitDetail = true
+            #if os(iOS) && DEBUG
+            if let releaseGateUIProbe, releaseGateUIProbe.awaitsVisibleRows {
+                releaseGateUIProbe.closeWorkspace = {
+                    withAnimation {
+                        store.selectedWorkspaceID = nil
+                        splitColumnVisibility = .all
+                    }
+                }
+            }
+            #endif
         }
     }
     #else
@@ -1258,6 +1276,8 @@ struct WorkspaceShellView: View {
             },
             cancelMacSwitch: cancelMacSwitchFromWorkspacePicker,
             refresh: refreshWorkspacesClosure,
+            isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
+            cancelRefresh: cancelRefreshWorkspaces,
             signOut: signOut,
             reconnect: tailscalePairingRequired ? showPairingScanner : reconnectClosure,
             tailscalePairingRequired: tailscalePairingRequired,
@@ -1311,6 +1331,7 @@ struct WorkspaceShellView: View {
             connectionRequiresReauth: store.connectionRequiresReauth,
             connectionRecoveryFailed: store.connectionRecoveryFailed,
             isRecoveringConnection: store.isRecoveringConnection,
+            isRecoveringWorkspaceList: store.isRecoveringWorkspaceList,
             connectionStatus: listConnectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
@@ -1643,7 +1664,12 @@ struct WorkspaceShellView: View {
         // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
         // active Mac or the visible unavailable workspace owner instead of
         // no-opping, so the offline list can recover itself.
-        return { await store.reconnectOrRefresh() }
+        return { await store.runPreparedWorkspaceListRecovery() }
+    }
+
+    private var cancelRefreshWorkspaces: () -> Void {
+        let store = store
+        return { store.cancelWorkspaceListRecovery() }
     }
 
     /// Manual reconnect for the offline status row's Reconnect button.
