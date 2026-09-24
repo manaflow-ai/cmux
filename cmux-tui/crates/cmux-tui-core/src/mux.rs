@@ -3212,6 +3212,9 @@ impl Mux {
             None => Vec::new(),
         };
         let mut handled_terminals = HashSet::new();
+        // At most one warm snapshot host becomes the first terminal of a
+        // fresh registry (SurfaceOptions::adopt_template_terminal).
+        let mut template_claimed = false;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
@@ -3262,8 +3265,23 @@ impl Mux {
                 // One-release migration path for hosts launched before SQLite
                 // became placement authority. Never trust the JSON hint when
                 // its workspace no longer exists.
-                let can_import = !record.workspace_key.is_empty()
+                let workspace_exists = !record.workspace_key.is_empty()
                     && self.state.lock().unwrap().workspace_by_key(&record.workspace_key).is_some();
+                let claim_template = !workspace_exists
+                    && !template_claimed
+                    && options.adopt_template_terminal
+                    && !record.workspace_key.is_empty()
+                    && self.state.lock().unwrap().workspaces.is_empty()
+                    && terminal_host_record_liveness(&record_path, &record)
+                        == TerminalHostLiveness::Live;
+                if claim_template {
+                    // Recreate the host's workspace under its recorded key in
+                    // this registry; the import below then gives the host a
+                    // placement there with freshly generated public ids.
+                    self.create_empty_workspace(None, Some(record.workspace_key.clone()), None)?;
+                    template_claimed = true;
+                }
+                let can_import = workspace_exists || claim_template;
                 if can_import {
                     let imported = RegistryTerminal {
                         terminal_id: terminal_id.clone(),

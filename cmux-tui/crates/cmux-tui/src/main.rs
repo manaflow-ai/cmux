@@ -2059,6 +2059,10 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        // Set by the Cloud VM boot supervisor on a snapshot clone; see
+        // SurfaceOptions::adopt_template_terminal.
+        surface_options.adopt_template_terminal =
+            std::env::var("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL").is_ok_and(|value| value == "1");
     }
     let provider_management_pending = provider_management_listener.is_some();
     let mux =

@@ -4528,11 +4528,12 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
     harness.restart();
     let deadline = Instant::now() + Duration::from_secs(15);
     let adopted_surface = loop {
-        let resolved = request(
+        let resolved = request_response(
             &harness.socket,
             serde_json::json!({"id": 6, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
         );
-        if resolved["lifecycle"] == "running"
+        if resolved["ok"] == true
+            && resolved["lifecycle"] == "running"
             && resolved["terminal_incarnation"].as_str() == Some(incarnation.as_str())
             && let Some(surface) = resolved["surface"].as_u64()
         {
