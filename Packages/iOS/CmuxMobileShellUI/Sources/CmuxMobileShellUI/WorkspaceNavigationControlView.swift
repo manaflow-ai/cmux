@@ -4,7 +4,7 @@ import UIKit
 
 /// Hosts one SwiftUI toolbar control in a native UIBarButtonItem.
 /// UINavigationBar owns placement; this view only supplies the standard
-/// 36-point bar-item hit area and symmetric content margins.
+/// 36-point bar-item hit area. UIKit supplies the bar-item margins.
 @MainActor
 final class WorkspaceNavigationControlView: UIView {
     private let contentView: UIView & UIContentView
@@ -22,7 +22,7 @@ final class WorkspaceNavigationControlView: UIView {
         addSubview(contentView)
         let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         contentWidth = contentView.widthAnchor.constraint(equalToConstant: contentSize.width)
-        itemWidth = widthAnchor.constraint(equalToConstant: contentSize.width + 16)
+        itemWidth = widthAnchor.constraint(equalToConstant: contentSize.width)
         NSLayoutConstraint.activate([
             contentView.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -40,7 +40,7 @@ final class WorkspaceNavigationControlView: UIView {
 
     override var intrinsicContentSize: CGSize {
         let size = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        return CGSize(width: size.width + 16, height: 36)
+        return CGSize(width: size.width, height: 36)
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
@@ -54,7 +54,7 @@ final class WorkspaceNavigationControlView: UIView {
         contentView.invalidateIntrinsicContentSize()
         let size = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
         contentWidth.constant = size.width
-        itemWidth.constant = size.width + 16
+        itemWidth.constant = size.width
         invalidateIntrinsicContentSize()
     }
 }
