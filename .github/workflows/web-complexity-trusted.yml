@@ -224,8 +224,11 @@ jobs:
       # the same way (git merge-tree follows renames and criss-cross history)
       # and let the checker judge the trusted files in that merge. A rebase
       # merge replays commits one by one instead, so while the repository
-      # allows it the check stays strict. The history is fetched without file
-      # contents; any failure or a conflicted merge also stays strict.
+      # allows it the check stays strict. The setting is read when the check
+      # runs, so re-enabling rebase merging leaves earlier passes standing: keep
+      # rebase off with a ruleset, or re-run this check on open pull requests
+      # after turning it on. The history is fetched without file contents; any
+      # failure or a conflicted merge also stays strict.
       - name: Merge pull request into its base for the trusted-file check
         id: merge
         if: github.event_name == 'pull_request_target' && steps.scope.outputs.run == 'true'
