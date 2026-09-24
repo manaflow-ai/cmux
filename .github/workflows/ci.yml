@@ -885,18 +885,27 @@ jobs:
           node --version
           python3 scripts/ci/run_python_test_lane.py --lane macos-claude-wrapper
 
-  # Agents often push several commits to a PR within minutes. Each push cancels
-  # the previous run through the concurrency group, but by then its macOS jobs
-  # have already been billed. Holding macOS admission briefly on a Linux runner
-  # lets a quick follow-up push cancel the run before any Mac starts. A stale
-  # head SHA after the wait fails this run instead of admitting it, and so does
-  # a run that has already failed a job. Merge groups and dispatches are not
-  # debounced. A re-run attempt and CI_MACOS_ADMISSION_DEBOUNCE_SECONDS=0 both
-  # skip the wait and with it both checks.
+  # Holds macOS admission on a Linux runner until the run's fast Linux jobs
+  # have had a chance to fail. Over 269 pull request runs (2026-09-23/24) the
+  # Mac time this saved came mostly from runs where a job had already failed
+  # (20 runs, ~295 Mac-minutes; the first failure landed 4-101 s after Macs
+  # would have started). A follow-up push inside the old fixed 180 s sleep
+  # superseded only 22 runs, while 114 runs sat out the full sleep and were
+  # admitted anyway, and 39 slept after static-preflight had already failed.
+  #
+  # So the job now runs only after static-preflight succeeds, and polls this
+  # run's jobs every 10 s: a failed job declines (fails this job), and once
+  # every Linux job that can finish before macOS has completed it admits
+  # without waiting further. CI_MACOS_ADMISSION_DEBOUNCE_SECONDS (default 120,
+  # cap 600) bounds the wait. A stale head SHA at the end still declines.
+  # Merge groups and dispatches are not debounced. A re-run attempt and
+  # CI_MACOS_ADMISSION_DEBOUNCE_SECONDS=0 both skip the wait and its checks.
   macos-debounce:
     name: macOS admission debounce
-    needs: changes
-    if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
+    needs:
+      - changes
+      - static-preflight
+    if: ${{ github.event_name == 'pull_request' && needs.static-preflight.result == 'success' && needs.changes.outputs.macos != 'false' && (needs.changes.outputs.full_suite == 'true' || needs.changes.outputs.compile_admitted != 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -906,46 +915,63 @@ jobs:
       - name: Wait for follow-up pushes
         env:
           GH_TOKEN: ${{ github.token }}
-          DEBOUNCE_SECONDS: ${{ vars.CI_MACOS_ADMISSION_DEBOUNCE_SECONDS || '180' }}
+          DEBOUNCE_SECONDS: ${{ vars.CI_MACOS_ADMISSION_DEBOUNCE_SECONDS || '120' }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -u
           case "$DEBOUNCE_SECONDS" in
-            ''|*[!0-9]*) echo "Invalid CI_MACOS_ADMISSION_DEBOUNCE_SECONDS=$DEBOUNCE_SECONDS; using 180." >&2; DEBOUNCE_SECONDS=180 ;;
+            ''|*[!0-9]*) echo "Invalid CI_MACOS_ADMISSION_DEBOUNCE_SECONDS=$DEBOUNCE_SECONDS; using 120." >&2; DEBOUNCE_SECONDS=120 ;;
           esac
           if [ "$DEBOUNCE_SECONDS" -gt 600 ]; then DEBOUNCE_SECONDS=600; fi
           if [ "$GITHUB_RUN_ATTEMPT" != 1 ] || [ "$DEBOUNCE_SECONDS" -eq 0 ]; then
             echo "No debounce for this run."
             exit 0
           fi
-          sleep "$DEBOUNCE_SECONDS"
-          # Fail open: an API error admits macOS rather than blocking the PR.
+          # One read gives "<failed> <pending gates>". Failed counts every job:
+          # a job that has already failed has settled this run, the pull
+          # request is red on this head whatever a Mac finds, and the fix push
+          # opens a new run. Only a concluded `failure` counts; `cancelled`
+          # means the run is already going away.
+          #
+          # A pending gate is an unfinished job that can finish before macOS:
+          # not this job, not a job inside the macOS workflow (`macos / ...`),
+          # not `tests` or `ci-status` (both need `macos`), and not on a Mac
+          # runner (already billed, so waiting on it saves nothing).
+          query='"\([.jobs[] | select(.conclusion == "failure")] | length) \([.jobs[] | select(.status != "completed" and .name != "macOS admission debounce" and .name != "tests" and .name != "ci-status" and (.name | startswith("macos / ") | not) and ([.labels[]? | ascii_downcase | contains("macos")] | any | not))] | length)"'
+          # Decline the same way a moved head does, by failing. A job output
+          # would read better, but `macos` is skipped either way and only a
+          # *failed* dependency makes "Re-run failed jobs" re-run it.
+          #
+          # Fail open: an unreadable reply or an error body counts as neither
+          # failed nor finished, so the wait runs out and macOS is admitted.
+          waited=0
+          while :; do
+            counts="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" --jq "$query")" || counts=""
+            [[ "$counts" =~ ^[0-9]+\ [0-9]+$ ]] || counts=""
+            if [ -n "$counts" ] && [ "${counts% *}" != 0 ]; then
+              echo "::error::${counts% *} job(s) in this run already failed; not admitting macOS. Re-run failed jobs to collect macOS results anyway."
+              exit 1
+            fi
+            if [ -n "$counts" ] && [ "${counts#* }" = 0 ]; then
+              echo "Fast Linux jobs finished after ${waited}s."
+              break
+            fi
+            if [ "$waited" -ge "$DEBOUNCE_SECONDS" ]; then
+              if [ -z "$counts" ]; then
+                echo "Could not read this run's jobs; admitting macOS."
+              else
+                echo "Waited ${waited}s with ${counts#* } fast job(s) still running; admitting macOS."
+              fi
+              break
+            fi
+            step=$((DEBOUNCE_SECONDS - waited)); [ "$step" -gt 10 ] && step=10
+            sleep "$step"
+            waited=$((waited + step))
+          done
           if current="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq .head.sha)" && [ -n "$current" ] && [ "$current" != "$HEAD_SHA" ]; then
             echo "::error::PR head moved from $HEAD_SHA to $current; the newer run owns macOS admission."
             exit 1
-          fi
-          # A job that has already failed has settled this run: the pull request
-          # is red on this head whatever a Mac finds, and the fix push opens a
-          # new run. Declining costs only work nobody was going to read.
-          #
-          # Decline the same way a moved head does, by failing. A job output
-          # would read better here, but `macos` is skipped either way and only a
-          # *failed* dependency makes "Re-run failed jobs" re-run it -- an
-          # output would strand the run red until someone re-ran everything.
-          #
-          # Only a concluded `failure` counts: `cancelled` means the run is
-          # already going away. An unreadable reply, an error body, or a first
-          # page that misses a later job all admit, like the check above.
-          if failed="$(gh api \
-              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?per_page=100" \
-              --jq '[.jobs[] | select(.conclusion == "failure")] | length')" \
-              && [ -n "$failed" ] && [ "$failed" != "0" ]; then
-            echo "::error::$failed job(s) in this run already failed; not admitting macOS. Re-run failed jobs to collect macOS results anyway."
-            exit 1
-          fi
-          if [ -z "${failed:-}" ]; then
-            echo "Could not read this run's jobs; admitting macOS."
           fi
           echo "Head $HEAD_SHA is still current; admitting macOS."
 
