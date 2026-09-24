@@ -155,6 +155,25 @@ def main():
             expected = 'REMOTE_PREVIEW_' + token + '\n'
             assert any(path.read_text() == expected for path in cache.rglob('preview file.txt'))
             evidence['remote_bytes_verified'] = True
+            # Keep the old workload alive after its cleanup receipt, then replace it
+            # through the same public action used by CLI respawn.
+            mutate('surface.send_text', {'workspace_id': workspace, 'surface_id': surface,
+                                         'text': token + ':quit\n'})
+            wait_for(lambda: line('@' + token + ':cleaned'), timeout=10)
+            token = secrets.token_hex(8)
+            replacement = mutate('surface.respawn', {
+                'workspace_id': workspace, 'surface_id': surface,
+                'command': shlex.join(['python3', '-u', '-c', WORKLOAD, token]),
+                'working_directory': '/', 'focus': False,
+            })
+            assert replacement['surface_id'].lower() == surface.lower()
+            replacement_cwd = wait_for(lambda: line('@' + token + r':cwd=(/.*)')).group(1)
+            replacement_tui = wait_for(lambda: line('@' + token + r':tui=([01])')).group(1)
+            replacement_legacy = wait_for(lambda: line('@' + token + r':legacy=([01])')).group(1)
+            assert replacement_cwd != cwd
+            assert (replacement_tui, replacement_legacy) == ('1', '0')
+            evidence['respawn'] = {'surface_id': surface, 'identity_preserved': True,
+                                   'cmux_tui': replacement_tui, 'cmuxd_remote': replacement_legacy}
         finally:
             try:
                 if surface:

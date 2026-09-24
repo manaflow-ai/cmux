@@ -100,24 +100,7 @@ final class RemoteTerminalFilePreviewCoordinator {
                       workspace.focusedPanelId == sourcePanelID,
                       panel.hostedView.window?.isKeyWindow == true else {
                     #if DEBUG
-                    let validity = [
-                        "alive": self != nil && workspace != nil && panel != nil && sourceSurface != nil,
-                        "transferAllowed": !ManagedFileTransferPolicy.isDisabled,
-                        "activeWorkspace": workspace?.isRetiredFromOwningTabManager == false,
-                        "configuration": workspace?.remoteTerminalFilePreviewConfiguration(for: sourcePanelID) == configuration,
-                        "panel": workspace?.terminalPanel(for: sourcePanelID) === panel,
-                        "surface": panel?.surface === sourceSurface,
-                        "lifecycle": sourceSurface?.terminalLifecycleId == lifecycleID,
-                        "legacyAttempt": workspace?.remoteTerminalAttemptIDsBySurfaceId[sourcePanelID] == attemptID,
-                        "tuiAttempt": workspace?.sshTuiConnectionAttemptID == tuiAttemptID,
-                        "projection": SurfaceCatalog.shared.projectionIncludingPendingRestore(forPanel: sourcePanelID)?.resource == projectionResource,
-                        "owner": sourceSurface?.owningWorkspace() === workspace,
-                        "selected": workspace?.owningTabManager?.selectedTabId == workspace?.id,
-                        "focused": workspace?.focusedPanelId == sourcePanelID,
-                        "keyWindow": panel?.hostedView.window?.isKeyWindow == true
-                    ]
-                    let failed = validity.filter { !$0.value }.map(\.key).sorted().joined(separator: ",")
-                    cmuxDebugLog("remotePreview.discarded request=\(requestID.uuidString) invalid=\(failed)")
+                    cmuxDebugLog("remotePreview.discarded request=\(requestID.uuidString)")
                     #endif
                     return
                 }
