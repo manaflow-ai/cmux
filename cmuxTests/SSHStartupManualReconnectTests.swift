@@ -340,6 +340,68 @@ struct SSHStartupManualReconnectTests {
         #expect(process.terminationStatus == 130)
     }
 
+    @Test func persistentAttachIgnoresInheritedInternalPendingSignalState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-inherited-pending-signal-\(UUID().uuidString)", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let attemptFile = root.appendingPathComponent("ssh-attempts.txt")
+        let attachFile = root.appendingPathComponent("attach-attempts.txt")
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        // Observe the PTY handoff separately from SSH authentication so a
+        // successful attach cannot consume another authentication attempt.
+        try Self.writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "for arg in \"$@\"; do",
+            "  if [ \"$arg\" = \"ssh-pty-attach\" ]; then",
+            "    printf '%s\\n' attached >> \"${CMUX_TEST_ATTACH_FILE:?}\"",
+            "  fi",
+            "done",
+            "exit 0",
+        ])
+        try Self.writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' auth >> \"${CMUX_TEST_ATTEMPT_FILE:?}\"",
+            "exit 0",
+        ])
+        for executable in [fakeCLI, fakeSSH] {
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let startupCommand = Self.persistentAttachSupervisorCommand(replacingSystemSSHWith: fakeSSH)
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_TEST_FAKE_SSH"] = fakeSSH.path
+        environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = "/usr/bin/true"
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TEST_ATTEMPT_FILE"] = attemptFile.path
+        environment["CMUX_TEST_ATTACH_FILE"] = attachFile.path
+        // The supervisor's own deferred-signal state must start empty. An
+        // inherited value would replay a signal nobody sent right after the
+        // authentication child launches, exiting 130 before any attach.
+        environment["cmux_ssh_attach_pending_signal"] = "130"
+        environment["cmux_ssh_attach_pending_signal_name"] = "INT"
+
+        let result = Self.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "exec " + startupCommand],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(try String(contentsOf: attemptFile, encoding: .utf8) == "auth\n")
+        #expect(try String(contentsOf: attachFile, encoding: .utf8) == "attached\n")
+    }
+
     @Test func terminalExitPromptIgnoresQueuedWakeReportsAndEOTUntilFreshEnter() throws {
         let prompt = try Self.makeTerminalExitPromptProcess()
         defer { Self.stopAndCleanUp(prompt) }
@@ -385,19 +447,7 @@ struct SSHStartupManualReconnectTests {
     @Test func reconnectRejectsUnendedTerminalSurfaceId() throws {
         let workspace = Workspace()
         let initialPanelId = try #require(workspace.focusedTerminalPanel?.id)
-        let configuration = WorkspaceRemoteConfiguration(
-            destination: "cmux-macmini",
-            port: nil,
-            identityFile: nil,
-            sshOptions: [],
-            localProxyPort: nil,
-            relayPort: 64007,
-            relayID: String(repeating: "a", count: 16),
-            relayToken: String(repeating: "b", count: 64),
-            localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini"
-        )
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.configureRemoteConnection(Self.makeRemoteConfiguration(), autoConnect: false)
         workspace.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64007",

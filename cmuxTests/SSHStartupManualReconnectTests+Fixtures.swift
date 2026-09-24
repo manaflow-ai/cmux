@@ -28,6 +28,8 @@ extension SSHStartupManualReconnectTests {
         let terminalPathURL: URL
     }
 
+    /// These tests cover the legacy Workspace reconnect path. The relay port
+    /// keeps this configuration there (`routesThroughSSHTui`, #14216).
     static func makeRemoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -44,8 +46,8 @@ extension SSHStartupManualReconnectTests {
     }
 
     static func persistentAttachSupervisorCommand(replacingSystemSSHWith fakeSSH: URL) -> String {
-        // Direct process signals belong to the attach supervisor; the CLI's
-        // outer startup shell is exercised separately through terminal Ctrl-C.
+        // Direct process signals belong to the attach supervisor that the app
+        // builds for restore and reattach.
         SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
             foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
