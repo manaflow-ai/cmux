@@ -4,11 +4,9 @@ Every CI/CD job picks its runner from a repository variable instead of a
 hardcoded label. Changing a runner type is a single repository-variable update
 that takes effect on the next workflow run.
 
-Linux uses Blacksmith. macOS uses Blacksmith cloud runners, with the
-self-hosted Tart fleet described below carrying specific lanes as they are
-qualified. WarpBuild is paid overflow and is not a steady state for any lane.
-Non-urgent macOS work runs on free GitHub-hosted runners through the
-background lane described below.
+Linux uses Blacksmith. macOS uses Blacksmith cloud runners. WarpBuild is paid
+overflow and is not a steady state for any lane. Non-urgent macOS work runs on
+free GitHub-hosted runners through the background lane described below.
 
 **The table below is the intended steady state, not a live readout.** Repository
 variables drift, and a stale table is worse than no table. For what is actually
@@ -268,31 +266,11 @@ compile, warning validation, product publication, total wall time, runner time,
 and the `hot` / `partially-warm` / `cold-reset` / `hosted fallback`
 classification.
 
-## Tart isolation and capacity
-
-Each GitHub runner identity is sealed into a Tart template. A job runs in a
-fresh clone with an Aqua login session, then the host deletes the clone. This
-provides the GUI session required by macOS XCTest and prevents DerivedData,
-simulators, credentials, and workspaces from leaking into later jobs.
-
-The fleet has 18 Sequoia slots: two each on the seven 48 GB or larger hosts and
-one each on the two 16 GB hosts. The 16 large-host slots accept GUI and iOS
-jobs; all 18 accept ordinary macOS 15 jobs. macOS 26 and release builds stay on
-Blacksmith until a Tahoe VM image passes the same runner and GUI canaries. Hosts
-reject new jobs below their free-space threshold, delete every job VM after
-use, and reap stale clones.
-
-Do not route jobs to the physical mini runner records. The supported
-self-hosted labels are the `tart-*` labels, and each Tart-aware canary checks
-that the resolved runner name starts with `tart-cmux-` and that the guest has
-the immutable `/etc/cmux-tart-ci` marker.
-
 ## Shared physical-host interoperability
 
-The current required-CI policy continues to use isolated Tart guests or hosted
-providers. Any future path that executes directly on shared CMUX-owned hardware
-must preserve a separate caller identity, semantic workload request, and
-machine-local physical lease.
+The current required-CI policy uses hosted providers. Any future path that
+executes directly on shared CMUX-owned hardware must preserve a separate caller
+identity, semantic workload request, and machine-local physical lease.
 
 Examples of callers that may share a host include GitHub Actions, `cmux-ci`,
 developer/build tooling, direct agents, operator commands, and reviewed fleet
@@ -321,9 +299,8 @@ admission or is draining, pressured, or unavailable.
 
 ## Break-glass: switch a runner type to a paid provider
 
-There is no automatic overflow. If the Tart pool is unavailable or its queue is
-too long, set the affected variable to a paid provider. Restore Tart after the
-fleet recovers.
+There is no automatic overflow. If the Blacksmith queue is too long, set the
+affected variable to a paid provider, and restore it once the queue recovers.
 
 Four runner variables exist to name **metered WarpBuild capacity**, so they are
 read through a second switch that lives in this repository rather than in
@@ -371,26 +348,6 @@ Leave `MACOS_RUNNER_PR` and `MACOS_RUNNER_TESTS` unset in either recipe.
 They exist to hold the pull-request and manual test lanes on Blacksmith
 independently of whatever the pool above is set to.
 
-Restore the self-hosted pool with explicit labels. The gate above applies
-here too: `MACOS_RUNNER_15`, `MACOS_RUNNER_DISPLAY` and the other gated
-variables are read only when `CI_PAID_MACOS_OVERFLOW=1`, so Tart needs that
-flag set even though Tart is free. Without it, these values are ignored and
-every lane stays on its Blacksmith fallback, with no error. `MACOS_RUNNER_26`
-is ungated, so repointing the ordinary macOS 26 pool does not require the paid
-overflow switch.
-
-```bash
-gh variable set MACOS_RUNNER_15         --repo manaflow-ai/cmux -b tart-macos-15
-gh variable set MACOS_RUNNER_DUAL_XCODE --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-15
-gh variable set MACOS_RUNNER_26         --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
-gh variable set MACOS_RUNNER_26_LARGE   --repo manaflow-ai/cmux -b blacksmith-12vcpu-macos-26
-gh variable set MACOS_RUNNER_DISPLAY    --repo manaflow-ai/cmux -b tart-gui
-gh variable set MACOS_RUNNER_IOS        --repo manaflow-ai/cmux -b tart-ios
-```
-
-`MACOS_RUNNER_DUAL_XCODE` remains on Blacksmith because the Tart macOS 15
-image currently carries Xcode 26 only and cannot build the SDK 15 helper.
-
 Check current values:
 
 ```bash
@@ -404,9 +361,7 @@ defaults to `auto`. Manual `auto` runs follow `MACOS_RUNNER_15` then the Blacksm
 fallback, so flipping the repo variable redirects those workflows. An explicit
 manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
 and `depot-macos-*` choices, with a Depot identity guard for GUI-activation
-runs. `test-e2e.yml` also exposes `tart-canary`, `tart-dual`, and `tart-small`
-for targeted fleet validation. These choices are available only through
-`workflow_dispatch`.
+runs. These choices are available only through `workflow_dispatch`.
 
 ## Guard
 
@@ -426,9 +381,9 @@ repository per minute, since Blacksmith is sponsored for this organization.
 The CI health report counts those two. Keep new labels in
 `.github/actionlint.yaml`.
 
-The fleet-label guard allows Tart labels only as exact manual canary choices.
-Required jobs continue to reference repository variables, so cutover and
-break-glass remain configuration changes instead of workflow edits.
+The fleet-label guard rejects `tart-*` labels everywhere; the Tart VM pool no
+longer exists. Required jobs continue to reference repository variables, so
+cutover and break-glass remain configuration changes instead of workflow edits.
 
 ## CMUX-owned machine enrollment
 
@@ -459,5 +414,4 @@ carries no repository secrets, and grants its hot state zero result authority.
 Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` enforces that exact exception and rejects
-any second required-job or generic fleet route. Repository variables may keep
-pointing at the isolated `tart-*` pool for their existing jobs.
+any second required-job or generic fleet route.

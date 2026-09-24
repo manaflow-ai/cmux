@@ -319,7 +319,7 @@ exit 97
     def test_failure_guard_only_allows_optional_compilation_cache_steps(self):
         guard = (ROOT / 'tests/test_ci_self_hosted_guard.sh').read_text()
         start = guard.index('check_e2e_runner_fallbacks() {')
-        end = guard.index('\ncheck_ios_tart_canary()', start)
+        end = guard.index('\ncheck_xcode_selection()', start)
         invoke = guard[start:end] + '\ncheck_e2e_runner_fallbacks\n'
         workflow = (ROOT / '.github/workflows/test-e2e.yml').read_text()
         candidate = self.root / 'workflow.yml'

@@ -29,7 +29,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows MACOS_RUNNER_TESTS; tart-* choices use isolated VMs)"
+        description: "Runner OS (auto follows MACOS_RUNNER_TESTS)"
         required: false
         default: "auto"
         type: choice
@@ -39,9 +39,6 @@ on:
           - blacksmith-6vcpu-macos-26
           - blacksmith-12vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
-          - tart-canary
-          - tart-dual
-          - tart-small
 
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
@@ -216,25 +213,6 @@ jobs:
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     steps:
-
-      - name: Validate Tart canary identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
-        env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          case "$RUNNER_CONTEXT_NAME" in
-            tart-cmux-*) ;;
-            *)
-              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-              exit 1
-              ;;
-          esac
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
-            exit 1
-          }
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -640,25 +618,6 @@ jobs:
       # instead, which is where the upload step reads from.
       CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
     steps:
-
-      - name: Validate Tart canary identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-') }}
-        env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          case "$RUNNER_CONTEXT_NAME" in
-            tart-cmux-*) ;;
-            *)
-              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
-              exit 1
-              ;;
-          esac
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
-            exit 1
-          }
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
