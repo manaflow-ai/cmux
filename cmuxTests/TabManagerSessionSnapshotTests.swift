@@ -3315,6 +3315,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionSnapshotFallsBackWhenPersistentSSHPTYRestoreHasNoSocketPath() throws {
+        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
