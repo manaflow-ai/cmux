@@ -267,7 +267,8 @@ extension TerminalController {
         }
 
         let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
-        if remoteRespawnRouting == .unsupportedRemote {
+        let isNativeSSH = ws.machineOwningSurface(surfaceId)?.isSSH == true
+        if remoteRespawnRouting == .unsupportedRemote, !isNativeSSH {
             // A remote-owned pane must never fall through to a local Ghostty
             // exec when its transport cannot provide the persistent PTY bridge.
             return .respawnFailed(surfaceId)
@@ -306,7 +307,11 @@ extension TerminalController {
                 allowTextBoxFocusDefault: focus == true
             )
         case .unsupportedRemote:
-            return .respawnFailed(surfaceId)
+            replacementPanel = ws.respawnSSHTuiSurface(
+                panelID: surfaceId, command: inputs.command, workingDirectory: inputs.workingDirectory,
+                tmuxStartCommand: inputs.tmuxStartCommand, focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
         }
         guard let replacementPanel else {
             return .respawnFailed(surfaceId)
