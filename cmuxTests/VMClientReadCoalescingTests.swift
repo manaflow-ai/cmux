@@ -312,10 +312,9 @@ struct VMClientReadCoalescingTests {
         try #require(model.statsID != oldID, "The changed fleet must replace the running batch")
         let replacementID = try #require(model.statsID)
         let replacementTask = try #require(model.statsTask)
-        await oldTask.value
-        #expect(model.statsID == replacementID, "Old completion must not clear the replacement owner")
         // Cancelling the old batch does not cancel a shared read, so the
-        // removed machine's request keeps its one waiter until it answers.
+        // removed machine's request keeps its one waiter until it answers,
+        // and neither batch can finish while responses are held.
         try await eventually {
             let entries = await fixture.readRequests.entries
             return entries.first { $0.key.path == "/api/vm/removed/stats" }?.value.waiters.count == 1
@@ -327,15 +326,18 @@ struct VMClientReadCoalescingTests {
             "/api/vm/removed/stats": 1, "/api/vm/shared/stats": 1, "/api/vm/added/stats": 1
         ])
 
+        #expect(model.statsID == replacementID)
+
         acceptFleet([])
         try #require(model.statsID == nil && model.statsTask == nil)
-        await replacementTask.value
-        #expect(model.statsID == nil && model.statsTask == nil)
         try await eventually {
             let entries = await fixture.readRequests.entries
             return entries.count == 3 && entries.values.allSatisfy { $0.waiters.count == 1 }
         }
         await CloudRefreshURLProtocol.releaseResponses()
+        await oldTask.value
+        await replacementTask.value
+        #expect(model.statsID == nil && model.statsTask == nil, "Late batch completions must not revive an owner")
         #expect(try await otherReader.value.state == .awake)
         #expect(model.machines.isEmpty)
     }

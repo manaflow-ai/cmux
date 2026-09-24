@@ -6514,6 +6514,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentConversationInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
         let workspace = Workspace()
+        // Legacy Workspace remote fork path: SSH configs that bootstrap the daemon
+        // are owned by cmux-tui since 5f0d2227241, so this uses a VM-baked daemon.
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
@@ -6525,7 +6527,8 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
                 relayID: "relay-fork-fallback",
                 relayToken: String(repeating: "a", count: 64),
                 localSocketPath: "/tmp/cmux-fork-fallback-remote.sock",
-                terminalStartupCommand: "ssh cmux-macmini"
+                terminalStartupCommand: "ssh cmux-macmini",
+                skipDaemonBootstrap: true
             ),
             autoConnect: false
         )
