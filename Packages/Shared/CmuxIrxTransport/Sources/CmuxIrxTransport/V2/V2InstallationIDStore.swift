@@ -1,4 +1,4 @@
-public import Foundation
+import Foundation
 
 /// Persists and validates the stable installation identifier used by v2.
 public struct V2InstallationIDStore: Sendable {
