@@ -4,15 +4,20 @@ import {
   type ResizeVmOptions,
   type TunnelData,
   type VmData,
-  type VmResources,
   type Vm,
   type VpcData,
+  type SnapshotData,
 } from "freestyle";
+
 import { randomBytes } from "node:crypto";
+import { isIP } from "node:net";
+import { Effect } from "effect";
+import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
+import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
+import { freestyleRequestFetch } from "./freestyleRequestTiming";
+import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
-  type AttachEndpoint,
-  type AttachOptions,
   type AttachTransport,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
@@ -26,21 +31,16 @@ import {
   type ProviderTunnel,
   type ProviderTunnelCreateResult,
   type RestoreOptions,
-  type SSHEndpoint,
   type SnapshotRef,
   type VmEdgeRule,
   type VMHandle,
   type VMPrivateNetworking,
   type VMProvider,
   type VMResizeOptions,
+  type VMStats,
+  type VMResourceStatsResult,
   type VMStatus,
 } from "./types";
-import {
-  PLAN_MACHINE_MEMORY_MB,
-  VM_DISK_MB_DEFAULT,
-  vcpusForMemoryMb,
-  vmDiskMb,
-} from "../machineSpec";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
   DEVBOX_DESKTOP_START_SCRIPT,
@@ -48,31 +48,17 @@ import {
   devboxDesktopOpenUrl,
 } from "../images/desktop";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp";
 import {
-  CMUX_TUI_BINARY_PATH,
-  CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
-  approveCmuxTuiEnrollment,
-  CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT,
-  cmuxTuiAttachBundleCommand,
-  cmuxTuiDaemonBuild,
-  cmuxTuiDaemonCommand,
-  cmuxTuiInstallCommand,
-  cmuxTuiPinCheckCommand,
-  mintCmuxTuiInvitation,
-  parseCmuxTuiAttachBundle,
-  resolveCmuxTuiSource,
-  type CmuxTuiSource,
-  waitForCmuxTuiReady,
-  type CmuxTuiInvoke,
 } from "./cmuxTuiDaemon";
 
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
-// freestyle@0.2.x). This is the only Freestyle arm. The platform also exposes
-// a scoped SSH proxy (`beta-ssh.freestyle.sh`), but SSH is an unmanaged provider
-// session and cannot carry cmux's workspace graph or revision protocol. Every
-// cmux Cloud session therefore uses the cmux-tui daemon below.
+// freestyle@0.2.x). This is the only Freestyle arm: the legacy 0.1.x platform
+// (SSH gateway, cmuxd-remote WebSocket PTY on 7777) has been removed,
+// so every Freestyle machine now attaches the same way every other cmux Cloud
+// machine does.
 //
 // Machines attach through the cmux-tui remote daemon (transport `cmux-remote`,
 // docs/cloud-cmux-tui-daemon.md). The API has
@@ -83,41 +69,65 @@ import {
 // Mac joins the same VPC over a WireGuard tunnel, so the route is the VM's
 // *private* address: `ws://[<vpc ipv6>]:1337/v1/link`. Nothing on that path is
 // public — the machine opens no inbound port at all, and a caller with no
-// tunnel up simply cannot reach it. A machine with no private-network address
-// fails closed. It never receives a public daemon rule and the client never
-// receives a public route.
+// tunnel up simply cannot reach it. Machines created before private networking
+// (and any created while CMUX_VM_PRIVATE_NETWORK_ENABLED=0 rolls it back) keep
+// the older posture: inbound 1337 open to the Internet and the route pointed at
+// the stable public IPv6. Which posture a machine has is read from the machine
+// itself, never from the flag, so a rollback cannot strand a machine that is
+// already on a network.
 //
 // The daemon's Noise handshake encrypts and authenticates the session end to
 // end either way (carrier TLS is not required and the route token only feeds
 // the lease ledger). The daemon must bind dual-stack: the baked systemd unit
-// sets CMUX_TUI_REMOTE_WS_BIND=[::]:1337 and the driver re-asserts it on heal —
-// which is also what makes a VPC address reachable, since it is neither
-// loopback nor the public NIC.
+// sets CMUX_TUI_REMOTE_WS_BIND=[::]:1337, which is also what makes a VPC
+// address reachable, since it is neither loopback nor the public NIC. The
+// driver never re-asserts it; a wrong bind is an image bug, fixed by a rebake.
 //
 // Creates take NO ports field, NO create-time env, and NO systemd injection;
-// `firewall` is mandatory. Model-plane env is delivered by writing the
-// persisted /root/.config/cmux/model-plane.env file (0600) that
-// /etc/cmux/agent-config.sh already sources when the boot env is absent.
+// `firewall` is mandatory. The model-plane env is baked into the snapshot at
+// /etc/cmux/model-plane.env (services/coderouter/vmGuestEnv.ts): the same
+// bytes for every machine, so create writes nothing into the guest, and
+// /etc/cmux/agent-config.sh sources it in every shell whatever user it runs as.
 //
 // Create runs no guest bootstrap. The devbox snapshot carries the pinned
-// cmux-tui build and the cmux-tui-daemon systemd unit, and its supervisor
-// (services/vms/images/devbox/cmux-devbox-boot) starts the daemon with a
-// fresh identity as soon as the machine resumes, keyed on the platform
-// instance id. Create is therefore `vms.create` and the grow-only resize; the
-// image-bake step owns the static model-plane file. Attach heals a daemon that
-// is not yet, or no longer, listening.
+// cmux-tui build, guest CLI integration, resource reporter, prompt sync, and
+// cmux-tui-daemon systemd unit. Its supervisor starts the daemon with a fresh
+// identity as soon as the machine resumes, keyed on the platform instance id.
+// Create and trusted-carrier attach therefore use provider metadata and the
+// immutable image contract, with no guest exec or filesystem upload.
+//
+// NO-WORK INVARIANT (read before adding a provider call to create, restore,
+// resume, or openCmuxRemote). These paths are on the user's New Machine
+// critical path, and every provider round trip here is paid on every create:
+//   - create: one `vms.create` with VPC and TLS rules inline. No resize (each
+//     size has its own snapshot), no `vm.exec`, no `vm.fs` write, no
+//     readiness poll, no second provider read.
+//   - restore/resume: no guest exec; the baked supervisor owns the daemon.
+//   - openCmuxRemote: built from the row's providerMetadata alone. No guest
+//     exec, no install, no "heal", no enrollment round trip.
+// If the guest needs a new binary, file, hook, package, or setting, bake it
+// into the devbox snapshot (web/scripts/build-devbox-freestyle.ts, the boot
+// supervisor in services/vms/images/devbox/cmux-devbox-boot) and bump
+// images/manifest.json. If it needs per-machine identity, derive it in the
+// guest at boot from the platform instance id, or fetch it asynchronously
+// from the guest (cmux-prompt-sync) without gating terminal access. Old
+// images without `cmuxTuiContract: "snapshot-v2"` are refused on purpose;
+// do not reintroduce create- or attach-time healing to support them.
+// Explicit user operations (`exec`, `resize`, file push/pull) are separate
+// and stay. The one sanctioned guest exec around create is the prompt-name
+// push in workflows.ts (schedulePromptIdentityPush): display-only, run after
+// the response, never awaited by create. Do not add anything else to it.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
-// `tls` rule for the coderouter host whose transform adds
-// `x-coderouter-route-token` and `x-cmux-vm-id` to every request the guest
-// makes there. The platform steers the host to its edge (/etc/hosts) and
+// `tls` rule for the coderouter host whose transform overwrites `x-cmux-authorization` to every request the
+// guest makes there. The platform steers the host to its edge (/etc/hosts) and
 // installs its CA at boot; rules added after boot never reach a running
-// guest, so the rule must be inline. The env file holds only base URLs and
-// placeholder keys: no token is ever written into the guest. Injection
-// becomes active 20-30 s after boot, so create ends with a guest-side probe
-// of https://<host>/api/coderouter/vm-usage/self (a 200 proves the injected
-// token is bound to this machine) and rolls the machine back if it never
-// succeeds.
+// guest, so the rule must be inline. The baked env file holds only base
+// URLs and placeholder keys: no token is ever written into the guest, and
+// create runs no exec and writes no file there (vms.create and a delete on
+// rollback are its only provider calls). Injection
+// becomes active 20-30 s after boot; the first agent request before that
+// reaches the origin without the header and is rejected, then succeeds.
 //
 // The desktop and forwarded ports (`openPort`) travel the same private path
 // as the daemon: the URL is the machine's VPC address, reachable only through
@@ -133,19 +143,22 @@ export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
 /** Bounds the blocking `systemctl start` of the desktop unit (its own TimeoutStartSec is 120 s). */
 const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
-
 /**
- * Every guest command runs as root. The 0.2 API's `linuxUser` default is not
- * root but "the account holding uid 1000, or root in an image with no such
- * account", and the cmux devbox image ships a uid-1000 user — so leaving this
- * off would silently move the daemon, its install, and the model-plane write
- * off the root layout they are baked around.
+ * Every guest command the driver runs is administrative — systemd, sudoers, the
+ * daemon install — so it runs as root. The 0.2 API's `linuxUser` default is
+ * "the account holding uid 1000, or root in an image with no such account",
+ * which on a cmux devbox image is the work user; leaving this off would run
+ * the driver's own maintenance unprivileged. Sessions are a different thing:
+ * the daemon drops to the work user itself (cmuxTuiLayoutSelector).
  */
 const GUEST_LINUX_USER = "root";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
 const SNAPSHOT_TIMEOUT_MS = 15 * 60 * 1000;
+/** Page size and ceiling for `listSnapshots`; a machine rarely has more than a handful. */
+const SNAPSHOT_LIST_PAGE = 100;
+const SNAPSHOT_LIST_MAX = 1_000;
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 /** Cloud machines are durable boxes; only an explicit pause/stop should put one to sleep. */
 export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
@@ -153,17 +166,15 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
-/** Guest-side edge probe: 30 attempts x (5 s curl + 2 s sleep) worst case, under the 300 s exec cap. */
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
-const ROUTE_TOKEN_GRAMMAR = /\bcrt_[A-Za-z0-9._-]+/;
 
 /**
- * The seams tests replace: the SDK client and the cmux-tui manifest read.
- * Production uses the env-configured client and the live manifest.
+ * The seam tests replace: the SDK client. There is deliberately no daemon
+ * manifest resolver here; the driver never installs or repairs cmux-tui (the
+ * snapshot owns it, see NO-WORK INVARIANT above).
  */
 export type FreestyleProviderDependencies = {
   readonly client: (timeoutMs?: number) => Freestyle;
-  readonly resolveDaemonSource: typeof resolveCmuxTuiSource;
 };
 
 /**
@@ -185,8 +196,15 @@ export function preconnectFreestyle(): void {
 
 /** Exported for the publication provider, which shares this account-wide client. */
 export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
-  const longFetch: typeof fetch = (input, init) =>
-    fetch(input as Request, { ...(init ?? {}), signal: AbortSignal.timeout(timeoutMs) });
+  const longFetch = freestyleRequestFetch({
+    timeoutMs,
+    record: process.env.NODE_ENV === "development" ? (event) => {
+      const traceId = currentVmRequestContext()?.traceId;
+      console.info("cmux.vm.freestyle.request", JSON.stringify({
+        ...event, traceId: traceId && /^[0-9a-f]{32}$/.test(traceId) ? traceId : undefined,
+      }));
+    } : undefined,
+  });
   const baseUrl = process.env.FREESTYLE_API_URL?.trim() || undefined;
   const apiKey = process.env.FREESTYLE_API_KEY?.trim();
   if (apiKey) return new Freestyle({ apiKey, baseUrl, fetch: longFetch });
@@ -214,13 +232,25 @@ export function freestyleClient(timeoutMs = DEFAULT_TIMEOUT_MS): Freestyle {
  *   owner's other machines and the owner's attached tunnel and nothing else.
  *   Opening 1337 to the Internet as well would hand back exactly the exposure
  *   the VPC exists to remove.
+ * - Without a VPC — a machine created before private networking, or one
+ *   created while CMUX_VM_PRIVATE_NETWORK_ENABLED=0 rolls the feature back —
+ *   inbound 1337 is opened publicly, because that is the only way such a
+ *   machine is reachable at all. Session auth is the daemon's Noise device
+ *   enrollment, the same posture the e2b driver builds by hand with iptables.
  */
-export function freestyleFirewallRules() {
+export function freestyleFirewallRules(options?: { publicDaemonIngress?: boolean }) {
   const rules: Array<{
     action: "allow";
     source: { public?: true };
     destination: { public?: true; port?: number; protocol?: "tcp" };
   }> = [{ action: "allow", source: {}, destination: { public: true } }];
+  if (options?.publicDaemonIngress) {
+    rules.push({
+      action: "allow",
+      source: { public: true },
+      destination: { port: CMUX_TUI_PORT, protocol: "tcp" },
+    });
+  }
   return rules;
 }
 
@@ -251,13 +281,15 @@ type FreestyleNetworkAddress = {
 };
 
 /**
- * Where to dial the machine's daemon: its private VPC address.
+ * Where to dial the machine's daemon: its private VPC address when it has one,
+ * otherwise its stable public IPv6.
  *
  * Private wins unconditionally, and deliberately never falls back: a machine on
  * a VPC has no public inbound rule, so a public route for it would not be a
  * degraded path but a guaranteed timeout with a misleading address in the
  * error.
  *
+
  * Within the network, IPv4 is preferred, because only the v4 path is reliable
  * over the WireGuard tunnel. The tunnel routes the VPC's v4 prefix as a subnet,
  * so it reaches any member the moment that member exists; its v6 path does not
@@ -268,7 +300,8 @@ type FreestyleNetworkAddress = {
  * and surfaced as "Command timed out"; only machines predating the tunnel
  * connected. Preferring v4 also matches the app's own `preferredPrivateAddress`
  * (v4 then v6), so the address a person copies from the sidebar is the address
- * the daemon is dialed on.
+ * the daemon is dialed on. The public fallback below stays v6 — Freestyle
+ * allocates no public v4 at all.
  */
 export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmId: string): string {
   const networks = addresses.vpcs ?? addresses.networks ?? [];
@@ -286,17 +319,23 @@ export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmI
       `VM ${vmId} is attached to a private network but holds no address on it, so its cmux-tui daemon is unreachable`,
     );
   }
-  throw new ProviderError(
-    "freestyle",
-    `VM ${vmId} is not attached to a private network, so its cmux-tui daemon is unreachable`,
-  );
+  const ipv6 = addresses.publicIpv6?.trim();
+  if (!ipv6) {
+    throw new ProviderError(
+      "freestyle",
+      `VM ${vmId} has no private network address and no public IPv6 address, so its cmux-tui daemon is unreachable (the platform has no HTTP ingress to arbitrary ports)`,
+    );
+  }
+  return `ws://[${ipv6}]:${CMUX_TUI_PORT}/v1/link`;
 }
 
 /**
  * The address a machine's HTTP ports are opened at: its private VPC address,
  * v4 first for the same tunnel-routing reason the daemon route prefers it.
- * There is no public fallback. A machine without a private network has no port
- * to open.
+ * There is deliberately no public fallback, unlike the daemon route: the
+ * daemon authenticates every session itself (Noise device enrollment), the
+ * desktop and a dev server do not, so only the network may gate them. A
+ * machine without a private network therefore has no port to open.
  */
 export function freestylePortAddress(addresses: FreestyleRouteAddresses, vmId: string): string {
   const networks = addresses.vpcs ?? addresses.networks ?? [];
@@ -350,12 +389,13 @@ export function freestyleDesktopHealCommand(): string {
 /**
  * The machine's private-network addresses as persistable metadata. Addresses
  * are allocated at create, so the create response already carries them; a
- * response without any contributes nothing and cannot be used for a route.
+ * response without any (no network) contributes nothing.
  */
 /**
  * The persisted network addresses (see {@link freestyleNetworkAddressMetadata})
  * re-shaped for {@link freestyleCmuxRemoteRoute}, so attach on a private
- * machine needs no provider read. Null when the row carries none.
+ * machine needs no provider read. Null when the row carries none (a public
+ * ingress machine, whose public IPv6 is only known to the provider).
  */
 export function freestyleRouteAddressesFromMetadata(
   metadata: Record<string, unknown> | undefined,
@@ -373,8 +413,8 @@ export function freestyleNetworkAddressMetadata(
   const ipv4 = network?.ipv4?.trim();
   const ipv6 = network?.ipv6?.trim();
   return {
-    ...(ipv4 ? { networkIpv4: ipv4 } : {}),
-    ...(ipv6 ? { networkIpv6: ipv6 } : {}),
+    ...(ipv4 && isIP(ipv4) === 4 ? { networkIpv4: ipv4 } : {}),
+    ...(ipv6 && isIP(ipv6) === 6 ? { networkIpv6: ipv6 } : {}),
   };
 }
 
@@ -403,128 +443,6 @@ export function mapFreestyleTunnel(data: TunnelData, networkId: string): Provide
   };
 }
 
-type FreestyleTunnelOperations = {
-  readonly create: (options: {
-    readonly slug?: string;
-    readonly displayName?: string;
-    readonly clientPublicKey?: string;
-    readonly routes?: string[];
-    readonly vpcs?: { readonly vpcId?: string; readonly vpc?: string }[];
-  }) => Promise<TunnelData>;
-  readonly get: (tunnelIdOrSlug: string) => Promise<TunnelData>;
-  readonly attachVpc: (tunnelIdOrSlug: string, vpcIdOrSlug: string) => Promise<TunnelData>;
-  readonly rotateKey: (
-    tunnelIdOrSlug: string,
-    options: { readonly clientPublicKey?: string },
-  ) => Promise<TunnelData>;
-};
-
-function isTunnelSlugConflict(error: unknown): boolean {
-  return error instanceof FreestyleApiError && error.status === 409 && error.code === "CONFLICT";
-}
-
-function hasVPCAttachment(data: TunnelData, networkId: string): boolean {
-  return data.attachments.some((attachment) => attachment.vpcId === networkId);
-}
-
-/**
- * A process-local queue for one provider slug. The durable database lease is
- * the cross-instance fence; this queue closes the smaller window between two
- * requests in one warm server process and makes the helper linearizable in
- * unit tests and local development. The queue promise never rejects, so one
- * failed provider call cannot strand later work behind it.
- */
-const freestyleTunnelMutationTails = new Map<string, Promise<void>>();
-
-async function withFreestyleTunnelMutation<T>(slug: string, operation: () => Promise<T>): Promise<T> {
-  const previous = freestyleTunnelMutationTails.get(slug) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const tail = previous.catch(() => undefined).then(() => current);
-  freestyleTunnelMutationTails.set(slug, tail);
-  try {
-    await previous.catch(() => undefined);
-    return await operation();
-  } finally {
-    release();
-    if (freestyleTunnelMutationTails.get(slug) === tail) {
-      freestyleTunnelMutationTails.delete(slug);
-    }
-  }
-}
-
-/**
- * Create one device tunnel, or recover the provider resource when a previous
- * request committed it before the control-plane row did. Freestyle addresses
- * tunnels by slug, so a conflict is a durable idempotency signal, not a reason
- * to return a retryable 502 or create a second device identity.
- */
-export async function createOrReuseFreestyleTunnel(
-  tunnels: FreestyleTunnelOperations,
-  options: CreateProviderTunnelOptions,
-): Promise<ProviderTunnelCreateResult> {
-  const slug = options.slug.trim();
-  const clientPublicKey = options.clientPublicKey.trim();
-  if (!slug) throw new Error("createOrReuseFreestyleTunnel requires a slug");
-  if (!clientPublicKey) throw new Error("createOrReuseFreestyleTunnel requires a client public key");
-
-  return withFreestyleTunnelMutation(slug, async () => {
-    try {
-      const data = await tunnels.create({
-        slug,
-        displayName: options.displayName,
-        clientPublicKey,
-        vpcs: [{ vpcId: options.networkId }],
-      });
-      return {
-        tunnel: mapFreestyleTunnel(data, options.networkId),
-        created: true,
-        rotated: false,
-      };
-    } catch (error) {
-      if (!isTunnelSlugConflict(error)) throw error;
-
-      // The create may have succeeded in an earlier request whose DB write was
-      // interrupted. Read by the deterministic slug, repair the requested
-      // attachment, then rotate only when this installation's key changed.
-      let data = await tunnels.get(slug);
-      if (!hasVPCAttachment(data, options.networkId)) {
-        data = await tunnels.attachVpc(slug, options.networkId);
-      }
-      let rotated = false;
-      if (data.clientPublicKey.trim() !== clientPublicKey) {
-        data = await tunnels.rotateKey(slug, { clientPublicKey });
-        rotated = true;
-        // Freestyle preserves attachments during rotation. Keep the invariant
-        // explicit in case an older API response omits one from the result.
-        if (!hasVPCAttachment(data, options.networkId)) {
-          data = await tunnels.attachVpc(slug, options.networkId);
-        }
-      }
-
-      // A mutation response is not the provider's concurrency fence. Read the
-      // slug once more before returning so a stale or partial response cannot
-      // be persisted as the device's current key or network attachment. If a
-      // different process changed the key after our durable lease expired,
-      // fail closed and let the caller retry instead of writing a false row.
-      const verified = await tunnels.get(slug);
-      if (!hasVPCAttachment(verified, options.networkId)) {
-        throw new Error(`Freestyle tunnel ${slug} could not attach VPC ${options.networkId}`);
-      }
-      if (verified.clientPublicKey.trim() !== clientPublicKey) {
-        throw new Error(`Freestyle tunnel ${slug} changed concurrently; retry enrollment`);
-      }
-      return {
-        tunnel: mapFreestyleTunnel(verified, options.networkId),
-        created: false,
-        rotated,
-      };
-    }
-  });
-}
-
 /**
  * Inline `tls` rules for a create: egress from the new VM (`source: {}`) to
  * the domain's real origin, with the edge injecting the rule's headers into
@@ -551,50 +469,29 @@ export function freestyleEdgeRules(edgeRules: readonly VmEdgeRule[] | undefined)
 }
 
 /**
- * Nothing that reaches the guest (env file, exec command) may carry a route
- * token: the token lives only in the edge rule. Throws on the `crt_` grammar.
+ * Generated capability-domain suffixes retained for legacy preview leases.
+ * Public VM publications use the account-managed publication workflow; these
+ * helpers only recognize the older driver-minted capability URL format.
  */
-export function assertNoRouteTokenInGuestPayload(values: Iterable<string>, what: string): void {
-  for (const value of values) {
-    if (ROUTE_TOKEN_GRAMMAR.test(value)) {
-      throw new ProviderError("freestyle", `refusing to write a coderouter route token into the guest (${what})`);
-    }
+export const FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES = ["cmux.sh", "style.dev"] as const;
+
+/** Matches a driver-minted, 96-bit capability-domain preview hostname. */
+export const FREESTYLE_PORT_RULE_DOMAIN_RE = /^cmux-([0-9a-f]{24})\.((?:cmux\.sh)|(?:cmux\.site)|(?:style\.dev))$/;
+
+/** Returns the configured legacy preview suffix first, then the safe fallback. */
+export function freestylePortRuleDomainSuffixes(env: NodeJS.ProcessEnv = process.env): readonly string[] {
+  const pinned = env.CMUX_VM_PORT_PREVIEW_DOMAIN?.trim().toLowerCase();
+  if (pinned && FREESTYLE_PORT_RULE_DOMAIN_RE.test(`cmux-${"0".repeat(24)}.${pinned}`)) {
+    return [pinned, ...FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES.filter((suffix) => suffix !== pinned)];
   }
+  return FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES;
 }
 
-/**
- * The persisted model-plane env file, byte-compatible with what
- * /etc/cmux/agent-config.sh itself writes from a boot env: shells that see no
- * boot env source this copy and then materialize the codex/pi/opencode
- * configs. Freestyle has no create-time env, so the driver writes the file.
- * Every key is rendered; OPENAI_BASE_URL is the anchor the generator keys on,
- * so its absence means "no model plane" and nothing is written.
- */
-export function renderFreestyleModelPlaneEnvFile(envs: Readonly<Record<string, string>>): string | null {
-  const baseUrl = envs.OPENAI_BASE_URL?.trim();
-  if (!baseUrl) return null;
-  const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
-  const lines = [
-    "# generated by cmux from machine boot env; managed, do not edit",
-    `export OPENAI_BASE_URL=${quote(baseUrl)}`,
-  ];
-  if (envs.OPENAI_API_KEY) lines.push(`export OPENAI_API_KEY=${quote(envs.OPENAI_API_KEY)}`);
-  const coderouterURL = envs.CMUX_CODEROUTER_URL?.trim();
-  if (coderouterURL) {
-    lines.push(`export CMUX_CODEROUTER_URL=${quote(coderouterURL)}`);
-    // Keep Claude usable when a VM was created from an older devbox snapshot
-    // whose agent-config.sh predates the derived Anthropic stanza. The route
-    // token is already present in OPENAI_API_KEY for this legacy model-plane
-    // contract; exposing the same value under Claude's standard names makes
-    // the persisted file self-sufficient across resurrection and image drift.
-    lines.push(`export ANTHROPIC_BASE_URL=${quote(coderouterURL)}`);
-    if (envs.OPENAI_API_KEY) {
-      lines.push(`export ANTHROPIC_AUTH_TOKEN=${quote(envs.OPENAI_API_KEY)}`);
-      lines.push(`export ANTHROPIC_API_KEY=${quote(envs.OPENAI_API_KEY)}`);
-    }
-  }
-  return `${lines.join("\n")}\n`;
+/** Mints a fresh legacy capability-domain hostname. */
+export function mintFreestylePortRuleDomain(suffix: string = FREESTYLE_PORT_RULE_DOMAIN_SUFFIXES[0]): string {
+  return `cmux-${randomBytes(12).toString("hex")}.${suffix}`;
 }
+
 export function normalizeFreestyleExecTimeout(timeoutMs: number | undefined): number {
   if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     return EXEC_DEFAULT_TIMEOUT_MS;
@@ -623,126 +520,34 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
 }
 
 /**
- * Healthy = the daemon process is up AND something listens on 1337 in the v6
- * table (a dual-stack `[::]` bind; 0x0539 = 1337). A daemon bound 0.0.0.0 only
- * appears in /proc/net/tcp and cannot accept a private IPv6 connection.
+ * Tunnel creates finish in ~150 ms at the median and ~2.2 s at the slowest
+ * seen in production (30 days); 10 s leaves room while cutting a hung create
+ * well short of the 30 s route budget.
  */
-/**
- * Is the installed binary the machine's pinned build? A baked image records
- * the pin it was built with in /etc/cmux/cmux-tui-pin (`<sha256> <commit>`),
- * and that is the version contract for every machine from that snapshot: the
- * heal reinstalls only a missing or corrupt binary, never one the live
- * files.cmux.com manifest has since moved past (a new pin ships by rebake).
- * Images without the file were installed from the live pin at create, so the
- * live pin stays their reference.
- */
-export function freestylePinCheckCommand(source: CmuxTuiSource): string {
-  return (
-    "if [ -s /etc/cmux/cmux-tui-pin ]; then " +
-    `test -x ${CMUX_TUI_BINARY_PATH} && printf '%s  %s\\n' "$(cut -d' ' -f1 /etc/cmux/cmux-tui-pin)" ${CMUX_TUI_BINARY_PATH} | sha256sum -c >/dev/null 2>&1; ` +
-    `else ${cmuxTuiPinCheckCommand(source)}; fi`
-  );
-}
-
-/** How long the heal lets a baked supervisor bring the daemon up before restarting it. */
-const DAEMON_SETTLE_TIMEOUT_MS = 3_000;
+const TUNNEL_CREATE_TIMEOUT_MS = 10_000;
 
 /**
- * Healthy now, or healthy within the settle budget on an image whose
- * supervisor binds the daemon to the instance id (it ships
- * /etc/cmux/bake-instance-id) and is active. A machine attached right after
- * create is inside the sub-second window before that supervisor has started
- * the daemon; restarting the unit there costs a second and a half, waiting
- * costs a few hundred milliseconds. Older images take the immediate check.
+ * A create that may have made the tunnel even though it did not return it:
+ * a slug conflict, a provider 5xx (a measured 503 still created the tunnel),
+ * or no answer at all (timeout, reset). A 4xx other than the conflict is a
+ * definite refusal, so it is not worth a recovery read.
  */
-export function freestyleDaemonSettledCommand(): string {
-  const healthy = freestyleDaemonHealthyCommand();
-  const ticks = Math.floor(DAEMON_SETTLE_TIMEOUT_MS / 100);
-  return (
-    "if [ -f /etc/cmux/bake-instance-id ] && systemctl is-active cmux-tui-daemon >/dev/null 2>&1; then " +
-    `for i in $(seq 1 ${ticks}); do { ${healthy}; } && exit 0; sleep 0.1; done; exit 1; ` +
-    `else ${healthy}; fi`
-  );
+export function tunnelCreateMayHaveSucceeded(err: unknown): boolean {
+  // Our own configuration failures (no credentials) never reached the provider.
+  if (err instanceof ProviderError) return false;
+  if (err instanceof FreestyleApiError) {
+    return (err.status === 409 && err.code === "CONFLICT") || err.status >= 500;
+  }
+  return true;
 }
 
-export function freestyleDaemonHealthyCommand(): string {
-  // [s]tart: pgrep -f would otherwise match the exec shell carrying this command line.
-  // On an image whose supervisor binds the daemon identity to the instance id
-  // (it ships /etc/cmux/bake-instance-id), the daemon is healthy only when the
-  // bound id is this machine's: a clone of a live machine briefly runs the
-  // source machine's daemon until the supervisor re-keys it, and an
-  // invitation minted from that daemon would name the wrong fingerprint.
-  return (
-    "pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6" +
-    " && { [ ! -f /etc/cmux/bake-instance-id ] || [ \"$(cat /etc/cmux/daemon-instance-id 2>/dev/null)\" = \"$(" +
-    "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id" +
-    ")\" ]; }"
-  );
-}
-
-const REMOTE_WS_BIND_OVERRIDE =
-  "/etc/systemd/system/cmux-tui-daemon.service.d/10-cmux-remote-ws-bind.conf";
-
-/**
- * (Re)start the daemon listening dual-stack. Under systemd (the baked
- * cmux-tui-daemon unit), install a drop-in setting
- * CMUX_TUI_REMOTE_WS_BIND=[::]:1337 — the env cmux-devbox-boot reads — then
- * restart the unit, healing machines from bakes that predate the env default.
- * Without systemd (or the unit), fall back to a direct daemon launch with the
- * dual-stack bind.
- */
-export function freestyleStartDaemonCommand(): string {
-  return [
-    "if [ -d /run/systemd/system ] && [ -f /etc/systemd/system/cmux-tui-daemon.service ]; then",
-    `mkdir -p ${REMOTE_WS_BIND_OVERRIDE.replace(/\/[^/]+$/, "")};`,
-    `printf '[Service]\\nEnvironment=CMUX_TUI_REMOTE_WS_BIND=${FREESTYLE_REMOTE_WS_BIND}\\n' > ${REMOTE_WS_BIND_OVERRIDE};`,
-    "systemctl daemon-reload;",
-    "systemctl restart cmux-tui-daemon;",
-    "else",
-    `pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 || (setsid nohup sh -c '${cmuxTuiDaemonCommand(FREESTYLE_REMOTE_WS_BIND)}' >>/tmp/cmux-tui-daemon.log 2>&1 &);`,
-    "fi",
-  ].join(" ");
+function tunnelRecoveryReason(err: unknown): string {
+  if (!(err instanceof FreestyleApiError)) return "no_response";
+  return err.status === 409 ? "conflict" : "server_error";
 }
 
 function isNotFound(err: unknown): boolean {
   return err instanceof FreestyleApiError && (err.status === 404 || err.code === "NOT_FOUND");
-}
-
-function isConflict(err: unknown): boolean {
-  return err instanceof FreestyleApiError && (err.status === 409 || err.code === "CONFLICT");
-}
-
-/**
- * Recover a provider tunnel whose create response was lost after the provider
- * committed it. This is intentionally a small seam: the workflow can repair a
- * missing local row without rotating a key that another running app may still
- * be using.
- */
-export async function recoverFreestyleTunnelAfterConflict(
-  tunnels: Pick<Freestyle["tunnels"], "get" | "attachVpc">,
-  options: CreateProviderTunnelOptions,
-  clientPublicKey: string,
-): Promise<ProviderTunnel> {
-  let existing = await tunnels.get(options.slug);
-  if (existing.clientPublicKey.trim() !== clientPublicKey) {
-    throw new ProviderError(
-      "freestyle",
-      `tunnel ${options.slug} already exists with a different client key; use the original installation or revoke it before re-enrolling`,
-    );
-  }
-  if (!existing.attachments.some((entry) => entry.vpcId === options.networkId)) {
-    existing = await tunnels.attachVpc(existing.tunnelId ?? existing.id, options.networkId);
-  }
-  return mapFreestyleTunnel(existing, options.networkId);
-}
-
-/**
- * A VPC slug conflict is the only provider failure that means another request
- * won the create race. Status and code are both checked because a 409 also
- * represents unrelated provider conflicts, which must remain visible.
- */
-function isVpcSlugConflict(err: unknown): boolean {
-  return err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT";
 }
 
 /**
@@ -755,6 +560,8 @@ function isVpcSlugConflict(err: unknown): boolean {
  * the provider match what it is asked for.
  */
 class FreestylePrivateNetworking implements VMPrivateNetworking {
+  constructor(private readonly client: (timeoutMs?: number) => Freestyle = freestyleClient) {}
+
   /**
    * Create-first: a returning user's network id lives in our row, so this runs
    * for an account's first machine (or a heal). The create is the one call
@@ -769,9 +576,10 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     if (!slug) throw new ProviderError("freestyle", "ensureNetwork requires a slug");
     return withVmSpan(
       "cmux.vm.provider.ensure_network",
+      "tunnel",
       { "cmux.vm.provider": "freestyle", "cmux.vm.operation": "ensure_network", "cmux.vm.network.slug": slug, "cmux.vm.network.heal": options.heal === true },
-      async (span) => {
-        const fs = freestyleClient();
+        async (span) => {
+        const fs = this.client();
         if (options.heal) {
           const existing = await this.readNetworkBySlug(fs, slug);
           if (!existing) throw new ProviderError("freestyle", `ensureNetwork(${slug}): no network to heal`);
@@ -791,22 +599,18 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
           return mapFreestyleNetwork(data);
         } catch (err) {
-          // Two machines created at once both miss the read and both create.
-          // Reconcile only the documented slug conflict. A 401, 403, 429, or
-          // 5xx must not be hidden by a coincidental stale network lookup.
-          if (!isVpcSlugConflict(err)) {
+          // Only the provider's explicit slug conflict permits reconciliation;
+          // auth, transport and server errors retain their original failure.
+          if (!(err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT")) {
             throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
           }
-          const raced = await this.readNetworkBySlug(fs, slug);
-          if (!raced) {
-            throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
+          const existing = await this.readNetworkBySlug(fs, slug);
+          if (existing) {
+            await this.ensureMembersRule(fs, existing.id);
+            setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
+            return existing;
           }
-          // The winner may have created the VPC without its rule, or an
-          // operator may have removed it between create and this read. Heal the
-          // winner before returning it, otherwise the next VM is unreachable.
-          await this.ensureMembersRule(fs, raced.id);
-          setSpanAttributes(span, { "cmux.vm.network.id": raced.id, "cmux.vm.network.created": false });
-          return raced;
+          throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
         }
       },
     );
@@ -814,7 +618,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   async getNetwork(networkId: string): Promise<ProviderNetwork | null> {
     try {
-      return mapFreestyleNetwork(await freestyleClient().vpc.get(networkId));
+      return mapFreestyleNetwork(await this.client().vpc.get(networkId));
     } catch (err) {
       if (isNotFound(err)) return null;
       throw new ProviderError("freestyle", `getNetwork(${networkId})`, err);
@@ -823,7 +627,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   async deleteNetwork(networkId: string): Promise<void> {
     try {
-      await freestyleClient().vpc.delete(networkId);
+      await this.client().vpc.delete(networkId);
     } catch (err) {
       if (isNotFound(err)) return; // already gone; delete is idempotent
       throw new ProviderError("freestyle", `deleteNetwork(${networkId})`, err);
@@ -831,37 +635,93 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
   }
 
   async createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnelCreateResult> {
+    const clientPublicKey = options.clientPublicKey.trim();
+    if (!clientPublicKey) {
+      throw new ProviderError("freestyle", "createTunnel requires the client's public key");
+    }
     return withVmSpan(
       "cmux.vm.provider.create_tunnel",
+      "tunnel",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "create_tunnel",
         "cmux.vm.network.id": options.networkId,
       },
-      async (span) => {
+        async (span) => {
         try {
           // clientPublicKey is always supplied, so the platform never mints or
           // holds a private key: the config comes back with a blank PrivateKey
-          // for the Mac to fill in from its own Keychain. A slug conflict is
-          // reconciled by the helper, which also preserves the operation
-          // outcome for the control-plane response.
-          const result = await createOrReuseFreestyleTunnel(freestyleClient().tunnels, options);
-          setSpanAttributes(span, { "cmux.vm.tunnel.id": result.tunnel.id });
-          setSpanAttributes(span, {
-            "cmux.vm.tunnel.created": result.created,
-            "cmux.vm.tunnel.rotated": result.rotated,
+          // for the Mac to fill in from its own Keychain. The short timeout
+          // bounds a hung create (a measured 503 arrived after ~25 s); the
+          // recovery read below finds a tunnel the provider made anyway.
+          const data = await this.client(TUNNEL_CREATE_TIMEOUT_MS).tunnels.create({
+            slug: options.slug,
+            displayName: options.displayName,
+            clientPublicKey,
+            vpcs: [{ vpcId: options.networkId }],
           });
-          return result;
+          const tunnel = mapFreestyleTunnel(data, options.networkId);
+          setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
+          return { tunnel, created: true, rotated: false };
         } catch (err) {
+          if (!tunnelCreateMayHaveSucceeded(err)) {
+            throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
+          }
+          span.setAttribute("cmux.vm.tunnel.recovery_reason", tunnelRecoveryReason(err));
+          // A duplicate create may reuse only the exact same client identity.
+          // Key rotation belongs to explicit enrollment of an existing row;
+          // recovery must never evict a concurrent client's working key.
+          const recovered = await this.recoverExistingTunnel(
+            options.slug,
+            clientPublicKey,
+            options.networkId,
+          );
+          if (recovered) {
+            setSpanAttributes(span, {
+              "cmux.vm.tunnel.id": recovered.id,
+              "cmux.vm.tunnel.recovered": true,
+            });
+            return { tunnel: recovered, created: false, rotated: false };
+          }
           throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
         }
       },
     );
   }
 
+  /** Reconciles a provider tunnel left behind when the control-plane row disappeared. */
+  private async recoverExistingTunnel(
+    slug: string,
+    clientPublicKey: string,
+    networkId: string,
+  ): Promise<ProviderTunnel | null> {
+    const normalizedSlug = slug.trim();
+    if (!normalizedSlug) return null;
+    try {
+      const fs = this.client();
+      const listed = await fs.tunnels.list();
+      const existing = listed.tunnels.find((tunnel) => tunnel.slug?.trim() === normalizedSlug);
+      if (!existing) return null;
+
+      const tunnelID = existing.tunnelId ?? existing.id;
+      let current: TunnelData = existing;
+      if (current.clientPublicKey.trim() !== clientPublicKey) return null;
+      if (!current.attachments.some((attachment) => attachment.vpcId === networkId)) {
+        current = await fs.tunnels.attachVpc(tunnelID, networkId);
+      }
+      if (current.clientPublicKey.trim() !== clientPublicKey ||
+          !current.attachments.some((attachment) => attachment.vpcId === networkId)) return null;
+      return mapFreestyleTunnel(current, networkId);
+    } catch {
+      // Preserve the original create failure. A failed reconciliation attempt
+      // must not hide a provider outage or turn it into an unrelated error.
+      return null;
+    }
+  }
+
   async getTunnel(tunnelId: string, networkId: string): Promise<ProviderTunnel | null> {
     try {
-      const fs = freestyleClient();
+      const fs = this.client();
       let data = await fs.tunnels.get(tunnelId);
       if (!data.attachments.some((entry) => entry.vpcId === networkId)) {
         // The tunnel outlives its attachments, so a network detached by hand
@@ -881,7 +741,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     const key = clientPublicKey.trim();
     if (!key) throw new ProviderError("freestyle", "rotateTunnelKey requires the client's public key");
     try {
-      const data = await freestyleClient().tunnels.rotateKey(tunnelId, { clientPublicKey: key });
+      const data = await this.client().tunnels.rotateKey(tunnelId, { clientPublicKey: key });
       return mapFreestyleTunnel(data, networkId);
     } catch (err) {
       throw new ProviderError("freestyle", `rotateTunnelKey(${tunnelId})`, err);
@@ -890,7 +750,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   async deleteTunnel(tunnelId: string): Promise<void> {
     try {
-      await freestyleClient().tunnels.delete(tunnelId);
+      await this.client().tunnels.delete(tunnelId);
     } catch (err) {
       if (isNotFound(err)) return; // already gone; delete is idempotent
       throw new ProviderError("freestyle", `deleteTunnel(${tunnelId})`, err);
@@ -899,9 +759,9 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   /**
    * Guarantee the network's members-reach-each-other rule (all ports, all
-   * protocols, the rule created with the network). Missing means someone removed
-   * it, so re-create it. A provider error is fatal: continuing would create a
-   * machine that the owner's tunnel cannot reach.
+   * protocols — the rule created with the network). Missing means someone
+   * removed it; re-create rather than fail, because nothing on the network
+   * works without it.
    */
   private async ensureMembersRule(fs: Freestyle, networkId: string): Promise<void> {
     try {
@@ -920,7 +780,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         description: "cmux: members reach each other (healed)",
       });
     } catch (err) {
-      throw new ProviderError("freestyle", `ensureMembersRule(${networkId})`, err);
+      throw new ProviderError("freestyle", `members-rule heal failed for ${networkId}`, err);
     }
   }
 
@@ -935,10 +795,6 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
   }
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 function spanAttributes(vmId: string, operation: string, extra: Record<string, string | number | boolean> = {}) {
   return {
     "cmux.vm.provider": "freestyle",
@@ -948,33 +804,81 @@ function spanAttributes(vmId: string, operation: string, extra: Record<string, s
   };
 }
 
+/**
+ * A snapshot that does not exist, or was not taken from the machine named in
+ * the request. `code` and `status` are what `isProviderNotFoundError` reads, so
+ * the workflow answers 404 vm_snapshot_not_found instead of a provider failure.
+ */
+export class FreestyleSnapshotNotFoundError extends Error {
+  readonly code = "not_found";
+  readonly status = 404;
+
+  constructor(readonly snapshotId: string, readonly vmId: string) {
+    super(`snapshot ${snapshotId} not found for vm ${vmId}`);
+    this.name = "FreestyleSnapshotNotFoundError";
+  }
+}
+
+/** The provider's snapshot record in the driver contract's shape. */
+export function freestyleSnapshotRef(snapshot: SnapshotData): SnapshotRef {
+  const createdAt = Date.parse(snapshot.createdAt);
+  const name = snapshot.displayName?.trim() || snapshot.slug?.trim() || undefined;
+  return {
+    id: snapshot.id,
+    createdAt: Number.isFinite(createdAt) ? createdAt : 0,
+    ...(name ? { name } : {}),
+  };
+}
+
 export class FreestyleProvider implements VMProvider {
   readonly id = "freestyle" as const;
 
-  /** The only session transport: the cmux-tui remote daemon (`openCmuxRemote`). */
+  /** The normal terminal transport. SSH is an explicit legacy attach verb, not the default. */
   readonly attachTransports: readonly AttachTransport[] = ["cmux-remote"];
+
+  /** ``create`` honors requested memory through the grow-only size ladder. */
+  /// Freestyle exposes live resource statistics and grow-only resizing.
+  readonly capabilities = { stats: true, sizing: true, desktop: true } as const;
+
+  readonly privateNetworking: VMPrivateNetworking;
+  private readonly resourceStats: FreestyleResourceStatsReader;
 
   constructor(
     private readonly deps: FreestyleProviderDependencies = {
       client: freestyleClient,
-      resolveDaemonSource: resolveCmuxTuiSource,
     },
-  ) {}
+  ) {
+    this.privateNetworking = new FreestylePrivateNetworking(this.deps.client);
+    this.resourceStats = new FreestyleResourceStatsReader(this.deps.client);
+  }
 
-  readonly privateNetworking: VMPrivateNetworking = new FreestylePrivateNetworking();
+  async prepareSCP(vmId: string, publicKey: string): Promise<import("./types").SCPEndpoint> {
+    return withVmSpan("cmux.vm.provider.prepare_scp", "provider", spanAttributes(vmId, "prepare_scp"), async () => {
+      const key = parseSshPublicKey(publicKey);
+      const vm = this.deps.client().vms.ref(vmId);
+      const data = await vm.data();
+      const host = freestylePortAddress(data, vmId);
+      const expires = new Date(Date.now() + SCP_KEY_TTL_SECONDS * 1000);
+      const result = await this.execResult(vm, scpPrepareCommand(key, expires));
+      if (!result || result.exitCode !== 0) {
+        throw new ProviderError("freestyle", `SCP preparation failed in ${vmId}: ${(result?.stderr || "SSH server unavailable").slice(0, 500)}`);
+      }
+      let hostPublicKey: string;
+      try { hostPublicKey = parseSshPublicKey(result.stdout); }
+      catch { throw new ProviderError("freestyle", "SCP preparation returned an invalid guest host key."); }
+      return { host, port: 22, username: "cmux", hostPublicKey, expiresAtUnix: Math.floor(expires.getTime() / 1000) };
+    });
+  }
 
   async create(options: CreateOptions): Promise<VMHandle> {
     const image = options.image.trim();
     if (!image) {
       throw new ProviderError("freestyle", "create requires a resolved image");
     }
-    const networkId = options.network?.id;
-    if (!networkId) {
-      throw new ProviderError("freestyle", "create requires a private network");
-    }
     const tlsRules = freestyleEdgeRules(options.edgeRules);
     return withVmSpan(
       "cmux.vm.provider.create",
+      "provider",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "create",
@@ -985,15 +889,19 @@ export class FreestyleProvider implements VMProvider {
       async (span) => {
         try {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          const networkId = options.network?.id;
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
-            displayName: options.displayName ?? "cmux Cloud VM",
+            displayName: "cmux Cloud VM",
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+            ...(options.runtimeBudgetSeconds !== undefined ? {
+              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
+            } : {}),
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules() },
-            vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }],
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+            ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });
           setSpanAttributes(span, {
@@ -1001,39 +909,43 @@ export class FreestyleProvider implements VMProvider {
             "cmux.vm.network.private": !!networkId,
           });
           try {
+            // Validate the provider-assigned VPC address without issuing the
+            // guest-side announcement exec. The baked supervisor announces on
+            // clone boot; attach performs the strict announcement before
+            // handing out the private daemon route.
+            if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
+            // Every production create resolves to a size-specific snapshot. The
+            // snapshot owns the guest CLI, browser integration, resource
+            // reporter, prompt templates, hooks, and daemon. A create must only
+            // allocate that immutable image and attach its account network.
+            // Per-machine prompt identity is refreshed asynchronously by the
+            // boot contract; no guest exec or filesystem upload belongs here.
             if (options.imageSize) {
-              // One snapshot per CPU/memory size: preserve that baked shape,
-              // then grow only storage when the image is below the documented
-              // 32 GB starting disk.
               setSpanAttributes(span, {
                 "cmux.vm.image_size": options.imageSize.name,
                 "cmux.vm.resources.cpu": options.imageSize.cpu,
                 "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
+                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
+                "cmux.vm.resize.requested": false,
               });
-              await this.growToRequestedSize(
-                fs,
-                vm,
-                vmId,
-                undefined,
-                span,
-                {
-                  cpu: options.imageSize.cpu,
-                  memory: options.imageSize.memoryMb,
-                  storage: Math.max(VM_DISK_MB_DEFAULT, options.imageSize.storageMb, vmDiskMb()),
-                },
-              );
             } else {
-              // A size-less image boots at its snapshot's resources and only a
-              // grow-only resize raises them. Size first so the daemon comes
-              // up on the provider profile requested by the server.
-              await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
+              setSpanAttributes(span, {
+                "cmux.vm.resources.cpu": data.resources?.cpu ?? 0,
+                "cmux.vm.resources.memory_mb": data.resources?.memory ?? 0,
+                "cmux.vm.resources.storage_mb": data.resources?.storage ?? 0,
+                "cmux.vm.resize.requested": false,
+              });
             }
-            // The baked supervisor is already bringing the daemon up; the only
-            // per-machine input it needs is the model-plane env file.
+            // The baked supervisor announces the VPC interface on clone boot
+            // and every 30 seconds. Waiting for a second guest-side `ip` probe
+            // here made create pay a redundant network round trip and turned
+            // a transient netlink timeout into a destructive rollback. The
+            // attach path performs the strict announcement/readiness check
+            // before handing out the private daemon route.
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
-            // the provider sizing profile.
+            // the plan machine.
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
             });
@@ -1052,7 +964,8 @@ export class FreestyleProvider implements VMProvider {
             // placed, never where to dial it.
             providerMetadata: {
               ...(options.providerMetadata ?? {}),
-              networkId,
+              cmuxTuiContract: "snapshot-v2",
+              ...(networkId ? { networkId } : {}),
               ...(freestyleNetworkAddressMetadata(data)),
             },
           };
@@ -1063,36 +976,10 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  /**
-   * Grow the VM to the requested memory (the provider profile when the caller
-   * sent none), the vCPUs that memory implies, and the starting disk. Freestyle
-   * resize is grow-only, so only larger dimensions are sent; a snapshot that
-   * already carries the size is a no-op.
-   */
-  private async growToRequestedSize(
-    fs: Freestyle,
-    vm: Vm,
-    vmId: string,
-    memoryMb: number | undefined,
-    span: Parameters<typeof setSpanAttributes>[0],
-    targetResources?: VmResources,
-  ): Promise<void> {
-    const current = (await fs.vms.get(vmId)).resources;
-    const target = targetResources ?? freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
-    const request = freestyleResizeRequest(current, target);
-    setSpanAttributes(span, {
-      "cmux.vm.resources.cpu": target.cpu,
-      "cmux.vm.resources.memory_mb": target.memory,
-      "cmux.vm.resources.storage_mb": target.storage,
-      "cmux.vm.resize.requested": request !== null,
-    });
-    if (!request) return;
-    await vm.resize(request);
-  }
-
   async destroy(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.destroy",
+      "provider",
       spanAttributes(vmId, "destroy"),
       async () => {
         try {
@@ -1108,6 +995,7 @@ export class FreestyleProvider implements VMProvider {
   async getStatus(vmId: string): Promise<VMStatus> {
     return withVmSpan(
       "cmux.vm.provider.get_status",
+      "provider",
       spanAttributes(vmId, "get_status"),
       async (span) => {
         try {
@@ -1127,6 +1015,7 @@ export class FreestyleProvider implements VMProvider {
   async pause(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.pause",
+      "provider",
       spanAttributes(vmId, "pause"),
       async () => {
         try {
@@ -1138,15 +1027,42 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  async setRuntimeBudget(vmId: string, remainingSeconds: number | null): Promise<void> {
+    const vm = this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId);
+    if (remainingSeconds === null) {
+      await vm.update({ maxRunTotalSeconds: -1, automaticRestart: true });
+      return;
+    }
+    const data = await vm.data();
+    const used = data.totalRunSeconds;
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || !Number.isFinite(remainingSeconds) || remainingSeconds < 0) {
+      throw new ProviderError("freestyle", "setRuntimeBudget", new Error("Provider runtime counter is unavailable"));
+    }
+    await vm.update({ maxRunTotalSeconds: Math.floor(used + remainingSeconds), automaticRestart: false });
+  }
+
   async resume(vmId: string): Promise<VMHandle> {
     return withVmSpan(
       "cmux.vm.provider.resume",
+      "provider",
       spanAttributes(vmId, "resume"),
       async (span) => {
         try {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
           const data = await vm.start();
+          // The wake already succeeded: the machine is running and, unlike
+          // create and restore, there is no fresh allocation to roll back. A
+          // start payload can also name the network a VM is on before the
+          // platform fills in the address assigned on it, so an unusable
+          // address here is not a verdict on the machine. Prepare the route
+          // best-effort and leave readiness to openCmuxRemote, which reads the
+          // authoritative addresses and fails closed on them.
+          try {
+            await this.announcePrivateAddresses(vm, data);
+          } catch (announceError) {
+            recordSpanError(span, announceError);
+          }
           // Older cmux machines were created while the provider's account
           // default supplied a finite idle timeout. Clear that legacy policy
           // the first time the user wakes one so the box stays available after
@@ -1163,13 +1079,9 @@ export class FreestyleProvider implements VMProvider {
           const status = mapFreestyleState(data.state);
           setSpanAttributes(span, { "cmux.vm.provider_state": data.state, "cmux.vm.status": status });
           // A memory-preserving pause keeps the daemon; a cold boot (the VM had
-          // stopped) relies on the baked systemd unit. Heal best-effort so the
-          // first attach doesn't race the unit; attach re-verifies anyway.
-          try {
-            await this.ensureCmuxTuiRunning(vm, vmId);
-          } catch (healErr) {
-            recordSpanError(span, healErr);
-          }
+          // stopped) relies on the baked systemd unit. Resume does no guest
+          // work (see NO-WORK INVARIANT at the top of this file). The client's
+          // link retry covers the short window before the unit is listening.
           return {
             provider: "freestyle" as const,
             providerVmId: data.id,
@@ -1188,6 +1100,7 @@ export class FreestyleProvider implements VMProvider {
     const timeoutMs = normalizeFreestyleExecTimeout(opts?.timeoutMs);
     return withVmSpan(
       "cmux.vm.provider.exec",
+      "provider",
       spanAttributes(vmId, "exec", {
         "cmux.command_length": command.length,
         "cmux.timeout_ms": timeoutMs,
@@ -1195,7 +1108,8 @@ export class FreestyleProvider implements VMProvider {
       async (span) => {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
-          const r = await fs.vms.ref(vmId).exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
+          const vm = fs.vms.ref(vmId);
+          const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
@@ -1207,9 +1121,42 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  /** Read provisioned dimensions without waking the guest or inventing usage gauges. */
+  async getStats(vmId: string): Promise<VMStats> {
+    return withVmSpan(
+      "cmux.vm.provider.get_stats",
+      "provider",
+      spanAttributes(vmId, "getStats"),
+      async () => {
+        try {
+          const data = await this.deps.client().vms.get(vmId);
+          return {
+            state: data.state === "running"
+              ? "awake"
+              : data.state === "paused" || data.state === "pausing" || data.state === "stopped"
+                ? "asleep"
+                : "unknown",
+            sampledAt: Date.now(),
+            cpus: data.resources.cpu,
+            memoryTotalMb: data.resources.memory,
+            diskTotalMb: data.resources.storage,
+          };
+        } catch (err) {
+          throw new ProviderError("freestyle", `getStats(${vmId})`, err);
+        }
+      },
+    );
+  }
+
+  /** Read guest gauges without the general exec path's CLI installation/heal. */
+  getResourceStats(vmId: string): Promise<VMResourceStatsResult | null> {
+    return this.resourceStats.read(vmId);
+  }
+
   async resize(vmId: string, options: VMResizeOptions): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.resize",
+      "provider",
       spanAttributes(vmId, "resize", {
         "cmux.vm.resize.storage_mb": options.storageMb ?? 0,
       }),
@@ -1233,6 +1180,7 @@ export class FreestyleProvider implements VMProvider {
   async snapshot(vmId: string, name?: string): Promise<SnapshotRef> {
     return withVmSpan(
       "cmux.vm.provider.snapshot",
+      "provider",
       spanAttributes(vmId, "snapshot", {
         "cmux.snapshot.named": !!name,
         "cmux.timeout_ms": SNAPSHOT_TIMEOUT_MS,
@@ -1254,14 +1202,61 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  async listSnapshots(vmId: string): Promise<SnapshotRef[]> {
+    return withVmSpan(
+      "cmux.vm.provider.list_snapshots",
+      "provider",
+      spanAttributes(vmId, "listSnapshots"),
+      async (span) => {
+        try {
+          const fs = this.deps.client();
+          const snapshots: SnapshotData[] = [];
+          for (let offset = 0; offset < SNAPSHOT_LIST_MAX; offset += SNAPSHOT_LIST_PAGE) {
+            const page = await fs.vms.snapshots.list({ sourceVmId: vmId, limit: SNAPSHOT_LIST_PAGE, offset });
+            snapshots.push(...page.snapshots);
+            if (page.snapshots.length < SNAPSHOT_LIST_PAGE || snapshots.length >= page.totalCount) break;
+          }
+          setSpanAttributes(span, { "cmux.snapshot.count": snapshots.length });
+          return snapshots
+            // The filter is the provider's; the guard keeps a lax answer from
+            // ever listing another machine's snapshots under this one.
+            .filter((snapshot) => (snapshot.sourceVmId ?? vmId) === vmId)
+            .map(freestyleSnapshotRef)
+            .sort((a, b) => b.createdAt - a.createdAt);
+        } catch (err) {
+          throw new ProviderError("freestyle", `listSnapshots(${vmId})`, err);
+        }
+      },
+    );
+  }
+
+  async deleteSnapshot(vmId: string, snapshotId: string): Promise<void> {
+    return withVmSpan(
+      "cmux.vm.provider.delete_snapshot",
+      "provider",
+      spanAttributes(vmId, "deleteSnapshot", { "cmux.snapshot.id": snapshotId }),
+      async () => {
+        try {
+          const fs = this.deps.client();
+          // Ownership is per machine: only a snapshot taken from this VM goes.
+          // A missing snapshot surfaces here as the SDK's 404.
+          const snapshot = await fs.vms.snapshots.get(snapshotId);
+          if (snapshot.sourceVmId !== vmId) {
+            throw new FreestyleSnapshotNotFoundError(snapshotId, vmId);
+          }
+          await fs.vms.snapshots.delete(snapshotId);
+        } catch (err) {
+          throw new ProviderError("freestyle", `deleteSnapshot(${snapshotId})`, err);
+        }
+      },
+    );
+  }
+
   async restore(snapshotId: string, options?: RestoreOptions): Promise<VMHandle> {
-    const networkId = options?.network?.id;
-    if (!networkId) {
-      throw new ProviderError("freestyle", "restore requires a private network");
-    }
     const tlsRules = freestyleEdgeRules(options?.edgeRules);
     return withVmSpan(
       "cmux.vm.provider.restore",
+      "provider",
       {
         "cmux.vm.provider": "freestyle",
         "cmux.vm.operation": "restore",
@@ -1272,26 +1267,31 @@ export class FreestyleProvider implements VMProvider {
       async (span) => {
         try {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          const networkId = options?.network?.id;
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
-            firewall: { rules: freestyleFirewallRules() },
-            vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }],
+            firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
+            ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
           });
           setSpanAttributes(span, {
             "cmux.vm.id": vmId,
             "cmux.vm.network.private": !!networkId,
           });
-          // The snapshot carries the installed binary and a persisted
-          // model-plane file with placeholders only; heal best-effort so the
-          // machine is attach-ready without failing restore on a transient
-          // daemon error. The new machine's env (its own VM id) and edge rule
-          // are mandatory: a snapshot never carries a token, so the restored
-          // machine is unusable until its own injection is live.
-          await this.ensureCmuxTuiRunning(vm, vmId).catch(() => undefined);
+          // The snapshot carries the daemon, guest integration, reporter, and
+          // prompt sync contract. Restore has the same no-guest-bootstrap
+          // invariant as fresh create.
+          try {
+            if (networkId) await this.announcePrivateAddresses(vm, data, { validateOnly: true });
+          } catch (err) {
+            await vm.delete().catch((cleanupErr) => {
+              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
+            });
+            throw err;
+          }
           return {
             provider: "freestyle" as const,
             providerVmId: vmId,
@@ -1300,8 +1300,8 @@ export class FreestyleProvider implements VMProvider {
             createdAt: Date.now(),
             providerMetadata: {
               ...(options?.providerMetadata ?? {}),
-              networkId,
-              ...freestyleNetworkAddressMetadata(data),
+              cmuxTuiContract: "snapshot-v2",
+              ...(networkId ? { networkId, ...freestyleNetworkAddressMetadata(data) } : {}),
             },
           };
         } catch (err) {
@@ -1314,31 +1314,41 @@ export class FreestyleProvider implements VMProvider {
   async openCmuxRemote(vmId: string, options?: CmuxRemoteAttachOptions): Promise<CmuxRemoteEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_cmux_remote",
+      "tunnel",
       spanAttributes(vmId, "open_cmux_remote"),
       async (span) => {
         try {
-          const fs = this.deps.client(CMUX_TUI_INSTALL_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
-          const vm = fs.vms.ref(vmId);
+          // Attach never runs guest work (NO-WORK INVARIANT at the top of this
+          // file). A snapshot-v2 row carries its private addresses, so attach
+          // is pure metadata. A row from before this contract was recorded
+          // still gets the same answer: every image baked since 2026-09-06
+          // (#12042) serves the trusted listener, and an older one fails at
+          // connect instead of being healed here. Only a row that never
+          // recorded its addresses pays one provider read; the workflow then
+          // persists them, so it happens once per machine.
           const persisted = freestyleRouteAddressesFromMetadata(options?.providerMetadata);
-          const data = persisted ?? await vm.data();
-          const route = freestyleCmuxRemoteRoute(data, vmId);
-          const fingerprint = options?.deviceFingerprint;
-          const { bundle, healed } = await this.loadCmuxRemoteBundle(vm, vmId, fingerprint);
-          span.setAttribute("cmux.vm.cmux_remote.healed", healed);
-          span.setAttribute("cmux.vm.network.private", (data.vpcs ?? data.networks ?? []).length > 0);
+          const routeAddresses = persisted ?? await this.deps.client().vms.ref(vmId).data();
+          span.setAttribute("cmux.vm.cmux_tui_contract", String(options?.providerMetadata?.cmuxTuiContract ?? "none"));
+          const route = freestyleCmuxRemoteRoute(routeAddresses, vmId);
+          const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
+          const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
+          const addresses = freestyleNetworkAddressMetadata(routeAddresses);
+          span.setAttribute("cmux.vm.network.private", (routeAddresses.vpcs ?? routeAddresses.networks ?? []).length > 0);
           span.setAttribute("cmux.vm.route.source", persisted ? "row" : "provider");
-          const invoke = this.cmuxTuiInvoke(vm);
-          const invitation = await this.cmuxRemoteInvitation(bundle, invoke, vmId);
-          span.setAttribute("cmux.vm.cmux_remote.invited", !bundle.enrolled);
+          span.setAttribute("cmux.vm.cmux_remote.healed", false);
+          span.setAttribute("cmux.vm.cmux_remote.invited", false);
+          const networkAddresses = {
+            ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),
+            ...(addresses.networkIpv6 ? { ipv6: addresses.networkIpv6 } : {}),
+          };
           return {
             transport: "cmux-remote" as const,
             route,
-            token: `cmux-freestyle-route-${randomBytes(32).toString("hex")}`,
-            expiresAtUnix: Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS,
+            token,
+            expiresAtUnix,
             session: CMUX_TUI_SESSION,
-            ...(bundle.daemonBuild ? { daemonBuild: bundle.daemonBuild } : {}),
-            ...(invitation ? { invitation } : {}),
-            ...this.networkAddresses(data),
+            trustedCarrier: true,
+            ...(Object.keys(networkAddresses).length ? { networkAddresses } : {}),
           };
         } catch (err) {
           throw err instanceof ProviderError
@@ -1349,48 +1359,18 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  private async loadCmuxRemoteBundle(
+  private async announcePrivateAddresses(
     vm: Vm,
-    vmId: string,
-    fingerprint: string | undefined,
-  ) {
-    let result = await this.execResult(
-      vm,
-      cmuxTuiAttachBundleCommand({ readyGate: freestyleDaemonSettledCommand(), deviceFingerprint: fingerprint }),
-      DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS + EXEC_DEFAULT_TIMEOUT_MS,
-    );
-    let healed = false;
-    if (!result || result.exitCode === CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT) {
-      healed = true;
-      await this.ensureCmuxTuiRunning(vm, vmId);
-      result = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
-    }
-    if (!result || result.exitCode !== 0) {
-      throw new ProviderError(
-        "freestyle",
-        `cmux-tui attach bundle in ${vmId} failed (exit ${result?.exitCode ?? "n/a"}): ${(result?.stderr || result?.stdout || "").slice(0, 500)}`,
-      );
-    }
-    return { bundle: parseCmuxTuiAttachBundle(result.stdout, "freestyle", vmId, fingerprint), healed };
+    data: FreestyleRouteAddresses,
+    options: { readonly validateOnly?: boolean } = {},
+  ): Promise<void> {
+    const addresses = (data.vpcs ?? data.networks ?? [])
+      .flatMap((network) => [network.ipv4, network.ipv6])
+      .filter((address): address is string => typeof address === "string" && address.trim() !== "")
+      .map((address) => address.trim());
+    await Effect.runPromise(announceFreestyleNetwork(vm, addresses, options));
   }
 
-  private async cmuxRemoteInvitation(
-    bundle: ReturnType<typeof parseCmuxTuiAttachBundle>,
-    invoke: CmuxTuiInvoke,
-    vmId: string,
-  ): Promise<CmuxRemoteEndpoint["invitation"] | undefined> {
-    if (bundle.enrolled || bundle.invitation) return bundle.invitation ?? undefined;
-    return mintCmuxTuiInvitation(invoke, "freestyle", vmId);
-  }
-
-  private networkAddresses(data: FreestyleRouteAddresses): Pick<CmuxRemoteEndpoint, "networkAddresses"> {
-    const addresses = freestyleNetworkAddressMetadata(data);
-    const networkAddresses = {
-      ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),
-      ...(addresses.networkIpv6 ? { ipv6: addresses.networkIpv6 } : {}),
-    };
-    return Object.keys(networkAddresses).length ? { networkAddresses } : {};
-  }
 
   async approveCmuxRemoteEnrollment(
     vmId: string,
@@ -1398,38 +1378,8 @@ export class FreestyleProvider implements VMProvider {
     options?: CmuxRemoteApprovalOptions,
   ): Promise<CmuxRemoteApprovalResult> {
     void options;
-    return withVmSpan(
-      "cmux.vm.provider.approve_cmux_remote_enrollment",
-      spanAttributes(vmId, "approve_cmux_remote_enrollment"),
-      async () => {
-        try {
-          const vm = this.deps.client().vms.ref(vmId);
-          return await approveCmuxTuiEnrollment(
-            async (command, timeoutMs) =>
-              await this.execResult(vm, command, timeoutMs) ?? {
-                exitCode: 124,
-                stdout: "",
-                stderr: "exec failed",
-              },
-            "freestyle",
-            vmId,
-            invitationId,
-          );
-        } catch (err) {
-          throw err instanceof ProviderError
-            ? err
-            : new ProviderError("freestyle", `approveCmuxRemoteEnrollment(${vmId}) failed`, err);
-        }
-      },
-    );
-  }
-
-  async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
-    void options;
-    throw new ProviderError(
-      "freestyle",
-      `openAttach(${vmId}) is not supported: Freestyle machines attach through the cmux-tui remote daemon (transport cmux-remote).`,
-    );
+    void invitationId;
+    throw new ProviderError("freestyle", `VM ${vmId} uses trusted-carrier attach and has no enrollment approval path`);
   }
 
   /**
@@ -1444,6 +1394,7 @@ export class FreestyleProvider implements VMProvider {
   async openPort(vmId: string, port: number): Promise<{ url: string; token: string; openUrl: string; expiresAtMs?: number }> {
     return withVmSpan(
       "cmux.vm.provider.open_port",
+      "provider",
       spanAttributes(vmId, "open_port", { "cmux.vm.port": port }),
       async (span) => {
         if (!Number.isInteger(port) || port < 1 || port > 65535 || port === CMUX_TUI_PORT) {
@@ -1480,53 +1431,26 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
-  async openSSH(vmId: string): Promise<SSHEndpoint> {
+  /**
+   * Sign-out cleanup for legacy driver-minted preview leases. Publication
+   * rules are owned by the VM-publications workflow and are not touched here.
+   */
+  async revokeEndpointLeases(vmId: string): Promise<void> {
     return withVmSpan(
-      "cmux.vm.provider.open_ssh",
-      spanAttributes(vmId, "open_ssh"),
+      "cmux.vm.provider.revoke_endpoint_leases",
+      "provider",
+      spanAttributes(vmId, "revoke_endpoint_leases"),
       async () => {
-        throw new ProviderError(
-          "freestyle",
-          "Freestyle provides scoped SSH for unmanaged access, but managed Cloud VM sessions " +
-            "use the cmux-tui remote daemon (transport cmux-remote).",
-        );
+        const fs = this.deps.client();
+        const existing = await fs.tls.rules.list({ vmId });
+        for (const rule of existing.rules) {
+          if (rule.managed || !FREESTYLE_PORT_RULE_DOMAIN_RE.test(rule.domain)) continue;
+          await fs.tls.rules.delete(rule.id).catch((err: unknown) => {
+            console.error(`[freestyle] revoking legacy port rule ${rule.id} for ${vmId} failed`, err);
+          });
+        }
       },
     );
-  }
-
-  async revokeSSHIdentity(identityHandle: string): Promise<void> {
-    void identityHandle;
-    // openSSH always throws, so there is never an identity to revoke.
-  }
-
-  /**
-   * Edge injection activates 20-30 s after boot and a guest request made
-   * before that reaches coderouter without the token. Prove each rule from
-   * inside the guest before handing the machine out; an inactive rule means
-   * the machine can never reach a model, so the caller rolls it back.
-   */
-  /**
-   * Attach-time heal: a daemon that is running AND listening dual-stack is
-   * left alone; anything else is repaired, reinstalling first when the binary
-   * is missing (a pre-bake image) or superseded by a manifest pin change. On a
-   * freshly resumed machine this also covers the sub-second window before the
-   * baked supervisor has started the daemon. The dual-stack check matters
-   * because a machine from an older bake boots the daemon on 0.0.0.0, which
-   * cannot accept a private IPv6 connection.
-   */
-  private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
-    const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
-    if (healthy?.exitCode === 0) return;
-    const source = await resolveCmuxTuiSource("freestyle");
-    const pinned = await this.execResult(vm, freestylePinCheckCommand(source));
-    if (pinned?.exitCode !== 0) {
-      await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
-        .catch((err: unknown) => {
-          throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
-        });
-    }
-    await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
-    await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {
@@ -1538,47 +1462,5 @@ export class FreestyleProvider implements VMProvider {
     }
   }
 
-  private async execOrThrow(vm: Vm, vmId: string, command: string, timeoutMs: number): Promise<ExecResult> {
-    const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
-    const exitCode = r.statusCode ?? 124;
-    if (exitCode !== 0) {
-      throw new Error(`exec in ${vmId} exited ${exitCode}: ${(r.stderr ?? r.stdout ?? "").trim().slice(0, 500)}`);
-    }
-    return { exitCode, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
-  }
-
-  private cmuxTuiInvoke(vm: Vm): CmuxTuiInvoke {
-    return async (args, timeoutMs) => {
-      const r = await this.execResult(vm, `env HOME=/root /root/.cmux/bin/cmux-tui ${args}`, timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS);
-      return r ?? { exitCode: 124, stdout: "", stderr: "exec failed" };
-    };
-  }
 }
 
-/** The provider resources each machine receives for `memoryMb` (see entitlements.ts). */
-export function freestyleTargetResources(
-  memoryMb: number,
-  env: Record<string, string | undefined> = process.env,
-): VmResources {
-  return {
-    cpu: vcpusForMemoryMb(memoryMb),
-    memory: memoryMb,
-    storage: vmDiskMb(env),
-  };
-}
-
-/**
- * The grow-only resize that takes `current` to `target`, or null when nothing
- * needs to grow. Shrinks are never requested: Freestyle rejects them, and a
- * snapshot restored at a larger size keeps what it had.
- */
-export function freestyleResizeRequest(
-  current: VmResources,
-  target: VmResources,
-): ResizeVmOptions | null {
-  const request: ResizeVmOptions = {};
-  if (target.cpu > current.cpu) request.cpu = target.cpu;
-  if (target.memory > current.memory) request.memory = target.memory;
-  if (target.storage > current.storage) request.storage = target.storage;
-  return Object.keys(request).length > 0 ? request : null;
-}

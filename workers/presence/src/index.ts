@@ -46,11 +46,17 @@ import {
 import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
 import {
   MAX_PHONE_REPLY_BODY_BYTES,
-  MAX_PHONE_REPLY_TARGET_ID_CHARS,
   parsePhoneReply,
   parsePhoneReplyAck,
+  parsePhoneReplyTarget,
 } from "./replies";
+import {
+  MAX_LEGACY_PHONE_REPLY_BODY_BYTES,
+  parseLegacyPhoneReply,
+  parseLegacyPhoneReplyAck,
+} from "./legacyReplies";
 import { captureSentryException } from "./sentry";
+import { rateLimitedJson } from "./retryAfterResponse";
 
 export { TeamPresence, AccountControlPlane };
 
@@ -199,20 +205,51 @@ const worker = {
       if (!user) return unauthorized();
       const stub = connectivityStub(env, user.id);
       if (request.method === "POST") {
-        const body = await readBoundedJson(request, MAX_PHONE_REPLY_BODY_BYTES);
+        const body = await readBoundedJson(request, MAX_LEGACY_PHONE_REPLY_BODY_BYTES);
         if (!body.ok) return json({ error: "invalid_request" }, body.status);
-        const parsed = parsePhoneReply(body.value);
+        const parsed = parseLegacyPhoneReply(body.value);
         if (!parsed.ok) return json({ error: parsed.error }, 400);
-        const result = await stub.enqueuePhoneReply(user.id, parsed.reply);
-        if (!result.ok) return json({ error: result.error }, 429);
+        const result = await stub.enqueueLegacyPhoneReply(user.id, parsed.reply);
+        if (!result.ok) {
+          if (result.error === "too_many_pending") return rateLimitedJson({ error: result.error });
+          return json({ error: result.error }, 409);
+        }
         return json(result);
       }
       if (request.method === "GET") {
-        const macDeviceId = url.searchParams.get("macDeviceId")?.trim() ?? "";
-        if (!macDeviceId || macDeviceId.length > MAX_PHONE_REPLY_TARGET_ID_CHARS) {
+        const macDeviceId = url.searchParams.get("macDeviceId")?.trim();
+        if (!macDeviceId) {
           return json({ error: "invalid_mac_device_id" }, 400);
         }
-        return json({ replies: await stub.listPhoneReplies(macDeviceId) });
+        return json({ replies: await stub.listLegacyPhoneReplies(macDeviceId) });
+      }
+      return json({ error: "method_not_allowed" }, 405);
+    }
+
+    if (url.pathname === "/v1/replies/e2e") {
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const stub = connectivityStub(env, user.id);
+      if (request.method === "POST") {
+        const body = await readBoundedJson(request, MAX_PHONE_REPLY_BODY_BYTES);
+        if (!body.ok) return json({ error: "invalid_request" }, body.status);
+        const parsed = parsePhoneReply(body.value, { accountID: user.id });
+        if (!parsed.ok) return json({ error: parsed.error }, 400);
+        const result = await stub.enqueuePhoneReply(user.id, parsed.reply);
+        if (!result.ok) {
+          if (result.error === "too_many_pending") return rateLimitedJson({ error: result.error });
+          return json({ error: result.error }, result.error === "account_mismatch" ? 403 : 409);
+        }
+        return json(result);
+      }
+      if (request.method === "GET") {
+        const target = parsePhoneReplyTarget({
+          macDeviceId: url.searchParams.get("macDeviceId"),
+          macInstanceTag: url.searchParams.get("macInstanceTag"),
+          macBuildID: url.searchParams.get("macBuildID"),
+        });
+        if (!target) return json({ error: "invalid_mac_device_id" }, 400);
+        return json({ replies: await stub.listPhoneReplies(target) });
       }
       return json({ error: "method_not_allowed" }, 405);
     }
@@ -221,12 +258,24 @@ const worker = {
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
+      const body = await readBoundedJson(request, MAX_LEGACY_PHONE_REPLY_BODY_BYTES);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parseLegacyPhoneReplyAck(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      const stub = connectivityStub(env, user.id);
+      return json(await stub.ackLegacyPhoneReplies(parsed.replyIds));
+    }
+
+    if (url.pathname === "/v1/replies/e2e/ack") {
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
       const body = await readBoundedJson(request, MAX_PHONE_REPLY_BODY_BYTES);
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
       const parsed = parsePhoneReplyAck(body.value);
-      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      if (!parsed.ok || !parsed.target) return json({ error: "invalid_reply_target" }, 400);
       const stub = connectivityStub(env, user.id);
-      return json(await stub.ackPhoneReplies(parsed.replyIds));
+      return json(await stub.ackPhoneReplies(parsed.replyIds, parsed.target));
     }
 
     if (url.pathname === "/v1/presence/heartbeat") {
@@ -240,7 +289,11 @@ const worker = {
       // The verified user id rides along so the DO can pin and enforce device
       // ownership (a co-member must not be able to spoof this device).
       const result = await team.stub.heartbeat(team.teamId, team.user.id, parsed.beat);
-      if ("error" in result) return json({ error: result.error }, result.status);
+      if ("error" in result) {
+        return result.status === 429
+          ? rateLimitedJson({ error: result.error })
+          : json({ error: result.error }, result.status);
+      }
       return json(result);
     }
 
@@ -289,7 +342,7 @@ const worker = {
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
       return new Response(await team.stub.snapshot(team.teamId), {
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "cache-control": "private, no-store" },
       });
     }
 

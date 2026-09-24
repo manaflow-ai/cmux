@@ -1,12 +1,12 @@
-import { cache } from "react";
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 
 import {
-  isSubrouterAuthorizationError,
-  verifyBrowserSessionRequest,
-  withSubrouterAuthorizationDeadline,
-} from "../../services/vms/auth";
+  type DashboardSessionUser,
+  DashboardSessionMissingError,
+  DashboardSessionUnavailableError,
+  readDashboardSessionUser,
+} from "./dashboard-session";
 import { isStackConfigured } from "./stack";
 import {
   DASHBOARD_RETURN_PATH_HEADER,
@@ -14,48 +14,15 @@ import {
 } from "./dashboard-return-path";
 import { localizedVaultPath, vaultSignInHref } from "./vault-auth";
 
+export type { DashboardSessionUser } from "./dashboard-session";
+
 export class DashboardAuthorizationUnavailableError extends Error {
   override readonly name = "DashboardAuthorizationUnavailableError";
 }
 
-type DashboardAuthState =
-  | { readonly kind: "unconfigured" }
-  | { readonly kind: "missing" }
-  | {
-    readonly kind: "authenticated";
-    readonly user: NonNullable<Awaited<ReturnType<typeof verifyBrowserSessionRequest>>>;
-  }
+export type DashboardSection =
+  | { readonly kind: "user"; readonly user: DashboardSessionUser }
   | { readonly kind: "unavailable" };
-
-/**
- * Resolve the browser session once per server render. The Stack call is
- * bounded by the same authorization deadline used by API routes, so a slow
- * auth provider cannot hold the dashboard shell open forever.
- */
-const readDashboardAuth = cache(async (): Promise<DashboardAuthState> => {
-  if (!isStackConfigured()) return { kind: "unconfigured" };
-
-  try {
-    const requestHeaders = await headers();
-    const user = await withSubrouterAuthorizationDeadline((signal) =>
-      verifyBrowserSessionRequest(
-        new Request("https://cmux.com/dashboard", {
-          headers: Object.fromEntries(requestHeaders.entries()),
-        }),
-        signal,
-      )
-    );
-    return user ? { kind: "authenticated", user } : { kind: "missing" };
-  } catch (error) {
-    if (isSubrouterAuthorizationError(error)) {
-      console.error("Dashboard Stack authorization unavailable", {
-        errorType: error instanceof Error ? error.name : typeof error,
-      });
-      return { kind: "unavailable" };
-    }
-    throw error;
-  }
-});
 
 /**
  * Read the dashboard destination set by middleware. The value is restricted
@@ -71,24 +38,61 @@ export async function dashboardReturnPath(
   );
 }
 
+/**
+ * Resolve the signed-in user for a private dashboard section, redirecting a
+ * missing session to sign-in. Call it inside the section's own Suspense
+ * boundary so the static shell above it never waits on Stack.
+ */
 export async function requireDashboardUser(
   locale: string,
   returnPath: string = "/dashboard",
-) {
-  const state = await readDashboardAuth();
-  if (state.kind === "unconfigured") redirect("/");
-  if (state.kind === "unavailable") {
+): Promise<DashboardSessionUser> {
+  const section = await loadDashboardSection(locale, returnPath);
+  if (section.kind === "unavailable") {
     throw new DashboardAuthorizationUnavailableError(
       "Dashboard Stack authorization unavailable",
     );
   }
-  if (state.kind === "missing") {
-    redirect(vaultSignInHref(localizedVaultPath(
-      locale,
-      normalizeDashboardReturnPath(returnPath),
-    )));
+  return section.user;
+}
+
+/**
+ * Like `requireDashboardUser`, but reports a Stack outage as a value so a
+ * section can render recovery UI in place instead of failing the route.
+ */
+export async function loadDashboardSection(
+  locale: string,
+  returnPath: string = "/dashboard",
+): Promise<DashboardSection> {
+  if (!isStackConfigured()) redirect("/");
+  try {
+    return { kind: "user", user: await readDashboardSessionUser() };
+  } catch (error) {
+    // A framework redirect from inside the cached scope must propagate.
+    unstable_rethrow(error);
+    if (error instanceof DashboardSessionMissingError) {
+      redirect(dashboardAuthorizationSignInHref(locale, returnPath));
+    }
+    // Anything else crossed the cache boundary, where prototypes are not
+    // preserved, or is a Stack outage; both render recovery UI in place.
+    if (!(error instanceof DashboardSessionUnavailableError)) {
+      console.error("Dashboard session read failed", {
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+    }
+    return { kind: "unavailable" };
   }
-  return state.user;
+}
+
+/** The signed-in user for chrome that must render for signed-out visitors too. */
+export async function optionalDashboardUser(): Promise<DashboardSessionUser | null> {
+  if (!isStackConfigured()) return null;
+  try {
+    return await readDashboardSessionUser();
+  } catch (error) {
+    unstable_rethrow(error);
+    return null;
+  }
 }
 
 /** Render a standalone recovery view without mounting the private shell. */

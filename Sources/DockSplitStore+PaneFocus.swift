@@ -20,7 +20,27 @@ extension DockSplitStore {
 
     /// Whether a panel id is present in the Dock tree.
     func containsPanel(_ panelId: UUID) -> Bool {
-        panels[panelId] != nil
+        panelID(forTerminalLinkSourceID: panelId) != nil
+    }
+
+    /// Resolves a terminal callback identity to the owning Dock panel.
+    ///
+    /// Ghostty callbacks identify the terminal surface, while Dock ownership
+    /// is indexed by panel IDs and Bonsplit tab IDs. Most terminals use the
+    /// same UUID for both, but restored and aliased control surfaces can carry
+    /// a different tab identity. Keep this normalization at the Dock boundary
+    /// so every terminal-link operation uses one ownership lookup.
+    func panelID(forTerminalLinkSourceID sourceID: UUID) -> UUID? {
+        if panels[sourceID] != nil {
+            return sourceID
+        }
+        if let mappedPanelID = surfaceIdToPanelId[TabID(uuid: sourceID)],
+           panels[mappedPanelID] != nil {
+            return mappedPanelID
+        }
+        return panels.first { _, panel in
+            (panel as? TerminalPanel)?.surface.id == sourceID
+        }?.key
     }
 
     /// Whether a pane id is present in the Dock tree.
@@ -278,14 +298,16 @@ extension DockSplitStore {
     }
 
     func applyFocusedDockSelection() {
-        guard let paneId = bonsplitController.focusedPaneId,
-              let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
-            applyVisibilityToAllPanels()
-            scheduleDockPortalReconcile(reason: "dock.selection.empty")
-            return
+        withCoalescedTerminalViewReattach {
+            guard let paneId = bonsplitController.focusedPaneId,
+                  let tabId = bonsplitController.selectedTab(inPane: paneId)?.id else {
+                applyVisibilityToAllPanels()
+                scheduleDockPortalReconcile(reason: "dock.selection.empty")
+                return
+            }
+            applyDockSelection(tabId: tabId, inPane: paneId)
+            scheduleDockPortalReconcile(reason: "dock.selection.focused")
         }
-        applyDockSelection(tabId: tabId, inPane: paneId)
-        scheduleDockPortalReconcile(reason: "dock.selection.focused")
     }
 
     func applyDockSelection(
@@ -338,9 +360,16 @@ extension DockSplitStore {
 
     private func terminalResizeInteractionWindow() -> NSWindow? {
         if let eventWindow = NSApp.currentEvent?.window { return eventWindow }
-        return panels.values.lazy.compactMap { panel in
+        if let hostedWindow = panels.values.lazy.compactMap({ panel in
             (panel as? TerminalPanel)?.hostedView.window
-        }.first
+        }).first {
+            return hostedWindow
+        }
+        // Programmatic divider-session notifications (and deterministic tests)
+        // can arrive after the portal host has been detached but while the
+        // Dock still owns the active key window. Keep the resize transaction
+        // scoped to that current window instead of silently dropping it.
+        return NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     func splitTabBar(_ controller: BonsplitController, didSelectTab tab: Bonsplit.Tab, inPane pane: PaneID) {
@@ -405,6 +434,13 @@ extension DockSplitStore {
         // without emitting `didClosePane`, so this callback must reconcile the
         // full ownership snapshot.
         synchronizeOwnedPaneIds(with: controller)
+        // Some Bonsplit paths retain an emptied source pane when a programmatic
+        // move completes. Keep Dock ownership aligned with the visible split
+        // tree by closing that pane explicitly once the move has landed.
+        if controller.tabs(inPane: source).isEmpty,
+           controller.allPaneIds.contains(source) {
+            _ = controller.closePane(source)
+        }
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
         if let movedPanel {

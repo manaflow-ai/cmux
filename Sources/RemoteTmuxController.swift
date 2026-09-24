@@ -799,6 +799,17 @@ final class RemoteTmuxController {
         removeCachedConnection(forKey: key)?.stop()
     }
 
+    /// `DisableRemoteConnections` (MDM): detaches every control client and
+    /// closes each mirror workspace it drove, then exits the shared SSH
+    /// masters through ``detachAll()``. Remote tmux sessions stay alive on
+    /// their hosts; only cmux's connections to them end.
+    func detachAllForManagedPolicy() {
+        for mirror in Array(sessionMirrors.values) {
+            detach(host: mirror.host, sessionName: mirror.sessionName)
+        }
+        detachAll()
+    }
+
     /// Detaches every control connection on app quit and closes the shared SSH
     /// ControlMasters, so quitting cmux closes the ssh connections it opened (the
     /// CLI's `ssh -f` left them persistent). Does NOT kill any remote tmux

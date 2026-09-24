@@ -6,7 +6,6 @@ import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import GhosttyKit
 import OSLog
-import Synchronization
 import UIKit
 import os
 
@@ -139,18 +138,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private static let maximumRenderPresentationRetries: UInt8 = 3
     /// Value-only render metadata captured by the serial surface queue.
     ///
-    /// This type is explicitly nonisolated because its instances cross from
-    /// the main-actor admission path into `GhosttySurfaceWorkQueue.async`.
-    /// The raw surface pointer is valid for the matching generation, and the
-    /// owning view resets that generation before teardown; no UIKit state is
-    /// accessed from the queue closure.
-    nonisolated struct RenderSubmission: @unchecked Sendable {
+    /// Instances cross from the main-actor admission path into
+    /// `GhosttySurfaceWorkQueue.async`, so the type stays free of actor
+    /// isolation and value-only. The raw surface pointer is valid for the
+    /// matching generation, and the owning view resets that generation before
+    /// teardown; no UIKit state is accessed from the queue closure.
+    struct RenderSubmission: @unchecked Sendable {
         let token: UInt64
         let generation: UInt64
         let kind: RenderSubmissionKind
         let surface: ghostty_surface_t
         let verifiedReplayRead: VerifiedReplaySurfaceRead?
         let presentationRetryCount: UInt8
+        var outputPresentation: (@MainActor @Sendable () -> Void)? = nil
 
         var ticket: TerminalRenderSubmission {
             TerminalRenderSubmission(token: token, generation: generation, kind: kind)
@@ -163,10 +163,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 kind: kind,
                 surface: surface,
                 verifiedReplayRead: verifiedReplayRead,
-                presentationRetryCount: count
+                presentationRetryCount: count,
+                outputPresentation: outputPresentation
             )
         }
     }
+    /// Observation attached to the next ordinary render submission.
+    public var onOutputPresentation: (@MainActor @Sendable () -> Void)?
     var renderPresentationGate = TerminalRenderPresentationGate()
     var renderSubmission: RenderSubmission?
     var pendingRenderSubmission: RenderSubmission?
@@ -285,7 +288,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// gesture whose batch has not reached the queue voids the anchor. The lock
     /// is held only for field reads and writes, never across a Ghostty C call.
     /// The ticket revokes a timed-out restore whose queued block has not claimed it.
-    nonisolated struct ViewportRestoreGate {
+    struct ViewportRestoreGate {
         var interactionGeneration: UInt64 = 0
         var appliedInteractionGeneration: UInt64 = 0
         /// Raw Ghostty scrollbar state is not user intent. Resize and replay
@@ -301,7 +304,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// on `outputQueue`, and bottom snaps / surface replacement reset it from
     /// the main actor. Same lock discipline as `viewportRestoreGate`: held
     /// only for field reads and writes, never across a Ghostty C call.
-    nonisolated struct LocalPixelScrollState {
+    struct LocalPixelScrollState {
         /// Bumped by every clear (dock/typing snap, surface replacement,
         /// alt routing). Batches capture the epoch at pump time and only
         /// commit results while it still matches, so an in-flight batch
@@ -311,7 +314,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var lastFallbackLogTime: CFTimeInterval = 0
         /// One applied pixel-pump position, remembered as the gesture's
         /// authority between batches.
-        nonisolated struct Held: Equatable, Sendable {
+        struct Held: Equatable, Sendable {
             /// The viewport top row applied to Ghostty.
             var row: UInt64
             /// The whole-pixel offset actually applied to Ghostty.
@@ -356,6 +359,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         var lastPerfLogTime: CFTimeInterval = 0
         #endif
     }
+    // Carve-out: main-actor gestures and synchronous libghostty callbacks share one pixel-scroll snapshot.
     nonisolated let localPixelScrollState =
         OSAllocatedUnfairLock<LocalPixelScrollState>(initialState: .init())
     /// Cumulative rows this view has pushed into its local mirror's scrollback
@@ -796,12 +800,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    /// Test seam for a keyboard leg. Drives exactly what a real leg drives:
+    /// ``setHostedKeyboardState`` seats the dock and re-places the render
+    /// inside the (keyboard-independent) viewport, and the host's
+    /// `beginKeyboardLeg` schedules NO geometry negotiation. The keyboard
+    /// stopped being a grid input when the stretch-to-fill auto-fit was
+    /// removed, so a `set_size` here would be a no-op resize with one real
+    /// side effect: `shouldReassertNaturalSize` re-reports capacity whenever
+    /// the effective grid sits below it, which is every Mac-constrained
+    /// terminal. That made the seam emit a viewport report per toggle that
+    /// production never emits.
     func setKeyboardHeightForTesting(_ height: CGFloat) {
         setKeyboardHeightOverrideForTesting(height)
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
         layoutBottomDockHierarchyIfNeeded()
-        syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
 
 
@@ -825,6 +838,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// privacy-safe, so the same sink is available in Release builds. `nil` in
     /// hosts that do not wire it; every probe is then a no-op.
     public var diagnosticLog: DiagnosticLog?
+    /// Content-free population snapshot supplied by the mounting shell.
+    public var terminalWorkPopulation: TerminalWorkContext = .init()
 
     private lazy var inputSession = TerminalInputSessionCoordinator(
         focus: { [weak self] owner in
@@ -1425,7 +1440,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let surface, !isDismantled else { return }
         let workQueue = outputQueue
         let generation = surfaceGeneration
-        workQueue.queue.async { [weak self] in
+        workQueue.async { [weak self] in
             workQueue.lastContentBottomTime = CACurrentMediaTime()
             guard let viewportText = Self.surfaceText(surface, pointTag: GHOSTTY_POINT_VIEWPORT),
                   viewportText.utf8.count <= 131_072 else { return }
@@ -1825,21 +1840,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// The surface extends under the bottom safe area (the host applies
     /// `ignoresSafeArea(.container, .bottom)`), so when the keyboard is down the
-    /// always-visible toolbar must clear this much to avoid the home indicator. Reads
-    /// the view's own inset, falling back to the window's, because `safeAreaInsets`
-    /// can be zero before the view is on a window.
+    /// always-visible toolbar must clear this much to avoid the home indicator.
+    /// The window or captured outer inset owns the reservation: this surface
+    /// slides for the keyboard, so its local inset changes with presentation.
     private var safeAreaInsetsBottom: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0,
-            capturedInset: capturedBottomSafeAreaInset,
+            windowInset: window?.safeAreaInsets.bottom,
+            capturedInset: capturedBottomSafeAreaInset > 0 ? capturedBottomSafeAreaInset : nil,
             ancestorInsets: safeAreaAncestorBottomInsets
         )
     }
 
     /// Safe-area value captured outside the SwiftUI subtree that intentionally
     /// ignores the terminal's bottom container region. This stays as a
-    /// fallback: a live view or window inset still wins when UIKit provides it.
+    /// fallback for the window, ahead of this moving surface's local inset.
     private var capturedBottomSafeAreaInset: CGFloat = 0
 
     /// Updates the outer safe-area fallback and immediately re-seats the dock
@@ -3008,6 +3023,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     public override func layoutSubviews() {
+        let work = bounds.size != lastLayoutGeometrySyncSize
+            ? diagnosticLog?.beginTerminalWork(.layout, context: terminalWorkSnapshot(transition: .resize)) : nil
+        defer { work?.end() }
         super.layoutSubviews()
         let snapshot = viewportSnapshot()
         layoutBottomDock(using: snapshot)
@@ -3295,7 +3313,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
         let pushedRowsCounter = localScrollbackRowsPushed
+        let phaseLog = diagnosticLog
+        let phaseContext = terminalWorkSnapshot(transition: .unknown)
         workQueue.async { [weak self] in
+            let work = renderGridContract?.isDelta == false
+                ? phaseLog?.beginTerminalWork(.renderGridReplay, context: phaseContext) : nil
+            defer { work?.end() }
             // Render-grid frames paint absolute rows of the producer's grid.
             // Verify the local grid matches HERE, on the same serial queue as
             // every `set_size`, so no resize can interleave between the check
@@ -4246,7 +4269,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     viewportReportSettleFrames = 0
                     viewportReportID &+= 1
                     awaitingViewportEcho = true
-                    MobileDebugLog.anchormux("zoom.report grid=\(pending.columns)x\(pending.rows) id=\(viewportReportID)")
+                    MobileDebugLog.anchormux(
+                        "zoom.report grid=\(pending.columns)x\(pending.rows) "
+                            + "id=\(viewportReportID) retry=\(viewportReportRetries)"
+                    )
                     delegate?.ghosttySurfaceView(self, didResize: pending, reportID: viewportReportID)
                 }
             }
@@ -4315,6 +4341,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // dropping the request here. Ordinary and local-scroll submissions
         // remain pending and become eligible when the frozen replay is
         // revealed.
+        let outputPresentation = onOutputPresentation
+        onOutputPresentation = nil
         return enqueueRenderSubmission(
             RenderSubmission(
                 token: makeSurfaceOperationID(),
@@ -4322,7 +4350,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 kind: .ordinary,
                 surface: surface,
                 verifiedReplayRead: nil,
-                presentationRetryCount: presentationRetryCount
+                presentationRetryCount: presentationRetryCount,
+                outputPresentation: outputPresentation
             )
         )
     }
@@ -4414,9 +4443,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
         let workQueue = outputQueue
-        workQueue.async { [weak self] in
+        // Ordinary steady-state frames are intentionally uninstrumented.
+        let phaseLog = submission.kind == .verifiedReplay || pendingRenderFrames > 0 ? diagnosticLog : nil
+        let phaseContext = terminalWorkSnapshot(transition: .unknown)
+        let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
+            let work = phaseLog?.beginTerminalWork(.rendererRefresh, context: phaseContext)
+            defer { work?.end() }
             switch submission.kind {
             case .ordinary, .localScroll:
                 #if DEBUG
@@ -4475,6 +4509,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                           !self.isDismantled else { return }
                     self.outputQueue.async { [weak self] in
                         guard self != nil else { return }
+                        let work = phaseLog?.beginTerminalWork(.rendererRefresh, context: phaseContext)
+                        defer { work?.end() }
                         ghostty_surface_render_now_with_token(
                             submission.surface,
                             submission.token
@@ -4482,6 +4518,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
             }
+        }, priority: submission.kind == .localScroll)
+        guard accepted else {
+            repairRenderAdmissionAfterFailedStart()
+            return false
         }
         return true
     }
@@ -4606,6 +4646,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 generation: submission.generation
             )
         guard action != .ignored else { return }
+        if presented { submission.outputPresentation?() }
         renderSubmission = nil
         renderInFlight = false
         renderInFlightSince = nil
@@ -4828,6 +4869,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         viewportReportSettleFrames = 0
     }
 
+    /// Retire an unresolved negotiation after the coordinator's relay retry
+    /// budget is exhausted. This leaves the last confirmed grant visible and
+    /// marks the current natural grid exhausted so stale replay frames cannot
+    /// restart the same negotiation.
+    public func markViewportReportRetryExhausted() {
+        viewportReportRetries = Self.maxViewportReportRetries
+        guard awaitingViewportEcho else { return }
+        awaitingViewportEcho = false
+        setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
     public func applyViewSize(cols: Int, rows: Int) {
         applyViewSize(cols: cols, rows: rows, confirmedViewportEcho: false)
     }
@@ -4897,16 +4949,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// natural-size change.
     public func reassertViewportCapacityReport() {
         guard let pending = lastReportedSize, pending.columns > 0, pending.rows > 0 else { return }
-        viewportReportRetries = 0
-        // A pending report always mirrors `lastReportedSize` (they are
-        // assigned together in the geometry pass), but never clobber one if
-        // that invariant ever changes: the queued report is at least as new.
-        if pendingViewportReport == nil {
-            pendingViewportReport = pending
-            viewportReportSettleFrames = 0
+        guard viewportReportRetries < Self.maxViewportReportRetries else {
+            MobileDebugLog.anchormux(
+                "zoom.viewport.reassert_exhausted retries=\(viewportReportRetries) " +
+                "grid=\(pending.columns)x\(pending.rows)"
+            )
+            return
         }
+        guard !awaitingViewportEcho, pendingViewportReport == nil else {
+            // A late/stale replay often arrives while the dedicated viewport
+            // RPC is still in flight or waiting for its scheduled retry. That
+            // replay is evidence about the same negotiation, not permission to
+            // mint another report ID and reset the retry budget.
+            MobileDebugLog.anchormux(
+                "zoom.viewport.reassert_coalesced retries=\(viewportReportRetries) " +
+                "grid=\(pending.columns)x\(pending.rows)"
+            )
+            return
+        }
+        pendingViewportReport = pending
+        viewportReportSettleFrames = 0
         MobileDebugLog.anchormux(
-            "zoom.viewport.reassert grid=\(pending.columns)x\(pending.rows)"
+            "zoom.viewport.reassert grid=\(pending.columns)x\(pending.rows) " +
+            "retries=\(viewportReportRetries)"
         )
         // The report is serviced by the display link, and this method is
         // called from the replay consumer where the link can be idle or torn
@@ -4960,44 +5025,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux("zoom.useNaturalViewSize eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil")->nil")
         effectiveGrid = nil
         return true
-    }
-
-    /// Pure libghostty resize refinement; `nonisolated` so it runs on the
-    /// off-main surface queue (it touches only the passed surface pointer).
-    nonisolated private static func fitSurfaceToGrid(
-        _ surface: ghostty_surface_t,
-        cols: Int,
-        rows: Int,
-        cellPixelSize: CGSize
-    ) -> (requestedW: UInt32, requestedH: UInt32, actual: ghostty_surface_size_s) {
-        var requestedW = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
-        var requestedH = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
-
-        ghostty_surface_set_size(surface, requestedW, requestedH)
-        var actual = ghostty_surface_size(surface)
-
-        // Ghostty's grid calculation subtracts padding and floors partial cells,
-        // so the reverse mapping has to be confirmed against Ghostty itself.
-        // This keeps the iOS mirror on the exact daemon grid instead of
-        // occasionally rendering one column short.
-        var steps = 0
-        // Bounded refinement: a few single-pixel nudges are enough to land on
-        // the exact grid. A high cap let a fast-zoom storm run this loop tens
-        // of thousands of times across frames and burn the main thread.
-        while steps < 8,
-              Int(actual.columns) < cols || Int(actual.rows) < rows {
-            if Int(actual.columns) < cols {
-                requestedW += 1
-            }
-            if Int(actual.rows) < rows {
-                requestedH += 1
-            }
-            ghostty_surface_set_size(surface, requestedW, requestedH)
-            actual = ghostty_surface_size(surface)
-            steps += 1
-        }
-
-        return (requestedW, requestedH, actual)
     }
 
     /// Result of an off-main geometry pass, handed back to the main actor.
@@ -5092,13 +5119,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let bottomInsetPx = UInt32(max(0, Int((bottomInsetPts * scale).rounded(.down))))
         let appliedBottomInsetPts = CGFloat(bottomInsetPx) / scale
         let eff = effectiveGrid
-        let requiresExactEffectiveGrid = verifiedReplayRenderSuppressed
         let pushContentScale = abs(lastAppliedContentScale - scale) > 0.001
         if pushContentScale { lastAppliedContentScale = scale }
         let generation = surfaceGeneration
         let workQueue = outputQueue
+        let phaseLog = diagnosticLog
+        let phaseContext = terminalWorkSnapshot(transition: .resize)
 
-        workQueue.async { [weak self] in
+        let queued = phaseLog?.beginTerminalWork(.geometryQueue, context: phaseContext, onMainThread: false)
+        let accepted = workQueue.async { [weak self] in
+            queued?.end()
+            let work = phaseLog?.beginTerminalWork(.resizePublication, context: phaseContext)
+            defer { work?.end() }
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
@@ -5117,13 +5149,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             var pinnedSize: CGSize?
             if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
                 let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
                 let exactGridFitsInsideNatural = eff.cols <= Int(measured.columns)
                     && eff.rows <= Int(measured.rows)
                 let pinnedW = CGFloat(eff.cols) * cell.width / scale
                 let pinnedH = CGFloat(eff.rows) * cell.height / scale
+                // The producer's effective grid is the contract for every
+                // authoritative render-grid replay. Even a one-row/column
+                // difference must be fitted locally, otherwise the apply
+                // fence rejects every replay and the lane keeps reopening
+                // behind a fresh recovery cycle. Keep the fit bounded to
+                // grids that actually fit inside the measured surface; a
+                // larger effective grid still needs a normal geometry pass.
                 let shouldFitEffectiveGrid = !fillsNaturalGrid
-                    && (!withinOneCell || requiresExactEffectiveGrid && exactGridFitsInsideNatural)
+                    && exactGridFitsInsideNatural
                 if shouldFitEffectiveGrid,
                    pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
                     let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
@@ -5177,6 +5215,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 completion?(true)
             }
         }
+        if !accepted { queued?.end(); completion?(false) } // Rejection never retains or executes the closure.
     }
 
     /// Apply an off-main geometry pass on the main actor: only UIKit layer /
@@ -5278,9 +5317,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
-        let shouldReportNaturalSize = reportGrid != lastReportedSize ||
+        let naturalGridChanged = reportGrid != lastReportedSize
+        let shouldReportNaturalSize = naturalGridChanged ||
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, reportGrid.columns > 0, reportGrid.rows > 0 else { return }
+        if naturalGridChanged {
+            // Retry exhaustion belongs to one natural grid. Rotation, zoom
+            // settle, composer-height changes, and other real capacity changes
+            // get a fresh bounded recovery budget.
+            viewportReportRetries = 0
+        }
         lastReportedSize = reportGrid
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
@@ -5379,7 +5425,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             verifiedReplayRead: current.verifiedReplayRead,
             presentationRetryCount: countsAsRetry
                 ? current.presentationRetryCount &+ 1
-                : current.presentationRetryCount
+                : current.presentationRetryCount,
+            outputPresentation: current.outputPresentation
         )
         let replaced = replaceInFlightRenderSubmission(with: replacement)
         if replaced {
@@ -5771,7 +5818,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 }
 
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` replay decisions.
-nonisolated enum RenderPipelineRecoveryReplay {
+enum RenderPipelineRecoveryReplay {
     case callerWillRequestReplay
     case delegateWhenNoCaller
 }
@@ -5779,7 +5826,7 @@ nonisolated enum RenderPipelineRecoveryReplay {
 /// One output/geometry operation awaiting either its output-queue completion or
 /// the display-link deadline that rebuilds the stalled render pipeline.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingSurfaceOperation {
+struct PendingSurfaceOperation {
     let id: UInt64
     let startedAt: CFTimeInterval
     let byteCount: Int?
@@ -5789,7 +5836,7 @@ nonisolated struct PendingSurfaceOperation {
 /// One visible-terminal snapshot read awaiting output-queue completion or its
 /// display-link deadline. A timeout skips only the pending text snapshot.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingVisibleSnapshot {
+struct PendingVisibleSnapshot {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<(text: String, columns: Int)?, Never>
@@ -5797,7 +5844,7 @@ nonisolated struct PendingVisibleSnapshot {
 
 /// One verified-replay viewport-anchor capture awaiting output-queue completion
 /// or its skip-only display-link deadline.
-nonisolated struct PendingVerifiedReplayViewportAnchorCapture {
+struct PendingVerifiedReplayViewportAnchorCapture {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<VerifiedReplayCapturedViewportAnchor?, Never>
@@ -5805,7 +5852,7 @@ nonisolated struct PendingVerifiedReplayViewportAnchorCapture {
 
 /// One verified-replay viewport-anchor restore awaiting output-queue completion
 /// or its skip-only display-link deadline.
-nonisolated struct PendingVerifiedReplayViewportAnchorRestore {
+struct PendingVerifiedReplayViewportAnchorRestore {
     let id: UInt64
     let startedAt: CFTimeInterval
     let continuation: CheckedContinuation<Bool, Never>
@@ -5813,7 +5860,7 @@ nonisolated struct PendingVerifiedReplayViewportAnchorRestore {
 
 /// One "View as Text" read awaiting output-queue completion or deadline.
 /// Internal for `GhosttySurfaceView+RenderRecovery.swift` deadline handling.
-nonisolated struct PendingCopyableTextRead {
+struct PendingCopyableTextRead {
     let id: UInt64
     let startedAt: CFTimeInterval
     fileprivate let cancellation: SurfaceOperationCancellationToken
@@ -5829,26 +5876,10 @@ nonisolated struct PendingCopyableTextRead {
 ///
 /// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
 /// which is the same FIFO queue that owns `process_output` and surface free.
-nonisolated private struct CopyableTextRead: @unchecked Sendable {
+private struct CopyableTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let cancellation: SurfaceOperationCancellationToken
-}
-
-nonisolated private final class SurfaceOperationCancellationToken: Sendable {
-    // lint:allow lock - tiny cross-queue cancellation flag for already-enqueued
-    // libghostty work; actor hops would put the serial surface queue back behind
-    // the main actor and defeat the stale-read fast path.
-    private let cancelled: Mutex
-        <Bool> = .init(false)
-
-    var isCancelled: Bool {
-        cancelled.withLock { $0 }
-    }
-
-    func cancel() {
-        cancelled.withLock { $0 = true }
-    }
 }
 
 private class DisplayLinkProxy {

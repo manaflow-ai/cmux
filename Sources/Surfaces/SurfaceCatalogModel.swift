@@ -7,29 +7,6 @@ import Foundation
 // "is this terminal open somewhere?" has one answer and closing a pane never destroys a
 // remote resource. Pure values here; the owner is `SurfaceCatalog`.
 
-/// Where a resource lives. `.local` is this Mac; `.cloud` is a cmux Cloud machine id.
-enum SurfaceMachineID: Hashable, Codable, Sendable, CustomStringConvertible {
-    case local
-    case cloud(String)
-
-    var description: String {
-        switch self {
-        case .local: return "local"
-        case .cloud(let id): return id
-        }
-    }
-
-    /// Wire form: `"local"` or the machine id.
-    var rawValue: String { description }
-
-    init(rawValue: String) {
-        self = rawValue == "local" ? .local : .cloud(rawValue)
-    }
-
-    var isLocal: Bool { if case .local = self { return true } else { return false } }
-    var cloudMachineID: String? { if case .cloud(let id) = self { return id } else { return nil } }
-}
-
 enum SurfaceResourceKind: String, Codable, Sendable, CaseIterable {
     case terminal
     /// A VNC display on the machine ("display", never "screen": a cmux-tui `screen` is a
@@ -96,6 +73,8 @@ enum SurfaceLifecycle: String, Codable, Sendable {
 struct SurfaceAgentBadge: Hashable, Codable, Sendable {
     var state: String
     var source: String?
+    /// The adapter identity, separate from report provenance (`hook`, `socket`, or `plugin`).
+    var agent: String? = nil
 }
 
 /// The daemon's monotonic position for one complete remote session state.
@@ -174,7 +153,10 @@ struct CloudVMCursor: Hashable, Codable, Sendable {
 /// look contiguous when it is not.
 enum CloudWireNumber {
     static func unsigned(_ raw: Any?) -> UInt64? {
-        if raw is Bool { return nil }
+        // A JSON number decodes as NSNumber, and `NSNumber(0) is Bool` is true,
+        // so a plain `is Bool` test would reject every zero-based sequence on
+        // the wire. Only a CFBoolean is a boolean; every other NSNumber is a
+        // number.
         if let number = raw as? NSNumber {
             guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
             guard number.doubleValue.isFinite,
@@ -190,7 +172,7 @@ enum CloudWireNumber {
     }
 
     static func signed(_ raw: Any?) -> Int? {
-        if raw is Bool { return nil }
+        // Same rule as `unsigned`: only a CFBoolean is a boolean.
         if let number = raw as? NSNumber {
             guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
             guard number.doubleValue.isFinite,
@@ -239,15 +221,6 @@ struct CloudVMPaneState: Hashable, Codable, Sendable {
     var tabIDs: [String]
 }
 
-struct CloudVMTabState: Hashable, Codable, Sendable {
-    var id: String
-    var paneID: String
-    var name: String?
-    var index: Int
-    var focused: Bool
-    var contentKind: String
-    var contentID: String
-}
 
 /// The two valid remote tab-label states. The daemon uses an empty string to
 /// clear its optional label, so keep that state explicit at the app boundary
@@ -295,6 +268,7 @@ struct CloudVMAgentState: Hashable, Codable, Sendable {
     var terminalID: String
     var state: String
     var source: String?
+    var agent: String? = nil
 }
 
 /// How a remote session can be synchronized.
@@ -957,6 +931,14 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         guard let data = Self.canonicalData(cursorObject) else { return false }
         values["cursor"] = data
         collections.removeValue(forKey: "cursor")
+        // session.revision mirrors the public cursor (resource_api.rs). Keep
+        // it aligned when a delta changes only resource rows.
+        if var session = value(forKey: "session") as? [String: Any],
+           let revision = session["revision"], CloudWireNumber.unsigned(revision) != nil {
+            session["revision"] = revision is String ? (String(cursor.revision) as Any) : NSNumber(value: cursor.revision)
+            guard let sessionData = Self.canonicalData(session) else { return false }
+            values["session"] = sessionData
+        }
         canonicalDataCache = nil
         return true
     }
@@ -981,7 +963,7 @@ struct CloudVMStateDocument: Hashable, Codable, Sendable {
         guard uniqueMatches.count <= 1 else { return false }
         let rowID = uniqueMatches.first
         let existingObject = rowID.flatMap { collection.object(forRowID: $0) }
-        if let rowID,
+        if rowID != nil,
            let existingID = existingObject.flatMap({ Self.nonEmptyString($0["id"]) }),
            let explicitID,
            existingID != explicitID {
@@ -1265,19 +1247,6 @@ struct CloudVMState: Hashable, Codable, Sendable {
 
     // New archives contain one canonical document. The decoder keeps a
     // one-way rawSnapshot fallback for archives written before this model.
-
-    static func == (lhs: CloudVMState, rhs: CloudVMState) -> Bool {
-        lhs.machine == rhs.machine
-            && lhs.cursor == rhs.cursor
-            && lhs.document == rhs.document
-            && lhs.workspaces == rhs.workspaces
-            && lhs.screens == rhs.screens
-            && lhs.panes == rhs.panes
-            && lhs.tabs == rhs.tabs
-            && lhs.terminals == rhs.terminals
-            && lhs.browsers == rhs.browsers
-            && lhs.agents == rhs.agents
-    }
 
     func hash(into hasher: inout Hasher) {
         hasher.combine(machine)
@@ -1596,11 +1565,19 @@ enum CloudVMStateSyncDecision: Equatable, Sendable {
 }
 
 /// The cmux-tui workspace a remote resource belongs to (nil for local resources).
+/// Device workspaces (another Mac's sidebar) additionally carry the cwd, unread
+/// count, and pin state the Mac sidebar shows; cloud workspaces leave them nil.
 struct SurfaceRemoteWorkspace: Hashable, Codable, Sendable {
     var id: String
     var name: String
     var index: Int
     var focused: Bool
+    /// The workspace's presented working directory, when the provider reports one.
+    var detail: String? = nil
+    /// The remote sidebar's unread badge count, when the provider reports one.
+    var unreadCount: Int? = nil
+    /// Whether the workspace is pinned on its machine, when the provider reports it.
+    var isPinned: Bool? = nil
 }
 
 /// One view of a remote resource: a tab in one of the daemon's workspaces. A resource
@@ -1614,7 +1591,20 @@ struct SurfaceRemoteView: Hashable, Codable, Sendable {
     var paneID: String? = nil
     var name: String? = nil
     var index: Int? = nil
+    /// True when this tab is the one its pane shows; the daemon flags exactly one
+    /// tab per pane. The pane's other tabs sit behind it in its tab bar.
     var focused: Bool? = nil
+    /// Where the tab's pane sits in the workspace's layout: the screen's index and
+    /// the pane's depth-first position in that screen's split tree. nil when the
+    /// snapshot carried no layout document (older daemons, focused snapshots).
+    var screenIndex: Int? = nil
+    var paneIndex: Int? = nil
+}
+
+/// Stable identity from the creation receipt, checked again before attachment.
+struct CloudCreationAttachment: Hashable, Codable, Sendable {
+    let generation: String
+    let terminalID: String
 }
 
 struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
@@ -1623,6 +1613,7 @@ struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     /// cwd for terminals, URL for browsers, display name for screens.
     var detail: String?
     var lifecycle: SurfaceLifecycle
+    var creationAttachment: CloudCreationAttachment? = nil
     var agent: SurfaceAgentBadge?
     /// The workspace of the resource's first view (compat: pre-multi-view callers read
     /// one workspace). nil when the resource has zero views, or is local.
@@ -1731,6 +1722,8 @@ struct SurfaceMachineInfo: Hashable, Codable, Sendable {
     /// reachable through the WireGuard tunnel. nil for the local Mac and for
     /// machines created before private networking.
     var privateAddress: String? = nil
+    /// Account presence for another Mac's app instance; nil for local and cloud machines.
+    var presence: SurfaceDevicePresence? = nil
 }
 
 enum SurfaceLinkState: String, Codable, Sendable {
@@ -1739,31 +1732,11 @@ enum SurfaceLinkState: String, Codable, Sendable {
     case asleep
     case unavailable
     case error
+    /// Another Mac that the presence service reports offline (app quit, asleep, or
+    /// unreachable); its last known tree stays listed until it comes back.
+    case offline
     /// The local Mac needs no link.
     case notApplicable = "n/a"
-}
-
-/// The catalog as one value: what the sidebar renders, what `surface.catalog` and
-/// `cmux vm tree --json` print. Machines are ordered local first, then by name.
-struct SurfaceCatalogSnapshot: Hashable, Codable, Sendable {
-    var machines: [SurfaceMachineInfo]
-    var resources: [SurfaceResource]
-    var projections: [SurfaceProjection]
-
-    static let empty = SurfaceCatalogSnapshot(machines: [], resources: [], projections: [])
-
-    func resources(on machine: SurfaceMachineID) -> [SurfaceResource] {
-        resources.filter { $0.machine == machine }
-    }
-
-    func projections(of resource: SurfaceResourceID) -> [SurfaceProjection] {
-        projections.filter { $0.resource == resource }
-    }
-
-    func isOpen(_ resource: SurfaceResourceID) -> Bool {
-        projections.contains { $0.resource == resource }
-    }
-
 }
 
 /// One atomic export for agent and socket readers. The sidebar consumes only
@@ -1777,6 +1750,9 @@ struct SurfaceCatalogExport: Sendable {
     /// This preserves cursor/raw-snapshot equality while making offline state
     /// explicit to agents.
     var cloudStateObservations: [SurfaceMachineID: CloudVMStateObservation] = [:]
+    /// Existing stable local owner IDs, captured beside this read's runtime projections.
+    /// Missing owners remain unknown; these values never become resource or mutation IDs.
+    var projectionIdentities: [SurfaceProjection: SurfaceProjectionIdentity] = [:]
 }
 
 /// Persisted with the session: which resource each pane projected, so a restored pane
@@ -1804,9 +1780,12 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .unknownResource(let id): return "Unknown surface \(id)."
-        case .noProvider(let machine): return "No provider for machine \(machine)."
-        case .unavailable(let id, let reason): return "\(id) is unavailable: \(reason)"
+        case .unknownResource(let id):
+            return String(format: String(localized: "surfaceCatalog.error.unknownResource", defaultValue: "Unknown surface %@."), id.rawValue)
+        case .noProvider(let machine):
+            return String(format: String(localized: "surfaceCatalog.error.noProvider", defaultValue: "This machine is not connected: %@."), machine.rawValue)
+        case .unavailable(let id, let reason):
+            return String(format: String(localized: "surfaceCatalog.error.unavailable", defaultValue: "%1$@ is unavailable: %2$@"), id.rawValue, reason)
         case .ambiguousRemotePlacement:
             // Resource and workspace identifiers are internal routing data. Do
             // not expose them in a user-facing error; callers can choose the
@@ -1815,9 +1794,12 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
                 localized: "surfaceCatalog.error.ambiguousRemotePlacement",
                 defaultValue: "This terminal has more than one remote placement. Specify the remote tab."
             )
-        case .destinationNotFound(let what): return "Destination not found: \(what)."
-        case .unsupported(let what): return "Unsupported: \(what)."
-        case .nothingToOpen(let what): return "Nothing to open: \(what)."
+        case .destinationNotFound(let what):
+            return String(format: String(localized: "surfaceCatalog.error.destinationNotFound", defaultValue: "Destination not found: %@."), what)
+        case .unsupported(let what):
+            return String(format: String(localized: "surfaceCatalog.error.unsupported", defaultValue: "Unsupported: %@."), what)
+        case .nothingToOpen(let what):
+            return String(format: String(localized: "surfaceCatalog.error.nothingToOpen", defaultValue: "Nothing to open: %@."), what)
         case .partialOperation(_, let reason): return reason
         }
     }

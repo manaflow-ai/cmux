@@ -10,7 +10,9 @@ import CmuxMobileShellModel
 /// detail's last-known snapshot stays mounted until the connection resolves;
 /// the next healthy list then either restores the row or confirms the
 /// deletion, which retargets normally.
-enum WorkspaceAbsenceAuthority {
+struct WorkspaceAbsenceAuthority: Sendable {
+    init() {}
+
     /// - Parameters:
     ///   - hasLastKnownRow: Whether the caller still holds the vanished
     ///     workspace's last-known row. Without one the owner cannot be
@@ -24,7 +26,7 @@ enum WorkspaceAbsenceAuthority {
     ///     entry is gone entirely. A missing entry is an authoritative
     ///     removal (unpair/hide) when the foreground is healthy, and the
     ///     foreground-death purge of secondary snapshots otherwise.
-    static func absenceIsAuthoritative(
+    func absenceIsAuthoritative(
         hasLastKnownRow: Bool,
         rowIsForegroundServed: Bool,
         foregroundIsHealthy: Bool,
