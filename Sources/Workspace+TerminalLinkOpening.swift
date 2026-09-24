@@ -1,3 +1,4 @@
+import CmuxCore
 import CmuxPanes
 import Foundation
 
@@ -20,6 +21,29 @@ extension Workspace: TerminalLinkOpenContainer {
         return !canResolveTerminalPathsAgainstLocalFilesystem(
             surfaceID: surfaceID
         )
+    }
+
+    /// Resolve the connection from the terminal's authoritative owner, including native SSH projections.
+    func remoteTerminalFilePreviewConfiguration(for surfaceID: UUID) -> WorkspaceRemoteConfiguration? {
+        guard let configuration = remoteConfiguration, configuration.transport == .ssh else { return nil }
+        if usesSSHTui {
+            let expectedMachine = SurfaceMachineID(rawValue: SSHTuiConnection(configuration: configuration).id)
+            guard machineOwningSurface(surfaceID) == expectedMachine else {
+                return nil
+            }
+        } else if !isRemoteTerminalSurface(surfaceID) {
+            return nil
+        }
+        return configuration
+    }
+
+    func deferRemoteTerminalFileLinkOpen(sourcePanelId: UUID, rawValue: String) -> Bool {
+        guard remoteConfiguration?.transport == .ssh,
+              let target = surfaceOwnershipTarget(for: sourcePanelId),
+              terminalLinkIsRemoteTerminal(target.surfaceID),
+              let panel = terminalPanel(for: target.surfaceID) else { return false }
+        _ = panel.hostedView.openRemoteFilePreview(tokens: [rawValue])
+        return true
     }
 
     func cloudTerminalLinkTarget(url: URL, sourcePanelId: UUID) -> CloudTerminalLinkTarget? {

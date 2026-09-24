@@ -73,6 +73,7 @@ resolve() {
     if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
+      -packageCachePath "$source_packages/.package-cache" \
       -resolvePackageDependencies; then
       if [ -d "$source_packages/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] \
         && [ -d "$source_packages/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
