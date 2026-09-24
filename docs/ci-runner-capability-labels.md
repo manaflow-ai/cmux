@@ -21,21 +21,20 @@ plus two repository variables and a cost gate.
 
 The consequences are countable on `main` today:
 
-- **11 distinct `vars.MACOS_RUNNER_*` variables** are referenced by workflows
-  (`_15`, `_26`, `_26_NIGHTLY_BUILD`, `_26_RELEASE`, `_BACKGROUND`, `_DISPLAY`,
-  `_DUAL_XCODE`, `_IOS`, `_PR`, `_STREAMED_VALIDATION`, `_TESTS`), plus
-  `CI_PAID_MACOS_OVERFLOW` and `CMUX_CI_XCODE_APP_PR`. PR
-  [#14002](https://github.com/manaflow-ai/cmux/pull/14002) removes
-  `_STREAMED_VALIDATION`, taking the runner variables to 10.
+- **9 distinct `vars.MACOS_RUNNER_*` variables** are referenced by workflows
+  (`_15`, `_26`, `_26_LARGE`, `_BACKGROUND`, `_DISPLAY`, `_DUAL_XCODE`,
+  `_IOS`, `_PR`, `_TESTS`), plus `CI_PAID_MACOS_OVERFLOW` and
+  `CMUX_CI_XCODE_APP_PR`.
 - Between them they carry **three distinct macOS label values** —
   `blacksmith-6vcpu-macos-15`, `blacksmith-6vcpu-macos-26`,
   `blacksmith-12vcpu-macos-26` — plus "unset".
-- `tests/test_ci_self_hosted_guard.sh` defines **34 distinct `check_*`
-  functions** and invokes them **39 times**. At least ten of those exist only
+- `tests/test_ci_self_hosted_guard.sh` defines **35 distinct `check_*`
+  functions** and invokes them **40 times**. At least ten of those exist only
   to police which vendor string may appear in which position.
 
 That is more configuration than there are answers, and the excess is where
-drift hides. #14002 documents one instance: one lane-named variable served two
+drift hides. [#14002](https://github.com/manaflow-ai/cmux/pull/14002)
+documents one instance: one lane-named variable served two
 jobs with incompatible macOS requirements, their two fallbacks disagreed, and
 `ci-runners.md` recorded the contradiction as a feature for as long as it took
 someone to read it.
@@ -96,30 +95,35 @@ proposed for a requirement no job has.
 | `sdk-15` | carries an SDK 15 Xcode *alongside* the pinned one | `swift-package-tests`, which pins `CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15` for the Release helper and then asserts `HELPER_SDK_VERSION == 15.*` | `MACOS_RUNNER_DUAL_XCODE` |
 | `gui` | a foreground Aqua login session, not just a macOS shell | `tests-build-and-lag` (XCUITest, virtual display) | `MACOS_RUNNER_DISPLAY` |
 | `ios-simulator` | installed iOS runtimes and a working `simctl` | `test-ios.yml`, `ios-testflight.yml`, `ios-screenshots.yml`, `ios-app-store.yml`, `iroh-v2.yml` | `MACOS_RUNNER_IOS` |
-| `cpu-12` | at least 12 vCPU | the changed-revision universal Nightly build | `MACOS_RUNNER_26_NIGHTLY_BUILD` |
-| `disk-large` | free space for a universal Release build | `release-build`, whose disk need is why `check_release_build_runner_disk_capacity` exists | `MACOS_RUNNER_26_RELEASE` |
+| `macos-large` | the larger machine tier: more vCPU, memory and disk | the changed-revision universal Nightly build | `MACOS_RUNNER_26_LARGE` |
 
 Plus `self-hosted`, which GitHub requires as the first element of a
 self-hosted label array, and the existing Linux equivalents (`linux`, `arm64`)
 for `LINUX_RUNNER` / `LINUX_ARM64_RUNNER`.
 
-Seven capability labels against eleven variables. The variables that have no
-capability column are the tell:
+Six capability labels against nine variables. The three variables with no
+capability row are the tell:
 
 - `MACOS_RUNNER_PR`, `MACOS_RUNNER_TESTS`, `MACOS_RUNNER_BACKGROUND` describe
   **who is asking** — a pull request, a manual flake hunt, non-urgent work.
   They are cost and priority policy, not capability, and under this proposal
   they leave the workflow file entirely (see "Cost policy" below).
-- `MACOS_RUNNER_26_RELEASE` and `MACOS_RUNNER_26` hold the same value today.
-  One is `macos-26`; the other is `macos-26` plus `disk-large`.
 
-`cpu-12` and `disk-large` are the weakest entries in this table. Both jobs
-currently land on Blacksmith labels chosen for those properties, but this
-repository has no measurement establishing the thresholds — 12 vCPU is the
-label Blacksmith offers, not a number anyone derived, and "disk-heavy" in
-`ci-runners.md` has no figure attached. Before either label is minted, the
-actual requirement should be measured. A capability label with an arbitrary
-threshold is a vendor label wearing a costume.
+`macos-large` replaces two labels from the first draft, `cpu-12` and
+`disk-large`. On Blacksmith they are one tier, so a job cannot ask for one
+without the other:
+
+| Tag | vCPU | RAM | Storage |
+| --- | --- | --- | --- |
+| `blacksmith-6vcpu-macos-*` | 6 | 24 GB | 150 GB |
+| `blacksmith-12vcpu-macos-*` | 12 | 48 GB | 250 GB |
+
+`release-build` now runs on the 6-vCPU macOS 26 pool, so the universal
+Nightly build is the only job on `main` that uses the large tier. It is still
+the weakest entry in this table: the threshold is the tier Blacksmith sells,
+not a requirement anyone measured. Measure it before minting the label. A
+capability label with an arbitrary threshold is a vendor label wearing a
+costume.
 
 ## Two pieces that do not go away
 
@@ -141,23 +145,24 @@ in the group *and* carry every label.
 Two consequences:
 
 - `runs-on: [self-hosted, macos-26, gui]` will never match a Blacksmith
-  runner unless Blacksmith adds those exact labels. Whether Blacksmith
-  supports customer-defined labels at all is **unresolved** — their runner
-  documentation covers only their own fixed tags, and this proposal should
-  not proceed past step 0 without an answer from them.
+  runner. Blacksmith offers only its fixed tags,
+  `blacksmith-{6,12}vcpu-macos-{15,26,27,latest}`, and no customer-defined
+  labels ([instance types](https://docs.blacksmith.sh/blacksmith-runners/overview)).
+  The translation table therefore stays for as long as any Blacksmith capacity
+  is in use.
 - A GitHub-hosted image label cannot be combined with capability labels
   either. `runs-on: macos-15` is a single hosted label; `[macos-15, gui]`
   is a self-hosted match that no hosted runner satisfies.
 
 So something must translate a capability set into whatever string each
 provider answers to. The proposal is that it is **one** thing — a checked-in
-table and a resolver — rather than eleven repository variables and ten guard
+table and a resolver — rather than nine repository variables and ten guard
 functions, and that jobs never see it.
 
 ```
 capability set                          →  label
 [self-hosted, macos-26]                 →  blacksmith-6vcpu-macos-26
-[self-hosted, macos-26, cpu-12]         →  blacksmith-12vcpu-macos-26
+[self-hosted, macos-26, macos-large]    →  blacksmith-12vcpu-macos-26
 [self-hosted, macos-15, sdk-15]         →  blacksmith-6vcpu-macos-15
 [self-hosted, macos-26, gui]            →  (owned capacity; passes through unchanged)
 ```
@@ -176,21 +181,21 @@ capacity will take whichever the scheduler hands it.
 
 This is not a regression. cmux has no automatic overflow today either;
 `ci-runners.md` says so outright, and `CI_PAID_MACOS_OVERFLOW` is a manual
-two-action switch precisely because between 2026-09-19 and 2026-09-23 those
-five variables pointed at Warp and nothing in the repository could see it.
+two-action switch precisely because between 2026-09-19 and 2026-09-23 the
+gated variables pointed at Warp and nothing in the repository could see it.
 
 Under this proposal that decision survives as **one** operator control over
 the translation table — which vendor a capability set resolves to, and
 therefore whether metered capacity is reachable at all. What disappears is
-its spread across five gated variables and
+its spread across four gated variables and
 `check_no_paid_overflow_fallbacks`, which today exists because a fork PR
 resolves every variable to empty and lands on the literal fallback, so every
 fallback in the tree must be audited for the string `warp-`.
 
 ## What this deletes
 
-**Repository variables.** 11 `MACOS_RUNNER_*` (10 after #14002),
-`CI_PAID_MACOS_OVERFLOW`, and `CMUX_CI_XCODE_APP_PR` — 13 — collapse to the
+**Repository variables.** 9 `MACOS_RUNNER_*`, `CI_PAID_MACOS_OVERFLOW`, and
+`CMUX_CI_XCODE_APP_PR` — 11 in all — collapse to the
 translation table plus a single cost control. `CMUX_CI_XCODE_APP_PR` is the
 least certain of these: it exists because the pool and its Xcode pin must move
 together, which a capability label makes structural rather than conventional,
@@ -198,7 +203,7 @@ but `scripts/select-ci-xcode.sh` still has to resolve a concrete
 `/Applications/Xcode_*.app` path at runtime. That resolution is a script
 problem, not a variable, but it has not been designed here.
 
-**Guard functions.** Of the 34 `check_*` functions in
+**Guard functions.** Of the 35 `check_*` functions in
 `tests/test_ci_self_hosted_guard.sh`, these become unnecessary — not
 unenforced, but *unrepresentable*, because a job that cannot name a vendor
 cannot name the wrong one:
@@ -207,8 +212,8 @@ cannot name the wrong one:
 | --- | --- |
 | `check_no_bare_github_hosted_runners` | no job pins a bare `ubuntu-*` / `macos-NN` |
 | `check_no_self_hosted_fleet_runners` | the fleet-name regex, its self-test probes, and four per-file line-number exemptions |
-| `check_macos_runner` (6 call sites) | each named job routes through a paid macOS label |
-| `check_release_build_runner_disk_capacity` | `release-build` names the disk-capable variable |
+| `check_macos_runner` (7 call sites) | each named job routes through a paid macOS label |
+| `check_release_build_runner_disk_capacity` | `release-build` uses the exact macOS 26 pool expression and fallback |
 | `check_display_runner_identity_guard` | `tests-build-and-lag` validates Depot identity when `MACOS_RUNNER_DISPLAY` resolves to Depot |
 | `check_ios_tart_canary` | three iOS jobs each fail closed on Tart identity mismatch |
 | `check_macos_xcode_pin_tracks_pull_request_lane` | the Xcode pin follows the same lane variable as the pool |
@@ -216,7 +221,7 @@ cannot name the wrong one:
 | `check_no_paid_overflow_fallbacks` | no workflow falls back to `warp-` |
 | `check_background_macos_lane` (+ `background_lane_blocking_events`, `strip_background_lane_expr`) | hosted macOS labels appear only as the background-lane fallback, on non-blocking workflows |
 
-**Ten check functions and two helpers, covering 14 of the 39 invocations.**
+**Ten check functions and two helpers, covering 15 of the 40 invocations.**
 
 Four more shrink rather than disappear. `check_e2e_runner_fallbacks` loses its
 Tart-choice and runner-identity assertions but keeps the concurrency and
@@ -226,7 +231,7 @@ matching but keep every security assertion — empty token permissions, no
 secrets, dispatch-only, router-owned dispatch authority. `check_cla_guard_runner`
 inverts: it asserts a job is *not* redirectable, which still needs saying.
 
-The remaining 20 checks — signing, DMG, Sentry, XCTest skips, web tests,
+The remaining 21 checks — signing, DMG, Sentry, XCTest skips, web tests,
 concurrency — are untouched. This proposal deletes a third of the file's
 routing surface, not the file.
 
@@ -239,13 +244,20 @@ hazard that needs a comment.
 
 Each step is independently revertible and leaves CI green. No flag day.
 
-**Step 0 — prove the two mechanisms, change nothing.**
-Two things this design assumes must be demonstrated before any job moves:
-(a) `runs-on` accepts a computed label array, i.e. `runs-on: ${{ fromJSON(needs.route.outputs.labels) }}`;
-(b) Blacksmith either supports customer labels or does not.
-Do (a) on a scratch dispatch-only workflow. Do (b) by asking Blacksmith.
-*Verifiable:* a dispatch run that landed on the expected runner, and a written
-answer. If (a) fails, this whole design fails and should be abandoned here.
+**Step 0 — prove matching on real label sets, change nothing.**
+`runs-on` accepts a computed label array, such as
+`runs-on: ${{ fromJSON(needs.route.outputs.labels) }}`, and a runner must
+carry every listed label. GitHub's syntax reference does not show the array
+form ([github/docs#20495](https://github.com/github/docs/issues/20495)), and
+community reports describe dynamic multi-label jobs that queue forever
+([#78674](https://github.com/orgs/community/discussions/78674),
+[#49302](https://github.com/orgs/community/discussions/49302),
+[#50172](https://github.com/orgs/community/discussions/50172)). Run a scratch
+dispatch-only workflow against the label sets this design would use, plus one
+deliberate set that no runner satisfies.
+*Verifiable:* each matching run lands on the expected runner, and the no-match
+run is detected rather than left queued. If matching misbehaves on these label
+sets, stop here.
 
 **Step 1 — land the table and resolver, unused.**
 A checked-in capability→label table, a resolver script, and a test asserting
