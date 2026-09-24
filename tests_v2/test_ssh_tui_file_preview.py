@@ -108,6 +108,10 @@ def main():
                                      ('CMUX_SSH_TEST_IDENTITY', '--identity')]:
                 if os.environ.get(variable):
                     args += [option, os.environ[variable]]
+            ssh_options = json.loads(os.environ.get('CMUX_SSH_TEST_OPTIONS_JSON', '[]'))
+            assert isinstance(ssh_options, list) and all(isinstance(value, str) for value in ssh_options)
+            for value in ssh_options:
+                args += ['--ssh-option', value]
             identify()
             launched = subprocess.run([str(cli), '--socket', socket_path, '--json', *args],
                                       env=environment, capture_output=True, text=True, timeout=120)
