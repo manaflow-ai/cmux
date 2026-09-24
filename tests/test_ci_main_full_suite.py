@@ -74,6 +74,18 @@ class DispatchDecisionTests(unittest.TestCase):
 
 
 class ReportTests(unittest.TestCase):
+    def test_a_run_in_flight_for_any_commit_holds_the_next_dispatch(self):
+        for status in ("queued", "in_progress", "waiting", "pending"):
+            with self.subTest(status=status):
+                busy = MODULE.in_flight_run([run(head_sha=OTHER, status=status, conclusion=None)])
+                self.assertIsNotNone(busy)
+        self.assertIsNone(MODULE.in_flight_run([run(head_sha=OTHER)]))
+        self.assertIsNone(MODULE.in_flight_run([]))
+        # Only full-suite CI runs on main hold it.
+        for overrides in ({"event": "pull_request"}, {"head_branch": "feature"}, {"path": ".github/workflows/nightly.yml"}):
+            with self.subTest(overrides=overrides):
+                self.assertIsNone(MODULE.in_flight_run([run(status="in_progress", conclusion=None, **overrides)]))
+
     def test_latest_tested_run_ignores_cancelled_and_running(self):
         runs = [
             run(id=1, conclusion="failure", created_at="2026-09-22T00:00:00Z"),
@@ -122,7 +134,8 @@ class SuiteSelectionTests(unittest.TestCase):
 class WorkflowWiringTests(unittest.TestCase):
     text = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_schedule_and_manual_triggers(self):
+    def test_push_completion_schedule_and_manual_triggers(self):
+        self.assertRegex(self.text, r'(?m)^  push:\n    branches: \[main\]$')
         self.assertRegex(self.text, r'(?m)^  schedule:\n    - cron: "23 \*/3 \* \* \*"$')
         self.assertIn("\n  workflow_dispatch:\n", self.text)
         self.assertIn("workflows: [CI]", self.text)
@@ -130,6 +143,15 @@ class WorkflowWiringTests(unittest.TestCase):
     def test_dispatches_ci_on_main(self):
         self.assertIn("gh workflow run ci.yml --repo \"$GITHUB_REPOSITORY\" --ref main", self.text)
         self.assertIn("steps.gate.outputs.dispatch == 'true'", self.text)
+
+    def test_a_completed_full_suite_run_dispatches_the_next(self):
+        dispatch = self.text.split("  dispatch:\n", 1)[1].split("\n  report:\n", 1)[0]
+        condition = dispatch.split("    if: ", 1)[1].splitlines()[0]
+        self.assertIn("github.event_name != 'workflow_run'", condition)
+        self.assertIn("github.event.workflow_run.event == 'workflow_dispatch'", condition)
+        self.assertIn("github.event.workflow_run.path == '.github/workflows/ci.yml'", condition)
+        # The dispatch job holds its slot until its run is listed.
+        self.assertIn("until the run is listed", dispatch)
 
     def test_branch_lookup_failure_still_dispatches(self):
         gate = self.text.split("        id: gate\n", 1)[1].split("      - name: Dispatch CI", 1)[0]

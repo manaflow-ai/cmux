@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-"""Run the full CI suite on main on a timer and keep one issue for a red main.
+"""Run the full CI suite on main continuously and keep one issue for a red main.
 
 Pull requests run compile admission only unless labeled `full-ci`, and the
 merge queue that used to run the full suite before landing is off. Without a
 periodic run on main, app-host shards and package tests would never run at all.
 
-`gate` decides whether main's HEAD still needs a full-suite run. Every
+Runs are continuous, one at a time: a push to main starts one when none is in
+flight, and each run's completion starts the next on the newest HEAD. A red
+result therefore covers only the commits that landed during one run, instead
+of a three-hour window.
+
+`gate` decides whether main's HEAD still needs a full-suite run. A full-suite
+run already in flight on main, for any commit, means wait: its completion
+dispatches the next one. Every
 workflow_dispatch CI run is a full-suite run (choose_ci_suite.py), so any
 dispatch run on main for this SHA that is queued, running, or finished green or
 red means there is nothing to do. A cancelled run does not count. Any API error
@@ -55,6 +62,14 @@ def dispatch_decision(runs: Iterable[Mapping[str, object]], head_sha: str, branc
         if run.get("conclusion") in TESTED_CONCLUSIONS:
             return False, f"run {run.get('id')} already tested {head_sha} ({run.get('conclusion')})"
     return True, f"no completed full-suite run for {head_sha}"
+
+
+def in_flight_run(runs: Iterable[Mapping[str, object]], branch: str = "main") -> Mapping[str, object] | None:
+    """A queued or running full-suite run on the branch, for any commit."""
+    for run in runs:
+        if is_main_full_suite_run(run, branch) and run.get("status") != "completed":
+            return run
+    return None
 
 
 def latest_tested_run(runs: Iterable[Mapping[str, object]], branch: str = "main") -> Mapping[str, object] | None:
@@ -132,8 +147,15 @@ def command_gate(args: argparse.Namespace) -> int:
         dispatch, reason = True, "forced by workflow_dispatch input"
     else:
         try:
-            runs = list_runs(args.repo, args.branch, ["-f", f"head_sha={args.head_sha}"])
-            dispatch, reason = dispatch_decision(runs, args.head_sha, args.branch)
+            busy = in_flight_run(list_runs(args.repo, args.branch, []), args.branch)
+            if busy is not None:
+                dispatch, reason = False, (
+                    f"run {busy.get('id')} for {busy.get('head_sha')} is still {busy.get('status')}; "
+                    "its completion dispatches the next run on the newest HEAD"
+                )
+            else:
+                runs = list_runs(args.repo, args.branch, ["-f", f"head_sha={args.head_sha}"])
+                dispatch, reason = dispatch_decision(runs, args.head_sha, args.branch)
         except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
             dispatch, reason = True, f"could not read earlier runs ({error}); dispatching"
     print(reason)
