@@ -311,6 +311,22 @@ class WiringTests(unittest.TestCase):
 
 
 class TheResolverStartsAnywhere(unittest.TestCase):
+    def test_the_hosted_fleet_keeps_each_capability_s_os(self):
+        # A fork asking for macOS 26 must get macOS 26, not an older image
+        # and never an org-only label it cannot schedule.
+        import json
+
+        runners = json.loads(
+            (Path(__file__).resolve().parents[1] / ".github/runners.json").read_text(encoding="utf-8")
+        )
+        for capability, label in runners["fleets"]["hosted"].items():
+            with self.subTest(capability=capability):
+                self.assertFalse(label.startswith("blacksmith-"))
+                if capability.startswith("macos_26"):
+                    self.assertEqual(label, "macos-26")
+                elif capability.startswith("macos_15"):
+                    self.assertEqual(label, "macos-15")
+
     def test_the_resolver_job_does_not_run_on_a_fleet_it_resolves(self):
         # A fork has no Blacksmith and no variables. If the resolver's own
         # runs-on could fall back to an org-only label, it would queue forever

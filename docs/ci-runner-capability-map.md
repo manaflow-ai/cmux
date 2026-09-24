@@ -34,12 +34,11 @@ Zero configuration. `owners` lists `manaflow-ai: blacksmith`; every other owner
 falls to `default_fleet`, which is the free GitHub-hosted fleet.
 
 The hosted fleet is a working fleet, not an identical one. `macos_26`,
-`macos_26_ios` and `macos_26_large` all resolve to `macos-15` there, so a fork
-gets a runner that starts and an older OS. GitHub does publish a hosted
-`macos-26` image; it is not used because the self-hosted mini fleet carries
-that label too, a matching self-hosted runner can take the job, and
-`tests/test_ci_self_hosted_guard.sh` forbids the label for that reason. A fork
-that needs macOS 26 behavior sets `CMUX_CI_RUNNER_OVERRIDES`.
+`macos_26_ios` and `macos_26_large` resolve to GitHub's hosted `macos-26`
+image, which has the OS but not the 12 vCPU size. `macos-26` is also a label
+the self-hosted mini fleet carries, which is why workflows in manaflow-ai may
+not name it; the map only hands it to other owners, where no runner carries
+that label (the one on teamleaderleo/cmux is labelled `cmux-local-mac`).
 
 The resolver job itself runs on `ubuntu-24.04`, never on a mapped label, so it
 starts on any owner before anything is resolved.

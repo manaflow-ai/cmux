@@ -42,9 +42,9 @@
       "macos_15": "macos-15",
       "macos_15_gui": "macos-15",
       "macos_15_sdk15": "macos-15",
-      "macos_26": "macos-15",
-      "macos_26_ios": "macos-15",
-      "macos_26_large": "macos-15"
+      "macos_26": "macos-26",
+      "macos_26_ios": "macos-26",
+      "macos_26_large": "macos-26"
     }
   },
 
