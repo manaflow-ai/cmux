@@ -335,6 +335,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
 
+      - name: Validate pull request CI fail fast
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_fail_fast.py
+
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_health_report.py
