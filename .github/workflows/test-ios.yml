@@ -65,6 +65,11 @@ on:
         required: false
         default: false
         type: boolean
+      record_video:
+        description: "Record the selected simulator test for visual verification"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -584,7 +589,7 @@ jobs:
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
           archive="$RUNNER_TEMP/ios-test-product.tar.gz"
           rm -f "$archive"
-          tar -czf "$archive" -C "$IOS_PRODUCT_STAGE" Build/Products
+          COPYFILE_DISABLE=1 tar -cf - -C "$IOS_PRODUCT_STAGE" Build/Products | gzip -1 > "$archive"
           sha256="$(shasum -a 256 "$archive" | awk '{print $1}')"
           bytes="$(stat -f '%z' "$archive")"
           seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
@@ -850,6 +855,7 @@ jobs:
         id: simulator-tests
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
+          RECORD_VIDEO: ${{ inputs.record_video }}
           # Bounds one xcodebuild invocation. Generous against the ~2 minutes
           # the non-UI suite actually takes, and well under the job's 35-minute
           # ceiling so a wedge still leaves room for the steps after this one.
@@ -857,7 +863,23 @@ jobs:
         run: |
           set -euo pipefail
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
+          video_pid=""
+          video_path=""
+          stop_video() {
+            if [[ -n "$video_pid" ]]; then
+              kill -INT "$video_pid" 2>/dev/null || true
+              local recorder_status=0
+              wait "$video_pid" || recorder_status=$?
+              video_pid=""
+              if [[ "$recorder_status" -ne 0 || ! -s "$video_path" ]]; then
+                echo "::error::Requested simulator recording failed (status $recorder_status): $video_path"
+                return 1
+              fi
+            fi
+          }
           record_test_seconds() {
+            local status=$?
+            stop_video || status=1
             local seconds
             seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
           import os, time
@@ -867,6 +889,7 @@ jobs:
             echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
             echo "IOS_BUILD_ONCE_METRIC consumer_test_seconds=$seconds"
             echo "Consumer test time: ${seconds}s" >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
           }
           trap record_test_seconds EXIT
           XCODEBUILD_ARGS=(
@@ -907,6 +930,13 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if [[ "$RECORD_VIDEO" == "true" ]]; then
+              video_path="$IOS_DERIVED_DATA/logs/attempt-${attempt}.mp4"
+              xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force \
+                "$video_path" \
+                >"$IOS_DERIVED_DATA/logs/video-${attempt}.log" 2>&1 &
+              video_pid=$!
+            fi
             # xctest can wedge in teardown once the run is over: it waits on a
             # process termination that never lands, emits nothing further, and
             # the only bound left is the job ceiling (#13918). Bound the
@@ -927,6 +957,7 @@ jobs:
             fi
             if [ "$attempt" -lt 2 ] && grep -Eq "Timed out while launching application via Xcode|Failed to send signal 19|DTXMessage" "$LOG_PATH"; then
               echo "Detected Xcode simulator launch failure, retrying on a clean simulator."
+              stop_video
               continue
             fi
             exit "$status"
@@ -963,6 +994,7 @@ jobs:
           path: |
             ${{ env.IOS_DERIVED_DATA }}/Logs/Test/*.xcresult
             ${{ env.IOS_DERIVED_DATA }}/logs/*.log
+            ${{ env.IOS_DERIVED_DATA }}/logs/*.mp4
           retention-days: 7
 
       - name: Remove compatibility simulator
