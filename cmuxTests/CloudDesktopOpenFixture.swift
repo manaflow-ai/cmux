@@ -68,7 +68,6 @@ final class CloudDesktopOpenFixture {
         let windowID = app.windowID
         let context = try #require(app.appDelegate.mainWindowContexts.values.first { $0.windowId == windowID })
         context.window = window
-        assertWindowStaysHidden()
         owner = app.workspace
         other = app.manager.addWorkspace(title: "workspace-1", select: false)
         owner.cloudVMBinding = WorkspaceCloudVMBinding(vmID: ownerID, isBase: false, remoteWorkspaceID: "ws-same")
@@ -88,6 +87,7 @@ final class CloudDesktopOpenFixture {
         var info = provider.info
         info.remoteWorkspaces = [remote]
         catalog.replaceResources([display], on: provider.machine, info: info)
+        assertWindowStaysHidden()
     }
 
     func poolNode() throws -> CloudTreeNode {
