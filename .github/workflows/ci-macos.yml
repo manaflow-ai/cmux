@@ -641,6 +641,42 @@ jobs:
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
             "$SEED_PREFIX" "$MERGED_ONTO"
 
+      # CANARY (do not merge): ask XCBuild to record why each task reruns.
+      - name: Canary enable build debugging
+        continue-on-error: true
+        run: |
+          defaults write com.apple.dt.XCBuild EnableBuildDebugging -bool YES
+          python3 - "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" /private/tmp/cmux-ci/src <<'PY' || true
+          import hashlib, json, os, sys
+          from collections import Counter
+          derived, src = sys.argv[1], sys.argv[2]
+          path = os.path.join(derived, "cmux-seed-input-mtimes.json")
+          if not os.path.exists(path):
+              print("no seed manifest"); sys.exit(0)
+          recorded = json.load(open(path))
+          changed = []
+          for root, dirs, files in os.walk(src):
+              dirs[:] = [d for d in dirs if d not in (".git", "DerivedData")]
+              for name in files:
+                  full = os.path.join(root, name)
+                  if os.path.islink(full) or not os.path.isfile(full):
+                      continue
+                  rel = os.path.relpath(full, src)
+                  entry = recorded.get(rel)
+                  if entry is None:
+                      changed.append(("new", rel)); continue
+                  h = hashlib.sha256(open(full, "rb").read()).hexdigest()
+                  if h != entry[0]:
+                      changed.append(("diff", rel))
+          missing = [k for k in recorded if not k.endswith("/") and not os.path.exists(os.path.join(src, k))]
+          print(f"changed={len(changed)} missing={len(missing)}")
+          for kind, rel in changed[:200]:
+              print(f"  {kind} {rel}")
+          for rel in missing[:40]:
+              print(f"  gone {rel}")
+          print(Counter("/".join(r.split("/")[:3]) for _, r in changed).most_common(20))
+          PY
+
       - name: Compile app-host test product
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true' && steps.persistent-restore.outputs.hit != 'true'
@@ -712,13 +748,25 @@ jobs:
           echo "manifest cache rebuilt: entries=$(sqlite3 "$manifests/manifest.db" 'select count(*) from MANIFEST_CACHE' 2>/dev/null)"
           resolve_probe rebuilt-manifests
 
+      - name: Canary upload build debugging trace
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-build-debugging-${{ github.run_attempt }}
+          path: /private/tmp/cmux-ci/derived-data-compile-admission/**/buildDebugging*
+          retention-days: 3
+          if-no-files-found: warn
+
       # Adoption sets a per-user Xcode default. Only a build whose inputs were
       # just replayed should ignore inode changes, so a reused runner does not
       # carry it into an unrelated job.
       - name: Forget the adopted-build inode override
         if: always() && steps.seed-derived-data.outputs.hit == 'true'
         continue-on-error: true
-        run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
+        run: |
+          defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
+          defaults delete com.apple.dt.XCBuild EnableBuildDebugging || true
 
       - name: Generate Xcode build metrics receipt
         id: build-metrics
