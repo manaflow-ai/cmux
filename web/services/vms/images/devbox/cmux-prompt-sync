@@ -109,13 +109,14 @@ def terminal_id(value):
 
 
 def find_existing_terminal():
+    """Returns (answered, terminal). answered is False until the daemon replies."""
     result = tui("terminal", "list", "--json")
     if result.returncode != 0:
-        return None
+        return False, None
     try:
-        return terminal_id(json.loads(result.stdout))
+        return True, terminal_id(json.loads(result.stdout))
     except (ValueError, TypeError):
-        return None
+        return False, None
 
 
 def seed_terminal(ready, directory):
@@ -129,8 +130,12 @@ def seed_terminal(ready, directory):
     for _ in range(60):
         if terminal:
             break
-        terminal = find_existing_terminal()
-        if not terminal:
+        answered, terminal = find_existing_terminal()
+        # Create only when the daemon answered with no terminal. A warm clone's
+        # daemon is still adopting the snapshot's template terminal when this
+        # starts; a create sent then waits for the daemon and adds a second
+        # workspace beside the adopted one.
+        if not terminal and answered:
             result = tui("workspace", "create", "--name", "Cloud", "--json")
             if result.returncode == 0:
                 try:
@@ -139,7 +144,7 @@ def seed_terminal(ready, directory):
                 except (OSError, ValueError, TypeError):
                     pass
                 if not terminal:
-                    terminal = find_existing_terminal()
+                    terminal = find_existing_terminal()[1]
                 if terminal:
                     marker.write_text(json.dumps({"terminal_id": terminal}) + "\n")
         if not terminal:
