@@ -55,22 +55,15 @@ final class WorkspaceNavigationBarController: UIViewController {
         titleCapsule.frame.size = titleCapsule.intrinsicContentSize
 
         for value in leadingItems + trailingItems {
-            let horizontalPadding: CGFloat = value.id == .back ? 6 : 7
             let content = AnyView(value.content
+                .buttonStyle(.plain)
                 .imageScale(.large)
                 .fixedSize()
-                .padding(.horizontal, horizontalPadding)
-                .frame(minHeight: 36)
                 .environment(\.self, environment))
             if let control = controls[value.id] {
-                control.view.configuration = UIHostingConfiguration { content.ignoresSafeArea() }
-                    .margins(.all, 0)
-                    .minSize(width: 0, height: 0)
+                control.view.update(content: content)
             } else {
-                let customView = UIHostingConfiguration { content.ignoresSafeArea() }
-                    .margins(.all, 0)
-                    .minSize(width: 0, height: 0)
-                    .makeContentView()
+                let customView = WorkspaceNavigationControlView(content: content)
                 controls[value.id] = HostedControl(
                     button: UIBarButtonItem(customView: customView), view: customView
                 )
@@ -185,7 +178,7 @@ final class WorkspaceNavigationBarController: UIViewController {
 
     private struct HostedControl {
         let button: UIBarButtonItem
-        let view: UIView & UIContentView
+        let view: WorkspaceNavigationControlView
     }
 
     private struct OriginalItem {
