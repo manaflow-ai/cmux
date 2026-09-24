@@ -171,7 +171,9 @@ struct TerminalPredictionEngineTests {
     }
 
     @Test func editingKeysAndReturnWithdrawRatherThanGuess() {
-        for input in ["\r", "\u{7F}", "\u{1B}[D", "\u{3}"] {
+        // Backspace is not here: over an unconfirmed glyph it retracts, which
+        // the backspace tests below cover.
+        for input in ["\r", "\u{1B}[3~", "\u{1B}[D", "\u{3}"] {
             var session = armedSession()
             session.type("s")
             #expect(session.drawn == "s")
@@ -347,6 +349,246 @@ extension TerminalPredictionEngineTests {
         let deadline = try #require(session.engine.nextExpiry)
 
         session.clock = deadline + .milliseconds(1)
+        session.engine.tick(at: session.clock)
+        #expect(session.drawn == "")
+    }
+}
+
+/// Backspace over glyphs the remote has not echoed yet.
+///
+/// The remote still receives, and echoes, every keystroke: the character,
+/// then its erase. The overlay drops the glyph at once, and the engine has to
+/// read that later echo as the confirmation it is rather than as output it
+/// did not predict.
+extension TerminalPredictionEngineTests {
+    private static let backspace = "\u{7F}"
+
+    @Test func backspaceRetractsAnUnconfirmedGlyph() {
+        var session = armedSession()
+        session.type("s")
+        session.type("a")
+        #expect(session.drawn == "sa")
+
+        session.type(Self.backspace)
+        #expect(session.drawn == "s")
+        #expect(session.engine.glyphs.map(\.offset) == [0])
+        #expect(session.engine.status(at: session.clock) == .predicting)
+
+        // Typing continues in the cell the retracted glyph gave back.
+        session.type("d")
+        #expect(session.drawn == "sd")
+        #expect(session.engine.glyphs.map(\.offset) == [0, 1])
+    }
+
+    @Test func eitherBackspaceByteRetracts() {
+        // Ghostty sends DEL by default and BS when configured to.
+        for input in ["\u{7F}", "\u{8}"] {
+            var session = armedSession()
+            session.type("s")
+            session.type("a")
+            session.type(input)
+            #expect(session.drawn == "s")
+            #expect(session.engine.status(at: session.clock) == .predicting)
+        }
+    }
+
+    @Test func theLateEchoOfARetractedGlyphConfirmsWithoutWithdrawing() {
+        var session = armedSession()
+        session.type("s")
+        session.type("a")
+        session.type(Self.backspace)
+
+        session.remote("s")
+        #expect(session.drawn == "s")
+        #expect(session.engine.glyphs.map(\.offset) == [-1])
+
+        // The remote prints the retracted "a" before it erases it. That cell
+        // is the grid's to paint; the overlay must not bring the glyph back.
+        // Each echo lands inside the hold of the confirmed "s".
+        session.remote("a", after: .milliseconds(10))
+        #expect(session.drawn == "s")
+        #expect(session.engine.glyphs.map(\.offset) == [-2])
+
+        session.remote("\u{8} \u{8}", after: .milliseconds(10))
+        #expect(session.drawn == "s")
+        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        #expect(session.engine.status(at: session.clock) == .predicting)
+
+        // Still armed: the next keystroke predicts, and its echo confirms.
+        session.type("d")
+        #expect(session.drawn == "sd")
+        #expect(session.engine.glyphs.map(\.offset) == [-1, 0])
+        session.remote("d", after: .milliseconds(10))
+        #expect(session.engine.glyphs.map(\.standing) == [.confirmed, .confirmed])
+        #expect(session.engine.glyphs.map(\.offset) == [-2, -1])
+    }
+
+    @Test func anEraseSplitAcrossReadsKeepsOffsetsOnTheLiveCursor() {
+        var session = armedSession()
+        session.type("s")
+        session.type("a")
+        session.type(Self.backspace)
+        session.remote("sa")
+        #expect(session.engine.glyphs.map(\.offset) == [-2])
+
+        session.remote("\u{8}", after: .milliseconds(1))
+        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        session.remote(" ", after: .milliseconds(1))
+        #expect(session.engine.glyphs.map(\.offset) == [-2])
+        session.remote("\u{8}", after: .milliseconds(1))
+        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        #expect(session.drawn == "s")
+        #expect(session.engine.status(at: session.clock) == .predicting)
+    }
+
+    @Test func everyCommonEraseFormConfirmsTheRetraction() {
+        // Tty canonical echo, readline, zsh's line editor, and the forms a
+        // terminfo with delete-character or cursor-left emits.
+        let erases = [
+            "\u{8} \u{8}",
+            "\u{8}\u{1B}[K",
+            "\u{8}\u{1B}[0K",
+            "\u{8}\u{1B}[P",
+            "\u{8}\u{1B}[1P",
+            "\u{1B}[D\u{1B}[K",
+            "\u{1B}[1D\u{1B}[K",
+            "\u{1B}[1D\u{1B}[P",
+        ]
+        for erase in erases {
+            var session = armedSession()
+            session.type("s")
+            session.type("a")
+            session.type(Self.backspace)
+            session.remote("sa" + erase)
+
+            #expect(session.drawn == "s", "\(Array(erase.utf8))")
+            #expect(session.engine.glyphs.map(\.offset) == [-1], "\(Array(erase.utf8))")
+            #expect(
+                session.engine.status(at: session.clock) == .predicting,
+                "\(Array(erase.utf8))"
+            )
+        }
+    }
+
+    @Test func syntaxHighlightingAroundAnEraseStillConfirms() {
+        var session = armedSession()
+        session.type("s")
+        session.type("a")
+        session.type(Self.backspace)
+        session.remote("s\u{1B}[31ma\u{1B}[0m\u{8}\u{1B}[K\u{1B}[32m")
+
+        #expect(session.drawn == "s")
+        #expect(session.engine.status(at: session.clock) == .predicting)
+    }
+
+    @Test func retractingEveryGlyphThenRetypingKeepsTheRun() {
+        var session = armedSession()
+        session.type("s")
+        session.type("a")
+        session.type(Self.backspace)
+        session.type(Self.backspace)
+        #expect(session.drawn == "")
+
+        session.type("b")
+        #expect(session.drawn == "b")
+        #expect(session.engine.glyphs.map(\.offset) == [0])
+
+        // The erases arrive innermost first, as the remote processed them.
+        session.remote("sa\u{8} \u{8}\u{8} \u{8}b")
+        #expect(session.drawn == "b")
+        #expect(session.engine.glyphs.map(\.standing) == [.confirmed])
+        #expect(session.engine.glyphs.map(\.offset) == [-1])
+        #expect(session.engine.status(at: session.clock) == .predicting)
+    }
+
+    @Test func backspaceOverConfirmedTextWithdraws() {
+        // The remote has already drawn "s", so erasing it is the remote's
+        // business: behave as before and withdraw.
+        var session = armedSession()
+        session.type("s")
+        session.remote("s")
+        #expect(session.drawn == "s")
+        #expect(session.engine.glyphs.map(\.standing) == [.confirmed])
+
+        session.type(Self.backspace)
+        #expect(session.drawn == "")
+        #expect(session.engine.status(at: session.clock) == .listening)
+    }
+
+    @Test func backspaceOnAnEmptyLineWithdraws() {
+        var session = armedSession()
+        session.advance(.milliseconds(5))
+        session.engine.presentedFrame(at: session.clock)
+        #expect(session.drawn == "")
+
+        session.type(Self.backspace)
+        #expect(session.engine.status(at: session.clock) == .listening)
+
+        session.type("s")
+        #expect(session.drawn == "")
+    }
+
+    @Test func backspaceAtAPasswordPromptShowsNothing() {
+        var session = armedSession()
+        session.remote("\r\n[sudo] password for leo: ")
+
+        for character in ["h", "u", "n", Self.backspace, "t", "e", Self.backspace, "r", "2"] {
+            session.type(character)
+            #expect(session.drawn == "")
+        }
+        #expect(session.engine.status(at: session.clock) == .listening)
+    }
+
+    @Test func unexpectedOutputAfterARetractionWithdraws() {
+        // Anything but the character and one of the recognised erases means
+        // the remote is not a line editor doing what we modelled.
+        let outcomes = [
+            // A different character where the retracted one was expected.
+            "sx",
+            // The erase with no echo of the character first.
+            "s\u{8} \u{8}",
+            // A redraw of the whole line.
+            "sa\r\u{1B}[K$ s",
+            // Two cells erased for one keystroke.
+            "sa\u{1B}[2D\u{1B}[K",
+            // An erase that stops halfway and prints something else.
+            "sa\u{8}x",
+        ]
+        for outcome in outcomes {
+            var session = armedSession()
+            session.type("s")
+            session.type("a")
+            session.type(Self.backspace)
+            session.type("d")
+            #expect(session.drawn == "sd")
+
+            session.remote(outcome)
+            #expect(session.drawn == "", "\(Array(outcome.utf8))")
+            #expect(
+                session.engine.status(at: session.clock) == .listening,
+                "\(Array(outcome.utf8))"
+            )
+        }
+    }
+
+    @Test func aRemoteBackspaceWithNothingRetractedStillWithdraws() {
+        var session = armedSession()
+        session.type("s")
+        session.remote("\u{8}")
+        #expect(session.drawn == "")
+        #expect(session.engine.status(at: session.clock) == .listening)
+    }
+
+    @Test func anEraseTheRemoteNeverSendsIsWithdrawn() {
+        var session = armedSession()
+        session.type("s")
+        session.type("a")
+        session.type(Self.backspace)
+        session.remote("sa")
+        session.type("d", after: .milliseconds(1))
+        #expect(session.drawn == "sd")
+
+        session.advance(.milliseconds(1501))
         session.engine.tick(at: session.clock)
         #expect(session.drawn == "")
     }
