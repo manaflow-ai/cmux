@@ -484,6 +484,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "IOS_SPM_CACHE=$PWD/.ci-ios-source-packages" >> "$GITHUB_ENV"
+          # Not restored or saved: ensure-ghosttykit.sh unpacks and locks
+          # here, so a reused runner keeps nothing in ~/.cache.
           echo "CMUX_GHOSTTYKIT_CACHE_DIR=$RUNNER_TEMP/cmux-ghosttykit-cache" >> "$GITHUB_ENV"
 
       - name: Restore iOS SwiftPM cache
