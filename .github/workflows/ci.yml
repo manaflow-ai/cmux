@@ -109,9 +109,9 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
-          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER || 'blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15' }}  # PROOF ONLY
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_SNAPSHOT_BRANCH: ci/pr-pool-overflow-macos15  # PROOF ONLY: main publishes none until merge
-          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED || '1000' }}  # PROOF ONLY: 6vcpu 26 never counts as backed up
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
         run: python3 scripts/ci/pr_runner_pool.py
