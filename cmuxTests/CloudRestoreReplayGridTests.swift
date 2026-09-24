@@ -55,9 +55,16 @@ struct CloudRestoreReplayGridTests {
         #expect(report.columns == 99)
         #expect(report.rows == 35)
         fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive"]])
-        #expect(await fixture.socket.nextCommand(timeout: .milliseconds(200)) == nil)
+        try await fixture.expectInputAfterPendingResponses(marker: "PASSIVE_REPORT_APPLIED")
         fixture.focus()
         let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
         #expect(claim.cmd == "set-client-sizing")
+        #expect(claim.surface == 17)
+        fixture.socket.send([
+            "event": "resized", "surface": 17, "cols": 99, "rows": 35,
+            "replay": Data("CLAIMED_GRID".utf8).base64EncodedString()
+        ])
+        fixture.socket.send(["id": claim.id, "ok": true, "data": [:]])
+        try await fixture.expectInputAfterPendingResponses(marker: "CLAIM_APPLIED")
     }
 }

@@ -83,6 +83,18 @@ final class CloudRestoreReplayFixture {
 
     func focus() { session.claimGeometry() }
 
+    func expectInputAfterPendingResponses(marker: String) async throws {
+        let bytes = Data(marker.utf8)
+        // The marker follows earlier replies on the incoming stream. Once
+        // parsed, input is queued behind every command those replies emitted.
+        // Seeing it next proves absence without a timed observation window.
+        try await deliver(bytes, event: "output", marker: marker)
+        session.inputRouter.send(.bytes(bytes))
+        let input = try #require(await socket.nextCommand(timeout: .seconds(5)))
+        #expect(input.cmd == "send")
+        #expect(input.inputBytes == bytes)
+    }
+
     func deliver(_ bytes: Data, event: String, marker: String) async throws {
         socket.send([
             "event": event, "surface": 17, "cols": 80, "rows": 24,
