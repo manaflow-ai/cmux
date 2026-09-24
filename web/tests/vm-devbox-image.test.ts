@@ -525,6 +525,35 @@ describe("devbox image template", () => {
     }
   });
 
+  test("the Freestyle bake installs the agent screen-detection plugin before the daemon starts and proves it runs", () => {
+    const bake = readScript("build-devbox-freestyle.ts");
+    // Resolved with the daemon from ONE commit; a commit without the plugin fails the bake.
+    expect(bake).toContain('const cmuxTuiSource = await resolveCmuxTuiInstallSource("freestyle");');
+    expect(bake).not.toContain("resolveCmuxTuiSource(");
+    const at = (needle: string) => {
+      const index = bake.indexOf(needle);
+      expect({ needle, found: index >= 0 }).toEqual({ needle, found: true });
+      return index;
+    };
+    // The install writes agents.plugin before the daemon's first start, so the
+    // daemon supervises the plugin without a restart; the plugin is proven
+    // running before the daemon is parked for the snapshot.
+    const install = at('await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));');
+    const pin = at('"cmux-agent-plugin-pin"');
+    const daemonStart = at('"cmux-tui-daemon-unit"');
+    const ready = at('await step("cmux-tui-ready", devboxWaitForDaemonCommand());');
+    const running = at('await step("cmux-agent-plugin-running", cmuxAgentPluginReadyCommand());');
+    const park = at('await step("cmux-tui-daemon-park", devboxParkDaemonCommand());');
+    expect(install < pin && pin < daemonStart && daemonStart < ready && ready < running && running < park).toBe(true);
+    expect(bake).toContain("cmuxAgentPluginCommit: cmuxTuiSource.agentPlugin.commit,");
+    expect(bake).toContain("cmuxAgentPluginSha256: cmuxTuiSource.agentPlugin.sha256,");
+    // The verifier re-proves the pin and the running plugin on a fresh clone.
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("cmuxAgentPluginReadyCommand(),");
+    expect(verify).toContain("cmuxAgentPluginPinCheckCommand({ sha256: pluginSha })");
+    expect(verify).toContain("pluginCommit !== bakedCommit");
+  });
+
   test("the Freestyle boot path supervises the daemon through systemd", () => {
     const freestyleScript = readScript("build-devbox-freestyle.ts");
     expect(freestyleScript).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");

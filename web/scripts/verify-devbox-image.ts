@@ -8,7 +8,8 @@
  * contract on a desktop image), then asserts the
  * daemon contract with NO bootstrap of its own: the baked cmux-tui daemon must
  * come up by itself after resume, bound to this machine's instance id, with
- * the binary at the current files.cmux.com pin. A second machine from the same
+ * the binary at the current files.cmux.com pin, and the agent screen-detection
+ * plugin pinned beside it and running under the daemon. A second machine from the same
  * snapshot must hold a different daemon identity (the snapshot is a memory
  * image; see cmux-devbox-boot). Both sandboxes are deleted.
  *
@@ -26,8 +27,11 @@ import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
+  CMUX_AGENT_PLUGIN_PIN_PATH,
   CMUX_TUI_HOOK_PROVIDERS,
   CMUX_TUI_LAYOUT_MARKER_PATH,
+  cmuxAgentPluginPinCheckCommand,
+  cmuxAgentPluginReadyCommand,
   CMUX_TUI_SESSION,
   cmuxTuiHooksReadyCommand,
   cmuxTuiLayoutSelector,
@@ -166,6 +170,9 @@ const DAEMON_CHECKS: readonly string[] = [
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
   "test -x /usr/local/bin/cmux-prompt-sync && python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync >/dev/null && echo prompt-sync-contract-ok",
   cmuxTuiWebsocketSmokeCommand(),
+  // The resumed daemon started the agent screen-detection plugin from its
+  // config and the plugin reached it: agents are detected at launch.
+  cmuxAgentPluginReadyCommand(),
 ];
 
 // The desktop layer (Freestyle bakes; /etc/cmux/image-stamp says "desktop"),
@@ -422,6 +429,21 @@ if (provider === "freestyle") {
     if (pin.exitCode !== 0) {
       throw new Error(`baked cmux-tui does not match the pin recorded at bake time: ${pin.output.slice(-500)}`);
     }
+    // The agent screen-detection plugin is the same commit's build, pinned
+    // at bake time beside the daemon.
+    const pluginPin = await exec(`cat ${CMUX_AGENT_PLUGIN_PIN_PATH}`, 30_000);
+    const [pluginSha, pluginCommit] = pluginPin.output.trim().split(/\s+/);
+    if (pluginPin.exitCode !== 0 || !/^[0-9a-f]{64}$/.test(pluginSha ?? "")) {
+      throw new Error(`image carries no readable ${CMUX_AGENT_PLUGIN_PIN_PATH}: ${pluginPin.output.slice(-300)}`);
+    }
+    if (pluginCommit !== bakedCommit) {
+      throw new Error(`baked agent plugin commit ${pluginCommit} differs from the baked cmux-tui commit ${bakedCommit}`);
+    }
+    const pluginPinned = await exec(`${cmuxAgentPluginPinCheckCommand({ sha256: pluginSha })} && echo baked-agent-plugin-pin-ok`, 30_000);
+    if (pluginPinned.exitCode !== 0) {
+      throw new Error(`baked agent plugin does not match the pin recorded at bake time: ${pluginPinned.output.slice(-500)}`);
+    }
+    console.log(`agent plugin pin: ${pluginCommit} (${pluginSha.slice(0, 12)}…)`);
     const live = await resolveCmuxTuiSource("freestyle");
     console.log(
       live.sha256 === bakedSha

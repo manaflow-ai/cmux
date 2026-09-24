@@ -88,15 +88,18 @@ import { guestBrowserInstallCommand } from "../services/vms/guestBrowser";
 import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 import {
+  CMUX_AGENT_PLUGIN_PIN_PATH,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
   CMUX_TUI_HOOK_PROVIDERS,
   CMUX_TUI_HOOK_PROVIDER_FILES,
+  cmuxAgentPluginPinCheckCommand,
+  cmuxAgentPluginReadyCommand,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiRunCommand,
-  resolveCmuxTuiSource,
+  resolveCmuxTuiInstallSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   DEVBOX_DESKTOP_INSTALLS,
@@ -162,7 +165,10 @@ const replaceSlug = hasFlag("--replace-slug");
 
 const preflight = bakePreflight({ desktop: withDesktop });
 // Resolved before the builder exists so a manifest outage fails the bake for free.
-const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
+// The agent screen-detection plugin comes from the SAME commit as the daemon;
+// a commit published without it fails here rather than baking an image that
+// detects agents only after their first hook event.
+const cmuxTuiSource = await resolveCmuxTuiInstallSource("freestyle");
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -474,11 +480,20 @@ try {
 
   // The pinned cmux-tui build, installed with the driver's own command so the
   // bake and the attach-time heal can never disagree about path or digest.
+  // The same command installs the agent screen-detection plugin beside the
+  // daemon and writes the work user's `agents.plugin` config, before the
+  // daemon's first start below (cmux-tui-daemon-unit), so the daemon starts
+  // supervising the plugin without a restart.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
+  console.log(`agent plugin pin: commit ${cmuxTuiSource.agentPlugin.commit} sha256 ${cmuxTuiSource.agentPlugin.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
+  );
+  await step(
+    "cmux-agent-plugin-pin",
+    `${cmuxAgentPluginPinCheckCommand(cmuxTuiSource.agentPlugin)} && printf '%s %s\n' ${cmuxTuiSource.agentPlugin.sha256} ${cmuxTuiSource.agentPlugin.commit} > ${CMUX_AGENT_PLUGIN_PIN_PATH} && cat ${CMUX_AGENT_PLUGIN_PIN_PATH}`,
   );
 
   // The runtime VM path must not upload or install guest integration. These
@@ -609,6 +624,9 @@ try {
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
   await step("cmux-tui-ready", devboxWaitForDaemonCommand());
   await step("cmux-tui-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
+  // The daemon supervises the agent screen-detection plugin and the plugin
+  // registered its journal producer: agents are detected at launch.
+  await step("cmux-agent-plugin-running", cmuxAgentPluginReadyCommand());
   // Seed the durable first workspace and terminal while the daemon is already
   // hot. A clone keeps this journaled layout, then cmux-prompt-sync clears the
   // builder's rendered prompt and interrupts it after the clone name arrives.
@@ -724,12 +742,14 @@ emitBakeResult({
       "FREESTYLE_SANDBOX_SNAPSHOT",
       metadata,
       withDesktop
-        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ${WORK_USER}; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`
-        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`,
+        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ${WORK_USER}; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)} with its agent screen-detection plugin, identity bound to the instance id, no create-time bootstrap.`
+        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)} with its agent screen-detection plugin, identity bound to the instance id, no create-time bootstrap.`,
       withDesktop ? "desktop" : "base",
     ),
     cmuxTuiCommit: cmuxTuiSource.commit,
     cmuxTuiSha256: cmuxTuiSource.sha256,
+    cmuxAgentPluginCommit: cmuxTuiSource.agentPlugin.commit,
+    cmuxAgentPluginSha256: cmuxTuiSource.agentPlugin.sha256,
   },
   next: `bun scripts/verify-devbox-image.ts freestyle ${snapshotId}`,
 });
