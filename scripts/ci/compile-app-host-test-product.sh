@@ -125,7 +125,8 @@ build() {
   # Build the app/UI scheme first so its warning log retains the old runtime
   # job warning-budget scope; subsequent schemes reuse the same app objects.
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-  for scheme in ${CMUX_CI_BUILD_SCHEMES:-cmux cmux-unit cmux-numeric-locale}; do
+  for scheme in cmux cmux-unit cmux-numeric-locale; do
+    case " ${CMUX_CI_BUILD_SCHEMES:-$scheme} " in *" $scheme "*) ;; *) continue ;; esac
     xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
