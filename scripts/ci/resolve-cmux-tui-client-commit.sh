@@ -22,7 +22,9 @@
 # Env: CMUX_TUI_CLIENT_MANIFEST_BASE (default https://files.cmux.com/cmux-tui),
 #      CMUX_TUI_CLIENT_REMOTE (default origin; where a shallow clone deepens from),
 #      CMUX_TUI_CLIENT_FETCH_ATTEMPTS (default 5; tries per deepen before giving up),
-#      CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS (default 2; first backoff, doubles per try).
+#      CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS (default 2; first backoff, doubles per try),
+#      CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS (default 3; wait between manifest probes after
+#      a transient failure; a 404 never waits).
 # The chosen 40-hex commit is the only stdout line; diagnostics go to stderr.
 set -euo pipefail
 
@@ -33,7 +35,7 @@ MAX_FALLBACK=0
 HEAD_REV=HEAD
 
 log() { echo "resolve-cmux-tui-client-commit: $*" >&2; }
-usage() { sed -n '2,24p' "$0"; }
+usage() { sed -n '2,28p' "$0"; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,15 +53,20 @@ esac
 MAX_FALLBACK=$((10#$MAX_FALLBACK))
 FETCH_ATTEMPTS="${CMUX_TUI_CLIENT_FETCH_ATTEMPTS:-5}"
 FETCH_RETRY_SECONDS="${CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS:-2}"
+PROBE_RETRY_SECONDS="${CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS:-3}"
 case "$FETCH_ATTEMPTS" in
   ''|*[!0-9]*) echo "error: CMUX_TUI_CLIENT_FETCH_ATTEMPTS must be a positive integer" >&2; exit 64 ;;
 esac
 case "$FETCH_RETRY_SECONDS" in
   ''|*[!0-9]*) echo "error: CMUX_TUI_CLIENT_FETCH_RETRY_SECONDS must be a non-negative integer" >&2; exit 64 ;;
 esac
+case "$PROBE_RETRY_SECONDS" in
+  ''|*[!0-9]*) echo "error: CMUX_TUI_CLIENT_PROBE_RETRY_SECONDS must be a non-negative integer" >&2; exit 64 ;;
+esac
 # Normalize before the positive check so an all-zero spelling (00) is rejected too.
 FETCH_ATTEMPTS=$((10#$FETCH_ATTEMPTS))
 FETCH_RETRY_SECONDS=$((10#$FETCH_RETRY_SECONDS))
+PROBE_RETRY_SECONDS=$((10#$PROBE_RETRY_SECONDS))
 if [[ $FETCH_ATTEMPTS -lt 1 ]]; then
   echo "error: CMUX_TUI_CLIENT_FETCH_ATTEMPTS must be a positive integer" >&2
   exit 64
@@ -133,16 +140,41 @@ if [[ ${#CANDIDATES[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Succeeds when the manifest exists. A definitive miss (HTTP 404/410, or a missing
+# file:// path, curl exit 37) returns at once. Anything else (DNS, connection reset,
+# 5xx, 429) is retried with bounded delay so a network hiccup on the release runner
+# does not read as a missing manifest. curl --retry-all-errors cannot tell the two
+# apart and slept through five retries on every genuine 404.
+PROBE_ATTEMPTS=6
+probe_manifest() {
+  local url="$1" attempt code rc
+  for ((attempt = 1; attempt <= PROBE_ATTEMPTS; attempt++)); do
+    rc=0
+    code="$(curl --proto '=https,file' --tlsv1.2 -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)" || rc=$?
+    if [[ $rc -eq 0 ]]; then
+      # Like curl -f, anything below 400 is found; file:// reports 000 on success.
+      case "$code" in
+        404|410) return 1 ;;
+        [45]??) ;;
+        *) return 0 ;;
+      esac
+    elif [[ $rc -eq 37 ]]; then
+      return 1
+    fi
+    if [[ $attempt -lt $PROBE_ATTEMPTS ]]; then sleep "$PROBE_RETRY_SECONDS"; fi
+  done
+  log "manifest probe still failing after $PROBE_ATTEMPTS attempts (curl exit $rc, HTTP $code): $url"
+  return 1
+}
+
 chosen=""
 skipped=0
 for ((i = 0; i < ${#CANDIDATES[@]}; i++)); do
   sha="${CANDIDATES[$i]}"
   url="$BASE/$sha/manifest.json"
-  # One probe per candidate: a 404 moves on to the next candidate (or fails exact
-  # mode). curl retries resolution and connection blips itself, bounded, so a DNS
-  # hiccup on the release runner does not read as a missing manifest.
-  if curl --proto '=https,file' --tlsv1.2 -fsS -o /dev/null \
-       --retry 5 --retry-delay 3 --retry-all-errors --retry-connrefused "$url" 2>/dev/null; then
+  # One probe per candidate: a missing manifest moves on to the next candidate (or
+  # fails exact mode).
+  if probe_manifest "$url"; then
     chosen="$sha"
     break
   fi
