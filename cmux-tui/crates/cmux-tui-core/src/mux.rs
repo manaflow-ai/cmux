@@ -3262,33 +3262,25 @@ impl Mux {
             }
             let mut terminal =
                 self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
+            if terminal.is_none()
+                && !template_claimed
+                && options.adopt_template_terminal
+                && !record.workspace_key.is_empty()
+                && self.state.lock().unwrap().workspaces.is_empty()
+                && terminal_host_record_liveness(&record_path, &record)
+                    == TerminalHostLiveness::Live
+            {
+                terminal = Some(self.claim_template_terminal(&options, &record)?);
+                template_claimed = true;
+                template_terminal = Some(terminal_id.clone());
+            }
             if terminal.is_none() {
                 // One-release migration path for hosts launched before SQLite
                 // became placement authority. Never trust the JSON hint when
                 // its workspace no longer exists.
                 let workspace_exists = !record.workspace_key.is_empty()
                     && self.state.lock().unwrap().workspace_by_key(&record.workspace_key).is_some();
-                let claim_template = !workspace_exists
-                    && !template_claimed
-                    && options.adopt_template_terminal
-                    && !record.workspace_key.is_empty()
-                    && self.state.lock().unwrap().workspaces.is_empty()
-                    && terminal_host_record_liveness(&record_path, &record)
-                        == TerminalHostLiveness::Live;
-                if claim_template {
-                    // Recreate the host's workspace under its recorded key in
-                    // this registry; the import below then gives the host a
-                    // placement there with freshly generated public ids.
-                    self.create_empty_workspace(
-                        options.template_workspace_name.clone(),
-                        Some(record.workspace_key.clone()),
-                        None,
-                    )?;
-                    template_claimed = true;
-                    template_terminal = Some(terminal_id.clone());
-                }
-                let can_import = workspace_exists || claim_template;
-                if can_import {
+                if workspace_exists {
                     let imported = RegistryTerminal {
                         terminal_id: terminal_id.clone(),
                         workspace_key: record.workspace_key.clone(),
@@ -3489,6 +3481,43 @@ impl Mux {
         Ok(())
     }
 
+    /// Claim a Cloud snapshot's warm terminal host as the first terminal of
+    /// this fresh registry (SurfaceOptions::adopt_template_terminal). The
+    /// host's workspace is recreated under its recorded key and named from
+    /// the options; the durable row is marked as a template terminal so
+    /// finish_terminal_adoption gives it a new placement with fresh public
+    /// ids. The ordinary adoption handshake follows.
+    #[cfg(unix)]
+    fn claim_template_terminal(
+        &self,
+        options: &SurfaceOptions,
+        record: &crate::terminal_host_runtime::TerminalHostRecord,
+    ) -> anyhow::Result<RegistryTerminal> {
+        self.create_empty_workspace(
+            options.template_workspace_name.clone(),
+            Some(record.workspace_key.clone()),
+            None,
+        )?;
+        let claimed = RegistryTerminal {
+            terminal_id: record.terminal_id.clone(),
+            workspace_key: record.workspace_key.clone(),
+            incarnation: None,
+            lifecycle: TerminalLifecycle::Launching,
+            launch_spec: template_terminal_launch_spec(),
+            exit: None,
+            on_exit: TerminalOnExit::Close,
+        };
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let revision = commit_terminal_transition(
+            &mut registry,
+            "terminal-template-claimed",
+            "claim-template-terminal",
+            &claimed,
+        )?;
+        self.emit_terminal_registry_changed(&registry, revision);
+        Ok(claimed)
+    }
+
     /// Tell the warm template shell its new identity. The shell was spawned
     /// by the snapshot builder's daemon, so its CMUX_TUI_SESSION_ID and
     /// CMUX_TUI_TERMINAL_ID name the builder's session and terminal. Its
@@ -3621,7 +3650,11 @@ impl Mux {
         let has_restored_placements = restored_public_id.as_ref().is_some_and(|public_id| {
             !state.placements_of_content(&ContentPublicId::Terminal(public_id.clone())).is_empty()
         });
-        if has_restored_placements || surface.resource_identity().is_none() {
+        if is_template_terminal(&terminal) {
+            // Cloud snapshot template: its builder's placement was wiped with
+            // the builder's registry, so it always gets a new one here.
+            self.place_adopted_terminal_in_new_screen(&mut state, &terminal.workspace_key, surface)?;
+        } else if has_restored_placements || surface.resource_identity().is_none() {
             anyhow::ensure!(
                 !self.consume_terminal_adoption_insert_failure(),
                 "injected terminal adoption topology failure"
@@ -3631,42 +3664,7 @@ impl Mux {
             // One-release import path for a host that predates public content
             // identities. Give it a real initial placement so the normal
             // resource projection can persist its generated identities.
-            let workspace_index = state
-                .workspaces
-                .iter()
-                .position(|workspace| workspace.key == terminal.workspace_key)
-                .ok_or_else(|| anyhow::anyhow!("terminal workspace disappeared during adoption"))?;
-            let (pane_id, pane) = self.make_pane(surface.id)?;
-            let screen_id = self.next_id();
-            let screen_public_id = ScreenPublicId::random()?;
-            anyhow::ensure!(
-                !self.consume_terminal_adoption_insert_failure(),
-                "injected terminal adoption topology failure"
-            );
-            insert_surface_checked(&mut state, surface)?;
-            {
-                let workspace = &mut state.workspaces[workspace_index];
-                workspace.screens.push(Screen {
-                    id: screen_id,
-                    public_id: screen_public_id,
-                    name: None,
-                    root: Node::Leaf(pane_id),
-                    active_pane: pane_id,
-                    zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![pane_id]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
-                workspace.active_screen = workspace.screens.len() - 1;
-            }
-            // Adoption materializes a live pane without stealing focus, but it
-            // must still advance the pane-set revision used by frontend focus
-            // history pruning.
-            state.insert_pane(pane);
-            state.rebuild_resource_indexes();
+            self.place_adopted_terminal_in_new_screen(&mut state, &terminal.workspace_key, surface)?;
         }
 
         let revision = match commit_terminal_lifecycle(
@@ -3693,6 +3691,55 @@ impl Mux {
             let _ = self.retry_pending_agent_hooks_for_terminal(&terminal_id);
             self.reconcile_agent_roster_projections_for_terminal(&terminal_id);
         }
+        Ok(())
+    }
+
+    /// Give an adopted terminal host a new screen and pane in the workspace
+    /// with `workspace_key`, without stealing focus. The resource projection
+    /// then generates and persists its public ids.
+    #[cfg(unix)]
+    fn place_adopted_terminal_in_new_screen(
+        &self,
+        state: &mut State,
+        workspace_key: &str,
+        surface: Arc<Surface>,
+    ) -> anyhow::Result<()> {
+        let workspace_index = state
+            .workspaces
+            .iter()
+            .position(|workspace| workspace.key == workspace_key)
+            .ok_or_else(|| anyhow::anyhow!("terminal workspace disappeared during adoption"))?;
+        let (pane_id, pane) = self.make_pane(surface.id)?;
+        let screen_id = self.next_id();
+        let screen_public_id = ScreenPublicId::random()?;
+        anyhow::ensure!(
+            !self.consume_terminal_adoption_insert_failure(),
+            "injected terminal adoption topology failure"
+        );
+        insert_surface_checked(state, surface)?;
+        {
+            let workspace = &mut state.workspaces[workspace_index];
+            workspace.screens.push(Screen {
+                id: screen_id,
+                public_id: screen_public_id,
+                name: None,
+                root: Node::Leaf(pane_id),
+                active_pane: pane_id,
+                zoomed_pane: None,
+                zellij_auto_layout: Some(vec![pane_id]),
+                viewport_splits: Default::default(),
+                viewport_base_width: None,
+                layout_columns: Vec::new(),
+                layout_revision: 0,
+                layout_undo: Default::default(),
+            });
+            workspace.active_screen = workspace.screens.len() - 1;
+        }
+        // Adoption materializes a live pane without stealing focus, but it
+        // must still advance the pane-set revision used by frontend focus
+        // history pruning.
+        state.insert_pane(pane);
+        state.rebuild_resource_indexes();
         Ok(())
     }
 
@@ -17286,6 +17333,16 @@ fn restore_focus_identity(state: &mut State, focus: Option<FocusIdentity>) {
     if state.workspaces[workspace_index].screens[screen_index].root.contains(pane_id) {
         state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
     }
+}
+
+/// Launch spec of a Cloud snapshot's warm terminal host claimed by a fresh
+/// registry (Mux::claim_template_terminal).
+fn template_terminal_launch_spec() -> serde_json::Value {
+    serde_json::json!({"template_terminal": true})
+}
+
+fn is_template_terminal(terminal: &RegistryTerminal) -> bool {
+    terminal.launch_spec == template_terminal_launch_spec()
 }
 
 fn commit_terminal_transition(
