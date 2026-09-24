@@ -4071,7 +4071,7 @@ class TerminalController {
     /// Reject selector-shaped parameters that terminal commands do not understand.
     /// Silently falling back to the focused surface makes a typo look successful.
     nonisolated static func terminalTargetParameterValidationError(params: [String: Any]) -> V2CallResult? {
-        guard params.keys.contains("surface") else { return nil }
+        guard ControlTerminalTargetValidation.hasUnsupportedSurfaceParameter(params) else { return nil }
         return .err(
             code: "invalid_params",
             message: String(localized: "socket.terminal.unsupportedSurfaceParam", defaultValue: "Unsupported parameter `surface`; use `surface_id`."),

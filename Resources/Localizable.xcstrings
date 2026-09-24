@@ -551689,6 +551689,72 @@
             "state": "translated",
             "value": "不支援參數 `surface`；請使用 `surface_id`。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepodržani parametar `surface`; koristite `surface_id`."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parameteren `surface` understøttes ikke; brug `surface_id`."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parametro `surface` non supportato; usa `surface_id`."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parameteren `surface` støttes ikke; bruk `surface_id`."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieobsługiwany parametr `surface`; użyj `surface_id`."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parâmetro `surface` sem suporte; use `surface_id`."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неподдерживаемый параметр `surface`; используйте `surface_id`."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รองรับพารามิเตอร์ `surface` ให้ใช้ `surface_id`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desteklenmeyen `surface` parametresi; `surface_id` kullanın."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៉ារ៉ាម៉ែត្រ `surface` មិនត្រូវបានគាំទ្រ; ប្រើ `surface_id`។"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Непідтримуваний параметр `surface`; використовуйте `surface_id`."
+          }
         }
       }
     }
