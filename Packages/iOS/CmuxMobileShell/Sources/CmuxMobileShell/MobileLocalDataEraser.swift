@@ -69,20 +69,22 @@ public struct MobileLocalDataEraser: Sendable {
         FileManager.default.fileExists(atPath: pendingMarkerURL.path)
     }
 
-    /// Erases all local data now and schedules the launch pass.
+    /// Schedules the launch pass, then erases all local data now.
     ///
-    /// Call after the normal sign-out finishes. Returns `false` when some item
-    /// could not be removed now; the launch pass retries it either way.
+    /// Call after the normal sign-out finishes. The marker is written first
+    /// and survives the in-process pass, so a process killed mid-erase still
+    /// finishes on the next launch. Returns `false` when the marker could not
+    /// be written or some item could not be removed; nothing is erased
+    /// without a marker, so a failed call can simply be retried.
     @MainActor
     @discardableResult
     public func erase() async -> Bool {
         Self.log.notice("erasing all local data")
+        guard writePendingMarker() else { return false }
         await eraseSystemState()
         // File and keychain work can be large; keep it off the main actor.
         let eraser = self
-        let didErase = await Task.detached { eraser.eraseStoredData() }.value
-        let didMark = writePendingMarker()
-        return didErase && didMark
+        return await Task.detached { eraser.eraseStoredData() }.value
     }
 
     /// Runs the launch pass of a pending erase. Call before the app root builds
@@ -188,6 +190,10 @@ public extension MobileLocalDataEraser {
     /// its notification extension, which shares the group) can reach, including
     /// device-only items that would otherwise survive an app reinstall.
     ///
+    /// The query omits `kSecAttrSynchronizable`, so it matches only items local
+    /// to this device. Deleting an iCloud-synchronized item would also delete
+    /// it on the user's other devices.
+    ///
     /// iOS only: on macOS the same query would reach the user's login keychain.
     private static func eraseAllKeychainItems() -> Bool {
         let classes = [
@@ -199,10 +205,7 @@ public extension MobileLocalDataEraser {
         ]
         var didEraseAll = true
         for itemClass in classes {
-            let query: [String: Any] = [
-                kSecClass as String: itemClass,
-                kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
-            ]
+            let query: [String: Any] = [kSecClass as String: itemClass]
             let status = SecItemDelete(query as CFDictionary)
             if status != errSecSuccess && status != errSecItemNotFound {
                 log.error("keychain erase failed for class \(String(describing: itemClass), privacy: .public): \(status)")

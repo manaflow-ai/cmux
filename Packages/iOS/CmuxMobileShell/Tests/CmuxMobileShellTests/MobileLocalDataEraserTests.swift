@@ -136,6 +136,20 @@ import Testing
         #expect(fixture.keychainErases.count == 0)
     }
 
+    @Test func failedInProcessEraseStillLeavesTheMarker() async throws {
+        var fixture = try Fixture()
+        defer { fixture.cleanUp() }
+        fixture.keychainSucceeds = false
+
+        let didErase = await fixture.eraser().erase()
+
+        // Written before erasing starts, so a partial or killed erase is
+        // always finished by the next launch.
+        #expect(!didErase)
+        #expect(fixture.eraser().hasPendingErase)
+        #expect(!fixture.exists("Documents/probe.json"))
+    }
+
     @Test func failedLaunchPassKeepsTheMarkerForTheNextLaunch() async throws {
         var fixture = try Fixture()
         defer { fixture.cleanUp() }

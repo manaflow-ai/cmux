@@ -534,7 +534,11 @@ struct CMUXMobileRootView: View {
     private var rootContent: some View {
         #if os(iOS)
         if let localDataResetPhase {
-            MobileLocalDataResetView(phase: localDataResetPhase)
+            MobileLocalDataResetView(phase: localDataResetPhase) {
+                if let localDataEraser {
+                    resetLocalData(eraser: localDataEraser)
+                }
+            }
         } else {
             standardRootContent
         }
@@ -1490,14 +1494,15 @@ struct CMUXMobileRootView: View {
     /// Stack session on the server, when signed in), then erases everything
     /// cmux stores on this device. Server-side data is never deleted.
     private func resetLocalData(eraser: MobileLocalDataEraser) {
-        guard localDataResetPhase == nil else { return }
+        guard localDataResetPhase == nil || localDataResetPhase == .failed else { return }
         localDataResetPhase = .erasing
         Task {
-            if authManager.isAuthenticated {
+            // `isAuthenticated` includes attach-ticket sessions, whose shell
+            // connection must also be torn down before the erase.
+            if isAuthenticated {
                 await performSignOut()
             }
-            await eraser.erase()
-            localDataResetPhase = .finished
+            localDataResetPhase = await eraser.erase() ? .finished : .failed
         }
     }
     #endif

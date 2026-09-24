@@ -6,6 +6,9 @@ import SwiftUI
 enum MobileLocalDataResetPhase: Equatable {
     case erasing
     case finished
+    /// Some data could not be erased. Any data already erased stays erased, and
+    /// the next launch retries whatever the marker covers.
+    case failed
 }
 
 /// Replaces the whole app UI once a reset starts. The app root's live objects
@@ -13,6 +16,7 @@ enum MobileLocalDataResetPhase: Equatable {
 /// the next launch finishes the erase before anything reads local data.
 struct MobileLocalDataResetView: View {
     let phase: MobileLocalDataResetPhase
+    let retry: () -> Void
 
     var body: some View {
         switch phase {
@@ -38,6 +42,23 @@ struct MobileLocalDataResetView: View {
                 ))
             }
             .accessibilityIdentifier("MobileLocalDataResetFinished")
+        case .failed:
+            ContentUnavailableView {
+                Label(
+                    L10n.string("mobile.localDataReset.failed.title", defaultValue: "Couldn’t Erase All Data"),
+                    systemImage: "exclamationmark.triangle"
+                )
+            } description: {
+                Text(L10n.string(
+                    "mobile.localDataReset.failed.message",
+                    defaultValue: "Some cmux data on this device could not be erased. Try again. Your cmux account and server data were not changed."
+                ))
+            } actions: {
+                Button(L10n.string("mobile.localDataReset.failed.retry", defaultValue: "Try Again"), action: retry)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("MobileLocalDataResetRetry")
+            }
+            .accessibilityIdentifier("MobileLocalDataResetFailed")
         }
     }
 }
