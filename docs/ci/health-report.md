@@ -33,6 +33,9 @@ Related: #13095 (CI cost and capacity) and #13325 (CI waste).
 Minutes are `completed_at - started_at` per job, summed, and split by
 conclusion into success / failure / cancelled / skipped. `timed_out` and
 `startup_failure` count as failure, because they cost what a failure costs.
+A job cancelled before any runner picked it up (`runner_id: 0`, no steps) has
+zero minutes; the API stamps its `started_at` at creation, so its whole wait
+until the cancel counts as queue wait instead.
 
 These tables are **sampled**: job listings are the expensive API call, so the
 report reads jobs for a bounded number of runs spread across workflows (macOS-
@@ -41,11 +44,18 @@ which workflow, which job, which pool, which conclusion is eating the minutes â€
 not as a billing total. The header states how many runs were sampled.
 
 Failure and cancelled minutes are the interesting columns. Success minutes are
-the price of CI; the rest is the price of CI not working.
+the price of CI; the rest is the price of CI not working. One exception:
+`cmux-tui-testbox-warmup.yml` holds a Testbox VM for a maintainer session, and
+the session's cleanup (`scripts/blacksmith-testbox-demo.sh`) cancels the run on
+purpose, so its cancelled minutes are the session itself.
 
 ### Queue wait (created â†’ started) per runner label
 
 `started_at - created_at` per job, as p50 / p90 / p99 / worst, per runner label.
+A job cancelled while still queued counts with its wait up to the cancel, a
+lower bound on what it would have waited. These used to count as zero, so the
+first reports after that change show a higher macOS p90 without any real
+regression.
 Labels are joined when a job asks for several, so `self-hosted+macos` is not
 silently pooled with `macos`.
 

@@ -1,3 +1,4 @@
+import CmuxCloudTui
 import Foundation
 
 /// The app's one in-process WireGuard tunnel into the user's private Cloud VM

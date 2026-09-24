@@ -1,4 +1,6 @@
+import CmuxCloudTui
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Composes SSH carriers with the same terminal graph and native projections as Cloud.
@@ -69,6 +71,9 @@ final class SSHTuiWorkspaceCoordinator {
             if !completed, workspace.sshTuiConnectionAttemptID == attemptID, let reservation {
                 workspace.failReservedCloudTerminalPane(reservation, error: CloudDiagnosticFailure.network)
             }
+        }
+        if let saved = configuration.restoredSSHSession, saved.sshSessionOwner != "cmux-tui" {
+            throw CloudDiagnosticFailure.unsupported
         }
         guard await provider.refreshCurrentGraph(force: false) else {
             throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkError ?? CloudDiagnosticFailure.network.label)

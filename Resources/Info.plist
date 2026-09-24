@@ -300,47 +300,6 @@
 	<integer>86400</integer>
 	<key>SUSendProfileInfo</key>
 	<false/>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-        <dict>
-            <key>UTTypeIdentifier</key>
-            <string>com.cmux.cloud-sidebar-row</string>
-            <key>UTTypeConformsTo</key>
-            <array><string>public.data</string></array>
-            <key>UTTypeDescription</key>
-            <string>Cloud Sidebar Row</string>
-        </dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Bonsplit Tab Transfer</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.splittabbar.tabtransfer</string>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>cmux Sidebar Tab Reorder</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.sidebar-tab-reorder</string>
-		</dict>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>cmux File Preview Transfer</string>
-			<key>UTTypeIdentifier</key>
-			<string>com.cmux.filepreview.transfer</string>
-		</dict>
-	</array>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
@@ -364,6 +323,16 @@
 	</array>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.cloud-sidebar-row</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Cloud Sidebar Row</string>
+		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
 			<string>com.splittabbar.tabtransfer</string>
