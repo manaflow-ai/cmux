@@ -149,7 +149,8 @@ them; the order is speed first.
 The queue comes from the queue janitor: each sweep publishes the per-pool demand
 it already listed as the `macos-pool-load` artifact, and the `changes` job
 reads the newest copy uploaded from `main` of this repository. Pull request
-runs created since that sweep are replayed through the same rule first, each
+runs created since that sweep and still in flight are replayed through the
+same rule first, each
 filling a pool's idle slots (about 10 per Blacksmith macOS pool, less what is
 running) before it counts as queued, so a burst of pushes spreads across
 pools. The whole choice costs three API

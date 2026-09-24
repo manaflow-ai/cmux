@@ -291,6 +291,10 @@ def choose(
     return choice, snapshot
 
 
+def count_in_flight(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None) -> int:
+    return sum(1 for run in runs if run.get("id") != exclude_run_id and run.get("status") != "completed")
+
+
 def trusted_snapshot_artifact(artifact: Mapping[str, Any], branch: str) -> bool:
     """Uploaded by a run on `branch` of this repository itself, not a fork or another branch."""
     run = artifact.get("workflow_run") or {}
@@ -324,7 +328,7 @@ class GitHub:
 
     def snapshot(self, *, now: dt.datetime, branch: str = SNAPSHOT_BRANCH) -> Mapping[str, Any] | None:
         """The newest trusted, unexpired janitor snapshot, in two API requests."""
-        artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page=20").get("artifacts") or []
+        artifacts = self.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page={PAGE_SIZE}").get("artifacts") or []
         trusted = [artifact for artifact in artifacts if trusted_snapshot_artifact(artifact, branch)]
         if not trusted:
             return None
@@ -349,10 +353,16 @@ class GitHub:
         return json.loads(archive.read(SNAPSHOT_FILE))
 
     def pull_request_runs_since(self, since: str, *, exclude_run_id: int | None) -> int:
-        """CI pull request runs created at or after `since`, other than this one (one request)."""
+        """CI pull request runs created at or after `since` and still in flight (one request).
+
+        A finished run (cancelled, superseded, or one with no macOS work)
+        holds no pool, so it is not replayed. Each replayed run weighs one
+        job, its compile admission: pull request runs are compile-only by
+        default, so a full-suite run's shards are under-counted.
+        """
         query = urllib.parse.urlencode({"event": "pull_request", "created": f">={since}", "per_page": PAGE_SIZE})
         runs = self.get(f"/actions/workflows/{CI_WORKFLOW}/runs?{query}").get("workflow_runs") or []
-        return sum(1 for run in runs if run.get("id") != exclude_run_id)
+        return count_in_flight(runs, exclude_run_id=exclude_run_id)
 
 
 def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> str:

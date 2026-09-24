@@ -116,6 +116,11 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(pool.effective_queue({"queued": 0, "running": 2}, 10), 2)
         self.assertEqual(pool.effective_queue({"queued": 1, "running": 3}, 2), 3)
 
+    def test_only_runs_still_in_flight_are_replayed(self):
+        runs = [{"id": 1, "status": "queued"}, {"id": 2, "status": "in_progress"},
+                {"id": 3, "status": "completed"}, {"id": 4, "status": "pending"}, {"id": 5, "status": "waiting"}]
+        self.assertEqual(pool.count_in_flight(runs, exclude_run_id=2), 3)
+
     def test_counting_errors_keep_the_default(self):
         choice = choose(backlog(), routed=RuntimeError("GET /actions/workflows/ci.yml/runs failed (500)"))
         self.assertEqual((choice.runner, choice.xcode_app), ("", ""))
