@@ -5,6 +5,10 @@ import Foundation
 final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     enum Behavior: Sendable { case normal, statsUnavailable, listUnavailable, throttled }
     private static let responses = Responses()
+    /// Fixture state is keyed per request, not by object address: URLSession
+    /// frees a finished protocol, and the next request can reuse its address,
+    /// which made a fresh request look already stopped and never answer.
+    private let requestID = UUID()
     static func holdResponses() async { await responses.hold() }
     static func releaseResponses() async { await responses.release() }
     static func configure(_ behavior: Behavior) async { await responses.configure(behavior) }
@@ -20,10 +24,10 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
 
     private actor Responses {
         private(set) var counts: [String: Int] = [:]
-        private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
+        private var tasks: [UUID: Task<Void, Never>] = [:]
         private var behavior = Behavior.normal
         private var held = false
-        private var responseWaiters: [ObjectIdentifier: CheckedContinuation<Void, Never>] = [:]
+        private var responseWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
         func hold() { held = true }
         func release() {
             held = false
@@ -31,7 +35,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             responseWaiters.removeAll()
             for waiter in pending.values { waiter.resume() }
         }
-        private var stoppedRequests: Set<ObjectIdentifier> = []
+        private var stoppedRequests: Set<UUID> = []
         private(set) var stopCount = 0
         private var startWaiters: [(Int, CheckedContinuation<Void, Never>)] = []
         private var stopWaiters: [(after: Int, CheckedContinuation<Void, Never>)] = []
@@ -54,7 +58,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             stopCount = 0
         }
         func start(_ source: CloudRefreshURLProtocol) {
-            let key = ObjectIdentifier(source)
+            let key = source.requestID
             guard !stoppedRequests.contains(key) else { return }
             let path = source.request.url!.path
             counts[path, default: 0] += 1
@@ -84,7 +88,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             }
         }
         func stop(_ source: CloudRefreshURLProtocol) {
-            let key = ObjectIdentifier(source)
+            let key = source.requestID
             guard stoppedRequests.insert(key).inserted else { return }
             tasks.removeValue(forKey: key)?.cancel()
             responseWaiters.removeValue(forKey: key)?.resume()
