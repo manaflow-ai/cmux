@@ -5696,13 +5696,19 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     assert not admission_job_name("macos / some other job")
     assert not admission_job_name(None)
 
-    reuse = (ROOT / "scripts/ci/reuse_app_host_products.py").read_text(encoding="utf-8")
-    assert '.rsplit(" / ", 1)[-1] == compile_name' in reuse, (
-        "reuse_app_host_products.py must match the final segment of the job name"
-    )
     # Each trusted producer workflow names the job that has to have compiled.
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     import reuse_app_host_products
+
+    # Match the final segment of the job name, and a matrix job's
+    # "<name> (<values>)", as seed-derived-data.yml's "seed (<pool>)".
+    names = reuse_app_host_products.names_compile_job
+    assert names(composed, ADMISSION_JOB), "reuse_app_host_products.py must match the final segment of the job name"
+    assert names(inner, ADMISSION_JOB)
+    assert names("seed (blacksmith-12vcpu-macos-26)", "seed")
+    assert not names("macos / some other job", ADMISSION_JOB)
+    assert not names("seeder", "seed")
+    assert not names(None, "seed")
 
     assert reuse_app_host_products.COMPILE_JOBS[".github/workflows/ci.yml"][0] == ADMISSION_JOB, (
         "reuse_app_host_products.py must look for ci.yml's admission job by its real name"

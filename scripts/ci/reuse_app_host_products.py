@@ -103,6 +103,13 @@ COMPILE_JOBS = {
 }
 
 
+def names_compile_job(name: object, compile_name: str) -> bool:
+    """Whether a listed job is COMPILE_JOBS' job, through a reusable workflow
+    ("<caller> / <name>") or a matrix ("<name> (<values>)")."""
+    last = str(name or "").rsplit(" / ", 1)[-1]
+    return last == compile_name or last.startswith(f"{compile_name} (")
+
+
 # Build controls the product contract hashes. Only non-secret values belong
 # here, because the contract is published in the artifact receipt.
 #
@@ -566,9 +573,11 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
             # A reusable workflow reports "<caller job> / <job name>", so this
             # is "macos / macOS compile admission" when ci.yml reaches the job
             # through ci-macos.yml. Match the final segment.
+            # A matrix job adds " (<values>)", as seed-derived-data.yml's
+            # "seed (<pool>)" does.
             compile_name, compile_step = COMPILE_JOBS[run["path"]]
             compile_job = next((job for job in jobs
-                                if str(job.get("name") or "").rsplit(" / ", 1)[-1] == compile_name
+                                if names_compile_job(job.get("name"), compile_name)
                                 and job.get("status") == "completed"
                                 and job.get("conclusion") == "success"), None)
             if compile_job is None:

@@ -72,6 +72,14 @@ actor DeviceIrxClient {
         return Self.displayBindings(cache: cache, now: permissionNow())
     }
 
+    /// The stamp of the complete directory that authorizes outgoing control,
+    /// or nil before one is loaded.
+    func directoryStamp() async -> DeviceDirectoryStamp? {
+        guard !stopped, let borrowed = try? await context(), await borrowed.isCurrent(),
+              let directory = await borrowed.control.snapshot().cache.directory else { return nil }
+        return DeviceDirectoryStamp(revision: directory.revision, issuedAt: directory.issuedAt)
+    }
+
     /// A pushed account-directory revision triggers a discovery refresh without polling.
     func directoryChanges() -> AsyncStream<Void> {
         let id = UUID()

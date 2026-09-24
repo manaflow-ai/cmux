@@ -173,7 +173,9 @@ struct DeviceDirectoryMerge {
                 routes: routes,
                 ownerUserID: ownerUserID,
                 accountTrust: trust,
-                directoryEndpoint: accountMac?.endpointID ?? previous?.directoryEndpoint
+                directoryEndpoint: accountMac?.endpointID ?? previous?.directoryEndpoint,
+                controlPlaneSupport: accountMac.map { $0.controlPlaneSupportsMacPeers ? .supported : .outdated }
+                    ?? previous?.controlPlaneSupport ?? .notApplicable
             )
         }
         return records.sorted { lhs, rhs in
