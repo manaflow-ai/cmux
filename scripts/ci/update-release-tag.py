@@ -67,7 +67,9 @@ def api_request(method: str, path: str, *, payload: dict | None = None) -> dict:
     delay = _setting("CMUX_NIGHTLY_TAG_API_RETRY_DELAY_SECONDS", 2.0)
     for attempt in range(attempts):
         try:
-            with urllib.request.urlopen(request) as response:
+            # Without a timeout a stalled connection blocks until the job
+            # ceiling and the retry loop never runs; TimeoutError is an OSError.
+            with urllib.request.urlopen(request, timeout=30) as response:
                 raw = response.read()
             return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
@@ -81,12 +83,14 @@ def api_request(method: str, path: str, *, payload: dict | None = None) -> dict:
     raise AssertionError("unreachable")
 
 
-def _ref_sha(ref: dict) -> str:
+def _ref_sha(repo: str, ref: dict) -> str:
     obj = ref.get("object") or {}
     if obj.get("type") == "commit":
         return str(obj.get("sha", ""))
     if obj.get("type") == "tag":
-        tag = api_request("GET", f"git/tags/{quote(str(obj.get('sha', '')), safe='')}")
+        tag = api_request(
+            "GET", f"repos/{repo}/git/tags/{quote(str(obj.get('sha', '')), safe='')}"
+        )
         return str((tag.get("object") or {}).get("sha", ""))
     return ""
 
@@ -104,9 +108,17 @@ def update_tag(repo: str, tag: str, sha: str) -> None:
     except TagUpdateError as error:
         if error.status != 404:
             raise
-        api_request("POST", f"repos/{repo}/git/refs", payload={"ref": f"refs/tags/{tag}", "sha": sha})
+        try:
+            api_request(
+                "POST", f"repos/{repo}/git/refs", payload={"ref": f"refs/tags/{tag}", "sha": sha}
+            )
+        except TagUpdateError as create_error:
+            # 422 means the ref already exists: a retried create whose first
+            # response was lost, or a concurrent run. The read-back decides.
+            if create_error.status != 422:
+                raise
     else:
-        current_sha = _ref_sha(current_ref)
+        current_sha = _ref_sha(repo, current_ref)
         if current_sha == sha:
             print(f"Verified {tag} -> {sha}", flush=True)
             return
@@ -121,7 +133,7 @@ def update_tag(repo: str, tag: str, sha: str) -> None:
                 )
         api_request("PATCH", ref_path, payload={"sha": sha, "force": True})
 
-    observed = _ref_sha(api_request("GET", ref_path))
+    observed = _ref_sha(repo, api_request("GET", ref_path))
     if observed != sha:
         raise TagUpdateError(0, f"tag {tag!r} points to {observed or 'an unknown object'}, expected {sha}")
     print(f"Verified {tag} -> {sha}", flush=True)

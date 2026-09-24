@@ -55,9 +55,15 @@ class NightlyPruneRateLimitTests(unittest.TestCase):
                 raise response
             return FakeResponse()
 
+        # Pin the retry knobs so an inherited override cannot change the path.
+        env = {
+            "GH_TOKEN": "test-token",
+            "CMUX_NIGHTLY_GITHUB_API_MAX_ATTEMPTS": "4",
+            "CMUX_NIGHTLY_GITHUB_API_RETRY_DELAY_SECONDS": "2",
+        }
         with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=fake_urlopen), \
                 mock.patch.object(MODULE.time, "sleep") as sleep, \
-                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token"}, clear=False):
+                mock.patch.dict(MODULE.os.environ, env, clear=False):
             self.assertEqual(MODULE.github_api_json("GET", "repos/o/r/releases"), {"assets": []})
         self.assertEqual(sleep.call_count, 1)
 

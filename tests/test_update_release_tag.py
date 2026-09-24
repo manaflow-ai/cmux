@@ -42,7 +42,7 @@ class UpdateReleaseTagTests(unittest.TestCase):
         queued = list(responses or [])
         updated = False
 
-        def urlopen(request):
+        def urlopen(request, timeout=None):
             nonlocal updated
             calls.append((request.method, request.full_url, request.data))
             if request.method in {"PATCH", "POST"}:
@@ -62,7 +62,11 @@ class UpdateReleaseTagTests(unittest.TestCase):
 
         with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=urlopen), \
                 mock.patch.object(MODULE.time, "sleep") as sleep, \
-                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token"}, clear=False):
+                mock.patch.dict(MODULE.os.environ, {
+                    "GH_TOKEN": "test-token",
+                    "CMUX_NIGHTLY_TAG_API_MAX_ATTEMPTS": "4",
+                    "CMUX_NIGHTLY_TAG_API_RETRY_DELAY_SECONDS": "2",
+                }, clear=False):
             MODULE.update_tag("owner/repo", "nightly", self.SHA)
         return calls, sleep
 
@@ -75,6 +79,28 @@ class UpdateReleaseTagTests(unittest.TestCase):
         calls, _ = self.call(None, responses=[HTTPError("https://api.github.com", 404, "missing", {}, None)])
         self.assertEqual([method for method, _, _ in calls], ["GET", "POST", "GET"])
         self.assertEqual(json.loads(calls[1][2]), {"ref": "refs/tags/nightly", "sha": self.SHA})
+
+    def test_create_race_422_falls_through_to_verified_read_back(self):
+        exists = HTTPError("https://api.github.com", 422, "Reference already exists", {}, None)
+        calls, _ = self.call(
+            None,
+            responses=[HTTPError("https://api.github.com", 404, "missing", {}, None), exists],
+        )
+        self.assertEqual([method for method, _, _ in calls], ["GET", "POST", "GET"])
+
+    def test_annotated_tag_is_peeled_through_repo_scoped_path(self):
+        calls, _ = self.call(
+            {"object": {"sha": "c" * 40, "type": "tag"}},
+            responses=[
+                {"object": {"sha": "c" * 40, "type": "tag"}},
+                {"object": {"sha": self.SHA, "type": "commit"}},
+            ],
+        )
+        self.assertEqual(calls[1][0], "GET")
+        self.assertTrue(
+            calls[1][1].endswith("/repos/owner/repo/git/tags/" + "c" * 40), calls[1][1]
+        )
+        self.assertEqual(len(calls), 2)
 
     def test_transient_api_failure_is_bounded_and_retried(self):
         transient = HTTPError("https://api.github.com", 503, "unavailable", {}, None)
@@ -98,7 +124,7 @@ class UpdateReleaseTagTests(unittest.TestCase):
     def test_non_descendant_candidate_cannot_regress_tag(self):
         calls = []
 
-        def urlopen(request):
+        def urlopen(request, timeout=None):
             calls.append(request.method)
             if "/compare/" in request.full_url:
                 return FakeResponse({"status": "behind"})
