@@ -27,6 +27,7 @@ import hashlib
 import json
 import os
 import platform
+import select
 import shutil
 import subprocess
 import sys
@@ -278,9 +279,13 @@ def read_github() -> GitHubState:
 def read_variables() -> dict[str, str]:
     """Repository variables over the organization ones visible to the repository, as Actions resolves them."""
     values = {}
-    for path in (f"repos/{REPO}/actions/organization-variables", f"repos/{REPO}/actions/variables"):
-        data = gh_api(f"{path}?per_page=100") or {}
+    try:
+        data = gh_api(f"repos/{REPO}/actions/organization-variables?per_page=100") or {}
         values.update({v["name"]: v["value"] for v in data.get("variables", [])})
+    except Failure:
+        pass  # optional: the pin and the routing switch are repository variables today
+    data = gh_api(f"repos/{REPO}/actions/variables?per_page=100") or {}
+    values.update({v["name"]: v["value"] for v in data.get("variables", [])})
     return values
 
 
@@ -465,6 +470,8 @@ def doctor_lines(github: GitHubState, local: LocalState | None) -> tuple[list[tu
         healthy = bool(healthy_runners(github))
         if routing == "pilot":
             lines.append(Line(bool(cohort), f"routing: pilot for {cohort or '(empty cohort: nothing routes)'}"))
+            if not cohort:
+                nxt.append("scripts/persistent-compile pilot <your PR number>")
         elif routing_on(routing):
             lines.append(Line(True, "routing: every trusted PR"))
         else:
@@ -602,11 +609,35 @@ def default_runner_name(local: LocalState) -> str:
     return f"{node}-persistent-compile" if node else f"{platform.node().split('.')[0]}-persistent-compile"
 
 
-def worker_running(directory: Path) -> bool:
+def worker_pids(directory: Path) -> list[int]:
     """A Runner.Worker process exists only while this runner holds a job."""
     result = subprocess.run(["pgrep", "-f", os.fspath(directory / "bin" / "Runner.Worker")],
-                            capture_output=True, check=False)
-    return result.returncode == 0
+                            capture_output=True, text=True, check=False)
+    return [int(pid) for pid in result.stdout.split()] if result.returncode == 0 else []
+
+
+def wait_for_workers(directory: Path, deadline: float) -> None:
+    """Block until no job is running here or the deadline passes, woken by the worker's exit.
+
+    kqueue's NOTE_EXIT fires the moment the process ends, which keeps the window in
+    which GitHub can assign another job before the stop as short as it can be.
+    """
+    while (pids := worker_pids(directory)) and time.monotonic() < deadline:
+        queue = select.kqueue()
+        try:
+            watched = 0
+            for pid in pids:
+                try:
+                    queue.control([select.kevent(pid, filter=select.KQ_FILTER_PROC,
+                                                 flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                                 fflags=select.KQ_NOTE_EXIT)], 0)
+                    watched += 1
+                except ProcessLookupError:
+                    pass  # already gone
+            if watched:
+                queue.control(None, 1, max(0.0, deadline - time.monotonic()))
+        finally:
+            queue.close()
 
 
 def register_runner(name: str, token: str | None) -> None:
@@ -845,18 +876,16 @@ def stop_taking_jobs(args: argparse.Namespace, target: str, reason: str | None =
     except Failure as error:
         glaeda_error = error
     if local.runner_configured:
-        deadline = time.monotonic() + (0 if args.now else DRAIN_WAIT_SECONDS)
-        if worker_running(directory) and not args.now:
+        if not args.now and worker_pids(directory):
             print(f"{name} is running a job; stopping as soon as it finishes (--now stops it immediately)")
-        # Poll tightly: between the job ending and the stop, GitHub can assign another.
-        while worker_running(directory) and time.monotonic() < deadline:
-            time.sleep(2)
+            wait_for_workers(directory, time.monotonic() + DRAIN_WAIT_SECONDS)
         stop_service(directory)
         print(f"{name} is stopped and stays stopped across reboots.")
     elif glaeda_error is None:
         print(f"no runner is configured in {directory}; only the Glaeda state changed")
     if glaeda_error is not None:
-        raise Failure(f"the runner is stopped, but Glaeda was not moved to {target}: {glaeda_error}")
+        stopped = "the runner is stopped, but " if local.runner_configured else "no runner is configured, and "
+        raise Failure(f"{stopped}Glaeda was not moved to {target}: {glaeda_error}")
     return name
 
 
