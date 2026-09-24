@@ -50,10 +50,10 @@ extension TerminalController {
               let rawID = payload["workspace_id"] as? String,
               let id = UUID(uuidString: rawID),
               let workspace = Workspace.liveWorkspace(id: id) else {
-            throw SurfaceCatalogError.unsupported("SSH workspace creation failed")
+            throw CloudDiagnosticFailure.response
         }
         do {
-            let initialCommand = (params["initial_command"] as? String).map { ["/bin/sh", "-lc", $0] }
+            let initialCommand = (params["initial_command"] as? String).map(connection.commandArguments)
             try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand)
             if params["focus"] as? Bool != false, let panelID = workspace.focusedPanelId {
                 SurfacePaneFactory.focus(panelID: panelID, in: id)

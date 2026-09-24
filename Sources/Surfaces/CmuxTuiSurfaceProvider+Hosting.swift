@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 
 @MainActor
 extension CmuxTuiSurfaceProvider {

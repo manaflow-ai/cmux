@@ -6865,6 +6865,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
     }
     func remoteStatusPayload() -> [String: Any] {
+        if usesSSHTui { return tuiSSHStatusPayload() }
         let heartbeatAgeSeconds: Any = {
             guard let last = remoteLastHeartbeatAt else { return NSNull() }
             return max(0, Date().timeIntervalSince(last))

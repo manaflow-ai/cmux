@@ -35,26 +35,40 @@ pub(crate) fn payload(
     let manifest: ArtifactManifest = serde_json::from_slice(&bytes)
         .map_err(|_| BootstrapError::Configuration("invalid SSH artifact manifest".into()))?;
     if manifest.commit != build_identity {
-        return Err(BootstrapError::Configuration("SSH artifact manifest belongs to a different client build".into()));
+        return Err(BootstrapError::Configuration(
+            "SSH artifact manifest belongs to a different client build".into(),
+        ));
     }
     let target = match (os, arch) {
         ("linux", "aarch64") => "aarch64-unknown-linux-musl",
         ("linux", "x86_64") => "x86_64-unknown-linux-musl",
         ("macos", "aarch64") => "aarch64-apple-darwin",
         ("macos", "x86_64") => "x86_64-apple-darwin",
-        _ => return Err(BootstrapError::PlatformProbe(format!("no bundled SSH artifact for {os}-{arch}"))),
+        _ => {
+            return Err(BootstrapError::PlatformProbe(format!(
+                "no bundled SSH artifact for {os}-{arch}"
+            )));
+        }
     };
     let name = format!("cmux-tui-{target}");
-    let expected = manifest.binaries.get(&name)
+    let expected = manifest
+        .binaries
+        .get(&name)
         .filter(|digest| digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .ok_or_else(|| BootstrapError::Configuration("SSH artifact manifest lacks a checksum for this platform".into()))?;
+        .ok_or_else(|| {
+            BootstrapError::Configuration(
+                "SSH artifact manifest lacks a checksum for this platform".into(),
+            )
+        })?;
     let path = directory.join(name);
     let mut input = std::fs::File::open(&path).map_err(BootstrapError::Io)?;
     let mut digest = Sha256::new();
     let mut buffer = [0_u8; 64 * 1024];
     loop {
         let count = input.read(&mut buffer).map_err(BootstrapError::Io)?;
-        if count == 0 { break; }
+        if count == 0 {
+            break;
+        }
         digest.update(&buffer[..count]);
     }
     if format!("{:x}", digest.finalize()) != expected.to_ascii_lowercase() {
