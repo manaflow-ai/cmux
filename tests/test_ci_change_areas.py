@@ -5484,6 +5484,7 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     definitions = {
         ".github/workflows/ci.yml": ".github/workflows/ci-macos.yml",
         ".github/workflows/test-e2e.yml": ".github/workflows/test-e2e.yml",
+        ".github/workflows/seed-derived-data.yml": ".github/workflows/seed-derived-data.yml",
     }
     for path, (job_name, step_name) in reuse_app_host_products.COMPILE_JOBS.items():
         workflow = yaml.safe_load((ROOT / definitions[path]).read_text(encoding="utf-8"))
