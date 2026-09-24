@@ -216,6 +216,48 @@ public final class MobileSSHComputers {
         statusByHost[hostID] = .idle
     }
 
+    // MARK: Files and forwarding
+
+    /// Active local port forwards per host, newest last.
+    public private(set) var forwardsByHost: [UUID: [SSHLocalPortForward]] = [:]
+
+    /// Opens an SFTP session on the host's connection (connecting if needed).
+    public func openSFTP(hostID: UUID) async throws -> SFTPClient {
+        try await SFTPClient.open(on: try await connection(for: hostID))
+    }
+
+    /// Forwards `http://127.0.0.1:<localPort>` on the phone to
+    /// `remoteHost:remotePort` as seen from the server (PRD D7).
+    public func startPortForward(hostID: UUID, remotePort: Int, remoteHost: String = "127.0.0.1") async throws -> SSHLocalPortForward {
+        let forward = try await SSHLocalPortForward.start(
+            over: try await connection(for: hostID),
+            targetHost: remoteHost,
+            targetPort: remotePort
+        )
+        forwardsByHost[hostID, default: []].append(forward)
+        return forward
+    }
+
+    public func stopPortForward(hostID: UUID, localPort: Int) async {
+        guard let forward = forwardsByHost[hostID]?.first(where: { $0.localPort == localPort }) else { return }
+        forwardsByHost[hostID]?.removeAll { $0.localPort == localPort }
+        await forward.stop()
+    }
+
+    /// Runs a one-off command on the host (used by upload flows to learn `$HOME`).
+    public func exec(hostID: UUID, _ command: String) async throws -> SSHExecResult {
+        try await connection(for: hostID).exec(command)
+    }
+
+    /// The host behind an SSH computer, workspace row, or surface id.
+    public nonisolated func hostID(forIdentifier identifier: String) -> UUID? {
+        MobileSSHIdentifiers.hostID(of: identifier)
+    }
+
+    public func host(id: UUID) -> SSHHostRecord? {
+        hosts.first { $0.id == id }
+    }
+
     // MARK: Surfaces (called by the shell store)
 
     /// Records the phone's grid and resizes a live attachment.
