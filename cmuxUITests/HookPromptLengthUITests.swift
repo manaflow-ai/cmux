@@ -9,7 +9,15 @@ final class HookPromptLengthUITests: XCTestCase {
             .appendingPathComponent("hook-length-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let socketPath = "/tmp/cmux-debug-hook-length-\(UUID().uuidString.prefix(8)).sock"
+        // The app runs outside the runner sandbox; its socket must still be
+        // reachable by the sandboxed probe. Keep the UNIX path below sun_path.
+        let socketPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("h\(UUID().uuidString.prefix(6))").path
+        XCTAssertLessThan(socketPath.utf8.count, 104)
+        defer {
+            try? FileManager.default.removeItem(atPath: socketPath)
+            try? FileManager.default.removeItem(atPath: socketPath + ".lock")
+        }
         let products = Bundle(for: Self.self).bundleURL
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
