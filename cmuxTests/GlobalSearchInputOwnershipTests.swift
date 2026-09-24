@@ -286,13 +286,30 @@ extension GlobalSearchShortcutBehaviorTests {
             windowNumber: harness.window.windowNumber
         )
 
+        // Assert the palette request, not the popover: presenting it needs
+        // an active app, which the macOS 26 test host is never granted.
+        let paletteRequests = GlobalSearchPaletteRequestRecorder()
+        let installedController = appDelegate.menuBarExtraController
+        let recordingController = paletteRequests.makeMenuBarExtraController(appDelegate: appDelegate)
+        appDelegate.menuBarExtraController = recordingController
+        defer {
+            recordingController.removeFromMenuBar()
+            appDelegate.menuBarExtraController = installedController
+        }
+
         #expect(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(
+            paletteRequests.count == 0,
+            "The chord prefix alone must not open Global Search"
+        )
         #expect(
             appDelegate.debugHandleCustomShortcut(event: suffixEvent),
             "Cmd-C must complete an already-active Global Search chord"
         )
-        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(
+            paletteRequests.count == 1,
+            "Completing the chord must request the Global Search palette once"
+        )
 #else
         Issue.record("Global Search input-ownership routing requires a DEBUG build")
 #endif
@@ -464,5 +481,29 @@ extension GlobalSearchShortcutBehaviorTests {
         case browserFocusUnavailable
         case eventUnavailable
     }
+    }
+}
+
+/// Stands in for the menu bar extra's Global Search callback so a test can
+/// count palette requests without the popover having to present.
+@MainActor
+private final class GlobalSearchPaletteRequestRecorder {
+    private(set) var count = 0
+
+    func makeMenuBarExtraController(appDelegate: AppDelegate) -> MenuBarExtraController {
+        MenuBarExtraController(
+            notificationStore: TerminalNotificationStore.shared,
+            caffeineController: appDelegate.caffeineController,
+            onShowGlobalSearch: { [weak self] _, _ in self?.count += 1 },
+            onShowMainWindow: {},
+            onShowNotifications: {},
+            onOpenNotification: { _ in },
+            onJumpToLatestUnread: {},
+            onOpenTaskManager: {},
+            onToggleSleepyMode: {},
+            onCheckForUpdates: {},
+            onOpenPreferences: {},
+            onQuitApp: {}
+        )
     }
 }

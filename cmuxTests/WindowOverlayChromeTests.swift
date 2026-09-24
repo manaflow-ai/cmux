@@ -87,6 +87,23 @@ struct WindowOverlayChromeTests {
 
     @Test("Browser content stays inside the content hierarchy without covering either chrome strip", arguments: [false, true])
     func browserAndTerminalRespectChrome(useGlass: Bool) throws {
+        // A terminal surface re-applies the configured window backdrop when it
+        // mounts (`GhosttyNSView.viewDidMoveToWindow` →
+        // `applyWindowBackgroundIfActive`). With glass off in settings, that
+        // mount removes the native glass root on macOS 26, where
+        // `NSGlassEffectView` exists. Configure glass in settings so the
+        // surface keeps the glass root the test installed. That leaves the
+        // portals as the only thing that could replace it.
+        let defaults = UserDefaults.standard
+        let savedBlendMode = defaults.object(forKey: "sidebarBlendMode")
+        let savedGlassEnabled = defaults.object(forKey: "bgGlassEnabled")
+        defer {
+            defaults.set(savedBlendMode, forKey: "sidebarBlendMode")
+            defaults.set(savedGlassEnabled, forKey: "bgGlassEnabled")
+        }
+        defaults.set(useGlass ? "behindWindow" : "withinWindow", forKey: "sidebarBlendMode")
+        defaults.set(useGlass, forKey: "bgGlassEnabled")
+
         let window = makeWindow(withBrowserHost: true)
         defer { window.orderOut(nil) }
         let content = try #require(window.contentView)

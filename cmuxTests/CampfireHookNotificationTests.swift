@@ -228,29 +228,34 @@ struct CampfireHookNotificationTests {
                 }
                 accepted += 1
 
-                DispatchQueue.global(qos: .userInitiated).async {
-                    defer { Darwin.close(clientFD) }
-                    var pending = Data()
-                    var buffer = [UInt8](repeating: 0, count: 4096)
-                    while true {
-                        let count = Darwin.read(clientFD, &buffer, buffer.count)
-                        if count < 0 {
-                            if errno == EINTR { continue }
-                            return
-                        }
-                        if count == 0 { return }
-                        pending.append(buffer, count: count)
-                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
-                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
-                            pending.removeSubrange(0...newlineRange.lowerBound)
-                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
-                            context.state.append(line)
-                            let response = agentHookMockResponse(line: line, context: context) + "\n"
-                            _ = response.withCString { ptr in
-                                Darwin.write(clientFD, ptr, strlen(ptr))
-                            }
-                        }
-                    }
+                serveAgentHookMockClient(context: context, clientFD: clientFD)
+            }
+        }
+    }
+
+    private func serveAgentHookMockClient(
+        context: HookContext,
+        clientFD: Int32
+    ) {
+        defer { Darwin.close(clientFD) }
+        var pending = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(clientFD, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                return
+            }
+            if count == 0 { return }
+            pending.append(buffer, count: count)
+            while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                pending.removeSubrange(0...newlineRange.lowerBound)
+                guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                context.state.append(line)
+                let response = agentHookMockResponse(line: line, context: context) + "\n"
+                _ = response.withCString { ptr in
+                    Darwin.write(clientFD, ptr, strlen(ptr))
                 }
             }
         }
