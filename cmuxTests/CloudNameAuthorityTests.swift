@@ -177,6 +177,18 @@ extension SetAutoTitleSocketTests {
         }
     }
 
+    @Test("A local agent process leaves the local terminal tab icon unchanged")
+    func localAgentKeepsPlainTabIcon() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer { for panel in workspace.panels.values { panel.close() } }
+        let panelID = try #require(workspace.focusedPanelId)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        workspace.recordAgentPID(key: "claude_code", pid: getpid(), panelId: panelID, refreshPorts: false)
+        _ = workspace.updatePanelTitle(panelId: panelID, title: "✳ Claude Code")
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAsset == nil)
+    }
+
     @Test("A user confirming the same agent text claims the name")
     func cloudSameTextClaimsUserOwnership() async throws {
         try await withCloudNameFixture { fixture in
