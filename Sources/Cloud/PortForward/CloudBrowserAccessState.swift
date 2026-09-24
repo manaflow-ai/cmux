@@ -26,6 +26,7 @@ final class CloudBrowserAccessState {
     @ObservationIgnored private let connectionDeadline: MainActorDeferredActionScheduler
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
     @ObservationIgnored private var observationGeneration: UInt64 = 0
+    @ObservationIgnored private var preservingCommittedRoute = false
     private var activeNavigationID: ObjectIdentifier?
     @ObservationIgnored private let logID = UUID().uuidString
     @ObservationIgnored private var attempt = 0
@@ -55,6 +56,7 @@ final class CloudBrowserAccessState {
         // second request after a same-VM redirect.
         navigationURL = url
         hasCommittedNavigation = true
+        preservingCommittedRoute = true
         loaded = false
         error = nil
         desktopFailure = nil
@@ -79,6 +81,13 @@ final class CloudBrowserAccessState {
                 guard let self, self.observationGeneration == generation else { return }
                 self.observeRoute()
             }
+        }
+        if preservingCommittedRoute {
+            // The new model may still be acquiring its proxy. Keep the URL and
+            // committed-document identity stable until it is ready; adoption
+            // must never replay a request WebKit already committed.
+            if model.isReady { preservingCommittedRoute = false }
+            return
         }
         if let url = nextURL() { navigate?(url) }
     }
@@ -196,6 +205,7 @@ final class CloudBrowserAccessState {
         self.model = model
         remoteURL = url
         navigationURL = nil
+        preservingCommittedRoute = false
         hasCommittedNavigation = false
         loaded = false
         error = nil
@@ -300,6 +310,7 @@ final class CloudBrowserAccessState {
         attempt += 1
         trace("retry")
         navigationURL = nil
+        preservingCommittedRoute = false
         hasCommittedNavigation = false
         loaded = false
         error = nil

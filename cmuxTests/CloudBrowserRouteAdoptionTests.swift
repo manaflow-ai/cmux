@@ -28,14 +28,17 @@ struct CloudBrowserRouteAdoptionTests {
         let initial = URL(string: "http://10.16.0.70:6901/vnc.html")!
         let redirected = URL(string: "http://10.16.0.70:6902/vnc.html")!
         let resource = SurfaceResourceID(machine: .cloud("route-adoption"), kind: .display, key: "display:1")
+        var navigationRequests = 0
+        state.automaticallyNavigate { _ in navigationRequests += 1 }
         state.configure(model: model, url: initial, resourceID: resource)
+        state.adoptCommittedRoute(model: model, url: redirected, resourceID: resource)
         model.connect()
         try #require(await AppKitTestEventPump().waitUntil { model.isReady })
-        state.adoptCommittedRoute(model: model, url: redirected, resourceID: resource)
 
         #expect(state.navigationURL == redirected)
         #expect(state.hasCommittedNavigation)
         #expect(state.model === model)
         #expect(state.remoteURL == redirected)
+        #expect(navigationRequests == 0)
     }
 }
