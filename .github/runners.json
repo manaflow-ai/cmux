@@ -1,0 +1,56 @@
+{
+  "$comment": [
+    "Capability -> runner label. A job says what it needs; this file says what",
+    "answers today. Read by scripts/ci/resolve_runners.py, published by",
+    ".github/workflows/resolve-runners.yml. See docs/ci-runner-capability-map.md.",
+    "",
+    "Every fleet must define every capability key. A fleet missing a key would",
+    "emit an empty runs-on, and an empty or unknown label does not error on",
+    "GitHub: the job sits queued forever and holds its concurrency group. The",
+    "resolver refuses to start on a fleet with a missing key for that reason.",
+    "",
+    "Capability keys are requirements, not lanes. Who is asking (pull request,",
+    "manual flake hunt, non-urgent background work) is cost policy and is not",
+    "expressed here."
+  ],
+
+  "capabilities": {
+    "linux": "x86_64 Linux; the default for every non-macOS job",
+    "linux_arm64": "aarch64 Linux; native ARM64 package entrypoint verification",
+    "macos_15": "macOS 15 image, and therefore the macOS 15 default SDK",
+    "macos_15_gui": "macOS 15 with a foreground Aqua login session (XCUITest, virtual display)",
+    "macos_15_sdk15": "macOS 15 carrying an SDK 15 Xcode alongside the pinned one",
+    "macos_26": "macOS 26 image",
+    "macos_26_ios": "macOS 26 with installed iOS runtimes and a working simctl",
+    "macos_26_large": "macOS 26 on the large SKU: 12 vCPU, 48 GB RAM, 250 GB disk"
+  },
+
+  "fleets": {
+    "blacksmith": {
+      "linux": "blacksmith-4vcpu-ubuntu-2404",
+      "linux_arm64": "ubuntu-24.04-arm",
+      "macos_15": "blacksmith-6vcpu-macos-15",
+      "macos_15_gui": "blacksmith-6vcpu-macos-15",
+      "macos_15_sdk15": "blacksmith-6vcpu-macos-15",
+      "macos_26": "blacksmith-6vcpu-macos-26",
+      "macos_26_ios": "blacksmith-6vcpu-macos-26",
+      "macos_26_large": "blacksmith-12vcpu-macos-26"
+    },
+    "hosted": {
+      "linux": "ubuntu-24.04",
+      "linux_arm64": "ubuntu-24.04-arm",
+      "macos_15": "macos-15",
+      "macos_15_gui": "macos-15",
+      "macos_15_sdk15": "macos-15",
+      "macos_26": "macos-26",
+      "macos_26_ios": "macos-26",
+      "macos_26_large": "macos-26"
+    }
+  },
+
+  "owners": {
+    "manaflow-ai": "blacksmith"
+  },
+
+  "default_fleet": "hosted"
+}

@@ -68,6 +68,34 @@ private struct NetworkOutcomeTestConsent: AnalyticsConsentProviding {
         #expect(event?.properties["failure"] == .string("hostUnreachable"))
     }
 
+    @Test func taskModelResultEmitsProviderSourceAndEffortCount() async {
+        let uploader = RecordingAnalyticsUploader()
+        let emitter = AnalyticsEmitter(
+            uploader: uploader,
+            consent: NetworkOutcomeTestConsent(isTelemetryEnabled: true),
+            anonymousID: "local-install"
+        )
+        let reporter = MobileNetworkOutcomeReporter(emitter: emitter)
+
+        reporter.ingest(DiagnosticEvent(
+            .appFeatureAction,
+            surface: 42,
+            ms: 6,
+            a: DiagnosticAppEventKind.taskModelListResultObserved.rawValue,
+            b: DiagnosticTaskModelProvider.codex.rawValue,
+            c: DiagnosticTaskModelSource.discovered.rawValue
+        ))
+        await reporter.flush()
+
+        let event = await uploader.uploadedEvents.first
+        #expect(event?.name == MobileNetworkOutcomeReporter.taskModelResultEventName)
+        #expect(event?.properties["operation"] == .string("model_list"))
+        #expect(event?.properties["provider"] == .string("codex"))
+        #expect(event?.properties["source"] == .string("discovered"))
+        #expect(event?.properties["effort_count"] == .int(6))
+        #expect(event?.properties["correlation_id"] == .int(42))
+    }
+
     @Test func transportDialCompletionEmitsLatencyOnly() async {
         let uploader = RecordingAnalyticsUploader()
         let emitter = AnalyticsEmitter(
