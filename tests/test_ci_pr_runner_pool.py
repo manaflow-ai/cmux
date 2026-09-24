@@ -534,27 +534,64 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(choose(snap, routed=pool.Routed(ephemeral=1)).runner, SMALL)
 
     def test_route_lookup_reads_markers_then_the_changes_job(self):
-        runs = [{"id": 1, "run_attempt": 1, "status": "in_progress"},
-                {"id": 2, "run_attempt": 1, "status": "in_progress"},
-                {"id": 3, "run_attempt": 1, "status": "queued"},
-                {"id": 4, "run_attempt": 1, "status": "completed"},
-                {"id": 9, "run_attempt": 1, "status": "in_progress"}]
+        same = {"head_repository": {"id": 5}, "repository": {"id": 5}}
+        skipped = [{"name": pool.MARKER_STEP, "conclusion": "skipped"}]
+        runs = [{"id": 1, "run_attempt": 1, "status": "in_progress", **same},
+                {"id": 2, "run_attempt": 1, "status": "in_progress", **same},
+                {"id": 3, "run_attempt": 1, "status": "queued", **same},
+                {"id": 4, "run_attempt": 1, "status": "completed", **same},
+                {"id": 5, "run_attempt": 1, "status": "in_progress", **same},
+                {"id": 6, "run_attempt": 1, "status": "in_progress", **same},
+                {"id": 7, "run_attempt": 1, "status": "in_progress",
+                 "head_repository": {"id": 8}, "repository": {"id": 5}},
+                {"id": 8, "run_attempt": 2, "status": "in_progress", **same},
+                {"id": 9, "run_attempt": 1, "status": "in_progress", **same}]
         responses = {
+            # A marker, with an absurd peak capped at MAX_RUN_JOBS.
             "/actions/runs/1/artifacts?per_page=100": {"artifacts": [
-                {"name": f"macos-pool-persistent-1-1-3-{MINI}", "expired": False}]},
+                {"name": f"macos-pool-persistent-1-1-999-{MINI}", "expired": False}]},
+            # Another run's marker does not count; the skipped marker step does.
             "/actions/runs/2/artifacts?per_page=100": {"artifacts": [
                 {"name": f"macos-pool-persistent-7-1-9-{MINI}", "expired": False}]},
             "/actions/runs/2/jobs?filter=latest&per_page=100": {"jobs": [
-                {"name": "changes", "status": "completed"}]},
+                {"name": "changes", "status": "completed", "steps": skipped}]},
+            # Still picking.
             "/actions/runs/3/artifacts?per_page=100": {"artifacts": []},
             "/actions/runs/3/jobs?filter=latest&per_page=100": {"jobs": [
-                {"name": "changes", "status": "in_progress"}]},
+                {"name": "changes", "status": "in_progress", "steps": skipped}]},
+            # Picked an owned pool but the marker upload was lost.
+            "/actions/runs/5/artifacts?per_page=100": {"artifacts": []},
+            "/actions/runs/5/jobs?filter=latest&per_page=100": {"jobs": [
+                {"name": "changes", "status": "completed",
+                 "steps": [{"name": pool.MARKER_STEP, "conclusion": "success"}]}]},
+            # Run 6's lookup fails; runs 7 (fork) and 8 (retry) are never looked up.
         }
+
+        def get(path):
+            if path not in responses:
+                raise RuntimeError(f"GET {path} failed (500)")
+            return responses[path]
+
         client = pool.GitHub("token", "manaflow-ai/cmux")
         with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
-                unittest.mock.patch.object(client, "get", side_effect=lambda path: responses[path]):
+                unittest.mock.patch.object(client, "get", side_effect=get):
             routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=9)
-        self.assertEqual(routed, pool.Routed(unknown=1, owned={MINI: 3}, ephemeral=1))
+        self.assertEqual(routed, pool.Routed(unknown=3, owned={MINI: pool.MAX_RUN_JOBS}, ephemeral=3))
+
+    def test_marker_step_and_routing_job_names_match_ci_yml(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml").read_text()
+        self.assertIn(f"      - name: {pool.MARKER_STEP}\n", workflow)
+        self.assertIn(f"\n  {pool.ROUTING_JOB}:\n", workflow)
+
+    def test_route_lookups_stop_at_the_cap(self):
+        same = {"head_repository": {"id": 5}, "repository": {"id": 5}, "run_attempt": 1, "status": "queued"}
+        runs = [{"id": n, **same} for n in range(1, pool.ROUTE_LOOKUPS + 4)]
+        client = pool.GitHub("token", "manaflow-ai/cmux")
+        with unittest.mock.patch.object(client, "runs_since", return_value=runs), \
+                unittest.mock.patch.object(client, "get", return_value={}) as get:
+            routed = client.pull_request_routes_since("2026-09-24T00:00:00Z", exclude_run_id=None)
+        self.assertEqual(routed, pool.Routed(unknown=len(runs)))
+        self.assertEqual(get.call_count, 2 * pool.ROUTE_LOOKUPS)
 
     def test_stale_snapshot_or_no_slots_skips_the_pool(self):
         self.assertEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, LARGE)

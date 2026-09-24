@@ -174,8 +174,11 @@ PAGE_SIZE = 100
 OWNED_MARKER = re.compile(r"macos-pool-persistent-(?P<run>[0-9]+)-(?P<attempt>[0-9]+)-(?P<jobs>[0-9]+)-(?P<pool>.+)")
 # The job that runs this picker; once it finishes, a run without a marker is off the owned pools.
 ROUTING_JOB = "changes"
-# Newer runs looked up one by one; any past this many are replayed as unknown.
-ROUTE_LOOKUPS = 12
+# The changes job step that is skipped exactly when the pick was not an owned pool.
+MARKER_STEP = "Mark a run on a persistent macOS pool"
+# Newer runs looked up one by one (two requests at most each); any past this
+# many are replayed as unknown.
+ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
 
 
@@ -599,13 +602,25 @@ def choose(
     return choice, snapshot
 
 
+def may_hold_owned_pool(run: Mapping[str, Any]) -> bool:
+    """Only attempt 1 of a same-repository pull request run can take an owned pool.
+
+    The same rule as queue_janitor.may_hold_owned_pool: a fork runs its own
+    ci.yml and could upload any marker, so its markers are never read.
+    """
+    if int(run.get("run_attempt") or 1) != 1:
+        return False
+    head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
+    return head is not None and head == base
+
+
 def run_marker(artifacts: Sequence[Any], run: Mapping[str, Any]) -> tuple[str, int] | None:
     """The owned pool and peak a run's `macos-pool-persistent-...` marker names, or None."""
     for artifact in artifacts:
         match = OWNED_MARKER.fullmatch(str((artifact or {}).get("name") or "")) if isinstance(artifact, Mapping) else None
         if (match and not artifact.get("expired") and int(match["run"]) == run.get("id")
                 and int(match["attempt"]) == int(run.get("run_attempt") or 1) and persistent(match["pool"])):
-            return match["pool"], max(1, int(match["jobs"]))
+            return match["pool"], min(max(1, int(match["jobs"])), MAX_RUN_JOBS)
     return None
 
 
@@ -693,33 +708,52 @@ class GitHub:
     def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None) -> Routed:
         """Where the pull request runs since `since` went, so they are not all guessed.
 
-        A run whose marker exists took that owned pool with the peak its name
-        records. A run whose `changes` job finished without one picked a
-        Blacksmith pool (or had no macOS work). Any other run is still picking,
-        and past ROUTE_LOOKUPS runs they are not looked up: both are replayed.
-        Two requests per run at most.
+        A fork run or a retry attempt never takes an owned pool, so it is off
+        them without a lookup (and a fork's own marker is never trusted). For
+        the rest, a marker names the owned pool and peak the run took; a
+        finished `changes` job whose marker step was skipped means the pick
+        was not an owned pool. Any other run (still picking, a lost marker
+        upload, a failed lookup, or past ROUTE_LOOKUPS) is replayed.
         """
         runs = [run for run in self.runs_since(CI_WORKFLOW, since, event="pull_request")
                 if run.get("id") != exclude_run_id and run.get("status") != "completed"]
         owned: dict[str, int] = {}
-        ephemeral = unknown = 0
-        for index, run in enumerate(runs):
-            if index >= ROUTE_LOOKUPS:
+        ephemeral = unknown = looked_up = 0
+        for run in runs:
+            if not may_hold_owned_pool(run):
+                ephemeral += 1
+                continue
+            if looked_up >= ROUTE_LOOKUPS:
                 unknown += 1
                 continue
-            artifacts = self.get(f"/actions/runs/{run['id']}/artifacts?per_page={PAGE_SIZE}").get("artifacts") or []
-            marker = run_marker(artifacts, run)
-            if marker is not None:
-                label, peak = marker
-                owned[label] = owned.get(label, 0) + peak
-                continue
-            jobs = self.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={PAGE_SIZE}").get("jobs") or []
-            if any(isinstance(job, Mapping) and job.get("name") == ROUTING_JOB and job.get("status") == "completed"
-                   for job in jobs):
+            looked_up += 1
+            try:
+                route = self.run_route(run)
+            except Exception:  # noqa: BLE001 - one unreadable run is only replayed
+                route = None
+            if isinstance(route, tuple):
+                owned[route[0]] = owned.get(route[0], 0) + route[1]
+            elif route == "ephemeral":
                 ephemeral += 1
             else:
                 unknown += 1
         return Routed(unknown=unknown, owned=owned, ephemeral=ephemeral)
+
+    def run_route(self, run: Mapping[str, Any]) -> tuple[str, int] | str | None:
+        """(owned pool, peak), "ephemeral", or None while this run's pick is unknown."""
+        artifacts = self.get(f"/actions/runs/{run['id']}/artifacts?per_page={PAGE_SIZE}").get("artifacts") or []
+        marker = run_marker(artifacts, run)
+        if marker is not None:
+            return marker
+        jobs = self.get(f"/actions/runs/{run['id']}/jobs?filter=latest&per_page={PAGE_SIZE}").get("jobs") or []
+        for job in jobs:
+            if not isinstance(job, Mapping) or job.get("name") != ROUTING_JOB or job.get("status") != "completed":
+                continue
+            steps = [step for step in job.get("steps") or []
+                     if isinstance(step, Mapping) and step.get("name") == MARKER_STEP]
+            if steps and all(step.get("conclusion") == "skipped" for step in steps):
+                return "ephemeral"
+        return None
 
     def pull_request_runs_since(self, since: str, *, exclude_run_id: int | None) -> int:
         """CI pull request runs created at or after `since` and still in flight (one request).
