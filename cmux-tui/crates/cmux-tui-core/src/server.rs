@@ -19759,6 +19759,7 @@ mod tests {
             } else {
                 id
             };
+            let retained_size = mux.surface(id).unwrap().size();
             let (writer, outbound) = captured_writer();
             let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
             let attached = handle_command(
@@ -19781,6 +19782,11 @@ mod tests {
                 continue;
             }
             attached.expect("retained output must remain attachable after child exit");
+            assert_eq!(
+                mux.surface(id).unwrap().size(),
+                retained_size,
+                "sized attachment must preserve the exited terminal's final geometry"
+            );
             let initial = pop_json(&outbound);
             if mode == "bytes" {
                 assert_eq!(initial["event"], "vt-state");
