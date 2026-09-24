@@ -29,7 +29,7 @@ on:
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows MACOS_RUNNER_TESTS and splits commits across the 6vcpu and 12vcpu macOS 26 pools; tart-* choices use isolated VMs)"
+        description: "Runner OS (auto follows MACOS_RUNNER_TESTS and overflows to the 12vcpu macOS 26 pool only when the 6vcpu pool is backed up and 12vcpu is idle; tart-* choices use isolated VMs)"
         required: false
         default: "auto"
         type: choice
@@ -44,10 +44,10 @@ on:
           - tart-small
 
 # run-name and the concurrency group cannot read job outputs, so they spell
-# `auto` as the pre-split default even when the runner job routes the commit
-# to the 12vcpu pool. Every auto dispatch of one ref and filter still shares a
-# group, and still lands on one pool, because the split is keyed on the
-# commit. run-e2e.sh names a routed pool explicitly, so its titles are exact.
+# `auto` as the 6vcpu default even when the runner job overflows the run to
+# the 12vcpu pool. Every auto dispatch of one ref and filter still shares a
+# group, so a newer one still cancels the older wherever it landed. run-e2e.sh
+# names the pool it chose explicitly, so its titles are exact.
 concurrency:
   group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
@@ -66,42 +66,58 @@ jobs:
       ref: ${{ inputs.ref }}
 
   runner:
-    # The macOS pool build and test run on. `auto` follows MACOS_RUNNER_TESTS
-    # and, on the default 6vcpu macOS 26 pool, sends odd commits to the 12vcpu
-    # pool (CI_E2E_LARGE_POOL_SPLIT=0 turns that off). run-e2e.sh applies the
-    # same rule from the same script, so product reuse and in-flight matching
-    # see one label per commit however the run was started.
-    needs: resolve-ref
+    # The macOS pool build and test run on. `auto` follows MACOS_RUNNER_TESTS.
+    # The 12vcpu macOS 26 pool is reserved first for release and nightly
+    # builds, so on the 6vcpu default an E2E run overflows to 12vcpu only when
+    # the 6vcpu pool is backed up (at least CI_E2E_OVERFLOW_MIN_QUEUED other
+    # E2E runs in flight on it, default 4) and 12vcpu has spare room (no
+    # release or nightly run in flight, nothing queued, and fewer than
+    # CI_E2E_OVERFLOW_MAX_LARGE_RUNNING E2E runs on it, default 2). Any error
+    # reading the queue stays on 6vcpu, and CI_E2E_LARGE_POOL_OVERFLOW=0 turns
+    # overflow off. run-e2e.sh applies the same rule from the same script.
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
+    # Reads one page each of in-progress and queued runs (two API calls at
+    # most; see e2e_runner_pool.py for the budget) to estimate pool demand.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       label: ${{ steps.pool.outputs.label }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
-      # which may predate it.
+      # which may predate it. The workflow files tell it which release and
+      # nightly workflows never use macOS.
       - name: Checkout pool helper
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          sparse-checkout: scripts/ci/e2e_runner_pool.py
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/queue_janitor.py
+            .github/workflows/
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Pick the macOS pool
         id: pool
         env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS }}
-          LARGE_POOL_SPLIT: ${{ vars.CI_E2E_LARGE_POOL_SPLIT }}
-          COMMIT: ${{ needs.resolve-ref.outputs.sha }}
+          LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
+          OVERFLOW_MIN_QUEUED: ${{ vars.CI_E2E_OVERFLOW_MIN_QUEUED }}
+          OVERFLOW_MAX_LARGE_RUNNING: ${{ vars.CI_E2E_OVERFLOW_MAX_LARGE_RUNNING }}
         run: |
           set -euo pipefail
           label="$(python3 scripts/ci/e2e_runner_pool.py \
             --requested "$REQUESTED_RUNNER" \
             --variable "$RUNNER_VARIABLE" \
-            --split "$LARGE_POOL_SPLIT" \
-            --commit "$COMMIT")"
+            --overflow "$LARGE_POOL_OVERFLOW" \
+            --min-queued "$OVERFLOW_MIN_QUEUED" \
+            --max-large-running "$OVERFLOW_MAX_LARGE_RUNNING")"
           echo "label=$label" >> "$GITHUB_OUTPUT"
-          echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto}) for $COMMIT"
+          echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto})"
 
   filter:
     # Seconds on Linux, and it rejects a malformed selector before either

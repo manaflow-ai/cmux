@@ -17,15 +17,17 @@ from urllib.parse import quote
 import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from e2e_runner_pool import LARGE_RUNNER, SPLIT_VARIABLE, split_enabled
-from e2e_runner_pool import routed_runner as pool_routed_runner
+import e2e_runner_pool as pool  # noqa: E402
+from e2e_runner_pool import LARGE_RUNNER, SMALL_RUNNER  # noqa: E402
 
 REPO = "manaflow-ai/cmux"
 WORKFLOW = "test-e2e.yml"
 # `vars.MACOS_RUNNER_TESTS`, as passed by a workflow job; see default_runner().
 VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
-# `vars.CI_E2E_LARGE_POOL_SPLIT`, passed the same way; see large_pool_split().
-SPLIT_ENV = "CMUX_CI_E2E_LARGE_POOL_SPLIT"
+# The overflow variables, passed the same way; see repository_variable().
+OVERFLOW_ENV = "CMUX_" + pool.OVERFLOW_VARIABLE
+MIN_QUEUED_ENV = "CMUX_" + pool.MIN_QUEUED_VARIABLE
+MAX_LARGE_RUNNING_ENV = "CMUX_" + pool.MAX_LARGE_RUNNING_VARIABLE
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DISCOVERY_ATTEMPTS = 12
 RUN_DISCOVERY_TIMEOUT_SECONDS = 60.0
@@ -44,9 +46,12 @@ RUNNERS = (
     "tart-dual",
     "tart-small",
 )
-# Half of all commits compile on the large macOS 26 SKU. The rule lives in
-# e2e_runner_pool.py, which test-e2e.yml runs too, so a run started here and
-# one started from the Actions UI put the same commit on the same pool.
+# An unpinned run overflows to the 12vcpu macOS 26 pool only when the 6vcpu
+# pool is backed up and the 12vcpu pool, reserved first for release and
+# nightly builds, has room. The rule lives in e2e_runner_pool.py, which
+# test-e2e.yml runs too. Because the choice depends on the queue at dispatch
+# time, not on the commit, the in-flight guards below look on both pools.
+OVERFLOW_POOLS = (SMALL_RUNNER, LARGE_RUNNER)
 # GitHub rejects a concurrency group longer than this as a workflow file
 # issue: the run is created with no jobs and no message saying why.
 MAX_CONCURRENCY_GROUP = 400
@@ -215,21 +220,41 @@ def listed_variables() -> dict[str, str] | None:
     return _listed  # type: ignore[return-value]
 
 
-def large_pool_split() -> bool:
-    """Whether `vars.CI_E2E_LARGE_POOL_SPLIT` leaves the split on.
+def repository_variable(name: str, env_name: str) -> str | None:
+    """An overflow variable's value; None or empty means unset (the default).
 
-    A workflow job passes the variable in CMUX_CI_E2E_LARGE_POOL_SPLIT. An
-    unreadable listing counts as on, the workflow's own default; the only
-    cost of guessing wrong is pinning a commit to the pool the workflow would
-    otherwise have split it onto.
+    A workflow job cannot list variables and passes them in CMUX_* instead.
+    A job that passed MACOS_RUNNER_TESTS but not this one predates it, so it
+    gets the default. Elsewhere an unreadable listing also means the default:
+    overflow is still bounded by the queue it reads, and fails to 6vcpu.
     """
-    if SPLIT_ENV in os.environ:
-        return split_enabled(os.environ[SPLIT_ENV])
+    if env_name in os.environ:
+        return os.environ[env_name]
     if VARIABLE_ENV in os.environ:
-        # A job token cannot list variables; a caller that passed one variable
-        # but not the other predates the switch.
-        return True
-    return split_enabled((listed_variables() or {}).get(SPLIT_VARIABLE))
+        return None
+    return (listed_variables() or {}).get(name)
+
+
+class GhApi(pool.queue_janitor.GitHub):
+    """The queue janitor's GitHub client, speaking through `gh api`.
+
+    `gh` carries the caller's own credentials, locally or in a workflow job,
+    so this needs no token handling of its own.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("", REPO)
+
+    def request(self, method: str, path: str, body=None):
+        self.calls += 1
+        try:
+            payload = output(
+                "gh", "api", "--method", method, path.lstrip("/"),
+                timeout=PRIOR_ATTEMPT_TIMEOUT_SECONDS,
+            )
+            return json.loads(payload) if payload else {}
+        except (subprocess.SubprocessError, OSError, ValueError) as error:
+            raise RuntimeError(f"{method} {path.split('?')[0]} failed") from error
 
 
 def default_runner() -> str | None:
@@ -269,19 +294,51 @@ def default_runner() -> str | None:
     return literal.group(1) if literal else None
 
 
-def routed_runner(commit: str, default: str | None, split: bool = True) -> str | None:
-    """The pool an unpinned dispatch at `commit` runs on; see e2e_runner_pool."""
-    return pool_routed_runner(commit, default, split)
+def routed_runner(default: str | None) -> str | None:
+    """The pool an unpinned dispatch runs on now; see e2e_runner_pool.
+
+    Only called when a dispatch is about to happen, so a run reused from the
+    history spends no API calls on the queue.
+    """
+    return pool.auto_runner(
+        default,
+        enabled=pool.overflow_enabled(
+            repository_variable(pool.OVERFLOW_VARIABLE, OVERFLOW_ENV)),
+        limits=pool.thresholds(
+            repository_variable(pool.MIN_QUEUED_VARIABLE, MIN_QUEUED_ENV),
+            repository_variable(pool.MAX_LARGE_RUNNING_VARIABLE, MAX_LARGE_RUNNING_ENV),
+        ),
+        measure=lambda limits: pool.measure_load(
+            GhApi(), REPO, limits, workflows_dir=ROOT / ".github" / "workflows"),
+        log=lambda message: print(f"Runner pool: {message}", file=sys.stderr, flush=True),
+    )
+
+
+def candidate_runners(runner: str | None, pinned: bool) -> tuple[str, ...]:
+    """Every pool a dispatch with this runner could land on.
+
+    A pinned runner is exact. An unpinned dispatch on the 6vcpu default may
+    overflow to the 12vcpu pool, so a run on either one already answers it.
+    Empty means the default could not be established.
+    """
+    if runner is None:
+        return ()
+    if not pinned and runner == SMALL_RUNNER:
+        return OVERFLOW_POOLS
+    return (runner,)
 
 
 def attempts(
-    runs: list[dict], commit: str, selector: str, runner: str | None = None
+    runs: list[dict], commit: str, selector: str,
+    runner: str | tuple[str, ...] | None = None,
 ) -> list[dict]:
     """Runs of this selector at this exact commit, newest first.
 
-    `runner` narrows to one pool. None means every pool, which is what the
-    repeat guard wants: a red result is usually a property of the commit.
+    `runner` narrows to one pool, or to any of several. None means every
+    pool, which is what the repeat guard wants: a red result is usually a
+    property of the commit.
     """
+    runners = (runner,) if isinstance(runner, str) else runner
     found = []
     for run in runs:
         parsed = parse_run_name(str(run.get("displayTitle", "")))
@@ -290,7 +347,7 @@ def attempts(
         selectors, run_runner, ref = parsed
         if ref != commit or selector not in selectors:
             continue
-        if runner is not None and run_runner != runner:
+        if runners is not None and run_runner not in runners:
             continue
         found.append(run)
     return found
@@ -316,7 +373,7 @@ def prior_attempts(
 
 
 def live_attempts(
-    runs: list[dict], commit: str, selector: str, runner: str
+    runs: list[dict], commit: str, selector: str, runner: str | tuple[str, ...]
 ) -> list[dict]:
     """Attempts GitHub has accepted that have not reported a conclusion yet.
 
@@ -328,7 +385,8 @@ def live_attempts(
     not collide, and instead pays a second full compile of identical source to
     answer a question already in flight.
 
-    `runner` is required and exact. A run on another pool shares neither the
+    `runner` is required and exact: one pool, or the pools an unpinned
+    dispatch could overflow between. A run on another pool shares neither the
     concurrency group nor the question: reusing its result would report macOS
     15's answer to someone who asked about macOS 26.
     """
@@ -336,6 +394,11 @@ def live_attempts(
         run for run in attempts(runs, commit, selector, runner)
         if str(run.get("status", "")) in UNFINISHED
     ]
+
+
+def parsed_runner(run: dict) -> str:
+    parsed = parse_run_name(str(run.get("displayTitle", "")))
+    return parsed[1] if parsed else "an unknown runner"
 
 
 def watchable(run: dict) -> bool:
@@ -456,16 +519,16 @@ def main() -> int:
     if args.ref is None and commit != requested_ref:
         raise ValueError("GitHub revision differs from local HEAD; push the intended commit first")
 
-    # Which pool this dispatch will actually land on. None means the answer
-    # could not be established, and the in-flight guards below stay silent
-    # rather than compare against a runner they guessed.
+    # Which pools this dispatch could land on. Empty means the answer could
+    # not be established, and the in-flight guards below stay silent rather
+    # than compare against a runner they guessed. The queue is read only once
+    # the guards have decided to dispatch.
     pinned = args.runner not in (None, "auto")
-    runner = args.runner if pinned else routed_runner(
-        commit, default_runner(), large_pool_split()
-    )
+    default = args.runner if pinned else default_runner()
+    pools = candidate_runners(default, pinned)
     # test-e2e.yml groups on "e2e-<runner>-<ref>-<test_filter>". When the pool
     # is unknown, measure against the longest label in the runner dropdown.
-    label = runner or max(RUNNERS, key=len)
+    label = max(pools or RUNNERS, key=len)
     group_length = len(f"e2e-{label}-{commit}-{test_filter}")
     if group_length > MAX_CONCURRENCY_GROUP:
         parser.error(
@@ -476,11 +539,12 @@ def main() -> int:
     if not args.force:
         history = recent_dispatches()
 
-        if runner is not None:
+        if pools:
             # An identical dispatch is already answering this exact question on
-            # this exact pool. Attach to it instead of cancelling it: the
-            # concurrency group keyed on runner/ref/test_filter would kill the
-            # run mid-compile and start the same compile again from cold.
+            # a pool this one could land on. Attach to it instead of cancelling
+            # it or paying a second compile on the other macOS 26 pool: the
+            # concurrency group keyed on runner/ref/test_filter would kill a
+            # same-pool run mid-compile and start the compile again from cold.
             requested = set(args.test_filter)
             running = [
                 run for run in history
@@ -488,14 +552,14 @@ def main() -> int:
                 and watchable(run)
                 and (parsed := parse_run_name(str(run.get("displayTitle", "")))) is not None
                 and parsed[2] == commit
-                and parsed[1] == runner
+                and parsed[1] in pools
                 and set(parsed[0]) == requested
             ]
             if running:
                 live = running[0]
                 print(
                     f"{test_filter} is already {live['status']} at {commit} "
-                    f"on {runner}; reusing that run instead of dispatching.",
+                    f"on {parsed_runner(live)}; reusing that run instead of dispatching.",
                     flush=True,
                 )
                 print(f"Run: {live['url']}", flush=True)
@@ -509,12 +573,12 @@ def main() -> int:
         # Refuse per entry: one already-red selector makes the whole batch a
         # reprint of a known failure, and the compile it would pay for is shared.
         for entry in args.test_filter:
-            live = [run for run in live_attempts(history, commit, entry, runner)
-                    if watchable(run)] if runner is not None else []
+            live = [run for run in live_attempts(history, commit, entry, pools)
+                    if watchable(run)] if pools else []
             if live:
                 raise ValueError(
                     f"{entry} is already {live[0]['status']} at {commit} on "
-                    f"{runner}, in {live[0]['url']}, under a different set of "
+                    f"{parsed_runner(live[0])}, in {live[0]['url']}, under a different set of "
                     "selectors. Dispatching now would compile identical source "
                     "a second time to answer a question already in flight. Wait "
                     "for that run, dispatch the remaining selectors on their "
@@ -537,6 +601,7 @@ def main() -> int:
                     "the new commit. Pass --force to dispatch anyway."
                 )
 
+    runner = args.runner if pinned else routed_runner(default)
     dispatch_id = uuid.uuid4().hex
     video = not args.no_video and test_target != "cmuxTests"
     fields = {
@@ -549,9 +614,9 @@ def main() -> int:
     }
     if args.runner is not None:
         fields["runner"] = args.runner
-    # test-e2e.yml would route this commit to the same pool on its own. Name
-    # it anyway so the run title carries the pool the guards above match on.
-    if not pinned and runner == LARGE_RUNNER:
+    # Name the pool chosen here, so the run title carries the pool the guards
+    # above match on and test-e2e.yml does not read the queue a second time.
+    if not pinned and runner in OVERFLOW_POOLS:
         fields["runner"] = runner
     command = ["gh", "workflow", "run", WORKFLOW, "--repo", REPO]
     if args.workflow_ref:
