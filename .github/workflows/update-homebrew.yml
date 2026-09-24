@@ -42,7 +42,7 @@ jobs:
     # SHA256 below, so the only thing it needs from the run is that the signed
     # build job succeeded.
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion != 'cancelled' }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       proceed: ${{ steps.gate.outputs.proceed }}
@@ -74,7 +74,7 @@ jobs:
 
   update-cask:
     needs: gate
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     if: ${{ needs.gate.outputs.proceed == 'true' }}
     steps:
       - name: Get version

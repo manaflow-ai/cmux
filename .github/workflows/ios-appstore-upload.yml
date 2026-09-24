@@ -29,7 +29,7 @@ jobs:
   decide:
     name: Check for new main revision
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       # The batch step, when it runs, has the last word on scheduled polls.
       upload: ${{ steps.batch.outputs.upload || steps.decide.outputs.upload }}
@@ -193,7 +193,7 @@ jobs:
     # dispatch against a feature branch must not upload arbitrary code.
     needs: decide
     if: needs.decide.outputs.upload == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 90
     outputs:
       build_number: ${{ steps.upload.outputs.final_build_number }}
@@ -457,7 +457,7 @@ jobs:
       always() && needs.decide.result == 'success' &&
       (needs.upload.result == 'success' || needs.upload.result == 'skipped') &&
       (needs.upload.outputs.build_number != '' || needs.decide.outputs.retry_build_number != '')
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
