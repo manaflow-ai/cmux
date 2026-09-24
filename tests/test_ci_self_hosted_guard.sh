@@ -1179,7 +1179,7 @@ check_no_self_hosted_fleet_runners() {
   # label shape, which runner_label_policy.py accepts in CI_PR_POOL_ORDER.
   # check_owned_pools_route_through_picker holds the other half.
   local owned='glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
-  local fleet='glaeda-|macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  local fleet='glaeda-|macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|cmux-persistent-macos-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
   # A fork running CI in its own repository has no fleet, so its hosted
   # branch may name GitHub's macos-26 image. Only this exact short-circuit is
@@ -1202,7 +1202,7 @@ check_no_self_hosted_fleet_runners() {
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
                'runs-on: [self-hosted, macOS, ARM64]' \
                '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' \
-               '      group: cmux-persistent-compile' \
+               '      group: cmux-persistent-compile' '- cmux-persistent-macos-compile' \
                '- glaeda-std-xcode-26.6' "runs-on: \${{ vars.X || 'glaeda-light-xcode-26.6' }}" 'runs-on: glaeda-xl-xcode-26' \
                '- GLAEDA-std-xcode-26.6' '- Tart-canary'; do
     if ! printf '%s\n' "$probe" | grep -Eiq "($fleet)" && ! printf '%s\n' "$probe" | grep -Eq "($selfhosted)"; then

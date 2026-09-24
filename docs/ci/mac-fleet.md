@@ -40,8 +40,10 @@ happens at 3 a.m.", and it is the one that carries measurements.
   unset.
 - **Four minis** hold the compile lane's peak. **One** (issue #13491) is the
   canary and is worth roughly 1.0-1.3 servers of relief on its own.
-- The minis never become required-CI runners. They produce a compile artifact
-  that a hosted job revalidates. That is what keeps a public repo safe.
+- Owned minis take trusted pull request jobs only through the owned-pool
+  picker (`scripts/ci/pr_runner_pool.py`), when `CI_PR_POOL_OWNED` is 1:
+  same-repository heads on a first attempt, with Blacksmith as overflow
+  (#14237, #14244). Fork pull requests never reach them.
 
 ## 1. Measured demand
 
