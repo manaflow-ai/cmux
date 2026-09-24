@@ -30,9 +30,8 @@ def load(name: str, path: Path):
 
 rescue = load("owned_pool_rescue", ROOT / "scripts/ci/owned_pool_rescue.py")
 
-MINI = "glaeda-mini-std"
+MINI = "glaeda-std-xcode-26.6"
 BLACKSMITH = "blacksmith-6vcpu-macos-26"
-POOLS = (BLACKSMITH, MINI)
 START = dt.datetime(2026, 9, 24, 12, 0, tzinfo=dt.timezone.utc)
 RUN_ID = 555
 HEAD = "a" * 40
@@ -109,15 +108,15 @@ def event(**overrides):
     return {"workflow_run": run}
 
 
-def run_main(api, clock, *, pools=POOLS, env_extra=None, payload=None):
+def run_main(api, clock, *, env_extra=None, payload=None):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp, "event.json")
         path.write_text(json.dumps(payload or event()))
         summary = Path(tmp, "summary")
         env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_EVENT_PATH": str(path),
-               "GITHUB_STEP_SUMMARY": str(summary), **(env_extra or {})}
+               "GITHUB_STEP_SUMMARY": str(summary), "POOL_OWNED": "1", **(env_extra or {})}
         with unittest.mock.patch("sys.stdout", io.StringIO()):
-            code = rescue.main([], env, api=api, now=clock.now, sleep=clock.sleep, pools=pools)
+            code = rescue.main([], env, api=api, now=clock.now, sleep=clock.sleep)
         return code, summary.read_text() if summary.exists() else ""
 
 
@@ -139,12 +138,13 @@ def persistent_run(*, compile_started_at=None, queued_at=40, done_at=None):
 
 
 class Scope(unittest.TestCase):
-    def test_no_persistent_pool_makes_no_request(self):
-        clock = Clock()
-        api = FakeAPI(clock, persistent_run())
-        code, summary = run_main(api, clock, pools=(BLACKSMITH,))
-        self.assertEqual((code, api.calls), (0, []))
-        self.assertIn("no persistent pool in POOLS", summary)
+    def test_owned_pools_off_makes_no_request(self):
+        for value in ("", "0"):
+            clock = Clock()
+            api = FakeAPI(clock, persistent_run())
+            code, summary = run_main(api, clock, env_extra={"POOL_OWNED": value})
+            self.assertEqual((code, api.calls), (0, []), value)
+            self.assertIn("owned pools are off", summary)
 
     def test_invalid_budget_watches_nothing(self):
         for value in ("abc", "10", "601"):
@@ -172,8 +172,10 @@ class Scope(unittest.TestCase):
         target = rescue.target_from_event(event(), "manaflow-ai/cmux")
         self.assertEqual((target.run_id, target.pr_number, target.head_sha), (RUN_ID, 42, HEAD))
 
-    def test_persistent_pools_are_the_non_blacksmith_labels(self):
-        self.assertEqual(rescue.persistent_pools(POOLS), frozenset({MINI}))
+    def test_only_owned_pool_labels_count(self):
+        self.assertEqual(rescue.job_pool(job("x", labels=["self-hosted", MINI])), MINI)
+        for labels in ([BLACKSMITH], ["ubuntu-24.04"], ["glaeda-mini"]):
+            self.assertIsNone(rescue.job_pool(job("x", labels=labels)), labels)
 
 
 class Watching(unittest.TestCase):
@@ -321,10 +323,11 @@ class Workflow(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
-    def test_triggered_once_per_ci_run_and_off_by_default(self):
+    def test_runs_whenever_owned_pools_are_on(self):
         self.assertEqual(self.doc[True]["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
         condition = self.doc["jobs"]["rescue"]["if"]
-        for part in ("vars.CI_OWNED_POOL_RESCUE == '1'", "github.event.workflow_run.event == 'pull_request'",
+        for part in ("vars.CI_PR_POOL_OWNED == '1'", "vars.CI_OWNED_POOL_RESCUE != '0'",
+                     "github.event.workflow_run.event == 'pull_request'",
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event.workflow_run.run_attempt == 1"):
             self.assertIn(part, condition)
@@ -333,6 +336,7 @@ class Workflow(unittest.TestCase):
         step = self.doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["run"], "python3 scripts/ci/owned_pool_rescue.py")
         self.assertEqual(step["env"]["RESCUE_SECONDS"], "${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}")
+        self.assertEqual(step["env"]["POOL_OWNED"], "${{ vars.CI_PR_POOL_OWNED }}")
 
     def test_polls_from_a_github_hosted_runner(self):
         self.assertEqual(self.doc["jobs"]["rescue"]["runs-on"], "ubuntu-24.04")

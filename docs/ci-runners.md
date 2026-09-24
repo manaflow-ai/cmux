@@ -165,10 +165,29 @@ follow those: `CI_PR_POOL_OVERFLOW=0` or a lane other than
 before. Fork runs never pin an Xcode (each job selects its pool's newest SDK
 26 Xcode) and only use ephemeral `blacksmith-*` pools.
 
-A persistent pool (any label outside the ephemeral `blacksmith-*` pools, such
-as owned Mac minis once they join `POOLS`) needs one more rule, because GitHub
-never re-routes a queued job: one queued there waits for that pool however
-long it stays busy. When the picker chooses a persistent pool, `changes`
+Owned Mac minis (fleet RFC cmuxterm-hq#573) join as class pools keyed by the
+label glaeda issues to a dedicated member once it has verified the pinned
+Xcode build: `glaeda-<class>-xcode-<version>`, today `glaeda-std-xcode-26.6`.
+The version comes from `CMUX_CI_XCODE_APP_PR`, so moving that pin moves the
+pool, and no machine carries the new label until glaeda has verified the new
+Xcode on it. Only the `std` class (48 GB) takes a whole run. With
+`CI_PR_POOL_OWNED=1` the owned pool goes first in the default order and the
+Blacksmith pools become overflow. Its capacity is its entry in
+`CI_OWNED_POOL_SLOTS`; the janitor's snapshot counts the jobs queued and
+running on that label, and the run takes the pool only while a slot is free
+after the runs created since the snapshot. It is skipped when the snapshot is
+older than 20 minutes or the label has no slots, and it is never the
+fewest-queued fallback. Fork runs never take it.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below; an order naming an owned pool is ignored while this is off |
+| `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, from the fleet manifest: `{"glaeda-std-xcode-26.6": 11}` |
+
+An owned pool is persistent, which needs one more rule because GitHub never
+re-routes a queued job: one queued there waits for that pool however long it
+stays busy. An offline mini still counts as a slot, and the snapshot can be
+minutes old. When the picker chooses a persistent pool, `changes`
 uploads a `macos-pool-persistent-<run>-<attempt>` marker, and
 `ci-owned-pool-rescue.yml` (from `main`, with Actions write) watches that run.
 If one of its jobs waits for a persistent runner longer than
@@ -179,12 +198,12 @@ whole, and so does any manual re-run after a job failed on an owned Mac.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `CI_OWNED_POOL_RESCUE` | unset (off) | `1` starts the watcher for same-repository pull request runs |
+| `CI_OWNED_POOL_RESCUE` | unset (on while `CI_PR_POOL_OWNED` is 1) | `0` turns the watcher off |
 | `CI_OWNED_POOL_RESCUE_SECONDS` | `90` | how long a job may wait for a persistent runner before the run moves to Blacksmith |
 
-The watcher makes no API request while `POOLS` has no persistent pool. A run on
-an ephemeral pool costs it a few jobs listings until `changes` finishes, plus
-one artifact listing.
+The watcher makes no API request while owned pools are off. A run on an
+ephemeral pool costs it a few jobs listings until `changes` finishes, plus one
+artifact listing.
 
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits

@@ -73,6 +73,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pr_runner_pool import persistent as owned_pool  # noqa: E402
+
 
 API = "https://api.github.com"
 DEFAULT_THRESHOLD = 6
@@ -349,18 +352,24 @@ def pool_load_snapshot(
     is what tells a pull request to stay off a pool those runs are waiting on.
     `settings` carries the pool-choice repository variables, which a fork
     pull request's run cannot read itself.
+
+    A job on an owned pool (`glaeda-<class>-xcode-<version>`) asks for that
+    one label, which names no macOS, so it is matched by the label itself.
+    Its counts are how pr_runner_pool.py knows how many of the pool's slots
+    are taken.
     """
     pools: dict[str, dict[str, Any]] = {}
     oldest: dict[str, dt.datetime] = {}
     for run in runs:
         reserved = bool(RESERVED_POOL_WORKFLOW.search(f"{run.get('name') or ''} {run.get('path') or ''}"))
         for job in jobs_by_run.get(run.get("id"), ()):
-            if not is_macos_job(job):
+            owned = next((str(label) for label in job.get("labels") or () if owned_pool(str(label))), None)
+            if not owned and not is_macos_job(job):
                 continue
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
                 continue
-            pool = runner_pool(job)
+            pool = owned or runner_pool(job)
             entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
                                             "oldest_queued_minutes": 0})
             if status in RUNNING_JOB_STATUSES:
