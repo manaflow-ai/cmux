@@ -2146,8 +2146,14 @@ def run_detect_step_for_paths(
     *,
     base_files: dict[str, str] | None = None,
     head_files: dict[str, str] | None = None,
+    standalone: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run the changes job's detect step; with `standalone`, then its standalone route."""
     script = detect_step_script(workflow_path)
+    route = (
+        workflow_job_step_script("changes", "Route standalone project workflows", workflow_path)
+        if standalone else ""
+    )
     with tempfile.TemporaryDirectory() as temp_dir:
         repo = Path(temp_dir)
         git_env = os.environ.copy()
@@ -2155,6 +2161,7 @@ def run_detect_step_for_paths(
             git_env.pop(name, None)
         # Parallel local checkouts must not share the workflow's fixed /tmp files.
         script = script.replace("/tmp/cmux-ci-", str(repo / "cmux-ci-"))
+        route = route.replace("/tmp/cmux-ci-", str(repo / "cmux-ci-"))
         subprocess.run(["git", "init", "-q"], cwd=repo, env=git_env, check=True)
         subprocess.run(["git", "config", "user.email", "ci@example.test"], cwd=repo, env=git_env, check=True)
         subprocess.run(["git", "config", "user.name", "CI Test"], cwd=repo, env=git_env, check=True)
@@ -2218,6 +2225,10 @@ def run_detect_step_for_paths(
             stderr=subprocess.PIPE,
             check=True,
         )
+        if standalone:
+            # The job's next step, reading what the detect step left behind.
+            subprocess.run(["bash", "-c", route], cwd=repo, env=env, text=True,
+                           capture_output=True, check=True)
         return result, output_path.read_text(encoding="utf-8").splitlines()
 
 
@@ -2666,6 +2677,97 @@ def test_workflow_only_pr_uses_trusted_base_without_product_work() -> None:
         "swift_packages=false",
         "release_build=false",
     ]
+
+
+# PR #14141's diff: the detector, its tests, and the detect step of ci.yml's
+# `changes` job. Run 35956687867 queued `Claude wrapper regressions` and
+# `remote-daemon-macos-tests` on the Mac pool for it.
+ROUTING_POLICY_PATHS = [
+    ".github/workflows/ci.yml",
+    "scripts/ci/detect_ci_change_areas.py",
+    "tests/test_ci_change_areas.py",
+]
+MAC_STANDALONE_OUTPUTS = ("claude_wrapper", "remote_daemon", "remote_daemon_native", "cli")
+
+
+def route_ci_workflow_edit(
+    head_workflow: str, extra_paths: tuple[str, ...] = (),
+) -> dict[str, str]:
+    """Every `changes` output for a diff that edits ci.yml to `head_workflow`."""
+    head_files = {
+        ".github/workflows/ci.yml": head_workflow,
+        "scripts/ci/detect_ci_change_areas.py": HELPER.read_text(encoding="utf-8") + "# edited\n",
+        "tests/test_ci_change_areas.py": "# edited\n",
+    }
+    _, outputs = run_detect_step_for_paths(
+        [*ROUTING_POLICY_PATHS, *extra_paths], head_files=head_files, standalone=True,
+    )
+    values = dict(line.split("=", 1) for line in outputs)
+    assert set(MAC_STANDALONE_OUTPUTS) <= values.keys(), outputs
+    return values
+
+
+def test_routing_policy_edits_skip_the_mac_standalone_lanes() -> None:
+    real = CI_WORKFLOW.read_text(encoding="utf-8")
+    for job in ("changes", "ci-status", "guards", "tests", "linux-preflight", "macos-admission-gate"):
+        values = route_ci_workflow_edit(edit_job(real, job))
+        for name in MAC_STANDALONE_OUTPUTS:
+            assert values[name] == "false", (job, name, values)
+        # The Linux-only browser lane keeps running for every ci.yml edit.
+        assert values["browser"] == "true", (job, values)
+        assert values["macos"] == "false", (job, values)
+
+
+def test_ci_workflow_edits_to_a_mac_lane_caller_still_select_it() -> None:
+    real = CI_WORKFLOW.read_text(encoding="utf-8")
+    wrapper = route_ci_workflow_edit(edit_job(real, "claude-wrapper"))
+    assert wrapper["claude_wrapper"] == "true", wrapper
+    assert wrapper["remote_daemon"] == "false", wrapper
+
+    daemon = route_ci_workflow_edit(edit_job(real, "remote-daemon"))
+    assert daemon["remote_daemon"] == "true", daemon
+    assert daemon["remote_daemon_native"] == "true", daemon
+    assert daemon["claude_wrapper"] == "false", daemon
+
+    cli = route_ci_workflow_edit(edit_job(real, "cli"))
+    assert cli["cli"] == "true", cli
+    assert cli["claude_wrapper"] == "false", cli
+
+    # Triggers, env, permissions and concurrency reach every job.
+    preamble = route_ci_workflow_edit(real.replace("\njobs:\n", "\n# edited\njobs:\n", 1))
+    for name in MAC_STANDALONE_OUTPUTS:
+        assert preamble[name] == "true", (name, preamble)
+
+
+def test_mac_standalone_lane_inputs_still_select_their_lanes_beside_routing_edits() -> None:
+    real = CI_WORKFLOW.read_text(encoding="utf-8")
+    edited = edit_job(real, "changes")
+    wrapper = route_ci_workflow_edit(edited, ("Resources/bin/cmux-claude-wrapper",))
+    assert wrapper["claude_wrapper"] == "true", wrapper
+    daemon = route_ci_workflow_edit(edited, (".github/workflows/remote-daemon.yml",))
+    assert daemon["remote_daemon"] == "true", daemon
+    assert daemon["remote_daemon_native"] == "true", daemon
+
+
+def test_standalone_route_fails_open_without_a_readable_ci_workflow_base() -> None:
+    script = workflow_job_step_script("changes", "Route standalone project workflows")
+    real = CI_WORKFLOW.read_text(encoding="utf-8")
+    for base in (None, "not a workflow\n"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            routed = script.replace("/tmp/cmux-ci-", str(root / "cmux-ci-"))
+            (root / "cmux-ci-changed-files.txt").write_text(".github/workflows/ci.yml\n")
+            if base is not None:
+                (root / "cmux-ci-base-workflow.yml").write_text(base)
+            workflow = root / ".github" / "workflows" / "ci.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(edit_job(real, "changes"))
+            output = root / "output.txt"
+            subprocess.run(["bash", "-c", routed], cwd=root, check=True, capture_output=True,
+                           env={**os.environ, "GITHUB_OUTPUT": str(output)})
+            assert output.read_text().splitlines() == [
+                "claude_wrapper=true", "browser=true", "remote_daemon=true", "remote_daemon_native=true",
+            ], base
 
 
 CI_DIFF_BASE_WITH_CLI_LANE = """name: CI
