@@ -158,18 +158,20 @@ jobs:
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
 
-      # Build on the newest earlier seed. A miss is a cold build, which is
-      # still a correct seed, just a slower one.
+      # Build on the nearest earlier seed in this commit's history, not the
+      # newest pointer: nightly.yml's cold seed of an older main can hold that.
+      # A miss is a cold build, which is still a correct seed, just a slower one.
       - name: Adopt the newest seed
         id: adopt
         continue-on-error: true
         timeout-minutes: 8
         env:
           PREFIX: ${{ steps.key.outputs.prefix }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/seed_derived_data.py adopt \
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            "$PREFIX$GITHUB_SHA" "$PREFIX"
+            "$PREFIX" "$GITHUB_SHA"
 
       - name: Record seed inputs
         id: record
