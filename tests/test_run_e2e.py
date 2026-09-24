@@ -195,6 +195,30 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.dispatch()["ref"], HEAD)
         self.assertEqual(self.dispatch()["record_video"], "false")
 
+    def test_a_batch_too_long_for_the_concurrency_group_is_refused_before_dispatch(self):
+        # test-e2e.yml keys its concurrency group on runner, ref and the whole
+        # filter. GitHub rejects a group over 400 characters as a workflow file
+        # issue: the run starts with no jobs and nothing says why.
+        workflow = (ROOT / ".github/workflows/test-e2e.yml").read_text()
+        self.assertIn(
+            "group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || '"
+            "blacksmith-6vcpu-macos-26') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}",
+            workflow,
+            "the dispatcher's length check copies this group; update both together",
+        )
+        suite = "cmuxTests/AppDelegateEqualizeSplitsShortcutTests/"
+        selectors = [suite + f"testConfigurationReloadCase{n}RemainsActiveUntilAsyncReconciliationCompletes()" for n in range(3)]
+        # Three selectors: the filter alone is 377 characters, under 400, but
+        # the whole group is 448. A check on the filter alone would let it through.
+        result = self.launch(*selectors)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("split", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
+        result = self.launch(*selectors[:2])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], ",".join(selectors[:2]))
+
     def test_batched_ui_filters_keep_video_recording(self):
         result = self.launch("cmuxUITests/AlphaUITests", "BetaUITests")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -397,7 +421,7 @@ class FocusedLauncherTests(unittest.TestCase):
         # who asked the default pool. Dispatch instead.
         result = self.launch(
             "cmuxTests/ExampleTests", "--wait",
-            LAUNCHER_PRIOR_RUNS=self._live(runner="blacksmith-6vcpu-macos-15"),
+            LAUNCHER_PRIOR_RUNS=self._live(runner="tart-canary"),
             LAUNCHER_WATCH_STATUS="0",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
