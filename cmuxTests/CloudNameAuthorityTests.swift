@@ -164,6 +164,24 @@ extension SetAutoTitleSocketTests {
         }
     }
 
+    @Test("A tab opened after the process title shows that title")
+    func cloudTitleAppliesWhenProjectionRecorded() async throws {
+        try await withCloudNameFixture { fixture in
+            let projection = try #require(fixture.catalog.projection(forPanel: fixture.panelID))
+            fixture.catalog.endProjections(panelID: fixture.panelID, reason: .replaced)
+            var document = try #require(fixture.provider.graph.snapshotObject())
+            var terminals = try #require(document["terminals"] as? [[String: Any]])
+            terminals[0]["title"] = "vim README.md"
+            document["terminals"] = terminals
+            #expect(fixture.provider.install(try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: fixture.provider.machine))))
+            let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(fixture.panelID))
+            #expect(fixture.workspace.bonsplitController.tab(tabID)?.title != "vim README.md")
+            // Opening the tab now must not wait for the next title change.
+            fixture.catalog.record(projection)
+            try fixture.expectParity("vim README.md")
+        }
+    }
+
     @Test("A local OSC title update keeps the Cloud agent's tab icon")
     func cloudAgentTabIconSurvivesTitleUpdate() async throws {
         try await withCloudNameFixture { fixture in
