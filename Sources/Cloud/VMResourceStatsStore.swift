@@ -19,31 +19,6 @@ final class VMResourceStatsStore {
 
     func stats(for machineID: String) -> VMStats? { entries[machineID]?.stats }
 
-    /// Concurrent consumers share only an active request, never a cached reading.
-    /// Resize, reset, and removal discard the entry's task before another read joins.
-    func read(
-        machineID: String,
-        fetch: @escaping @Sendable () async throws -> VMStats
-    ) -> Task<VMStats, Error> {
-        if let task = entries[machineID]?.readTask { return task }
-        let request = beginRead(machineID: machineID)
-        let task = Task { @MainActor in
-            defer {
-                if entries[machineID]?.revision == request.revision {
-                    entries[machineID]?.readTask = nil
-                }
-            }
-            do {
-                return finishRead(request, stats: try await fetch())
-            } catch {
-                finishRead(request, stats: nil)
-                throw error
-            }
-        }
-        entries[machineID]?.readTask = task
-        return task
-    }
-
     func beginRead(machineID: String) -> Request {
         var entry = entry(for: machineID)
         entry.readSequence &+= 1
@@ -76,7 +51,6 @@ final class VMResourceStatsStore {
     func beginResize(machineID: String) -> Request {
         var entry = entry(for: machineID)
         entry.revision = UUID()
-        entry.readTask = nil
         entry.resizing = true
         entry.stats = .unavailable(at: now())
         entries[machineID] = entry
@@ -88,7 +62,6 @@ final class VMResourceStatsStore {
         guard var entry = entries[request.machineID], entry.revision == request.revision else { return }
         // Also fence reads started while the resize was in progress.
         entry.revision = UUID()
-        entry.readTask = nil
         entry.resizing = false
         entry.stats = stats ?? .unavailable(at: now())
         entries[request.machineID] = entry
