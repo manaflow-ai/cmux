@@ -203,7 +203,7 @@ but `scripts/select-ci-xcode.sh` still has to resolve a concrete
 `/Applications/Xcode_*.app` path at runtime. That resolution is a script
 problem, not a variable, but it has not been designed here.
 
-**Guard functions.** Of the 32 `check_*` functions in
+**Guard functions.** Of the 33 `check_*` functions in
 `tests/test_ci_self_hosted_guard.sh`, these become unnecessary — not
 unenforced, but *unrepresentable*, because a job that cannot name a vendor
 cannot name the wrong one:
@@ -221,14 +221,14 @@ cannot name the wrong one:
 | `check_no_paid_overflow_fallbacks` | no workflow falls back to `warp-` |
 | `check_background_macos_lane` (+ `background_lane_blocking_events`, `strip_background_lane_expr`) | hosted macOS labels appear only as the background-lane fallback, on non-blocking workflows |
 
-**Ten check functions and two helpers, covering 15 of the 37 invocations.**
+**Ten check functions and two helpers, covering 15 of the 38 invocations.**
 
 One more shrinks rather than disappears. `check_e2e_runner_fallbacks` loses its
 Tart-choice and runner-identity assertions but keeps the concurrency and
 `continue-on-error` rules, which are unrelated. `check_cla_guard_runner`
 inverts: it asserts a job is *not* redirectable, which still needs saying.
 
-The remaining 21 checks — signing, DMG, Sentry, XCTest skips, web tests,
+The remaining 22 checks — signing, DMG, Sentry, XCTest skips, web tests,
 concurrency — are untouched. This proposal deletes a third of the file's
 routing surface, not the file.
 
