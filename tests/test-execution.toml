@@ -1179,3 +1179,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_git_seed.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_issue_13766_terminal_history.py"
+lane = "macos-shell"
+
+[[test]]
+path = "tests/test_shell_surface_scoped_keys.py"
+lane = "linux-guard"
