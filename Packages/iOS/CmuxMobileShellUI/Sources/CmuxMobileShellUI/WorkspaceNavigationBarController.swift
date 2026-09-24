@@ -128,20 +128,16 @@ final class WorkspaceNavigationBarController: UIViewController {
         if !item.leadingItemGroups.elementsEqual(desiredLeadingGroups, by: { $0 === $1 }) {
             item.leadingItemGroups = desiredLeadingGroups
         }
-        let desiredTrailingGroups = trailingGroup.barButtonItems.isEmpty ? [] : [trailingGroup]
-        if !item.trailingItemGroups.elementsEqual(desiredTrailingGroups, by: { $0 === $1 }) {
-            item.trailingItemGroups = desiredTrailingGroups
-        }
-        if item.pinnedTrailingGroup === trailingGroup {
-            item.pinnedTrailingGroup = nil
+        if item.pinnedTrailingGroup !== trailingGroup {
+            item.pinnedTrailingGroup = trailingGroup
         }
     }
 
     private func trailingVisualOffset(for value: UIBarButtonItem) -> CGFloat {
         guard let id = controls.first(where: { $0.value.button === value })?.key else { return 0 }
         switch id {
-        case .changes: return 4
-        case .terminals: return 8.33
+        case .changes: return 3.7
+        case .terminals: return 8
         default: return 0
         }
     }
@@ -157,11 +153,8 @@ final class WorkspaceNavigationBarController: UIViewController {
         if item.leadingItemGroups.elementsEqual([leadingGroup], by: { $0 === $1 }) {
             item.leadingItemGroups = originalItem.leadingGroups
         }
-        if item.trailingItemGroups.elementsEqual([trailingGroup], by: { $0 === $1 }) {
-            item.trailingItemGroups = originalItem.trailingGroups
-        }
-        if item.pinnedTrailingGroup == nil, let trailingGroup = originalItem.trailingGroup {
-            item.pinnedTrailingGroup = trailingGroup
+        if item.pinnedTrailingGroup === trailingGroup {
+            item.pinnedTrailingGroup = originalItem.trailingGroup
         }
         self.owner = nil
         self.originalItem = nil
@@ -177,7 +170,6 @@ final class WorkspaceNavigationBarController: UIViewController {
         let style: UINavigationItem.ItemStyle
         let largeTitleDisplayMode: UINavigationItem.LargeTitleDisplayMode
         let leadingGroups: [UIBarButtonItemGroup]
-        let trailingGroups: [UIBarButtonItemGroup]
         let trailingGroup: UIBarButtonItemGroup?
 
         init(item: UINavigationItem) {
@@ -185,7 +177,6 @@ final class WorkspaceNavigationBarController: UIViewController {
             style = item.style
             largeTitleDisplayMode = item.largeTitleDisplayMode
             leadingGroups = item.leadingItemGroups
-            trailingGroups = item.trailingItemGroups
             trailingGroup = item.pinnedTrailingGroup
         }
     }
