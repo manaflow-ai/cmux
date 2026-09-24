@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileHost
 import Foundation
 import Testing
 

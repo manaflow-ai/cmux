@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileHost
 import CmuxTerminal
 import Foundation
 import GhosttyKit

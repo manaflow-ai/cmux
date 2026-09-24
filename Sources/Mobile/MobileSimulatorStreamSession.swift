@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileHost
 import CmuxSimulatorUI
 import Foundation
 import Observation

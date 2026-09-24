@@ -1,3 +1,4 @@
+import CmuxMobileHost
 import Testing
 
 #if canImport(cmux_DEV)

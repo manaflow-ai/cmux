@@ -2,6 +2,7 @@ import CmuxFoundation
 import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileHost
 import Foundation
 import SwiftUI
 
