@@ -26,6 +26,7 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// Error from the most recent set/reset attempt, or `nil`.
     public private(set) var lastWriteError: Error?
 
+    private let validateMutations: Bool
     private let store: JSONConfigStore
     private let key: JSONKey<Value>
     private let errorLog: SettingsErrorLog
@@ -43,15 +44,20 @@ public final class JSONValueModel<Value: SettingCodable> {
     ///   - errorLog: Global log that write failures are pushed into so
     ///     they surface centrally. The runtime always provides one; see
     ///     ``SettingsRuntime/errorLog``.
+    ///   - validateMutations: Validates the complete config against the
+    ///     canonical global schema before each write, through the store's
+    ///     receipt-returning mutations.
     public convenience init(
         store: JSONConfigStore,
         key: JSONKey<Value>,
-        errorLog: SettingsErrorLog
+        errorLog: SettingsErrorLog,
+        validateMutations: Bool = false
     ) {
         self.init(
             store: store,
             key: key,
             errorLog: errorLog,
+            validateMutations: validateMutations,
             makeStream: { store.values(for: key) }
         )
     }
@@ -66,13 +72,16 @@ public final class JSONValueModel<Value: SettingCodable> {
     ///   - store: The JSON config store used for writes (`set`/`reset`).
     ///   - key: The setting to observe.
     ///   - errorLog: Global log that write failures are pushed into.
+    ///   - validateMutations: Validates the complete candidate before writes.
     ///   - makeStream: Builds the change stream this model iterates.
     init(
         store: JSONConfigStore,
         key: JSONKey<Value>,
         errorLog: SettingsErrorLog,
+        validateMutations: Bool = false,
         makeStream: @escaping () -> AsyncStream<Value>
     ) {
+        self.validateMutations = validateMutations
         self.store = store
         self.key = key
         self.errorLog = errorLog
@@ -98,9 +107,13 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// setters can't `await`.
     public func set(_ value: Value) {
         let keyID = key.id
-        Task { [weak self, store, key] in
+        Task { [weak self, store, key, validateMutations] in
             do {
-                try await store.set(value, for: key)
+                if validateMutations {
+                    _ = try await store.setWithReceipt(value, for: key)
+                } else {
+                    try await store.set(value, for: key)
+                }
                 await MainActor.run { self?.lastWriteError = nil }
             } catch {
                 await MainActor.run {
@@ -115,9 +128,13 @@ public final class JSONValueModel<Value: SettingCodable> {
     /// ``current`` updates when the stream observes the reset.
     public func reset() {
         let keyID = key.id
-        Task { [weak self, store, key] in
+        Task { [weak self, store, key, validateMutations] in
             do {
-                try await store.reset(key)
+                if validateMutations {
+                    _ = try await store.resetWithReceipt(key)
+                } else {
+                    try await store.reset(key)
+                }
                 await MainActor.run { self?.lastWriteError = nil }
             } catch {
                 await MainActor.run {

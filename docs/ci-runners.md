@@ -199,8 +199,9 @@ repository variables and their Blacksmith fallbacks behave exactly as above. On
 every other owner, Linux jobs use `ubuntu-24.04` and macOS jobs use
 `macos-26` from GitHub Actions: the image and Xcode (26.6) main compiles with,
 so a fork's own CI can hit main's caches, which anyone can read from
-`https://ci-cache.cmux.com`. Only `swift-package-tests` (the SDK 15 release
-helper) and `plain-paste-worker.yml`'s `macos-15` job keep a `macos-15` fork
+`https://ci-cache.cmux.com`. Only the jobs that build the SDK 15 Ghostty CLI
+helper (`swift-package-tests`, release and nightly), `plain-paste-worker.yml`'s
+`macos-15` job and `ci-macos-compat.yml`'s macOS 15 row keep a `macos-15` fork
 branch, because they need that image. Fork jobs set no Xcode pin, so they take
 the pool pin from `scripts/ci/xcode-pins.txt` (26.6 on `macos-26`, the Xcode
 main compiles with). When a hosted image no longer carries that Xcode, a fork
@@ -210,8 +211,16 @@ pool Xcode instead. The self-hosted guard allows a literal `macos-26` only in th
 `github.repository_owner != 'manaflow-ai' && 'macos-26'` form, which evaluates
 solely outside `manaflow-ai`, where the fleet's `macos-26` label does not exist.
 
+Scheduled, dispatched and push-only workflows take the same owner branch, so
+a fork's own nightly, release, SDK and dispatch runs never wait on Blacksmith
+either. Dispatch inputs that default to a Blacksmith label (`reload-build.yml`,
+`test-e2e.yml`, `test-ios.yml`, `perf-activation.yml`) are overridden by the
+owner branch; `test-e2e.yml` applies it to the pool its runner job picks. The
+Blacksmith Testbox warmup has no hosted equivalent, so it is skipped outside
+`manaflow-ai`.
+
 That is the fork contract: **a fork needs zero runner variables and zero runner
-provider setup to run its pull-request workflows.** Blacksmith is an
+provider setup to run its workflows.** Blacksmith is an
 organization-level GitHub App; naming a `blacksmith-*` label in a personal
 fork does not produce a useful error, it leaves the job queued indefinitely.
 The fork branch therefore short-circuits before any `MACOS_RUNNER_*` or
@@ -220,7 +229,10 @@ The fork branch therefore short-circuits before any `MACOS_RUNNER_*` or
 `tests/test_ci_fork_runner_routing.py` discovers every `pull_request`
 workflow, recursively follows its local reusable-workflow calls, and requires
 every variable-routed `runs-on` in that closure to contain a hosted fork
-branch. The upstream branch still keeps literal Blacksmith fallbacks so deleting
+branch. Across every workflow, it also rejects a Blacksmith label that a
+zero-configuration run outside `manaflow-ai` could select: each expression
+holding one must start with the owner branch, unless the job itself is
+owner-gated or the line is allow-listed there with a reason. The upstream branch still keeps literal Blacksmith fallbacks so deleting
 a repository variable cannot silently change `manaflow-ai/cmux` capacity.
 
 ## Background lane
