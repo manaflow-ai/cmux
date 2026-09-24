@@ -131,7 +131,12 @@ struct CMUXCLICodexUnavailableAdmissionTests {
             try #require(JSONSerialization.jsonObject(with: Data(request.utf8)) as? [String: Any])
         }
         let methods = requests.compactMap { $0["method"] as? String }
-        let markerContents = try? String(contentsOf: marker, encoding: .utf8)
+        let markerContents: String?
+        do {
+            markerContents = try String(contentsOf: marker, encoding: .utf8)
+        } catch {
+            markerContents = nil
+        }
         let diagnostics = "\(result.diagnostics) methods=\(methods) marker=\(markerContents ?? "<missing>")"
         #expect(!result.timedOut, Comment(rawValue: diagnostics))
         #expect(methods == expectedMethods, Comment(rawValue: diagnostics))
