@@ -171,7 +171,7 @@ jobs:
           rm -f "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
           # Stage the package frameworks the way restore-app-host-test-product.sh
           # does, before the bundle build can rewrite PackageFrameworks. The app
-          # host loads them from these stable copies (run-app-host-xcodebuild.sh).
+          # host loads them from these stable copies at test time.
           framework_source="$(find "$COMPILE_DERIVED_DATA/Build/Products/Debug" -type d -name 'CmuxAgentJournal*_PackageProduct.framework' -print -quit)"
           test -n "$framework_source"
           for dest in "$RUNNER_TEMP/cmux-app-host-package-frameworks" /private/tmp/cmux-app-host-package-frameworks; do
