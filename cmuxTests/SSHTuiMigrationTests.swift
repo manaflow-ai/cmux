@@ -157,4 +157,41 @@ struct SSHTuiMigrationTests {
         #expect(launch.autoConnectRemoteConfiguration)
     }
 
+    @Test("Native SSH respawn preserves its surface and executes only through the provider")
+    @MainActor
+    func nativeSSHRespawnUsesProviderReplacement() async throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        let config = configuration()
+        let connection = SSHTuiConnection(configuration: config)
+        workspace.remoteConfiguration = config
+        let catalog = SurfaceCatalog.shared
+        let provider = CloudTerminalPlacementTestProvider(machine: .init(rawValue: connection.id))
+        catalog.register(provider)
+        defer {
+            provider.release.resolve(true)
+            catalog.unregister(machine: provider.machine)
+            workspace.teardownAllPanels()
+        }
+        let original = provider.resource(key: "original")
+        catalog.upsert(original, from: provider)
+        catalog.record(SurfaceProjection(resource: original.id, workspaceID: workspace.id, panelID: panelID,
+            remoteWorkspaceID: provider.remote.id, remoteTabID: "tab-original"))
+        let replacement = try #require(workspace.respawnTerminalSurface(
+            panelId: panelID, command: "printf remote-only", workingDirectory: "/remote/project", focus: false))
+        #expect(replacement.id == panelID)
+        #expect(replacement.surface.ioMode == .manualMirror)
+        #expect(workspace.surfaceIdFromPanelId(panelID) == tabID)
+        _ = await provider.creationStarted.result
+        #expect(provider.closedTerminals == [original.id])
+        #expect(provider.requestedCommands == [connection.commandArguments("printf remote-only")])
+        #expect(provider.requestedDirectories == ["/remote/project"])
+        #expect(provider.requestedWorkspaces == [provider.remote.id])
+        provider.release.resolve(true)
+        _ = await provider.materializationFinished.result
+        #expect(provider.materialized.last?.panelID == panelID)
+        #expect(provider.materialized.last?.resource.machine == provider.machine)
+    }
+
 }
