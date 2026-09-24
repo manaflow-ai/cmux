@@ -93,18 +93,17 @@ the same cost profile or the same urgency.
 
 `MACOS_RUNNER_PR` does not move a lane on its own. A runner change and its
 Xcode pin still have to agree, because `scripts/select-ci-xcode.sh` exits
-non-zero on a pinned path that is absent. The app-host fan-out adds one stronger
-requirement: every pool consuming the same compile-admission artifact must
-report the exact same `xcodebuild -version`. The four current PR pools all
-carry `/Applications/Xcode_26.3.app` with Xcode 26.3 build 17C529, which is
-the common pin used for that shared product. `app_host_test_products.py
-restore` rejects a consumer if its revision, architecture, or exact Xcode
-version differs from the producer.
+non-zero on a pinned path that is absent.
+
+Same-repository pull-request app-host shards are the exception: they span
+pools whose images carry different Xcodes (26.3 on `macos-15`, 26.6 on
+`macos-26`), so they pin none. Each takes the newest stable Xcode with the
+macOS 26 SDK on its machine, and `app_host_test_products.py restore` accepts
+the compile-admission product under any Xcode of the same major version. It
+still rejects another revision, architecture or major Xcode.
 
 For the other pull-request jobs, the pin follows `MACOS_RUNNER_PR` through
-`CMUX_CI_XCODE_APP_PR`, and the two are set together. The app-host shards read
-the same pin, so it has to name an Xcode every app-host pool carries. While a
-`macos-15` pool is in the matrix, that is Xcode 26.3:
+`CMUX_CI_XCODE_APP_PR`, and the two are set together:
 
 ```bash
 gh variable set MACOS_RUNNER_PR --repo manaflow-ai/cmux -b blacksmith-6vcpu-macos-26
