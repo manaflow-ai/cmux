@@ -30,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -453,6 +453,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-execution' }}
         run: python3 tests/test_ci_manual_macos_package_cache.py
 
+      - name: Validate test-only app-host rerun planning
+        if: ${{ matrix.group == 'app-host-execution' }}
+        run: python3 tests/test_app_host_test_rerun.py
+
       - name: Validate app-host xcodebuild retry guard
         if: ${{ matrix.group == 'app-host-execution' }}
         run: ./tests/test_ci_app_host_xcodebuild_retry.sh
@@ -601,6 +605,10 @@ jobs:
         if: ${{ matrix.group == 'app-host-cache' }}
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
+      - name: Validate iOS video recording failures
+        if: ${{ matrix.group == 'app-host-cache' }}
+        run: python3 tests/test_ios_video_recording.py
+
       - name: Validate selected iOS test execution guard
         if: ${{ matrix.group == 'app-host-cache' }}
         run: python3 tests/test_ios_selected_test_execution.py
@@ -719,6 +727,14 @@ jobs:
           python3 tests/test_ci_change_areas.py
           python3 tests/test_ci_linux_guard_routing.py
 
+      - name: Validate fork runner routing
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fork_runner_routing.py
+
+      - name: Validate runner capability resolution
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runner_capability_resolver.py
+
       - name: Validate evidence collection reporting
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_evidence_outcomes.py
@@ -807,7 +823,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -856,7 +872,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -891,7 +907,7 @@ jobs:
         group: [sidebar-layout, dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -935,7 +951,7 @@ jobs:
       - workflow-guard-cli-scripts
       - workflow-guard-source-lints
     if: ${{ always() }}
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs

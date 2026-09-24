@@ -9,13 +9,13 @@ import Testing
 @testable import cmux
 #endif
 
-/// Ghostty types a restored agent's `cmux restore` selector as soon as the PTY
-/// exists. A slow login shell can discard that typeahead while it initializes,
-/// leaving the pane at an empty prompt (https://github.com/manaflow-ai/cmux/issues/5473).
-/// The lifecycle coordinator retains the input so the owner can replay it once.
+/// A slow login shell can discard startup typeahead while it initializes
+/// (https://github.com/manaflow-ai/cmux/issues/5473). The terminal now delivers
+/// the selector once after its first prompt; the lifecycle coordinator retains
+/// the input only as restore ownership that survives Workspace/Dock transfers.
 @MainActor
-@Suite("Restored startup input resend")
-struct RestoredStartupInputResendTests {
+@Suite("Restored startup input ownership")
+struct RestoredStartupInputOwnershipTests {
     private let selector = " cmux restore antigravity 6e8458c7-7970-41e0-8d3e-00beda48097b\n"
 
     private func awaitingCoordinator(panelId: UUID) -> RestoredAgentLifecycleCoordinator {
@@ -32,56 +32,12 @@ struct RestoredStartupInputResendTests {
         return coordinator
     }
 
-    @Test("Replays the retained input once while the launch is still waiting at an idle prompt")
-    func replaysOnceWhilePromptStaysIdle() {
-        let panelId = UUID()
-        let coordinator = awaitingCoordinator(panelId: panelId)
-
-        #expect(coordinator.awaitsStartupInput(panelId: panelId))
-        #expect(coordinator.armStartupInputResend(panelId: panelId))
-        // A second idle-prompt report must not arm a second timer.
-        #expect(!coordinator.armStartupInputResend(panelId: panelId))
-
-        #expect(
-            coordinator.takeStartupInputForResend(panelId: panelId, shellState: .promptIdle) == selector
-        )
-        // Only one replay is ever handed out.
-        #expect(coordinator.takeStartupInputForResend(panelId: panelId, shellState: .promptIdle) == nil)
-        #expect(!coordinator.awaitsStartupInput(panelId: panelId))
-    }
-
-    @Test("A prompt-then-command sequence that reached the command phase is not replayed")
-    func doesNotReplayOnceTheCommandStarted() {
-        let panelId = UUID()
-        let coordinator = awaitingCoordinator(panelId: panelId)
-        #expect(coordinator.armStartupInputResend(panelId: panelId))
-
-        // Shell integration reported the command running before the grace period elapsed.
-        coordinator.setResumeState(.autoResumeCommandRunning, panelId: panelId)
-        coordinator.clearStartupInput(panelId: panelId)
-
-        #expect(coordinator.takeStartupInputForResend(panelId: panelId, shellState: .promptIdle) == nil)
-        #expect(!coordinator.awaitsStartupInput(panelId: panelId))
-    }
-
-    @Test("A shell that is no longer idle when the grace period ends is left alone")
-    func doesNotReplayIntoARunningCommand() {
-        let panelId = UUID()
-        let coordinator = awaitingCoordinator(panelId: panelId)
-        #expect(coordinator.armStartupInputResend(panelId: panelId))
-
-        #expect(coordinator.takeStartupInputForResend(panelId: panelId, shellState: .commandRunning) == nil)
-        // The input stays retained for a later idle prompt.
-        #expect(coordinator.awaitsStartupInput(panelId: panelId))
-    }
-
-    @Test("Manual and unrestored launches never arm a replay")
-    func onlyAwaitingLaunchesArm() {
+    @Test("Manual and unrestored launches never own startup input")
+    func onlyAwaitingLaunchesOwnStartupInput() {
         let panelId = UUID()
         let coordinator = RestoredAgentLifecycleCoordinator(dateProvider: { 1_788_868_000 })
         coordinator.registerStartupInput(selector, panelId: panelId)
         #expect(!coordinator.awaitsStartupInput(panelId: panelId))
-        #expect(!coordinator.armStartupInputResend(panelId: panelId))
 
         coordinator.seedSessionRestore(
             panelId: panelId,
@@ -91,8 +47,7 @@ struct RestoredStartupInputResendTests {
             willRunStartupInput: false,
             resumeWorkingDirectory: nil
         )
-        #expect(!coordinator.armStartupInputResend(panelId: panelId))
-        #expect(coordinator.takeStartupInputForResend(panelId: panelId, shellState: .promptIdle) == nil)
+        #expect(!coordinator.awaitsStartupInput(panelId: panelId))
     }
 
     @Test("A Workspace/Dock transfer carries the retained input only while the launch still awaits it")
@@ -110,9 +65,9 @@ struct RestoredStartupInputResendTests {
             startupInput: source.startupInput(panelId: panelId)
         )
         #expect(destination.awaitsStartupInput(panelId: panelId))
-        #expect(destination.takeStartupInputForResend(panelId: panelId, shellState: .promptIdle) == selector)
+        #expect(destination.startupInput(panelId: panelId) == selector)
 
-        // Once the command ran before the move, nothing may be replayed after it.
+        // Once the command ran before the move, the destination owns no input.
         let settled = RestoredAgentLifecycleCoordinator(dateProvider: { 1_788_868_000 })
         settled.seedTransferredState(
             panelId: panelId,
@@ -132,15 +87,11 @@ struct RestoredStartupInputResendTests {
         let coordinator = awaitingCoordinator(panelId: panelId)
         coordinator.clearSessionRestore(panelId: panelId)
         #expect(!coordinator.awaitsStartupInput(panelId: panelId))
-        #expect(coordinator.takeStartupInputForResend(panelId: panelId, shellState: .promptIdle) == nil)
+        #expect(coordinator.startupInput(panelId: panelId) == nil)
     }
 
-    @Test("A workspace replays the lost selector after its shell settles at an idle prompt")
-    func workspaceReplaysAfterIdlePrompt() async throws {
-        let previousGrace = Workspace.restoredStartupInputResendGrace
-        Workspace.restoredStartupInputResendGrace = 0.05
-        defer { Workspace.restoredStartupInputResendGrace = previousGrace }
-
+    @Test("A prompt retains restore ownership until command acknowledgement")
+    func workspaceIdlePromptRetainsRestoreOwnership() async throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
@@ -155,19 +106,13 @@ struct RestoredStartupInputResendTests {
         workspace.restoredAgentLifecycle.registerStartupInput(selector, panelId: panelId)
 
         workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
-        // The grace period keeps a prompt-then-command sequence from double-typing.
+        // Readiness alone cannot acknowledge execution. The binding remains
+        // owned until a command-start or matching agent observation arrives.
         #expect(workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
-
-        let deadline = ContinuousClock.now + .seconds(5)
-        while workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId),
-              ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(!workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
     }
 
-    @Test("A workspace whose shell ran the typed selector keeps nothing to replay")
+    @Test("A workspace whose shell ran the typed selector releases startup input ownership")
     func workspaceClearsInputOnceCommandRuns() throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
@@ -185,7 +130,7 @@ struct RestoredStartupInputResendTests {
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .autoResumeCommandRunning)
         #expect(!workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
-        #expect(!workspace.restoredAgentLifecycle.armStartupInputResend(panelId: panelId))
+        #expect(workspace.restoredAgentLifecycle.startupInput(panelId: panelId) == nil)
     }
 
     // MARK: - Workspace/Dock transfers
@@ -235,17 +180,6 @@ struct RestoredStartupInputResendTests {
         )
     }
 
-    private func waitForReplay(
-        _ coordinator: RestoredAgentLifecycleCoordinator,
-        panelId: UUID
-    ) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
-        while coordinator.awaitsStartupInput(panelId: panelId),
-              ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
-    }
-
     @Test("Re-stamping a transfer's remote cleanup configuration keeps the retained selector")
     func remoteCleanupCopyKeepsStartupInput() {
         let panel = RestoredStartupInputTransferTestPanel()
@@ -258,12 +192,8 @@ struct RestoredStartupInputResendTests {
         #expect(copied.shellActivityState == .promptIdle)
     }
 
-    @Test("A workspace that adopts a pane whose shell already idled replays the selector itself")
-    func workspaceReplaysAfterAdoptingIdleTransfer() async throws {
-        let previousGrace = Workspace.restoredStartupInputResendGrace
-        Workspace.restoredStartupInputResendGrace = 0.05
-        defer { Workspace.restoredStartupInputResendGrace = previousGrace }
-
+    @Test("A workspace transfer retains unacknowledged restore ownership")
+    func workspaceIdleTransferRetainsRestoreOwnership() async throws {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
         let panelId = try #require(workspace.focusedPanelId)
@@ -275,22 +205,13 @@ struct RestoredStartupInputResendTests {
 
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
         #expect(workspace.panelShellActivityStates[panelId] == .promptIdle)
+        // A transfer retains the unacknowledged identity; no replay is scheduled.
         #expect(workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
-        // The idle prompt was reported to the previous owner and never repeats
-        // here, so adoption itself must have armed the replay.
-        #expect(!workspace.restoredAgentLifecycle.armStartupInputResend(panelId: panelId))
-
-        try await waitForReplay(workspace.restoredAgentLifecycle, panelId: panelId)
-        #expect(!workspace.restoredAgentLifecycle.awaitsStartupInput(panelId: panelId))
         #expect(workspace.restoredAgentResumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand)
     }
 
-    @Test("A Dock that adopts a pane whose shell already idled replays the selector itself")
-    func dockReplaysAfterAdoptingIdleTransfer() async throws {
-        let previousGrace = Workspace.restoredStartupInputResendGrace
-        Workspace.restoredStartupInputResendGrace = 0.05
-        defer { Workspace.restoredStartupInputResendGrace = previousGrace }
-
+    @Test("A Dock transfer retains unacknowledged restore ownership")
+    func dockIdleTransferRetainsRestoreOwnership() async throws {
         let sourceWorkspaceId = UUID()
         let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
@@ -306,10 +227,6 @@ struct RestoredStartupInputResendTests {
         #expect(attached == panel.id)
         #expect(panel.shellActivity.state == .promptIdle)
         #expect(store.restoredAgentLifecycle.awaitsStartupInput(panelId: panel.id))
-        #expect(!store.restoredAgentLifecycle.armStartupInputResend(panelId: panel.id))
-
-        try await waitForReplay(store.restoredAgentLifecycle, panelId: panel.id)
-        #expect(!store.restoredAgentLifecycle.awaitsStartupInput(panelId: panel.id))
         #expect(store.restoredAgentLifecycle.resumeStatesByPanelId[panel.id] == .awaitingAutoResumeCommand)
     }
 
@@ -341,7 +258,6 @@ struct RestoredStartupInputResendTests {
 
 @MainActor
 private final class RestoredStartupInputTransferTestPanel: Panel {
-    let objectWillChange = ObservableObjectPublisher()
     let id = UUID()
     let stableSurfaceIdentity = PanelStableSurfaceIdentity()
     let panelType: PanelType = .terminal
