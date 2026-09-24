@@ -54,6 +54,45 @@ struct CanvasShortcutContextTests {
         }
     }
 
+    @MainActor
+    @Test
+    func fileEditorFocusWidensOnlyFileEditorActions() {
+        var shortcutContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        shortcutContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
+        // A Markdown source or Dock editor: a file editor, but not a text file preview.
+        let focus = ShortcutEventFocusContext(
+            browserPanel: nil,
+            markdownPanel: nil,
+            filePreviewTextEditorFocused: false,
+            fileEditorFocused: true,
+            simulatorFocused: false,
+            rightSidebarFocused: false,
+            shortcutContext: shortcutContext
+        )
+
+        let wordWrap = KeyboardShortcutSettings.Action.toggleFileEditorWordWrap
+        #expect(KeyboardShortcutSettings.effectiveWhenClause(for: wordWrap).evaluate(focus.whenClauseContext(for: wordWrap)))
+        #expect(wordWrap.shortcutContext.isAvailable(focus))
+
+        let canvasZoomActions: [KeyboardShortcutSettings.Action] = [.canvasZoomIn, .canvasZoomOut, .canvasZoomReset]
+        for action in canvasZoomActions {
+            #expect(
+                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(focus.whenClauseContext(for: action)),
+                "\(action.rawValue) must reach the canvas while a non-preview file editor is focused"
+            )
+            #expect(action.shortcutContext.isAvailable(focus))
+        }
+
+        let previewZoomActions: [KeyboardShortcutSettings.Action] = [.browserZoomIn, .browserZoomOut, .browserZoomReset]
+        for action in previewZoomActions {
+            #expect(
+                !KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(focus.whenClauseContext(for: action)),
+                "\(action.rawValue) is scoped to text file previews, not every file editor"
+            )
+            #expect(!action.shortcutContext.isAvailable(focus))
+        }
+    }
+
     @Test
     func canvasLayoutContextOverlapsNormalTerminalFocusShortcuts() {
         let canvas = KeyboardShortcutSettings.Action.canvasOverview.shortcutContext
