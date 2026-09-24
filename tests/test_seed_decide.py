@@ -17,9 +17,10 @@ def run(run_id, sha, status="completed", conclusion="success"):
     return {"id": run_id, "head_sha": sha, "status": status, "conclusion": conclusion}
 
 
-def seed_job(conclusion="success", status="completed", saved=True):
+def seed_job(conclusion="success", status="completed", saved=True, pool="blacksmith-12vcpu-macos-26"):
+    # The seed job is a matrix over pools, so GitHub names it "seed (<pool>)".
     steps = [{"name": "Save seed", "conclusion": "success" if saved else "skipped"}]
-    return {"name": "seed", "status": status, "conclusion": conclusion, "steps": steps}
+    return {"name": f"seed ({pool})", "status": status, "conclusion": conclusion, "steps": steps}
 
 
 class Api:
@@ -49,6 +50,15 @@ class Decide(unittest.TestCase):
         build, reason = decide(api, ["p1", "p2"], {"HEAD": "app-v2", "p1": "app-v2", "p2": "app-v1"})
         self.assertTrue(build, reason)
         self.assertIn("p2", reason)
+
+    def test_a_commit_is_seeded_only_when_every_pool_saved_its_width(self):
+        # A push may skip only if both widths already have the seed it would
+        # build; one missing width would go stale.
+        narrow = "blacksmith-6vcpu-macos-26"
+        both = Api([run(2, "p1")], {2: [seed_job(), seed_job(pool=narrow)]})
+        self.assertFalse(decide(both, ["p1"], {"HEAD": "v1", "p1": "v1"})[0])
+        one = Api([run(2, "p1")], {2: [seed_job(), seed_job(saved=False, pool=narrow)]})
+        self.assertTrue(decide(one, ["p1"], {"HEAD": "v1", "p1": "v1"})[0])
 
     def test_inputs_equal_to_the_nearest_seed_skip(self):
         api = Api([run(2, "p1")], {2: [seed_job()]})
