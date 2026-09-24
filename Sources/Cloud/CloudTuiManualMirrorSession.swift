@@ -824,7 +824,7 @@ final class CloudTuiManualMirrorSession {
                 transitionToDisconnected(reason: .rejected("attachment superseded"))
                 return
             }
-            if outcome == "passive" {
+            if outcome == "passive" || (accepted == false && geometryClaimed) {
                 (geometryClaimed, geometryClaimBlockedByPeer) = (false, !explicitGeometryClaimPending)
                 claimUnsupported = false
             }
