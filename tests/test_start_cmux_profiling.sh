@@ -182,7 +182,8 @@ if [ "${1:-}" = "xctrace" ] && [ "${2:-}" = "record" ]; then
 fi
 
 if [ "${1:-}" = "xctrace" ] && [ "${2:-}" = "export" ]; then
-  sleep 5
+  # Only the TOC-timeout case asks for a slow export.
+  sleep "${FAKE_XCTRACE_EXPORT_SECONDS:-0}"
   exit 0
 fi
 
@@ -191,7 +192,7 @@ EOF
 chmod +x "$fake_bin/xcrun"
 
 timeout_out="$TMP_DIR/timeout-out"
-HOME="$TMP_DIR" PATH="$fake_bin:$PATH" CMUX_PROFILE_TOC_TIMEOUT_SECONDS=1 "$SCRIPT" \
+HOME="$TMP_DIR" PATH="$fake_bin:$PATH" CMUX_PROFILE_TOC_TIMEOUT_SECONDS=1 FAKE_XCTRACE_EXPORT_SECONDS=5 "$SCRIPT" \
   --test-ps-file "$ps_file" \
   --channel dev \
   --tag dog \
