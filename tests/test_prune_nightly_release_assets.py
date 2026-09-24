@@ -49,7 +49,7 @@ class NightlyPruneRateLimitTests(unittest.TestCase):
             def read(self):
                 return b'{"assets": []}'
 
-        def fake_urlopen(request):
+        def fake_urlopen(request, timeout=None):
             response = responses.pop(0)
             if isinstance(response, Exception):
                 raise response

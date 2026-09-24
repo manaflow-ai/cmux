@@ -1785,17 +1785,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Use the refs API rather than receive-pack. A Git push rejects the
-          # whole ref when this candidate changed a workflow file because the
-          # Actions token has no `workflows` permission; updating the exact ref
-          # through the Git refs API keeps the ref update separate from that
-          # receive-pack workflow-file check and does not grant workflow edits.
+          # Use the refs API rather than receive-pack. A Git push was rejected
+          # when GitHub timed out checking workflow-file changes across a large
+          # tag jump (the Actions token has no `workflows` permission).
+          # Every rc/** branch shares the rc tag and those branches diverge,
+          # so only the nightly tag requires a fast-forward.
           # The helper retries only transient API/network failures and reads the
           # ref back before this job can report publication complete.
           python3 scripts/ci/update-release-tag.py \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$CHANNEL_RELEASE_TAG" \
-            --sha "${{ needs.decide.outputs.head_sha }}"
+            --sha "${{ needs.decide.outputs.head_sha }}" \
+            ${{ needs.decide.outputs.release_tag != 'nightly' && '--allow-non-descendant' || '' }}
 
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.

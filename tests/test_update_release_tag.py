@@ -73,7 +73,7 @@ class UpdateReleaseTagTests(unittest.TestCase):
     def test_existing_tag_uses_patch_and_verifies_exact_commit(self):
         calls, _ = self.call({"object": {"sha": "b" * 40, "type": "commit"}})
         self.assertEqual([method for method, _, _ in calls], ["GET", "GET", "PATCH", "GET"])
-        self.assertEqual(json.loads(calls[2][2]), {"sha": self.SHA, "force": True})
+        self.assertEqual(json.loads(calls[2][2]), {"sha": self.SHA, "force": False})
 
     def test_missing_tag_uses_create_and_verifies_exact_commit(self):
         calls, _ = self.call(None, responses=[HTTPError("https://api.github.com", 404, "missing", {}, None)])
@@ -135,6 +135,27 @@ class UpdateReleaseTagTests(unittest.TestCase):
             with self.assertRaisesRegex(MODULE.TagUpdateError, "non-descendant"):
                 MODULE.update_tag("owner/repo", "nightly", self.SHA)
         self.assertEqual(calls, ["GET", "GET"])
+
+    def test_shared_rc_tag_force_moves_to_divergent_branch(self):
+        calls = []
+        moved = False
+
+        def urlopen(request, timeout=None):
+            nonlocal moved
+            calls.append((request.method, request.data))
+            if "/compare/" in request.full_url:
+                raise AssertionError("rc moves must not require ancestry")
+            if request.method == "PATCH":
+                moved = True
+                return FakeResponse({"object": {"sha": self.SHA, "type": "commit"}})
+            sha = self.SHA if moved else "b" * 40
+            return FakeResponse({"object": {"sha": sha, "type": "commit"}})
+
+        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=urlopen), \
+                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token"}, clear=False):
+            MODULE.update_tag("owner/repo", "rc", self.SHA, allow_non_descendant=True)
+        self.assertEqual([method for method, _ in calls], ["GET", "PATCH", "GET"])
+        self.assertEqual(json.loads(calls[1][1]), {"sha": self.SHA, "force": True})
 
 
 if __name__ == "__main__":

@@ -158,7 +158,8 @@ def github_api_json(method: str, path: str) -> dict:
         base_delay = _retry_setting("CMUX_NIGHTLY_GITHUB_API_RETRY_DELAY_SECONDS", 2.0)
         for attempt in range(attempts):
             try:
-                with urllib.request.urlopen(request) as response:
+                # A stalled connection would otherwise block until the job ceiling.
+                with urllib.request.urlopen(request, timeout=30) as response:
                     body = response.read().decode("utf-8")
                 if not body:
                     return {}

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Move a nightly completion tag through GitHub's refs API and verify it.
 
-The Actions token can update a ref through the API even when a receive-pack
-push is rejected because the candidate also changes a workflow file. The
+A receive-pack push with the Actions token was rejected when GitHub timed out
+checking workflow-file changes across a large tag jump; the refs API is the
+narrower operation and its failures are retried or reported here. The
 operation is safe to retry because every request targets the same exact commit
 and the final read-back is the publication completion check.
 """
@@ -96,7 +97,7 @@ def _ref_sha(repo: str, ref: dict) -> str:
     return ""
 
 
-def update_tag(repo: str, tag: str, sha: str) -> None:
+def update_tag(repo: str, tag: str, sha: str, *, allow_non_descendant: bool = False) -> None:
     if not repo or "/" not in repo:
         raise TagUpdateError(0, "repo must be owner/name")
     if not tag or "/" in tag:
@@ -123,7 +124,7 @@ def update_tag(repo: str, tag: str, sha: str) -> None:
         if current_sha == sha:
             print(f"Verified {tag} -> {sha}", flush=True)
             return
-        if current_sha:
+        if current_sha and not allow_non_descendant:
             comparison = api_request(
                 "GET", f"repos/{repo}/compare/{current_sha}...{sha}"
             )
@@ -132,7 +133,9 @@ def update_tag(repo: str, tag: str, sha: str) -> None:
                     0,
                     f"refusing to move {tag!r} from {current_sha} to non-descendant {sha}",
                 )
-        api_request("PATCH", ref_path, payload={"sha": sha, "force": True})
+        # Without force GitHub enforces the fast-forward in the same request,
+        # so a concurrent move between the compare and here cannot regress it.
+        api_request("PATCH", ref_path, payload={"sha": sha, "force": allow_non_descendant})
 
     observed = _ref_sha(repo, api_request("GET", ref_path))
     if observed != sha:
@@ -145,9 +148,14 @@ def main() -> int:
     parser.add_argument("--repo", required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--sha", required=True)
+    parser.add_argument(
+        "--allow-non-descendant",
+        action="store_true",
+        help="force-move a tag shared by divergent branches (the rc channel)",
+    )
     args = parser.parse_args()
     try:
-        update_tag(args.repo, args.tag, args.sha)
+        update_tag(args.repo, args.tag, args.sha, allow_non_descendant=args.allow_non_descendant)
     except TagUpdateError as error:
         print(f"Nightly tag update failed: {error}", file=sys.stderr)
         return 1
