@@ -1004,3 +1004,5 @@ final class CmuxNavigationURLRequestTests: XCTestCase {
         return request.target
     }
 }
+
+// canary: test-only admission after #14262 and #14275
