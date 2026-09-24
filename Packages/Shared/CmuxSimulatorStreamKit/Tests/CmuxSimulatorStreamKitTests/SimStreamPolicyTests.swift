@@ -288,4 +288,70 @@ struct SimStreamViewerLifecycleTests {
         #expect(lifecycle.phase == .stopped)
         #expect(lifecycle.handle(.deactivate) == .none)
     }
+
+    @Test
+    func refreshRequestedRestartsAStreamingSession() {
+        var lifecycle = SimStreamViewerLifecycle()
+        _ = lifecycle.handle(.activate)
+        _ = lifecycle.handle(.transportReady)
+        _ = lifecycle.handle(.startSucceeded)
+        #expect(lifecycle.handle(.refreshRequested) == .teardown)
+        #expect(lifecycle.phase == .waitingForTransport)
+        #expect(lifecycle.handle(.transportReady) == .openLaneAndStart)
+    }
+
+    @Test
+    func refreshRequestedEscapesHostEndedUnavailable() {
+        var lifecycle = SimStreamViewerLifecycle()
+        _ = lifecycle.handle(.activate)
+        _ = lifecycle.handle(.transportReady)
+        _ = lifecycle.handle(.startSucceeded)
+        _ = lifecycle.handle(.hostEnded(status: .closed, detail: "superseded"))
+        #expect(lifecycle.phase == .unavailable(reason: "superseded"))
+        #expect(lifecycle.handle(.refreshRequested) == .teardown)
+        #expect(lifecycle.phase == .waitingForTransport)
+        #expect(lifecycle.handle(.transportReady) == .openLaneAndStart)
+    }
+
+    @Test
+    func refreshRequestedSkipsPendingRetryDelayAndResetsBackoff() {
+        var lifecycle = SimStreamViewerLifecycle()
+        _ = lifecycle.handle(.activate)
+        _ = lifecycle.handle(.transportReady)
+        _ = lifecycle.handle(.startSucceeded)
+        // Grow the backoff past its base.
+        _ = lifecycle.handle(.streamWedged(reason: "x"))
+        _ = lifecycle.handle(.retryDelayElapsed)
+        _ = lifecycle.handle(.transportReady)
+        guard case .teardownAndRetry = lifecycle.handle(.streamWedged(reason: "x")) else {
+            Issue.record("expected retry")
+            return
+        }
+        // Refresh escapes the pending delay immediately...
+        #expect(lifecycle.handle(.refreshRequested) == .teardown)
+        #expect(lifecycle.phase == .waitingForTransport)
+        #expect(lifecycle.handle(.transportReady) == .openLaneAndStart)
+        // ...and the next wedge pays base backoff again, not the grown one.
+        guard case .teardownAndRetry(let delay) = lifecycle.handle(.transportLost) else {
+            Issue.record("expected retry")
+            return
+        }
+        #expect(delay == 0.25)
+    }
+
+    @Test
+    func refreshRequestedIgnoredWhileInactive() {
+        var lifecycle = SimStreamViewerLifecycle()
+        #expect(lifecycle.handle(.refreshRequested) == .none)
+        #expect(lifecycle.phase == .idle)
+        _ = lifecycle.handle(.activate)
+        _ = lifecycle.handle(.transportReady)
+        _ = lifecycle.handle(.appBackgrounded)
+        #expect(lifecycle.handle(.refreshRequested) == .none)
+        #expect(lifecycle.phase == .backgrounded)
+        _ = lifecycle.handle(.appForegrounded)
+        _ = lifecycle.handle(.deactivate)
+        #expect(lifecycle.handle(.refreshRequested) == .none)
+        #expect(lifecycle.phase == .stopped)
+    }
 }

@@ -54,6 +54,11 @@ import UIKit
 public final class GhosttySurfaceHostView: UIView {
     public let surfaceView: GhosttySurfaceView
     private let keyboardFrameTracker: MobileKeyboardFrameTracker
+    private var isHandlingKeyboardTransition = false
+    /// Safe-area value captured outside the SwiftUI terminal subtree. The
+    /// surface can be intentionally underlapped, so its UIKit leaf may report
+    /// zero even when the screen still has a home-indicator inset.
+    private var capturedBottomSafeAreaInset: CGFloat
     private let terminalClipView = UIView()
     private let terminalPresentationView = UIView()
     /// dock.bottom == host.bottom + c; the seat authority on iOS 27 and while
@@ -62,6 +67,16 @@ public final class GhosttySurfaceHostView: UIView {
     /// dock.bottom == keyboardLayoutGuide.top; the seat authority everywhere
     /// the guide is trustworthy (pixel-locked to the keyboard's own spring).
     private var guideDockConstraint: NSLayoutConstraint?
+    /// dock.bottom <= host.bottom - resolvedBottomSafeAreaInset, active with
+    /// the guide seat. After a show→hide cycle the system guide can rest at
+    /// the RAW host bottom instead of the bottom safe area (observed on
+    /// iOS 26 when blocked input resigns the responder over a disconnected
+    /// terminal: the composer lands inside the home-indicator band, and with
+    /// input blocked no keyboard event ever re-seats it —
+    /// https://github.com/manaflow-ai/cmux/issues/13470). This required
+    /// floor clamps that rest; the guide equality is priority 999 so it
+    /// yields by exactly the clamped distance instead of breaking layout.
+    private var guideDockFloorConstraint: NSLayoutConstraint?
     /// renderWrapper.bottom <= dock.top + chrome + blank + reveal (the
     /// content cap).
     private var presentationContentCapConstraint: NSLayoutConstraint!
@@ -87,6 +102,47 @@ public final class GhosttySurfaceHostView: UIView {
     /// payloads (the iOS 27 contract: did frames and steady-state
     /// re-derivations misreport there and move a settled dock).
     private let seatTrustsOnlyWillFrames: Bool
+    /// Screen-anchored scroll-edge fade over the top band: rows dissolve
+    /// into the terminal background as they pass under the (glass)
+    /// navigation bar. Lives in this host's keyboard-invariant chrome space
+    /// (like the dock) because the render wrapper slides for the keyboard
+    /// while the under-bar fade must stay put. The system scroll edge
+    /// effect cannot treat this content — UIKit renders it on the tracked
+    /// scroll view's own content subtree, and the terminal's pixels live in
+    /// the Ghostty render layer outside any scroll view — so the fade is
+    /// reproduced deterministically with a composited gradient.
+    private let scrollEdgeFadeLayer: CAGradientLayer = {
+        let fade = CAGradientLayer()
+        fade.name = "cmux.scrollEdgeFade"
+        fade.zPosition = 900 // above the clipped render, below the dock chrome
+        fade.startPoint = CGPoint(x: 0.5, y: 0)
+        fade.endPoint = CGPoint(x: 0.5, y: 1)
+        // Mostly-opaque under the status bar, easing out toward the band's
+        // seam with the grid — the soft scroll-edge profile.
+        fade.locations = [0, 0.35, 1]
+        fade.isHidden = true
+        fade.actions = [
+            "bounds": NSNull(),
+            "frame": NSNull(),
+            "hidden": NSNull(),
+            "position": NSNull(),
+            "colors": NSNull(),
+        ]
+        return fade
+    }()
+    /// The bottom sibling: rows below the grid (visible only when scrolled
+    /// into scrollback) dissolve into the background as they run under the
+    /// dock chrome. A constraint-anchored VIEW, not a bare layer, because
+    /// the dock moves inside keyboard animation transactions and the fade
+    /// must ride the same solve; the gradient fills it via `layerClass`.
+    private let bottomScrollEdgeFadeView: ScrollEdgeFadeGradientView = {
+        let view = ScrollEdgeFadeGradientView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isUserInteractionEnabled = false
+        view.layer.zPosition = 900
+        view.isHidden = true
+        return view
+    }()
     #if DEBUG
     private var maximumTerminalDockPresentationGap: CGFloat = 0
     #endif
@@ -110,10 +166,12 @@ public final class GhosttySurfaceHostView: UIView {
         surfaceView: GhosttySurfaceView,
         keyboardFrameTracker: MobileKeyboardFrameTracker,
         keyboardDockRebuildRevertEnabled: Bool = false,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        capturedBottomSafeAreaInset: CGFloat = 0
     ) {
         self.surfaceView = surfaceView
         self.keyboardFrameTracker = keyboardFrameTracker
+        self.capturedBottomSafeAreaInset = max(0, capturedBottomSafeAreaInset)
         var debugForceLegacy = false
         var debugForceRebuild = false
         var debugForceIOS27Seat = false
@@ -155,6 +213,11 @@ public final class GhosttySurfaceHostView: UIView {
 
         surfaceView.translatesAutoresizingMaskIntoConstraints = false
         terminalPresentationView.addSubview(surfaceView)
+        layer.addSublayer(scrollEdgeFadeLayer)
+        // Added before the dock reparents into this host so the dock's
+        // chrome always draws above the fade.
+        addSubview(bottomScrollEdgeFadeView)
+        refreshScrollEdgeFadeColors(background: surfaceView.backgroundColor)
         dockBottomConstraint = surfaceView.moveBottomDock(to: self)
         // The artifact chip joins the dock in this host's keyboard-invariant
         // chrome space: the render wrapper slides under a keyboard, the
@@ -166,9 +229,22 @@ public final class GhosttySurfaceHostView: UIView {
             let guide = surfaceView.hostedBottomDockBottomAnchor.constraint(
                 equalTo: keyboardLayoutGuide.topAnchor
             )
+            // Just below required: the floor below may legitimately hold the
+            // dock above a guide that rests at the raw screen bottom, and the
+            // equality must yield that distance rather than break the layout.
+            guide.priority = UILayoutPriority(999)
             guideDockConstraint = guide
+            // The keyboard-down floor: the visible dock never sits below the
+            // physical bottom safe area, whatever rest frame the guide
+            // reports. Slack whenever the keyboard holds the guide higher.
+            let floor = surfaceView.hostedBottomDockBottomAnchor.constraint(
+                lessThanOrEqualTo: bottomAnchor
+            )
+            guideDockFloorConstraint = floor
             dockBottomConstraint.isActive = false
             guide.isActive = true
+            floor.isActive = true
+            syncGuideDockFloor()
         }
 
         presentationContentCapConstraint = terminalPresentationView.bottomAnchor.constraint(
@@ -185,7 +261,12 @@ public final class GhosttySurfaceHostView: UIView {
             terminalClipView.topAnchor.constraint(equalTo: topAnchor),
             terminalClipView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalClipView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            terminalClipView.bottomAnchor.constraint(equalTo: surfaceView.hostedBottomDockTopAnchor),
+            // The clip extends to the host bottom (not the dock top) so the
+            // bottom scroll-edge band — render-only rows below the grid,
+            // glued under the dock by the same constraint system — stays
+            // visible behind the dock chrome. The grid itself still ends at
+            // the dock top minus the seam, so nothing else changes.
+            terminalClipView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
             terminalPresentationView.leadingAnchor.constraint(equalTo: leadingAnchor),
             terminalPresentationView.widthAnchor.constraint(equalTo: widthAnchor),
@@ -198,6 +279,17 @@ public final class GhosttySurfaceHostView: UIView {
             surfaceView.leadingAnchor.constraint(equalTo: terminalPresentationView.leadingAnchor),
             surfaceView.trailingAnchor.constraint(equalTo: terminalPresentationView.trailingAnchor),
             surfaceView.bottomAnchor.constraint(equalTo: terminalPresentationView.bottomAnchor),
+
+            // The bottom fade spans from the grid's bottom edge (dock top
+            // minus the seam) to the screen bottom, riding the dock through
+            // keyboard legs in the same constraint solve.
+            bottomScrollEdgeFadeView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            bottomScrollEdgeFadeView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bottomScrollEdgeFadeView.topAnchor.constraint(
+                equalTo: surfaceView.hostedBottomDockTopAnchor,
+                constant: -surfaceView.hostedDockSeamPadding
+            ),
+            bottomScrollEdgeFadeView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
         NotificationCenter.default.addObserver(
@@ -249,6 +341,7 @@ public final class GhosttySurfaceHostView: UIView {
 
     public override func layoutSubviews() {
         super.layoutSubviews()
+        layoutScrollEdgeFade()
         // A notification-driven keyboard leg owns the dock constant until its
         // animation completes; layout passes inside the leg must not reseat it.
         guard !keyboardTransitionActive else { return }
@@ -288,19 +381,35 @@ public final class GhosttySurfaceHostView: UIView {
     /// swap never retargets a moving leg.
     private func syncDockSeatAuthority() {
         guard let guideDockConstraint else { return }
+        syncGuideDockFloor()
         let wantsGuide = !surfaceView.hostedChromeHidden
         guard guideDockConstraint.isActive != wantsGuide else { return }
         if wantsGuide {
             dockBottomConstraint.isActive = false
             guideDockConstraint.isActive = true
+            guideDockFloorConstraint?.isActive = true
         } else {
             guideDockConstraint.isActive = false
+            // The hidden dock parks at the raw host bottom by design; the
+            // floor must not hold it up in the chrome-hidden state.
+            guideDockFloorConstraint?.isActive = false
             dockBottomConstraint.constant = -surfaceView.hostedBottomReservation(
                 keyboardHeight: surfaceView.hostedKeyboardHeight,
                 bottomSafeAreaInset: resolvedBottomSafeAreaInset
             )
             dockBottomConstraint.isActive = true
         }
+    }
+
+    /// Keeps the guide-seat floor pinned to the live resolved bottom safe
+    /// area. The resolver's window/captured/ancestor fallbacks converge after
+    /// mount, so the constant follows every source the plain seat already
+    /// tracks (attach, safe-area change, SwiftUI-captured inset).
+    private func syncGuideDockFloor() {
+        guard let guideDockFloorConstraint else { return }
+        let constant = -resolvedBottomSafeAreaInset
+        guard abs(guideDockFloorConstraint.constant - constant) > 0.25 else { return }
+        guideDockFloorConstraint.constant = constant
     }
 
     public override func safeAreaInsetsDidChange() {
@@ -339,6 +448,9 @@ public final class GhosttySurfaceHostView: UIView {
     }
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
+        guard !isHandlingKeyboardTransition else { return }
+        isHandlingKeyboardTransition = true
+        defer { isHandlingKeyboardTransition = false }
         guard window != nil,
               let transition = MobileKeyboardTransition(notification: notification) else { return }
         beginKeyboardLeg(
@@ -554,14 +666,80 @@ public final class GhosttySurfaceHostView: UIView {
     private var resolvedBottomSafeAreaInset: CGFloat {
         TerminalLetterboxGeometry.resolvedBottomSafeAreaInset(
             viewInset: safeAreaInsets.bottom,
-            windowInset: window?.safeAreaInsets.bottom ?? 0
+            windowInset: window?.safeAreaInsets.bottom,
+            capturedInset: capturedBottomSafeAreaInset > 0 ? capturedBottomSafeAreaInset : nil,
+            ancestorInsets: safeAreaAncestorBottomInsets
         )
+    }
+
+    /// Keeps the host's plain dock seat and the surface's grid reservation on
+    /// the same outer safe-area fallback as SwiftUI discovers it.
+    public func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
+        let next = max(0, inset)
+        guard abs(next - capturedBottomSafeAreaInset) > 0.25 else { return }
+        capturedBottomSafeAreaInset = next
+        surfaceView.setCapturedBottomSafeAreaInset(next)
+        seatDockWithoutAnimation()
+        surfaceView.hostRequestsGeometrySync()
+    }
+
+    /// A SwiftUI terminal leaf can intentionally ignore the container safe
+    /// area, which makes this host's own inset zero. Walk the UIKit chain so a
+    /// window or outer hosting container can still provide the physical home
+    /// indicator inset to the plain dock seat.
+    private var safeAreaAncestorBottomInsets: [CGFloat] {
+        var insets: [CGFloat] = []
+        var ancestor = superview
+        while let view = ancestor {
+            insets.append(view.safeAreaInsets.bottom)
+            ancestor = view.superview
+        }
+        return insets
     }
 
     func updateTerminalBackground(_ color: UIColor) {
         backgroundColor = color
         terminalClipView.backgroundColor = color
         terminalPresentationView.backgroundColor = color
+        refreshScrollEdgeFadeColors(background: color)
+    }
+
+    /// Sizes the top fade to the live band (zero hides it) without implicit
+    /// animation, so it lands in the same frame as the layout pass. The
+    /// bottom fade is constraint-driven; only its visibility toggles here.
+    private func layoutScrollEdgeFade() {
+        let height = surfaceView.hostedScrollEdgeFadeHeight
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if height > 0 {
+            scrollEdgeFadeLayer.isHidden = false
+            let frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+            if scrollEdgeFadeLayer.frame != frame {
+                scrollEdgeFadeLayer.frame = frame
+            }
+        } else {
+            scrollEdgeFadeLayer.isHidden = true
+        }
+        bottomScrollEdgeFadeView.isHidden = !surfaceView.hostedBottomScrollEdgeFadeActive
+        CATransaction.commit()
+    }
+
+    private func refreshScrollEdgeFadeColors(background: UIColor?) {
+        let bg = background ?? .black
+        scrollEdgeFadeLayer.colors = [
+            bg.withAlphaComponent(0.95).cgColor,
+            bg.withAlphaComponent(0.55).cgColor,
+            bg.withAlphaComponent(0).cgColor,
+        ]
+        // Reversed, front-loaded ramp: transparent at the grid seam but
+        // strong within the first quarter of the band, so the toolbar row's
+        // controls (keyboard toggle, record dot) sit on a solid wash instead
+        // of raw rows; near-opaque by the screen bottom.
+        bottomScrollEdgeFadeView.gradientLayer.colors = [
+            bg.withAlphaComponent(0).cgColor,
+            bg.withAlphaComponent(0.8).cgColor,
+            bg.withAlphaComponent(0.97).cgColor,
+        ]
     }
 
     func sampleTerminalDockPresentationGap() {
@@ -615,5 +793,32 @@ public final class GhosttySurfaceHostView: UIView {
         return abs(terminalBottom - (dockTop - surfaceView.hostedDockSeamPadding))
     }
     #endif
+}
+
+/// A view whose backing layer IS a vertical gradient, so Auto Layout drives
+/// the gradient's geometry inside the same animation transactions as its
+/// anchors (a bare layer would jump while its anchor animates).
+private final class ScrollEdgeFadeGradientView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    var gradientLayer: CAGradientLayer {
+        // Safe by construction: `layerClass` above.
+        // swiftlint:disable:next force_cast
+        layer as! CAGradientLayer
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        gradientLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        gradientLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        // Front-loaded: the mid stop lands just below the grid seam so the
+        // wash is already strong under the first row of chrome.
+        gradientLayer.locations = [0, 0.22, 1]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
 }
 #endif

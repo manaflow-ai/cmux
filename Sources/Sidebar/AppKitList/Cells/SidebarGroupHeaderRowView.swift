@@ -22,8 +22,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private let unreadBadgeView = SidebarRowUnreadBadgeView()
     private var unreadBadgeFont: NSFont = .systemFont(ofSize: 10, weight: .semibold)
     private let plusButton = SidebarHeaderGlyphButton()
-    private let topDropIndicator = NSView()
-    private let bottomDropIndicator = NSView()
+    private let topDropIndicator = SidebarReorderIndicatorView()
+    private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
 
     private var model: SidebarGroupHeaderRowModel?
@@ -437,16 +437,13 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             unreadBadgeView.needsDisplay = true
         }
 
-        let indicatorX: CGFloat = 8
-        let indicatorWidth = max(0, bounds.width - indicatorX - 8)
         let topOffset: CGFloat = model.isFirstRow ? 0 : -(model.rowSpacing / 2)
-        topDropIndicator.frame = NSRect(x: indicatorX, y: topOffset, width: indicatorWidth, height: 2)
+        topDropIndicator.position(in: bounds, at: topOffset)
         let bottomInset = metrics.groupScopedBottomDropIndicatorLeadingInset
-        bottomDropIndicator.frame = NSRect(
-            x: 8 + bottomInset,
-            y: bounds.height - 2 + model.rowSpacing / 2,
-            width: max(0, bounds.width - (8 + bottomInset) - 8),
-            height: 2
+        bottomDropIndicator.position(
+            in: bounds,
+            at: bounds.height - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2,
+            leadingInset: bottomInset
         )
 
         let pillSize = hintPill.fittingPillSize()
@@ -555,6 +552,10 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     private func makeHeaderMenu() -> NSMenu {
         guard let model, let actions else { return NSMenu() }
         let menu = trackedMenu()
+        // Resolve availability at menu-open time. The row may have retained an
+        // older anchor snapshot while the group was being promoted, but the
+        // action bundle owns the authoritative live notification check.
+        let notificationState = actions.notificationState()
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.plus.contextMenu.newWorkspace", defaultValue: "New Workspace in Group"),
             action: actions.onTapPlus
@@ -573,28 +574,28 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markRead", defaultValue: "Mark Group as Read"),
-            enabled: model.canMarkRead,
+            enabled: notificationState.canMarkRead,
             action: actions.onMarkRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markUnread", defaultValue: "Mark Group as Unread"),
-            enabled: model.canMarkUnread,
+            enabled: notificationState.canMarkUnread,
             action: actions.onMarkUnread
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.clearLatestNotifications", defaultValue: "Clear Latest Notifications"),
-            enabled: model.hasLatestNotifications,
+            enabled: notificationState.hasLatestNotifications,
             action: actions.onClearLatestNotifications
         ))
         menu.addItem(.separator())
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllRead", defaultValue: "Mark All Workspaces in Group as Read"),
-            enabled: model.canMarkAllRead,
+            enabled: notificationState.canMarkAllRead,
             action: actions.onMarkAllRead
         ))
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.contextMenu.markAllUnread", defaultValue: "Mark All Workspaces in Group as Unread"),
-            enabled: model.canMarkAllUnread,
+            enabled: notificationState.canMarkAllUnread,
             action: actions.onMarkAllUnread
         ))
         menu.addItem(.separator())

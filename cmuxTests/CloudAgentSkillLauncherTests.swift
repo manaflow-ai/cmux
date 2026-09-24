@@ -10,7 +10,7 @@ import Testing
 @Suite struct CloudAgentSkillLauncherTests {
     @Test func bundledSkillResourceExistsAndMentionsTheCLI() {
         let markdown = CloudAgentSkillLauncher.skillMarkdown()
-        #expect(markdown != nil, "Resources/cloud-agent-skill.md must ship in the app bundle")
+        #expect(markdown != nil, "the localized cloud-agent-skill.md resource must ship in the app bundle")
         #expect(markdown?.contains("cmux vm") == true)
         #expect(markdown?.contains("--help` is authoritative") == true)
     }

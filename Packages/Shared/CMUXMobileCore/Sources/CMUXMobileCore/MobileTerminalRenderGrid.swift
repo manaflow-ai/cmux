@@ -16,6 +16,9 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     public var format: String
     public var surfaceID: String
     public var stateSeq: UInt64
+    /// Highest input frame the Mac had received when this frame was captured.
+    /// This is a count on the ordered terminal input lane, never terminal text.
+    public var appliedInputSequence: UInt64?
     /// Stable identifier for one producer lifetime of ``renderRevision``.
     ///
     /// A surface may be recreated with the same public ID after hibernation or
@@ -93,6 +96,13 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// has a different history count missed a frame; its grid and scrollback
     /// alignment can no longer be patched, so it must request a full replay.
     public var deltaBaseHistoryRows: UInt64?
+    /// ``renderRevision`` of the producer's previously emitted frame — the
+    /// exact frame this delta was diffed against. Unlike
+    /// ``deltaBaseHistoryRows`` this changes on EVERY emitted frame, so a
+    /// consumer detects a missed in-place repaint (history unchanged) that the
+    /// history chain cannot see, and must request a full replay instead of
+    /// patching a grid the producer no longer models.
+    public var deltaBaseRenderRevision: UInt64?
     /// Monotonic identity of the producer's absolute row space. It changes when
     /// retained rows can move to different offsets (scrollback eviction,
     /// reflow, erase), invalidating history-growth arithmetic for that step.
@@ -102,6 +112,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         format: String = Self.currentFormat,
         surfaceID: String,
         stateSeq: UInt64,
+        appliedInputSequence: UInt64? = nil,
         renderEpoch: String = "",
         renderRevision: UInt64 = 0,
         columns: Int,
@@ -125,7 +136,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         scrolledRows: Int = 0,
         historyRows: UInt64? = nil,
         rowSpaceRevision: UInt64? = nil,
-        deltaBaseHistoryRows: UInt64? = nil
+        deltaBaseHistoryRows: UInt64? = nil,
+        deltaBaseRenderRevision: UInt64? = nil
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -188,6 +200,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.format = format
         self.surfaceID = surfaceID
         self.stateSeq = stateSeq
+        self.appliedInputSequence = appliedInputSequence
         self.renderEpoch = renderEpoch
         self.renderRevision = renderRevision
         self.columns = columns
@@ -218,6 +231,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.historyRows = historyRows
         self.rowSpaceRevision = rowSpaceRevision
         self.deltaBaseHistoryRows = full ? nil : deltaBaseHistoryRows
+        self.deltaBaseRenderRevision = full ? nil : deltaBaseRenderRevision
     }
 
     public init(from decoder: Decoder) throws {
@@ -225,6 +239,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let format = try container.decode(String.self, forKey: .format)
         let surfaceID = try container.decode(String.self, forKey: .surfaceID)
         let stateSeq = try container.decode(UInt64.self, forKey: .stateSeq)
+        let appliedInputSequence = try container.decodeIfPresent(UInt64.self, forKey: .appliedInputSequence)
         let renderEpoch = try container.decodeIfPresent(String.self, forKey: .renderEpoch) ?? ""
         let renderRevision = try container.decodeIfPresent(UInt64.self, forKey: .renderRevision) ?? 0
         let columns = try container.decode(Int.self, forKey: .columns)
@@ -249,10 +264,12 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let historyRows = try container.decodeIfPresent(UInt64.self, forKey: .historyRows)
         let rowSpaceRevision = try container.decodeIfPresent(UInt64.self, forKey: .rowSpaceRevision)
         let deltaBaseHistoryRows = try container.decodeIfPresent(UInt64.self, forKey: .deltaBaseHistoryRows)
+        let deltaBaseRenderRevision = try container.decodeIfPresent(UInt64.self, forKey: .deltaBaseRenderRevision)
         try self.init(
             format: format,
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            appliedInputSequence: appliedInputSequence,
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
             columns: columns,
@@ -276,7 +293,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             scrolledRows: scrolledRows,
             historyRows: historyRows,
             rowSpaceRevision: rowSpaceRevision,
-            deltaBaseHistoryRows: deltaBaseHistoryRows
+            deltaBaseHistoryRows: deltaBaseHistoryRows,
+            deltaBaseRenderRevision: deltaBaseRenderRevision
         )
     }
 
@@ -389,7 +407,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         full: Bool,
         scrolledRows: Int = 0,
         carryScrollbackSpans: Bool = false,
-        deltaBaseHistoryRows: UInt64? = nil
+        deltaBaseHistoryRows: UInt64? = nil,
+        deltaBaseRenderRevision: UInt64? = nil
     ) throws -> MobileTerminalRenderGridFrame {
         // A screen-anchored burst delta keeps the frame's scrollback spans:
         // they are the history rows that scrolled through between producer
@@ -398,6 +417,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         return try MobileTerminalRenderGridFrame(
             surfaceID: surfaceID,
             stateSeq: stateSeq,
+            appliedInputSequence: appliedInputSequence,
             renderEpoch: renderEpoch,
             renderRevision: renderRevision,
             columns: columns,
@@ -423,7 +443,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             scrolledRows: full ? 0 : scrolledRows,
             historyRows: historyRows,
             rowSpaceRevision: rowSpaceRevision,
-            deltaBaseHistoryRows: deltaBaseHistoryRows
+            deltaBaseHistoryRows: deltaBaseHistoryRows,
+            deltaBaseRenderRevision: deltaBaseRenderRevision
         )
     }
 

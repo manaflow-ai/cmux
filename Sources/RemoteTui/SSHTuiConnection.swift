@@ -1,0 +1,72 @@
+import CmuxCore
+import CmuxFoundation
+import CryptoKit
+import Foundation
+
+/// Stable SSH identity and launch configuration for a cmux-tui session.
+struct SSHTuiConnection: Sendable {
+    let configuration: WorkspaceRemoteConfiguration
+
+    /// Includes the SSH account and configuration so aliases with different routes never share a link.
+    var id: String { "ssh:" + identityDigest }
+    var identityDigest: String {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        let persistentOptions = configuration.sshOptions.filter {
+            !["controlmaster", "controlpersist", "controlpath"].contains(resolver.optionKey($0) ?? "")
+        }
+        let components = [configuration.destination, configuration.port.map(String.init) ?? "",
+                          configuration.identityFile ?? ""] + persistentOptions
+        return SHA256.hash(data: Data(components.joined(separator: "\0").utf8))
+            .map { String(format: "%02x", $0) }.joined()
+    }
+
+    var session: String { "cmux" }
+
+    var authenticationArguments: [String] {
+        var arguments = ["/usr/bin/ssh", "-T", "-o", "BatchMode=no", "-o", "RemoteCommand=none", "-o", "RequestTTY=no"]
+        if let port = configuration.port { arguments += ["-p", String(port)] }
+        if let identity = configuration.identityFile { arguments += ["-i", identity] }
+        for option in configuration.sshOptions { arguments += ["-o", option] }
+        return arguments + [configuration.destination, "true"]
+    }
+
+    /// The daemon owns the login shell and therefore keeps it alive when SSH disconnects.
+    var shellCommand: [String] {
+        if !configuration.terminalProfile.remoteCommandArguments.isEmpty {
+            return configuration.terminalProfile.remoteCommandArguments
+        }
+        if let command = configuration.configuredRemoteCommand, !command.isEmpty {
+            return commandArguments(command)
+        }
+        return ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -l"]
+    }
+
+    func commandArguments(_ command: String) -> [String] {
+        ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -lc \"$1\"", "cmux-ssh", command]
+    }
+
+    func arguments(stateDirectory: String, deviceName: String) -> [String] {
+        var arguments = ["remote", "ssh", configuration.destination, "--headless", "--json",
+                         "--exit-with-parent", "--lanes", "single", "--carrier",
+                         "--session", session, "--state-dir", stateDirectory]
+        var sshArguments = ["-o", "RequestTTY=no", "-o", "RemoteCommand=none"]
+        if let port = configuration.port { sshArguments += ["-p", String(port)] }
+        if let identity = configuration.identityFile { sshArguments += ["-i", identity] }
+        for option in configuration.sshOptions { sshArguments += ["-o", option] }
+        // The carrier is an exec channel. Interactive authentication precedes this
+        // launch, and host verification must remain OpenSSH's responsibility.
+        for argument in sshArguments { arguments += ["--ssh-arg", argument] }
+        arguments += ["--device-name", deviceName]
+        return arguments
+    }
+
+    func browserArguments(stateDirectory: String) -> [String] {
+        var arguments = self.arguments(stateDirectory: stateDirectory, deviceName: CloudTuiClientPaths.deviceName())
+        arguments[1] = "browser-proxy"
+        arguments[2] = "ssh://" + configuration.destination
+        arguments.removeAll { ["--headless", "--json"].contains($0) }
+        arguments += ["--workspace-root", "/", "--allowed-host", "127.0.0.1",
+                      "--allowed-host", "localhost", "--allowed-host", "::1"]
+        return arguments
+    }
+}

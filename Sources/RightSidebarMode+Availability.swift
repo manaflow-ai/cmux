@@ -16,6 +16,10 @@ extension RightSidebarMode {
             return .dock
         case "cloud", "machines", "vms":
             return .machines
+        case "devices", "device", "macs":
+            return .machines
+        case "custom", "custom-sidebar":
+            return .customSidebar
         default:
             return nil
         }
@@ -25,16 +29,23 @@ extension RightSidebarMode {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            devicesEnabled: false
         )
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> [RightSidebarMode] {
+    static func availableModes(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool,
+        devicesEnabled: Bool = false
+    ) -> [RightSidebarMode] {
         allCases.filter {
-            $0 != .customSidebar && $0.isAvailable(
+            $0.isAvailable(
                 feedEnabled: feedEnabled,
                 dockEnabled: dockEnabled,
-                machinesEnabled: machinesEnabled
+                machinesEnabled: machinesEnabled,
+                devicesEnabled: devicesEnabled
             )
         }
     }
@@ -43,11 +54,43 @@ extension RightSidebarMode {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            devicesEnabled: false
         )
     }
 
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
+    /// The tabs the mode bar actually shows: feature-available modes in the
+    /// user's configured order, minus the ones the user hid. This list also
+    /// defines the positional `ctrl+1…9` digit-shortcut defaults, so the Nth
+    /// visible tab always answers ctrl+N unless the user rebound it.
+    nonisolated static func visibleModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
+        let hidden = RightSidebarTabPreferences.hiddenModes(defaults: defaults)
+        let visible = RightSidebarTabPreferences.orderedModes(defaults: defaults)
+            .filter { $0.isAvailable(defaults: defaults) && !hidden.contains($0) }
+        // A hidden set written directly to defaults can hide everything; the
+        // sidebar still needs tabs, so fall back to every available mode.
+        return visible.isEmpty ? availableModes(defaults: defaults) : visible
+    }
+
+    /// 1-based `ctrl+digit` position of `mode` among the visible tabs, or nil
+    /// when the mode is hidden, unavailable, or past position 9. Single source
+    /// for the app's positional shortcut defaults and the CmuxSettings
+    /// default-stroke override.
+    nonisolated static func positionalDigit(
+        for mode: RightSidebarMode,
+        defaults: UserDefaults = .standard
+    ) -> Int? {
+        let visible = visibleModes(defaults: defaults)
+        guard let index = visible.firstIndex(of: mode), index < 9 else { return nil }
+        return index + 1
+    }
+
+    func isAvailable(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool,
+        devicesEnabled: Bool = false
+    ) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
@@ -58,7 +101,11 @@ extension RightSidebarMode {
         case .machines:
             return machinesEnabled
         case .customSidebar:
-            return false
+            // Available once the custom-sidebars beta is on AND a right-side
+            // sidebar has been picked (right_sidebar set custom <name>); the
+            // mode bar then grows a Custom button.
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled
+                && FileExplorerState.persistedCustomSidebarName() != nil
         }
     }
 }

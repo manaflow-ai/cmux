@@ -26,7 +26,7 @@ extension SimulatorPrivatePrivacyAdapter {
                 String(
                     localized: "simulator.failure.tccUnavailable",
                     defaultValue:
-                        "The Simulator TCC database is unavailable; wait for the device to finish booting."
+                        "Simulator permissions are not available yet. Wait for the device to finish starting."
                 )
             )
         }
@@ -74,7 +74,7 @@ extension SimulatorPrivatePrivacyAdapter {
                 String(
                     localized: "simulator.failure.tccUnavailable",
                     defaultValue:
-                        "The Simulator TCC database is unavailable; wait for the device to finish booting."
+                        "Simulator permissions are not available yet. Wait for the device to finish starting."
                 )
             )
         }

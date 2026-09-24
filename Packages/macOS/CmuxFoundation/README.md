@@ -13,6 +13,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 
 ## Contents
 
+- `RemoteClientDeviceName` — a shared app/CLI label read from the kernel hostname,
+  without DNS or Local Network access. Tests can supply `hostName` directly.
 - `String.javaScriptStringLiteral` — the string encoded as a quoted JavaScript string literal.
 - `SSHAgentSocketResolver` — OpenSSH option parsing and SSH agent socket path normalization.
 - `MoshTerminalCommandBuilder` — a pure Mosh startup-command builder with explicit SSH fallback.
@@ -20,6 +22,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
 - `RemoteTmuxCommandBuilder` — shared remote `tmux` resolution and argv preservation.
 - `WorkspaceRemoteTerminalProfile` — durable shell-or-named-tmux terminal intent.
 - `WorkspaceRemoteTerminalTransport` — the persisted SSH-or-Mosh interactive terminal preference.
+- `SentryNoiseFilter` — shared classification for expected CLI socket lifecycle failures,
+  including structured `unavailable` replies and typed missing socket paths.
 - `CLISocketSentryPolicy`: trusted Codex sandbox provenance for CLI socket `EPERM` filtering.
 - `CmuxCodexConfigEditor` — pure install and uninstall transforms for cmux's Codex `config.toml` hooks.
 - `MainActorDeferredActionScheduler` — replaceable clock-driven main-actor work
@@ -30,6 +34,8 @@ so call sites read naturally (`value.javaScriptStringLiteral`, not `f(value)`).
   lifecycle-bound repeating main-actor action.
 - `MainActorTaskStore` — keyed replaceable task ownership that keeps task
   handles out of captured SwiftUI value snapshots.
+- `FileDescriptorLimitController` — a synchronous startup policy that raises
+  inherited descriptor limits before workers and terminal children start.
 
 ## Usage
 
@@ -87,7 +93,9 @@ let isExpected = SentryNoiseFilter().isExpectedCLISocketTransportFailure(
 )
 ```
 
-Pass the process environment directly. Missing, unknown, and unrestricted
+Pass structured `CLIError.v2Code` as `cliErrorCode` and a typed missing-path
+classification as `socketPathMissing` when those values are available; this avoids
+guessing lifecycle state from localized text. Missing, unknown, and unrestricted
 `CODEX_SANDBOX` values keep the error visible.
 
 ## Testing
@@ -100,6 +108,29 @@ import CmuxFoundation
 
 @Test func plainStringIsQuoted() {
     #expect("hello".javaScriptStringLiteral == "\"hello\"")
+}
+```
+
+File-descriptor tests inject both resource-limit operations so they never mutate
+the test runner's process-wide limit. `readLimit` supplies the current soft/hard
+pair, and `writeLimit` returns whether the requested pair was accepted:
+
+```swift
+import Darwin
+import Testing
+import CmuxFoundation
+
+@Test func raisesSoftLimitWithinHardLimit() {
+    var limits = rlimit()
+    limits.rlim_cur = 256
+    limits.rlim_max = 10_240
+    let controller = FileDescriptorLimitController(
+        readLimit: { limits },
+        writeLimit: { limits = $0; return true }
+    )
+    controller.raiseSoftLimitIfNeeded()
+    #expect(limits.rlim_cur == 10_240)
+    #expect(limits.rlim_max == 10_240)
 }
 ```
 
@@ -146,3 +177,22 @@ tasks.replace("search", priority: .userInitiated) {
     await rebuildSearchIndex()
 }
 ```
+
+## SSH PTY attach primitives
+
+`SSHPTYTerminalInputMode(fileDescriptor:)` captures a borrowed PTY without
+changing it, enters disconnected/raw forwarding phases, and restores the original
+mode. The executable owns one instance per attach. `SSHPTYDaemonCompatibility`
+provides pure release admission; the executable supplies whether development
+fingerprints are allowed and formats localized rejection errors.
+
+`SSHPTYAttachSignalMonitor(bridgeFD:)` owns signal cancellation for one foreground
+attach. `SSHPTYOutputWriter(fileDescriptor:)` writes ordered output using
+nonblocking writes and a kernel wait that also observes that cancellation.
+Its original output flags are restored when the writer is released.
+
+Package tests instantiate terminal ownership with `openpty` descriptors, version
+policy with literal release identities, and output with an isolated `Pipe`; no
+app launch, user settings, or filesystem state is required. Process signal
+delivery and exact attach exit/restoration are additionally covered by the CLI
+integration tests.

@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CmuxAppKitSupportUI
+import CmuxCloudMachines
 import SwiftUI
 
 @MainActor
@@ -103,7 +104,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         inPane: paneId,
                         filePaths: [localURL.path],
                         focus: true,
-                        reuseExisting: true
+                        reuseExisting: true,
+                        duplicateWhenFocused: true
                     )
                 } catch {
                     NSSound.beep()
@@ -115,7 +117,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             inPane: paneId,
             filePaths: [filePath],
             focus: true,
-            reuseExisting: true
+            reuseExisting: true,
+            duplicateWhenFocused: true
         )
     }
 
@@ -287,16 +290,30 @@ struct RightSidebarToolPanelView: View {
         case .sessions:
             SessionIndexView(
                 store: panel.sessionIndexStore,
-                chromeBackgroundColor: resolvedChromeBackgroundColor,
                 onResume: { entry in
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                },
+                onOpen: { entry in
+                    SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
+                },
+                activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
+                onFocus: { entry in
+                    _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
                 }
             )
             .background(
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock, .machines, .customSidebar:
+        case .machines:
+            if isVisibleInUI, RightSidebarMode.machines.isAvailable() {
+                MachinesPanelView(
+                    chromeBackgroundColor: resolvedChromeBackgroundColor,
+                    machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
+                    tabManager: tabManager
+                )
+            }
+        case .feed, .dock, .customSidebar:
             EmptyView()
         }
     }
