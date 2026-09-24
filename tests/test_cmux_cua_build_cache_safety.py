@@ -49,7 +49,7 @@ fi
 if [[ "${{1:-}}" == "-C" ]]; then
   shift 2
   case "${{1:-}}" in
-    cat-file|checkout|clean|fetch) exit 0 ;;
+    cat-file|checkout|clean|fetch|sparse-checkout) exit 0 ;;
     remote)
       echo "fake://cmux-cua"
       exit 0

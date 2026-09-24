@@ -301,7 +301,13 @@ else
       exit 1
     fi
     TMPDIR_CLONE="$(mktemp -d "$CACHE_DIR/.cmux-cua-clone.XXXXXX")"
-    git clone "$CMUX_CUA_REPO_URL" "$TMPDIR_CLONE"
+    # The build reads only libs/cmux-cua and the root LICENSE.md (about 7 MB),
+    # but the repository's history is about 275 MB of docs images and
+    # benchmarks; a full clone took 70 s on CI. Clone without blobs and check
+    # out only that cone. The checkout below fetches just the pinned tree's
+    # blobs inside the cone, and the tamper checks work the same on it.
+    git clone --quiet --filter=blob:none --no-checkout "$CMUX_CUA_REPO_URL" "$TMPDIR_CLONE"
+    git -C "$TMPDIR_CLONE" sparse-checkout set --cone libs/cmux-cua
     printf '%s\n' "$CMUX_CUA_SOURCE_OWNER_VALUE" > "$TMPDIR_CLONE/$CMUX_CUA_SOURCE_OWNER_FILE"
     /bin/mv "$TMPDIR_CLONE" "$SRC_ROOT"
     TMPDIR_CLONE=""
