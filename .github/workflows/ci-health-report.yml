@@ -86,6 +86,8 @@ jobs:
           # its fallback because test_ci_self_hosted_guard.sh requires it on
           # every read; `macos-15` is an approved label either way.
           CMUX_CI_RUNNER_VARIABLES: |
+            CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
+            CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
             LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
             MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
