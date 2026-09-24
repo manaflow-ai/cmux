@@ -12,6 +12,9 @@ final class WorkspaceNavigationBarController: UIViewController {
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroups: [UIBarButtonItemGroup] = []
     private var trailingGroupLandscape: Bool?
+    private let trailingRepresentative = UIBarButtonItem(
+        image: UIImage(systemName: "ellipsis"), style: .plain, target: nil, action: nil
+    )
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
 
@@ -154,8 +157,23 @@ final class WorkspaceNavigationBarController: UIViewController {
             groups.append(UIBarButtonItemGroup(barButtonItems: [warning], representativeItem: nil))
         }
         if !collapsible.isEmpty {
-            let group = UIBarButtonItemGroup(barButtonItems: collapsible, representativeItem: nil)
+            let representative: UIBarButtonItem?
             if warning != nil, !isLandscape {
+                trailingRepresentative.accessibilityIdentifier = "OverflowBarButtonItem"
+                trailingRepresentative.accessibilityLabel = "More"
+                if #available(iOS 26.0, *) {
+                    warning?.sharesBackground = true
+                    trailingRepresentative.sharesBackground = true
+                }
+                representative = trailingRepresentative
+            } else {
+                representative = nil
+            }
+            let group = UIBarButtonItemGroup(
+                barButtonItems: collapsible,
+                representativeItem: representative
+            )
+            if representative != nil {
                 group.alwaysAvailable = true
             }
             groups.append(group)
