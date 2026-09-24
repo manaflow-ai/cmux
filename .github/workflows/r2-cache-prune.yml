@@ -29,6 +29,8 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
+    # Only main may use the R2 write credentials (see #14147).
+    environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     permissions:
       contents: read
     steps:
