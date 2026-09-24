@@ -1,7 +1,7 @@
 import Foundation
 
 /// Outcome of decoding the private terminal-to-surface resolver response.
-enum CloudTuiResolvedSurface: Equatable, Sendable {
+public enum CloudTuiResolvedSurface: Equatable, Sendable {
     case surface(UInt64)
     case noPlacement
     /// The remote shell is gone: the daemon reports the terminal as exited, or

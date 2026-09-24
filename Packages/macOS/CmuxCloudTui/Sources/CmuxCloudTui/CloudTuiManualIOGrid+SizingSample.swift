@@ -7,7 +7,7 @@ extension CloudTuiManualIOGrid {
     /// 800×600 startup window before AppKit lays out the real pane; checking
     /// the reported pixel size against the attached view keeps that transient
     /// grid from becoming the remote PTY's authority.
-    static func usable(
+    public static func usable(
         from sample: TerminalSurfaceRawSizingSample,
         validatePanePixels: Bool
     ) -> CloudTuiManualIOGrid? {

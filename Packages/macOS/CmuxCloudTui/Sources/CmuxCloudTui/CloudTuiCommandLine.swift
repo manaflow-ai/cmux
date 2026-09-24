@@ -6,7 +6,8 @@ import Foundation
 /// `cmux-tui/spec/cli.md`: `cmux [GLOBAL OPTIONS] <resource> <action> [OPTIONS]`, with
 /// `--socket`/`--json`/`--jsonl` as global options, and `attach --terminal <id>` as the
 /// single-terminal renderer (`spec/cli.md` §"attach").
-struct CloudTuiCommandLine: Sendable {
+/// lint:allow namespace-type: moved unchanged from the app target, where it was an internal static namespace; reshaping its static call sites is a separate change from this package move.
+public struct CloudTuiCommandLine: Sendable {
     /// `remote connect <route> --device-name … --state-dir … --headless --json [--carrier]`:
     /// a headless link whose stdout carries `connection-snapshot` JSON lines with the
     /// local mux socket path (`remote_cli.rs` `connect_with_flags`).
@@ -17,7 +18,7 @@ struct CloudTuiCommandLine: Sendable {
     /// `--wireguard-hub <socket>` makes the client dial the route through the app's
     /// in-process WireGuard hub (``CloudWireGuardHub``) instead of the OS network stack;
     /// it is added only for routes inside the private Cloud VM network.
-    static func linkArguments(route: String, deviceName: String, stateDir: String, carrier: Bool = false, wireguardHubSocket: String? = nil) -> [String] {
+    public static func linkArguments(route: String, deviceName: String, stateDir: String, carrier: Bool = false, wireguardHubSocket: String? = nil) -> [String] {
         var arguments = [
             "remote", "connect", route,
             "--device-name", deviceName,
@@ -35,16 +36,16 @@ struct CloudTuiCommandLine: Sendable {
 
     /// `wg hub --config <wg-quick file> --socket <unix path>`: the one process that owns the
     /// app's WireGuard tunnel and serves SOCKS5 to every link on this Mac.
-    static func wireGuardHubArguments(configPath: String, socketPath: String) -> [String] {
+    public static func wireGuardHubArguments(configPath: String, socketPath: String) -> [String] {
         ["wg", "hub", "--config", configPath, "--socket", socketPath, "--exit-with-parent"]
     }
 
     /// The probe capability a client advertises when it understands `--wireguard-hub`.
-    static let wireGuardHubCapability = "wireguard-hub"
+    public static let wireGuardHubCapability = "wireguard-hub"
 
     /// Private addresses are browser identities; the daemon opens each requested port on its loopback
     /// after the authenticated CONNECT proxy or Cloud WebSocket bridge accepts the browser connection.
-    static func browserProxyArguments(route: String, addresses: [String], stateDir: String, wireGuardHubSocket: String, carrier: Bool) -> [String] {
+    public static func browserProxyArguments(route: String, addresses: [String], stateDir: String, wireGuardHubSocket: String, carrier: Bool) -> [String] {
         var args = ["remote", "browser-proxy", route, "--workspace-root", "/", "--state-dir", stateDir,
                     "--wireguard-hub", wireGuardHubSocket, "--exit-with-parent"]
         for address in addresses { args += ["--allowed-host", address] }
@@ -53,14 +54,14 @@ struct CloudTuiCommandLine: Sendable {
     }
 
     /// Whole-session public snapshot (`session current snapshot`, `--json`).
-    static func snapshotArguments(socketPath: String) -> [String] {
+    public static func snapshotArguments(socketPath: String) -> [String] {
         ["--socket", socketPath, "--json", "session", "current", "snapshot"]
     }
 
     /// Live delta stream (`session current events`, `--jsonl`). A cursor lets a
     /// restarted reader resume from the last accepted revision instead of
     /// creating a blind polling gap.
-    static func eventsArguments(socketPath: String, cursor: CloudVMCursor? = nil) -> [String] {
+    public static func eventsArguments(socketPath: String, cursor: CloudVMCursor? = nil) -> [String] {
         var arguments = ["--socket", socketPath, "--jsonl", "session", "current", "events"]
         if let cursor {
             arguments += ["--generation", cursor.generation, "--revision", String(cursor.revision)]
@@ -71,7 +72,7 @@ struct CloudTuiCommandLine: Sendable {
     /// `workspace <ws_id> run -- <argv…>`: a new terminal in that cmux-tui workspace
     /// running the exact argv. Result: `MutationResult<CreatedTerminalPath>`
     /// (`spec/resource-operations-v2.json` → `workspace.run`).
-    static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> [String] {
+    public static func runArguments(socketPath: String, workspaceID: String, command: [String], onExit: String? = nil, idempotencyKey: String? = nil, correlationKey: String? = nil) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "workspace", workspaceID, "run"]
         if let idempotencyKey { arguments += ["--idempotency-key", idempotencyKey] }
         if let correlationKey { arguments += ["--correlation-key", correlationKey] }
@@ -83,7 +84,7 @@ struct CloudTuiCommandLine: Sendable {
     }
 
     /// `workspace create [--name <name>]`: the daemon owns auto-naming.
-    static func createWorkspaceArguments(socketPath: String, name: String? = nil, empty: Bool = false) -> [String] {
+    public static func createWorkspaceArguments(socketPath: String, name: String? = nil, empty: Bool = false) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "workspace", "create"]
         if let name, !name.isEmpty {
             arguments += ["--name", name]
@@ -93,20 +94,20 @@ struct CloudTuiCommandLine: Sendable {
     }
 
     /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).
-    static func closeTerminalArguments(socketPath: String, terminalID: String) -> [String] {
+    public static func closeTerminalArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "close"]
     }
 
     /// `tab <tab_id> close`: drop the tab that held a terminal whose process already
     /// exited — cmux-tui no longer resolves such a terminal by its own selector.
-    static func closeTabArguments(socketPath: String, tabID: String) -> [String] {
+    public static func closeTabArguments(socketPath: String, tabID: String) -> [String] {
         ["--socket", socketPath, "--json", "tab", tabID, "close"]
     }
 
     /// `workspace <ws_id> close`: remove the workspace view. Its terminals detach
     /// (alive, zero views) rather than die (`spec/cli.md`) — close them first for
     /// a full delete.
-    static func closeWorkspaceArguments(socketPath: String, workspaceID: String) -> [String] {
+    public static func closeWorkspaceArguments(socketPath: String, workspaceID: String) -> [String] {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "close"]
     }
 
@@ -115,7 +116,7 @@ struct CloudTuiCommandLine: Sendable {
     /// operation is deliberately separate from the native pane destination: the remote view
     /// only makes the daemon's process-local surface attachable; local rendering remains in
     /// Ghostty.
-    static func projectTerminalArguments(
+    public static func projectTerminalArguments(
         socketPath: String,
         terminalID: String,
         target: CloudTuiTerminalProjectionTarget,
@@ -140,7 +141,7 @@ struct CloudTuiCommandLine: Sendable {
 
     /// `workspace <ws_id> rename --name <name>` (verified live: the positional
     /// form is `usage.invalid`; the name rides the `--name` flag).
-    static func renameWorkspaceArguments(
+    public static func renameWorkspaceArguments(
         socketPath: String,
         workspaceID: String,
         name: String,
@@ -156,7 +157,7 @@ struct CloudTuiCommandLine: Sendable {
     /// records this Mac's reads on the machine. The idempotency key is minted once
     /// per batch by the sync and reused on every retry, so a retried ack replays the
     /// committed result instead of a second revision.
-    static func notificationAckArguments(
+    public static func notificationAckArguments(
         socketPath: String,
         clientID: String,
         notificationIDs: [String],
@@ -168,33 +169,33 @@ struct CloudTuiCommandLine: Sendable {
 
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
     /// land on the PTY as typed; no newline is added, send `keys enter` for that.
-    static func writeArguments(socketPath: String, terminalID: String, text: String) -> [String] {
+    public static func writeArguments(socketPath: String, terminalID: String, text: String) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "write", "--text", text]
     }
 
     /// `terminal <term_id> write` reads the UTF-8 receiver wire from stdin.
     /// Keeping payloads out of argv prevents local process inspection from
     /// exposing file or environment secrets before they enter the link.
-    static func writeBytesArguments(socketPath: String, terminalID: String) -> [String] {
+    public static func writeBytesArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "write"]
     }
 
     /// `terminal <term_id> keys <key>…` (spec `terminal.input.keys`): named keys such as
     /// `enter`, `tab`, `escape`, `up`, and `+`-joined chords such as `ctrl+c` (verified
     /// live; `ctrl-c` is `validation.invalid`). The daemon rejects empty names.
-    static func keysArguments(socketPath: String, terminalID: String, keys: [String]) -> [String] {
+    public static func keysArguments(socketPath: String, terminalID: String, keys: [String]) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "keys"] + keys
     }
 
     /// `terminal <term_id> screen read` (spec `terminal.screen.read`): the visible grid as
     /// `{cols, rows, cursor_row, cursor_col, cursor_visible, text}`.
-    static func screenReadArguments(socketPath: String, terminalID: String) -> [String] {
+    public static func screenReadArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "read"]
     }
 
     /// `terminal <term_id> screen wait --pattern <regex> [--timeout-ms <n>]` (spec
     /// `terminal.wait`): blocks until the screen matches, `{matched, text}`.
-    static func screenWaitArguments(socketPath: String, terminalID: String, pattern: String, timeoutMs: Int?) -> [String] {
+    public static func screenWaitArguments(socketPath: String, terminalID: String, pattern: String, timeoutMs: Int?) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "screen", "wait", "--pattern", pattern]
         if let timeoutMs, timeoutMs > 0 {
             arguments += ["--timeout-ms", String(timeoutMs)]
@@ -206,7 +207,7 @@ struct CloudTuiCommandLine: Sendable {
     /// until the terminal's process exits or the timeout elapses —
     /// `{state: "exited", outcome: {kind: exit|signal|unknown, …}, exited_at}` or `{state: "pending", …}`.
     /// The complement of `screen wait`: an exit is a fact, a prompt regex is a guess.
-    static func processWaitArguments(socketPath: String, terminalID: String, timeoutMs: Int?) -> [String] {
+    public static func processWaitArguments(socketPath: String, terminalID: String, timeoutMs: Int?) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "process", "wait"]
         if let timeoutMs, timeoutMs > 0 {
             arguments += ["--timeout-ms", String(timeoutMs)]
@@ -216,13 +217,13 @@ struct CloudTuiCommandLine: Sendable {
 
     /// `terminal <term_id> process show` (spec `terminal.process.get`): reads
     /// the foreground process cwd live from the PTY's controlling terminal.
-    static func processInfoArguments(socketPath: String, terminalID: String) -> [String] {
+    public static func processInfoArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "--json", "terminal", terminalID, "process", "show"]
     }
 
     /// Extracts the live foreground cwd. The sibling `cwd` field is the spawn
     /// directory and is stale after the shell changes directory.
-    static func foregroundWorkingDirectory(fromProcessInfo result: [String: Any]) -> String? {
+    public static func foregroundWorkingDirectory(fromProcessInfo result: [String: Any]) -> String? {
         guard let cwd = result["foreground_cwd"] as? String else { return nil }
         let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -232,7 +233,7 @@ struct CloudTuiCommandLine: Sendable {
     /// `terminal.output_read`): the terminal's retained OUTPUT as text — the whole build log,
     /// not the 24 rows currently on screen — with `{text, start_offset, next_offset, complete}`;
     /// `next_offset` fed back as `after` reads only what arrived since.
-    static func outputReadArguments(socketPath: String, terminalID: String, after: Int?, maxBytes: Int?) -> [String] {
+    public static func outputReadArguments(socketPath: String, terminalID: String, after: Int?, maxBytes: Int?) -> [String] {
         var arguments = ["--socket", socketPath, "--json", "terminal", terminalID, "output", "read"]
         if let after, after >= 0 {
             arguments += ["--after", String(after)]
@@ -247,7 +248,7 @@ struct CloudTuiCommandLine: Sendable {
     /// view of a terminal (spec `tab.rename`). The daemon persists it in its
     /// registry and broadcasts `tab-renamed`, so every attached client sees it.
     /// The empty string is the protocol's explicit clear value.
-    static func renameTabArguments(
+    public static func renameTabArguments(
         socketPath: String,
         tabID: String,
         name: String,
@@ -260,7 +261,7 @@ struct CloudTuiCommandLine: Sendable {
     }
 
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.
-    static func attachArguments(socketPath: String, terminalID: String) -> [String] {
+    public static func attachArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "attach", "--terminal", terminalID]
     }
 
@@ -274,7 +275,7 @@ struct CloudTuiCommandLine: Sendable {
     /// as a resource scope and rejects it with `unknown resource scope
     /// "list-workspaces"`, so the tree was unreachable from the CLI even though
     /// the daemon still serves the command over the wire.
-    static func legacyListWorkspacesArguments(socketPath: String) -> [String] {
+    public static func legacyListWorkspacesArguments(socketPath: String) -> [String] {
         // A fixed literal, so this cannot fail to encode and the request stays
         // byte-stable across runs.
         [
@@ -292,7 +293,7 @@ struct CloudTuiCommandLine: Sendable {
     /// its registry; a daemon that only knows UUIDv4 host ids rejects both
     /// spellings the same way (`invalid_terminal_id`), and the resolver then
     /// reads the authoritative snapshot instead.
-    static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
+    public static func resolveTerminalArguments(socketPath: String, terminalID: String) -> [String]? {
         let payload = terminalID.hasPrefix("term_")
             ? String(terminalID.dropFirst("term_".count))
             : terminalID
@@ -312,7 +313,7 @@ struct CloudTuiCommandLine: Sendable {
 
     /// Returns the raw `identify` command used to negotiate the daemon protocol
     /// before selecting a compatibility-only resolver path.
-    static func identifyArguments(socketPath: String) -> [String]? {
+    public static func identifyArguments(socketPath: String) -> [String]? {
         rawCommandArguments(
             socketPath: socketPath,
             request: ["id": 1, "cmd": "identify"]
@@ -322,7 +323,7 @@ struct CloudTuiCommandLine: Sendable {
     /// Lists the VM host's listening TCP sockets through the authenticated
     /// cmux-tui link. This is part of the private data path, not VM provider
     /// exec or the web control plane.
-    static func listeningPortsArguments(socketPath: String) -> [String]? {
+    public static func listeningPortsArguments(socketPath: String) -> [String]? {
         [
             "--socket", socketPath,
             "--json", "raw", "command",
@@ -352,7 +353,7 @@ struct CloudTuiCommandLine: Sendable {
     /// Pushing this Mac's resolved Ghostty colors makes remote panes match the local
     /// theme. (The flat `set-default-colors` verb in spec/commands.md is the protocol
     /// name; the v2 resource CLI rejects it — verified live against a machine.)
-    static func setDefaultColorsArguments(socketPath: String, foreground: String?, background: String?) -> [String]? {
+    public static func setDefaultColorsArguments(socketPath: String, foreground: String?, background: String?) -> [String]? {
         var arguments = ["--socket", socketPath, "--json", "session", "current", "terminal", "defaults", "set"]
         if let foreground { arguments += ["--foreground", foreground] }
         if let background { arguments += ["--background", background] }
@@ -361,23 +362,23 @@ struct CloudTuiCommandLine: Sendable {
 
     /// The argv `vm.terminal_new` runs in the machine when the caller gives none: a login
     /// shell in the persistent home.
-    static let defaultTerminalCommand = ["bash", "-l"]
+    public static let defaultTerminalCommand = ["bash", "-l"]
 
     /// A `cwd` wraps the command so it starts there; the remote shell does the `cd`.
-    static func commandStartingIn(cwd: String?, command: [String]) -> [String] {
+    public static func commandStartingIn(cwd: String?, command: [String]) -> [String] {
         guard let cwd = cwd?.trimmingCharacters(in: .whitespacesAndNewlines), !cwd.isEmpty else { return command }
         let quoted = command.map(shellQuote).joined(separator: " ")
         return ["sh", "-lc", "cd \(shellQuote(cwd)) && exec \(quoted)"]
     }
 
     /// The pane's initial command for a local terminal showing one remote terminal.
-    static func attachShellCommand(clientPath: String, socketPath: String, terminalID: String) -> String {
+    public static func attachShellCommand(clientPath: String, socketPath: String, terminalID: String) -> String {
         ([clientPath] + attachArguments(socketPath: socketPath, terminalID: terminalID))
             .map(shellQuote)
             .joined(separator: " ")
     }
 
-    static func shellQuote(_ value: String) -> String {
+    public static func shellQuote(_ value: String) -> String {
         if value.isEmpty { return "''" }
         if value.range(of: "^[A-Za-z0-9_./:@%+=,-]+$", options: .regularExpression) != nil {
             return value

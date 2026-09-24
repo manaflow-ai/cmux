@@ -2,12 +2,12 @@ import CmuxTerminal
 import Foundation
 
 /// A cell grid sampled from the native Ghostty pane.
-struct CloudTuiManualIOGrid: Equatable, Sendable {
-    let columns: Int
-    let rows: Int
+public struct CloudTuiManualIOGrid: Equatable, Sendable {
+    public let columns: Int
+    public let rows: Int
 
     /// Creates a bounded, usable terminal grid.
-    init?(columns: Int, rows: Int) {
+    public init?(columns: Int, rows: Int) {
         guard (2...10_000).contains(columns), (2...10_000).contains(rows) else {
             return nil
         }
@@ -19,7 +19,7 @@ struct CloudTuiManualIOGrid: Equatable, Sendable {
     /// the hidden 800×600 startup window before AppKit lays out the real pane;
     /// checking the reported pixel size against the attached view keeps that
     /// transient grid from becoming the remote PTY's authority.
-    init?(
+    public init?(
         sample: TerminalSurfaceRawSizingSample,
         validatePanePixels: Bool
     ) {

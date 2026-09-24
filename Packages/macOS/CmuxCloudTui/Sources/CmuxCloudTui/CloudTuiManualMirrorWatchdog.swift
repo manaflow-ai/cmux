@@ -7,21 +7,21 @@ import Foundation
 /// probed with `ping`. The watchdog only measures time; the owning session
 /// decides every transition on the main actor when an expiry is reported.
 @MainActor
-final class CloudTuiManualMirrorWatchdog {
+public final class CloudTuiManualMirrorWatchdog {
     private let deadlines: CloudTuiManualMirrorDeadlines
     private let clock: any Clock<Duration>
     private var task: Task<Void, Never>?
     private var framesSinceCheck = 0
     private var probeAnswered = false
 
-    init(deadlines: CloudTuiManualMirrorDeadlines, clock: any Clock<Duration>) {
+    public init(deadlines: CloudTuiManualMirrorDeadlines, clock: any Clock<Duration>) {
         self.deadlines = deadlines
         self.clock = clock
     }
 
     /// Starts the handshake deadline. `onExpiry` fires once if it elapses
     /// before ``armLiveness(probe:onExpiry:)`` or ``cancel()`` replaces it.
-    func armHandshake(onExpiry: @escaping @MainActor () -> Void) {
+    public func armHandshake(onExpiry: @escaping @MainActor () -> Void) {
         task?.cancel()
         let deadline = deadlines.handshake
         task = Task { @MainActor [clock] in
@@ -39,7 +39,7 @@ final class CloudTuiManualMirrorWatchdog {
     /// `livenessInterval` without a frame, `probe` is sent; if neither a frame
     /// nor ``noteProbeAnswered()`` arrives within `livenessAnswer`, `onExpiry`
     /// fires once and monitoring stops.
-    func armLiveness(
+    public func armLiveness(
         probe: @escaping @MainActor () -> Void,
         onExpiry: @escaping @MainActor () -> Void
     ) {
@@ -79,15 +79,15 @@ final class CloudTuiManualMirrorWatchdog {
     }
 
     /// Any inbound frame proves the stream is alive.
-    func noteFrame() {
+    public func noteFrame() {
         framesSinceCheck += 1
     }
 
-    func noteProbeAnswered() {
+    public func noteProbeAnswered() {
         probeAnswered = true
     }
 
-    func cancel() {
+    public func cancel() {
         task?.cancel()
         task = nil
     }
