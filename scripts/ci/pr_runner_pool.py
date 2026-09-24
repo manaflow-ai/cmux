@@ -130,8 +130,8 @@ SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # A pull request run holds several macOS machines at once, each job on its
 # own. Beside compile admission run the Claude wrapper, CLI pipe and remote
 # daemon lanes; once admission passes, a full suite adds tests-build-and-lag
-# there. On an owned pick the app-host shards and cli-product-tests go to the
-# Blacksmith pool pr_retry_runner names, so they are not counted. A run takes
+# there. The app-host shards and cli-product-tests are placed later, on free
+# minis first (owned_shard_placement.py), so they are not counted. A run takes
 # an owned pool only when its own peak (run_jobs) is free, so none of its
 # jobs queues there. A
 # run whose peak is unknown is charged MAX_RUN_JOBS. A run created since the
@@ -144,7 +144,7 @@ SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
 # is refused or queued, and moved to Blacksmith by ci-owned-pool-rescue.yml.
 SIDE_LANES = 3
 # The most machines a run holds on the pool it picked: every side lane beside
-# compile admission. Its shards run on Blacksmith (run_jobs).
+# compile admission. Its shards are placed later (run_jobs).
 MAX_RUN_JOBS = SIDE_LANES + 1
 REPLAYED_RUN_JOBS = SIDE_LANES + 1
 # A snapshot older than this is not trusted to place a run on an owned pool.
@@ -245,9 +245,10 @@ def run_jobs(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
     stay on the pool the run picked: compile admission (assumed to run, since
     the reuse checks come later) beside the side lanes, then
     tests-build-and-lag after it for a full suite. The app-host shards and
-    cli-product-tests take pr_retry_runner, the Blacksmith pool on the same
-    Xcode, whenever the pick is an owned pool (ci-macos.yml), so a full
-    suite's fan-out never has to fit on the minis.
+    cli-product-tests are placed once admission is done, each on a free mini
+    first and on pr_retry_runner (Blacksmith, same Xcode) only when none is
+    free (owned_shard_placement.py), so a full suite's fan-out never has to
+    fit on the minis for the run to compile there.
     """
     side = sum(flag(lane) for lane in (cli, remote_daemon))
     full = flag(macos) and flag(full_suite)
