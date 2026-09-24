@@ -1,0 +1,65 @@
+name: exp checkout shape bench
+# Throwaway measurement for app-host consumer checkout shape. Not for merge.
+on:
+  push:
+    branches: [exp/checkout-shape-bench]
+permissions:
+  contents: read
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [blacksmith-6vcpu-macos-15, blacksmith-6vcpu-macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - name: full-1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {persist-credentials: false, path: full-1}
+      - name: sparse-1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          path: sparse-1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/web/public/
+            !/docs/assets/
+            !/cmux-tui/
+            !/ios/
+      - name: full-2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {persist-credentials: false, path: full-2}
+      - name: sparse-2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          path: sparse-2
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/web/public/
+            !/docs/assets/
+            !/cmux-tui/
+            !/ios/
+      - name: full-3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: {persist-credentials: false, path: full-3}
+      - name: sparse-3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          path: sparse-3
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/web/public/
+            !/docs/assets/
+            !/cmux-tui/
+            !/ios/
+      - name: Report
+        run: |
+          for d in full-1 sparse-1; do echo "$d files=$(git -C $d ls-files -t | grep -c '^H') git=$(du -sk $d/.git | cut -f1)KiB rev=$(git -C $d rev-parse HEAD) status=$(git -C $d status --porcelain | wc -l)"; done
+          test -f sparse-1/web/data/cmux.schema.json && test ! -e sparse-1/web/public && test -f sparse-1/tests/test_vm_scp.py && echo sparse-shape-ok
