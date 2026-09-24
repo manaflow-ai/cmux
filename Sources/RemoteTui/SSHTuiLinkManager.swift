@@ -1,4 +1,5 @@
 import Foundation
+import CmuxCore
 
 /// Owns one SSH carrier and shares it between native projections and control requests.
 actor SSHTuiLinkManager: RemoteTuiLinkManaging {
@@ -6,19 +7,22 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
     private let connection: SSHTuiConnection
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
+    private let isEnabled: @Sendable () -> Bool
     private var current: CloudMachineLink?
     private var connecting: Task<CloudMachineLink.Connected, Error>?
     private var browser: CloudBrowserProxyProcess?
     private var browserStarting: Task<CloudBrowserProxyEndpoint, Error>?
 
-    init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths) {
+    init(connection: SSHTuiConnection, clientURL: URL, paths: CloudTuiClientPaths, isEnabled: @escaping @Sendable () -> Bool) {
         self.connection = connection
         self.clientURL = clientURL
         self.paths = paths
+        self.isEnabled = isEnabled
     }
 
     func connected(machineID: String) async throws -> CloudMachineLink.Connected {
         guard machineID == connection.id else { throw CancellationError() }
+        guard isEnabled() else { await disconnect(); throw CancellationError() }
         if let current, await current.isConnected, let ready = await current.connected { return ready }
         if let connecting { return try await connecting.value }
         let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
@@ -32,7 +36,7 @@ actor SSHTuiLinkManager: RemoteTuiLinkManaging {
         defer { if connecting == attempt { connecting = nil } }
         do {
             let ready = try await attempt.value
-            guard connecting == attempt, !attempt.isCancelled else { throw CancellationError() }
+            guard connecting == attempt, !attempt.isCancelled, isEnabled() else { throw CancellationError() }
             return ready
         } catch {
             await link.disconnect()

@@ -16,6 +16,10 @@ final class SSHTuiWorkspaceCoordinator {
     }
 
     func connect(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
+        for projection in catalog.projections where projection.workspaceID == workspace.id && projection.resource.machine.isSSH {
+            let provider = catalog.provider(for: projection.resource.machine) as? CmuxTuiSurfaceProvider
+            _ = provider?.manualMirrorSessions[projection.panelID]?.retryConnection()
+        }
         attempts.removeValue(forKey: workspace.id)?.cancel()
         let attemptID = UUID()
         workspace.sshTuiConnectionAttemptID = attemptID
@@ -38,7 +42,8 @@ final class SSHTuiWorkspaceCoordinator {
         let machine = SurfaceMachineID(rawValue: connection.id)
         if let existing = catalog.provider(for: machine) as? CmuxTuiSurfaceProvider { return existing }
         guard let clientURL = clientURL() else { throw CloudMachineLink.LinkError.clientMissing }
-        let links = SSHTuiLinkManager(connection: connection, clientURL: clientURL, paths: paths)
+        let links = SSHTuiLinkManager(connection: connection, clientURL: clientURL, paths: paths,
+                                     isEnabled: { ManagedRemoteConnectionsPolicy.isEnabled })
         let provider = CmuxTuiSurfaceProvider(summary: .ssh(connection), links: links, catalog: catalog)
         catalog.register(provider)
         return provider
@@ -66,7 +71,7 @@ final class SSHTuiWorkspaceCoordinator {
             }
         }
         guard await provider.refreshCurrentGraph(force: false) else {
-            throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkError ?? "SSH connection unavailable")
+            throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkError ?? CloudDiagnosticFailure.network.label)
         }
         try requireCurrent(workspace: workspace, attemptID: attemptID)
         if !configuration.preserveAfterTerminalExit {
@@ -150,8 +155,11 @@ final class SSHTuiWorkspaceCoordinator {
         workspace.sshTuiConnectionAttemptID = nil
         attempts.removeValue(forKey: workspace.id)?.cancel()
         for projection in catalog.projections where projection.workspaceID == workspace.id && projection.resource.machine.isSSH {
-            (catalog.provider(for: projection.resource.machine) as? CmuxTuiSurfaceProvider)?
-                .manualMirrorSessions[projection.panelID]?.stop()
+            let provider = catalog.provider(for: projection.resource.machine) as? CmuxTuiSurfaceProvider
+            _ = provider?.manualMirrorSessions[projection.panelID]?.cancelConnectionAttempt()
+            if !ManagedRemoteConnectionsPolicy.isEnabled, let manager = provider?.links as? SSHTuiLinkManager {
+                Task { await manager.disconnect() }
+            }
         }
     }
 }

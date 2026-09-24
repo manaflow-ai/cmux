@@ -8,7 +8,7 @@ extension TerminalController {
         if let error = selection.error { return error }
         let all = params["all_workspaces"] as? Bool ?? false
         if all && selection.workspaceId != nil {
-            return .err(code: "invalid_params", message: "all_workspaces cannot be combined with workspace_id", data: nil)
+            return v2WorkspaceRemotePTYSessions(params: params)
         }
         let workspaces: [Workspace]
         if all {
@@ -23,23 +23,30 @@ extension TerminalController {
         }
         var sessions: [[String: Any]] = []
         var errors: [[String: Any]] = []
+        var listedMachines = Set<SurfaceMachineID>()
         let catalog = SurfaceCatalog.shared
         for workspace in workspaces {
             guard let configuration = workspace.remoteConfiguration,
                   let coordinator = AppDelegate.shared?.sshTuiWorkspaceCoordinator else { continue }
             do {
                 let provider = try coordinator.provider(connection: SSHTuiConnection(configuration: configuration))
+                if all, !listedMachines.insert(provider.machine).inserted { continue }
                 guard await provider.refreshCurrentGraph(force: false) else {
-                    throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkError ?? "SSH session unavailable")
+                    throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkError ?? CloudDiagnosticFailure.network.label)
                 }
                 let remoteWorkspace = workspace.cloudVMBinding?.remoteWorkspaceID
                 for resource in catalog.authoritativeSnapshot.resources(on: provider.machine) where resource.kind == .terminal {
-                    guard remoteWorkspace.map({ id in resource.remoteWorkspaces.contains { $0.id == id } }) == true
+                    guard all || resource.isDetachedTerminal || remoteWorkspace.map({ id in resource.remoteWorkspaces.contains { $0.id == id } }) == true
                             || catalog.projections(of: resource.id).contains(where: { $0.workspaceID == workspace.id }) else { continue }
+                    let owner = all ? workspaces.first(where: { candidate in
+                        guard candidate.cloudVMBinding?.vmID == provider.machine.rawValue,
+                              let remote = candidate.cloudVMBinding?.remoteWorkspaceID else { return false }
+                        return resource.remoteWorkspaces.contains { $0.id == remote }
+                    }) ?? workspace : workspace
                     sessions.append([
                         "session_id": resource.id.key, "resource": resource.id.rawValue, "backend": "cmux-tui",
-                        "workspace_id": workspace.id.uuidString, "workspace_title": workspace.title,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                        "workspace_id": owner.id.uuidString, "workspace_title": owner.title,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: owner.id),
                         "running": resource.lifecycle == .running || resource.lifecycle == .launching,
                         "title": resource.title, "cwd": resource.detail ?? "",
                     ])
