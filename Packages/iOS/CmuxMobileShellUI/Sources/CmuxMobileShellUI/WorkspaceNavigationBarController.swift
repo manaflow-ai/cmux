@@ -106,19 +106,15 @@ final class WorkspaceNavigationBarController: UIViewController {
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
         let isLandscape = target.view.bounds.width > target.view.bounds.height
         for value in leadingGroup.barButtonItems {
-            guard let control = value.customView as? WorkspaceNavigationControlView else { continue }
-            control.update(
+            (value.customView as? WorkspaceNavigationControlView)?.update(
                 placement: .leading,
-                isLandscape: isLandscape,
-                visualOffset: isLandscape ? -2 : 0
+                isLandscape: isLandscape
             )
         }
         for value in trailingGroup.barButtonItems {
-            guard let control = value.customView as? WorkspaceNavigationControlView else { continue }
-            control.update(
+            (value.customView as? WorkspaceNavigationControlView)?.update(
                 placement: .trailing,
-                isLandscape: isLandscape,
-                visualOffset: isLandscape ? trailingVisualOffset(for: value) : 0
+                isLandscape: isLandscape
             )
         }
         item.style = .browser
@@ -132,18 +128,6 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         if item.pinnedTrailingGroup !== trailingGroup {
             item.pinnedTrailingGroup = trailingGroup
-        }
-    }
-
-    private func trailingVisualOffset(for value: UIBarButtonItem) -> CGFloat {
-        guard let id = controls.first(where: { $0.value.button === value })?.key else { return 0 }
-        switch id {
-        case .changes:
-            return 4
-        case .terminals:
-            return 8
-        default:
-            return 0
         }
     }
 
