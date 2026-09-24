@@ -61,6 +61,10 @@ from queue_janitor import (  # noqa: E402
     linux_only_workflow_paths,
     parse_time,
 )
+from runner_label_policy import (  # noqa: E402
+    PolicyUnreadable,
+    drifted_runner_variables,
+)
 
 
 API = "https://api.github.com"
@@ -593,6 +597,60 @@ def paid_runner_minutes(
     return jobs, minutes, breakdown
 
 
+RUNNER_VARIABLES_ENV = "CMUX_CI_RUNNER_VARIABLES"
+
+
+def _runner_variable_drift_lines() -> list[str]:
+    """What the runner repository variables currently hold, if we can see them.
+
+    Everything else in this report is measured from jobs that already ran, so
+    it can only show drift after the minutes are spent. This shows the
+    configuration itself, which is the only way to catch a variable that has
+    been repointed but whose lane has not fired yet.
+
+    The workflow passes one `NAME=value` line per runner variable, read from
+    the expression context, because a variable's value is readable there
+    without any token scope -- this report's token is deliberately
+    `actions: read` and cannot query the variables API. When the environment
+    variable is absent (a local run, or an older workflow), say so rather than
+    claiming the configuration is clean.
+    """
+    raw = os.environ.get(RUNNER_VARIABLES_ENV, "").strip()
+    if not raw:
+        return [
+            "**Runner variable values:** not checked — "
+            f"`{RUNNER_VARIABLES_ENV}` was not set for this run."
+        ]
+    variables = {}
+    for line in raw.splitlines():
+        name, separator, value = line.strip().partition("=")
+        if not separator or not name:
+            return [f"**Runner variable values:** unreadable (line {_escape(line.strip())!r})."]
+        variables[name] = value
+
+    try:
+        drifted = drifted_runner_variables(variables)
+    except PolicyUnreadable as error:
+        return [f"**Runner variable values:** policy unreadable ({_escape(str(error))})."]
+
+    if not drifted:
+        return [
+            "**Runner variable values:** every runner variable holds a label "
+            "`tests/test_ci_self_hosted_guard.sh` would accept in a workflow."
+        ]
+    detail = "; ".join(
+        f"`{_escape(name)}` = `{_escape(value)}` ({reason})"
+        for name, value, reason in drifted
+    )
+    return [
+        f"**Runner variable values:** {len(drifted)} variable(s) hold a label "
+        f"that would fail `check_no_self_hosted_fleet_runners` if it appeared in "
+        f"a workflow file — {detail}. Nothing lints variable values, so this is "
+        "the only place it shows up; fix with `gh variable set`, or widen the "
+        "allow-list in that guard if the label is genuinely approved."
+    ]
+
+
 def fork_runs_without_cache(rows: Iterable[JobRow]) -> tuple[int, float]:
     """Jobs from forks and the minutes they spent.
 
@@ -1060,6 +1118,10 @@ def render_report(
         lines.append(
             "**Paid runner capacity:** none in the window."
         )
+    lines.append("")
+
+    for line in _runner_variable_drift_lines():
+        lines.append(line)
     lines.append("")
 
     fork_jobs, fork_minutes = fork_runs_without_cache(current.rows)

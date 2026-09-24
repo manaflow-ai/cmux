@@ -213,6 +213,25 @@ struct CloudManualMirrorPresentationTests {
     }
 
     @Test @MainActor
+    func explicitDisconnectCanPauseAndResumeALostSSHAttachment() {
+        var refreshes = 0
+        let session = CloudTuiManualMirrorSession(
+            machineID: "ssh:fixture", terminalID: "term_persistent", remoteSurfaceID: 17,
+            onNeedsReconnect: { refreshes += 1 }
+        )
+        defer { session.stop() }
+        session.markSurfaceResolutionUnavailable()
+        #expect(session.phase == .disconnected)
+        #expect(session.cancelConnectionAttempt())
+        session.visibilityChanged(true)
+        #expect(!session.allowsAutomaticReconnect)
+        #expect(refreshes == 0)
+        #expect(session.retryConnection())
+        #expect(session.allowsAutomaticReconnect)
+        #expect(refreshes == 1)
+    }
+
+    @Test @MainActor
     func progressCardDismissalInvokesCancellationCallback() throws {
         let owner = CloudTerminalOverlayCoordinator()
         let destination = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
