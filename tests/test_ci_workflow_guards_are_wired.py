@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -81,9 +82,16 @@ def workflow_guards() -> set[str]:
 
 
 def invoked_by_workflows() -> set[str]:
+    sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    import workload_entrypoints
+
     invoked = set()
     for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
-        invoked.update(INVOKED_PATH.findall(workflow.read_text(encoding="utf-8")))
+        text = workflow.read_text(encoding="utf-8")
+        invoked.update(INVOKED_PATH.findall(text))
+        # A workload profile step runs everything its entrypoint names.
+        for _, script in workload_entrypoints.entrypoints(text, ROOT):
+            invoked.update(INVOKED_PATH.findall(script))
     return invoked
 
 
