@@ -590,6 +590,21 @@ test("macOS and iOS reloads share the dev API backend override", () => {
   assert.match(iosReload, /explicit_base_url=.*CMUX_DEV_API_BASE_URL/);
 });
 
+test("tagged macOS launches require a personal credential file by default", () => {
+  const macReload = fs.readFileSync(path.join(repoRoot, "scripts/reload.sh"), "utf8");
+
+  assert.match(macReload, /tagged launches require authenticated dev credentials/u);
+  assert.match(macReload, /cmuxterm-dev\.env.*cmux\.env/su);
+  assert.match(macReload, /AUTH_PROFILE="personal"/u);
+});
+
+test("bundle launches clear inherited tagged runtime state", () => {
+  const launcher = fs.readFileSync(path.join(repoRoot, "scripts/launch-bundle-app.swift"), "utf8");
+
+  assert.match(launcher, /runtimeEnvironmentPrefixes = \["CMUX_", "GHOSTTY_"\]/u);
+  assert.match(launcher, /removeValue\(forKey: "CMUXD_UNIX_PATH"\)/u);
+});
+
 test("iOS Simulator defaults to its tagged localhost API", () => {
   const result = resolveIOSAPIBaseURL("simulator", { CMUX_PORT: "4123" });
   assert.equal(result.status, 0, result.stderr);
@@ -681,15 +696,15 @@ test("cloud physical-device archives bake staging origins with override escape h
   assert.match(workflow, /CMUX_IROH_BROKER_BASE_URL="\$iroh_broker_base_url"/);
 });
 
-test("physical-device mint rejects a ticket with only plaintext Tailscale routes", async () => {
+test("physical-device mint accepts the authenticated Tailscale fallback", async () => {
   const result = await mintAttachURL(
     "physical_device",
     [attachPayload("tailscale"), attachPayload("tailscale")],
     2,
   );
-  assert.equal(result.status, 2);
-  assert.equal(result.stdout, "");
-  assert.equal(result.callCount, 2);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, attachPayload("tailscale").attach_url);
+  assert.equal(result.callCount, 1);
 });
 
 test("physical-device mint waits for asynchronous Iroh publication", async () => {

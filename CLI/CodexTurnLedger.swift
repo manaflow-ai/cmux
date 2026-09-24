@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 
 /// Durable, bounded owner and settlement state for Codex hooks.
 ///
@@ -43,19 +44,57 @@ final class CodexTurnLedger {
         fileManager: FileManager = .default
     ) {
         let rawPath = Self.normalized(environment[CodexHookInvocation.ledgerPathEnvironmentKey])
+            .map { Self.homeExpandedPath($0, environment: environment) }
             ?? Self.normalized(environment["CMUX_AGENT_HOOK_STATE_DIR"]).map {
-                URL(fileURLWithPath: NSString(string: $0).expandingTildeInPath, isDirectory: true)
+                URL(
+                    fileURLWithPath: Self.homeExpandedPath($0, environment: environment),
+                    isDirectory: true
+                )
                     .appendingPathComponent(Self.defaultFilename, isDirectory: false)
                     .path
             }
-            ?? URL(fileURLWithPath: "~/.cmuxterm", isDirectory: true)
+            ?? URL(
+                fileURLWithPath: Self.homeExpandedPath("~/.cmuxterm", environment: environment),
+                isDirectory: true
+            )
                 .appendingPathComponent(Self.defaultFilename, isDirectory: false)
                 .path
-        self.path = NSString(string: rawPath).expandingTildeInPath
+        self.path = rawPath
         self.fileManager = fileManager
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
+
+    private static func homeExpandedPath(
+        _ rawPath: String,
+        environment: [String: String]
+    ) -> String {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed == "~" || trimmed.hasPrefix("~/") else { return trimmed }
+
+        if let home = normalized(environment["HOME"]),
+           home.hasPrefix("/") {
+            guard trimmed != "~" else { return home }
+            return URL(fileURLWithPath: home, isDirectory: true)
+                .appendingPathComponent(String(trimmed.dropFirst(2)), isDirectory: false)
+                .path
+        }
+        return NSString(string: trimmed).expandingTildeInPath
+    }
     deinit {}
+
+    func isCurrent(sessionID: String, surfaceID: String) throws -> Bool {
+        guard let normalizedSessionID = Self.normalized(sessionID),
+              let normalizedSurfaceID = Self.normalized(surfaceID) else {
+            return false
+        }
+        return try withLockedState(persist: false) { state in
+            guard let ownerSessionID = state.surfaceOwners[normalizedSurfaceID] else {
+                return true
+            }
+            return ownerSessionID == normalizedSessionID
+        }
+    }
+
     func sessionStart(
         sessionID: String,
         workspaceID: String?,

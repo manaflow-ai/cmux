@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import os
@@ -348,7 +349,8 @@ struct AgentHibernationTerminationFailureTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: [],
             processIDs: [],
-            processIdentities: [:]
+            processIdentities: [:],
+            processLiveness: .unknown
         )
 
         #expect(record.hasPressureSafeProcessEvidence == false)
@@ -538,7 +540,8 @@ struct AgentHibernationTerminationFailureTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: processIDs,
             processIDs: processIDs,
-            processIdentities: processIdentities
+            processIdentities: processIdentities,
+            processLiveness: .unknown
         )
 
         #expect(record.hasPressureSafeProcessEvidence == false)
@@ -574,7 +577,8 @@ struct AgentHibernationTerminationFailureTests {
             containsUnrelatedProcess: false,
             panelProcessIDs: processIDs,
             processIDs: processIDs,
-            processIdentities: mismatchedIdentities
+            processIdentities: mismatchedIdentities,
+            processLiveness: .unknown
         )
         let entry = RestorableAgentSessionIndex.Entry(
             snapshot: record.agent,

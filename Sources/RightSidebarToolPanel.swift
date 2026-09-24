@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CmuxAppKitSupportUI
+import CmuxCloudMachines
 import SwiftUI
 
 @MainActor
@@ -103,7 +104,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         inPane: paneId,
                         filePaths: [localURL.path],
                         focus: true,
-                        reuseExisting: true
+                        reuseExisting: true,
+                        duplicateWhenFocused: true
                     )
                 } catch {
                     NSSound.beep()
@@ -115,7 +117,8 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             inPane: paneId,
             filePaths: [filePath],
             focus: true,
-            reuseExisting: true
+            reuseExisting: true,
+            duplicateWhenFocused: true
         )
     }
 
@@ -302,7 +305,15 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
-        case .feed, .dock, .machines, .customSidebar:
+        case .machines:
+            if isVisibleInUI, RightSidebarMode.machines.isAvailable() {
+                MachinesPanelView(
+                    chromeBackgroundColor: resolvedChromeBackgroundColor,
+                    machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
+                    tabManager: tabManager
+                )
+            }
+        case .feed, .dock, .customSidebar:
             EmptyView()
         }
     }

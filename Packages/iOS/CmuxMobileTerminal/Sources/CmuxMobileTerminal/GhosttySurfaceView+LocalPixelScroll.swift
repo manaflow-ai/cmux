@@ -89,7 +89,7 @@ extension GhosttySurfaceView {
         #if DEBUG
         let enqueuedAt = CACurrentMediaTime()
         #endif
-        workQueue.async { [weak self] in
+        workQueue.asyncPriority { [weak self] in
             #if DEBUG
             let batchStartedAt = CACurrentMediaTime()
             #endif
@@ -169,6 +169,7 @@ extension GhosttySurfaceView {
         operation: LocalPixelScrollSurfaceOperation,
         deltaPixels: Double,
         rebaseFromHeldPosition: Bool,
+        // Carve-out: the gesture snapshot must be read atomically inside this synchronous libghostty batch.
         pixelState: OSAllocatedUnfairLock<LocalPixelScrollState>,
         // lint:allow lock - the view's cumulative push counter threaded to the
         // serial batch; same discipline as pixelState above.
@@ -308,7 +309,7 @@ extension GhosttySurfaceView {
 }
 
 /// One generation-bound pointer used only on its serial Ghostty surface queue.
-private nonisolated struct LocalPixelScrollSurfaceOperation: @unchecked Sendable {
+private struct LocalPixelScrollSurfaceOperation: @unchecked Sendable {
     // Safety: the surface stays owned by GhosttySurfaceView, and every C call
     // using this pointer is enqueued on that generation's serial output queue.
     let surface: ghostty_surface_t

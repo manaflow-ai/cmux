@@ -19,7 +19,7 @@ import Testing
 /// after the capture block must be replayed exactly once after pane state.
 @MainActor
 @Suite struct RemoteTmuxPaneSeedTransportTests {
-    @Test func peerDetachReplaysEveryRecordedSizeClaimInStableOrder() throws {
+    @Test(.timeLimit(.minutes(1))) func peerDetachReplaysEveryRecordedSizeClaimInStableOrder() async throws {
         let fixture = attachedConnection()
         defer { fixture.close() }
 
@@ -30,16 +30,17 @@ import Testing
         ]
         fixture.connection.sentWindowSizes = fixture.connection.lastWindowSizes
         fixture.connection.windowClaimParityRearmsSpent = [3: 1, 9: 3]
-        _ = fixture.pipe.fileHandleForReading.availableData
-
         fixture.connection.handleMessageForTesting(
             .clientDetached(client: "/dev/pts/22")
         )
 
-        let commands = String(
-            decoding: fixture.pipe.fileHandleForReading.availableData,
-            as: UTF8.self
-        )
+        // Closing queues EOF after every command write, without blocking the main actor.
+        fixture.writer.close()
+        var commandBytes = Data()
+        for try await byte in fixture.pipe.fileHandleForReading.bytes {
+            commandBytes.append(byte)
+        }
+        let commands = String(decoding: commandBytes, as: UTF8.self)
         let envelope = try #require(commands.range(of: "refresh-client -C 242x62"))
         let window3 = try #require(
             commands.range(of: "refresh-client -C '@3:180x50'")
@@ -291,6 +292,12 @@ import Testing
             workspace: workspace
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         let snapshot = Data(repeating: UInt8(ascii: "x"), count: 9 * 1_024 * 1_024)
         sessionMirror.routeSeed(
@@ -333,6 +340,12 @@ import Testing
             workspace: workspace
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
             paneId: 7,
@@ -381,6 +394,12 @@ import Testing
             workspace: manager.selectedWorkspace!
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
             paneId: 7,
@@ -783,6 +802,12 @@ import Testing
             pendingPaneSeedByteLimit: 10
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7, 8], columns: 600, rows: 600)
 
         sessionMirror.routeSeed(
             paneId: 7,
@@ -1590,6 +1615,31 @@ import Testing
         }
     }
 
+    /// Re-publishes `windowId` with pane grids far larger than any surface in
+    /// these tests has applied, keeping the pane ids and their order. Seed
+    /// delivery waits for the published grid, so this models tmux running
+    /// ahead of the local terminal without spinning the run loop.
+    private func publishLaggingPaneGrid(
+        on connection: RemoteTmuxControlConnection,
+        windowId: Int,
+        paneIds: [Int],
+        columns: Int = 400,
+        rows: Int = 200
+    ) {
+        let leaves = paneIds.enumerated().map { index, paneId in
+            RemoteTmuxLayoutNode(
+                width: columns, height: rows, x: index * (columns + 1), y: 0, content: .pane(paneId)
+            )
+        }
+        let width = paneIds.count * columns + max(0, paneIds.count - 1)
+        let layout = leaves.count == 1
+            ? leaves[0]
+            : RemoteTmuxLayoutNode(width: width, height: rows, x: 0, y: 0, content: .horizontal(leaves))
+        connection.windowsByID[windowId] = RemoteTmuxWindow(
+            id: windowId, width: width, height: rows, layout: layout
+        )
+    }
+
     private func attachedConnection(
         pendingPaneSeedByteLimit: Int = RemoteTmuxControlConnection.maximumPendingPaneSeedBytes
     ) -> Fixture {
@@ -1789,7 +1839,9 @@ import Testing
 
         if condition() { return }
         GhosttyApp.shared.scheduleTick()
-        for await _ in events where !condition() {}
+        for await _ in events {
+            if condition() { return }
+        }
     }
 
     private func readTerminalText(
@@ -1889,6 +1941,12 @@ import Testing
             pendingPaneSeedByteLimit: 64
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
             paneId: 7,
@@ -1941,6 +1999,12 @@ import Testing
             pendingPaneSeedByteLimit: 64
         )
         defer { sessionMirror.detachObserver() }
+        // A manual-I/O mirror pane spawns eagerly in its hidden bootstrap
+        // window and renders the grid the mirror assigned it before this seed
+        // arrives, so a seed against that grid would be delivered on the spot.
+        // Publish a larger pane grid than any surface here has applied; the
+        // retention under test exists for exactly that lag.
+        publishLaggingPaneGrid(on: fixture.connection, windowId: 1, paneIds: [7])
 
         sessionMirror.routeSeed(
             paneId: 7,

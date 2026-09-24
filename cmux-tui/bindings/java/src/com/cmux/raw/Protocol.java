@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8";
+    public static final String IR_SHA256 = "133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -25,6 +25,7 @@ public final class Protocol {
             case "client-list-invalidated" -> ClientListInvalidatedEvent.fromWire(value);
             case "colors-changed" -> ColorsChangedEvent.fromWire(value);
             case "config-reload-requested" -> ConfigReloadRequestedEvent.fromWire(value);
+            case "daemon-shutdown" -> DaemonShutdownEvent.fromWire(value);
             case "detached" -> DetachedEvent.fromWire(value);
             case "empty" -> EmptyEvent.fromWire(value);
             case "frame" -> FrameEvent.fromWire(value);
@@ -57,6 +58,7 @@ public final class Protocol {
             case "terminal-registry-changed" -> TerminalRegistryChangedEvent.fromWire(value);
             case "title-changed" -> TitleChangedEvent.fromWire(value);
             case "tree-changed" -> TreeChangedEvent.fromWire(value);
+            case "url-open" -> UrlOpenEvent.fromWire(value);
             case "vt-state" -> VtStateEvent.fromWire(value);
             case "window-title-requested" -> WindowTitleRequestedEvent.fromWire(value);
             case "workspace-added" -> WorkspaceAddedEvent.fromWire(value);

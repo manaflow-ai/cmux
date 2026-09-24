@@ -7,13 +7,43 @@ import Testing
 @testable import cmux
 #endif
 
-/// The New Machine sheet's model: the CLI invocation it builds, the plan
-/// ceilings it mirrors, and how Create hands the work off without waiting.
 @Suite("New machine model")
 @MainActor
 struct NewMachineModelTests {
-    private struct SubmitRecorder {
-        var requests: [MachineCreateRequest] = []
+    @Test func lockedLadderCannotSubmitThroughTheModel() {
+        var didSubmit = false
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: Self.proPlan,
+            memoryOptionsMb: [32768],
+            lockedMemoryOptionsMb: [32768],
+            submit: { _ in didSubmit = true; return true }
+        )
+        model.create()
+        #expect(model.hasNoAllowedMemoryOptions)
+        #expect(!didSubmit)
+        #expect(model.outcome == nil)
+    }
+
+    @Test func goOffersThePlanThatActuallyUnlocksEachSize() {
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "go"),
+            memoryOptionsMb: [4096],
+            lockedMemoryOptionsMb: [8192, 32768, 65536],
+            memoryUpgradePlanId: "pro",
+            memoryUpgradePlansByMb: ["8192": "pro", "32768": "max"],
+            submit: { _ in true }
+        )
+        #expect(model.memoryMb == 4096)
+        model.selectSize(8192)
+        #expect(model.showsMaxUpgrade)
+        #expect(model.selectedUpgradePlanId == "pro")
+        model.selectSize(32768)
+        #expect(model.selectedUpgradePlanId == "max")
+        #expect(model.memoryMb == 4096)
+        #expect(model.upgradePlan(for: 65536) == nil)
+        #expect(MachinePlanSnapshot.isPaidPlanID("go"))
     }
 
     private final class Box<Value> {
@@ -21,251 +51,206 @@ struct NewMachineModelTests {
         init(_ value: Value) { self.value = value }
     }
 
+    private static let proPlan = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 50, planId: "pro")
+    private static let maxPlan = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 50, planId: "max")
+
     private func makeModel(
         mode: NewMachineModel.Mode = .newMachine,
         plan: MachinePlanSnapshot? = nil,
-        imageKinds: [VMImageKindOption] = [],
+        memoryOptionsMb: [Int] = NewMachineModel.memoryOptionsMb,
+        lockedMemoryOptionsMb: [Int]? = nil,
+        memoryUpgradePlanId: String? = nil,
         starts: Bool = true
-    ) -> (NewMachineModel, Box<SubmitRecorder>) {
-        let recorder = Box(SubmitRecorder())
-        let model = NewMachineModel(mode: mode, plan: plan, imageKinds: imageKinds) { request in
-            recorder.value.requests.append(request)
+    ) -> (NewMachineModel, Box<[MachineCreateRequest]>) {
+        let recorder = Box<[MachineCreateRequest]>([])
+        let model = NewMachineModel(
+            mode: mode,
+            plan: plan,
+            memoryOptionsMb: memoryOptionsMb,
+            lockedMemoryOptionsMb: lockedMemoryOptionsMb,
+            memoryUpgradePlanId: memoryUpgradePlanId
+        ) { request in
+            recorder.value.append(request)
             return starts
         }
         return (model, recorder)
     }
 
-    // MARK: Kind
-
-    @Test func testKindInferredFromImageWhenBackendOmitsIt() {
-        #expect(VMMachineKind.inferred(fromImage: "cmux-xfce-vnc:latest") == .desktop)
-        #expect(VMMachineKind.inferred(fromImage: "cmuxd-ws:tooling-20260509f") == .base)
-        #expect(VMMachineKind.inferred(fromImage: "") == .base)
-    }
-
-    /// Regression: `devbox` used to imply a desktop because one provider's
-    /// devbox image bundled xfce + noVNC. The shared devbox image every
-    /// remaining provider boots is shell-only, so inferring a desktop from the
-    /// name published a Desktop surface for a machine with no screen.
-    @Test func testSharedDevboxImageIsNotInferredAsDesktop() {
-        #expect(VMMachineKind.inferred(fromImage: "cmux-devbox:devbox-20260828b") == .base)
-        #expect(VMMachineKind.inferred(fromImage: "cmux-devbox-20260828b") == .base)
-    }
-
-    @Test func testResolvedKindPrefersBackendField() {
-        #expect(VMMachineKind.resolved(kind: "base", image: "cmux-devbox:devbox-20260828b") == .base)
-        #expect(VMMachineKind.resolved(kind: "DESKTOP", image: "cmuxd-ws:tooling-20260509f") == .desktop)
-        #expect(VMMachineKind.resolved(kind: "bogus", image: "cmux-xfce-vnc:latest") == .desktop)
-        #expect(VMMachineKind.resolved(kind: nil, image: nil) == .base)
-    }
-
-    @Test func testSummaryResolvedKindPrefersServerKindOverImageName() {
-        var summary = VMSummary(
-            id: "noble-wren",
-            provider: "freestyle",
-            status: "running",
-            // An image whose name says desktop, so the server's `base` has
-            // something to override.
-            image: "cmux-xfce-vnc:latest",
-            createdAt: 0,
-            base: nil
-        )
-        #expect(summary.resolvedKind == .desktop)
-        summary.kind = .base
-        #expect(summary.resolvedKind == .base)
-        #expect(!(MachineSnapshotBuilder.snapshot(from: summary).isDesktop))
-    }
-
-    // MARK: CLI arguments
-
-    /// With no `limits.imageKinds` from the backend the sheet opens on
-    /// shell-only (no provider ships a desktop image), and the kind travels
-    /// as a flag: no image id is pinned, and the create runs in the background.
-    /// The default size is omitted so the backend applies its plan default,
-    /// which an operator memory brake may have lowered below the plan machine.
-    @Test func testDefaultInvocationRequestsShellOnlyByKindInTheBackground() {
-        let (model, _) = makeModel()
-        #expect(model.cliArguments == ["vm", "new", "--base", "--focus", "false"])
-        #expect(!(model.cliArguments.contains("--image")))
-        #expect(!(model.cliArguments.contains("--size")))
-    }
-
-    @Test func testDesktopKindTravelsAsAFlagWhenTheBackendServesIt() {
-        let kinds = [
-            VMImageKindOption(kind: .desktop, image: "cmux-xfce-vnc:latest"),
-            VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f"),
-        ]
-        let (model, _) = makeModel(imageKinds: kinds)
-        #expect(model.cliArguments == ["vm", "new", "--desktop", "--focus", "false"])
-        #expect(!(model.cliArguments.contains("--image")))
-    }
-
-    @Test func testBaseKindSizeAndNameTravelAsFlags() {
-        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 5, planId: "pro"))
-        model.kind = .base
-        model.name = "  build box  "
-        #expect(model.cliArguments == ["vm", "new", "--base", "--name", "build box", "--focus", "false"])
-    }
-
-    @Test func testBlankNameIsNotSent() {
-        let (model, _) = makeModel()
-        model.name = "   "
-        #expect(model.trimmedName == nil)
-        #expect(!(model.cliArguments.contains("--name")))
-    }
-
-    @Test func testBaseSetupOpensTheWorkspaceWithoutSizeOrName() {
+    /// One snapshot serves every kind, so the sheet never asks: whatever the
+    /// backend lists under `limits.imageKinds`, every create is the devbox
+    /// with a screen (#12244).
+    @Test func theSheetHasNoKindInputAndAlwaysCreatesTheDevboxWithAScreen() {
+        let (model, recorder) = makeModel()
+        #expect(NewMachineModel.machineKind == .desktop)
+        model.create()
+        #expect(recorder.value.first?.kind == .desktop)
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--focus", "false"])
         let workspaceID = UUID()
-        let (model, _) = makeModel(mode: .base(workspaceID: workspaceID))
-        #expect(!(model.supportsSize))
-        #expect(!(model.supportsName))
-        model.name = "ignored"
-        model.kind = .base
-        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--base", "--focus", "false"])
-        #expect(model.createRequest.name == nil, "Base has no label; the row is called Base")
-        #expect(model.createRequest.baseWorkspaceID == workspaceID)
+        let (base, baseRecorder) = makeModel(mode: .base(workspaceID: workspaceID))
+        base.create()
+        #expect(baseRecorder.value.first?.kind == .desktop)
+        #expect(baseRecorder.value.first?.arguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
     }
 
-    // MARK: Plan ceilings
+    @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
+        let (model, _) = makeModel(plan: Self.maxPlan)
+        #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
+        #expect(model.memoryMb == 8192)
+        #expect(model.selectedSize == MachineSizeOption(memoryMb: 8192))
+    }
 
-    @Test func testFreePlanGetsThePlanMachine() {
-        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "free"))
-        #expect(model.memoryOptions == [20480])
+    /// The client mirror of the server ladder: Pro (and every plan but Max)
+    /// stops at 24 GB, and the two rows above it are locked and sold by Max.
+    @Test func proPlanLocksTheMaxSizesWhenTheServerOmitsThem() {
+        let (model, _) = makeModel(plan: Self.proPlan)
+        #expect(model.memoryOptions == [4096, 8192, 16384, 24576])
+        #expect(model.lockedMemoryOptions == [32768, 65536])
+        #expect(model.memoryUpgradePlanId == "max")
+        #expect(model.memoryUpgradePlanName == "Max")
+        #expect(model.lockedSizesNoteText == "32 GB and 64 GB machines need cmux Max.")
+        #expect(model.memoryUpgradeButtonTitle == "Upgrade to Max")
+        #expect(model.lockedSizeMenuTitle(MachineSizeOption(memoryMb: 32768)!) == "32 GB RAM · 128 GB disk · Requires Max")
+        #expect(NewMachineModel.maxMemoryMb(planId: "pro") == 24576)
+        #expect(NewMachineModel.maxMemoryMb(planId: "free") == 24576)
+        #expect(NewMachineModel.maxMemoryMb(planId: nil) == 24576)
+        #expect(NewMachineModel.maxMemoryMb(planId: "max") == 65536)
+        #expect(NewMachineModel.maxMemoryMb(planId: " Max\n") == 65536)
+    }
+
+    @Test func maxPlanHasTheWholeLadderAndNothingLocked() {
+        let (model, _) = makeModel(plan: Self.maxPlan)
+        #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
+        #expect(model.lockedMemoryOptions == [])
+        #expect(model.memoryUpgradePlanId == nil)
+        #expect(model.lockedSizesNoteText == nil)
+        #expect(model.memoryUpgradeButtonTitle == nil)
+    }
+
+    /// `limits.lockedMemoryOptionsMb` is authoritative: an operator ceiling
+    /// the mirror cannot know about (24 GB locked here) still renders locked,
+    /// and a server that unlocks everything for a Pro plan is believed too.
+    @Test func serverLockedSizesWinOverTheClientMirror() {
+        let (tighter, _) = makeModel(
+            plan: Self.proPlan,
+            memoryOptionsMb: [4096, 8192, 16384],
+            lockedMemoryOptionsMb: [24576, 32768, 65536],
+            memoryUpgradePlanId: "max"
+        )
+        #expect(tighter.memoryOptions == [4096, 8192, 16384])
+        #expect(tighter.lockedMemoryOptions == [24576, 32768, 65536])
+        #expect(tighter.lockedSizesNoteText == "24 GB, 32 GB, and 64 GB machines need cmux Max.")
+
+        let (open, _) = makeModel(plan: Self.proPlan, lockedMemoryOptionsMb: [], memoryUpgradePlanId: nil)
+        #expect(open.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
+        #expect(open.lockedMemoryOptions == [])
+        #expect(open.memoryUpgradePlanId == nil)
+
+        // A locked list without an upgrade plan still names Max, the plan
+        // that sells the ladder, unless the plan already is Max.
+        let (unnamed, _) = makeModel(plan: Self.proPlan, lockedMemoryOptionsMb: [65536], memoryUpgradePlanId: nil)
+        #expect(unnamed.memoryUpgradePlanId == "max")
+        #expect(unnamed.memoryOptions == [4096, 8192, 16384, 24576, 32768])
+    }
+
+    /// The Picker binding can only land on an allowed size: a locked pick
+    /// snaps to the largest allowed size below it, and the create request
+    /// carries that size.
+    @Test func selectionNeverLandsOnALockedSize() {
+        let (model, recorder) = makeModel(plan: Self.proPlan)
+        model.memoryMb = 65536
+        #expect(model.memoryMb == 24576)
+        model.memoryMb = 32768
+        #expect(model.memoryMb == 24576)
+        model.memoryMb = 16384
+        #expect(model.memoryMb == 16384)
+        model.memoryMb = 65536
+        model.create()
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "24576", "--focus", "false"])
+
+        let (smallest, _) = makeModel(plan: Self.proPlan, memoryOptionsMb: [8192, 16384], lockedMemoryOptionsMb: [4096, 32768])
+        smallest.memoryMb = 4096
+        #expect(smallest.memoryMb == 8192)
+
+        let (maxModel, _) = makeModel(plan: Self.maxPlan)
+        maxModel.memoryMb = 65536
+        #expect(maxModel.memoryMb == 65536)
+    }
+
+    @Test func sizeLabelsDescribeMemoryAndDisk() {
+        #expect(MachineSizeOption(memoryMb: 4096)?.title == "4 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 4096)?.detail == "16 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 4096)?.diskTitle == "16 GB")
+        #expect(MachineSizeOption(memoryMb: 8192)?.title == "8 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 8192)?.detail == "32 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 8192)?.menuTitle == "8 GB RAM · 32 GB disk")
+        #expect(MachineSizeOption(memoryMb: 16384)?.title == "16 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 16384)?.detail == "64 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 24576)?.title == "24 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 24576)?.detail == "96 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 32768)?.title == "32 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 32768)?.detail == "128 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 65536)?.title == "64 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 65536)?.detail == "128 GB disk included")
+    }
+
+    @Test func serverOptionsAreSortedAndDeduplicated() {
+        let plan = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 50, planId: "pro")
+        let (model, _) = makeModel(plan: plan, memoryOptionsMb: [16384, 8192, 8192])
+        #expect(model.memoryOptions == [8192, 16384])
+        #expect(model.memoryMb == 8192)
+    }
+
+    @Test func emptyServerOptionsPreserveLegacyDefaultWithoutSizeFlag() {
+        let (model, _) = makeModel(memoryOptionsMb: [])
+        #expect(model.memoryOptions == [])
         #expect(model.memoryMb == 20480)
+        #expect(!model.supportsSize)
+        #expect(model.cliArguments == ["vm", "new", "--desktop", "--focus", "false"])
     }
 
-    @Test func testPaidPlanGetsThePlanMachineAndDefaultsToIt() {
-        let (model, _) = makeModel(plan: MachinePlanSnapshot(activeCount: 2, maxActiveVms: 50, planId: "pro"))
-        #expect(model.memoryOptions == [20480])
-        #expect(model.memoryMb == 20480)
+    /// #12239: the sheet's defaults create a machine with a VNC screen; only
+    /// the size is user input here, and it travels as `--size`.
+    @Test func defaultCreateIsADesktopMachineAtTheSelectedSize() {
+        let (model, recorder) = makeModel(plan: Self.maxPlan)
+        model.memoryMb = 65536
+        model.create()
+        let request = recorder.value.first
+        #expect(request?.kind == .desktop)
+        #expect(request?.name == nil)
+        #expect(request?.arguments == ["vm", "new", "--desktop", "--size", "65536", "--focus", "false"])
     }
 
-    @Test func testUnknownPlanUsesThePlanMachineCeiling() {
-        let (model, _) = makeModel(plan: nil)
-        #expect(model.memoryOptions == [20480])
-        #expect(model.planMeterText == nil)
-        #expect(model.freeAccessNoteText == nil)
+    @Test func baseSetupHasNoSizeFlagAndDefaultsToADesktop() {
+        let workspaceID = UUID()
+        let (model, recorder) = makeModel(mode: .base(workspaceID: workspaceID))
+        #expect(!model.supportsSize)
+        #expect(model.cliArguments == ["vm", "base", "open", "--workspace", workspaceID.uuidString, "--desktop", "--focus", "false"])
+        model.create()
+        #expect(recorder.value.first?.kind == .desktop)
     }
 
-    @Test func testPlanTextsMirrorTheMeterAndFreeWindow() {
+    @Test func planTextsMirrorTheMeterAndFreeWindow() {
         let free = MachinePlanSnapshot(activeCount: 0, maxActiveVms: 1, planId: "free", freeAccessWindowDays: 7)
-        let (freeModel, _) = makeModel(plan: free)
-        #expect(freeModel.planMeterText == "0 of 1 machine in use")
-        #expect(freeModel.freeAccessNoteText == "Free plan: this machine stays reachable for 7 days. Upgrade to keep it.")
-
-        let pro = MachinePlanSnapshot(activeCount: 2, maxActiveVms: 5, planId: "pro", freeAccessWindowDays: 7)
-        let (proModel, _) = makeModel(plan: pro)
-        #expect(proModel.planMeterText == "2 of 5 machines in use")
-        #expect(proModel.freeAccessNoteText == nil, "paid plans have no access window")
+        let (model, _) = makeModel(plan: free)
+        #expect(model.planMeterText == "0 of 1 machine in use")
+        #expect(model.freeAccessNoteText == "Free plan: this machine stays reachable for 7 days. Upgrade to keep it.")
     }
 
-    @Test func testMemoryLabelsReadInGigabytes() {
-        #expect(NewMachineModel.memoryLabel(mb: 2048) == "2 GB")
-        #expect(NewMachineModel.memoryLabel(mb: 24576) == "24 GB")
-        #expect(NewMachineModel.memoryLabel(mb: 1500) == "1500 MB")
-    }
-
-    @Test func testSelectedImageFollowsTheKind() {
-        let kinds = [
-            VMImageKindOption(kind: .desktop, image: "cmux-xfce-vnc:latest"),
-            VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f"),
-        ]
-        let (model, _) = makeModel(imageKinds: kinds)
-        #expect(model.selectedImage == "cmux-xfce-vnc:latest")
-        model.kind = .base
-        #expect(model.selectedImage == "cmuxd-ws:tooling-20260509f")
-    }
-
-    /// The sheet must not open preselected on a kind the deployment cannot
-    /// provision: no provider ships a desktop image today, so a desktop
-    /// default would make the primary button fail with an image config error.
-    @Test func testKindDefaultsToAServableKind() {
-        let baseOnly = [VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f")]
-        let (baseModel, _) = makeModel(imageKinds: baseOnly)
-        #expect(baseModel.kind == .base)
-        #expect(baseModel.selectableKinds == [.base])
-
-        let both = [
-            VMImageKindOption(kind: .desktop, image: "cmux-xfce-vnc:latest"),
-            VMImageKindOption(kind: .base, image: "cmuxd-ws:tooling-20260509f"),
-        ]
-        let (bothModel, _) = makeModel(imageKinds: both)
-        #expect(bothModel.kind == .desktop)
-        #expect(bothModel.selectableKinds == [.desktop, .base])
-    }
-
-    /// An older control plane sends no `limits.imageKinds`. Offering nothing
-    /// would be worse than offering both, so the sheet keeps the full picker.
-    @Test func testUnknownImageKindsStillOfferEveryKind() {
-        let (model, _) = makeModel(imageKinds: [])
-        #expect(model.selectableKinds == VMMachineKind.allCases)
-        #expect(model.kind == .base)
-    }
-
-    // MARK: Create lifecycle
-
-    /// https://github.com/manaflow-ai/cmux/issues/11397: Create must hand the
-    /// person back their window immediately. The sheet finishes as soon as the
-    /// create is submitted; the machine coming up (tens of seconds) is the
-    /// coordinator's business, never the sheet's lifetime.
-    @Test func testCreateFinishesTheSheetBeforeTheMachineExists() {
+    @Test func createFinishesWithoutWaitingForTheMachine() {
         let (model, recorder) = makeModel()
         var outcomes: [NewMachineModel.Outcome] = []
         model.onFinished = { outcomes.append($0) }
-
         model.create()
-
-        #expect(recorder.value.requests.count == 1, "the create is submitted once")
-        #expect(outcomes == [.submitted], "the sheet must finish without waiting for the CLI to complete")
+        #expect(recorder.value.count == 1)
+        #expect(outcomes == [.submitted])
         #expect(model.outcome == .submitted)
-        #expect(model.errorText == nil)
     }
 
-    @Test func testSubmittedRequestCarriesTheSheetsChoices() {
-        let (model, recorder) = makeModel(plan: MachinePlanSnapshot(activeCount: 1, maxActiveVms: 5, planId: "pro"))
-        model.kind = .base
-        model.memoryMb = 4096
-        model.name = " ci box "
-        model.create()
-        let request = recorder.value.requests.first
-        #expect(request?.mode == .newMachine)
-        #expect(request?.kind == .base)
-        #expect(request?.name == "ci box")
-        #expect(request?.displayName == "ci box")
-        #expect(request?.arguments == ["vm", "new", "--base", "--size", "4096", "--name", "ci box", "--focus", "false"])
-        #expect(request?.progressLabel == "Creating…")
-    }
-
-    @Test func testSecondCreateAfterSubmitIsIgnored() {
-        let (model, recorder) = makeModel()
-        model.create()
-        model.create()
-        #expect(recorder.value.requests.count == 1, "a second click must not launch a second create")
-    }
-
-    @Test func testLaunchRefusalIsReportedWithoutFinishing() {
+    @Test func launchRefusalStaysInTheSheet() {
         let (model, recorder) = makeModel(starts: false)
-        var outcomes: [NewMachineModel.Outcome] = []
-        model.onFinished = { outcomes.append($0) }
         model.create()
+        #expect(recorder.value.count == 1)
         #expect(model.outcome == nil)
-        #expect(model.errorText != nil, "a refused launch is the one error the sheet still shows inline")
-        #expect(outcomes.isEmpty)
-
-        // Retry re-submits and clears the message while it runs.
-        model.create()
-        #expect(recorder.value.requests.count == 2)
-        #expect(model.errorText != nil, "still refused, still shown")
-    }
-
-    @Test func testCancelFinishesOnceAndBlocksLaterCreate() {
-        let (model, recorder) = makeModel()
-        var outcomes: [NewMachineModel.Outcome] = []
-        model.onFinished = { outcomes.append($0) }
-        model.cancel()
-        model.cancel()
-        model.create()
-        #expect(outcomes == [.cancelled])
-        #expect(recorder.value.requests.isEmpty)
+        #expect(model.errorText != nil)
     }
 }

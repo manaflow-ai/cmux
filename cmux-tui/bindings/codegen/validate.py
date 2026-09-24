@@ -51,6 +51,7 @@ _EVENT_STREAMS = frozenset(
         "attach-byte",
         "attach-render",
         "attach-browser",
+        "control",
     }
 )
 _EVENT_EMISSIONS = frozenset({"emitted", "serialized-never-emitted"})

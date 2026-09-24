@@ -10,12 +10,8 @@ import CmuxTerminal
 
 extension TerminalWindowPortalLifecycleTests {
 
-    /// Every AppKit boundary around a portal-hosted Ghostty surface must clip
-    /// its descendants. The renderer replaces the terminal view's backing
-    /// layer with an IOSurface layer, so the view-level clip chain is the
-    /// invariant that survives stale drawables and live-resize frame churn.
     @MainActor
-    func testPortalHostedTerminalUsesViewLevelClippingAtEveryBoundary() throws {
+    func testWorkspaceUnmountDetachesTerminalAndRebindsOnReveal() async throws {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340)
         )
@@ -23,37 +19,50 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
         }
 
-        let portal = makeTrackedPortal(window: window)
         let anchor = NSView(frame: NSRect(x: 8, y: 8, width: 240, height: 160))
         contentView.addSubview(anchor)
         let surface = makeTrackedTerminalSurface()
-        portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
-        portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        TerminalWindowPortalRegistry.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        let initialGeometrySettled = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(initialGeometrySettled)
 
+        let originalHost = try XCTUnwrap(surface.hostedView.superview)
+        let originalRuntime = try XCTUnwrap(surface.surface)
+        surface.hostedView.setVisibleInUI(false)
+        TerminalWindowPortalRegistry.hideHostedViews(forWorkspaceID: surface.tabId)
+
+        XCTAssertNil(
+            surface.hostedView.superview,
+            "An unmounted workspace must remove its terminal layer tree from the WindowServer hierarchy"
+        )
+        XCTAssertTrue(surface.hostedView.isHidden)
+        XCTAssertEqual(surface.surface, originalRuntime, "Unmounting must preserve the live PTY")
         XCTAssertTrue(
-            portal.hostView.clipsToBounds,
-            "The window-level portal host must clip stale terminal contents to the content region"
+            TerminalWindowPortalRegistry.hasEntry(for: surface.hostedView, boundTo: anchor),
+            "Parking must retain the logical portal binding so the workspace can reattach on reveal"
         )
         XCTAssertTrue(
-            surface.hostedView.clipsToBounds,
-            "Each hosted pane must clip its renderer and overlays to the pane bounds"
+            TerminalWindowPortalRegistry.updateEntryVisibility(
+                for: surface.hostedView,
+                visibleInUI: true
+            ),
+            "A parked entry must request a reattach when its workspace becomes visible"
         )
-        XCTAssertTrue(
-            surface.hostedView.surfaceView.clipsToBounds,
-            "The terminal view must keep a view-level clip after Ghostty installs its IOSurface layer"
-        )
-        XCTAssertTrue(portal.hostView.layer?.masksToBounds == true)
-        XCTAssertTrue(surface.hostedView.layer?.masksToBounds == true)
-        XCTAssertTrue(surface.hostedView.surfaceView.layer?.masksToBounds == true)
-        withExtendedLifetime((portal, surface)) {}
+        surface.hostedView.setVisibleInUI(true)
+        TerminalWindowPortalRegistry.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
+        let revealedGeometrySettled = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(revealedGeometrySettled)
+        XCTAssertTrue(surface.hostedView.superview === originalHost)
+        XCTAssertTrue(surface.hostedView.window === window)
+        XCTAssertFalse(surface.hostedView.isHidden)
+        XCTAssertEqual(surface.surface, originalRuntime, "Reveal must reuse the terminal process")
+        withExtendedLifetime(surface) {}
     }
 
     @MainActor
@@ -263,12 +272,10 @@ extension TerminalWindowPortalLifecycleTests {
         withExtendedLifetime(surface) {}
     }
 
-    /// The outer pane must follow a live window-resize tick, but the inner
-    /// Ghostty layer stays on its last committed drawable until resize end.
-    /// This is the ordering invariant that makes an asynchronous old present
-    /// harmless: the pane's view-level clip contains it for the whole drag.
+    /// Both the pane and its clip viewport publish interactive geometry;
+    /// resize end must replace it with the final settled geometry.
     @MainActor
-    func testLiveResizeKeepsRendererFrameAtCommittedSizeUntilEnd() throws {
+    func testLiveResizePublishesInteractiveViewportThenSettlesAtEnd() async throws {
         let window = makeTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
             styleMask: [.titled, .closable, .resizable]
@@ -277,7 +284,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -289,8 +296,8 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        let initiallySettled = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(initiallySettled)
 
         let committedRendererSize = surface.hostedView.surfaceView.frame.size
         XCTAssertGreaterThan(committedRendererSize.width, 1)
@@ -309,11 +316,10 @@ extension TerminalWindowPortalLifecycleTests {
             liveTarget,
             "The pane boundary must track the live resize immediately"
         )
-        XCTAssertEqual(
-            surface.hostedView.surfaceView.frame.size,
-            committedRendererSize,
-            "The renderer frame must not advance to an uncommitted live-resize drawable"
-        )
+        let interactive = try XCTUnwrap(surface.committedPaneGeometry)
+        XCTAssertEqual(interactive.phase, .interactive)
+        XCTAssertEqual(interactive.size, surface.hostedView.surfaceView.frame.size)
+        XCTAssertLessThan(interactive.size.width, committedRendererSize.width)
 
         portal.isWindowLiveResizeActiveOverrideForTesting = false
         let finalTarget = NSSize(
@@ -322,8 +328,10 @@ extension TerminalWindowPortalLifecycleTests {
         )
         anchor.setFrameSize(finalTarget)
         NotificationCenter.default.post(name: NSWindow.didEndLiveResizeNotification, object: window)
-        drainMainQueue()
-        drainMainQueue()
+        let finallySettled = await waitForSettledPortalGeometry(surface, anchor: anchor)
+        XCTAssertTrue(finallySettled, "Resize end must commit the final pane and renderer geometry")
+        XCTAssertEqual(surface.committedPaneGeometry?.phase, .settled)
+        XCTAssertEqual(surface.committedPaneGeometry?.size, surface.hostedView.surfaceView.frame.size)
 
         XCTAssertEqual(surface.hostedView.frame.size, finalTarget)
         XCTAssertNotEqual(
@@ -347,7 +355,7 @@ extension TerminalWindowPortalLifecycleTests {
             NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
             window.orderOut(nil)
         }
-        realizeWindowLayout(window)
+        layoutResizeTestWindow(window)
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
             return
@@ -359,8 +367,7 @@ extension TerminalWindowPortalLifecycleTests {
         let surface = makeTrackedTerminalSurface()
         portal.bind(hostedView: surface.hostedView, to: anchor, visibleInUI: true)
         portal.synchronizeHostedViewForAnchor(anchor)
-        drainMainQueue()
-        realizeWindowLayout(window)
+        XCTAssertTrue(waitForResizeTestGeometry(surface, anchor: anchor))
 
         portal.isWindowLiveResizeActiveOverrideForTesting = true
         anchor.setFrameSize(NSSize(width: 200, height: 140))
@@ -379,7 +386,10 @@ extension TerminalWindowPortalLifecycleTests {
         anchor.setFrameSize(NSSize(width: 220, height: 150))
         portal.synchronizeHostedViewForAnchor(anchor)
         XCTAssertEqual(surface.hostedView.frame.size, NSSize(width: 220, height: 150))
-        XCTAssertEqual(surface.hostedView.surfaceView.frame.size, NSSize(width: 220, height: 150))
+        let scrollView = try XCTUnwrap(surface.hostedView.subviews.compactMap { $0 as? NSScrollView }.first)
+        // A legacy scroller consumes part of the pane width. The renderer must
+        // follow the final visible viewport after teardown and reattachment.
+        XCTAssertEqual(surface.hostedView.surfaceView.frame.size, scrollView.contentView.bounds.size)
         withExtendedLifetime(surface) {}
     }
 

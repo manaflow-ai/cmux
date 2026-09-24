@@ -166,6 +166,21 @@ const stackEnv = (
   if (trimmed) return trimmed;
   return allowPreviewStackPlaceholders ? fallback : undefined;
 };
+const positiveSafeIntegerEnv = (name: string) =>
+  z.string()
+    .regex(/^\d+$/)
+    .refine((value) => {
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) && parsed > 0;
+    }, { message: `${name} must be a positive safe integer` });
+const coderouterHeadersTimeoutEnv = z.string()
+  .regex(/^\d+$/)
+  .refine((value) => {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 1_000 && parsed <= 30 * 60_000;
+  }, {
+    message: "CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS must be between 1000 and 1800000",
+  });
 
 export const env = createEnv({
   server: {
@@ -224,6 +239,11 @@ export const env = createEnv({
       "STRIPE_PRO_YEARLY_480_PRICE_ID",
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_MAX_MONTHLY_200_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_GO_MONTHLY_10_PRICE_ID: z.string().min(1).optional(),
+    // Optional pin for the Pro <-> Max portal configuration; otherwise the
+    // configuration is found by its metadata (see services/billing/stripe.ts).
+    STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
     STRIPE_TEAM_MONTHLY_PRICE_ID: retiredEnvValue(
       "STRIPE_TEAM_MONTHLY_PRICE_ID",
       "STRIPE_TEAM_MONTHLY_60_PRICE_ID",
@@ -282,8 +302,17 @@ export const env = createEnv({
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
+    // Preserve the legacy VM alert range. The VM consumers already apply
+    // their compatibility fallback for zero and unsafe values.
     CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
     CMUX_VM_ALERT_EXPIRED_LEASES: z.string().regex(/^\d+$/).optional(),
+    // Coderouter alert thresholds (per five-minute window) and the bound on
+    // time-to-headers for upstream model calls. Defaults live next to the code.
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M").optional(),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M").optional(),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M").optional(),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M").optional(),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: coderouterHeadersTimeoutEnv.optional(),
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
@@ -422,6 +451,11 @@ export const env = createEnv({
       process.env.STRIPE_PRO_YEARLY_288_PRICE_ID,
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
+    STRIPE_MAX_MONTHLY_200_PRICE_ID: trimEnv(process.env.STRIPE_MAX_MONTHLY_200_PRICE_ID),
+    STRIPE_GO_MONTHLY_10_PRICE_ID: trimEnv(process.env.STRIPE_GO_MONTHLY_10_PRICE_ID),
+    STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
+      process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
+    ),
     STRIPE_TEAM_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_PRICE_ID),
     STRIPE_TEAM_MONTHLY_60_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_MONTHLY_60_PRICE_ID),
     STRIPE_TEAM_YEARLY_PRICE_ID: trimEnv(process.env.STRIPE_TEAM_YEARLY_PRICE_ID),
@@ -458,6 +492,11 @@ export const env = createEnv({
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: trimEnv(process.env.CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
     SLACK_SUPPORT_WEBHOOK_URL: trimEnv(process.env.SLACK_SUPPORT_WEBHOOK_URL),

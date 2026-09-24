@@ -60,6 +60,9 @@ actor AIAccountsClient {
     }
 
     func upload(_ payload: AIAccountUploadPayload, teamID: String?, validate: Bool) async throws -> JSONValue {
+        // `DisableAICredentialUpload` (MDM): authoritative boundary, whichever
+        // entry point built the payload.
+        guard ManagedAICredentialUploadPolicy.isEnabled else { throw ManagedAICredentialUploadPolicy.refusalError() }
         let queryItems = validate ? [URLQueryItem(name: "validate", value: "1")] : []
         let (data, http) = try await request(
             "POST",
@@ -109,6 +112,9 @@ actor AIAccountsClient {
         jsonBody: [String: Any]? = nil,
         teamID explicitTeamID: String?
     ) async throws -> (Data, HTTPURLResponse) {
+        // `DisableCloud` (MDM): fail closed before any token or network work,
+        // whichever entry point asked.
+        guard ManagedCloudPolicy.isEnabled else { throw VMClientError.disabledByManagedPolicy }
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()

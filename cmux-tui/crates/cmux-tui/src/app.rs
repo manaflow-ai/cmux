@@ -87,7 +87,7 @@ use crate::session::{
 };
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
-    ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    AgentOrderCache, ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -112,18 +112,56 @@ const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
+    poll: impl FnMut(Duration) -> std::io::Result<bool>,
+    read: impl FnMut() -> std::io::Result<Event>,
+) -> std::io::Result<Option<Event>> {
+    read_crossterm_event_with_clock(timeout, poll, read, Instant::now)
+}
+
+fn read_crossterm_event_with_clock(
+    timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
+    mut now: impl FnMut() -> Instant,
 ) -> std::io::Result<Option<Event>> {
     // Keep the input thread interruptible even when no graphics response is
     // pending. A single normalized poll avoids separate timed and untimed
     // branches drifting apart as the reader evolves.
+    const MAX_INTERRUPTED_RETRIES: u8 = 8;
     let poll_timeout =
         timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
-    if !poll(poll_timeout)? {
-        return Ok(None);
+    let deadline = now() + poll_timeout;
+    let mut interrupted: u8 = 0;
+    loop {
+        let remaining = deadline.saturating_duration_since(now());
+        match poll(remaining) {
+            Ok(false) => return Ok(None),
+            Ok(true) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                if remaining.is_zero() {
+                    return Ok(None);
+                }
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
     }
-    read().map(Some)
+    interrupted = 0;
+    loop {
+        match read() {
+            Ok(event) => return Ok(Some(event)),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
@@ -151,6 +189,38 @@ enum TerminalInput {
     Resize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputClass {
+    Keyboard,
+    FrontendAction,
+    ClearHistoryKey,
+    Mouse,
+    Paste,
+    Focus,
+    Resize,
+}
+
+impl InputClass {
+    const fn is_routable(self) -> bool {
+        matches!(
+            self,
+            Self::Keyboard
+                | Self::FrontendAction
+                | Self::ClearHistoryKey
+                | Self::Mouse
+                | Self::Paste
+        )
+    }
+
+    const fn is_keyboard_or_paste(self) -> bool {
+        matches!(self, Self::Keyboard | Self::FrontendAction | Self::ClearHistoryKey | Self::Paste)
+    }
+
+    const fn is_keyboard_command(self) -> bool {
+        matches!(self, Self::Keyboard | Self::FrontendAction | Self::ClearHistoryKey)
+    }
+}
+
 enum KeyboardIngress {
     Routed(TerminalInput),
     Handled(RenderAction),
@@ -176,25 +246,28 @@ impl TerminalInput {
         }
     }
 
+    const fn class(&self) -> InputClass {
+        match self {
+            Self::Keyboard(_) => InputClass::Keyboard,
+            Self::FrontendAction { .. } => InputClass::FrontendAction,
+            Self::ClearHistoryKey(_) => InputClass::ClearHistoryKey,
+            Self::Mouse(_) => InputClass::Mouse,
+            Self::Paste(_) => InputClass::Paste,
+            Self::FocusGained | Self::FocusLost => InputClass::Focus,
+            Self::Resize => InputClass::Resize,
+        }
+    }
+
     fn is_routable(&self) -> bool {
-        matches!(
-            self,
-            Self::Keyboard(_)
-                | Self::FrontendAction { .. }
-                | Self::ClearHistoryKey(_)
-                | Self::Mouse(_)
-                | Self::Paste(_)
-        )
+        self.class().is_routable()
     }
 
     fn is_keyboard_or_paste(&self) -> bool {
-        matches!(
-            self,
-            Self::Keyboard(_)
-                | Self::FrontendAction { .. }
-                | Self::ClearHistoryKey(_)
-                | Self::Paste(_)
-        )
+        self.class().is_keyboard_or_paste()
+    }
+
+    fn is_keyboard_command(&self) -> bool {
+        self.class().is_keyboard_command()
     }
 
     fn retained_bytes(&self) -> usize {
@@ -495,19 +568,39 @@ struct PendingFrontendJournalEvent {
     event: Box<FrontendJournalEvent>,
 }
 
-impl PendingFrontendJournalEvent {
-    fn slot(&self) -> usize {
-        match self.event.as_ref() {
-            FrontendJournalEvent::Focus { .. } => 0,
-            FrontendJournalEvent::Resize { .. } => 1,
-            FrontendJournalEvent::Viewport { .. } => 2,
+#[repr(usize)]
+#[derive(Clone, Copy)]
+enum FrontendJournalSlot {
+    Focus = 0,
+    Resize = 1,
+    Viewport = 2,
+}
+
+impl FrontendJournalSlot {
+    const COUNT: usize = 3;
+
+    fn for_event(event: &FrontendJournalEvent) -> Self {
+        match event {
+            FrontendJournalEvent::Focus { .. } => Self::Focus,
+            FrontendJournalEvent::Resize { .. } => Self::Resize,
+            FrontendJournalEvent::Viewport { .. } => Self::Viewport,
         }
+    }
+
+    const fn index(self) -> usize {
+        self as usize
+    }
+}
+
+impl PendingFrontendJournalEvent {
+    fn slot(&self) -> FrontendJournalSlot {
+        FrontendJournalSlot::for_event(self.event.as_ref())
     }
 }
 
 #[derive(Default)]
 struct FrontendJournalQueueState {
-    pending: [Option<PendingFrontendJournalEvent>; 3],
+    pending: [Option<PendingFrontendJournalEvent>; FrontendJournalSlot::COUNT],
     next_sequence: u64,
     stopping: bool,
 }
@@ -520,11 +613,7 @@ struct FrontendJournalQueue {
 
 impl FrontendJournalQueue {
     fn push(&self, session: Session, event: FrontendJournalEvent) {
-        let slot = match &event {
-            FrontendJournalEvent::Focus { .. } => 0,
-            FrontendJournalEvent::Resize { .. } => 1,
-            FrontendJournalEvent::Viewport { .. } => 2,
-        };
+        let slot = FrontendJournalSlot::for_event(&event).index();
         let mut state = self.state.lock().unwrap();
         if state.stopping {
             return;
@@ -577,11 +666,11 @@ impl FrontendJournalQueue {
     fn retry(&self, mut pending: PendingFrontendJournalEvent) {
         let slot = pending.slot();
         let mut state = self.state.lock().unwrap();
-        if state.stopping || state.pending[slot].is_some() {
+        if state.stopping || state.pending[slot.index()].is_some() {
             return;
         }
         pending.retry_at = Instant::now() + Duration::from_millis(100);
-        state.pending[slot] = Some(pending);
+        state.pending[slot.index()] = Some(pending);
         drop(state);
         self.changed.notify_one();
     }
@@ -1317,6 +1406,7 @@ pub struct SessionCompletion {
 }
 
 enum SessionCompletionAction {
+    SurfaceMoved { surface: SurfaceId },
     SurfaceCreated { surface: SurfaceId },
     BrowserTabCreated { surface: SurfaceId },
     LayoutUndoConfirmation { pane: PaneId, revision: u64, closes_panes: Vec<PaneId> },
@@ -2150,6 +2240,10 @@ impl OrderedSession {
             #[cfg(test)]
             surface_attach_after_obsolete_check: Arc::new(Mutex::new(None)),
         }
+    }
+
+    fn supports_tab_workspace_moves(&self) -> bool {
+        self.inner.supports_tab_workspace_moves()
     }
 
     fn supports_clear_history_key_fallback(&self, surface: SurfaceId) -> bool {
@@ -3840,6 +3934,17 @@ impl OrderedSession {
         });
     }
 
+    pub fn move_tab_to_workspace(&self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
+        self.enqueue_with_completion(
+            localization::catalog().menu.move_tab_workspace,
+            MutationImpact::Destination,
+            move |session| {
+                session.move_tab_to_workspace(surface, workspace)?;
+                Ok(Some(SessionCompletionAction::SurfaceMoved { surface }))
+            },
+        );
+    }
+
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) {
         self.enqueue_pointer_mutation("move workspace", move |session| {
             session.move_workspace(workspace, index)
@@ -4125,6 +4230,18 @@ pub enum FocusTarget {
     ProjectionRail(usize),
 }
 
+impl FocusTarget {
+    fn frontend_journal_target(self) -> FrontendFocusTarget {
+        match self {
+            Self::Pane => FrontendFocusTarget::Pane,
+            Self::MachineRail => FrontendFocusTarget::MachineRail,
+            Self::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+            Self::TabsRail => FrontendFocusTarget::TabsRail,
+            Self::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FrontendFocusSnapshot {
     target: FrontendFocusTarget,
@@ -4340,6 +4457,10 @@ pub enum MenuAction {
     BrowserActivate(PaneId),
     RenameTab(PaneId),
     RenameSurface(SurfaceId),
+    MoveTabToWorkspace {
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    },
     CopyTabId(PaneId),
     CopyPaneId(PaneId),
     CopyStatusMessage,
@@ -4442,6 +4563,8 @@ impl MenuAction {
             MenuAction::RenameTab(_) | MenuAction::RenameSurface(_) => {
                 localization::catalog().action_label(Action::RenameTab)
             }
+            MenuAction::MoveTabToWorkspace { workspace: None, .. } => menu.move_tab_new_workspace,
+            MenuAction::MoveTabToWorkspace { .. } => menu.move_tab_workspace,
             MenuAction::CopyTabId(_) => menu.copy_tab_id,
             MenuAction::CopyPaneId(_) => menu.copy_pane_id,
             MenuAction::CopyStatusMessage => menu.copy_message,
@@ -7185,6 +7308,7 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    projection_order_cache: AgentOrderCache,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9453,6 +9577,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        projection_order_cache: AgentOrderCache::default(),
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -10212,7 +10337,7 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
         let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
         let empty_collapsed = HashSet::new();
         let collapsed = self
@@ -10231,12 +10356,13 @@ impl App {
         } else {
             Vec::new()
         };
-        crate::sidebar_projection::rows(
+        crate::sidebar_projection::rows_cached(
             spec,
             &self.tree,
             &agents,
             self.sidebar_workspace_selection,
             collapsed,
+            &mut self.projection_order_cache,
         )
     }
 
@@ -10432,7 +10558,15 @@ impl App {
 
     fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
         match target {
-            ProjectionTarget::Workspace { index, .. } => {
+            ProjectionTarget::Workspace { id, .. } => {
+                // The hit map can outlive a tree snapshot while a remote
+                // reorder is queued. Resolve the stable workspace identity
+                // again instead of applying a stale row index.
+                let Some(index) =
+                    self.tree.workspaces().iter().position(|workspace| workspace.id == id)
+                else {
+                    return Ok(());
+                };
                 self.activate_workspace(index);
             }
             ProjectionTarget::Pane { workspace, screen, pane } => {
@@ -12065,13 +12199,7 @@ impl App {
         let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
         let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
         let focus = FrontendFocusSnapshot {
-            target: match self.focus {
-                FocusTarget::Pane => FrontendFocusTarget::Pane,
-                FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
-                FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
-                FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
-                FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
-            },
+            target: self.focus.frontend_journal_target(),
             workspace_id: workspace.and_then(|workspace| workspace.resource_id.clone()),
             screen_id: screen.and_then(|screen| screen.resource_id.clone()),
             pane_id: pane.and_then(|pane| pane.resource_id.clone()),
@@ -12104,13 +12232,7 @@ impl App {
         let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
         let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
         let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
-        let target = match self.focus {
-            FocusTarget::Pane => FrontendFocusTarget::Pane,
-            FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
-            FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
-            FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
-            FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
-        };
+        let target = self.focus.frontend_journal_target();
         if previous.focus.target != target
             || previous.focus.workspace_id.as_ref()
                 != workspace.and_then(|workspace| workspace.resource_id.as_ref())
@@ -12297,7 +12419,9 @@ impl App {
 
     fn menu_action_resource(&self, action: MenuAction) -> Option<MenuActionResource> {
         match action {
-            MenuAction::RenameSurface(surface) => Some(MenuActionResource::Surface(surface)),
+            MenuAction::RenameSurface(surface) | MenuAction::MoveTabToWorkspace { surface, .. } => {
+                Some(MenuActionResource::Surface(surface))
+            }
             MenuAction::CopyStatusMessage => {
                 self.status_message.clone().map(MenuActionResource::StatusMessage)
             }
@@ -12923,13 +13047,14 @@ impl App {
         }
         let semantic_intent = completion.semantic_intent;
         match completion.action {
-            SessionCompletionAction::SurfaceCreated { surface } => {
+            SessionCompletionAction::SurfaceCreated { surface }
+            | SessionCompletionAction::SurfaceMoved { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_created_surface(surface);
+                self.select_completed_surface(surface);
             }
             SessionCompletionAction::BrowserTabCreated { surface } => {
                 self.resolve_semantic_destination(semantic_intent, surface);
-                self.select_created_surface(surface);
+                self.select_completed_surface(surface);
                 let pane = self
                     .tab_locations
                     .get(&surface)
@@ -13010,7 +13135,7 @@ impl App {
         localization::catalog().sidebar.confirm_layout_undo.replace("{items}", &identities)
     }
 
-    fn select_created_surface(&mut self, surface: SurfaceId) {
+    fn select_completed_surface(&mut self, surface: SurfaceId) {
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
             self.tab_locations.get(&surface).copied()
         else {
@@ -14952,15 +15077,9 @@ impl App {
             }
             event => event,
         };
-        if matches!(
-            &event,
-            AppEvent::NormalizedInput(
-                TerminalInput::Keyboard(_)
-                    | TerminalInput::FrontendAction { .. }
-                    | TerminalInput::ClearHistoryKey(_)
-                    | TerminalInput::Paste(_)
-            )
-        ) {
+        if let AppEvent::NormalizedInput(input) = &event
+            && input.is_keyboard_or_paste()
+        {
             let current_pairing = self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id);
             let replayed_pairing_changed = replay_context
                 .as_ref()
@@ -15026,14 +15145,10 @@ impl App {
             event => event,
         };
         let event = match event {
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if self.fresh_input_must_follow_deferred(&input, input_sequence)
-                && !self.input_can_overtake_deferred(&input) =>
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && self.fresh_input_must_follow_deferred(&input, input_sequence)
+                    && !self.input_can_overtake_deferred(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
                     input,
@@ -15142,14 +15257,8 @@ impl App {
                 replay_context.as_ref().and_then(|context| context.admission.as_ref())
                 && !pointer_has_capture
             {
-                let follows_pending_route =
-                    matches!(
-                        input,
-                        TerminalInput::Keyboard(_)
-                            | TerminalInput::FrontendAction { .. }
-                            | TerminalInput::ClearHistoryKey(_)
-                            | TerminalInput::Paste(_)
-                    ) && admission.destination_intent.is_some_and(|intent| {
+                let follows_pending_route = input.is_keyboard_or_paste()
+                    && admission.destination_intent.is_some_and(|intent| {
                         self.session.destination_mutation_committed() >= intent
                             && self.session.destination_mutation_started() == intent
                     });
@@ -15208,13 +15317,11 @@ impl App {
             return Ok(RenderAction::None);
         }
         let event = match event {
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if missing_surface.is_some() && !self.input_can_update_pending_mutation(&input) => {
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && missing_surface.is_some()
+                    && !self.input_can_update_pending_mutation(&input) =>
+            {
                 let surface = missing_surface.unwrap();
                 self.queue_surface_attach(surface);
                 return Ok(self.defer_input_with_sequence(
@@ -15224,20 +15331,17 @@ impl App {
                     replay_context.as_ref().and_then(|context| context.admission.clone()),
                 ));
             }
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if !matches!(
-                &input,
-                TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
-            ) && (self.session.has_pending_mutations()
-                || self.session.remote_tree_is_stale()
-                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                || matches!(&input, TerminalInput::Mouse(mouse) if self.pointer_route_is_stale_for_mouse(mouse)))
-                && !self.input_can_update_pending_mutation(&input) =>
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && !matches!(
+                        &input,
+                        TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
+                    )
+                    && (self.session.has_pending_mutations()
+                        || self.session.remote_tree_is_stale()
+                        || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+                        || matches!(&input, TerminalInput::Mouse(mouse) if self.pointer_route_is_stale_for_mouse(mouse)))
+                    && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
                     input,
@@ -16069,18 +16173,14 @@ impl App {
     }
 
     fn input_can_update_pending_mutation(&self, input: &TerminalInput) -> bool {
-        if matches!(
-            input,
-            TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-        ) && (self.pairing_dialog.is_some()
-            || self.shortcut_help.is_some()
-            || self.prompt.is_some()
-            || self.menu.is_some()
-            || self.omnibar.is_some()
-            || self.machine_sidebar_focused()
-            || self.workspace_sidebar_focused() && self.config.sidebar.plugin.is_none())
+        if input.is_keyboard_command()
+            && (self.pairing_dialog.is_some()
+                || self.shortcut_help.is_some()
+                || self.prompt.is_some()
+                || self.menu.is_some()
+                || self.omnibar.is_some()
+                || self.machine_sidebar_focused()
+                || self.workspace_sidebar_focused() && self.config.sidebar.plugin.is_none())
         {
             return true;
         }
@@ -16193,13 +16293,7 @@ impl App {
     }
 
     fn input_accepts_semantic_destination(input: &TerminalInput) -> bool {
-        matches!(
-            input,
-            TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Paste(_)
-        )
+        input.is_keyboard_or_paste()
     }
 
     fn semantic_destination_for_input(
@@ -16513,14 +16607,14 @@ impl App {
         {
             return false;
         }
-        match input {
-            TerminalInput::Keyboard(_)
-            | TerminalInput::FrontendAction { .. }
-            | TerminalInput::ClearHistoryKey(_)
-            | TerminalInput::Paste(_) => true,
-            TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }) => false,
-            TerminalInput::Mouse(_) => self.active_pointer_buttons.is_empty(),
-            _ => false,
+        if input.is_keyboard_or_paste() {
+            true
+        } else {
+            match input {
+                TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }) => false,
+                TerminalInput::Mouse(_) => self.active_pointer_buttons.is_empty(),
+                _ => false,
+            }
         }
     }
 
@@ -20390,6 +20484,9 @@ impl App {
             }
             MenuAction::RenameTab(id) => self.open_rename_tab_prompt(Some(id)),
             MenuAction::RenameSurface(surface) => self.open_rename_surface_prompt(surface),
+            MenuAction::MoveTabToWorkspace { surface, workspace } => {
+                self.move_tab_to_workspace(surface, workspace);
+            }
             MenuAction::CopyTabId(id) => {
                 if let Some(short_id) = self
                     .tree
@@ -20948,6 +21045,80 @@ impl App {
             crate::ui::omnibar::hit(rect, area.omnibar_source_x(), x, y, editing)
                 .map(|hit| (area.pane, hit))
         })
+    }
+
+    fn move_tab_to_workspace(&mut self, surface: SurfaceId, workspace: Option<WorkspaceId>) {
+        if self.surface_only.is_some()
+            || !self.session.supports_tab_workspace_moves()
+            || self.tab_location(surface).is_none()
+        {
+            return;
+        }
+        if workspace.is_none()
+            && self.workspace_creation_policy() != Some(WorkspaceCreationPolicy::SessionOwned)
+        {
+            return;
+        }
+        if workspace.is_some_and(|id| !self.tree.workspaces().iter().any(|ws| ws.id == id)) {
+            return;
+        }
+        if self.prepare_pty_input_before_mutation() {
+            self.session.move_tab_to_workspace(surface, workspace);
+        }
+    }
+
+    fn tab_move_workspace_item(&self, surface: SurfaceId) -> Option<MenuItem> {
+        if self.surface_only.is_some() || !self.session.supports_tab_workspace_moves() {
+            return None;
+        }
+        let (source_pane, _) = self.tab_location(surface)?;
+        let mut items = self
+            .tree
+            .workspaces()
+            .iter()
+            .filter(|ws| {
+                !ws.screens
+                    .iter()
+                    .any(|screen| screen.panes.iter().any(|pane| pane.id == source_pane))
+            })
+            .map(|ws| MenuItem::LabeledAction {
+                label: ws.name.clone(),
+                action: MenuAction::MoveTabToWorkspace { surface, workspace: Some(ws.id) },
+            })
+            .collect::<Vec<_>>();
+        if self.workspace_creation_policy() == Some(WorkspaceCreationPolicy::SessionOwned) {
+            if !items.is_empty() {
+                items.push(MenuItem::Separator);
+            }
+            items.push(MenuItem::Action(MenuAction::MoveTabToWorkspace {
+                surface,
+                workspace: None,
+            }));
+        }
+        (!items.is_empty()).then(|| MenuItem::Submenu {
+            label: localization::catalog().menu.move_tab_workspace.to_string(),
+            items,
+        })
+    }
+
+    fn tab_workspace_drop_at(&self, x: u16, y: u16) -> Option<Option<WorkspaceId>> {
+        match self.hit_at(x, y)? {
+            Hit::CreateWorkspace { mode: None }
+            | Hit::SidebarAction { action: SidebarActionTarget::CreateWorkspace(None), .. }
+            | Hit::SidebarAction {
+                action: SidebarActionTarget::Run(Action::NewWorkspace), ..
+            } if self.workspace_creation_policy()
+                == Some(WorkspaceCreationPolicy::SessionOwned) =>
+            {
+                Some(None)
+            }
+            Hit::Workspace { id, .. }
+            | Hit::ProjectionRow { target: ProjectionTarget::Workspace { id, .. }, .. }
+            | Hit::ProjectionToggle { branch: ProjectionBranch::Workspace(id), .. } => {
+                Some(Some(id))
+            }
+            _ => None,
+        }
     }
 
     fn tab_drop_target_at(&self, x: u16, y: u16) -> Option<(PaneId, usize)> {
@@ -22753,6 +22924,7 @@ impl App {
             Some(Drag::TabArm { surface, at }) => {
                 let (surface, at) = (*surface, *at);
                 if (x, y) != at {
+                    self.hover = Some((x, y));
                     let target = self.tab_drop_target_at(x, y);
                     self.drag = Some(Drag::Tab { surface, target });
                 }
@@ -22760,6 +22932,7 @@ impl App {
             }
             Some(Drag::Tab { surface, .. }) => {
                 let surface = *surface;
+                self.hover = Some((x, y));
                 let target = self.tab_drop_target_at(x, y);
                 self.drag = Some(Drag::Tab { surface, target });
                 Ok(RenderAction::Draw)
@@ -22988,6 +23161,10 @@ impl App {
         }
         if let Some(Drag::Tab { surface, .. }) = self.drag {
             self.drag = None;
+            if let Some(workspace) = self.tab_workspace_drop_at(x, y) {
+                self.move_tab_to_workspace(surface, workspace);
+                return Ok(RenderAction::Draw);
+            }
             if let Some((pane, index)) = self.tab_drop_target_at(x, y)
                 && self.prepare_pty_input_before_mutation()
             {
@@ -23841,6 +24018,9 @@ impl App {
                 }
                 Some(Hit::SidebarTab { surface, .. }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
+                    if let Some(item) = self.tab_move_workspace_item(surface) {
+                        groups.push(vec![item]);
+                    }
                 }
                 Some(Hit::ProjectionRow {
                     target: ProjectionTarget::Workspace { id, .. }, ..
@@ -23870,6 +24050,9 @@ impl App {
                     ..
                 }) => {
                     groups.push(self.menu_group([MenuAction::RenameSurface(surface)]));
+                    if let Some(item) = self.tab_move_workspace_item(surface) {
+                        groups.push(vec![item]);
+                    }
                 }
                 _ => {}
             }
@@ -23914,6 +24097,9 @@ impl App {
                     .into_iter()
                     .map(|group| self.menu_group(group))
                     .collect::<Vec<Vec<MenuItem>>>();
+                if let Some(item) = self.tab_move_workspace_item(surface) {
+                    groups.push(vec![item]);
+                }
                 if self.surface_only.is_none() {
                     let zoomed = self
                         .tree
@@ -24707,13 +24893,33 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn input_class_groups_routing_semantics() {
+        let cases = [
+            (super::InputClass::Keyboard, true, true, true),
+            (super::InputClass::FrontendAction, true, true, true),
+            (super::InputClass::ClearHistoryKey, true, true, true),
+            (super::InputClass::Paste, true, true, false),
+            (super::InputClass::Mouse, true, false, false),
+            (super::InputClass::Focus, false, false, false),
+            (super::InputClass::Resize, false, false, false),
+        ];
+
+        for (class, routable, keyboard_or_paste, keyboard_command) in cases {
+            assert_eq!(class.is_routable(), routable, "{class:?}");
+            assert_eq!(class.is_keyboard_or_paste(), keyboard_or_paste, "{class:?}");
+            assert_eq!(class.is_keyboard_command(), keyboard_command, "{class:?}");
+        }
+    }
+
+    #[test]
     fn crossterm_reader_uses_bounded_polls_for_all_reads() {
         let event = Event::Resize(80, 24);
         let mut poll_calls = 0;
         let mut read_calls = 0;
         let mut poll_durations = Vec::new();
 
-        let blocking = super::read_crossterm_event(
+        let fixed_now = Instant::now();
+        let blocking = super::read_crossterm_event_with_clock(
             None,
             |timeout| {
                 poll_calls += 1;
@@ -24724,12 +24930,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(blocking, Some(event.clone()));
         assert_eq!((poll_calls, read_calls), (1, 1));
 
-        let timed_out = super::read_crossterm_event(
+        let timed_out = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24740,12 +24947,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(timed_out, None);
         assert_eq!((poll_calls, read_calls), (2, 1));
 
-        let ready = super::read_crossterm_event(
+        let ready = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24756,6 +24964,7 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(ready, Some(event));
@@ -24769,48 +24978,139 @@ mod tests {
     #[test]
     fn crossterm_reader_propagates_poll_errors_without_reading() {
         let mut read_calls = 0;
-        let error = std::io::Error::new(std::io::ErrorKind::Interrupted, "poll interrupted");
+        let error = std::io::Error::other("poll failed");
+        let mut poll_calls = 0;
 
         let result = super::read_crossterm_event(
             None,
-            |_| Err(std::io::Error::new(error.kind(), error.to_string())),
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Err(std::io::Error::new(error.kind(), error.to_string()))
+                }
+            },
             || {
                 read_calls += 1;
                 Ok(Event::Resize(80, 24))
             },
         );
 
-        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Other);
         assert_eq!(read_calls, 0);
+        assert!(poll_calls >= 1);
+    }
+
+    #[test]
+    fn crossterm_reader_retries_interrupted_poll_and_read() {
+        let mut poll_calls = 0;
+        let mut read_calls = 0;
+        let event = Event::Resize(80, 24);
+        let result = super::read_crossterm_event(
+            None,
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(true)
+                }
+            },
+            || {
+                read_calls += 1;
+                if read_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(event.clone())
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(result, Some(event));
+        assert_eq!((poll_calls, read_calls), (2, 2));
+    }
+
+    #[test]
+    fn crossterm_reader_limits_consecutive_interrupted_poll_and_read() {
+        let fixed_now = Instant::now();
+        let mut poll_calls = 0;
+        let poll_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| {
+                poll_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || fixed_now,
+        );
+        assert_eq!(poll_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(poll_calls, 8);
+
+        let mut read_calls = 0;
+        let read_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| Ok(true),
+            || {
+                read_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || fixed_now,
+        );
+        assert_eq!(read_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 8);
+    }
+
+    #[test]
+    fn crossterm_reader_returns_timeout_when_interrupted_after_deadline() {
+        let start = Instant::now();
+        let mut clock_calls = 0;
+        let mut poll_calls = 0;
+        let result = super::read_crossterm_event_with_clock(
+            Some(Duration::from_millis(10)),
+            |timeout| {
+                poll_calls += 1;
+                assert!(timeout.is_zero());
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || {
+                let call = clock_calls;
+                clock_calls += 1;
+                if call == 0 { start } else { start + Duration::from_millis(11) }
+            },
+        );
+        assert_eq!(result.unwrap(), None);
+        assert_eq!(poll_calls, 1);
     }
 
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
-        DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
-        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
-        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
-        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
-        SidebarActionTarget, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
-        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
-        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, content_size_for_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
-        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
-        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        AgentOrderCache, App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure,
+        ContextMenu, DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission,
+        DeferredInputQueue, DeferredReplayDisposition, Drag, EventCancellation, FocusTarget,
+        ForwardMuxOutcome, FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity,
+        GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
+        HostInputIngress, HostInputMessage, HostInputRuntime, MachineActionWorker,
+        MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
+        OmnibarState, OrderedSession, OuterCursorSpec, PaneArea, PaneAreaProjection,
+        PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
+        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
+        RenderedPointerFrame, Selection, SelectionMode, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, ShortcutHelp, SidebarActionTarget, SidebarLayout,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event,
+        forward_mux_events, host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
@@ -25115,10 +25415,12 @@ mod tests {
         let (events_tx, events_rx) = crossbeam_channel::bounded(1);
         events_tx.send(AppEvent::HostInputReady).unwrap();
         let input = runtime.producer(events_tx);
+        let (sent_tx, sent_rx) = std::sync::mpsc::sync_channel(1);
         let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
         let reader = std::thread::spawn(move || {
             let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
             assert!(input.send(key));
+            sent_tx.send(()).unwrap();
             while !ingress.is_closed() {
                 std::thread::yield_now();
             }
@@ -25126,6 +25428,7 @@ mod tests {
         });
 
         runtime.attach_reader(reader);
+        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         runtime.shutdown();
 
         assert!(
@@ -26045,6 +26348,135 @@ mod tests {
 
         let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
         for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn prefix_pane_shortcuts_create_and_resize_without_alt() {
+        let (mux, _) = test_mux("prefix-pane-shortcuts-test", None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.config.keys.apply_for_test(&HashMap::from([(
+            "alt_shortcuts".to_string(),
+            serde_json::json!(false),
+        )]));
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+
+        // Exercise legacy character reports and enhanced Shift+base-key reports.
+        let sequences = [
+            (KeyEvent::new(KeyCode::Char('N'), KeyModifiers::NONE), 2),
+            (KeyEvent::new(KeyCode::Char('n'), KeyModifiers::SHIFT), 3),
+        ];
+        for (key, pane_count) in sequences {
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(key).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            assert!(!app.prefix_armed);
+            assert_eq!(app.tree.active_screen().unwrap().panes.len(), pane_count);
+        }
+
+        app.sync_layout((120, 30));
+        let pane = app.active_pane().unwrap();
+        for grow_key in [
+            KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('='), KeyModifiers::SHIFT),
+        ] {
+            let initial = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(grow_key).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            app.sync_layout((120, 30));
+            let grown = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+            assert!(grown.width > initial.width || grown.height > initial.height);
+
+            app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)).unwrap();
+            app.handle_key(KeyEvent::new(KeyCode::Char('-'), KeyModifiers::NONE)).unwrap();
+            while app.session.has_pending_mutations() {
+                app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+            }
+            app.sync_layout((120, 30));
+            let shrunk = app.pane_areas.iter().find(|area| area.pane == pane).unwrap().rect;
+            assert!(shrunk.width < grown.width || shrunk.height < grown.height);
+        }
+
+        let surfaces = mux.with_state(|state| state.surfaces.keys().copied().collect::<Vec<_>>());
+        for surface in surfaces {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn tab_workspace_menu_moves_the_clicked_inactive_tab_and_drag_creates_workspace() {
+        let (mux, first) = test_mux("tab-workspace-move-test", None);
+        let second = mux.new_tab(None, None, Some((80, 24))).unwrap();
+        let target = mux.new_workspace(Some("destination".into()), Some((80, 24))).unwrap();
+        let destination = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+        mux.select_workspace(Some(0), None);
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((120, 30));
+        let mut terminal = Terminal::new(TestBackend::new(120, 30)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let first_pane = app.tab_location(first.id).unwrap().0;
+        let chip = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Tab { pane, index: 0 } if *pane == first_pane)
+                    .then_some(*rect)
+            })
+            .expect("inactive tab chip");
+        app.open_context_menu(chip.x, chip.y);
+        let move_existing =
+            MenuAction::MoveTabToWorkspace { surface: first.id, workspace: Some(destination) };
+        assert!(app.menu.as_ref().unwrap().actions().contains(&move_existing));
+        app.activate_menu(move_existing).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        assert_eq!(
+            mux.with_state(|state| state.pane_of(first.id)),
+            mux.with_state(|state| state.pane_of(target.id))
+        );
+        assert_ne!(
+            mux.with_state(|state| state.pane_of(first.id)),
+            mux.with_state(|state| state.pane_of(second.id))
+        );
+        assert_eq!(app.tree.active_surface(), Some(first.id));
+        app.menu = None;
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let footer = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::CreateWorkspace { mode: None }
+                        | super::Hit::SidebarAction {
+                            action: SidebarActionTarget::CreateWorkspace(None),
+                            ..
+                        }
+                )
+                .then_some(*rect)
+            })
+            .expect("new workspace footer");
+        let before = app.tree.workspaces().len();
+        app.drag = Some(Drag::Tab { surface: first.id, target: None });
+        app.handle_left_up(footer.x, footer.y).unwrap();
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        }
+        assert_eq!(app.tree.workspaces().len(), before + 1);
+        assert_eq!(app.tree.active_screen().unwrap().panes[0].tabs[0].surface, first.id);
+        assert!(Arc::ptr_eq(&first, &mux.surface(first.id).unwrap()));
+        for surface in [first.id, second.id, target.id] {
             mux.close_surface(surface).unwrap();
         }
     }
@@ -28071,7 +28503,7 @@ mod tests {
 
         assert_eq!(
             app.selection.map(|selection| selection.range()),
-            Some(((0, 0), (10, 0))),
+            Some(((0, 0), (9, 0))),
             "Shift triple click must select the complete line when bypassing PTY mouse reporting"
         );
 
@@ -31066,6 +31498,7 @@ mod tests {
         app.replace_tree(browser_completion_tree(surface_id, surface_id));
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
+        app.outer_size = (40, 12);
         app.pane_areas = vec![area];
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
@@ -35046,6 +35479,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 1,
                 },
                 &tx,
@@ -35068,6 +35502,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 2,
                 },
                 &tx,
@@ -37594,6 +38029,20 @@ mod tests {
         assert!(app.pending_session_completions.is_empty());
         assert_eq!(app.tree.active_surface(), Some(created_surface));
         assert_eq!(app.omnibar.as_ref().map(|state| state.surface), Some(created_surface));
+    }
+
+    #[test]
+    fn tab_workspace_completion_selects_the_moved_tab_without_opening_browser_omnibar() {
+        let mux = Mux::new("tab-workspace-completion", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(browser_completion_tree(41, 42));
+        app.apply_session_completion(SessionCompletion {
+            mutation_generation: 1,
+            semantic_intent: None,
+            action: SessionCompletionAction::SurfaceMoved { surface: 41 },
+        });
+        assert_eq!(app.tree.active_surface(), Some(41));
+        assert!(app.omnibar.is_none());
     }
 
     #[test]
@@ -43633,6 +44082,41 @@ mod tests {
     }
 
     #[test]
+    fn projection_workspace_target_follows_id_after_tree_reorder() {
+        let mux = Mux::new("projection-workspace-target-reorder-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let target = crate::sidebar_projection::ProjectionTarget::Workspace {
+            index: 0,
+            id: app.tree.workspaces()[0].id,
+        };
+        app.tree.workspaces_mut().swap(0, 1);
+        app.activate_projection_target(target).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(
+            app.tree.active_workspace().map(|workspace| workspace.id),
+            Some(target_id(target))
+        );
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    fn target_id(
+        target: crate::sidebar_projection::ProjectionTarget,
+    ) -> cmux_tui_core::WorkspaceId {
+        match target {
+            crate::sidebar_projection::ProjectionTarget::Workspace { id, .. } => id,
+            _ => unreachable!("workspace target expected"),
+        }
+    }
+
+    #[test]
     fn empty_projection_uses_its_leaf_resource_label() {
         let mux = Mux::new("projection-empty-leaf-label-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -45956,6 +46440,7 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            projection_order_cache: AgentOrderCache::default(),
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
@@ -46229,11 +46714,7 @@ mod tests {
         let mux = Mux::new(
             name,
             SurfaceOptions {
-                command: Some(vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "sleep 30".to_string(),
-                ]),
+                command: Some(vec!["/bin/sleep".to_string(), "300".to_string()]),
                 cwd: cwd.map(|path| path.to_string_lossy().into_owned()),
                 ..Default::default()
             },

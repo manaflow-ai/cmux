@@ -1,34 +1,41 @@
 import { describe, expect, test } from "bun:test";
 import {
-  freestyleDaemonHealthyCommand,
-  freestyleDaemonSettledCommand,
-  freestyleStartDaemonCommand,
-} from "../services/vms/drivers/freestyle";
+  CMUX_TUI_PORT,
+  cmuxTuiDaemonCommand,
+  cmuxTuiInstallCommand,
+  cmuxTuiPinCheckCommand,
+} from "../services/vms/drivers/cmuxTuiDaemon";
+
+const SOURCE = {
+  url: "https://files.cmux.com/cmux-tui/test/cmux-tui-x86_64-unknown-linux-musl",
+  sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  commit: "0123456789abcdef0123456789abcdef01234567",
+  builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
+} as const;
 
 describe("Freestyle Cloud VM daemon repair", () => {
-  test("health checks require the managed daemon and its dual-stack listener", () => {
-    // Attach right after create lands in the supervisor's start window: on a
-    // baked image the heal waits up to the settle budget before restarting.
-    const settled = freestyleDaemonSettledCommand();
-    expect(settled).toContain("if [ -f /etc/cmux/bake-instance-id ] && systemctl is-active cmux-tui-daemon");
-    expect(settled).toContain("for i in $(seq 1 30); do {");
-    expect(settled).toContain("sleep 0.1");
-    expect(settled).toContain(`else ${freestyleDaemonHealthyCommand()}; fi`);
-    const healthy = freestyleDaemonHealthyCommand();
-    // [s]tart keeps the pattern from matching the exec shell that carries it.
-    expect(healthy).toContain("pgrep -f 'cmux-tui server [s]tart' >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6");
-    // Instance-binding images: healthy also means bound to this machine's id.
-    expect(healthy).toContain("[ ! -f /etc/cmux/bake-instance-id ] ||");
-    expect(healthy).toContain("/etc/cmux/daemon-instance-id");
-    expect(healthy).toContain("/latest/meta-data/instance-id");
+  test("install and start use the pinned managed daemon", () => {
+    const install = cmuxTuiInstallCommand(SOURCE);
+    // The binary follows the daemon's layout, so a work-user machine gets one
+    // its non-root sessions can execute (/root is 0700).
+    expect(install).toContain('CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"');
+    expect(install).toContain(SOURCE.sha256);
+    expect(install).toContain(SOURCE.url);
+    expect(install).toContain("sha256sum -c");
+    expect(install).not.toContain("cmuxd-remote");
+
+    const daemon = cmuxTuiDaemonCommand(`[::]:${CMUX_TUI_PORT}`);
+    expect(daemon).toContain("server start --session cloud");
+    expect(daemon).toContain(`--remote-ws [::]:${CMUX_TUI_PORT}`);
+    // The cloud listener is reachable only inside the owner's private network.
+    expect(daemon).toContain("--remote-ws-trusted-carrier");
+    expect(daemon).toContain('"$CMUX_TUI_BIN" server start');
+    expect(daemon).not.toContain("cmuxd-remote");
   });
 
-  test("repair restores the managed dual-stack daemon", () => {
-    const command = freestyleStartDaemonCommand();
-    expect(command).toContain("cmux-tui-daemon.service");
-    expect(command).toContain("CMUX_TUI_REMOTE_WS_BIND=[::]:1337");
-    expect(command).toContain("systemctl daemon-reload");
-    expect(command).toContain("systemctl restart cmux-tui-daemon");
-    expect(command).toContain("--remote-ws [::]:1337");
+  test("pin check verifies the managed binary digest", () => {
+    const pinCheck = cmuxTuiPinCheckCommand(SOURCE);
+    expect(pinCheck).toContain(SOURCE.sha256);
+    expect(pinCheck).toContain("sha256sum -c");
   });
 });

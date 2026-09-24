@@ -6,7 +6,6 @@ import CmuxSettings
 // implement the domain it actually exercises. Each domain's own tests override
 // the methods they drive; everything else returns an inert "nothing here"
 // result. As domains land, add their defaults here (one block per domain).
-
 extension ControlCommandContext {
     /// Test default for the worker-lane resolution hop primitive: run the
     /// body on the main actor (inline when the test is already there, else a
@@ -30,7 +29,6 @@ extension ControlCommandContext {
         }
     }
 }
-
 extension ControlAppFocusContext {
     func controlSetAppFocusOverride(_ focused: Bool?) {}
     func controlSimulateAppActive() {}
@@ -247,10 +245,15 @@ extension ControlWorkspaceGroupContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID]
+        childWorkspaceIDs: [UUID],
+        externalID: String?
     ) -> ControlWorkspaceGroupCreateResolution { .tabManagerUnavailable }
 
-    func controlUngroupWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
+    func controlUngroupWorkspaceGroup(
+        routing: ControlRoutingSelectors,
+        groupID: UUID,
+        removeGeneratedAnchor: Bool
+    ) -> ControlWorkspaceGroupUngroupResolution { .tabManagerUnavailable }
     func controlDeleteWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID) -> Int? { nil }
     func controlRenameWorkspaceGroup(routing: ControlRoutingSelectors, groupID: UUID, name: String) -> Bool? { nil }
     func controlSetWorkspaceGroupCollapsed(routing: ControlRoutingSelectors, groupID: UUID, isCollapsed: Bool) -> Bool? { nil }
@@ -290,9 +293,12 @@ extension ControlWorkspaceContext {
             closeProtected: "", closeFailed: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
-            reorderManyWorkspaceNotFound: "",
-            reorderManyInvalidWorkspace: "",
-            reorderManyTabManagerUnavailable: ""
+            workspaceNotFound: "",
+            invalidWorkspaceRef: "",
+            reorderIndexNotAnInteger: "",
+            reorderMissingWorkspaceID: "",
+            reorderTargetRequired: "",
+            reorderManyTabManagerUnavailable: "", relayOwnerUnavailable: ""
         )
     }
 
@@ -511,7 +517,12 @@ extension ControlSurfaceContext {
     ) -> ControlSurfaceTriggerFlashResolution { .tabManagerUnavailable }
 
     nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
-        ControlSurfaceInputStrings(inputQueueFull: "", surfaceUnavailable: "", processExited: "")
+        ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: "",
+            inputQueueFull: "",
+            surfaceUnavailable: "",
+            processExited: ""
+        )
     }
 
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
@@ -589,7 +600,9 @@ extension ControlSurfaceContext {
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
         terminalLifecycleID: UUID?,
-        stateRawValue: String
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution { .pending }
 
     func controlSurfaceInvalidTerminalLifecycleIDError() -> String {

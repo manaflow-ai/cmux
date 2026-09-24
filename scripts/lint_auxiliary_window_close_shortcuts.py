@@ -17,6 +17,9 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 # main window. Add to this set only when a window is intentionally not user
 # closable.
 IGNORED_IDENTIFIERS = {
+    # NSHostingView inside a terminal pane, not an auxiliary window. Cmd+W
+    # belongs to the containing pane rather than this inline failure card.
+    "cmux.cloudPaneCreationFailure.card",
     # Hidden WebKit preload host; it is not user closable and must not own Cmd+W.
     "cmux.browserBackgroundPreload",
     # Hidden WebKit hover-prewarm host; it is not user closable and must not own Cmd+W.

@@ -4,8 +4,8 @@ import SwiftUI
 import WebKit
 
 struct MarkdownWebRenderer: NSViewRepresentable {
-    static let localImageURLScheme = MarkdownWebViewerScheme.localImage
-    static let remoteImageURLScheme = MarkdownWebViewerScheme.remoteImage
+    static let localImageURLScheme = MarkdownWebViewerScheme.localImage.rawValue
+    static let remoteImageURLScheme = MarkdownWebViewerScheme.remoteImage.rawValue
 
     let markdown: String
     let theme: MarkdownWebTheme
@@ -569,10 +569,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
 
             if scheme == MarkdownWebRenderer.remoteImageURLScheme {
-                let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL)
+                let remoteURL = MarkdownRemoteImageSecurity().remoteImageURL(from: requestURL)
                 return Task.detached(priority: .userInitiated) {
                     guard let remoteURL,
-                          let fetched = await MarkdownRemoteImageFetcher.fetch(remoteURL) else {
+                          let fetched = await MarkdownRemoteImageFetcher().fetch(remoteURL) else {
                         return ImageLoadResult(data: Data(), mimeType: "image/png")
                     }
                     return ImageLoadResult(data: fetched.data, mimeType: fetched.mimeType)

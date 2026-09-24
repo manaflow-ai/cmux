@@ -42,15 +42,23 @@ extension Workspace {
         destination: BonsplitController.ExternalTabDropRequest.Destination,
         catalog: SurfaceCatalog? = nil
     ) -> Bool {
-        guard !group.isEmpty else { return false }
         let catalog = catalog ?? SurfaceCatalog.shared
+        guard !isRetiredFromOwningTabManager, !group.isEmpty,
+              catalog.ownershipRejection(for: group.resources, policy: surfaceOwnershipPolicy) == nil else { return false }
         let target = SurfaceDestination.dropDestination(workspaceID: self.id, destination: destination)
 #if DEBUG
         cmuxDebugLog("surfaces.drop workspace=\(self.id.uuidString.prefix(5)) group=\(group.title) count=\(group.resources.count) target=\(target)")
 #endif
         Task { @MainActor in
             do {
-                _ = try await catalog.projectGroup(group.resources, into: target, focus: true)
+                let projections = try await catalog.projectGroup(group, into: target, focus: true)
+                // A Cloud drag starts in the right sidebar, so the sidebar remains
+                // the window's recorded keyboard owner after AppKit completes the
+                // drop. Re-run the shared focus transaction once the first pane is
+                // materialized so its Bonsplit focus and bright active state agree.
+                if let first = projections.first {
+                    SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID)
+                }
             } catch {
 #if DEBUG
                 cmuxDebugLog("surfaces.drop.failed group=\(group.title) error=\(error)")

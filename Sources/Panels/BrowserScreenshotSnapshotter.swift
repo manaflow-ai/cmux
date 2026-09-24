@@ -768,8 +768,16 @@ enum BrowserScreenshotWebViewSnapshotter {
             const expectedY = Math.min(Math.max(0, y), maximumY);
             window.scrollTo({ left: x, top: y, behavior: "instant" });
             document.documentElement?.getBoundingClientRect();
+            // Two frames let layout and paint settle, but a page in a web view
+            // that is not visible never gets animation frames, so a timer
+            // bounds the wait instead of leaving the capture hung.
             await new Promise((resolve) => {
-              requestAnimationFrame(() => requestAnimationFrame(resolve));
+              let settled = false;
+              const finish = () => {
+                if (!settled) { settled = true; resolve(); }
+              };
+              requestAnimationFrame(() => requestAnimationFrame(finish));
+              setTimeout(finish, 250);
             });
             return {
               x: window.scrollX || 0,

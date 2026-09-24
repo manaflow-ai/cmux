@@ -3,6 +3,37 @@ import Testing
 
 @MainActor
 @Suite struct MobilePrimarySearchCoordinatorTests {
+    @Test func beginSearchSelectsRequestedScopeBeforePresenting() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
+        coordinator.notifications = "alerts"
+
+        coordinator.beginSearch(for: .notifications)
+
+        #expect(coordinator.scope == .notifications)
+        #expect(coordinator.isPresented)
+        #expect(coordinator.activeNativeSearchText() == "alerts")
+        #expect(coordinator.activationGeneration == 1)
+    }
+
+    @Test func beginSearchWhilePresentedRescopesTheSession() {
+        let coordinator = MobilePrimarySearchCoordinator(initialScope: .workspaces)
+        coordinator.beginSearch(for: .workspaces)
+        coordinator.updateNativeSearchText(
+            "draft",
+            for: .workspaces,
+            activationGeneration: coordinator.activationGeneration
+        )
+
+        coordinator.beginSearch(for: .notifications)
+
+        #expect(coordinator.scope == .notifications)
+        #expect(coordinator.isPresented)
+        // The new scope starts its own activation; the old scope's draft is
+        // not committed by a scope switch.
+        #expect(coordinator.activeNativeSearchText() == "")
+        #expect(coordinator.committedSearchText(for: .workspaces) == "")
+    }
+
     @Test func activePresentedSearchAcceptsExplicitClear() {
         let coordinator = MobilePrimarySearchCoordinator()
         coordinator.synchronizeSelection(.workspaces)
