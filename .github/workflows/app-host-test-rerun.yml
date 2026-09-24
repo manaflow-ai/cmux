@@ -208,14 +208,18 @@ jobs:
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Restore Swift packages
+        id: swift-package-cache
         uses: ./.github/actions/cache-restore
         with:
           backend: r2
           path: .ci-source-packages
-          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
 
       - name: Resolve Swift packages
+        env:
+          # With the seed ci-macos.yml restores, an exact hit resolves offline.
+          CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages

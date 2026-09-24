@@ -540,6 +540,14 @@ class WorkflowTests(unittest.TestCase):
                 f"a fork must reach a hosted label before any variable: {label}",
             )
 
+    def test_every_swiftpm_cache_key_carries_the_layout_version(self) -> None:
+        # #14013 moved the artifact zips into the seed and bumped the layout;
+        # a key without it restores a pre-#14013 seed, and resolution then
+        # downloads the artifacts again (116 s in run 36012287965).
+        for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            for key in re.findall(r"key: (spm-.*)", workflow.read_text()):
+                self.assertIn("scripts/ci/swiftpm-cache-layout", key, f"{workflow.name}: {key}")
+
     def test_the_helper_comes_from_the_workflow_revision(self) -> None:
         text = WORKFLOW.read_text()
         self.assertNotIn("python3 scripts/ci/app_host_test_rerun.py", text)
