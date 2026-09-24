@@ -494,7 +494,9 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
-    # Saves the iOS compilation cache; only main may hold the R2 write credentials.
+    # Saves the iOS compilation cache. Every R2 cache writer declares this
+    # environment (#14147); the guard in test_ci_pull_request_caches_are_read_only.py
+    # enforces it.
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     outputs:
       final_build_number: ${{ steps.upload.outputs.final_build_number }}
@@ -909,7 +911,7 @@ jobs:
 
       - name: Bound iOS compilation cache size
         id: ios-compilation-cache-bound
-        if: ${{ !cancelled() && vars.IOS_UPLOAD_COMPILATION_CACHE != '0' && steps.ios-compilation-cache-restore.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.upload.outcome == 'success' && vars.IOS_UPLOAD_COMPILATION_CACHE != '0' && steps.ios-compilation-cache-restore.outputs.cache-hit != 'true' }}
         continue-on-error: true
         run: |
           set -euo pipefail
