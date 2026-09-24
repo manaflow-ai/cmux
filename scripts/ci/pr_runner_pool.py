@@ -24,8 +24,28 @@ is never chosen: pull requests must not delay those. Every Blacksmith pool
 is sponsored, so cost is not a reason to prefer one.
 
 `vars.CI_PR_POOL_OVERFLOW == '0'` turns this off. Only the labels in POOLS
-are accepted, because each one's Xcode pin is known here; a new pool (owned
-Mac minis, say) joins POOLS with its Xcode before it can appear in the order.
+are accepted, because each one's Xcode pin is known here.
+
+Owned Macs (fleet RFC, cmuxterm-hq#573) join as class pools keyed by the
+label glaeda issues, `glaeda-<class>-xcode-<version>`. glaeda puts that label
+only on a dedicated member whose Xcode at the pinned path reports the pinned
+build, so the one label carries the class, the availability and the Xcode.
+The version follows the pull-request lane's pin (vars.CMUX_CI_XCODE_APP_PR,
+`/Applications/Xcode_26.6.app` -> `glaeda-std-xcode-26.6`), so moving the
+pin moves the pool, and no runner carries the new label until glaeda has
+verified the new Xcode on it. Owned pools are persistent: the machine
+outlives the job. They take part only when `vars.CI_PR_POOL_OWNED == '1'`,
+and then go first in the default order so Blacksmith is overflow. Their
+capacity is the number of machines the fleet manifest gives each label,
+published as vars.CI_OWNED_POOL_SLOTS (JSON, `{"glaeda-std-xcode-26.6": 11}`).
+The janitor's snapshot counts the jobs queued and running on each owned label
+from the job listings it already makes, so no token beyond GITHUB_TOKEN is
+needed. An owned pool is skipped when it has no slot count, or when the
+snapshot is older than OWNED_MAX_AGE_MINUTES. An offline machine still counts
+as a slot; what that and the snapshot's age get wrong,
+ci-owned-pool-rescue.yml catches: a run whose job waits on an owned pool past
+its budget is re-run on Blacksmith. Only the `std` class (48 GB) takes a whole run; `light` minis
+(16 GB) cannot compile the app.
 
 The queue comes from the queue janitor, which lists every in-flight run's
 jobs each sweep and publishes what it saw as the `macos-pool-load` artifact.
@@ -68,6 +88,7 @@ import datetime as dt
 import io
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -87,6 +108,17 @@ POOLS = {
     MACOS_15_RUNNER: "CMUX_CI_XCODE_APP_MACOS_15",
 }
 DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
+# Owned classes that take a whole pull request run, first in the default order
+# once CI_PR_POOL_OWNED is 1. Their label embeds the lane's Xcode version, and
+# their POOLS pin is "" (the lane's own), which is the Xcode that label names.
+RUN_CLASSES = ("std",)
+OWNED_LABEL = re.compile(r"glaeda-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
+PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
+OWNED_VARIABLE = "CI_PR_POOL_OWNED"
+SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
+# A snapshot older than this is not trusted to place a run on an owned pool.
+OWNED_MAX_AGE_MINUTES = 20
 # Pools whose machines are discarded after each job; the only ones a fork run may use.
 EPHEMERAL_PREFIX = "blacksmith-"
 
@@ -113,6 +145,19 @@ class Settings:
     max_queued: int = DEFAULT_MAX_QUEUED
 
 
+def persistent(label: str) -> bool:
+    """An owned pool: its machines outlive the job, so a queued job there can wait for good."""
+    return bool(OWNED_LABEL.fullmatch(label or ""))
+
+
+def owned_pools(pr_xcode_app: str | None) -> tuple[str, ...]:
+    """The owned pool labels for the lane's Xcode pin; none when the pin names no version."""
+    match = XCODE_APP.search(pr_xcode_app or "")
+    if not match:
+        return ()
+    return tuple(f"glaeda-{name}-xcode-{match.group(1)}" for name in RUN_CLASSES)
+
+
 @dataclasses.dataclass(frozen=True)
 class Choice:
     runner: str  # "" keeps every job's own fallback expression
@@ -120,12 +165,28 @@ class Choice:
     reason: str
 
 
-def settings(overflow: str | None, order: str | None, max_queued: str | None) -> Settings | None:
-    """Settings from repository variables; None when turned off or invalid."""
+def settings(overflow: str | None, order: str | None, max_queued: str | None,
+             owned: str | None = None, pr_xcode_app: str | None = None) -> Settings | None:
+    """Settings from repository variables; None when turned off or invalid.
+
+    Owned pools stay out of the order unless `owned` is "1", even when
+    CI_PR_POOL_ORDER names them, so one variable turns the fleet on and off.
+    An owned label in the order must be the one the lane's Xcode pin names.
+    """
     if (overflow or "").strip() == "0":
         return None
-    labels = tuple(label.strip() for label in (order or "").split(",") if label.strip()) or DEFAULT_ORDER
-    if len(set(labels)) != len(labels) or any(label not in POOLS for label in labels):
+    use_owned = (owned or "").strip() == "1"
+    current = owned_pools(pr_xcode_app)
+    default = (current + DEFAULT_ORDER) if use_owned else DEFAULT_ORDER
+    labels = tuple(label.strip() for label in (order or "").split(",") if label.strip()) or default
+    if not use_owned:
+        # Dropped before validation: a fork run reads the order without the
+        # lane's Xcode pin, and must not lose the Blacksmith preference to it.
+        labels = tuple(label for label in labels if not persistent(label))
+        if not labels:
+            return None
+    known = set(POOLS) | set(current)
+    if len(set(labels)) != len(labels) or any(label not in known for label in labels):
         return None
     try:
         limit = int(max_queued) if (max_queued or "").strip() else DEFAULT_MAX_QUEUED
@@ -152,15 +213,38 @@ def snapshot_age_minutes(snapshot: Mapping[str, Any], now: dt.datetime) -> float
     return (now - generated).total_seconds() / 60
 
 
-def pool(snapshot: Mapping[str, Any], label: str) -> Mapping[str, int]:
-    """One pool's counts; a pool the janitor saw no job on is empty, not unknown."""
+def slots(raw: str | None) -> dict[str, int]:
+    """CI_OWNED_POOL_SLOTS: owned pool label -> machines. Anything malformed counts as none."""
+    try:
+        data = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(data, Mapping):
+        return {}
+    counted = {}
+    for label, count in data.items():
+        if persistent(str(label)) and isinstance(count, int) and not isinstance(count, bool) and count > 0:
+            counted[str(label)] = count
+    return counted
+
+
+def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int] | None = None) -> Mapping[str, int]:
+    """One pool's counts; a pool the janitor saw no job on is empty, not unknown.
+
+    `capacity` is POOL_CAPACITY for a Blacksmith pool and the slot count for
+    an owned pool (0 when CI_OWNED_POOL_SLOTS gives it none).
+    """
     entry = (snapshot.get("pools") or {}).get(label) or {}
-    return {key: int(entry.get(key) or 0) for key in ("queued", "running", "reserved_queued", "oldest_queued_minutes")}
+    counts = {key: int(entry.get(key) or 0) for key in ("queued", "running", "reserved_queued", "oldest_queued_minutes")}
+    counts["capacity"] = int((owned_slots or {}).get(label) or 0) if persistent(label) else POOL_CAPACITY
+    return counts
 
 
-def describe(snapshot: Mapping[str, Any], label: str) -> str:
-    counts = pool(snapshot, label)
+def describe(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int] | None = None) -> str:
+    counts = pool(snapshot, label, owned_slots)
     text = f"{label}: {counts['queued']} queued, {counts['running']} running"
+    if persistent(label):
+        text += f" of {counts['capacity']} slots"
     if counts["queued"]:
         text += f", oldest {counts['oldest_queued_minutes']} min"
     if counts["reserved_queued"]:
@@ -172,20 +256,29 @@ def effective_queue(counts: Mapping[str, int], added: int) -> int:
     """Queued jobs once `added` more arrive: they fill the pool's idle slots first.
 
     A pool with jobs queued is already full, so everything added queues. One
-    with none queued has POOL_CAPACITY - running idle slots to fill first.
+    with none queued has capacity - running idle slots to fill first.
     """
-    idle = 0 if counts["queued"] else max(0, POOL_CAPACITY - counts["running"])
+    idle = 0 if counts["queued"] else max(0, counts.get("capacity", POOL_CAPACITY) - counts["running"])
     return counts["queued"] + max(0, added - idle)
 
 
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
          max_queued: int) -> tuple[str, bool]:
-    """The rule itself: first usable pool with headroom, else the fewest queued."""
+    """The rule itself: first usable pool with headroom, else the fewest queued.
+
+    An owned pool has headroom only while a runner is idle for this run too:
+    a job queued there waits for that pool alone, so it never takes queued
+    work, and it is never the fewest-queued fallback.
+    """
     queued = {label: effective_queue(load[label], added[label]) for label in usable}
     for label in usable:
-        if queued[label] < max_queued:
+        if persistent(label):
+            if effective_queue(load[label], added[label] + 1) == 0:
+                return label, True
+        elif queued[label] < max_queued:
             return label, True
-    return min(usable, key=lambda label: queued[label]), False
+    fallback = [label for label in usable if not persistent(label)] or list(usable)
+    return min(fallback, key=lambda label: queued[label]), False
 
 
 def decide(
@@ -198,6 +291,7 @@ def decide(
     auto_xcode: bool = False,
     placed: Mapping[str, int] | None = None,
     choose_from: Sequence[str] | None = None,
+    owned_slots: Mapping[str, int] | None = None,
 ) -> Choice:
     """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
 
@@ -215,29 +309,39 @@ def decide(
     if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
         return Choice("", "", f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)")
     try:
-        load = {label: pool(snapshot, label) for label in limits.order}
+        load = {label: pool(snapshot, label, owned_slots) for label in limits.order}
     except (TypeError, ValueError, AttributeError):
         return Choice("", "", "malformed pool snapshot")
 
     def xcode(label: str) -> str | None:
-        variable = POOLS[label]
+        variable = POOLS.get(label, "")
         if not variable or auto_xcode:
             return ""
         return (xcode_pins.get(variable) or "").strip() or None
 
-    usable = [label for label in limits.order if load[label]["reserved_queued"] == 0 and xcode(label) is not None]
+    def counted(label: str) -> bool:
+        """An owned pool places runs only with a slot count and a fresh snapshot."""
+        if not persistent(label):
+            return True
+        return age <= OWNED_MAX_AGE_MINUTES and load[label]["capacity"] > 0
+
+    usable = [label for label in limits.order
+              if load[label]["reserved_queued"] == 0 and xcode(label) is not None and counted(label)]
     if not usable:
-        return Choice("", "", "every pool in the order is reserved or has no Xcode pin")
+        return Choice("", "", "every pool in the order is reserved, has no Xcode pin, or is an owned pool "
+                              "without slots or a fresh snapshot")
     candidates = [label for label in usable if choose_from is None or label in choose_from]
     if not candidates:
         return Choice("", "", "every pool this run may take is reserved or has no Xcode pin")
     skipped = [label for label in limits.order if label not in usable]
-    note = f"; skipped {', '.join(skipped)} (reserved or no Xcode pin)" if skipped else ""
+    note = f"; skipped {', '.join(skipped)} (reserved, no Xcode pin, or owned without slots or a fresh snapshot)" if skipped else ""
     added = {label: max(0, int((placed or {}).get(label) or 0)) for label in usable}
     for _ in range(max(0, routed_since)):
         earlier, _ = pick(load, added, usable, limits.max_queued)
         added[earlier] += 1
     label, headroom = pick(load, added, candidates, limits.max_queued)
+    if persistent(label) and not headroom:
+        return Choice("", "", "every owned pool this run may take is busy, and no other pool is in the order")
     replayed = sum(added.values())
     replay = f" after replaying {replayed} newer run(s)" if replayed else ""
     why = (f"first pool in order with headroom (< {limits.max_queued} queued){replay}" if headroom
@@ -255,6 +359,8 @@ def choose(
     order: str | None,
     max_queued: str | None,
     xcode_pins: Mapping[str, str],
+    owned: str | None = None,
+    owned_slots: str | None = None,
     fetch: Callable[[], Mapping[str, Any] | None],
     count_routed: Callable[[str], int] = lambda since: 0,
     now: dt.datetime,
@@ -269,7 +375,7 @@ def choose(
     if not fork:
         if (default_runner or "").strip() != DEFAULT_RUNNER:
             return Choice("", "", f"MACOS_RUNNER_PR is {default_runner or 'unset'}, not {DEFAULT_RUNNER}"), None
-        limits = settings(overflow, order, max_queued)
+        limits = settings(overflow, order, max_queued, owned, xcode_pins.get(PR_XCODE_VARIABLE))
         if limits is None:
             return Choice("", "", f"{OVERFLOW_VARIABLE} is 0, or {ORDER_VARIABLE}/{MAX_QUEUED_VARIABLE} "
                                   "is invalid"), None
@@ -307,17 +413,12 @@ def choose(
     except Exception as error:  # noqa: BLE001 - every failure keeps the default
         return Choice("", "", f"could not count runs since the snapshot ({error})"), snapshot
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
-                    routed_since=routed, auto_xcode=fork)
+                    routed_since=routed, auto_xcode=fork, owned_slots={} if fork else slots(owned_slots))
     if fork and choice.runner:
         choice = dataclasses.replace(choice, reason=f"fork head; {choice.reason}")
     if retry and choice.runner:
         choice = dataclasses.replace(choice, reason=f"retry attempt {run_attempt}; {choice.reason}")
     return choice, snapshot
-
-
-def persistent(label: str) -> bool:
-    """A pool whose machines outlive the job, so a queued job there can wait for good."""
-    return bool(label) and not label.startswith(EPHEMERAL_PREFIX)
 
 
 def count_in_flight(runs: Sequence[Mapping[str, Any]], *, exclude_run_id: int | None) -> int:
@@ -413,7 +514,8 @@ class GitHub:
         return count_in_flight(runs, exclude_run_id=exclude_run_id)
 
 
-def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime) -> str:
+def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime,
+            owned_slots: Mapping[str, int] | None = None) -> str:
     runner = choice.runner or "each job's default (MACOS_RUNNER_PR or its fallback)"
     lines = ["### macOS pool for this run", "", f"- Pool: `{runner}`", f"- Why: {choice.reason}"]
     if choice.xcode_app:
@@ -422,8 +524,8 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
         age = snapshot_age_minutes(snapshot, now)
         lines.append(f"- Queue seen by the janitor at {snapshot.get('generated_at')}"
                      + (f" ({round(age)} min before this run)" if age is not None else "") + ":")
-        for label in POOLS:
-            lines.append(f"  - {describe(snapshot, label)}")
+        for label in [*POOLS, *sorted(owned_slots or {})]:
+            lines.append(f"  - {describe(snapshot, label, owned_slots)}")
     return "\n".join(lines) + "\n"
 
 
@@ -462,13 +564,16 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         overflow=env.get("POOL_OVERFLOW"),
         order=env.get("POOL_ORDER"),
         max_queued=env.get("POOL_MAX_QUEUED"),
-        xcode_pins={variable: env.get(variable) or "" for variable in POOLS.values() if variable},
+        owned=env.get("POOL_OWNED"),
+        owned_slots=env.get("OWNED_SLOTS"),
+        xcode_pins={variable: env.get(variable) or ""
+                    for variable in {*POOLS.values(), PR_XCODE_VARIABLE} if variable},
         fetch=fetch,
         count_routed=count_routed,
         now=now,
         run_attempt=int(attempt) if attempt.isdigit() else 1,
     )
-    text = summary(choice, snapshot, now=now)
+    text = summary(choice, snapshot, now=now, owned_slots=slots(env.get("OWNED_SLOTS")))
     print(text)
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
