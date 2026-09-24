@@ -75,7 +75,8 @@ PATH_OWNERS = {
     "ghostty": frozenset(("release-tooling",)),
     "ios/scripts/fetch-testflight-notes-history.sh": frozenset(("release-ios",)),
     "ios/scripts/upload-testflight.sh": frozenset(("release-ios",)),
-    "scripts/verify-local.py": frozenset(("ci",)),
+    # validate_test_execution_registry.py reads the recipe for the tests it runs.
+    "scripts/verify-local.py": frozenset(("preflight", "ci")),
     "scripts/verification_receipt.py": frozenset(("ci",)),
     "scripts/ci/app_host_test_products.py": frozenset(("preflight",)),
     "scripts/ci/build_input_fingerprint.py": frozenset(("preflight",)),

@@ -828,8 +828,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # The shared recipe executes tests/test_normalize_pbxproj.py and
-      # tests/test_sync_test_wiring.py; retain these execution-registry references.
       - name: Run the contributor static preflight
         run: python3 scripts/verify-local.py
 

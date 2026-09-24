@@ -176,6 +176,31 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         self.assertIn('lane = "<lane>"', message)
         self.assertIn("macos-cli-no-socket", message)
 
+    def recipe_root(self, workflow_line: str) -> Path:
+        root = self.make_root(
+            tests=["test_kept.py", "test_recipe.py"],
+            registry=self.kept_registry() + '\n[[test]]\npath = "tests/test_recipe.py"\nlane = "linux-guard"\n',
+        )
+        (root / "scripts").mkdir()
+        (root / "scripts" / "verify-local.py").write_text(
+            'CHECKS = (("recipe", "tests", "Recipe test", ["python3", "tests/test_recipe.py"]),)\n',
+            encoding="utf-8",
+        )
+        (root / ".github" / "workflows" / "ci.yml").write_text(
+            f"jobs:\n  static-preflight:\n    steps:\n      {workflow_line}\n", encoding="utf-8"
+        )
+        return root
+
+    def test_a_test_the_shared_preflight_recipe_runs_is_live(self) -> None:
+        root = self.recipe_root("- run: python3 scripts/verify-local.py")
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertEqual(errors, [])
+
+    def test_a_commented_out_recipe_run_does_not_make_its_tests_live(self) -> None:
+        root = self.recipe_root("# - run: python3 scripts/verify-local.py")
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+
     def test_write_registers_a_test_a_workflow_already_runs(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_new.py"], registry=self.kept_registry())
         workflow = root / ".github" / "workflows" / "ci-guards.yml"

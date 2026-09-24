@@ -53,6 +53,11 @@ SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
 # A workflow that names a test file in a `run:` step executes it directly,
 # which is exactly what the linux-guard lane means.
 DIRECT_RUN_LANE = "linux-guard"
+# A workflow step that runs the shared contributor preflight executes every test
+# its recipe (the CHECKS argv lists in scripts/verify-local.py) names, so those
+# tests are live on linux-guard without the workflow naming them itself.
+SHARED_RECIPE = "scripts/verify-local.py"
+RECIPE_TEST_RE = re.compile(r'"(tests/test_[A-Za-z0-9_.-]+\.py)"')
 
 
 def runner_lanes_from_workflow_text(text: str) -> set[str]:
@@ -76,9 +81,21 @@ def all_workflow_text(workflows: Path = WORKFLOWS) -> str:
     ci-guards.yml alone rejects a test that demonstrably executes on every
     pull request.
     """
-    return "\n".join(
-        workflow.read_text(encoding="utf-8") for workflow in workflow_files(workflows)
+    texts = [workflow.read_text(encoding="utf-8") for workflow in workflow_files(workflows)]
+    return "\n".join(texts + recipe_tests(texts, workflows))
+
+
+def recipe_tests(workflow_texts: list[str], workflows: Path = WORKFLOWS) -> list[str]:
+    """Tests the shared preflight recipe runs, when an executable workflow line runs it."""
+    runs_recipe = any(
+        SHARED_RECIPE in line.split("#", 1)[0]
+        for text in workflow_texts
+        for line in text.splitlines()
     )
+    recipe = workflows.parents[1] / SHARED_RECIPE
+    if not runs_recipe or not recipe.is_file():
+        return []
+    return RECIPE_TEST_RE.findall(recipe.read_text(encoding="utf-8"))
 
 
 def runner_lanes(workflows: Path = WORKFLOWS) -> set[str]:
