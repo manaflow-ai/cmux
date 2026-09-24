@@ -619,6 +619,7 @@ drain_entry() {
   ( cd "$source_checkout" && \
       env ${mdl_env[@]+"${mdl_env[@]}"} \
         CMUX_MOBILE_SOURCE_CHECKOUT="$source_checkout" \
+        CMUX_INSTALLED_APP_PATH="$app" \
         "$mdl" "${args[@]}" ) \
       >"$launch_log" 2>&1 || mdl_rc=$?
   cat "$launch_log" >>"$LOGS_DIR/drain.log" 2>/dev/null || true

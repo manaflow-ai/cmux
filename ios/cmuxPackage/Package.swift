@@ -11,7 +11,7 @@ import PackageDescription
 let package = Package(
     name: "cmuxFeature",
     platforms: [
-        .iOS(.v18),
+        .iOS(.v17),
         .macOS(.v14),
     ],
     products: [
@@ -27,6 +27,7 @@ let package = Package(
     dependencies: [
         .package(path: "../../Packages/Shared/CMUXAuthCore"),
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
+        .package(path: "../../Packages/macOS/CmuxPhonePush"),
         .package(path: "../../Packages/Shared/CmuxClientConfig"),
         .package(path: "../../Packages/Shared/CmuxIrohTransport"),
         .package(path: "../../Packages/Shared/CmuxIrxTransport"),
@@ -42,6 +43,7 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxMobileShell"),
         .package(path: "../../Packages/iOS/CmuxMobileShellModel"),
         .package(path: "../../Packages/iOS/CmuxMobileShellUI"),
+        .package(path: "../../Packages/iOS/CmuxMobileSimulatorStream"),
         .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxMobileTerminal"),
         .package(path: "../../Packages/iOS/CmuxMobileToast"),
@@ -56,6 +58,7 @@ let package = Package(
             dependencies: [
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
+                "CmuxPhonePush",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
                 "CmuxIrxTransport",
@@ -71,6 +74,7 @@ let package = Package(
                 "CmuxMobileShell",
                 "CmuxMobileShellModel",
                 "CmuxMobileShellUI",
+                "CmuxMobileSimulatorStream",
                 "CmuxMobileSupport",
                 "CmuxMobileTerminal",
                 "CmuxMobileTerminalKit",
@@ -109,8 +113,10 @@ let package = Package(
                 "CmuxIrohReleaseGateSupport",
                 "CMUXAuthCore",
                 "CmuxAuthRuntime",
+                "CmuxPhonePush",
                 "CmuxClientConfig",
                 "CmuxIrohTransport",
+                "CmuxIrxTransport",
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
                 "CmuxMobileBrowser",
@@ -123,6 +129,7 @@ let package = Package(
                 "CmuxMobileShell",
                 "CmuxMobileShellModel",
                 "CmuxMobileShellUI",
+                "CmuxMobileSimulatorStream",
                 "CmuxMobileSupport",
                 "CmuxMobileTerminal",
                 "CmuxMobileTerminalKit",

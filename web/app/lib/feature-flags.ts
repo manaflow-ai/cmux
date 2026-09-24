@@ -40,4 +40,12 @@ export const FEATURE_FLAGS = {
     reviewBy: "2027-02-01",
     defaultWhenUnavailable: true,
   },
+  goPlan: {
+    key: "go-plan-enabled-release",
+    owner: "lawrencecchen",
+    description:
+      "Shows and sells the $10/month Go personal Cloud VM plan. Off until Go capacity and support are ready for public rollout.",
+    reviewBy: "2026-12-01",
+    defaultWhenUnavailable: false,
+  },
 } as const satisfies Record<string, FeatureFlagDefinition>;

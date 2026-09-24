@@ -162,20 +162,24 @@ struct CloudWireGuardHubTests {
         let routes = ["10.0.0.0/8", "fd00::/8"]
     }
 
-    private func makeHarness(readiness: @escaping @Sendable (String) async throws -> Void = { _ in }) -> Harness {
+    private func makeHarness(
+        enrollment: (@Sendable () async throws -> CloudWireGuardHub.Enrollment)? = nil,
+        backoff: [Duration] = [.seconds(1), .seconds(2)],
+        readiness: @escaping @Sendable (String) async throws -> Void = { _ in }
+    ) -> Harness {
         let spawner = FakeSpawner()
         let gate = SleepGate()
         let socketURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hub-test-\(UUID().uuidString.lowercased()).sock")
         let routes = ["10.0.0.0/8", "fd00::/8"]
         let configuration = CloudWireGuardHub.Configuration(
-            enroll: { CloudWireGuardHub.Enrollment(configPath: "/tmp/cmux-app.conf", routes: routes) },
+            enroll: enrollment ?? { CloudWireGuardHub.Enrollment(configPath: "/tmp/cmux-app.conf", routes: routes) },
             clientURL: URL(fileURLWithPath: "/usr/bin/true"),
             socketURL: socketURL,
             spawner: spawner,
             waitUntilReady: readiness,
             sleep: { duration in try await gate.sleep(duration) },
-            restartBackoff: [.seconds(1), .seconds(2)],
+            restartBackoff: backoff,
             idleGrace: .seconds(10)
         )
         return Harness(hub: CloudWireGuardHub(configuration: configuration), spawner: spawner, gate: gate, socketPath: socketURL.path)
@@ -213,7 +217,7 @@ struct CloudWireGuardHubTests {
         #expect(first.ready == second.ready)
         #expect(first.ready.socketPath == h.socketPath)
         #expect(first.ready.routes == h.routes)
-        #expect(h.spawner.last?.arguments == ["wg", "hub", "--config", h.configPath, "--socket", h.socketPath])
+        #expect(h.spawner.last?.arguments == ["wg", "hub", "--config", h.configPath, "--socket", h.socketPath, "--exit-with-parent"])
         let status = await h.hub.status()
         #expect(status.running)
         #expect(status.leases == 2)
@@ -252,6 +256,74 @@ struct CloudWireGuardHubTests {
         #expect(ready.socketPath == h.socketPath)
         #expect(await attempts.value == 2)
         #expect(await h.hub.status().leases == 1)
+    }
+
+    @Test
+    func explicitOpenAndPrewarmShareEnrollmentRecovery() async throws {
+        let attempts = AttemptCounter()
+        let h = makeHarness(enrollment: {
+            if await attempts.next() == 1 {
+                throw VMClientError.httpStatus(502, #"{"error":"vm_cloud_service_unavailable","retryable":true}"#)
+            }
+            return CloudWireGuardHub.Enrollment(configPath: "/tmp/cmux-app.conf", routes: ["10.0.0.0/8"])
+        })
+        // vm.cmux_remote_info pins the hub before the sidebar observes the new
+        // machine. Its waiter must survive the same startup failure that the
+        // background prewarm knows how to recover from.
+        let open = Task { try await h.hub.pinForExternalClient() }
+        await waitForPendingSleeps(h.gate, count: 1)
+        let prewarm = Task { try await h.hub.prewarm() }
+        let link = Task { try await h.hub.acquire() }
+        await h.gate.elapse()
+        defer { Task { await h.hub.stop() } }
+
+        let opened = try await open.value
+        let warmed = try await prewarm.value
+        let linked = try await link.value
+        #expect(opened == warmed)
+        #expect(opened == linked.ready)
+        #expect(await attempts.value == 2)
+        #expect(h.spawner.count == 1)
+    }
+
+    @Test
+    func stopCancelsSharedEnrollmentRecoveryWithoutASecondRequest() async throws {
+        let attempts = AttemptCounter()
+        let h = makeHarness(enrollment: {
+            _ = await attempts.next()
+            throw VMClientError.httpStatus(502, #"{"error":"vm_cloud_service_unavailable","retryable":true}"#)
+        })
+        let open = Task { try await h.hub.pinForExternalClient() }
+        await waitForPendingSleeps(h.gate, count: 1)
+        await h.hub.stop()
+        await #expect(throws: CancellationError.self) { _ = try await open.value }
+        #expect(await attempts.value == 1)
+        #expect(h.spawner.count == 0)
+        #expect(await h.hub.status().pinnedByExternalClient == false)
+    }
+
+    @Test
+    func permanentEnrollmentFailureIsBoundedAndPreservesTheReason() async throws {
+        let attempts = AttemptCounter()
+        let h = makeHarness(enrollment: {
+            _ = await attempts.next()
+            throw VMClientError.httpStatus(400, #"{"error":"vm_tunnel_invalid_key","message":"Invalid public key"}"#)
+        })
+        let open = Task { try await h.hub.pinForExternalClient() }
+        for _ in 0..<2 {
+            await waitForPendingSleeps(h.gate, count: 1)
+            await h.gate.elapse()
+        }
+        do {
+            _ = try await open.value
+            Issue.record("a persistent enrollment failure cannot claim readiness")
+        } catch let VMClientError.httpStatus(status, body) {
+            #expect(status == 400)
+            #expect(body.contains("vm_tunnel_invalid_key"))
+        }
+        #expect(await attempts.value == 3)
+        #expect(await h.hub.status().running == false)
+        await h.hub.stop()
     }
 
     @Test
@@ -353,7 +425,7 @@ struct CloudWireGuardHubTests {
 
     @Test
     func exitBeforeReadyFailsTheAcquireAndDropsTheLease() async throws {
-        let h = makeHarness(readiness: { _ in
+        let h = makeHarness(backoff: [], readiness: { _ in
             // Never ready; the process death must win the race.
             try await Task.sleep(for: .seconds(30))
         })
@@ -368,8 +440,48 @@ struct CloudWireGuardHubTests {
     }
 
     @Test
+    func exitAfterReadinessBeforeStateCommitCannotPublishDeadHub() async throws {
+        let spawner = FakeSpawner()
+        let readinessStarted = CloudLinkFirstValue<Bool>()
+        let releaseReadiness = CloudLinkFirstValue<Bool>()
+        let socketURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hub-test-\(UUID().uuidString.lowercased()).sock")
+        let hub = CloudWireGuardHub(configuration: .init(
+            enroll: { CloudWireGuardHub.Enrollment(configPath: "/tmp/cmux-app.conf", routes: ["10.0.0.0/8"]) },
+            clientURL: URL(fileURLWithPath: "/usr/bin/true"),
+            socketURL: socketURL,
+            spawner: spawner,
+            waitUntilReady: { _ in
+                readinessStarted.resolve(true)
+                _ = await releaseReadiness.result
+            },
+            sleep: { _ in },
+            restartBackoff: [],
+            idleGrace: .seconds(10)
+        ))
+        let acquire = Task { try await hub.acquire() }
+        try #require(await readinessStarted.result == true)
+        try #require(spawner.last).exit(status: 17)
+        releaseReadiness.resolve(true)
+
+        await #expect(throws: CloudWireGuardHub.HubError.self) { _ = try await acquire.value }
+        #expect(await hub.status().running == false)
+        #expect(await hub.status().leases == 0)
+    }
+
+    @Test
+    func developmentBackendDeadlineWinsOverAHeartbeatStream() async throws {
+        await #expect(throws: URLError.self) {
+            _ = try await DevBackendStartup.withDeadline(.milliseconds(1)) {
+                try await Task.sleep(for: .seconds(30))
+                return true
+            }
+        }
+    }
+
+    @Test
     func spawnFailureSurfacesAsHubError() async throws {
-        let h = makeHarness()
+        let h = makeHarness(backoff: [])
         h.spawner.failNextSpawn = true
         await #expect(throws: CloudWireGuardHub.HubError.self) { _ = try await h.hub.acquire() }
         #expect(await h.hub.status().leases == 0)

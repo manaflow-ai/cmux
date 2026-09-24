@@ -12,6 +12,7 @@ pub(super) struct RestoredPublicProjections {
     pub(super) agent_hook_fences: HashMap<TerminalPublicId, HookFence>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
+    pub(super) notification_reads: HashMap<NotificationPublicId, BTreeSet<String>>,
 }
 
 pub(super) fn restore_public_projections(
@@ -22,6 +23,7 @@ pub(super) fn restore_public_projections(
     let default_colors = projections.terminal_defaults.unwrap_or_default();
     let mut notification_ledger = VecDeque::with_capacity(projections.notifications.len());
     let mut terminal_notifications = HashMap::new();
+    let mut notification_reads = HashMap::new();
     for (index, notification) in projections.notifications.into_iter().enumerate() {
         let numeric_id =
             u64::try_from(index).context("notification count exceeds uint64")?.saturating_add(1);
@@ -45,9 +47,16 @@ pub(super) fn restore_public_projections(
                 );
             }
         }
+        if !notification.read_by.is_empty() {
+            notification_reads.insert(
+                notification.id.clone(),
+                notification.read_by.into_iter().collect::<BTreeSet<String>>(),
+            );
+        }
         notification_ledger.push_back(ResourceNotification {
             id: notification.id,
             title: notification.title,
+            subtitle: notification.subtitle,
             body: notification.body,
             level,
             terminal_id: notification.terminal_id,
@@ -110,6 +119,7 @@ pub(super) fn restore_public_projections(
                 state,
                 source: agent_source(&agent.source)?,
                 session: (!internal_marker).then_some(agent.source_session).flatten(),
+                agent: agent.agent,
                 updated_at_ms: agent.updated_at_ms,
             },
         );
@@ -128,6 +138,7 @@ pub(super) fn restore_public_projections(
         agent_hook_fences,
         terminal_notifications,
         notification_ledger,
+        notification_reads,
     })
 }
 
@@ -153,6 +164,7 @@ fn agent_state(value: &str) -> anyhow::Result<AgentState> {
 
 fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
     match value {
+        "plugin" => Ok(AgentSource::Plugin),
         "detected" => Ok(AgentSource::Detected),
         "socket" => Ok(AgentSource::Socket),
         "hook" => Ok(AgentSource::Hook),
@@ -212,11 +224,13 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000001")
                     .unwrap(),
                 title: "build".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "info".into(),
                 terminal_id: Some(terminal.clone()),
                 created_at_ms: 1,
                 unread: true,
+                read_by: vec![],
             }],
             agents: vec![RegistryAgentProjection {
                 id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
@@ -225,6 +239,7 @@ mod tests {
                 source: "hook".into(),
                 updated_at_ms: 1,
                 source_session: None,
+                agent: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -249,11 +264,13 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000002")
                     .unwrap(),
                 title: "orphan".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "warning".into(),
                 terminal_id: None,
                 created_at_ms: 2,
                 unread: true,
+                read_by: vec![],
             }],
             agents: Vec::new(),
             agent_hook_states: Vec::new(),
@@ -273,11 +290,13 @@ mod tests {
                 id: NotificationPublicId::parse("notification_00000000000000000000000000000003")
                     .unwrap(),
                 title: "finished".into(),
+                subtitle: None,
                 body: String::new(),
                 level: "info".into(),
                 terminal_id: Some(terminal.clone()),
                 created_at_ms: 3,
                 unread: true,
+                read_by: vec![],
             }],
             agents: Vec::new(),
             agent_hook_states: Vec::new(),
@@ -303,6 +322,7 @@ mod tests {
                 source: "hook".into(),
                 updated_at_ms: 1,
                 source_session: None,
+                agent: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -325,6 +345,7 @@ mod tests {
                 source: "hook".into(),
                 updated_at_ms: 1,
                 source_session: Some("cmux-hook-sequence:12".into()),
+                agent: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,
@@ -347,6 +368,7 @@ mod tests {
                 source: "socket".into(),
                 updated_at_ms: 3,
                 source_session: Some("socket-session".into()),
+                agent: None,
             }],
             agent_hook_states: Vec::new(),
             terminal_defaults: None,

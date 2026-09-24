@@ -8,11 +8,11 @@ public import Foundation
 /// `GhosttyConfig` is the value type that drives the embedded ghostty runtime's
 /// appearance. It parses ghostty's textual config format (``parse(_:loadingThemesImmediatelyFor:)``),
 /// resolves themes by light/dark color scheme, and can fold in cmux's managed
-/// default appearance only when the caller enables it and the user's config is
-/// untouched. Once the user adds any directive, its colors resolve from
-/// Ghostty's built-in defaults plus the user's settings. The wire format it
-/// reads (directive keys, theme resolution, NSColor hex codecs) is frozen and
-/// pinned by tests.
+/// default appearance when enabled and no theme or terminal colors are authored.
+/// Font, keybinding, and other non-color settings retain that adaptive base.
+/// Authored colors resolve from Ghostty's built-in defaults plus user settings.
+/// The wire format (directive keys, theme resolution, NSColor hex codecs) is
+/// frozen and pinned by tests.
 public struct GhosttyConfig {
     /// The light/dark terminal theme preference. An alias for
     /// ``TerminalColorSchemePreference``; the nested name keeps the
@@ -387,9 +387,9 @@ public struct GhosttyConfig {
     }
 
     /// Optionally applies cmux's managed default appearance when the resolved
-    /// user config contains no directives, then parses the user's config files.
-    /// Any configured Ghostty setting preserves Ghostty's own resolved color
-    /// base instead of receiving the managed appearance.
+    /// user config contains no theme or terminal colors, then parses its files.
+    /// Non-color settings preserve the adaptive base; authored colors preserve
+    /// Ghostty's own resolved base instead of receiving the managed appearance.
     mutating func loadResolvedUserConfig(
         configPaths: [String],
         preferredColorScheme: ColorSchemePreference,
@@ -894,11 +894,11 @@ public struct GhosttyConfig {
         public init() {}
 
         /// Whether the config is eligible for cmux's managed default
-        /// appearance. Only an untouched config is eligible; any user directive
-        /// preserves Ghostty's own resolved base. The caller's adaptive-default
-        /// preference is evaluated separately.
+        /// appearance. Typography and behavior settings do not choose a palette.
+        /// Authored themes or terminal colors preserve Ghostty's resolved base;
+        /// the caller's adaptive-default preference is evaluated separately.
         public var shouldApplyDefaultAppearance: Bool {
-            !hasConfigDirective
+            !hasThemeDirective && !hasExplicitTerminalColorDirective
         }
 
         /// Records one config directive into the summary.
@@ -919,8 +919,8 @@ public struct GhosttyConfig {
     }
 
     /// Whether cmux should inject its managed default appearance: true only when
-    /// the caller enables it and the resolved user config contains no
-    /// directives.
+    /// the caller enables it and the resolved user config contains no authored
+    /// theme or terminal colors.
     public static func shouldApplyManagedDefaultAppearance(
         configPaths: [String],
         adaptiveDefaultThemeEnabled: Bool = false

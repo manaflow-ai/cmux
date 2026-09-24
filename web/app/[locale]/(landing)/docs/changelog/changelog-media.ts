@@ -26,6 +26,81 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.25": {
+    title: "SSH Workspaces Connect Again, Steady Agent Layouts, Light Mode Terminals",
+    features: [
+      {
+        title: "SSH Workspaces Connect Again",
+        description:
+          "Released builds ship a checksum-verified cmuxd-remote again, so SSH workspaces bootstrap on macOS and Linux hosts. A session that cannot become ready reports an actionable error within 60 seconds instead of sitting at Last login, terminals keep raw input across reconnects, and new splits open in the remote directory.",
+      },
+      {
+        title: "Steady Agent Layouts",
+        description:
+          "Agents resumed with cmux restore or cmux fork receive terminal resizes again, so their layout no longer garbles after a restore. Images dropped or pasted into a terminal stay on disk long enough for Claude Code and Codex to read them.",
+      },
+      {
+        title: "Light Mode Terminals",
+        description:
+          "A terminal no longer reloads its dark theme after macOS switches to light, and Light applies the light palette when the Ghostty config sets only a font, keybinding, or opacity.",
+      },
+    ],
+  },
+  "0.64.24": {
+    title: "Reliable Codex Resumes, Account Switching, Cloud CLI Compatibility",
+    features: [
+      {
+        title: "Reliable Codex Resumes",
+        description:
+          "Codex --yolo no longer calls a missing helper or replays a restore command after repeated resume cycles, keeping the active session identity attached to the right terminal.",
+      },
+      {
+        title: "Switch CLI Accounts",
+        description:
+          "The CLI authorization page can sign out the current browser account and return to sign-in with the original confirmation code intact.",
+      },
+      {
+        title: "Cloud CLI Compatibility",
+        description:
+          "Cloud terminal sessions accept the workspace-close syntax used by the in-terminal CLI while preserving routing, JSON output, revision fences, and idempotency.",
+      },
+    ],
+  },
+  "0.64.23": {
+    title: "Vault Search and Checkpoints, Inline Notification Replies, Nine Languages",
+    features: [
+      {
+        title: "Vault Search, Checkpoints, and Fork",
+        description:
+          "Every agent session lands in a recency-first Vault with day sections and filters, search with agent:, repo:, ws:, before:, and after: operators, and checkpoints you can fork from for Claude Code, Codex, Pi, and Grok, in the app or through cmux vault and cmux fork.",
+      },
+      {
+        title: "Reply to Agents from Notifications",
+        description:
+          "Answer an agent straight from the macOS banner or the iPhone Lock Screen: type a reply on turn-complete and idle notifications, pick an option on AskUserQuestion banners, or send a revision on exit-plan banners. Automations, agent-event context for notification hooks, and per-agent sounds round out the pipeline.",
+      },
+      {
+        title: "cmux in Nine Languages",
+        description:
+          "The macOS app is fully localized in German, French, Spanish, Arabic, Korean, Simplified and Traditional Chinese, and Japanese alongside English.",
+      },
+      {
+        title: "More Agents, More Shells",
+        description:
+          "Amp and Hermes join Claude Code, Codex, Pi, and Grok as first-class agents with auto-resume, notifications, and Vault history, Cursor approvals show up as Needs input, and Nushell gets shell integration and session resume.",
+      },
+      {
+        title: "Stability and Performance",
+        description:
+          "Workspace switching no longer ghosts or hangs, idle CPU burn from logging and git watchers is gone, terminals in hidden windows release about 40 MB each, persistent SSH reconnects survive sleep and network changes, and Google Sheets no longer pins a core.",
+      },
+      {
+        title: "cmux on iPhone (beta)",
+        description:
+          "Each Computer picks its own connection method with an honest Tailscale Only mode, Simulator panes stream as low-latency video with touch forwarding, the Task Composer keeps drafts and attachments, and workspaces sort, group, and reconnect quietly. Current iOS builds need cmux 0.64.23 on the Mac.",
+      },
+    ],
+  },
   "0.64.21": {
     title: "Simulator Panes, Mosh Transport, Idle CPU Reclaimed",
     features: [

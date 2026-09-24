@@ -11,7 +11,10 @@ import Observation
 /// Visibility policy (user-approved): the remote list is truth; the last
 /// fetched list is cached on device and wins while offline; a device that
 /// has NEVER fetched the list shows the binary entries (fail-open to binary
-/// truth, because remote hiding is the exceptional operation).
+/// truth, because remote hiding is the exceptional operation). During a
+/// rollout, a nonempty list containing only retired ids is treated as stale
+/// and falls back to current native entries; an explicit empty list still
+/// hides binary pages.
 ///
 /// Acknowledgement: binary pages advance a single "newest acknowledged entry
 /// id" marker over the ordered catalog, so a user who skipped several
@@ -27,6 +30,9 @@ public final class MobileWhatsNewCenter {
     static let acknowledgedAnnouncementsKey = "dev.cmux.mobile.whatsNew.acknowledgedAnnouncementIds"
     static let cacheKey = "dev.cmux.mobile.whatsNew.remoteList.v1"
     static let requestPath = "/api/whats-new"
+    /// The pairing requirement is part of the client contract, so an older
+    /// cached visibility list must not hide it from team builds.
+    private static let requiredBinaryEntryIDs: Set<String> = ["connections.v2"]
 
     private let requestURL: URL?
     private let appVersion: String
@@ -118,7 +124,7 @@ public final class MobileWhatsNewCenter {
     /// (`MobileWebPageHosts`) with the web app session broker, so navigation
     /// and credential policy agree.
     var allowedWebHosts: Set<String> {
-        var hosts = MobileWebPageHosts.cmuxOwned
+        var hosts = MobileWebPageHosts().cmuxOwned
         if let apiHost = requestURL?.host?.lowercased() {
             hosts.insert(apiHost)
         }
@@ -133,16 +139,29 @@ public final class MobileWhatsNewCenter {
     /// explicitly lists "prod". Never-fetched devices show the full catalog
     /// (fail-open to binary truth) still under the compiled-in channel gate,
     /// so a never-fetched official build shows nothing.
+    ///
+    /// During a catalog rollout, an older API deployment can return only
+    /// retired entry ids that this binary no longer carries. Treat that
+    /// nonempty, wholly-unrecognized list like a never-fetched cache so a
+    /// current native page does not disappear from Settings until the API
+    /// catches up. An explicit empty list remains a deliberate retraction.
     var visibleBinaryEntries: [MobileWhatsNewPage] {
-        let channelAllowed = MobileWhatsNewCatalog.entries.filter { page in
-            MobileWhatsNewChannelPolicy.isVisible(
+        let channelAllowed = MobileWhatsNewCatalog().entries.filter { page in
+            MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: remoteList?.entryChannels?[page.id] ?? page.channels,
                 buildType: buildType
             )
         }
         guard let remoteList else { return channelAllowed }
         let visible = Set(remoteList.visibleEntryIds)
-        return channelAllowed.filter { visible.contains($0.id) }
+        guard !visible.isEmpty else { return [] }
+        let recognized = visible.intersection(Set(channelAllowed.map(\.id)))
+        guard !recognized.isEmpty else {
+            return channelAllowed
+        }
+        return channelAllowed.filter {
+            visible.contains($0.id) || Self.requiredBinaryEntryIDs.contains($0.id)
+        }
     }
 
     /// Cached announcements targeted at this app version, resolved to
@@ -155,11 +174,11 @@ public final class MobileWhatsNewCenter {
         return remoteList.announcements.compactMap { announcement in
             // Channel gate first: an announcement with no channel list is
             // team-lanes only and never reaches the official App Store app.
-            guard MobileWhatsNewChannelPolicy.isVisible(
+            guard MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: announcement.channels,
                 buildType: buildType
             ) else { return nil }
-            guard MobileAppVersionCompare.version(
+            guard MobileAppVersionCompare().version(
                 appVersion,
                 isWithinMin: announcement.minVersion,
                 max: announcement.maxVersion
@@ -189,9 +208,9 @@ public final class MobileWhatsNewCenter {
         let visible = visibleBinaryEntries
         let unseenBinary: [MobileWhatsNewPage]
         if let marker = defaults.string(forKey: Self.markerKey) {
-            if let markerIndex = MobileWhatsNewCatalog.index(ofID: marker) {
+            if let markerIndex = MobileWhatsNewCatalog().index(ofID: marker) {
                 unseenBinary = visible.filter { page in
-                    (MobileWhatsNewCatalog.index(ofID: page.id) ?? Int.max) < markerIndex
+                    (MobileWhatsNewCatalog().index(ofID: page.id) ?? Int.max) < markerIndex
                 }
             } else {
                 // The marker id is unknown to this binary (downgrade or a
@@ -219,13 +238,13 @@ public final class MobileWhatsNewCenter {
         defaults.set(acknowledged.sorted(), forKey: Self.acknowledgedAnnouncementsKey)
 
         let shownIndices = pages.compactMap { page in
-            page.isAnnouncement ? nil : MobileWhatsNewCatalog.index(ofID: page.id)
+            page.isAnnouncement ? nil : MobileWhatsNewCatalog().index(ofID: page.id)
         }
         guard let newestShown = shownIndices.min() else { return }
         let currentIndex = defaults.string(forKey: Self.markerKey)
-            .flatMap(MobileWhatsNewCatalog.index(ofID:))
+            .flatMap(MobileWhatsNewCatalog().index(ofID:))
         if let currentIndex, currentIndex <= newestShown { return }
-        defaults.set(MobileWhatsNewCatalog.entries[newestShown].id, forKey: Self.markerKey)
+        defaults.set(MobileWhatsNewCatalog().entries[newestShown].id, forKey: Self.markerKey)
     }
 
     private var acknowledgedAnnouncementIDs: Set<String> {
@@ -275,7 +294,7 @@ public final class MobileWhatsNewCenter {
     private func allowlistedWebURL(_ string: String?) -> URL? {
         guard let string,
               let url = URL(string: string),
-              mobileWebPageURLAllowed(url, allowedHosts: allowedWebHosts) else { return nil }
+              MobileWebPageHosts().allows(url, allowedHosts: allowedWebHosts) else { return nil }
         return url
     }
 

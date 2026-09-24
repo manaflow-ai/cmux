@@ -394,17 +394,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
     }
 
     private static func decodedReusableStartupScript(from command: String) -> String? {
-        guard let markerRange = command.range(of: "printf %s ") else {
-            return nil
-        }
-        let remainder = command[markerRange.upperBound...]
-        guard let encoded = remainder
-            .split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-            .first,
-            let data = Data(base64Encoded: String(encoded)) else {
-            return nil
-        }
-        return String(data: data, encoding: .utf8)
+        SSHStartupCommandTestSupport.decodedScript(in: command)
     }
 
     private static func params(

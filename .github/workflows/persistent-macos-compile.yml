@@ -1,0 +1,260 @@
+name: Persistent macOS compile producer
+run-name: persistent-mac-compile-${{ inputs.request_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique caller identity
+        required: true
+        type: string
+      pr_number:
+        description: Pull request number
+        required: true
+        type: string
+      source_sha:
+        description: Exact synthetic merge commit selected by CI
+        required: true
+        type: string
+      source_tree:
+        description: Exact Git tree selected by CI
+        required: true
+        type: string
+      source_parent1:
+        description: First parent of the synthetic merge commit
+        required: true
+        type: string
+      head_sha:
+        description: Trusted same-repository PR head
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: persistent-mac-compile-pr-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  authorize:
+    name: Authorize trusted PR
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Verify same-repository organization PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXPECTED_HEAD: ${{ inputs.head_sha }}
+          EXPECTED_MERGE: ${{ inputs.source_sha }}
+          EXPECTED_BASE: ${{ inputs.source_parent1 }}
+        run: |
+          set -euo pipefail
+          payload="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")"
+          PAYLOAD="$payload" python3 - <<'PY'
+          import json
+          import os
+
+          pr = json.loads(os.environ["PAYLOAD"])
+          repository = os.environ["GH_REPO"].casefold()
+          expected_head = os.environ["EXPECTED_HEAD"]
+          expected_merge = os.environ["EXPECTED_MERGE"]
+          expected_base = os.environ["EXPECTED_BASE"]
+          association = pr.get("author_association")
+          head = pr.get("head") or {}
+          head_repo = (head.get("repo") or {}).get("full_name", "")
+          base = pr.get("base") or {}
+          checks = {
+              "open pull request": pr.get("state") == "open",
+              "same repository": head_repo.casefold() == repository,
+              "organization member": association in {"MEMBER", "OWNER"},
+              "current head": head.get("sha") == expected_head,
+              "current base": base.get("sha") == expected_base,
+              "current synthetic merge": pr.get("merge_commit_sha") == expected_merge,
+          }
+          failed = [name for name, passed in checks.items() if not passed]
+          if failed:
+              raise SystemExit("persistent Mac authorization refused: " + ", ".join(failed))
+          print(f"authorized PR #{pr['number']} at {expected_head} ({association})")
+          PY
+
+  compile:
+    name: Persistent Apple compile
+    needs: authorize
+    runs-on:
+      group: cmux-persistent-compile
+      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]
+    timeout-minutes: 35
+    permissions: {}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_SKIP_ZIG_BUILD: "1"
+      GLAEDA_REF: ffb2af668e1be3637df2e8df4ec42085ccd3b89c
+    steps:
+      - name: Prepare exact cmux source
+        id: source
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_TREE: ${{ inputs.source_tree }}
+          SOURCE_PARENT1: ${{ inputs.source_parent1 }}
+          HEAD_SHA: ${{ inputs.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          started="$(python3 -c 'import time; print(time.monotonic())')"
+          workspace="$GITHUB_WORKSPACE"
+          source_reset=false
+          cd "$RUNNER_TEMP"
+
+          initialize_checkout() {
+            source_reset=true
+            rm -rf "$workspace"
+            mkdir -p "$workspace"
+            git -C "$workspace" init -q
+            git -C "$workspace" remote add origin https://github.com/manaflow-ai/cmux.git
+          }
+
+          if [ ! -d "$workspace/.git" ]; then
+            initialize_checkout
+          else
+            origin="$(git -C "$workspace" remote get-url origin 2>/dev/null || true)"
+            case "$origin" in
+              https://github.com/manaflow-ai/cmux.git|https://github.com/manaflow-ai/cmux) ;;
+              *) initialize_checkout ;;
+            esac
+          fi
+
+          if [ -n "$(git -C "$workspace" status --porcelain --untracked-files=all 2>/dev/null || true)" ]; then
+            source_reset=true
+          fi
+          git -C "$workspace" reset --hard -q || initialize_checkout
+          git -C "$workspace" submodule foreach --recursive 'git reset --hard -q; git clean -ffdx -q' || true
+          git -C "$workspace" clean -ffdx -q -e .glaeda/ -e GhosttyKit.xcframework
+
+          if ! git -C "$workspace" fetch --no-tags --force origin "$SOURCE_SHA"; then
+            git -C "$workspace" fetch --no-tags --force origin "refs/pull/$PR_NUMBER/merge"
+          fi
+          fetched="$(git -C "$workspace" rev-parse FETCH_HEAD)"
+          [ "$fetched" = "$SOURCE_SHA" ] || {
+            echo "fetched source $fetched differs from caller source $SOURCE_SHA" >&2
+            exit 1
+          }
+
+          git -C "$workspace" checkout --detach -f "$SOURCE_SHA"
+          git -C "$workspace" submodule sync --recursive
+          git -C "$workspace" submodule update --init --recursive --force
+          git -C "$workspace" submodule foreach --recursive 'git reset --hard -q; git clean -ffdx -q'
+
+          actual_tree="$(git -C "$workspace" rev-parse 'HEAD^{tree}')"
+          read -r actual_commit actual_parent1 actual_parent2 extra <<EOF
+          $(git -C "$workspace" rev-list --parents -n1 HEAD)
+          EOF
+          [ -z "${extra:-}" ]
+          [ "$actual_commit" = "$SOURCE_SHA" ]
+          [ "$actual_tree" = "$SOURCE_TREE" ]
+          [ "$actual_parent1" = "$SOURCE_PARENT1" ]
+          [ "$actual_parent2" = "$HEAD_SHA" ]
+          [ -z "$(git -C "$workspace" status --porcelain --untracked-files=all)" ]
+
+          finished="$(python3 -c 'import time; print(time.monotonic())')"
+          seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
+          {
+            echo "seconds=$seconds"
+            echo "source_reset=$source_reset"
+          } >> "$GITHUB_OUTPUT"
+          echo "prepared exact source commit=$SOURCE_SHA tree=$SOURCE_TREE reset=$source_reset seconds=$seconds"
+
+      - name: Select Xcode
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust
+        working-directory: ${{ github.workspace }}
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Fetch pinned Glaeda native Apple front door
+        id: glaeda
+        env:
+          GLAEDA_REF: ${{ env.GLAEDA_REF }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/glaeda"
+          rm -rf "$root"
+          mkdir -p "$root"
+          git -C "$root" init -q
+          git -C "$root" remote add origin https://github.com/teamleaderleo/glaeda.git
+          git -C "$root" fetch --no-tags --depth=1 origin "$GLAEDA_REF"
+          git -C "$root" checkout --detach -q "$GLAEDA_REF"
+          [ "$(git -C "$root" rev-parse HEAD)" = "$GLAEDA_REF" ]
+          test -x "$root/scripts/apple-build"
+          echo "apple_build=$root/scripts/apple-build" >> "$GITHUB_OUTPUT"
+
+      - name: Run Glaeda compile admission
+        id: compile
+        working-directory: ${{ github.workspace }}
+        env:
+          EXPECTED_COMMIT: ${{ inputs.source_sha }}
+          EXPECTED_TREE: ${{ inputs.source_tree }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          SOURCE_PREP_SECONDS: ${{ steps.source.outputs.seconds }}
+          SOURCE_RESET: ${{ steps.source.outputs.source_reset }}
+          GLAEDA_APPLE_BUILD: ${{ steps.glaeda.outputs.apple_build }}
+        run: |
+          set -euo pipefail
+          metrics="$RUNNER_TEMP/persistent-mac-metrics.json"
+          python3 scripts/ci/run-persistent-mac-compile.py             --glaeda "$GLAEDA_APPLE_BUILD"             --expected-commit "$EXPECTED_COMMIT"             --expected-tree "$EXPECTED_TREE"             --request-id "$REQUEST_ID"             --source-preparation-seconds "$SOURCE_PREP_SECONDS"             --source-reset "$SOURCE_RESET"             --metrics "$metrics"
+
+      - name: Stamp relocatable app-host products
+        working-directory: ${{ github.workspace }}
+        env:
+          DERIVED_DATA: ${{ steps.compile.outputs.derived_data }}
+        run: python3 scripts/ci/app_host_test_products.py stamp "$DERIVED_DATA"
+
+      - name: Package producer evidence
+        id: package
+        env:
+          DERIVED_DATA: ${{ steps.compile.outputs.derived_data }}
+          METRICS: ${{ steps.compile.outputs.metrics }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/persistent-mac-compile.tar.gz"
+          cp "$METRICS" "$DERIVED_DATA/persistent-mac-metrics.json"
+          COPYFILE_DISABLE=1 tar -chf - -C "$DERIVED_DATA" Build/Products cmux-build.log persistent-mac-metrics.json | gzip -1 > "$archive"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload persistent compile product
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: persistent-mac-compile-${{ inputs.request_id }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+      - name: Summarize producer
+        if: always() && steps.compile.outcome == 'success'
+        env:
+          METRICS: ${{ steps.compile.outputs.metrics }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+
+          data = json.load(open(os.environ["METRICS"]))
+          print("### Persistent Mac compile producer")
+          print()
+          print(f"- class: `{data['classification']}`")
+          print(f"- source preparation: {data['source_preparation_seconds']:.3f}s")
+          print(f"- package readiness: {data['package_readiness_seconds']:.3f}s")
+          print(f"- compile: {data['compile_duration_seconds']:.3f}s")
+          print(f"- Glaeda generation: `{data['glaeda']['generation']}`")
+          print(f"- Glaeda cache key: `{data['glaeda']['cache_key']}`")
+          print(f"- artifact id: `{os.environ.get('ARTIFACT_ID', '')}`")
+          PY

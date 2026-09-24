@@ -84,7 +84,8 @@ extension TabManager {
             applyCreationWorkspaceCustomization(
                 to: newWorkspace,
                 explicitTitle: title,
-                explicitTitleSource: titleSource
+                explicitTitleSource: titleSource,
+                repairInitialTabTitle: false
             )
             wireClosedBrowserTracking(for: newWorkspace)
 

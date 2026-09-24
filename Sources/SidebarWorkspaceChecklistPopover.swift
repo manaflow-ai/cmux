@@ -66,6 +66,7 @@ struct SidebarWorkspaceChecklistPopover: View {
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
     @State private var editingText = ""
+    @State private var editingOriginalText = ""
     @FocusState private var editFieldFocused: Bool
     /// The keyboard-highlighted item: Up/Down from the add field moves it,
     /// Return toggles it when the add field is empty, and Cmd+Return always
@@ -179,6 +180,12 @@ struct SidebarWorkspaceChecklistPopover: View {
         .onChange(of: editFieldFocused) { _, focused in
             if !focused { finishItemEditOnFocusLoss() }
         }
+        .onChange(of: editingText) { _, newValue in
+            guard let editingItemId,
+                  let item = model.items.first(where: { $0.id == editingItemId }),
+                  newValue != item.text else { return }
+            actions.editItem(editingItemId, newValue)
+        }
         // The round-5 first-responder policy lets native TextFields in the
         // popover child window keep focus over the terminal-backed pane.
         // Bump-driven add activations still explicitly re-arm the add field.
@@ -247,9 +254,9 @@ struct SidebarWorkspaceChecklistPopover: View {
             } label: {
                 CmuxSystemSymbolImage(
                     systemName: checkboxSymbolName(for: item.state),
-                    pointSize: Self.checkboxPointSize
+                    pointSize: Self.checkboxPointSize,
+                    tint: isCompleted ? .secondary : .primary
                 )
-                .foregroundColor(isCompleted ? .secondary : .primary)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -371,8 +378,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         return Button {
             actions.removeItem(item.id)
         } label: {
-            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: Self.checkboxPointSize - 2, tint: .secondary)
                 .frame(width: Self.checkboxPointSize + 6, height: Self.checkboxPointSize + 6, alignment: .center)
                 .contentShape(Rectangle())
         }
@@ -394,8 +400,7 @@ struct SidebarWorkspaceChecklistPopover: View {
         return HStack(alignment: .center, spacing: 6) {
             // A `plus.circle` "add" affordance, not an empty checkbox, so the
             // add row never reads as a real (unchecked) item.
-            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize)
-                .foregroundColor(.secondary)
+            CmuxSystemSymbolImage(systemName: "plus.circle", pointSize: Self.checkboxPointSize, tint: .secondary)
             TextField(
                 placeholder,
                 text: $pendingItemText,
@@ -528,29 +533,45 @@ struct SidebarWorkspaceChecklistPopover: View {
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
         editingText = item.text
+        editingOriginalText = item.text
         editFieldFocused = true
     }
 
     /// Enter commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         cancelItemEdit()
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
     }
 
     private func finishItemEditOnFocusLoss() {
         guard let id = editingItemId else { return }
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         editingItemId = nil
         editingText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         actions.editItem(id, text)
     }
 
     private func cancelItemEdit() {
+        if let id = editingItemId,
+           !editingOriginalText.isEmpty,
+           let item = model.items.first(where: { $0.id == id }),
+           item.text != editingOriginalText {
+            actions.editItem(id, editingOriginalText)
+        }
         editingItemId = nil
         editingText = ""
+        editingOriginalText = ""
         editFieldFocused = false
     }
 
@@ -565,7 +586,7 @@ struct SidebarWorkspaceChecklistPopover: View {
             actions.openPane()
         } label: {
             HStack(spacing: 6) {
-                CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 11)
+                CmuxSystemSymbolImage(systemName: "rectangle.split.2x1", pointSize: 11, tint: .secondary)
                 Text(String(localized: "sidebar.checklist.openAsPane", defaultValue: "Open as Pane"))
                     .font(.system(size: 12))
             }

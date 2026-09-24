@@ -43,6 +43,8 @@ struct CMUXMobileRootView: View {
     /// previews and package hosts keep the store's compiled-in fallback.
     @Environment(MobileMacCompatCenter.self) private var macCompatCenter:
         MobileMacCompatCenter?
+    @Environment(MobileWhatsNewCenter.self) private var whatsNewCenter:
+        MobileWhatsNewCenter?
     /// Set when the one-shot remote policy refresh has been started. The
     /// cached/baked policy is installed synchronously; the network refresh
     /// continues independently of auth restore and stored-Mac reconnect.
@@ -75,6 +77,7 @@ struct CMUXMobileRootView: View {
     #endif
     @State private var openURLTask: Task<Void, Never>?
     @State private var openURLTaskToken: UUID?
+    @State private var startupReconnectRetryTask: Task<Void, Never>?
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -169,6 +172,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    private var shouldShowWhatsNewPreview: Bool {
+        #if os(iOS) && DEBUG
+        return UITestConfig.whatsNewPreviewEnabled
+        #else
+        return false
+        #endif
+    }
+
     private var shouldShowOnboardingPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.onboardingPreviewEnabled
@@ -247,6 +258,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    @ViewBuilder private var whatsNewPreview: some View {
+        #if os(iOS) && DEBUG
+        MobileWhatsNewPreviewView()
+        #else
+        EmptyView()
+        #endif
+    }
+
     var body: some View {
         rootContent
         #if os(iOS)
@@ -274,6 +293,12 @@ struct CMUXMobileRootView: View {
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
             syncShellAuthentication(isAuthenticated)
+            #if os(iOS)
+            diagnosticLog?.recordAppEvent(
+                .dogfoodAttachEnvironmentObserved,
+                count: hasInjectedAttachLaunchRoute ? 1 : 0
+            )
+            #endif
             store.resumeForegroundRefresh()
             #if os(iOS)
             pushCoordinator.bind(store: store)
@@ -313,6 +338,8 @@ struct CMUXMobileRootView: View {
         }
         .onDisappear {
             cancelOpenURLTask(failure: .cancelled)
+            startupReconnectRetryTask?.cancel()
+            startupReconnectRetryTask = nil
             clearAttachTicketAuthenticationIfNeeded()
         }
         #if os(iOS)
@@ -324,6 +351,18 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
+        // A tap can arrive while the Mac transport is down. Retry the parked
+        // request when the connection recovers even if the workspace list did
+        // not change in that same turn.
+        .onChange(of: store.connectionState) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        // The aggregate connection can stay connected while a secondary Mac
+        // reconnects. Observe exact pairing status changes for parked pushes.
+        .onChange(of: store.macConnectionStatuses) { _, _ in
+            pushCoordinator.workspacesDidChange()
+        }
+        .mobilePushAlertPresentation(coordinator: pushCoordinator)
         #if DEBUG
         // The UI-test auto-open hook observes the same workspace-arrival
         // signal; `initial: true` covers a list already loaded at mount.
@@ -493,6 +532,8 @@ struct CMUXMobileRootView: View {
             macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
+        } else if shouldShowWhatsNewPreview {
+            whatsNewPreview
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {
@@ -562,7 +603,7 @@ struct CMUXMobileRootView: View {
                     taskComposerPresentation: childSheetPresentation(
                         for: .workspaceTaskComposer
                     ),
-                    reconnectStoredMac: reconnectStoredMacIfNeeded,
+                    reconnectStoredMac: { reconnectStoredMacIfNeeded() },
                     workspaceListDidBecomeVisible: {
                         await pushCoordinator.workspaceListDidBecomeVisible()
                     }
@@ -676,6 +717,7 @@ struct CMUXMobileRootView: View {
         MobileSettingsView(
             connectedHostName: store.connectedHostName,
             startPairingScanner: pairingScannerAction,
+            startTailscalePairing: showPairingScanner,
             // Swaps the root sheet's content from Settings to Computers in
             // place; the presentation state machine allows this transition.
             showComputers: showComputers,
@@ -918,7 +960,7 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            keepAwakeOffer: OnboardingKeepAwakeOfferSource.offer(from: store),
+            keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
@@ -926,7 +968,7 @@ struct CMUXMobileRootView: View {
             onRetryConnection: retryAutomaticConnection,
             onStartTailscalePairing: showOnboardingPairingScanner,
             onSetKeepAwake: { [store] enabled in
-                await OnboardingKeepAwakeOfferSource.set(enabled, on: store)
+                await OnboardingKeepAwakeOfferSource().set(enabled, on: store)
             },
             onComplete: completeOnboarding
         )
@@ -1053,7 +1095,7 @@ struct CMUXMobileRootView: View {
     /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
-    private func reconnectStoredMacIfNeeded() {
+    private func reconnectStoredMacIfNeeded(allowRetry: Bool = true) {
         guard isAuthenticated,
               didFinishAuthBootstrap,
               !authManager.isRestoringSession else { return }
@@ -1078,8 +1120,22 @@ struct CMUXMobileRootView: View {
         }
         Task {
             defer { restoringGateDeadline.cancel() }
-            _ = await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+            let didReconnect = await store.reconnectActiveMacIfAvailable(
+                stackUserID: stackUserID,
+                hydratePairedMacs: true
+            )
             startupConnectionCoordinator.finishStoredReconnect(startupAttempt)
+            guard allowRetry, !didReconnect, !Task.isCancelled else { return }
+            startupReconnectRetryTask?.cancel()
+            startupReconnectRetryTask = Task { @MainActor in
+                // Mark the retry as reconnecting before its first await. A
+                // delayed root-level retry leaves the global status at
+                // Not Connected while the same Mac is already being retried.
+                guard !Task.isCancelled else { return }
+                _ = await store.retryActiveMacReconnect(
+                    stackUserID: stackUserID
+                )
+            }
         }
     }
 
@@ -1102,6 +1158,10 @@ struct CMUXMobileRootView: View {
         #endif
         await authManager.awaitBootstrapped()
         guard !Task.isCancelled else { return }
+        diagnosticLog?.recordAppEvent(
+            .authBootstrapCompleted,
+            count: authManager.isAuthenticated ? 1 : 0
+        )
         if authManager.isAuthenticated {
             guard prepareResolvedAccountScope() != nil else { return }
         }
@@ -1415,6 +1475,7 @@ struct CMUXMobileRootView: View {
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
+        diagnosticLog?.recordAppEvent(.dogfoodAttachStarted)
         return startupConnectionCoordinator.startInjectedAttach(
             attachURL: attachURL,
             prepare: {

@@ -20,49 +20,20 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     public static let remoteWorkspaceIDKey = "_cmux_remote_workspace_id"
 
     private static let tmuxCompatibleMethods: Set<String> = [
-        "surface.split",
-        "surface.respawn",
         "surface.close",
         "surface.send_text",
-        "workspace.equalize_splits",
-        "pane.list",
-        "pane.surfaces",
-        "pane.focus",
-        "pane.last",
-        "pane.resize",
-    ]
-
-    private static let allowedMethods: Set<String> = Set([
-        "system.ping",
-        "system.capabilities",
-        "workspace.current",
-        "workspace.remote.status",
-        "workspace.remote.reconnect",
-        "workspace.remote.terminal_session_launching",
-        "workspace.remote.terminal_session_connected",
-        "workspace.remote.terminal_session_end",
-        "surface.list",
-        "surface.current",
-        "surface.read_text",
-        "surface.read_selection",
-        "surface.resume.set",
-        "surface.resume.get",
-        "surface.resume.clear",
         "surface.report_tty",
         "surface.report_pwd",
         "surface.report_git_branch",
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
-        "agent.resolve_delivery_target",
-        "notification.create",
-        "notification.create_for_target",
-    ]).union(tmuxCompatibleMethods)
+        "workspace.equalize_splits",
+    ]
 
     private static let workspaceRequiredMethods: Set<String> = Set([
         "workspace.current",
         "workspace.remote.status",
-        "workspace.remote.reconnect",
         "workspace.remote.terminal_session_launching",
         "workspace.remote.terminal_session_connected",
         "workspace.remote.terminal_session_end",
@@ -77,7 +48,6 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
-        "notification.create",
         "notification.create_for_target",
     ]).union(tmuxCompatibleMethods)
 
@@ -91,52 +61,66 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.read_text",
         "surface.read_selection",
         "notification.create_for_target",
-        "surface.split",
-        "surface.respawn",
+        "surface.report_tty",
+        "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
+        "surface.report_shell_state",
+        "surface.ports_kick",
         "surface.close",
         "surface.send_text",
     ]
 
     private static let exactSurfaceSelectorMethods: Set<String> = [
-        "surface.split",
-        "surface.respawn",
         "surface.close",
         "surface.send_text",
+        "surface.report_tty",
+        "surface.report_pwd",
+        "surface.report_git_branch",
+        "surface.clear_git_branch",
+        "surface.report_shell_state",
+        "surface.ports_kick",
     ]
 
     private static let workspaceSelectorKeys: Set<String> = [
         "workspace_id",
-        "preferred_workspace_id",
-        "selected_workspace_id",
-        "before_workspace_id",
-        "after_workspace_id",
-        "from_workspace_id",
-        "to_workspace_id",
-        "tab_id",
         remoteWorkspaceIDKey,
     ]
 
     private static let workspaceArrayKeys: Set<String> = ["workspace_ids"]
 
     private static let surfaceSelectorKeys: Set<String> = [
-        "panel_id",
         "surface_id",
-        "preferred_panel_id",
-        "preferred_surface_id",
-        "target_panel_id",
-        "target_surface_id",
-        "created_panel_id",
-        "created_surface_id",
-        "before_panel_id",
-        "before_surface_id",
-        "after_panel_id",
-        "after_surface_id",
+        "terminal_id",
     ]
 
     private static let surfaceArrayKeys: Set<String> = ["panel_ids", "surface_ids"]
 
-    /// Creates the default relay authorization policy.
-    public init() {}
+    /// Parameters that can select a container outside the authenticated
+    /// workspace.  The relay protocol intentionally requires workspace/surface
+    /// UUIDs and does not accept focus/window/pane fallback selectors.
+    private static let unsupportedContainerSelectorKeys: Set<String> = [
+        "window_id", "group_id", "pane_id",
+    ]
+
+    /// Creation and shell parameters are rejected for relay requests.  A
+    /// remote split is only safe when it is routed by the existing remote
+    /// transport; caller supplied startup options can force a local shell.
+    private static let localExecutionKeys: Set<String> = [
+        "initial_command", "initial_input", "tmux_start_command",
+        "pane_start_command", "working_directory", "startup_environment",
+        "remote_pty_session_id", "remote_context", "shell", "profile",
+        "cwd", "environment",
+    ]
+
+    private let invalidSelectorMessage: String
+
+    /// Creates the relay authorization policy with app-resolved error text.
+    /// - Parameter invalidSelectorMessage: Localized malformed-selector message;
+    ///   standalone callers default to the existing English protocol response.
+    public init(invalidSelectorMessage: String = "Relay selector is invalid") {
+        self.invalidSelectorMessage = invalidSelectorMessage
+    }
 
     /// Validates a decoded relay request against one owner's live snapshot.
     ///
@@ -152,11 +136,45 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         ownerWorkspaceID: UUID,
         surfaceIDs: Set<UUID>
     ) -> Decision {
-        guard Self.allowedMethods.contains(method) else {
+        guard RemoteRelayRoutingSchema().parameters(for: method) != nil else {
             return .denied(
                 code: "remote_relay_method_denied",
                 message: "Relay method is not permitted"
             )
+        }
+
+        if method != "surface.resume.set",
+           let key = firstParameterKey(
+               in: parameters,
+               keys: Self.localExecutionKeys.union(["command"])
+           ) {
+            return .denied(
+                code: "remote_relay_method_denied",
+                message: "Relay parameter '\(key)' is not permitted"
+            )
+        }
+
+        if let key = firstParameterKey(in: parameters, keys: Self.unsupportedContainerSelectorKeys) {
+            return .denied(
+                code: "remote_relay_workspace_denied",
+                message: "Relay selector '\(key)' is not permitted"
+            )
+        }
+
+        if method == "surface.split" {
+            if let rawType = parameters["type"] as? String,
+               rawType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "terminal" {
+                return .denied(
+                    code: "remote_relay_method_denied",
+                    message: "Relay splits are limited to terminal surfaces"
+                )
+            }
+            if parameters["url"] != nil, !(parameters["url"] is NSNull) {
+                return .denied(
+                    code: "remote_relay_method_denied",
+                    message: "Relay browser URLs are not permitted"
+                )
+            }
         }
 
         if let selectorFailure = validateSelectors(
@@ -179,6 +197,13 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
             return .denied(
                 code: "remote_relay_workspace_denied",
                 message: "Relay method requires an explicit workspace selector"
+            )
+        }
+        if Self.workspaceRequiredMethods.contains(method),
+           !(parameters["workspace_id"] is String) {
+            return .denied(
+                code: "remote_relay_workspace_denied",
+                message: "Relay method requires an explicit workspace_id selector"
             )
         }
         if Self.surfaceRequiredMethods.contains(method), !hasSurfaceSelector {
@@ -206,6 +231,14 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
             )
         }
 
+        if method == "notification.create_for_target",
+           !(parameters["surface_id"] is String) {
+            return .denied(
+                code: "remote_relay_surface_denied",
+                message: "Relay notification delivery requires an explicit surface_id selector"
+            )
+        }
+
         if method == "agent.resolve_delivery_target" {
             guard parameters["pid"] == nil,
                   parameters["pid_resolution"] == nil,
@@ -217,12 +250,45 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
                 )
             }
         }
+        if let key = RemoteRelayRoutingSchema().unsupportedKey(in: parameters, method: method) {
+            return .denied(
+                code: "remote_relay_method_denied",
+                message: "Relay parameter '\(key)' is not permitted"
+            )
+        }
         return .allowed
+    }
+
+    private func firstParameterKey(in value: Any, keys: Set<String>) -> String? {
+        if let dictionary = value as? [String: Any] {
+            for key in dictionary.keys.sorted() where keys.contains(key) {
+                if !(dictionary[key] is NSNull) { return key }
+            }
+            for child in dictionary.values {
+                if let found = firstParameterKey(in: child, keys: keys) { return found }
+            }
+            return nil
+        }
+        if let array = value as? [Any] {
+            for child in array {
+                if let found = firstParameterKey(in: child, keys: keys) { return found }
+            }
+        }
+        return nil
     }
 
     private struct SelectorFailure {
         let code: String
         let message: String
+    }
+
+    /// Malformed selectors keep their scope code regardless of their JSON type.
+    private func invalidSelector(_ key: String) -> SelectorFailure {
+        SelectorFailure(
+            code: Self.workspaceSelectorKeys.contains(key)
+                ? "remote_relay_workspace_denied" : "remote_relay_surface_denied",
+            message: invalidSelectorMessage
+        )
     }
 
     private func containsTopLevelSelector(
@@ -254,6 +320,10 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         ownerWorkspaceID: UUID,
         surfaceIDs: Set<UUID>
     ) -> SelectorFailure? {
+        if let key, Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key),
+           !(value is String) {
+            return invalidSelector(key)
+        }
         if let dictionary = value as? [String: Any] {
             for (childKey, childValue) in dictionary {
                 if let failure = validateSelectorValue(
@@ -293,15 +363,9 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
               Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key) else {
             return nil
         }
-        if value is NSNull { return nil }
         guard let raw = value as? String,
               let id = UUID(uuidString: raw) else {
-            return SelectorFailure(
-                code: key.contains("workspace") || key == "tab_id"
-                    ? "remote_relay_workspace_denied"
-                    : "remote_relay_surface_denied",
-                message: "Relay selector is invalid"
-            )
+            return invalidSelector(key)
         }
         if Self.workspaceSelectorKeys.contains(key), id != ownerWorkspaceID {
             return SelectorFailure(

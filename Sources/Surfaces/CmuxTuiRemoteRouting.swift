@@ -2,6 +2,72 @@ import Foundation
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
+    /// Every `cmux vm agent` option that takes a value, so the alias walk and
+    /// the help scan skip the value instead of reading it as the first provider
+    /// argument (or as `--help`).
+    private static let vmAgentValueOptions: Set<String> = [
+        "--agent", "--machine", "--cwd", "--name", "--remote-workspace", "--size", "--timeout",
+    ]
+
+    static func isAgentSubcommand(_ raw: String?) -> Bool {
+        raw?.lowercased() == "agent"
+    }
+
+    static func vmAgentRequestsHelp(_ arguments: [String]) -> Bool {
+        let normalized = Array(vmAgentAliasArgs(arguments).prefix { $0 != "--" })
+        var index = 0
+        while index < normalized.count {
+            let token = normalized[index]
+            if token == "--help" || token == "-h" { return true }
+            index += vmAgentValueOptions.contains(token) ? 2 : 1
+        }
+        return false
+    }
+
+    /// Normalizes ergonomic provider-first aliases into the canonical
+    /// `--agent <name>` shape used by `cmux vm agent` and `coderouter agent`.
+    /// VM options are consumed until the first provider argument, which stays
+    /// behind `--` so it cannot be mistaken for a cmux option.
+    static func vmAgentAliasArgs(_ rest: [String]) -> [String] {
+        guard let first = rest.first, first != "--agent" else { return rest }
+        let agent = first.lowercased()
+        let supportedAgents = Set(["claude", "codex", "opencode", "pi"])
+        guard supportedAgents.contains(agent) else { return rest }
+
+        let tail = Array(rest.dropFirst())
+        var normalized = ["--agent", agent]
+        if tail.contains("--") {
+            normalized.append(contentsOf: tail)
+            return normalized
+        }
+
+        // Boolean `cmux vm agent` options; `--wait` and `--output` are the
+        // until-done flags, which must reach the VM parser rather than the agent.
+        let flagOptions: Set<String> = ["--sync", "--no-open", "--new", "--json", "--wait", "--output", "--help", "-h"]
+        var index = 0
+        while index < tail.count {
+            let token = tail[index]
+            if flagOptions.contains(token) {
+                normalized.append(token)
+                index += 1
+                continue
+            }
+            if vmAgentValueOptions.contains(token) {
+                normalized.append(token)
+                guard index + 1 < tail.count else { return normalized }
+                normalized.append(tail[index + 1])
+                index += 2
+                continue
+            }
+            break
+        }
+        if index < tail.count {
+            normalized.append("--")
+            normalized.append(contentsOf: tail[index...])
+        }
+        return normalized
+    }
+
     /// Where `cmux vm open <target>` points. Grammar:
     ///   <machine>                      the machine's shell (the shared vmOpenShell path)
     ///   <machine>/<workspace>          a cmux-tui workspace on the machine (`ws_…` id or unique name)
@@ -178,7 +244,10 @@ enum CmuxTuiRemoteRouting {
         in resource: [String: Any],
         workspaceID: String
     ) -> VMRemoteViewResolution {
-        if let views = resource["remote_views"] as? [[String: Any]] {
+        if resource.keys.contains("remote_views") {
+            guard let views = resource["remote_views"] as? [[String: Any]] else {
+                return .unavailable
+            }
             let matches = views.filter { view in
                 let workspace = view["workspace"] as? [String: Any]
                 return (workspace?["id"] as? String) == workspaceID

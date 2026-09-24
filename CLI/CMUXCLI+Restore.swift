@@ -10,34 +10,6 @@ extension CMUXCLI {
         )
     }
 
-    func controlAgentLaunchCommandPayload(
-        _ command: AgentLaunchCommand
-    ) -> [String: Any] {
-        var payload: [String: Any] = ["arguments": command.arguments]
-        if let launcher = command.launcher {
-            payload["launcher"] = launcher
-        }
-        if let executablePath = command.executablePath {
-            payload["executable_path"] = executablePath
-        }
-        if let workingDirectory = command.workingDirectory {
-            payload["working_directory"] = workingDirectory
-        }
-        if let environment = command.environment {
-            payload["environment"] = environment
-        }
-        if let verificationHome = command.verificationHome {
-            payload["verification_home"] = verificationHome
-        }
-        if let capturedAt = command.capturedAt {
-            payload["captured_at"] = capturedAt
-        }
-        if let source = command.source {
-            payload["source"] = source
-        }
-        return payload
-    }
-
     func runRestoreCommand(
         commandArgs: [String],
         client: SocketClient,
@@ -67,6 +39,7 @@ extension CMUXCLI {
             )
         }
         var record = try restoreRecord(from: rawRecord)
+        let surfaceRecordCheckpointID = record.checkpointID
         if let expectedKind = selector.kind, expectedKind != record.kind {
             throw loggedRestoreError(
                 stage: "record.kind-mismatch",
@@ -124,57 +97,6 @@ extension CMUXCLI {
             }
         }
 
-        // Legacy command-only records predate structured launch captures, but
-        // an agent-hook Codex record still names a mutable surface owner. Claim
-        // that generation before handing the shell command to exec so an
-        // intervening child publication cannot steal the restore.
-        if codexRestoreBindingRequiresClaim(record),
-           record.launchCommand == nil,
-           record.preparedArguments == nil,
-           record.legacyCommand != nil,
-           !claimCodexRestoreBinding(
-               record: record,
-               bindingPayload: bindingPayload,
-               surfaceID: params["surface_id"] as? String,
-               client: client
-           ) {
-            try handleRejectedCodexRestore(
-                .bindingChanged,
-                record: record,
-                bindingPayload: bindingPayload,
-                surfaceID: params["surface_id"] as? String,
-                workspaceID: payload["workspace_id"] as? String
-                    ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                client: client,
-                workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-            )
-            return
-        }
-
-        let environment = processEnvironment.merging(record.environment) { _, restored in
-            restored
-        }
-        if record.launchCommand == nil,
-           record.preparedArguments == nil,
-           let legacyCommand = record.legacyCommand {
-            try execLegacyRestoreRecord(
-                legacyCommand,
-                record: record,
-                environment: environment,
-                client: client
-            )
-        }
-
-        guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
-            throw loggedRestoreError(
-                stage: "record.mode",
-                detail: record.mode,
-                message: String(
-                    localized: "cli.restore.error.unsupportedMode",
-                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                )
-            )
-        }
         let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
         let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
             requestedWorkingDirectory
@@ -185,92 +107,54 @@ extension CMUXCLI {
             } else {
                 nil
             }
-        let request = AgentRestoreRequest(
-            mode: mode,
-            kind: record.kind,
-            checkpointID: record.checkpointID,
-            source: record.source,
-            workingDirectory: effectiveWorkingDirectory,
-            environment: record.environment,
-            launchCommand: record.launchCommand,
-            preparedArguments: record.preparedArguments,
-            preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
-                record.preparedArgumentsWorkingDirectory
-            ),
-            observedPermissionMode: record.permissionMode
-        )
-        guard let invocation = AgentRestorePlanner(
-            executableFileResolver: AgentRestoreExecutableFileResolver()
-        ).invocation(
-            for: request,
-            ambientEnvironment: processEnvironment
-        ) else {
-            if let legacyCommand = record.legacyCommand {
-                if codexRestoreBindingRequiresClaim(record),
-                   !claimCodexRestoreBinding(
-                       record: record,
-                       bindingPayload: bindingPayload,
-                       surfaceID: params["surface_id"] as? String,
-                       client: client
-                   ) {
-                    try handleRejectedCodexRestore(
-                        .bindingChanged,
-                        record: record,
-                        bindingPayload: bindingPayload,
-                        surfaceID: params["surface_id"] as? String,
-                        workspaceID: payload["workspace_id"] as? String
-                            ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                        client: client,
-                        workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+        let legacyOnly = record.launchCommand == nil && record.preparedArguments == nil && record.legacyCommand != nil
+        let invocation: AgentRestoreInvocation?
+        if legacyOnly {
+            invocation = nil
+        } else {
+            guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
+                throw loggedRestoreError(
+                    stage: "record.mode",
+                    detail: record.mode,
+                    message: String(
+                        localized: "cli.restore.error.unsupportedMode",
+                        defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
                     )
-                    return
-                }
-                try execLegacyRestoreRecord(
-                    legacyCommand,
-                    record: record,
-                    environment: environment,
-                    client: client
                 )
             }
-            throw loggedRestoreError(
-                stage: "record.incomplete",
-                detail: "mode=\(record.mode) kind=\(record.kind)",
-                message: String(
-                    localized: "cli.restore.error.incompleteData",
-                    defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
-                )
+            let request = AgentRestoreRequest(
+                mode: mode,
+                kind: record.kind,
+                checkpointID: record.checkpointID,
+                source: record.source,
+                workingDirectory: effectiveWorkingDirectory,
+                environment: record.environment,
+                launchCommand: record.launchCommand,
+                preparedArguments: record.preparedArguments,
+                preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
+                    record.preparedArgumentsWorkingDirectory
+                ),
+                observedPermissionMode: record.permissionMode
+            )
+            invocation = AgentRestorePlanner(
+                executableFileResolver: AgentRestoreExecutableFileResolver()
+            ).invocation(for: request, ambientEnvironment: processEnvironment)
+        }
+        let execution: RestoreExecution
+        if let invocation {
+            execution = .invocation(invocation)
+        } else {
+            execution = try legacyRestoreExecution(
+                record: record, processEnvironment: processEnvironment,
+                workingDirectory: effectiveWorkingDirectory
             )
         }
-
-        for preflight in invocation.preflightInvocations {
-            try runRestorePreflight(
-                preflight,
-                appliedWorkingDirectory: effectiveWorkingDirectory
-            )
-        }
-        if codexRestoreBindingRequiresClaim(record),
-           !claimCodexRestoreBinding(
-               record: record,
-               bindingPayload: bindingPayload,
-               surfaceID: params["surface_id"] as? String,
-               client: client
-           ) {
-            try handleRejectedCodexRestore(
-                .bindingChanged,
-                record: record,
-                bindingPayload: bindingPayload,
-                surfaceID: params["surface_id"] as? String,
-                workspaceID: payload["workspace_id"] as? String
-                    ?? processEnvironment["CMUX_WORKSPACE_ID"],
-                client: client,
-                workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
-            )
-            return
-        }
-        client.close()
-        try execRestoreInvocation(
-            invocation,
-            appliedWorkingDirectory: effectiveWorkingDirectory
+        try runAdmittedRestore(
+            execution: execution, record: record, recordSessionID: surfaceRecordCheckpointID,
+            payload: payload, bindingPayload: bindingPayload, client: client,
+            surfaceID: surfaceID, workspaceID: payload["workspace_id"] as? String ?? processEnvironment["CMUX_WORKSPACE_ID"],
+            effectiveWorkingDirectory: effectiveWorkingDirectory,
+            workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
         )
     }
 

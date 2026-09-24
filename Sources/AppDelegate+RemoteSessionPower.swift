@@ -8,6 +8,10 @@ extension AppDelegate {
     }
 
     func rearmRemoteSessionsAfterSystemWake() {
+        // `DisableRemoteConnections` (MDM): a profile that landed while the
+        // Mac slept must not be pre-empted by the wake re-arm; the enforcement
+        // observer disconnects these workspaces on its next re-evaluation.
+        guard ManagedRemoteConnectionsPolicy.isEnabled else { return }
         forEachRemoteWorkspace { workspace in
             workspace.rearmRemoteSessionAfterSystemWake()
         }
