@@ -14,7 +14,7 @@ final class WorkspaceNavigationControlView: UIView {
     static func width(for id: WorkspaceNavigationBar.Item.ID) -> CGFloat {
         switch id {
         case .back, .sidebar:
-            52
+            37
         case .changes:
             55
         case .terminals, .overflow:
