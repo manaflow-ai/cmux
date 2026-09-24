@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Registreret harness-konfiguration",
+    "selectionNotice": "Valg af en udbyder starter eller aktiverer ikke disse harnesses.",
+    "selectProvider": "Vælg {provider}",
+    "foundPath": "Fandt {path}",
+    "foundCommand": "Fandt kommandoen {command}",
+    "installed": "Udbyderen er installeret",
+    "missing": "Udbyderen er ikke installeret",
+    "install": "Installer med: {command}",
+    "benefitPi": "Komprimering, hukommelse og udbyderrouting",
+    "benefitOpenagent": "Parallelle specialister og gendannelse til OpenCode",
+    "benefitClaude": "Teams og verifikation til Claude Code",
+    "benefitSuperpowers": "Planlægning, TDD, underagenter og gennemgang"
+  },
   "vmErrors": {
     "guestInstall": {
       "title": "Opsætning af Cloud VM blev ikke fuldført",
