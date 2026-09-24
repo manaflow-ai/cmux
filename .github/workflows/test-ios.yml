@@ -567,7 +567,7 @@ jobs:
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
             xcrun simctl ui "$SIMULATOR_ID" appearance dark
-            if [[ "${{ matrix.family }}" == "iphone" && "$attempt" == "1" && "${TEST_FILTER:-}" == "cmuxUITests/testTaskComposerSubmitsToSelectedWorkspaceGroup" ]]; then
+            if [[ "${{ matrix.family }}" == "iphone" && "$attempt" == "1" && "${TEST_FILTER:-}" == "cmuxUITests/cmuxUITests/testTaskComposerSubmitsToSelectedWorkspaceGroup" ]]; then
               VIDEO_PATH="$IOS_DERIVED_DATA/task-composer-destination-proof.mov"
               echo "Recording destination picker proof to $VIDEO_PATH"
               xcrun simctl io "$SIMULATOR_ID" recordVideo --force "$VIDEO_PATH" > "$IOS_DERIVED_DATA/logs/video.log" 2>&1 &
