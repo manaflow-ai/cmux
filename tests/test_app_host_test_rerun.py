@@ -445,6 +445,68 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][:3], ["gh", "run", "download"])
 
 
+class SourcePruningTests(unittest.TestCase):
+    """A rerun compiles only the test sources its suites can reach."""
+
+    SOURCES = {
+        "ATests.swift": "final class ATests: XCTestCase {\n    func testOne() { XCTAssertEqual(makeWidget().size, 2) }\n}\n",
+        "ATests+More.swift": "extension ATests {\n    func testTwo() {}\n}\n",
+        "WidgetSupport.swift": "func makeWidget() -> Widget { Widget(size: 2) }\nstruct Widget { let size: Int }\n",
+        "Unrelated.swift": "final class BTests: XCTestCase {\n    func testThree() { XCTAssertTrue(true) }\n}\n",
+        "Private.swift": "private func makeWidget() -> Int { 1 }\nstruct Other {}\n",
+        "Members.swift": "extension Widget {\n    var doubled: Int { size * 2 }\n    func unused() {\n        let size = 3\n    }\n}\n",
+        "Conformance.swift": "extension Widget: Equatable {}\n",
+        "Init.swift": "extension Widget {\n    init() { self.init(size: 1) }\n}\n",
+    }
+
+    def closure(self, suites: set[str], **changes: str) -> set[str] | None:
+        return rerun.source_closure({**self.SOURCES, **changes}, suites)
+
+    def test_follows_the_suite_to_the_helpers_it_uses(self) -> None:
+        self.assertEqual(
+            self.closure({"ATests"}),
+            {"ATests.swift", "ATests+More.swift", "WidgetSupport.swift", "Init.swift"},
+        )
+
+    def test_an_extension_member_or_conformance_comes_in_once_it_is_used(self) -> None:
+        uses = "final class ATests: XCTestCase {\n    func testOne() { XCTAssertEqual(makeWidget().doubled, makeWidget() as Equatable) }\n}\n"
+        kept = self.closure({"ATests"}, **{"ATests.swift": uses})
+        self.assertIn("Members.swift", kept)
+        self.assertIn("Conformance.swift", kept)
+
+    def test_a_local_variable_in_an_extension_is_not_a_member(self) -> None:
+        self.assertNotIn("Members.swift", self.closure({"ATests"}))
+
+    def test_a_suite_not_declared_at_the_top_level_compiles_everything(self) -> None:
+        self.assertIsNone(self.closure({"ATests", "MissingTests"}))
+
+    def test_prunes_only_test_sources_and_keeps_everything_else(self) -> None:
+        original = (ROOT / "cmux.xcodeproj" / "project.pbxproj").read_text()
+        sources = {path.name for path in (ROOT / "cmuxTests").rglob("*.swift")}
+        text, dropped = rerun.prune_project(original, {"CmuxPopoverGroupTests.swift"}, sources)
+        self.assertEqual(dropped, len(sources) - 1)
+        # Only removals; the rewritten list may re-indent the lines it keeps.
+        self.assertTrue({line.strip() for line in text.splitlines()} <= {line.strip() for line in original.splitlines()})
+        phase = text[text.index("F1000005A1B2C3D4E5F60718 /* Sources */ = {"):]
+        phase = phase[: phase.index("};")]
+        self.assertIn("CmuxPopoverGroupTests.swift in Sources", phase)
+        # The bundle also compiles CLI sources and the Objective-C release guard.
+        self.assertIn("CLIError.swift in Sources", phase)
+        self.assertIn("CmuxTestWindowReleaseGuard.m in Sources", phase)
+
+    def test_the_real_suites_reach_a_small_closure(self) -> None:
+        sources = {path.name: path.read_text(errors="replace") for path in (ROOT / "cmuxTests").rglob("*.swift")}
+        kept = rerun.source_closure(sources, {"CmuxPopoverGroupTests"})
+        self.assertIn("CmuxPopoverGroupTests.swift", kept)
+        self.assertLess(len(kept), len(sources) // 10)
+
+    def test_the_workflow_falls_back_to_every_source(self) -> None:
+        text = WORKFLOW.read_text()
+        step = text[text.index("- name: Compile only the cmuxTests bundle"): text.index("- name: Stage and validate products")]
+        self.assertLess(step.index("app_host_test_rerun.py\" prune"), step.index('cp "$RUNNER_TEMP/detached.pbxproj"'))
+        self.assertIn("&& compile; then", step)
+
+
 class WorkflowTests(unittest.TestCase):
     def test_runs_on_a_fork_without_repository_variables(self) -> None:
         labels = re.findall(r"runs-on: (.*)", WORKFLOW.read_text())

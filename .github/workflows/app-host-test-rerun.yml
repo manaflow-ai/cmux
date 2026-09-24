@@ -38,6 +38,11 @@ on:
         description: Optional caller-generated id echoed into the run name so dispatchers can find their run
         required: false
         default: ""
+      all_test_sources:
+        description: Compile every cmuxTests source instead of only those the selected suites reach.
+        required: false
+        type: boolean
+        default: false
       baseline:
         description: Also run the same selectors against the unmodified CI-built bundle, for a before/after.
         required: false
@@ -220,6 +225,9 @@ jobs:
             "$CANONICAL_ROOT/derived-data-rerun-resolve" "$PWD/.ci-source-packages"
 
       - name: Compile only the cmuxTests bundle
+        env:
+          SELECTORS: ${{ needs.plan.outputs.selectors }}
+          ALL_SOURCES: ${{ inputs.all_test_sources }}
         run: |
           set -euo pipefail
           bundle="$COMPILE_DERIVED_DATA/Build/Products/Debug/cmux DEV.app/Contents/PlugIns/cmuxTests.xctest"
@@ -234,19 +242,38 @@ jobs:
             --package-root "$PWD/Examples" \
             --package-root "$PWD/.ci-source-packages/checkouts"
           rm -f "$bundle/Contents/MacOS/cmuxTests"
-          # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
-          xcodebuild -project cmux.xcodeproj -target cmuxTests -configuration Debug \
-            -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
-            -disableAutomaticPackageResolution \
-            -xcconfig "$RUNNER_TEMP/cmuxTests-detached.xcconfig" \
-            "SYMROOT=$COMPILE_DERIVED_DATA/Build/Products" \
-            "OBJROOT=$COMPILE_DERIVED_DATA/Build/Intermediates.noindex" \
-            "ARCHS=$PRODUCT_ARCH" \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
-            'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
-            -showBuildTimingSummary \
-            build 2>&1 | tee "$RUNNER_TEMP/rerun-out/cmuxTests-build.log"
+          compile() {
+            xcodebuild -project cmux.xcodeproj -target cmuxTests -configuration Debug \
+              -clonedSourcePackagesDirPath "$PWD/.ci-source-packages" \
+              -disableAutomaticPackageResolution \
+              -xcconfig "$RUNNER_TEMP/cmuxTests-detached.xcconfig" \
+              "SYMROOT=$COMPILE_DERIVED_DATA/Build/Products" \
+              "OBJROOT=$COMPILE_DERIVED_DATA/Build/Intermediates.noindex" \
+              "ARCHS=$PRODUCT_ARCH" \
+              COMPILER_INDEX_STORE_ENABLE=NO \
+              'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
+              'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
+              -showBuildTimingSummary \
+              build 2>&1 | tee -a "$RUNNER_TEMP/rerun-out/cmuxTests-build.log"
+          }
+          # Compile only the test sources the selected suites reach (see
+          # source_closure in app_host_test_rerun.py). A source the pruning
+          # missed fails this compile, and then every source is compiled.
+          cp cmux.xcodeproj/project.pbxproj "$RUNNER_TEMP/detached.pbxproj"
+          sources="every test source"
+          if [ "$ALL_SOURCES" != "true" ] \
+            && python3 "$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/app_host_test_rerun.py" prune \
+              --project cmux.xcodeproj/project.pbxproj --test-root cmuxTests --only-testing "$SELECTORS" \
+            && compile; then
+            sources="only the test sources the selected suites reach"
+          else
+            if [ "$ALL_SOURCES" != "true" ]; then
+              echo "::notice::The pruned cmuxTests compile did not succeed; compiling every test source"
+            fi
+            cp "$RUNNER_TEMP/detached.pbxproj" cmux.xcodeproj/project.pbxproj
+            compile
+          fi
+          echo "- Compiled $sources" >> "$GITHUB_STEP_SUMMARY"
           test -f "$bundle/Contents/MacOS/cmuxTests"
 
       - name: Stage and validate products

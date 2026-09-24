@@ -470,6 +470,111 @@ def detach(args: argparse.Namespace, dump: Callable[[Path], dict] = dump_package
         print(f"  {key} = {' '.join(values)}")
 
 
+# --- source pruning -----------------------------------------------------------------
+#
+# cmuxTests is one bundle of about 1,100 files, and a rerun of one suite used to
+# compile all of them. `prune` keeps the files the selected suites can reach:
+# the files that declare or extend a selected suite, then every file declaring
+# a non-private top-level name those files mention, or an extension member
+# they mention on a type they mention, to a fixed point. Missing a file makes
+# the pruned compile fail, and the workflow then compiles the whole bundle, so
+# the approximation only costs time. Sources outside the test root, and
+# non-Swift sources such as the Objective-C window release guard, always stay.
+
+MODIFIERS = (
+    r"(?:(?:@\w+(?:\([^)]*\))?|public|internal|package|final|static|open|nonisolated|override|indirect"
+    r"|mutating|convenience|required|lazy|weak|unowned|class|dynamic)\s+)*"
+)
+TOP_DECLARATION = re.compile(r"^" + MODIFIERS + r"(?:class|struct|enum|actor|protocol|typealias|func|var|let)\s+`?([A-Za-z_]\w*)", re.M)
+EXTENSION_BLOCK = re.compile(r"^" + MODIFIERS + r"extension\s+([A-Za-z_][\w.]*)([^\n{]*)\{(\}|.*?^\})", re.M | re.S)
+EXTENSION_MEMBER = re.compile(r"^    " + MODIFIERS + r"(?:class|struct|enum|actor|typealias|func|var|let|case)\s+`?([A-Za-z_]\w*)", re.M)
+EXTENSION_INIT = re.compile(r"^    " + MODIFIERS + r"init\b", re.M)
+IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+
+
+def selected_suites(selectors: Iterable[str]) -> set[str]:
+    return {selector.removeprefix(TEST_ROOT).split("/")[0] for selector in selectors}
+
+
+def source_closure(sources: dict[str, str], suites: set[str]) -> set[str] | None:
+    """The test sources the selected suites need, or None when a suite's file is not found."""
+    top = {name: set(TOP_DECLARATION.findall(text)) for name, text in sources.items()}
+    extensions: dict[str, list[tuple[str, set[str]]]] = {}
+    for name, text in sources.items():
+        blocks = []
+        for match in EXTENSION_BLOCK.finditer(text):
+            base = match.group(1).split(".")[0]
+            # A conformance is used through its protocol, an init through its type.
+            members = set(EXTENSION_MEMBER.findall(match.group(3))) | set(IDENTIFIER.findall(match.group(2)))
+            if EXTENSION_INIT.search(match.group(3)):
+                members.add(base)
+            blocks.append((base, members))
+        extensions[name] = blocks
+    if any(not any(suite in names for names in top.values()) for suite in suites):
+        return None
+    # An extension of a suite adds tests that nothing references.
+    included = {
+        name for name in sources
+        if top[name] & suites or any(base in suites for base, _ in extensions[name])
+    }
+    tokens = {name: set(IDENTIFIER.findall(text)) for name, text in sources.items()}
+    # Every name the kept files mention so far: an extension's type can be
+    # named in one kept file and its member used, through inference, in another.
+    used: set[str] = set()
+    frontier = set(included)
+    while frontier:
+        used |= set().union(*(tokens[name] for name in frontier))
+        frontier = {
+            name for name in sources
+            if name not in included
+            and (top[name] & used or any(base in used and members & used for base, members in extensions[name]))
+        }
+        included |= frontier
+    return included
+
+
+def prune_project(text: str, keep: set[str], prunable: set[str], target: str = TEST_TARGET) -> tuple[str, int]:
+    """Drop the target's `prunable` sources outside `keep`; returns the project and how many went.
+
+    The bundle also compiles some app and CLI sources directly; only files
+    under the test root are candidates.
+    """
+    match = re.search(
+        r"\n\t\t(\w+) /\* " + re.escape(target) + r" \*/ = \{\n\t\t\tisa = PBXNativeTarget;\n(.*?)\n\t\t\};", text, re.S
+    )
+    if not match:
+        raise ValueError(f"native target {target} not found")
+    phases = [phase_id for phase_id, name in _list(match.group(2), "buildPhases") if name == "Sources"]
+    if len(phases) != 1:
+        raise ValueError(f"{target} has {len(phases)} Sources phases")
+    phase = _object(text, phases[0])
+    kept, dropped = [], 0
+    for build_file, comment in _list(phase.group(1), "files"):
+        source = comment.removesuffix(" in Sources")
+        if source in prunable and source not in keep:
+            dropped += 1
+            continue
+        kept.append(f"{build_file} /* {comment} */" if comment else build_file)
+    new_phase = _replace_list(phase.group(1), "files", kept)
+    return text[: phase.start(1)] + new_phase + text[phase.end(1) :], dropped
+
+
+def prune(args: argparse.Namespace) -> int:
+    root = Path(args.test_root)
+    sources = {path.name: path.read_text(errors="replace") for path in root.rglob("*.swift")}
+    keep = source_closure(sources, selected_suites(parse_selectors(args.only_testing)))
+    if keep is None:
+        print("A selected suite is not declared at the top level of a test source; compiling every source")
+        return 1
+    project = Path(args.project)
+    text, dropped = prune_project(project.read_text(), keep, set(sources), args.target)
+    project.write_text(text)
+    print(f"Compiling {len(keep)} of {len(sources)} test sources ({dropped} dropped):")
+    for name in sorted(keep):
+        print(f"  {name}")
+    return 0
+
+
 def download(args: argparse.Namespace) -> None:
     """Fetch the product tarball over parallel ranges, or one stream if that misses."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -511,6 +616,11 @@ def main(argv: list[str] | None = None) -> int:
     detach_parser.add_argument("--xcconfig", required=True)
     detach_parser.add_argument("--target", default=TEST_TARGET)
     detach_parser.add_argument("--package-root", action="append", default=[])
+    prune_parser = commands.add_parser("prune")
+    prune_parser.add_argument("--project", required=True)
+    prune_parser.add_argument("--test-root", required=True)
+    prune_parser.add_argument("--only-testing", required=True)
+    prune_parser.add_argument("--target", default=TEST_TARGET)
     download_parser = commands.add_parser("download")
     download_parser.add_argument("--repository", required=True)
     download_parser.add_argument("--run-id", required=True)
@@ -531,6 +641,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
     elif args.command == "download":
         download(args)
+    elif args.command == "prune":
+        return prune(args)
     else:
         detach(args)
     return 0
