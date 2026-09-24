@@ -553,15 +553,14 @@ jobs:
         timeout-minutes: 8
         env:
           SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          # ci.yml reads it off the checked-out merge commit and verifies that
+          # commit is GITHUB_SHA; base.sha is only the fallback.
+          MERGED_ONTO: ${{ inputs.source_parent1 || github.event.pull_request.base.sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
-          # A shallow checkout still names its parents in the commit object.
-          merged_onto="$(git cat-file commit HEAD | awk '/^parent /{print $2; exit}')"
           python3 scripts/ci/seed_derived_data.py adopt \
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            "$SEED_PREFIX" "${merged_onto:-$BASE_SHA}"
+            "$SEED_PREFIX" "$MERGED_ONTO"
 
       - name: Compile app-host test product
         id: hosted-compile
@@ -972,7 +971,9 @@ jobs:
               print(f"- {label}: `{data.get(key)}`")
           seed = data.get("seed_derived_data") or {}
           if seed.get("hit"):
-              print(f"- seed DerivedData: `{seed.get('key')}`, {seed.get('commits_behind')} commits behind, {seed.get('changed_inputs')} inputs changed, adopted in {seed.get('adoption_seconds')}s")
+              behind = seed.get("commits_behind")
+              distance = "newest pointer" if behind is None else f"{int(behind)} commits behind"
+              print(f"- seed DerivedData: `{seed.get('key')}`, {distance}, {seed.get('changed_inputs')} inputs changed, adopted in {seed.get('adoption_seconds')}s")
           elif seed.get("outcome") not in (None, "", "skipped"):
               print(f"- seed DerivedData: miss (`{seed.get('reason')}`)")
           PY

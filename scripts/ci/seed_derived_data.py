@@ -42,6 +42,7 @@ import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -58,6 +59,7 @@ R2_CACHE = Path(__file__).resolve().parent / "r2-cache.sh"
 # main seeds about one commit in ten, so fifty ancestors reach back several
 # seeds; past that the newest pointer is as good as anything.
 ANCESTOR_LIMIT = 50
+USER_AGENT = "cmux-ci-seed-derived-data"
 
 
 def tree_bytes(root: Path) -> int:
@@ -119,12 +121,16 @@ def seed_exists(key: str) -> bool:
         return False
     namespace = f"v1/{os.environ.get('RUNNER_OS') or platform.system()}-{os.environ.get('RUNNER_ARCH') or platform.machine()}"
     for extension in ("tar.zst", "tar.gz"):
-        request = urllib.request.Request(f"{base}/{namespace}/objects/{key}.{extension}", method="HEAD")
+        # The CDN answers urllib's default User-Agent with 403, which would
+        # read as "no seed" for every key.
+        request = urllib.request.Request(
+            f"{base}/{namespace}/objects/{key}.{extension}", method="HEAD", headers={"User-Agent": USER_AGENT},
+        )
         try:
             with urllib.request.urlopen(request, timeout=15) as response:
                 if response.status == 200:
                     return True
-        except OSError:
+        except Exception:  # noqa: BLE001 - any failure is a miss for this key
             continue
     return False
 

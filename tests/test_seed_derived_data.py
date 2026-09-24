@@ -162,6 +162,28 @@ class SeedDerivedData(unittest.TestCase):
         self.assertEqual(restored[0][2:], ("p-c9", "p-"))
         self.assertIn("seed_distance=\n", output.read_text())
 
+    def test_seed_probe_names_itself_and_treats_any_error_as_a_miss(self):
+        os.environ["CI_CACHE_R2_PUBLIC_URL"] = "https://cache.example/"
+        os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"] = "macOS", "ARM64"
+        seen = []
+
+        def urlopen(request, timeout):
+            seen.append(request)
+            raise seed.urllib.error.HTTPError(request.full_url, 404, "missing", {}, None)
+
+        with mock.patch.object(seed.urllib.request, "urlopen", side_effect=urlopen):
+            self.assertFalse(seed.seed_exists("p-abc"))
+        self.assertEqual(
+            [r.full_url for r in seen],
+            ["https://cache.example/v1/macOS-ARM64/objects/p-abc.tar.zst",
+             "https://cache.example/v1/macOS-ARM64/objects/p-abc.tar.gz"],
+        )
+        # The CDN refuses urllib's default User-Agent with 403.
+        self.assertTrue(all(r.get_method() == "HEAD" for r in seen))
+        self.assertTrue(all(r.get_header("User-agent") == seed.USER_AGENT for r in seen))
+        with mock.patch.object(seed.urllib.request, "urlopen", side_effect=ValueError("bad status")):
+            self.assertFalse(seed.seed_exists("p-abc"))
+
     def test_lineage_without_a_repository_or_api_is_the_revision_alone(self):
         os.environ.pop("GITHUB_REPOSITORY", None)
         self.assertEqual(seed.lineage("abc"), ["abc"])
@@ -223,8 +245,8 @@ class Wiring(unittest.TestCase):
         self.assertIn("steps.seed-derived-data.outputs.hit == 'true'", forget["if"])
         # The seed of the main this merge sits on, which the event's base.sha
         # is not always.
-        self.assertIn("git cat-file commit HEAD", adopt["run"])
-        self.assertIn('"$SEED_PREFIX" "${merged_onto:-$BASE_SHA}"', adopt["run"])
+        self.assertEqual(adopt["env"]["MERGED_ONTO"], "${{ inputs.source_parent1 || github.event.pull_request.base.sha }}")
+        self.assertIn('"$SEED_PREFIX" "$MERGED_ONTO"', adopt["run"])
         self.assertIn("GH_TOKEN", adopt["env"])
 
         for path in (ROOT / ".github/workflows").glob("*.yml"):
