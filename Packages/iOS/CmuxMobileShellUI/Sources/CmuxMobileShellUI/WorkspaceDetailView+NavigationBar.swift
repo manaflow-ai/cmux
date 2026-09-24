@@ -69,9 +69,9 @@ extension WorkspaceDetailView {
             terminalPickerToolbarButton
         } label: {
             Image(systemName: "ellipsis")
-                .accessibilityLabel("More")
-                .accessibilityIdentifier("OverflowBarButtonItem")
         }
+        .accessibilityLabel("More")
+        .accessibilityIdentifier("OverflowBarButtonItem")
     }
 }
 #endif

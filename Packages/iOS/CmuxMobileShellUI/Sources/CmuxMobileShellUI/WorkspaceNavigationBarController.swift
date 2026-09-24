@@ -150,6 +150,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         overflow?.isHidden = true
         if let warning, !isLandscape, let overflow {
+            overflow.isHidden = false
             for item in collapsible where item !== overflow {
                 item.isHidden = true
             }
