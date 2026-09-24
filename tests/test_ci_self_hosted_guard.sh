@@ -130,7 +130,7 @@ check_e2e_runner_fallbacks() {
     in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
     END { exit !(saw_dispatch && !saw_other_trigger) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only before it may expose the self-hosted Tart canary"
+    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only"
     exit 1
   fi
 
@@ -150,41 +150,6 @@ check_e2e_runner_fallbacks() {
     END { exit !(saw_run_name && saw_run_name_dynamic && saw_cancel && saw_runner && saw_test_filter && saw_ref_name) }
   ' "$E2E_FILE"; then
     echo "FAIL: test-e2e.yml must dynamically name runs and cancel duplicate queued E2E jobs by runner, normalized ref, and test filter"
-    exit 1
-  fi
-
-  if ! awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-canary$/ { canary_options++ }
-    in_options && /^          - tart-dual$/ { dual_options++ }
-    in_options && /^          - tart-small$/ { small_options++ }
-    END { exit !(canary_options == 1 && dual_options == 1 && small_options == 1) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must expose tart-canary, tart-dual, and tart-small exactly once under workflow_dispatch.inputs.runner.options"
-    exit 1
-  fi
-
-  if ! awk '
-    /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
-    in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /startsWith\(\(!inputs\.runner \|\| inputs\.runner == '\''auto'\''\) && \(vars\.MACOS_RUNNER_[A-Z0-9_]+ \|\| '\''blacksmith-6vcpu-macos-[0-9]+'\''\) \|\| inputs\.runner, '\''tart-'\''\)/ { saw_effective_runner=1 }
-    in_tart_step && /REQUESTED_RUNNER:.*inputs\.runner/ { saw_requested_runner=1 }
-    in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
-    in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
-    in_tart_step && /^[[:space:]]*\*\)$/ { in_runner_reject=1 }
-    in_runner_reject && /::error::\$REQUESTED_RUNNER resolved to unexpected runner/ { saw_runner_reject=1 }
-    in_runner_reject && /^[[:space:]]*exit 1$/ { saw_runner_exit=1 }
-    in_runner_reject && /^[[:space:]]*;;$/ { in_runner_reject=0 }
-    in_tart_step && /test -f \/etc\/cmux-tart-ci \|\| \{/ { saw_vm_marker=1; in_marker_reject=1 }
-    in_marker_reject && /::error::\$REQUESTED_RUNNER runner is missing the immutable VM identity marker/ { saw_marker_reject=1 }
-    in_marker_reject && /^[[:space:]]*exit 1$/ { saw_marker_exit=1 }
-    in_marker_reject && /^[[:space:]]*}$/ { in_marker_reject=0 }
-    END { exit !(saw_effective_runner && saw_requested_runner && saw_runner_context && saw_runner_pattern && saw_runner_reject && saw_runner_exit && saw_vm_marker && saw_marker_reject && saw_marker_exit) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must validate the effective Tart runner name and immutable VM marker, failing closed for either mismatch"
     exit 1
   fi
 
@@ -221,10 +186,9 @@ for job_id, job in document["jobs"].items():
             raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
 PYTHON
 
-  # The Tart identity gate, the run name and the SwiftPM cache key all decide
+  # The run name, the concurrency group and the SwiftPM cache key all decide
   # things about "the runner this job uses". If any of them reads a different
-  # repository variable than runs-on, the gate can be skipped on a Tart VM, or
-  # demanded on a runner that is not one.
+  # repository variable than runs-on, they describe a runner the job is not on.
   runner_vars="$(grep -oE "vars\.MACOS_RUNNER_[A-Z0-9_]+" "$E2E_FILE" | sort -u)"
   if [ "$(printf '%s\n' "$runner_vars" | grep -c .)" -ne 1 ]; then
     echo "FAIL: test-e2e.yml must select its runner from one variable, found:"
@@ -232,28 +196,7 @@ PYTHON
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes supported Tart runner choices and duplicate-queue cancellation"
-}
-
-check_ios_tart_canary() {
-  if ! grep -Eq '^[[:space:]]+- tart-ios$' "$IOS_FILE"; then
-    echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
-    exit 1
-  fi
-  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 3 ]] ||
-     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must fail closed on Tart identity mismatch"
-    exit 1
-  fi
-  if [[ "$(grep -Fc "runs-on: \${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}" "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must honor the dispatch runner override"
-    exit 1
-  fi
-  if [[ "$(grep -Fc "startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner, 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
-    exit 1
-  fi
-  echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
+  echo "PASS: test-e2e.yml runs dispatch-only and cancels duplicate queued jobs"
 }
 
 check_xcode_selection() {
@@ -1163,8 +1106,8 @@ check_no_bare_github_hosted_runners() {
 
 check_no_self_hosted_fleet_runners() {
   # Required jobs route through repository variables. Forbid hardcoded fleet
-  # labels so Tart cutover and paid-provider fallback remain configuration
-  # changes and a physical host label cannot bypass the isolated VM pool.
+  # labels so paid-provider fallback remains a configuration change and a
+  # physical host label cannot reach a required job.
   # Allowed macOS labels (none carried by any fleet runner):
   #   blacksmith-{6,12}vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
@@ -1211,36 +1154,6 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
-  local e2e_tart_option_line e2e_tart_dual_option_line e2e_tart_small_option_line e2e_tart_tahoe_option_line ios_tart_option_line
-  e2e_tart_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-canary$/ { print FNR }
-  ' "$E2E_FILE")"
-  e2e_tart_dual_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-dual$/ { print FNR }
-  ' "$E2E_FILE")"
-  e2e_tart_small_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-small$/ { print FNR }
-  ' "$E2E_FILE")"
-  ios_tart_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-ios$/ { print FNR }
-  ' "$IOS_FILE")"
-
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1257,18 +1170,6 @@ check_no_self_hosted_fleet_runners() {
       continue
     fi
     printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
-    if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$e2e_tart_dual_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_dual_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$e2e_tart_small_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_small_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$ios_tart_option_line" ]] && [[ "$line" == "$IOS_FILE:$ios_tart_option_line:"* ]]; then
-      continue
-    fi
     hits+="$line"$'\n'
   done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
@@ -1651,7 +1552,6 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 # test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
-check_ios_tart_canary
 
 check_xcode_selection
 check_release_build_signal
