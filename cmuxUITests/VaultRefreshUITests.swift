@@ -91,8 +91,10 @@ final class VaultRefreshUITests: XCTestCase {
 
         try FileManager.default.removeItem(at: baselineURL)
         reload.click()
-        XCTAssertTrue(waitUntil { !app.staticTexts[self.title("baseline")].exists })
-        XCTAssertTrue(app.staticTexts[title("searched")].exists)
+        XCTAssertTrue(waitUntil {
+            reload.isEnabled && !app.staticTexts[self.title("baseline")].exists
+                && app.staticTexts[self.title("searched")].exists
+        })
 
         // Existing keyboard mode selection and the density menu remain usable.
         app.buttons["RightSidebarModeButton.files"].click()
