@@ -81,6 +81,15 @@ class ReplayTimes(unittest.TestCase):
         self.assertEqual(self.mtime("Sources"), BUILD_TIME_NS)
         self.assertGreater(self.mtime("cmuxTests"), BUILD_TIME_NS)
 
+    def test_a_rename_that_keeps_the_entry_count_keeps_the_directory_new(self):
+        os.utime(self.producer / "cmuxTests", ns=(BUILD_TIME_NS, BUILD_TIME_NS))
+        recorded = warm.record(self.producer)
+        (self.consumer / "cmuxTests/AppTests.swift").rename(self.consumer / "cmuxTests/RenamedTests.swift")
+
+        warm.replay(self.consumer, recorded)
+
+        self.assertGreater(self.mtime("cmuxTests"), BUILD_TIME_NS)
+
     def test_a_manifest_without_directories_leaves_them_at_checkout_time(self):
         os.utime(self.producer / "Sources", ns=(BUILD_TIME_NS, BUILD_TIME_NS))
         recorded = {key: entry for key, entry in warm.record(self.producer).items() if not key.endswith("/")}
