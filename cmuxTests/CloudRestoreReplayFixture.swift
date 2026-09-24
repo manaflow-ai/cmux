@@ -13,20 +13,22 @@ import Testing
 /// Owns a real manual-I/O Ghostty terminal and its scripted daemon socket.
 @MainActor
 final class CloudRestoreReplayFixture {
+    private let workspace = TerminalPortalTestWorkspace()
     let surface: TerminalSurface
     private let window: NSWindow
-    private let socket: CloudManualMirrorSocketFixture
+    let socket: CloudManualMirrorSocketFixture
     private let session: CloudTuiManualMirrorSession
 
-    init() throws {
+    init(initiallyClaimsGeometry: Bool = true) throws {
         _ = NSApplication.shared
         socket = try CloudManualMirrorSocketFixture()
         session = CloudTuiManualMirrorSession(
             machineID: "restore-grid-test", terminalID: "term_restore_grid",
-            remoteSurfaceID: 17, onNeedsReconnect: {}
+            remoteSurfaceID: 17, initiallyClaimsGeometry: initiallyClaimsGeometry,
+            onNeedsReconnect: {}
         )
         surface = TerminalSurface(
-            tabId: UUID(), context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            tabId: workspace.id, context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil, ioMode: .manualMirror, manualInputHandler: { _ in }
         )
         surface.setManualIONoReflow(false)
@@ -41,6 +43,7 @@ final class CloudRestoreReplayFixture {
         content.addSubview(hosted)
         content.layoutSubtreeIfNeeded()
         hosted.setVisibleInUI(false)
+        hosted.setActive(false)
         session.bind(surface: surface)
     }
 
@@ -71,7 +74,14 @@ final class CloudRestoreReplayFixture {
         #expect(!attach.hasInitialSize, "Hidden restores must not claim their temporary grid")
         socket.send(["id": attach.id, "ok": true, "data": [:]])
         try await deliver(replay, event: "vt-state", marker: "STATUS_READY")
+        try await waitUntil { self.session.phase == .attached }
     }
+
+    func setVisible(_ visible: Bool) {
+        surface.hostedView.setVisibleInUI(visible)
+    }
+
+    func focus() { session.claimGeometry() }
 
     func deliver(_ bytes: Data, event: String, marker: String) async throws {
         socket.send([
@@ -86,6 +96,7 @@ final class CloudRestoreReplayFixture {
         socket.close()
         surface.teardownSurface()
         window.orderOut(nil)
+        workspace.tearDown()
     }
 
     private func waitUntil(_ condition: @MainActor () -> Bool) async throws {

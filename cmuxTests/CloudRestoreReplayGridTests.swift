@@ -1,7 +1,4 @@
-import AppKit
-import CmuxTerminal
 import Foundation
-import GhosttyKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,54 +7,51 @@ import Testing
 @testable import cmux
 #endif
 
-/// A restored hidden mirror must interpret the replay at the daemon's grid.
-/// The final pane can have that same grid, so the daemon owes no resize replay
-/// to repair cursor drift introduced while the pane was still bootstrapping.
+/// A hidden restore releases its old geometry contribution. Reveal must
+/// reclaim the final pane size without waiting for focus or a keystroke.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudRestoreReplayGridTests {
     @Test
-    func hiddenRestoreMatchesFreshAttachAfterSameSizeReveal() async throws {
-        let fresh = try CloudRestoreReplayFixture()
-        let restored = try CloudRestoreReplayFixture()
-        defer { fresh.close(); restored.close() }
+    func hiddenRestoreReclaimsGeometryWithoutInput() async throws {
+        let fixture = try CloudRestoreReplayFixture()
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 99, rows: 35)
 
-        try await fresh.setGrid(columns: 80, rows: 24)
-        try await restored.setGrid(columns: 99, rows: 35)
-        try await fresh.attach(replay: replay)
-        try await restored.attach(replay: replay)
+        // The pane takes its normal visible -> hidden restoration edge before
+        // the machine connects. No terminal focus or input follows the reveal.
+        fixture.setVisible(true)
+        fixture.setVisible(false)
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        fixture.setVisible(true)
 
-        // The real pane settles to the daemon's existing 80x24 size. A
-        // same-size resize succeeds without a `resized` replacement event.
-        try await restored.setGrid(columns: 80, rows: 24)
-        let turn = Data("\r\n4\r\nSTATUS_AFTER".utf8)
-        try await fresh.deliver(turn, event: "output", marker: "STATUS_AFTER")
-        try await restored.deliver(turn, event: "output", marker: "STATUS_AFTER")
-
-        let expected = try #require(fresh.surface.readText(region: .screen))
-        let actual = try #require(restored.surface.readText(region: .screen))
-        #expect(expected.contains("> Ask Codex to do anything\n4\nSTATUS_AFTER"))
-        #expect(actual == expected, "Restoration changed the cursor or screen before the next TUI diff")
+        let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(report.cmd == "resize-surface")
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive"]])
+        let claim = try #require(
+            await fixture.socket.nextCommand(timeout: .seconds(5)),
+            "A visible restored pane must claim its reported grid without requiring focus"
+        )
+        #expect(claim.cmd == "set-client-sizing")
+        #expect(claim.surface == 17)
     }
 
-    /// Recorded from the bundled cmux-tui's byte attach, after an 80x24
-    /// primary-screen TUI writes a wrapped paragraph and a composer band.
-    /// Like a real snapshot, it restores the cursor by absolute coordinates
-    /// after reconstructing wrapped rows; following output is incremental.
-    private var replay: Data {
-        Data((
-            "\u{1B}[?12hAttach specimen\r\n\r\n\r\n"
-            + String(repeating: "A", count: 80)
-            + String(repeating: "B", count: 80)
-            + String(repeating: "C", count: 20)
-            + "\r\n\r\n\r\n\r\n> 2+2\r\n\r\n\r\n4\r\n\r\n"
-            + "\u{1B}[0m\u{1B}[48;2;60;64;72m> Ask Codex to do anything"
-            + String(repeating: " ", count: 54)
-            + "\u{1B}[0m\r\n\r\nSTATUS_READY\u{1B}[0m\u{1B}[15;3H"
-            + "\u{1B}[3g\u{1B}[9G\u{1B}H\u{1B}[17G\u{1B}H\u{1B}[25G\u{1B}H"
-            + "\u{1B}[33G\u{1B}H\u{1B}[41G\u{1B}H\u{1B}[49G\u{1B}H"
-            + "\u{1B}[57G\u{1B}H\u{1B}[65G\u{1B}H\u{1B}[73G\u{1B}H"
-            + "\u{1B}[15;3H\u{1B}[15;3H"
-        ).utf8)
+    @Test
+    func intentionallyPassiveMirrorStillWaitsForExplicitFocus() async throws {
+        let fixture = try CloudRestoreReplayFixture(initiallyClaimsGeometry: false)
+        defer { fixture.close() }
+        try await fixture.setGrid(columns: 99, rows: 35)
+        fixture.setVisible(true)
+        fixture.setVisible(false)
+        try await fixture.attach(replay: Data("STATUS_READY".utf8))
+        fixture.setVisible(true)
+
+        let report = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(report.cmd == "resize-surface")
+        fixture.socket.send(["id": report.id, "ok": true, "data": ["outcome": "passive"]])
+        #expect(await fixture.socket.nextCommand(timeout: .milliseconds(200)) == nil)
+        fixture.focus()
+        let claim = try #require(await fixture.socket.nextCommand(timeout: .seconds(5)))
+        #expect(claim.cmd == "set-client-sizing")
     }
 }
