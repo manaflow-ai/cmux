@@ -3055,7 +3055,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     var restoredUnreadPanelIds: Set<UUID> { Set(restoredUnreadPanelIndicators.keys) }
 
     var hasAnyRestoredUnreadPanelIndicator: Bool { !restoredUnreadPanelIndicators.isEmpty }
-    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    /// Latest pane geometry, read imperatively by the tmux pane overlay after
+    /// `.workspacePaneGeometryDidChange`. Not `@Published`: it changes on every
+    /// content resize (window resize, sidebar drag, minimal-mode toggle), and
+    /// publishing it re-evaluated every `WorkspaceContentView` observing this
+    /// workspace although no view body reads it.
+    private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
