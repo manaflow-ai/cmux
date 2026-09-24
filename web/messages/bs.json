@@ -1434,6 +1434,7 @@
       "restartNew": "Kreiraj novi radni prostor (zadano)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Uključi ili isključi prelamanje redova u uređivaču datoteka (Option+Z).",
       "title": "Prečice na tastaturi",
       "description": "Sve prečice na tastaturi dostupne u cmux-u, grupirane po kategorijama.",
       "metaDescription": "Sve cmux prečice na tastaturi za radne prostore, površine, podijeljene panele, preglednik, notifikacije, pretragu i upravljanje prozorima na macOS-u.",
