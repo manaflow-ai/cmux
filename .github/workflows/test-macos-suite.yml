@@ -123,6 +123,23 @@ jobs:
     runs-on: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: ${{ inputs.unit_test_suites != '' && 35 || 20 }}
     steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-15' }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
