@@ -237,4 +237,11 @@ struct SSHTuiMigrationTests {
         #expect(provider.materialized.last?.resource.machine == provider.machine)
     }
 
+    @Test("An all-session query with no native SSH workspaces retains legacy dispatch")
+    @MainActor
+    func allSessionsWithoutNativeWorkspacesFallsBack() async {
+        let result = await TerminalController.shared.tuiSSHSessions(params: ["all_workspaces": true])
+        #expect(result == nil)
+    }
+
 }
