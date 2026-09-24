@@ -55,13 +55,12 @@ final class WorkspaceNavigationBarController: UIViewController {
         titleCapsule.frame.size = titleCapsule.intrinsicContentSize
 
         for value in leadingItems + trailingItems {
-            let contentPadding: CGFloat = value.id == .back ? 0 : 7
+            let itemWidth = WorkspaceNavigationControlView.width(for: value.id)
             let content = AnyView(value.content
                 .buttonStyle(.plain)
                 .imageScale(.large)
                 .fixedSize()
-                .padding(.horizontal, contentPadding)
-                .frame(minHeight: 36)
+                .frame(width: itemWidth, height: 36)
                 .environment(\.self, environment))
             if let control = controls[value.id] {
                 control.view.update(content: content)

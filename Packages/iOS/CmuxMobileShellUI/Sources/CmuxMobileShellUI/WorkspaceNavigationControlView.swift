@@ -11,6 +11,19 @@ final class WorkspaceNavigationControlView: UIView {
     private var contentWidth: NSLayoutConstraint!
     private var itemWidth: NSLayoutConstraint!
 
+    static func width(for id: WorkspaceNavigationBar.Item.ID) -> CGFloat {
+        switch id {
+        case .back, .sidebar:
+            52
+        case .changes:
+            55
+        case .terminals, .overflow:
+            42
+        case .alternateScreen:
+            41
+        }
+    }
+
     init(content: AnyView) {
         contentView = UIHostingConfiguration { content.ignoresSafeArea() }
             .margins(.all, 0)
