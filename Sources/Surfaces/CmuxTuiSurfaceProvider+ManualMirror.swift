@@ -48,10 +48,15 @@ extension CmuxTuiSurfaceProvider {
                 preferredWorkspaceID: preferredWorkspaceID
             )
         }
+        let knownPlacement = remoteTabID.flatMap { tabID in
+            resource.remoteViews?.first(where: { $0.tabID == tabID })
+                .map { SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID) }
+        }
         let confirmedPlacement = try reservation?.validatedAttachmentPlacement(
             resourceID: resource.id, remoteTabID: remoteTabID,
             materializedPlacement: resolved.placement, catalog: catalog
-        ) ?? resolved.placement
+        ) ?? resolved.placement ?? knownPlacement
+        try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,
@@ -90,6 +95,10 @@ extension CmuxTuiSurfaceProvider {
                       ) else {
                     throw CancellationError()
                 }
+                workspace.updateCloudTerminalTabIcon(
+                    panelID: adopted.panelID,
+                    assetName: resource.terminalAgentIconAssetName
+                )
                 created = adopted
                 reservation.inputRelay.attach(inputRouter)
                 // The card's grace counts from the moment the pane appeared.
@@ -98,6 +107,7 @@ extension CmuxTuiSurfaceProvider {
                 created = try SurfacePaneFactory.makeCloudManualMirrorPane(
                     at: destination,
                     focus: focus,
+                    iconAssetName: resource.terminalAgentIconAssetName,
                     onInput: { input in inputRouter.send(input) },
                     keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
                     onResize: { [weak session] sample in

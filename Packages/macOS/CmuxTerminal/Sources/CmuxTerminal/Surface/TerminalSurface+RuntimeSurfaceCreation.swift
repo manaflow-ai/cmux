@@ -17,7 +17,8 @@ extension TerminalSurface {
         app: ghostty_app_t,
         for view: any TerminalSurfaceNativeViewing,
         scaleFactors: (x: CGFloat, y: CGFloat, layer: CGFloat),
-        agentCommandShims: AgentCommandShimSet?
+        agentCommandShims: AgentCommandShimSet?,
+        spawnPolicy: TerminalSurfaceSpawnPolicy
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         let baseConfig = runtimeCreationConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
@@ -107,7 +108,7 @@ extension TerminalSurface {
             let inheritedPath = env["PATH"]
                 ?? ProcessInfo.processInfo.environment["PATH"]
                 ?? ""
-            return CmuxPathEnvironment.components(from: inheritedPath).joined(separator: ":")
+            return CmuxPathEnvironment().components(from: inheritedPath).joined(separator: ":")
         }
 
         let sanitizedPath = currentManagedPath()
@@ -151,13 +152,15 @@ extension TerminalSurface {
             setManagedEnvironmentValue("CMUX_PORT_RANGE", String(sessionPortRangeSize))
         }
 
-        let spawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
         for (key, value) in spawnPolicy.socketAuthenticationEnvironment
             where !key.isEmpty && !value.isEmpty {
             setManagedEnvironmentValue(key, value)
         }
-        let claudeHooksEnabled = spawnPolicy.claudeHooksEnabled
-        if !claudeHooksEnabled {
+        setManagedEnvironmentValue(
+            "CMUX_CLAUDE_INTEGRATION_DISABLED",
+            spawnPolicy.claudeHooksEnabled ? "0" : "1"
+        )
+        if !spawnPolicy.claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
         // The codex wrapper shim is still installed (it stays on PATH so a
@@ -220,10 +223,12 @@ extension TerminalSurface {
             )
         }
 
-        var managedShellCommand: String?
+        var managedShellPlan = TerminalManagedShellStartupPlan(command: nil, reportsPromptReadiness: false)
+        var appliedShellIntegrationDirectory: String?
         if spawnPolicy.shellIntegrationEnabled,
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path,
            Self.shellIntegrationDirectoryExists(integrationDir) {
+            appliedShellIntegrationDirectory = integrationDir
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
             Self.applyManagedGitWatchEnvironment(
@@ -234,7 +239,7 @@ extension TerminalSurface {
             )
 
             if let shell = engine.resolvedUserShell {
-                managedShellCommand = Self.applyManagedShellSpecificStartupEnvironment(
+                managedShellPlan = Self.applyManagedShellStartupPlan(
                     shell: shell,
                     integrationDir: integrationDir,
                     userGhosttyShellIntegrationMode: engine.userGhosttyShellIntegrationMode,
@@ -278,7 +283,7 @@ extension TerminalSurface {
             initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,
             hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
-            managedShellCommand: managedShellCommand,
+            managedShellCommand: managedShellPlan.command,
             resolvedShell: engine.resolvedUserShell
         )
         let runtimeInitialInput = nextRuntimeInitialInput
@@ -294,17 +299,37 @@ extension TerminalSurface {
             }
             return baseConfig.initialInput
         }()
+        // Admission holds startup input until the shell reports a prompt. A
+        // process that cannot report one receives the input directly at spawn.
+        let gatesStartupInputOnPrompt = startupRestoreAdmissionPhase != .unrestricted
+            && TerminalShellPromptReadinessPolicy().reportsPromptReadiness(
+                integrationDirectory: appliedShellIntegrationDirectory,
+                resolvedCommand: resolvedCommand,
+                hasUserGhosttyCommand: engine.hasUserGhosttyCommand,
+                resolvedShell: engine.resolvedUserShell,
+                managedShellCommand: managedShellPlan.command,
+                environment: env,
+                managedShellReportsPromptReadiness: managedShellPlan.reportsPromptReadiness
+            )
         let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
                 surfaceConfig.working_directory = cWorkingDir
-                return withOptionalCString(resolvedInitialInput) { cInitialInput in
+                return withOptionalCString(
+                    gatesStartupInputOnPrompt ? "" : resolvedInitialInput
+                ) { cInitialInput in
                     surfaceConfig.initial_input = cInitialInput
                     return makeGhosttySurface(app: app, config: &surfaceConfig, envVars: &envVars)
                 }
             }
         }
         if let createdSurface {
+            if gatesStartupInputOnPrompt {
+                startupInputGate.stage(resolvedInitialInput, generation: terminalLifecycleId)
+            } else if startupRestoreAdmissionPhase != .unrestricted {
+                // Direct delivery consumed this generation's input.
+                startupInputGate.stage(nil, generation: terminalLifecycleId)
+            }
             guard ghostty_surface_set_render_presented_callback(
                 createdSurface,
                 terminalRendererPresentedCallback,

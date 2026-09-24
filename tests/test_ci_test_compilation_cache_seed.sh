@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
+CI_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 NIGHTLY_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 SCRIPT="$ROOT_DIR/scripts/ci/compile-app-host-test-product.sh"
 
@@ -21,7 +21,7 @@ ADMISSION="$(job_body "$CI_FILE" "macos-compile-admission")"
 SEEDER="$(job_body "$NIGHTLY_FILE" "refresh-test-compilation-cache")"
 
 if [ -z "$ADMISSION" ] || [ -z "$SEEDER" ]; then
-  echo "FAIL: expected ci.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
+  echo "FAIL: expected ci-macos.yml macos-compile-admission and nightly.yml refresh-test-compilation-cache"
   exit 1
 fi
 
@@ -31,8 +31,8 @@ fi
 for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
   name="${pair%%:*}"
   body="${pair#*:}"
-  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh build' <<<"$body" \
-    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh fingerprint' <<<"$body"; then
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-build' <<<"$body" \
+    || ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-fingerprint' <<<"$body"; then
     echo "FAIL: the $name job must build and fingerprint through scripts/ci/compile-app-host-test-product.sh"
     exit 1
   fi
@@ -43,11 +43,13 @@ for pair in "admission:$ADMISSION" "seeder:$SEEDER"; do
 done
 echo "PASS: admission and the seeder build the app-host test product through one script"
 
+# Pools may differ: the executable canonical recipe test checks absolute paths.
+
 # The build paths are part of every cache entry, so both jobs must use the
 # same ones.
 for line in \
-  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=$RUNNER_TEMP/cmux-derived-data-compile-admission' \
-  'CMUX_COMPILE_ADMISSION_CAS=$RUNNER_TEMP/cmux-compile-admission-cas'; do
+  'CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission' \
+  'CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas'; do
   if ! grep -Fq "$line" <<<"$ADMISSION" || ! grep -Fq "$line" <<<"$SEEDER"; then
     echo "FAIL: admission and the seeder must both set $line"
     exit 1
@@ -56,27 +58,32 @@ done
 echo "PASS: admission and the seeder build from the same paths"
 
 KEY_PREFIX='xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-'
-for file in "$CI_FILE" "$NIGHTLY_FILE"; do
-  if ! grep -Fq -- "$KEY_PREFIX" "$file" \
-    || grep -F 'xcode-compilation-test-' "$file" | grep -vqF -- "$KEY_PREFIX"; then
-    echo "FAIL: $(basename "$file") must use the shared test compilation cache key prefix"
-    exit 1
-  fi
-done
-echo "PASS: admission and the seeder share one cache key prefix"
-
-# Pull requests restore and never save: a cache written from a pull request is
-# scoped to it, so it helps nobody else and spends the budget that keeps the
-# main seed from being evicted.
-if ! awk '
-  /uses: / { uses=$0 }
-  /key: xcode-compilation-test-/ { saw=1; if (uses !~ /uses: (actions\/cache\/restore@|\.\/\.github\/actions\/cache-restore$)/) bad=1 }
-  END { exit !(saw && !bad) }
-' <<<"$ADMISSION"; then
-  echo "FAIL: macos-compile-admission must restore the test compilation cache read-only and never save it"
+if ! grep -Fq -- "$KEY_PREFIX" "$NIGHTLY_FILE" \
+  || grep -F 'xcode-compilation-test-' "$NIGHTLY_FILE" | grep -vqF -- "$KEY_PREFIX"; then
+  echo "FAIL: nightly.yml must key the test compilation cache on the canonical fingerprint"
   exit 1
 fi
-echo "PASS: pull requests restore the test compilation cache read-only"
+echo "PASS: the seeder keys the test compilation cache on the canonical fingerprint"
+
+# Pull-request compile admission does not restore the test compilation cache.
+# Swift keys every compile job on its whole module, so the one-module `cmux`
+# app target (and cmuxUITests) missed on every file: 581 of 581 and 566 of 566
+# in two sampled admission logs on 2026-09-24, although the key, path and
+# Xcode matched the seed exactly. Only modules unchanged since the six-hourly
+# seed hit, and those are what the adopted DerivedData seed already leaves
+# up to date. The restore cost 13-43 s and a 932 MB download on every run.
+# Admission still computes the fingerprint: the DerivedData seed is keyed on it.
+if grep -Fq 'xcode-compilation-test-' <<<"$ADMISSION" \
+  || grep -Eq '^      - name: Restore test compilation cache' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must not restore the test compilation cache;"
+  echo "      the app target misses on every file and the DerivedData seed covers the rest"
+  exit 1
+fi
+if ! grep -Fq 'steps.compilation-cache-key.outputs.fingerprint' <<<"$ADMISSION"; then
+  echo "FAIL: macos-compile-admission must still key the DerivedData seed on the canonical fingerprint"
+  exit 1
+fi
+echo "PASS: pull requests skip the test compilation cache and keep the fingerprint for the seed"
 
 if ! awk '
   /^      - name: Restore test compilation cache/ { step="restore" }
@@ -93,6 +100,25 @@ if ! awk '
   exit 1
 fi
 echo "PASS: the seeder rolls the cache forward by main revision and bounds what it saves"
+
+# The seed must come from one clean build. The seeder used to restore its own
+# last seed by prefix, so each run stacked another build's objects onto the
+# CAS; Xcode keeps the primary generation and the upstream it faults from, and
+# that pair crossed the 5 GiB save bound on 2026-09-22 after climbing 3.5 -> 5.0
+# GiB in eight runs. Past the bound nothing is saved, so the next run restores
+# the same older entry and lands past it again and the seed freezes for good.
+# A cold build covers all of main anyway, and it measured smaller (3.5 GiB) and
+# faster (18 min, against 19-25 warm) than a stacked one.
+if awk '
+  /^      - name: / { step = $0 }
+  step ~ /Restore test compilation cache/ && /^[[:space:]]+restore-keys:/ { found = 1 }
+  END { exit !found }
+' <<<"$SEEDER"; then
+  echo "FAIL: refresh-test-compilation-cache must not restore an earlier seed by prefix:"
+  echo "      stacking builds onto one CAS grows it past the save bound, and then the seed freezes."
+  exit 1
+fi
+echo "PASS: the seeder seeds from one clean build"
 
 if ! grep -Eq "if: github\.event_name == 'schedule'" <<<"$SEEDER"; then
   echo "FAIL: refresh-test-compilation-cache must stay on the cache-warming schedule so it does not take a macOS slot per merge"
@@ -164,6 +190,7 @@ for expected in \
   cmux-unit \
   cmux-numeric-locale \
   build-for-testing \
+  -showBuildTimingSummary \
   COMPILATION_CACHE_ENABLE_CACHING=YES \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \
@@ -216,7 +243,7 @@ if STUB_RESOLVE_ARTIFACTS_FROM=9 run_script resolve "$TMP_DIR/derived" "$TMP_DIR
   exit 1
 fi
 for name_and_body in "macos-compile-admission:$ADMISSION" "refresh-test-compilation-cache:$SEEDER"; do
-  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh resolve' <<<"${name_and_body#*:}"; then
+  if ! grep -Fq 'scripts/ci/compile-app-host-test-product.sh canonical-resolve' <<<"${name_and_body#*:}"; then
     echo "FAIL: the ${name_and_body%%:*} job must resolve packages through scripts/ci/compile-app-host-test-product.sh"
     exit 1
   fi

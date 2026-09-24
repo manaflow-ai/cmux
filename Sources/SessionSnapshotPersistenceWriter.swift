@@ -41,7 +41,9 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
-        let writeBlock = {
+        // Persistence can outlive its main-actor owner; retain only the Sendable
+        // store so finishing a write cannot destroy AppDelegate on this queue.
+        let writeBlock = { [store] in
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
                 UserDefaults.standard.set(
@@ -51,14 +53,14 @@ struct SessionSnapshotPersistenceWriter: @unchecked Sendable {
             }
             if let snapshot {
                 Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
-                _ = self.store.save(snapshot, fileURL: nil)
+                _ = store.save(snapshot, fileURL: nil)
             } else if removeWhenEmpty {
                 if preserveManualRestoreBackupOnMissingPrimary {
                     Self.markCrashOnlyPrimarySnapshotRemoval()
                 } else {
                     Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
                 }
-                self.store.removeSnapshot(fileURL: nil)
+                store.removeSnapshot(fileURL: nil)
             }
         }
 

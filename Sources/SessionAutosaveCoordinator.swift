@@ -18,12 +18,14 @@ final class SessionAutosaveCoordinator {
     typealias TTYDeviceBindings = @MainActor () -> [
         SurfaceResumeBindingIndex.PanelKey: Int64
     ]
+    typealias SaveCurrentSnapshot = @MainActor () -> Bool
 
     private let isTerminatingApp: @MainActor () -> Bool
     private let isStartupSessionRestorePending: @MainActor () -> Bool
     private let currentTTYDeviceBindings: TTYDeviceBindings
     private let fingerprint: Fingerprint
     private let save: Save
+    private let saveCurrentSnapshot: SaveCurrentSnapshot
 
     private static let typingQuietPeriod: TimeInterval = 0.65
 
@@ -39,19 +41,22 @@ final class SessionAutosaveCoordinator {
     private var lastFingerprint: Int?
     private var lastPersistedAt = Date.distantPast
     private var lastTypingActivityAt: TimeInterval = 0
+    private var todoStatePersistenceCoordinator: SessionTodoStatePersistenceCoordinator?
 
     init(
         isTerminatingApp: @escaping @MainActor () -> Bool,
         isStartupSessionRestorePending: @escaping @MainActor () -> Bool,
         currentTTYDeviceBindings: @escaping TTYDeviceBindings,
         fingerprint: @escaping Fingerprint,
-        save: @escaping Save
+        save: @escaping Save,
+        saveCurrentSnapshot: @escaping SaveCurrentSnapshot
     ) {
         self.isTerminatingApp = isTerminatingApp
         self.isStartupSessionRestorePending = isStartupSessionRestorePending
         self.currentTTYDeviceBindings = currentTTYDeviceBindings
         self.fingerprint = fingerprint
         self.save = save
+        self.saveCurrentSnapshot = saveCurrentSnapshot
     }
 
     deinit {
@@ -160,6 +165,24 @@ final class SessionAutosaveCoordinator {
             await self.finish(source: source, generation: generation)
         }
         activeAttempt = ActiveAttempt(generation: generation, task: task)
+    }
+
+    /// Schedule a session snapshot after todo edits settle. The save captures
+    /// current in-memory state with cached process indexes, keeping todo edits
+    /// consistent with simultaneous pane and workspace changes.
+    func scheduleTodoStateSave(isApplyingSessionRestore: Bool) {
+        guard !isTerminatingApp(),
+              !isStartupSessionRestorePending(),
+              !isApplyingSessionRestore else { return }
+        if todoStatePersistenceCoordinator == nil {
+            todoStatePersistenceCoordinator = SessionTodoStatePersistenceCoordinator(
+                saveSnapshot: { [weak self] in
+                    guard let self, !self.isTerminatingApp() else { return false }
+                    return self.saveCurrentSnapshot()
+                }
+            )
+        }
+        todoStatePersistenceCoordinator?.enqueue()
     }
 
     func recordTypingActivity() {
