@@ -410,16 +410,17 @@ def evaluate(expression, context):
             return token == "true"
         if token[0].isdigit():
             return float(token)
-        if token == "startsWith" and peek() == "(":
+        if token in ("startsWith", "contains") and peek() == "(":
             take()
             haystack = either()
             if take() != ",":
-                raise ValueError("startsWith takes two arguments")
+                raise ValueError(f"{token} takes two arguments")
             needle = either()
             if take() != ")":
                 raise ValueError("unbalanced parentheses")
-            return ("" if haystack is None else str(haystack)).lower().startswith(
-                ("" if needle is None else str(needle)).lower())
+            haystack = ("" if haystack is None else str(haystack)).lower()
+            needle = ("" if needle is None else str(needle)).lower()
+            return haystack.startswith(needle) if token == "startsWith" else needle in haystack
         value = context
         for part in token.split("."):
             value = value.get(part) if isinstance(value, dict) else None
@@ -809,16 +810,21 @@ class Wiring(unittest.TestCase):
         # pr_runner_pool.py names pr_retry_runner only for an owned-pool pick; a
         # re-run of failed jobs (attempt 2) reuses attempt 1's inputs.
         admission = load("ci-macos.yml")["jobs"]["macos-compile-admission"]
-        for attempt, retry, runner in (
-            ("1", "blacksmith-12vcpu-macos-26", "glaeda-std-xcode-26.6"),
-            ("2", "blacksmith-12vcpu-macos-26", "blacksmith-12vcpu-macos-26"),
-            ("2", "", "glaeda-std-xcode-26.6"),
+        # Attempt 1 takes the owned pool only when the picker placed admission
+        # there (pr_owned_jobs); otherwise the retry runner.
+        for attempt, retry, owned_jobs, runner in (
+            ("1", "blacksmith-12vcpu-macos-26", " admission cli-pipe ", "glaeda-std-xcode-26.6"),
+            ("1", "blacksmith-12vcpu-macos-26", " cli-pipe ", "blacksmith-12vcpu-macos-26"),
+            ("1", "blacksmith-12vcpu-macos-26", "", "blacksmith-12vcpu-macos-26"),
+            ("2", "blacksmith-12vcpu-macos-26", " admission ", "blacksmith-12vcpu-macos-26"),
+            ("2", "", "", "glaeda-std-xcode-26.6"),
         ):
             context = github_context("pull_request", ref="refs/pull/1/merge")
             context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt,
                                      event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
-            context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry)
-            with self.subTest(attempt=attempt, retry=retry):
+            context["inputs"].update(pr_runner="glaeda-std-xcode-26.6", pr_retry_runner=retry,
+                                     pr_owned_jobs=owned_jobs)
+            with self.subTest(attempt=attempt, retry=retry, owned_jobs=owned_jobs):
                 self.assertEqual(evaluate(admission["runs-on"], context), runner)
                 self.assertEqual(evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context), runner)
 

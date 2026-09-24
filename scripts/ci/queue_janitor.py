@@ -54,7 +54,8 @@ An owned Mac pool (``glaeda-<class>-xcode-<version>``) is one more pool
 here: stale pull request runs (b) on it are cancelled whatever its queue,
 which frees minis, and the other categories only while it is backed up. With
 CI_PR_POOL_OWNED on, the snapshot also carries each owned pool's
-``committed`` machines: the peak each run holding it declared in its
+``committed`` machines: the owned machines each run holding it declared at
+its peak (the jobs it placed there, not the whole run) in its
 ``macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>`` marker, read with one
 artifact listing per run that may hold one.
 

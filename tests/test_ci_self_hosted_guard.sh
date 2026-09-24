@@ -44,9 +44,10 @@ check_macos_runner() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     # A product consumer inherits the compile admission pool, which this
-    # check covers on its own, or on a re-run the Blacksmith pool the pull
+    # check covers on its own, or, on a re-run or when the picker did not
+    # place this shard on the owned pool, the Blacksmith pool the pull
     # request picker named for a run on an owned pool (pr_retry_runner).
-    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt > 1 && inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ (\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -1376,9 +1377,10 @@ GUARDED = (
     " || 'blacksmith-6vcpu-macos-15')",
     "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
     " || 'blacksmith-6vcpu-macos-15')",
-    # A re-run of failed jobs on an owned-pool run: the Blacksmith pool the
-    # picker named for it.
-    "github.event_name == 'pull_request' && github.run_attempt > 1 && needs.changes.outputs.macos_pr_retry_runner",
+    # A re-run of failed jobs on an owned-pool run, or a job the picker did not
+    # place on the owned pool: the Blacksmith pool the picker named for it.
+    "github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    " ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner",
 )
 
 
