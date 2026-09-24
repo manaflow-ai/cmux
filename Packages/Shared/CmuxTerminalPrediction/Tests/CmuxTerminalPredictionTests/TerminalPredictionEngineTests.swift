@@ -579,6 +579,49 @@ extension TerminalPredictionEngineTests {
         #expect(session.engine.status(at: session.clock) == .listening)
     }
 
+    @Test func anUndrawnEraseStillSetsTheDeadlineForWhatIsDrawn() throws {
+        // The erase is what expires first, and expiring it withdraws "d".
+        // A deadline read off drawn glyphs alone would leave "d" drawn at an
+        // offset that assumes the erase, a second past when it gave up.
+        var session = armedSession()
+        session.type("s")
+        session.type("a")
+        session.type(Self.backspace)
+        let erasedAt = session.clock
+        session.remote("sa")
+        session.type("d", after: .seconds(1))
+        #expect(session.drawn == "d")
+
+        let deadline = try #require(session.engine.nextExpiry)
+        #expect(deadline == erasedAt + .milliseconds(1500))
+
+        session.clock = deadline + .milliseconds(1)
+        session.engine.tick(at: session.clock)
+        #expect(session.drawn == "")
+    }
+
+    @Test func unmodelledErasesDoNotSuspendPrediction() {
+        // A shell that repaints the whole line on Backspace is doing nothing
+        // wrong; withdrawing is enough, and counting it would suspend
+        // prediction after a few corrections.
+        var session = armedSession()
+        for _ in 0..<6 {
+            session.type("s")
+            session.type("a")
+            session.type(Self.backspace)
+            #expect(session.drawn == "s")
+            session.remote("sa\r\u{1B}[K$ s")
+            #expect(session.drawn == "")
+            #expect(session.engine.status(at: session.clock) != .suspended)
+            // Re-arm for the next cycle.
+            session.type("l")
+            session.remote("l")
+            session.advance(.milliseconds(5))
+            session.engine.presentedFrame(at: session.clock)
+        }
+        #expect(session.engine.status(at: session.clock) == .predicting)
+    }
+
     @Test func anEraseTheRemoteNeverSendsIsWithdrawn() {
         var session = armedSession()
         session.type("s")

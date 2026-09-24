@@ -58,6 +58,27 @@ struct PredictionOverlayLayoutTests {
         #expect(full.cellCount == 2)
     }
 
+    @Test func noCaretLeftOfTheCursorWhileARetractedEchoAwaitsItsErase() throws {
+        // The remote has printed a retracted character and not yet erased
+        // it, so the held glyph sits two cells left of the cursor. Typing
+        // continues where the erase will leave the cursor, not one cell left
+        // of the live one; with nothing speculative, draw no caret there.
+        let held = glyphs([-2], standing: .confirmed)
+        let layout = try #require(PredictionOverlayLayout(glyphs: held, cursorColumn: 5, columns: 80))
+
+        #expect(layout.glyphs.map(\.offset) == [-2])
+        #expect(layout.caretOffset == nil)
+        #expect(layout.cellCount == 1)
+
+        // An ordinary held confirmation keeps its caret on the cursor.
+        let ordinary = try #require(PredictionOverlayLayout(
+            glyphs: glyphs([-1], standing: .confirmed),
+            cursorColumn: 5,
+            columns: 80
+        ))
+        #expect(ordinary.caretOffset == 0)
+    }
+
     @Test func aCursorOnTheLastColumnDrawsNothing() {
         // It may be waiting to wrap, which moves every offset by a cell.
         #expect(PredictionOverlayLayout(glyphs: glyphs([0]), cursorColumn: 9, columns: 10) == nil)
