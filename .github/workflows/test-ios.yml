@@ -201,9 +201,13 @@ jobs:
           ./scripts/lint-ios-package-conventions.sh
 
   mobile-core-package:
-    needs: detect-ios-changes
+    needs: [detect-ios-changes, package-conventions-lint]
     if: >-
-      ${{ needs.detect-ios-changes.outputs.should_run == 'true'
+      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+          && needs.detect-ios-changes.outputs.should_run == 'true'
+          && (needs.package-conventions-lint.result == 'success'
+              || (needs.package-conventions-lint.result == 'skipped'
+                  && needs.detect-ios-changes.outputs.should_lint == 'false'))
           && (!(github.event_name == 'workflow_dispatch' && inputs.test_filter != '') || inputs.swift_package != '') }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     # Focused runs build the shell and its macros from a cold SwiftPM cache.
@@ -329,10 +333,14 @@ jobs:
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
-          args=(--package-path Packages/iOS/CmuxMobileShell)
-          if [ -n "${FOCUSED_SWIFT_PACKAGE:-}" ]; then
-            args+=(--no-parallel)
-          fi
+          # This suite's waits are wall-clock bound (#8143), so swift-testing's
+          # default parallelism starves them: the same 1060 tests take over 12
+          # minutes and report ~161 failures in parallel, against 65 seconds and
+          # 17 failures serially on the same commit. The 10-minute job budget
+          # then kills the step, which reports as `cancelled` rather than a
+          # failure, so none of it surfaced. Run it serially until the waits
+          # themselves are fixed.
+          args=(--package-path Packages/iOS/CmuxMobileShell --no-parallel)
           if [ -n "${SWIFT_TEST_FILTER:-}" ]; then
             args+=(--filter "$SWIFT_TEST_FILTER")
           fi
@@ -358,8 +366,16 @@ jobs:
           ./scripts/ci/require_selected_test_execution.sh "$log_path" "${SWIFT_TEST_FILTER:-CmuxMobileShellModel}"
 
   ios-simulator-build:
-    needs: detect-ios-changes
-    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
+    needs: [detect-ios-changes, package-conventions-lint]
+    # An unrelated lint lane may be skipped. Explicit status checks retain
+    # that route while preventing a failed lint from buying a native build.
+    if: >-
+      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+          && needs.detect-ios-changes.outputs.should_run == 'true'
+          && (needs.package-conventions-lint.result == 'success'
+              || (needs.package-conventions-lint.result == 'skipped'
+                  && needs.detect-ios-changes.outputs.should_lint == 'false'))
+          && inputs.swift_package == '' }}
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 35
     outputs:
@@ -568,7 +584,7 @@ jobs:
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
           archive="$RUNNER_TEMP/ios-test-product.tar.gz"
           rm -f "$archive"
-          tar -czf "$archive" -C "$IOS_PRODUCT_STAGE" Build/Products
+          COPYFILE_DISABLE=1 tar -czf "$archive" -C "$IOS_PRODUCT_STAGE" Build/Products
           sha256="$(shasum -a 256 "$archive" | awk '{print $1}')"
           bytes="$(stat -f '%z' "$archive")"
           seconds="$(STARTED_NS="$started_ns" python3 - <<'PY'
@@ -664,7 +680,11 @@ jobs:
     needs:
       - detect-ios-changes
       - ios-simulator-build
-    if: ${{ needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
+    # The producer may succeed with an intentionally skipped lint ancestor.
+    if: >-
+      ${{ !cancelled() && needs.detect-ios-changes.result == 'success'
+          && needs.ios-simulator-build.result == 'success'
+          && needs.detect-ios-changes.outputs.should_run == 'true' && inputs.swift_package == '' }}
     # Runtime-only consumers share the producer's exact Build/Products tree.
     runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner }}
     timeout-minutes: 35
@@ -830,6 +850,10 @@ jobs:
         id: simulator-tests
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
+          # Bounds one xcodebuild invocation. Generous against the ~2 minutes
+          # the non-UI suite actually takes, and well under the job's 35-minute
+          # ceiling so a wedge still leaves room for the steps after this one.
+          XCODEBUILD_TIMEOUT_SECONDS: "900"
         run: |
           set -euo pipefail
           started_ns="$(python3 -c 'import time; print(time.monotonic_ns())')"
@@ -883,7 +907,14 @@ jobs:
             xcrun simctl erase "$SIMULATOR_ID"
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
-            if xcodebuild "${XCODEBUILD_ARGS[@]}" -resultBundlePath "$RESULT_PATH" 2>&1 | tee "$LOG_PATH"; then
+            # xctest can wedge in teardown once the run is over: it waits on a
+            # process termination that never lands, emits nothing further, and
+            # the only bound left is the job ceiling (#13918). Bound the
+            # invocation so that becomes a non-zero exit this loop can classify
+            # -- the cleanup-failure check below already knows how to tolerate a
+            # bad exit whose selected tests passed.
+            if scripts/blacksmith-bounded-command.sh "$XCODEBUILD_TIMEOUT_SECONDS" \
+              xcodebuild "${XCODEBUILD_ARGS[@]}" -resultBundlePath "$RESULT_PATH" 2>&1 | tee "$LOG_PATH"; then
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
                 "${TEST_FILTER:-}"

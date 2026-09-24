@@ -800,12 +800,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         )
     }
 
+    /// Test seam for a keyboard leg. Drives exactly what a real leg drives:
+    /// ``setHostedKeyboardState`` seats the dock and re-places the render
+    /// inside the (keyboard-independent) viewport, and the host's
+    /// `beginKeyboardLeg` schedules NO geometry negotiation. The keyboard
+    /// stopped being a grid input when the stretch-to-fill auto-fit was
+    /// removed, so a `set_size` here would be a no-op resize with one real
+    /// side effect: `shouldReassertNaturalSize` re-reports capacity whenever
+    /// the effective grid sits below it, which is every Mac-constrained
+    /// terminal. That made the seam emit a viewport report per toggle that
+    /// production never emits.
     func setKeyboardHeightForTesting(_ height: CGFloat) {
         setKeyboardHeightOverrideForTesting(height)
         layoutRenderedTerminalForCurrentViewport()
         layoutBottomDock()
         layoutBottomDockHierarchyIfNeeded()
-        syncSurfaceGeometry(shouldReassertNaturalSize: true)
     }
 
 

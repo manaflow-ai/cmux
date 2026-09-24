@@ -585,6 +585,7 @@
   "AgentSource": {
    "kind": "enum",
    "values": [
+    "plugin",
     "detected",
     "socket",
     "hook"
@@ -3597,6 +3598,16 @@
      "nullable": true,
      "since": 12,
      "description": "Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null."
+    },
+    "foreground_executable": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null."
     }
    },
    "additional_properties": false
@@ -10723,6 +10734,16 @@
    "payload": {
     "kind": "object",
     "fields": {
+     "agent": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "description": "Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified."
+     },
      "event": {
       "type": {
        "kind": "literal",

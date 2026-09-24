@@ -25,6 +25,11 @@ set -euo pipefail
 
 root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
 src="$root/src"
+runtime_source=false
+if [ "${1:-}" = --runtime-source ]; then
+  runtime_source=true
+  shift
+fi
 workspace="${1:-${GITHUB_WORKSPACE:-$PWD}}"
 
 if [ ! -d "$workspace" ]; then
@@ -50,6 +55,21 @@ case "$root/" in
 esac
 
 mkdir -p "$root"
+
+# Test binaries embed #filePath strings which xctestrun relocation cannot edit.
+# Consumers only need the source files at that path, not another checkout copy.
+# A later producer removes this alias below before building a real source tree.
+if [ "$runtime_source" = true ]; then
+  case "$workspace/" in
+    "$src/"*)
+      echo "canonical-build-root: runtime workspace must live outside $src" >&2
+      exit 1
+      ;;
+  esac
+  rm -rf "$src"
+  ln -s "$workspace" "$src"
+  exit 0
+fi
 
 # Self-hosted runners reuse disks, so an earlier job's tree may still be here.
 # Refuse to reuse a stale one: a partial copy compiles the wrong sources, and
