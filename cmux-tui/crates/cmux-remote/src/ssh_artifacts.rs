@@ -76,3 +76,32 @@ pub(crate) fn payload(
     }
     Ok(Some(path))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_companion_leaves_local_binary_compatibility_to_bootstrap() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("cmux-tui-ssh");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(
+            directory.join("manifest.json"),
+            br#"{"commit":"fixture-build","binaries":{}}"#,
+        )
+        .unwrap();
+        let executable = root.path().join("cmux-tui");
+        assert!(payload(&executable, "fixture-build", "linux", "riscv64").unwrap().is_none());
+        // Known targets still require their attested companion: absence cannot
+        // silently turn a packaging failure into an unverified upload.
+        assert!(matches!(
+            payload(&executable, "fixture-build", "linux", "x86_64"),
+            Err(BootstrapError::Configuration(_))
+        ));
+        assert!(matches!(
+            payload(&executable, "another-build", "linux", "riscv64"),
+            Err(BootstrapError::Configuration(_))
+        ));
+    }
+}
