@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "偵測到的 harness 設定",
+    "selectionNotice": "選擇提供者不會啟動或啟用這些 harness。",
+    "selectProvider": "選擇 {provider}",
+    "foundPath": "找到 {path}",
+    "foundCommand": "找到命令 {command}",
+    "installed": "提供者已安裝",
+    "missing": "提供者未安裝",
+    "install": "使用以下命令安裝：{command}",
+    "benefitPi": "壓縮、記憶體和提供者路由",
+    "benefitOpenagent": "OpenCode 的平行專家與復原能力",
+    "benefitClaude": "Claude Code 的團隊協作與驗證",
+    "benefitSuperpowers": "規劃、TDD、子代理與審查"
+  },
   "vmErrors": {
     "guestInstall": {
       "title": "Cloud VM 設定未完成",

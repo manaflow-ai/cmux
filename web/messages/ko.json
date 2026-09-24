@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "감지된 하네스 구성",
+    "selectionNotice": "제공자를 선택해도 이러한 하네스가 시작되거나 활성화되지는 않습니다.",
+    "selectProvider": "{provider} 선택",
+    "foundPath": "{path} 발견",
+    "foundCommand": "명령 {command} 발견",
+    "installed": "제공자가 설치되어 있습니다",
+    "missing": "제공자가 설치되어 있지 않습니다",
+    "install": "다음으로 설치: {command}",
+    "benefitPi": "압축, 메모리 및 제공자 라우팅",
+    "benefitOpenagent": "OpenCode의 병렬 전문가와 복구",
+    "benefitClaude": "Claude Code의 팀과 검증",
+    "benefitSuperpowers": "계획, TDD, 하위 에이전트 및 검토"
+  },
   "vmErrors": {
     "guestInstall": {
       "title": "Cloud VM 설정이 완료되지 않았습니다",
