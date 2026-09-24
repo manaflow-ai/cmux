@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # git-seed.sh save WORKSPACE
 # git-seed.sh restore WORKSPACE
+# git-seed.sh update-submodules WORKSPACE PATH...
 #
 # Start a macOS checkout from main's git objects instead of an empty directory.
 #
@@ -25,7 +26,9 @@
 # repository is assembled aside and renamed into place last, so any failure
 # leaves the workspace empty and checkout clones from scratch, as it always
 # has. Correctness never depends on the seed: checkout fetches and
-# checks out the exact commit it was asked for.
+# checks out the exact commit it was asked for. A pull request that moves a
+# submodule to another URL would fetch its new pin from the seed's URL and
+# fail; each job discards the seeded repository and retries cold then.
 #
 # Seeds are written only by main-branch jobs holding the R2 credentials, the
 # same trust as the Swift package and DerivedData seeds these jobs restore.
@@ -37,7 +40,7 @@ PREFIX="git-seed-v1-"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-  echo "usage: git-seed.sh save|restore WORKSPACE" >&2
+  echo "usage: git-seed.sh save|restore WORKSPACE | update-submodules WORKSPACE PATH..." >&2
   exit 2
 }
 
@@ -90,9 +93,25 @@ fetch_seed() { # <stage>; downloads and unpacks the newest seed
     "$base/latest/$PREFIX" | head -c 512 | tr -d '[:space:]')"
   [[ "$key" =~ ^${PREFIX}[0-9a-f]{40}$ ]] || { echo "git-seed: no seed pointer"; return 1; }
   mkdir -p "$stage"
-  curl --fail --silent --show-error --location --connect-timeout 10 --max-time 120 \
-    "$base/objects/$key.tar.zst" | zstd -dc | tar -xf - -C "$stage"
-  echo "git-seed: unpacked $key"
+  # r2-cache.sh saves .tar.gz where the saver has no zstd.
+  local extension archive="$stage.archive"
+  for extension in tar.zst tar.gz; do
+    if curl --fail --silent --show-error --location --connect-timeout 10 --max-time 120 \
+      -o "$archive" "$base/objects/$key.$extension" 2>/dev/null; then
+      if [ "$extension" = tar.zst ]; then
+        # Drain to EOF: bsdtar stops at the end-of-archive marker, and zstd
+        # would then die of SIGPIPE and fail a valid restore (r2-cache.sh).
+        zstd -dc "$archive" | { tar -xf - -C "$stage"; status=$?; cat > /dev/null; exit "$status"; }
+      else
+        tar -xzf "$archive" -C "$stage"
+      fi
+      rm -f "$archive"
+      echo "git-seed: unpacked $key.$extension"
+      return 0
+    fi
+  done
+  echo "git-seed: $key has no archive"
+  return 1
 }
 
 install_seed() { # <stage>
@@ -113,7 +132,9 @@ install_seed() { # <stage>
   url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is not set}"
   git remote add origin "$url"
   git cat-file -e "$head^{tree}"
-  git update-ref refs/remotes/origin/main "$head"
+  # A ref outside refs/remotes, so nothing mistakes it for today's main; the
+  # fetch still offers it to the server as a commit this repository has.
+  git update-ref refs/git-seed/main "$head"
   git update-ref --no-deref HEAD "$head"
 
   # Module URLs come from the seed commit's own .gitmodules, never the archive.
@@ -160,9 +181,28 @@ restore() {
   rm -rf "$scratch"
 }
 
+# `git submodule update --init --depth 1 PATH...` for jobs that initialize
+# submodules after checkout. A seeded module fetches a new pin from the URL the
+# seed recorded, so when that fails, drop the seeded git directories and clone
+# those modules cold.
+update_submodules() {
+  cd "$workspace"
+  git submodule update --init --depth 1 -- "$@" && return 0
+  echo "git-seed: submodule update failed; retrying without seeded modules" >&2
+  local name path wanted
+  while IFS=$'\t' read -r name path; do
+    for wanted in "$@"; do
+      [ "$wanted" = "$path" ] || continue
+      rm -rf ".git/modules/$name" "$path"
+    done
+  done < <(submodules < .gitmodules)
+  git submodule update --init --depth 1 -- "$@"
+}
+
 case "$mode" in
   save) save ;;
   restore) restore ;;
+  update-submodules) shift 2; update_submodules "$@" ;;
   # Internal steps of `save` and `restore`.
   stage) stage_seed "${3:?}" ;;
   fetch) fetch_seed "${3:?}" ;;

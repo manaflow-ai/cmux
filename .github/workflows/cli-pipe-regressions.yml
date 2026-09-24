@@ -54,7 +54,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Initialize local Swift package dependency
-        run: git submodule update --init --depth 1 vendor/bonsplit
+        run: scripts/ci/git-seed.sh update-submodules "$GITHUB_WORKSPACE" vendor/bonsplit
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -62,7 +62,7 @@ jobs:
       - name: Initialize Ghostty and download its binary framework
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 ghostty
+          scripts/ci/git-seed.sh update-submodules "$GITHUB_WORKSPACE" ghostty
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Install Rust toolchain

@@ -123,6 +123,36 @@ class GitSeedTests(unittest.TestCase):
         self.checkout(workspace, tested)
         self.assertEqual((workspace / "vendor/module/m.txt").read_text(), "module v1")
 
+    def test_a_submodule_moved_to_another_url_falls_back_to_a_cold_clone(self):
+        stage = self.seed_from_main()
+        # The pull request points the module at a fork holding a new pin.
+        fork = self.server / "acme" / "fork"
+        git("clone", "-q", f"file://{self.module}", str(fork), env=self.env)
+        git("config", "uploadpack.allowAnySHA1InWant", "true", cwd=fork)
+        forked = commit(fork, "m.txt", "fork only")
+        git("config", "-f", ".gitmodules", "submodule.vendor/module.url", f"file://{fork}", cwd=self.super)
+        git("-C", "vendor/module", "fetch", "-q", f"file://{fork}", "main", cwd=self.super, env=self.env)
+        git("-C", "vendor/module", "checkout", "-q", forked, cwd=self.super)
+        tested = commit(self.super, ".gitmodules", (self.super / ".gitmodules").read_text())
+
+        workspace = self.base / "ws"
+        workspace.mkdir()
+        self.run_seed("install", workspace, stage)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.checkout(workspace, tested)
+        # Jobs that update submodules themselves retry without the seed.
+        result = self.run_seed("update-submodules", workspace, Path("vendor/module"))
+        self.assertIn("retrying without seeded modules", result.stderr)
+        self.assertEqual(git("rev-parse", "HEAD", cwd=workspace / "vendor/module"), forked)
+
+    def test_the_seed_commit_is_not_published_as_main(self):
+        stage = self.seed_from_main()
+        workspace = self.base / "ws"
+        workspace.mkdir()
+        self.run_seed("install", workspace, stage)
+        refs = git("for-each-ref", "--format=%(refname)", cwd=workspace).splitlines()
+        self.assertEqual(refs, ["refs/git-seed/main"])
+
     def test_restore_leaves_an_existing_repository_alone(self):
         workspace = self.base / "ws"
         workspace.mkdir()
@@ -178,11 +208,24 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_macos_jobs_restore_the_seed_before_checkout(self):
         text = (WORKFLOWS / "ci-macos.yml").read_text()
-        for job in ("macos-compile-admission", "app-host-unit-tests", "swift-package-tests", "tests-build-and-lag"):
+        for job in ("macos-compile-admission", "app-host-unit-tests", "cli-product-tests", "swift-package-tests", "tests-build-and-lag"):
             with self.subTest(job=job):
                 self.assertIn("Restore git object seed", self.steps_before_checkout(text, job))
         text = (WORKFLOWS / "cli-pipe-regressions.yml").read_text()
         self.assertIn("Restore git object seed", self.steps_before_checkout(text, "cli-pipe-regressions"))
+
+    def test_a_failed_seeded_checkout_retries_without_the_seed(self):
+        text = (WORKFLOWS / "ci-macos.yml").read_text()
+        for job in ("macos-compile-admission", "app-host-unit-tests", "swift-package-tests"):
+            with self.subTest(job=job):
+                body = re.search(rf"^  {job}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n)", text, re.S | re.M).group(1)
+                discard = body.index("Discard the git object seed after a failed checkout")
+                retry = body.index("- name: Retry checkout", discard)
+                self.assertIn('rm -rf "$GITHUB_WORKSPACE/.git"', body[discard:retry])
+                self.assertIn("steps.checkout.outcome == 'failure'", body[retry:retry + 200])
+        text = (WORKFLOWS / "cli-pipe-regressions.yml").read_text()
+        self.assertNotIn("git submodule update --init", text)
+        self.assertEqual(text.count("git-seed.sh update-submodules"), 2)
 
     def test_only_main_saves_the_seed(self):
         text = (WORKFLOWS / "seed-derived-data.yml").read_text()
