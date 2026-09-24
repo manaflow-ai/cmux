@@ -74,13 +74,26 @@ def _shell_local(body: str, name: str) -> str:
 
 
 @cache
-def _patterns() -> tuple[str, str, str]:
-    body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
-    return (
-        _shell_local(body, "fleet"),
-        _shell_local(body, "allowed"),
-        _shell_local(body, "selfhosted"),
-    )
+def _patterns() -> tuple[re.Pattern[str], re.Pattern[str], re.Pattern[str]]:
+    """The guard's fleet, allowed and self-hosted patterns, compiled.
+
+    A guard file that cannot be read or a pattern Python cannot compile raises
+    PolicyUnreadable like any other unreadable policy, so the report says so
+    instead of failing outright.
+    """
+    try:
+        body = _guard_function(GUARD_SCRIPT.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as error:
+        raise PolicyUnreadable(f"{GUARD_SCRIPT.name} could not be read: {error}") from error
+    compiled = []
+    for name in ("fleet", "allowed", "selfhosted"):
+        try:
+            compiled.append(re.compile(f"({_shell_local(body, name)})"))
+        except re.error as error:
+            raise PolicyUnreadable(
+                f"{GUARD_SCRIPT.name} declares a `{name}` pattern Python cannot compile: {error}"
+            ) from error
+    return compiled[0], compiled[1], compiled[2]
 
 
 def forbidden_reason(label: str) -> str | None:
@@ -94,13 +107,13 @@ def forbidden_reason(label: str) -> str | None:
     if not label:
         return None
     fleet, allowed, selfhosted = _patterns()
-    remainder = re.sub(f"({allowed})", "", label)
-    if re.search(f"({fleet})", remainder):
+    remainder = allowed.sub("", label)
+    if fleet.search(remainder):
         return (
             "names the self-hosted fleet or a macOS image outside the approved "
             "cloud labels"
         )
-    if re.search(f"({selfhosted})", remainder):
+    if selfhosted.search(remainder):
         return "targets a self-hosted runner directly"
     return None
 
