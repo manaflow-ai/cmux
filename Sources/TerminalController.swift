@@ -9781,11 +9781,14 @@ class TerminalController {
     private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
         // Shared with the CLI client, which sizes its socket response timeout
         // from the same window and clamp.
-        let requestedTimeoutMs = Self.v2WorkerInt(params, "timeout_ms") ??
-            Self.v2WorkerInt(params, "timeout")
-        let timeoutMs = BrowserDownloadWaitTimeout.standard.handlerTimeoutMilliseconds(
-            requestedMilliseconds: requestedTimeoutMs
+        let downloadWait = BrowserDownloadWaitTimeout.standard
+        let requestedTimeoutMs = max(
+            1,
+            Self.v2WorkerInt(params, "timeout_ms") ??
+                Self.v2WorkerInt(params, "timeout") ??
+                downloadWait.defaultTimeoutMilliseconds
         )
+        let timeoutMs = downloadWait.handlerTimeoutMilliseconds(requestedMilliseconds: requestedTimeoutMs)
         let timeout = Double(timeoutMs) / 1000.0
         let path = Self.v2WorkerString(params, "path")
 
