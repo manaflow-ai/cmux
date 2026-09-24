@@ -551632,6 +551632,65 @@
           }
         }
       }
+    },
+    "socket.terminal.unsupportedSurfaceParam": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported parameter `surface`; use `surface_id`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المعامل `surface` غير مدعوم؛ استخدم `surface_id`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht unterstützter Parameter `surface`; verwenden Sie `surface_id`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parámetro `surface` no compatible; use `surface_id`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paramètre `surface` non pris en charge ; utilisez `surface_id`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パラメータ `surface` はサポートされていません。`surface_id` を使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원하지 않는 매개변수 `surface`입니다. `surface_id`를 사용하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支持参数 `surface`；请使用 `surface_id`。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支援參數 `surface`；請使用 `surface_id`。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
