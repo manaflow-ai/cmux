@@ -136,6 +136,17 @@
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM setup did not finish.",
+      "reason": "The Cloud VM guest setup did not complete.",
+      "message": "cmux could not finish setting up the Cloud VM.",
+      "action": "Retry the operation. If it keeps failing, contact support."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM cleanup pending",
+      "message": "Cloud VM setup failed and cleanup is still pending.",
+      "action": "Contact support with the trace ID before creating another machine."
+    },
     "artifactUnavailable": {
       "title": "Cloud VM setup unavailable",
       "message": "Cloud VM setup is temporarily unavailable.",
