@@ -3619,7 +3619,11 @@ def test_a_cmux_tests_diff_selects_the_unit_tests_without_a_label() -> None:
 
 def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
-    from choose_ci_suite import changed_unit_selectors, strict_steps, suites_affected_by
+    from choose_ci_suite import changed_unit_selectors, strict_steps
+    from test_impact import affected_suites
+
+    def hunk(path: str, line: int, count: int = 1) -> str:
+        return f"--- a/{path}\n+++ b/{path}\n@@ -{line},{count} +{line},{count} @@\n"
 
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -3627,72 +3631,80 @@ def test_a_diff_that_edits_a_few_suites_runs_only_those_suites() -> None:
         tests.mkdir()
         (root / ".github/workflows").mkdir(parents=True)
         (root / ".github/workflows/ci-macos.yml").write_text(MACOS_WORKFLOW.read_text(encoding="utf-8"))
-        (tests / "AlphaTests.swift").write_text(
-            "import XCTest\nfinal class AlphaTests: XCTestCase {\n    func testA() {}\n}\n"
-        )
-        (tests / "BetaTests.swift").write_text(
-            "import Testing\n@Suite struct BetaTests {\n    @Test func testB() {}\n}\n"
-            "extension AlphaTests {\n    func testC() {}\n}\n"
-        )
-        (tests / "Helper.swift").write_text("func sharedHelper() {}\n")
-        (tests / "UsesHelperTests.swift").write_text(
-            "import XCTest\nfinal class UsesHelperTests: XCTestCase {\n"
-            "    func testU() { sharedHelper() }\n}\n"
-        )
-        (tests / "GammaTests.swift").write_text(
-            "import XCTest\nenum GammaSupport { static let value = 1 }\n"
-            "final class GammaTests: XCTestCase {\n    func testG() {}\n}\n"
-        )
-        (tests / "EpsilonTests.swift").write_text(
-            "import XCTest\nfinal class EpsilonTests: XCTestCase {\n"
-            "    func testE() { _ = GammaSupport.value }\n}\n"
-        )
-        (tests / "DeltaTests.swift").write_text(
-            "import XCTest\nprivate func deltaOnly() {}\n"
-            "final class DeltaTests: XCTestCase {\n    func testD() {}\n}\n"
-        )
-        (tests / "StringExtras.swift").write_text("extension String {\n    var shouted: String { uppercased() }\n}\n")
-        (tests / "ShoutTests.swift").write_text(
-            "import XCTest\nfinal class ShoutTests: XCTestCase {\n"
-            "    func testS() { _ = \"a\".shouted }\n}\n"
-        )
-        (tests / "Conformances.swift").write_text("extension Int: @retroactive Identifiable {\n    public var id: Int { self }\n}\n")
-        (tests / "NewHelper.swift").write_text("func newHelper() {}\n")
-        (tests / "FeedCoordinatorTests.swift").write_text(
-            "import Testing\n@Suite struct FeedCoordinatorTests {\n    @Test func testF() {}\n}\n"
-        )
-        (tests / "Fixture.json").write_text("{}\n")
+        files = {
+            # 1 import, 2 class, 3 helper, 4 body, 5 test, 6 body, 7-8 @Test lines, 9 test
+            "AlphaTests.swift": (
+                "import XCTest\n"
+                "final class AlphaTests: XCTestCase {\n"
+                "    static func makeModel() -> Int {\n"
+                "        1\n"
+                "    }\n"
+                "    func testA() { _ = sharedHelper() }\n"
+                "    @Test(\n"
+                "        arguments: [1])\n"
+                "    func modernName(value: Int) {}\n"
+                "}\n"
+            ),
+            "BetaTests.swift": (
+                "import XCTest\n"
+                "final class BetaTests: XCTestCase {\n"
+                "    func testB() { _ = AlphaTests.makeModel() }\n"
+                "}\n"
+            ),
+            "GammaTests.swift": (
+                "import XCTest\n"
+                "final class GammaTests: XCTestCase {\n"
+                "    func testG() { _ = makeModel() }\n"
+                "    func makeModel() -> Int { 2 }\n"
+                "}\n"
+            ),
+            "Helper.swift": "func sharedHelper() -> Int {\n    wrapped()\n}\nfunc wrapped() -> Int { 0 }\n",
+            "UsesHelperTests.swift": (
+                "import XCTest\n"
+                "final class UsesHelperTests: XCTestCase {\n"
+                "    func testU() { _ = sharedHelper() }\n"
+                "}\n"
+            ),
+            "StringExtras.swift": "extension String {\n    var shouted: String { uppercased() }\n}\n",
+            "ShoutTests.swift": (
+                "import XCTest\n"
+                "final class ShoutTests: XCTestCase {\n"
+                "    func testS() { _ = \"a\".shouted }\n"
+                "}\n"
+            ),
+            "Conformances.swift": "extension Int: @retroactive Identifiable {\n    public var id: Int { self }\n}\n",
+            "FeedCoordinatorTests.swift": (
+                "import Testing\n@Suite struct FeedCoordinatorTests {\n    @Test func testF() {}\n}\n"
+            ),
+            "Fixture.json": "{}\n",
+        }
+        for name, text in files.items():
+            (tests / name).write_text(text)
 
-        alpha = ["cmuxTests/AlphaTests.swift", "Sources/Workspace.swift"]
-        assert suites_affected_by(root, alpha) == ["cmuxTests/AlphaTests"]
-        # A file that extends another suite runs that suite too.
-        assert suites_affected_by(root, ["cmuxTests/BetaTests.swift"]) == [
-            "cmuxTests/AlphaTests",
-            "cmuxTests/BetaTests",
-        ]
-        # A changed helper runs the suites that use it, wherever it lives.
-        assert suites_affected_by(root, ["cmuxTests/Helper.swift"]) == ["cmuxTests/UsesHelperTests"]
-        assert suites_affected_by(root, ["cmuxTests/GammaTests.swift"]) == [
-            "cmuxTests/EpsilonTests",
-            "cmuxTests/GammaTests",
-        ]
-        # A file-local helper cannot reach another suite.
-        assert suites_affected_by(root, ["cmuxTests/DeltaTests.swift"]) == ["cmuxTests/DeltaTests"]
+        def affected(path: str, line: int | None = None) -> list[str] | None:
+            full = f"cmuxTests/{path}"
+            return affected_suites(root, [full], None if line is None else hunk(full, line))
+
+        # A test method's edit runs its suite and nothing else, including a
+        # Swift Testing method whose @Test sits above a multi-line argument.
+        assert affected("AlphaTests.swift", 6) == ["cmuxTests/AlphaTests"]
+        assert affected("AlphaTests.swift", 9) == ["cmuxTests/AlphaTests"]
+        # A suite's helper reaches the suites that name the suite, not every
+        # file with a method of the same name.
+        assert affected("AlphaTests.swift", 4) == ["cmuxTests/AlphaTests", "cmuxTests/BetaTests"]
+        # A top-level helper is traced through the helpers that call it.
+        assert affected("Helper.swift", 4) == ["cmuxTests/AlphaTests", "cmuxTests/UsesHelperTests"]
         # Members added to another type are traced by their names.
-        assert suites_affected_by(root, ["cmuxTests/StringExtras.swift"]) == ["cmuxTests/ShoutTests"]
+        assert affected("StringExtras.swift", 2) == ["cmuxTests/ShoutTests"]
         # A conformance has no name to search for.
-        assert suites_affected_by(root, ["cmuxTests/Conformances.swift"]) == []
-        # A helper this diff adds is used only by files this diff changes.
-        assert suites_affected_by(
-            root, alpha + ["cmuxTests/NewHelper.swift"], added=["cmuxTests/NewHelper.swift"]
-        ) == ["cmuxTests/AlphaTests"]
-        # Non-Swift inputs and an unreadable diff run everything.
-        assert suites_affected_by(root, alpha + ["cmuxTests/Fixture.json"]) == []
-        assert suites_affected_by(root, None) == []
-        # A deleted suite leaves nothing of itself to run.
-        assert suites_affected_by(root, alpha + ["cmuxTests/GoneTests.swift"]) == ["cmuxTests/AlphaTests"]
+        assert affected("Conformances.swift", 2) is None
+        # Without line information every line of the file counts.
+        assert affected("AlphaTests.swift") == ["cmuxTests/AlphaTests", "cmuxTests/BetaTests"]
+        # Non-Swift inputs run everything; a deleted file leaves nothing.
+        assert affected_suites(root, ["cmuxTests/Fixture.json"], None) is None
+        assert affected_suites(root, ["cmuxTests/GoneTests.swift"], None) == []
+        assert changed_unit_selectors(root, None) == []
         assert changed_unit_selectors(root, ["cmuxTests/GoneTests.swift"]) == []
-        assert changed_unit_selectors(root, alpha) == ["cmuxTests/AlphaTests"]
         # A suite a strict step owns runs through that step, on the same worker.
         feed = ["cmuxTests/FeedCoordinatorTests.swift"]
         assert changed_unit_selectors(root, feed) == ["cmuxTests/FeedCoordinatorTests"]
@@ -3721,9 +3733,6 @@ def test_changed_suites_run_on_one_worker_and_labels_still_run_everything() -> N
         if step.get("name") in owners:
             assert f"contains(inputs.unit_strict_steps, '|{step['name']}|')" in step["if"], step["name"]
     assert yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["macos"]["with"]["unit_strict_steps"] == "${{ needs.changes.outputs.unit_strict_steps }}"
-    # A moved helper is not new, so the added list must detect renames.
-    assert '--diff-filter=A "$BASE_SHA"' in CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "git diff -M --name-only --diff-filter=A" in CI_WORKFLOW.read_text(encoding="utf-8")
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
     assert ci["jobs"]["macos"]["with"]["unit_selectors"] == "${{ needs.changes.outputs.unit_selectors }}"
 

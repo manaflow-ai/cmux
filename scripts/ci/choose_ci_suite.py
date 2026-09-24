@@ -30,6 +30,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_impact import affected_suites  # noqa: E402
 from cmux_unit_test_shard import (  # noqa: E402
     DEFAULT_TIMINGS_PATH,
     FOCUSED_GATE_SELECTORS,
@@ -59,24 +60,6 @@ UNJUDGED_BY_COMPILE_PREFIXES = UNIT_JUDGED_PREFIXES + UNJUDGED_BY_ANY_PR_JOB_PRE
 # it as a single batch, so it has to fit comfortably inside the batch timeout
 # a normal shard's batch fits in; a larger diff takes all seven shards.
 CHANGED_SUITES_BUDGET_MS = 10 * 60 * 1000
-
-# A column-zero declaration. Suites and extensions of suites are what a
-# changed-suites run executes; any other one another file can see is a helper.
-TOP_LEVEL_DECLARATION_RE = re.compile(
-    r"^(?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*"
-    r"((?:[a-z]+\s+)*)"
-    r"(func|enum|struct|class|actor|protocol|extension|let|var|typealias)\s+"
-    r"([A-Za-z_][A-Za-z0-9_]*)"
-)
-FILE_LOCAL_MODIFIERS = {"private", "fileprivate"}
-# A member one level inside a top-level extension. Name-less kinds leave the
-# name group empty.
-EXTENSION_MEMBER_RE = re.compile(
-    r"^    (?:@[A-Za-z_][A-Za-z0-9_]*(?:\([^)]*\))?\s+)*"
-    r"((?:[a-z]+\s+)*)"
-    r"(?:(?:func|var|let|enum|struct|class|actor|typealias)\s+([A-Za-z_][A-Za-z0-9_]*)"
-    r"|(?:init|subscript|func\s+[^A-Za-z_\s(]))"
-)
 
 
 def diff_needs_the_suite(paths: Iterable[str] | None) -> bool:
@@ -132,108 +115,6 @@ def wants_unit_suite(
     return any(path.strip().startswith(UNIT_JUDGED_PREFIXES) for path in paths)
 
 
-def _declarations(lines: list[str]) -> tuple[set[str], set[str], bool]:
-    """(suites, helpers other files can see, whether a helper is untraceable).
-
-    A helper is traced by searching for its name. An extension of a type that
-    is not a suite is traced through the names of the members it adds. What
-    has no name to search for is untraceable: a conformance, an init, a
-    subscript, or an operator.
-    """
-    suites: set[str] = set()
-    helpers: set[str] = set()
-    untraceable = False
-    in_extension = False
-    for line in lines:
-        match = TOP_LEVEL_DECLARATION_RE.match(line)
-        if match is not None:
-            modifiers, kind, name = match.groups()
-            in_extension = False
-            if name.endswith("Tests") and kind in {"class", "struct", "actor", "extension"}:
-                suites.add(name)
-            elif FILE_LOCAL_MODIFIERS & set(modifiers.split()):
-                continue
-            elif kind == "extension":
-                if re.match(rf"[^{{]*\b{re.escape(name)}\s*:", line[match.start(3):]):
-                    untraceable = True
-                in_extension = True
-            else:
-                helpers.add(name)
-            continue
-        if not in_extension:
-            continue
-        member = EXTENSION_MEMBER_RE.match(line)
-        if member is None:
-            continue
-        modifiers, name = member.groups()
-        if FILE_LOCAL_MODIFIERS & set(modifiers.split()):
-            continue
-        if name is None:
-            untraceable = True
-        else:
-            helpers.add(name)
-    return suites, helpers, untraceable
-
-
-def suites_affected_by(
-    root: Path, paths: Iterable[str] | None, added: Iterable[str] = ()
-) -> list[str]:
-    """The cmuxTests/ suites a diff can change the behavior of.
-
-    That is every suite a changed file declares or extends, plus every suite in
-    a file that names a helper a changed file declares, followed transitively.
-    Returns an empty list, meaning "run every suite", whenever that answer could
-    be incomplete: an unreadable diff, a changed file under cmuxTests/ that is
-    not Swift, or a helper whose users no name search finds. A file `added` by
-    this diff needs no search: nothing called it before, so only files this
-    diff also changed can use it.
-    """
-    if paths is None:
-        return []
-    new_files = {path.strip() for path in added}
-    test_files: dict[str, list[str]] = {}
-    for source in sorted((root / "cmuxTests").glob("**/*.swift")):
-        try:
-            test_files[source.relative_to(root).as_posix()] = source.read_text(
-                encoding="utf-8"
-            ).splitlines()
-        except (OSError, UnicodeError):
-            return []
-    pending: list[str] = []
-    for path in (path.strip() for path in paths):
-        if not path.startswith(UNIT_JUDGED_PREFIXES):
-            continue
-        if not (root / path).exists():
-            # Deleted: nothing of it is left to run, and whatever used it
-            # changed in this diff too or no longer compiles.
-            continue
-        if path not in test_files:
-            return []
-        pending.append(path)
-
-    suites: set[str] = set()
-    visited: set[str] = set()
-    while pending:
-        path = pending.pop()
-        if path in visited:
-            continue
-        visited.add(path)
-        declared, helpers, untraceable = _declarations(test_files[path])
-        suites |= declared
-        if path in new_files:
-            continue
-        if untraceable:
-            return []
-        for helper in helpers:
-            used = re.compile(rf"\b{re.escape(helper)}\b")
-            pending.extend(
-                other
-                for other, lines in test_files.items()
-                if other not in visited and any(used.search(line) for line in lines)
-            )
-    return sorted(f"cmuxTests/{name}" for name in suites)
-
-
 def strict_steps(workflow: str, suites: Iterable[str]) -> list[str] | None:
     """Names of the app-host steps that run `suites` a strict step owns.
 
@@ -262,16 +143,18 @@ def strict_steps(workflow: str, suites: Iterable[str]) -> list[str] | None:
 
 
 def changed_unit_selectors(
-    root: Path, paths: Iterable[str] | None, added: Iterable[str] = ()
+    root: Path, paths: Iterable[str] | None, diff: str | None = None
 ) -> list[str]:
     """Suite selectors for a unit run the diff selected, or [] for all of them.
 
     A pull request that edits a few tests needs those tests run, not the
     other few thousand across seven shards. An empty answer keeps the full
-    unit suite: see suites_affected_by(), strict_steps(), and a shared batch
-    whose measured time would not fit one worker's.
+    unit suite: see test_impact.affected_suites(), strict_steps(), and a
+    shared batch whose measured time would not fit one worker's.
     """
-    suites = suites_affected_by(root, paths, added)
+    if paths is None:
+        return []
+    suites = affected_suites(root, [path.strip() for path in paths], diff)
     if not suites:
         return []
     workflow = (root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
@@ -361,8 +244,8 @@ def main(argv: list[str]) -> int:
         help="changed paths, one per line; omit when the diff could not be read",
     )
     parser.add_argument(
-        "--added-from",
-        help="paths the diff adds, one per line; omit when unknown, which treats none as new",
+        "--diff-from",
+        help="`git diff -U0` of cmuxTests/; omit to count every line of a changed file",
     )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
@@ -382,13 +265,12 @@ def main(argv: list[str]) -> int:
         except (OSError, UnicodeError):
             paths = None
 
-    added: list[str] = []
-    if args.added_from:
+    diff = None
+    if args.diff_from:
         try:
-            with open(args.added_from, encoding="utf-8") as handle:
-                added = handle.read().splitlines()
+            diff = Path(args.diff_from).read_text(encoding="utf-8")
         except (OSError, UnicodeError):
-            added = []
+            diff = None
 
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
     unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
@@ -396,7 +278,7 @@ def main(argv: list[str]) -> int:
     # Only a unit run the diff asked for narrows. `full-ci` and `unit-ci` are
     # explicit requests for every suite.
     asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
-    selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, added)
+    selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
     steps: list[str] = []
     if selectors:
         workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")

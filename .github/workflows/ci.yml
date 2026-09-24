@@ -152,11 +152,11 @@ jobs:
               emit_all_areas
               exit 0
             fi
-            # Files new in this diff. Only other changed files can use a new
-            # test helper, so choose_ci_suite.py need not widen for one. Rename
-            # detection stays on here: a moved helper is not new.
-            git diff -M --name-only --diff-filter=A "$BASE_SHA" "$MERGE_SHA" \
-              > /tmp/cmux-ci-added-files.txt || rm -f /tmp/cmux-ci-added-files.txt
+            # The changed lines of cmuxTests/, so choose_ci_suite.py can tell
+            # which declarations a test edit touched. Absent reads as "every
+            # line of each changed file".
+            git diff --no-renames -U0 "$BASE_SHA" "$MERGE_SHA" -- cmuxTests \
+              > /tmp/cmux-ci-tests.diff || rm -f /tmp/cmux-ci-tests.diff
 
             if [ ! -s /tmp/cmux-ci-changed-files.txt ]; then
               echo "PR diff is empty; skipping product-area CI."
@@ -472,8 +472,8 @@ jobs:
           if [ -f /tmp/cmux-ci-changed-files.txt ]; then
             files_args=(--files-from /tmp/cmux-ci-changed-files.txt)
           fi
-          if [ -f /tmp/cmux-ci-added-files.txt ]; then
-            files_args+=(--added-from /tmp/cmux-ci-added-files.txt)
+          if [ -f /tmp/cmux-ci-tests.diff ]; then
+            files_args+=(--diff-from /tmp/cmux-ci-tests.diff)
           fi
           python3 scripts/ci/choose_ci_suite.py \
             --event-name "$EVENT_NAME" \
