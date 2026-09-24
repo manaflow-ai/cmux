@@ -3,8 +3,8 @@
 
     seed_derived_data.py record SOURCE DERIVED_DATA
     seed_derived_data.py prune DERIVED_DATA
-    seed_derived_data.py start DERIVED_DATA EXACT_KEY PREFIX
-    seed_derived_data.py adopt SOURCE DERIVED_DATA EXACT_KEY PREFIX
+    seed_derived_data.py start DERIVED_DATA PREFIX REVISION
+    seed_derived_data.py adopt SOURCE DERIVED_DATA PREFIX REVISION
 
 nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
@@ -17,13 +17,22 @@ DerivedData alone rebuilds everything. `adopt` restores the newest seed into a
 staging directory, swaps it in only when it is complete, and then restores the
 recorded time onto every byte-identical input. Changed and new inputs get the
 current time, so Xcode rebuilds exactly what differs. A seed from an older main
-costs compile time, never correctness. Every miss or failure leaves the
-DerivedData the caller had, which is today's cold build.
+costs compile time, never correctness.
 
-`start` begins that download in a detached process, so it overlaps the package
-resolve that must finish before `adopt` can replay input times. `adopt` with
-the same keys waits for it instead of downloading again; without a matching
-`start` it downloads itself.
+That time is mostly distance, not the diff under test: a CmuxFoundation change
+between the seed and the checkout recompiles every file of the `cmux` module.
+So `adopt` takes the seed of REVISION, the commit being built on, or else of
+its nearest ancestor that has one. It used to take the pull request event's
+base.sha, which is not always the merge commit's parent, and then the newest
+pointer, which records the last save rather than the latest commit: nightly's
+cold seed of an older main held it while newer seeds sat unused. Every miss
+or failure leaves the DerivedData the caller had, which is today's cold build.
+
+`start` picks that seed and begins its download in a detached process, so it
+overlaps the package resolve that must finish before `adopt` can replay input
+times. `adopt` with the same PREFIX and REVISION reuses the pick and waits for
+the download instead of downloading again; without a matching `start` it picks
+and downloads itself.
 
 Only jobs holding the bucket credentials can write R2 objects or pointers, and
 only the main-branch seeder is given them, so a pull request can read the seed
@@ -34,11 +43,15 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import platform
 import shutil
 import signal
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
+import urllib.error
+import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import e2e_warm_derived_data as warm  # noqa: E402
@@ -51,6 +64,10 @@ UNREAD = ("Logs", "Index.noindex")
 # costs more than the compile it saves.
 MAX_RAW_BYTES = 12 * 1024**3
 R2_CACHE = Path(__file__).resolve().parent / "r2-cache.sh"
+# main seeds about one commit in ten, so fifty ancestors reach back several
+# seeds; past that the newest pointer is as good as anything.
+ANCESTOR_LIMIT = 50
+USER_AGENT = "cmux-ci-seed-derived-data"
 # Shorter than the adopt step's 8-minute timeout, so adopt stops the detached
 # download itself rather than leaving it pulling a seed through the compile.
 FETCH_WAIT_SECONDS = 420
@@ -93,6 +110,60 @@ def prune(derived: Path) -> dict[str, object]:
     return {"save": "true", "bytes": str(size)}
 
 
+def lineage(revision: str) -> list[str]:
+    """REVISION, then its ancestors newest first. Only REVISION if unknown."""
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    if not repository:
+        return [revision]
+    try:
+        listed = subprocess.run(
+            ["gh", "api", f"repos/{repository}/commits?sha={revision}&per_page={ANCESTOR_LIMIT}", "--jq", ".[].sha"],
+            check=True, capture_output=True, text=True, timeout=60,
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"seed: ancestors of {revision} unknown ({type(error).__name__}); trying it alone")
+        return [revision]
+    return [revision] + [sha for sha in listed if sha != revision]
+
+
+def seed_exists(key: str) -> bool:
+    """Whether the public bucket holds KEY, in the layout r2-cache.sh saves."""
+    base = os.environ.get("CI_CACHE_R2_PUBLIC_URL", "").rstrip("/")
+    if not base:
+        return False
+    namespace = f"v1/{os.environ.get('RUNNER_OS') or platform.system()}-{os.environ.get('RUNNER_ARCH') or platform.machine()}"
+    for extension in ("tar.zst", "tar.gz"):
+        # The CDN answers urllib's default User-Agent with 403, which would
+        # read as "no seed" for every key.
+        request = urllib.request.Request(
+            f"{base}/{namespace}/objects/{key}.{extension}", method="HEAD", headers={"User-Agent": USER_AGENT},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                if response.status == 200:
+                    return True
+        except Exception:  # noqa: BLE001 - any failure is a miss for this key
+            continue
+    return False
+
+
+def nearest(prefix: str, revisions: list[str], exists=None) -> tuple[str, int] | None:
+    """The key of the first revision with a seed, and how far down the list it was."""
+    keys = [prefix + revision for revision in revisions]
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        found = list(pool.map(exists or seed_exists, keys))
+    for distance, (key, hit) in enumerate(zip(keys, found)):
+        if hit:
+            return key, distance
+    return None
+
+
+def locate(prefix: str, revision: str) -> tuple[str, int | None]:
+    """The exact key to restore for REVISION, and its distance if a seed has it."""
+    found = nearest(prefix, lineage(revision))
+    return found if found else (prefix + revision, None)
+
+
 def beside(derived: Path, suffix: str) -> Path:
     return derived.with_name(derived.name + suffix)
 
@@ -130,7 +201,7 @@ def fetch_detached(derived: Path, exact: str, prefix: str) -> None:
     partial.rename(beside(derived, ".seed.result"))
 
 
-def start(derived: Path, exact: str, prefix: str) -> None:
+def start(derived: Path, exact: str, prefix: str, revision: str = "", distance: int | None = None) -> None:
     """Download the seed in a process that outlives the calling step.
 
     Its output goes to a file, not the step's pipes, so the runner does not
@@ -146,7 +217,10 @@ def start(derived: Path, exact: str, prefix: str) -> None:
         )
     DETACHED.append(process)  # never waited on; kept so it is not reported as leaked
     beside(derived, ".seed.ticket").write_text(
-        json.dumps({"exact": exact, "prefix": prefix, "pid": process.pid, "job": job_identity()})
+        json.dumps({
+            "exact": exact, "prefix": prefix, "revision": revision, "distance": distance,
+            "pid": process.pid, "job": job_identity(),
+        })
     )
     print(f"Downloading the DerivedData seed in the background (pid {process.pid})")
 
@@ -180,6 +254,17 @@ def stop(pid: int) -> None:
     deadline = time.monotonic() + 10
     while running(pid) and time.monotonic() < deadline:
         time.sleep(0.1)
+
+
+def picked(derived: Path, prefix: str, revision: str) -> tuple[str, int | None] | None:
+    """The seed a `start` in this job picked for PREFIX and REVISION, if any."""
+    try:
+        ticket = json.loads(beside(derived, ".seed.ticket").read_text())
+    except (OSError, ValueError):
+        return None
+    if ticket.get("job") != job_identity() or (ticket.get("prefix"), ticket.get("revision")) != (prefix, revision):
+        return None
+    return str(ticket["exact"]), ticket.get("distance")
 
 
 def await_download(derived: Path, exact: str, prefix: str) -> str | None:
@@ -261,15 +346,23 @@ def main(argv: list[str]) -> int:
         write_outputs(prune(Path(argv[2])))
         return 0
     if len(argv) == 5 and argv[1] == "start":
-        start(Path(argv[2]), argv[3], argv[4])
+        prefix, revision = argv[3], argv[4]
+        exact, distance = locate(prefix, revision)
+        start(Path(argv[2]), exact, prefix, revision, distance)
         return 0
     if len(argv) == 5 and argv[1] == "fetch":
         fetch_detached(Path(argv[2]), argv[3], argv[4])
         return 0
     if len(argv) == 6 and argv[1] == "adopt":
         source, derived = Path(argv[2]).resolve(), Path(argv[3])
+        prefix, revision = argv[4], argv[5]
         try:
-            result = adopt(source, derived, argv[4], argv[5])
+            exact, distance = picked(derived, prefix, revision) or locate(prefix, revision)
+            result = adopt(source, derived, exact, prefix)
+            if result.get("hit") == "true":
+                # Commits between the seed and REVISION; empty means the
+                # newest pointer supplied it.
+                result["seed_distance"] = "" if distance is None or result["key"] != exact else str(distance)
         except Exception as error:  # noqa: BLE001 - every failure means a cold build
             # The swap happens only after a complete restore, so a failure
             # before it leaves the caller's DerivedData untouched. A replay

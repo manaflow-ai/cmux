@@ -305,13 +305,24 @@ extension GlobalSearchShortcutBehaviorTests {
             windowNumber: harness.window.windowNumber
         )
 
+        // Assert the palette request, not the popover: presenting it needs
+        // an active app, which the macOS 26 test host is never granted.
+        let paletteRequests = GlobalSearchPaletteRequestRecorder(appDelegate: appDelegate)
+        defer { paletteRequests.uninstall() }
+
         #expect(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(
+            paletteRequests.count == 0,
+            "The chord prefix alone must not open Global Search"
+        )
         #expect(
             appDelegate.debugHandleCustomShortcut(event: suffixEvent),
             "Cmd-C must complete an already-active Global Search chord"
         )
-        #expect(GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(
+            paletteRequests.count == 1,
+            "Completing the chord must request the Global Search palette once"
+        )
 #else
         Issue.record("Global Search input-ownership routing requires a DEBUG build")
 #endif
@@ -331,7 +342,8 @@ extension GlobalSearchShortcutBehaviorTests {
         window.makeKeyAndOrderFront(nil)
         appDelegate.setCommandPaletteVisible(true, for: window)
         GlobalSearchCoordinator.shared.dismissPalette()
-        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        let paletteRequests = GlobalSearchPaletteRequestRecorder(appDelegate: appDelegate)
+        defer { paletteRequests.uninstall() }
         let event = try makeKeyDownEvent(
             key: "f",
             modifiers: [.command, .option],
@@ -341,7 +353,7 @@ extension GlobalSearchShortcutBehaviorTests {
 
         #expect(appDelegate.debugHandleCustomShortcut(event: event))
         #expect(
-            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            paletteRequests.count == 1,
             "The foreground Global Search action must run before command-palette shortcut swallowing"
         )
 #else
@@ -375,6 +387,8 @@ extension GlobalSearchShortcutBehaviorTests {
         window.makeKeyAndOrderFront(nil)
         appDelegate.setCommandPaletteVisible(true, for: window)
         GlobalSearchCoordinator.shared.dismissPalette()
+        let paletteRequests = GlobalSearchPaletteRequestRecorder(appDelegate: appDelegate)
+        defer { paletteRequests.uninstall() }
         let prefixEvent = try makeKeyDownEvent(
             key: "k",
             modifiers: [.command, .option],
@@ -389,10 +403,10 @@ extension GlobalSearchShortcutBehaviorTests {
         )
 
         #expect(appDelegate.debugHandleCustomShortcut(event: prefixEvent))
-        #expect(!GlobalSearchCoordinator.shared.isPaletteVisible())
+        #expect(paletteRequests.count == 0)
         #expect(appDelegate.debugHandleCustomShortcut(event: suffixEvent))
         #expect(
-            GlobalSearchCoordinator.shared.isPaletteVisible(),
+            paletteRequests.count == 1,
             "A configured Global Search chord must arm before command-palette shortcut swallowing"
         )
 #else
@@ -483,5 +497,44 @@ extension GlobalSearchShortcutBehaviorTests {
         case browserFocusUnavailable
         case eventUnavailable
     }
+    }
+}
+
+/// Swaps in a menu bar extra whose Global Search callback counts requests,
+/// so a test can assert routing without the popover having to present. The
+/// xcodebuild app host on macOS 26 is never made active, and an inactive app
+/// cannot show the popover.
+@MainActor
+private final class GlobalSearchPaletteRequestRecorder {
+    private(set) var count = 0
+    private let appDelegate: AppDelegate
+    private let installedController: MenuBarExtraController?
+    private var recordingController: MenuBarExtraController?
+
+    init(appDelegate: AppDelegate) {
+        self.appDelegate = appDelegate
+        installedController = appDelegate.menuBarExtraController
+        let controller = MenuBarExtraController(
+            notificationStore: TerminalNotificationStore.shared,
+            caffeineController: appDelegate.caffeineController,
+            onShowGlobalSearch: { [weak self] _, _ in self?.count += 1 },
+            onShowMainWindow: {},
+            onShowNotifications: {},
+            onOpenNotification: { _ in },
+            onJumpToLatestUnread: {},
+            onOpenTaskManager: {},
+            onToggleSleepyMode: {},
+            onCheckForUpdates: {},
+            onOpenPreferences: {},
+            onQuitApp: {}
+        )
+        recordingController = controller
+        appDelegate.menuBarExtraController = controller
+    }
+
+    func uninstall() {
+        recordingController?.removeFromMenuBar()
+        recordingController = nil
+        appDelegate.menuBarExtraController = installedController
     }
 }

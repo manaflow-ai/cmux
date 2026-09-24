@@ -542,12 +542,21 @@ final class SidebarLazyLayoutScaleTests {
 
         let counter = RowBodyCounter()
         let rows = 8
-        let root = VStack(spacing: 2) {
-            ForEach(0..<rows, id: \.self) { _ in
-                DivergentGeometryFeedbackRowFixture(onBody: { counter.workspaceRowBodies += 1 })
+        // The rows sit in a ScrollView, as real sidebar rows do, so their
+        // divergent height stays inside the scroll content. Without it the
+        // growing VStack drove the hosting view's min content size, and
+        // NSHostingView.updateConstraints resized the window on every pass.
+        // On macOS 26 AppKit then threw NSGenericException ("more Update
+        // Constraints in Window passes than there are views") from the display
+        // cycle and took down the test host before the counter was read.
+        let root = ScrollView {
+            VStack(spacing: 2) {
+                ForEach(0..<rows, id: \.self) { _ in
+                    DivergentGeometryFeedbackRowFixture(onBody: { counter.workspaceRowBodies += 1 })
+                }
             }
         }
-        .frame(width: 200)
+        .frame(width: 200, height: 400)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 200, height: 400),
@@ -560,7 +569,11 @@ final class SidebarLazyLayoutScaleTests {
             window.contentView = nil
             window.close()
         }
-        window.contentView = NSHostingView(rootView: root)
+        let hostingView = NSHostingView(rootView: root)
+        // Belt and braces: the loop must never reach window sizing, whatever
+        // the root's ideal size does.
+        hostingView.sizingOptions = []
+        window.contentView = hostingView
 
         await Self.drainMainRunLoop(for: window, iterations: 40)
 

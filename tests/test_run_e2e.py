@@ -89,6 +89,24 @@ else:
 '''
 
 
+def real_swift_testing_method():
+    """One argument-free @Test method this checkout declares, found fresh."""
+    spec = importlib.util.spec_from_file_location(
+        "focused_test_selectors", ROOT / "scripts/ci/focused_test_selectors.py"
+    )
+    selectors = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(selectors)
+    suite_re = re.compile(r"^(?:@\w+\s+)*(?:final\s+)?struct\s+(\w+Tests)\b", re.M)
+    test_re = re.compile(r"^\s*@Test\s+func\s+(\w+)\(\)", re.M)
+    for path in sorted((ROOT / "cmuxTests").glob("*.swift")):
+        source = path.read_text(encoding="utf-8", errors="replace")
+        suites, tests = suite_re.findall(source), test_re.findall(source)
+        if len(suites) == 1 and tests:
+            if f"{suites[0]}/{tests[0]}()" in selectors.source_inventory(ROOT, suites[0]):
+                return suites[0], tests[0]
+    raise AssertionError("no argument-free @Test method found under cmuxTests")
+
+
 class FocusedLauncherTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -306,6 +324,36 @@ class FocusedLauncherTests(unittest.TestCase):
                 self.assertNotEqual(self.launch(selector).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
 
+    def test_swift_testing_call_suffixes_are_accepted_as_written(self):
+        for selector in (
+            "cmuxTests/ExampleTests/plain()",
+            "cmuxTests/ExampleTests/parameterized(value:)",
+            "cmuxTests/ExampleTests/unlabeled(_:_:)",
+        ):
+            with self.subTest(selector=selector):
+                result = self.launch(selector)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.dispatch()["test_filter"], selector)
+
+    def test_malformed_call_suffixes_are_rejected_before_dispatch(self):
+        for selector in ("cmuxTests/ExampleTests/plain(value)", "cmuxTests/ExampleTests/plain(value:",
+                         "cmuxTests/ExampleTests/plain(:)"):
+            with self.subTest(selector=selector):
+                result = self.launch(selector)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Suite/method()", result.stderr)
+        self.assertFalse((self.root / "dispatch.json").exists())
+
+    def test_a_declared_swift_testing_method_is_dispatched_with_its_suffix(self):
+        # `Suite/method` matches no Swift Testing test, and xcodebuild reports
+        # that as a successful run of zero tests. Use a real declaration so the
+        # launcher is proven against the tree it actually reads.
+        suite, method = real_swift_testing_method()
+        result = self.launch(f"cmuxTests/{suite}/{method}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.dispatch()["test_filter"], f"cmuxTests/{suite}/{method}()")
+        self.assertIn(f"cmuxTests/{suite}/{method}()", result.stderr)
+
     def test_batched_filters_dispatch_one_run_against_one_compile(self):
         result = self.launch("cmuxTests/AlphaTests", "cmuxTests/BetaTests")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -362,19 +410,22 @@ class FocusedLauncherTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assertNotEqual(self.launch("ExampleTests", *args).returncode, 0)
         self.assertFalse((self.root / "dispatch.json").exists())
-    def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD, runner="mac"):
+    def _prior(self, conclusion, *, selector="cmuxTests/ExampleTests", commit=HEAD, runner="mac",
+               workflow_ref="main"):
         return json.dumps([{
             "displayTitle": f"{selector} on {runner} @ {commit} [deadbeef]",
+            "headBranch": workflow_ref,
             "conclusion": conclusion,
             "status": "completed",
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/555",
         }])
 
     def _live(self, *, selector="cmuxTests/ExampleTests", commit=HEAD,
-              runner=DEFAULT_RUNNER, status="in_progress"):
+              runner=DEFAULT_RUNNER, status="in_progress", workflow_ref="main"):
         return json.dumps([{
             "databaseId": 777,
             "displayTitle": f"{selector} on {runner} @ {commit} [deadbeef]",
+            "headBranch": workflow_ref,
             "conclusion": None,
             "status": status,
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/777",
@@ -569,6 +620,48 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
+    def test_runs_of_another_workflow_definition_are_neither_reused_nor_refusing(self):
+        # --workflow-ref tests a workflow change. A run of the same selector at
+        # the same commit under another definition answers a different
+        # question: attaching to it, or refusing because it failed, means the
+        # definition under test never runs.
+        for history in (
+            self._live(workflow_ref="ci/other-definition"),
+            self._live(selector="cmuxTests/ExampleTests,cmuxTests/OtherTests",
+                       workflow_ref="ci/other-definition"),
+            self._prior("failure", workflow_ref="ci/other-definition"),
+        ):
+            with self.subTest(history=history):
+                (self.root / "dispatch.json").unlink(missing_ok=True)
+                result = self.launch("cmuxTests/ExampleTests", "--workflow-ref", "ci/under-test",
+                                     LAUNCHER_PRIOR_RUNS=history)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("reusing", result.stdout)
+                self.assertEqual(self.dispatch()["test_filter"], "cmuxTests/ExampleTests")
+        # The same definition still gets the guards, including the default one.
+        result = self.launch("cmuxTests/ExampleTests", "--workflow-ref", "ci/under-test",
+                             LAUNCHER_PRIOR_RUNS=self._live(workflow_ref="ci/under-test"))
+        self.assertIn("reusing", result.stdout)
+        result = self.launch("cmuxTests/ExampleTests",
+                             LAUNCHER_PRIOR_RUNS=self._live(workflow_ref="ci/other-definition"))
+        self.assertNotIn("reusing", result.stdout)
+
+    def test_history_is_filtered_by_workflow_definition_on_the_server(self):
+        # Dispatches from other refs must not push this definition's runs off
+        # the one page the guards read.
+        for extra, expected in (((), "main"), (("--workflow-ref", "ci/under-test"), "ci/under-test")):
+            with self.subTest(workflow_ref=expected):
+                (self.root / "calls.jsonl").unlink(missing_ok=True)
+                result = self.launch("cmuxTests/ExampleTests", *extra, LAUNCHER_PRIOR_RUNS="[]")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                guard_reads = [
+                    call for call in self.calls()
+                    if call[:2] == ["run", "list"] and any("conclusion" in arg for arg in call)
+                ]
+                self.assertEqual(len(guard_reads), 1, guard_reads)
+                branch = guard_reads[0].index("--branch")
+                self.assertEqual(guard_reads[0][branch + 1], expected)
+
     def test_a_workflow_job_passes_the_variable_it_cannot_list(self):
         # A job token cannot list variables. Passed in, the variable still
         # decides the runner, and the in-flight guard still attaches.
@@ -641,6 +734,7 @@ class FocusedLauncherTests(unittest.TestCase):
         live = json.dumps([{
             "databaseId": 777,
             "displayTitle": f"cmuxTests/ExampleTests on {DEFAULT_RUNNER} @ {HEAD}",
+            "headBranch": "main",
             "conclusion": None, "status": "in_progress",
             "url": "https://github.com/manaflow-ai/cmux/actions/runs/777",
         }])
@@ -654,6 +748,7 @@ class FocusedLauncherTests(unittest.TestCase):
         # id cannot be watched, so the caller gets the run they asked for.
         live = json.dumps([{
             "displayTitle": f"cmuxTests/ExampleTests on {DEFAULT_RUNNER} @ {HEAD} [deadbeef]",
+            "headBranch": "main",
             "conclusion": None, "status": "in_progress", "url": "",
         }])
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_PRIOR_RUNS=live)
@@ -708,6 +803,36 @@ class RunDiscoveryTests(unittest.TestCase):
         )
         cls.dispatch = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.dispatch)
+
+    def test_normalize_entry_repairs_only_what_the_checkout_declares(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "cmuxTests").mkdir()
+            (root / "cmuxTests/ModernTests.swift").write_text(
+                "struct ModernTests {\n"
+                "    @Test func plain() {}\n"
+                "    @Test(arguments: [1]) func parameterized(value: Int) {}\n"
+                "    @Test func run(a: Int) {}\n"
+                "    @Test func run(b: Int) {}\n"
+                "}\n"
+            )
+            normalize = self.dispatch.normalize_entry
+            self.assertEqual(normalize("cmuxTests/ModernTests/plain", root)[0],
+                             "cmuxTests/ModernTests/plain()")
+            self.assertEqual(normalize("cmuxTests/ModernTests/parameterized", root)[0],
+                             "cmuxTests/ModernTests/parameterized(value:)")
+            self.assertEqual(normalize("cmuxTests/ModernTests/plain()", root),
+                             ("cmuxTests/ModernTests/plain()", None))
+            self.assertEqual(normalize("cmuxTests/ModernTests", root),
+                             ("cmuxTests/ModernTests", None))
+            # A name this checkout does not declare may exist at --ref; the
+            # workflow's built inventory decides, so it passes through.
+            for entry in ("cmuxTests/ModernTests/elsewhere", "cmuxTests/OtherTests/method",
+                          "cmuxUITests/ModernTests/plain", "ModernTests/plain"):
+                with self.subTest(entry=entry):
+                    self.assertEqual(normalize(entry, root)[0], entry)
+            with self.assertRaises(self.dispatch.selectors.AmbiguousSelector):
+                normalize("cmuxTests/ModernTests/run", root)
 
     def test_runner_choices_match_the_workflow(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/test-e2e.yml").read_text())
