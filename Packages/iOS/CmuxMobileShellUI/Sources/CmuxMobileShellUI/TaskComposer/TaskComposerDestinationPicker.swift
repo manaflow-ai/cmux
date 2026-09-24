@@ -7,6 +7,7 @@ import SwiftUI
 /// workspace. Pane rectangles are drawn from the Mac's normalized topology.
 struct TaskComposerDestinationPicker: View {
     @Environment(\.dismiss) private var dismiss
+    @ScaledMetric(relativeTo: .caption2) private var minimumPaneHeight: CGFloat = 52
 
     /// Keep the picker compact until the user chooses which workspace to
     /// inspect. Only one workspace can be expanded at a time so the pane maps
@@ -201,18 +202,17 @@ struct TaskComposerDestinationPicker: View {
                     let frame = pane.frame
                     let paneGap: CGFloat = 4
                     let paneWidth = max(44, proxy.size.width * frame.width - paneGap)
-                    let paneHeight = max(36, proxy.size.height * frame.height - paneGap)
+                    let paneHeight = proxy.size.height * frame.height - paneGap
                     Button {
                         select(workspace.rpcWorkspaceID, pane.id)
                         dismiss()
                     } label: {
                         VStack(spacing: 3) {
                             Image(systemName: pane.isFocused ? "scope" : "rectangle")
-                                .font(.system(size: 11, weight: .regular))
+                                .font(.caption2)
                             Text(surfaceTitle(for: pane, workspace: workspace))
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.caption2.weight(.semibold))
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.75)
                                 .multilineTextAlignment(.center)
                         }
                         .padding(.horizontal, 6)
@@ -250,9 +250,16 @@ struct TaskComposerDestinationPicker: View {
                 }
             }
         }
-        .frame(height: 160)
+        .frame(height: paneMapHeight(for: workspace))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(workspace.name)
+    }
+
+    private func paneMapHeight(for workspace: MobileWorkspacePreview) -> CGFloat {
+        let smallestPaneHeight = workspace.panes.map(\.frame.height).filter { $0 > 0 }.min() ?? 1
+        // Grow the whole map so shallow panes retain padding and useful tap
+        // targets without overlapping their neighbors or changing split ratios.
+        return max(160, (minimumPaneHeight + 4) / smallestPaneHeight)
     }
 
     private func surfaceTitle(
