@@ -102,7 +102,7 @@ final class cmuxUITests: XCTestCase {
 
     @MainActor
     func testIOS106WhatsNewReleaseNotice() throws {
-        // Snapshot of web/data/whats-new.ts; the web test checks it stays in sync.
+        // Snapshot of web/data/whats-new.ts used to drive the real sheet.
         let payload = #"{"visibleEntryIds":["pairing.1.0.6","connections.v2","connections.v1"],"announcements":[{"id":"ios-1.0.6-connections","minVersion":"1.0.6","maxVersion":"1.0.6","channels":["beta","internal"],"title":"What's New in 1.0.6","releaseLabel":"1.0.6 · September 2026","features":[{"symbol":"network","title":"Updated Mac connections","detail":"This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect."},{"symbol":"arrow.down.circle","title":"Update cmux on your Mac","detail":"Requires cmux 0.64.25 or later, or NIGHTLY 0.64.25-nightly.3522337919701 or later. Enable iOS pairing in Settings > Mobile on each Mac."},{"symbol":"clock.arrow.circlepath","title":"Need to keep an older Mac build?","detail":"Use cmux BETA 1.0.5 (20260914204800) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."}]}]}"#
         let app = XCUIApplication()
         defer { app.terminate() }

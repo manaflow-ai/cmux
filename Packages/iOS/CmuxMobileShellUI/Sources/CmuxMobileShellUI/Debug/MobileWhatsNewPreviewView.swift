@@ -54,6 +54,7 @@ public struct MobileWhatsNewPreviewView: View {
                     allowedWebHosts: [],
                     dismiss: { showsSheet = false }
                 )
+                .environment(center)
                 .preferredColorScheme(
                     ProcessInfo.processInfo.environment["CMUX_UITEST_WHATS_NEW_APPEARANCE"] == "dark"
                         ? .dark : .light
