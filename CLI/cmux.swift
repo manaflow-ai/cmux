@@ -39022,9 +39022,15 @@ export default CMUXSessionRestore;
             }
         }
         // The running app notices the unlinked path on its next append and
-        // starts a new file, so the old inode's space is released.
-        for url in [path, rotatedPath] where fm.fileExists(atPath: url.path) {
-            try fm.removeItem(at: url)
+        // starts a new file, so the old inode's space is released. The app can
+        // rotate the active file between the check above and these removals,
+        // so a generation that is already gone is not an error.
+        for url in [path, rotatedPath] {
+            do {
+                try fm.removeItem(at: url)
+            } catch CocoaError.fileNoSuchFile {
+                continue
+            }
         }
         print("Cleared \(path.path)")
     }
