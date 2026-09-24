@@ -37216,7 +37216,8 @@ export default CMUXSessionRestore;
         enrichUserPromptSubmitFeedEvent(
             &event,
             hookEventName: hookEventName,
-            promptText: promptText
+            promptText: promptText,
+            promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
@@ -37413,16 +37414,17 @@ export default CMUXSessionRestore;
     private func enrichUserPromptSubmitFeedEvent(
         _ event: inout [String: Any],
         hookEventName: String,
-        promptText: String?
+        promptText: String?,
+        promptLength: Int?
     ) {
-        guard hookEventName == "UserPromptSubmit",
-              let promptText else { return }
-        if var toolInput = event["tool_input"] as? [String: Any] {
-            toolInput["prompt"] = promptText
-            event["tool_input"] = toolInput
-        } else {
-            event["tool_input"] = ["prompt": promptText]
-        }
+        guard hookEventName == "UserPromptSubmit" else { return }
+        var toolInput = event["tool_input"] as? [String: Any] ?? [:]
+        if let promptText { toolInput["prompt"] = promptText }
+        if let promptLength, (0...1_048_576).contains(promptLength) {
+            toolInput["prompt_length"] = promptLength
+        } else { toolInput.removeValue(forKey: "prompt_length") }
+        if !toolInput.isEmpty { event["tool_input"] = toolInput }
+        guard let promptText else { return }
         var context = event["context"] as? [String: Any] ?? [:]
         if context["lastUserMessage"] == nil {
             setFeedContext(
@@ -37432,11 +37434,8 @@ export default CMUXSessionRestore;
                 maxLength: 1_000
             )
         }
-        if !context.isEmpty {
-            event["context"] = context
-        }
+        if !context.isEmpty { event["context"] = context }
     }
-
     private func feedContext(from raw: [String: Any]) -> [String: Any] {
         var context: [String: Any] = [:]
         setFeedContext(
@@ -39675,7 +39674,8 @@ export default CMUXSessionRestore;
         enrichUserPromptSubmitFeedEvent(
             &eventDict,
             hookEventName: hookEventName,
-            promptText: promptText
+            promptText: promptText,
+            promptLength: feedPromptLength(from: stdinObj, compacted: false)
         )
         let causalEvidence = Self.semanticAttentionContext(stdinObj)
         let requestId = stdinObj["_opencode_request_id"] as? String

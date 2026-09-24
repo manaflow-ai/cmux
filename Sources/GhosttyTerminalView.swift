@@ -9249,9 +9249,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ghostty_surface_set_display_id(surface, displayID)
         }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.viewDidChangeBackingProperties()
-        }
+        // Let AppKit's backing-properties callback own scale changes. A screen
+        // notification alone does not establish that backing geometry changed;
+        // replaying that callback schedules an extra settled geometry commit
+        // while display topology is still changing.
     }
 
     fileprivate static func escapeDropForShell(_ value: String) -> String {
