@@ -105,10 +105,29 @@ def main() -> int:
             if "secrets.CI_CACHE_R2_" in str(value) and "== 'r2' &&" not in str(value):
                 failures.append(f"nightly.yml {job_name}: {name} must be empty unless the run saves to R2")
 
+    # The write credentials live in the ci-cache-writer environment, whose
+    # deployment branches are limited to main. Every job that names them must
+    # enter that environment on main and no environment anywhere else, so a
+    # dispatch from another branch still runs and simply saves nothing.
+    writer = "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}"
+    writers = 0
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        for job_name, job in (document.get("jobs") or {}).items():
+            if "secrets.CI_CACHE_R2_" not in json.dumps(job):
+                continue
+            writers += 1
+            if job.get("environment") != writer:
+                failures.append(f"{path.name} {job_name}: a job holding the R2 write credentials must declare environment: {writer}")
+    if not writers:
+        failures.append("no workflow names the R2 write credentials; this guard is reading the wrong tree")
+
     # Exercise the actual decision script: manual cache seeding must not
     # start app builds or publish, even when other dispatch flags are set.
     nightly = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())
-    decision = nightly["jobs"]["decide"]["steps"][0]["with"]["script"]
+    decision = next(
+        step for step in nightly["jobs"]["decide"]["steps"] if step.get("id") == "decide"
+    )["with"]["script"]
     harness = """
     const outputs = {};
     const core = {setOutput: (k,v) => outputs[k]=v, notice() {},
