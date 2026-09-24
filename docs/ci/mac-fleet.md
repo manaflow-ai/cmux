@@ -16,7 +16,7 @@ routing contract, which already exists:
 Read those first. This document answers "how many, which lane, and what
 happens at 3 a.m.", and it is the one that carries measurements.
 
-> **Pull request compile pilot retired (RETIRE_PR).** The persistent
+> **Pull request compile pilot retired (#14232).** The persistent
 > compile-admission pilot this plan builds on (`persistent-macos-compile.yml`,
 > `persistent-macos-router.yml`, `CI_PERSISTENT_MAC_COMPILE` and
 > `scripts/persistent-compile`) was removed before it routed any pull request.
@@ -226,7 +226,7 @@ that single fact.
 
 ### 2.1 What is already enforced
 
-> Retired with the pilot (RETIRE_PR): the `check_persistent_compile_*`
+> Retired with the pilot (#14232): the `check_persistent_compile_*`
 > functions and `tests/test_ci_persistent_mac_compile.py` rows below no longer
 > exist. `check_no_self_hosted_fleet_runners` still applies.
 
@@ -345,7 +345,7 @@ in Glaeda is not yet a runner.
 
 ### 3.2 Labels and runner group
 
-> Retired (RETIRE_PR): no workflow targets this group or label any more. The
+> Retired (#14232): no workflow targets this group or label any more. The
 > guard still refuses both names in a required job.
 > Owned minis will join the pool picker's `POOLS` behind a dedicated label.
 
@@ -567,7 +567,7 @@ after) and is where that requirement belongs.
 
 ## 5. Rollout
 
-> Retired (RETIRE_PR): `scripts/persistent-compile` and the variables below
+> Retired (#14232): `scripts/persistent-compile` and the variables below
 > were removed with the pilot. Rollout of owned minis for pull requests now
 > goes through `scripts/ci/pr_runner_pool.py` (`POOLS`, `CI_PR_POOL_ORDER`).
 
