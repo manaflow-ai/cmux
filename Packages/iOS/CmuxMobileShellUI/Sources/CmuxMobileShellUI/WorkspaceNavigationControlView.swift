@@ -12,15 +12,15 @@ final class WorkspaceNavigationControlView: UIView {
     }
 
     private let contentView: UIView & UIContentView
+    private var content: AnyView
     private var width: NSLayoutConstraint?
-    private var contentLeading: NSLayoutConstraint!
-    private var contentTrailing: NSLayoutConstraint!
     private var placement: Placement = .leading
     private var isLandscape = false
     private var widthAdjustment: CGFloat = 0
     private var visualOffset: CGFloat = 0
 
     init(content: AnyView) {
+        self.content = content
         contentView = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
         super.init(frame: .zero)
         layoutMargins = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
@@ -30,11 +30,9 @@ final class WorkspaceNavigationControlView: UIView {
         translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentView)
-        contentLeading = contentView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor)
-        contentTrailing = contentView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor)
         NSLayoutConstraint.activate([
-            contentLeading,
-            contentTrailing,
+            contentView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightAnchor.constraint(equalToConstant: 36),
         ])
@@ -63,18 +61,32 @@ final class WorkspaceNavigationControlView: UIView {
     }
 
     func update(content: AnyView) {
-        contentView.configuration = UIHostingConfiguration { content.ignoresSafeArea() }.margins(.all, 0).minSize(width: 0, height: 0)
+        self.content = content
+        applyContentConfiguration()
         refreshContentSize()
     }
 
-    func update(placement: Placement, isLandscape: Bool, visualOffset: CGFloat) {
-        guard self.placement != placement || self.isLandscape != isLandscape || self.visualOffset != visualOffset else { return }
+    func updateVisualOffset(_ offset: CGFloat) {
+        guard visualOffset != offset else { return }
+        visualOffset = offset
+        applyContentConfiguration()
+    }
+
+    private func applyContentConfiguration() {
+        contentView.configuration = UIHostingConfiguration {
+            content
+                .offset(x: visualOffset)
+                .ignoresSafeArea()
+        }
+        .margins(.all, 0)
+        .minSize(width: 0, height: 0)
+    }
+
+    func update(placement: Placement, isLandscape: Bool) {
+        guard self.placement != placement || self.isLandscape != isLandscape else { return }
         self.placement = placement
         self.isLandscape = isLandscape
-        self.visualOffset = isLandscape ? visualOffset : 0
         widthAdjustment = placement == .trailing && isLandscape ? -3 : 0
-        contentLeading.constant = self.visualOffset
-        contentTrailing.constant = self.visualOffset
         let leading: CGFloat = placement == .trailing && isLandscape ? 4.5 : 8
         let trailing: CGFloat = placement == .leading && isLandscape ? -5 : 8
         layoutMargins = UIEdgeInsets(top: 8, left: leading, bottom: 8, right: trailing)
