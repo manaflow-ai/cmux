@@ -66,6 +66,13 @@ class EligibilityTests(unittest.TestCase):
         head = self.repo.commit("cmux.xcodeproj/project.pbxproj", "y")
         self.assertEqual(rerun.non_test_changes(base, head, cwd=str(self.repo.path)), ["cmux.xcodeproj/project.pbxproj"])
 
+    def test_docs_and_ci_changes_do_not_change_the_app(self) -> None:
+        base = self.repo.commit("Sources/App.swift", "1")
+        self.repo.commit("docs/ci-runners.md", "x")
+        self.repo.commit(".github/workflows/ci.yml", "x")
+        head = self.repo.commit("README.md", "x")
+        self.assertEqual(rerun.non_test_changes(base, head, cwd=str(self.repo.path)), [])
+
     def test_limit_bounds_the_walk(self) -> None:
         for index in range(5):
             head = self.repo.commit("cmuxTests/ATests.swift", str(index))

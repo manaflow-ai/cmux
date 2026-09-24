@@ -24,6 +24,9 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from e2e_warm_derived_data import outside_the_app_build  # noqa: E402
+
 TEST_ROOT = "cmuxTests/"
 PRODUCTS_PREFIX = "app-host-products-v1-"
 TEST_TARGET = "cmuxTests"
@@ -35,9 +38,14 @@ def git(*args: str, cwd: str | None = None) -> str:
 
 
 def non_test_changes(base: str, head: str, cwd: str | None = None) -> list[str]:
-    """Paths that differ between two revisions outside the test bundle's sources."""
+    """Paths that differ between two revisions and can change the app-host products.
+
+    Test sources, docs and CI files compile nothing into the app host; the
+    rule is e2e_warm_derived_data.py's, which adopts main's DerivedData on
+    the same condition.
+    """
     changed = git("diff", "--name-only", "--no-renames", base, head, cwd=cwd).splitlines()
-    return [path for path in changed if path and not path.startswith(TEST_ROOT)]
+    return [path for path in changed if path and not outside_the_app_build(path)]
 
 
 def eligible_revisions(head: str, limit: int, cwd: str | None = None) -> tuple[list[str], dict | None]:
