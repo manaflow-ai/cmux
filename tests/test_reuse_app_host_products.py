@@ -1185,6 +1185,140 @@ class ReuseProducts(TestProductHandoff):
         self.assertFalse(reuse.permitted_pair({**base, "event": "pull_request"}, fork,
                                               self.api.repository))
 
+    SEED_WORKFLOW = ".github/workflows/seed-derived-data.yml"
+
+    def main_push_run(self, **overrides):
+        return {
+            "event": "push",
+            "path": self.SEED_WORKFLOW,
+            "head_branch": "main",
+            "head_repository": {"full_name": self.api.repository},
+            "pull_requests": [],
+            **overrides,
+        }
+
+    def test_pull_requests_accept_a_main_push_producer_in_one_direction(self):
+        pull_request = {
+            "event": "pull_request",
+            "path": ".github/workflows/ci.yml",
+            "head_repository": {"full_name": self.api.repository},
+            "pull_requests": [{"number": 7}],
+        }
+        cases = [
+            ("main_push_to_pr", self.main_push_run(), pull_request, True),
+            ("main_push_to_fork_pr", self.main_push_run(),
+             {**pull_request, "head_repository": {"full_name": "fork/cmux"}}, False),
+            ("other_branch_push_to_pr", self.main_push_run(head_branch="feature"),
+             pull_request, False),
+            ("missing_branch_push_to_pr", self.main_push_run(head_branch=None),
+             pull_request, False),
+            ("fork_push_to_pr",
+             self.main_push_run(head_repository={"full_name": "fork/cmux"}),
+             pull_request, False),
+            ("ci_push_to_pr", self.main_push_run(path=".github/workflows/ci.yml"),
+             pull_request, False),
+            ("nightly_push_to_pr", self.main_push_run(path=".github/workflows/nightly.yml"),
+             pull_request, False),
+            # PR products never reach a main push, and the lanes that already
+            # have their own producers keep them.
+            ("pr_to_main_push", pull_request, self.main_push_run(), False),
+            ("main_push_to_main_push", self.main_push_run(), self.main_push_run(), False),
+            ("main_push_to_merge_group", self.main_push_run(),
+             {**pull_request, "event": "merge_group"}, False),
+        ]
+        for name, producer, consumer, expected in cases:
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reuse.permitted_pair(producer, consumer, self.api.repository),
+                    expected,
+                )
+        self.assertTrue(reuse.trusted_ci_run(self.main_push_run(), self.api.repository))
+        self.assertFalse(reuse.trusted_ci_run(
+            self.main_push_run(head_branch="release"), self.api.repository))
+
+    def use_main_push_producer(self):
+        self.api.run.update(self.main_push_run(), head_sha="abc123")
+        self.api.job = {
+            "name": "seed",
+            "conclusion": "success",
+            "status": "completed",
+            "steps": [{
+                "name": "Build",
+                "conclusion": "success",
+                "status": "completed",
+                "started_at": "2026-09-21T08:00:00Z",
+                "completed_at": "2026-09-21T08:02:00Z",
+            }],
+        }
+
+    def test_pull_request_adopts_the_product_a_main_push_compiled(self):
+        self.use_main_push_producer()
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertEqual(report["producer_run_id"], "12")
+        self.assertEqual(report["compile_seconds_avoided"], 120.0)
+        provenance = json.loads(
+            (self.consumer / "Build/Products/cmux-original-producer.json").read_text())
+        self.assertEqual(provenance["original_producer"]["revision"], "abc123")
+        self.assertEqual(provenance["consumer"]["revision"], "def456")
+
+    def test_main_push_producer_misses(self):
+        cases = {
+            "identity_mismatch": (
+                lambda: self.api.product_identities.__setitem__(
+                    "abc123", {**self.contract["product_inputs"], "source": "f" * 64}),
+                "producer_product_inputs_mismatch",
+            ),
+            "other_branch": (
+                lambda: self.api.run.update(head_branch="feature"),
+                "producer_consumer_pair_disallowed",
+            ),
+            "wrong_workflow": (
+                lambda: self.api.run.update(path=".github/workflows/ci.yml"),
+                "producer_consumer_pair_disallowed",
+            ),
+            "fork_consumer": (
+                lambda: self.api.consumer_run.update(
+                    head_repository={"full_name": "fork/cmux"}),
+                "consumer_untrusted",
+            ),
+            "seed_job_failed": (
+                lambda: self.api.job.update(conclusion="failure"),
+                "producer_compile_unsuccessful",
+            ),
+        }
+        for name, (mutate, expected) in cases.items():
+            with self.subTest(name=name):
+                self.setUp()
+                self.use_main_push_producer()
+                mutate()
+                report = {}
+                with mock.patch.object(self.api, "download") as download:
+                    self.assertFalse(self.restore_reuse(report=report))
+                    download.assert_not_called()
+                self.assertIn(expected, report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+    def test_main_push_producer_sealed_at_another_revision_is_a_miss(self):
+        self.use_main_push_producer()
+        self.identity = {**self.identity, "revision": "0badc0de"}
+        self.api.product_identities["0badc0de"] = self.contract["product_inputs"]
+        self.seal()
+        report = {}
+        self.assertFalse(self.restore_reuse(report=report))
+        self.assertIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
+    def test_a_main_push_is_never_a_consumer(self):
+        # main() only restores for consumer events, so no pull request product
+        # can reach main; only pull requests take a main push product.
+        self.assertNotIn("push", reuse.PERMITTED_PRODUCERS)
+        self.assertEqual(
+            {event for event, producers in reuse.PERMITTED_PRODUCERS.items()
+             if "push" in producers},
+            {"pull_request"},
+        )
+
     def test_failed_producer_compile_is_a_miss(self):
         self.api.job["conclusion"] = "failure"
         self.assertFalse(self.restore_reuse())
