@@ -80,15 +80,17 @@ jobs:
     # every SwiftDriver task and re-emitted 62 modules on a 6 vCPU admission
     # (run 36043267820). Admission takes the 12 vCPU pool when it is free and
     # the 6 vCPU one otherwise, so both seed, and seed_derived_data.py keys
-    # each seed by its width. The first entry is admission's own pool; the
-    # second is the 12 vCPU pool of the same image and Xcode, which is the
-    # same pool again under any other MACOS_RUNNER_PR.
+    # each seed by its width. The first entry is the 12 vCPU pool of the same
+    # image and Xcode, which starts in seconds and alone publishes the
+    # product; the second is admission's own pool, the same pool again under
+    # any other MACOS_RUNNER_PR. GitHub names these jobs "seed (<pool>)";
+    # seed_decide.py and reuse_app_host_products.py match that.
     strategy:
       fail-fast: false
       matrix:
         pool:
-          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          - ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
     runs-on: ${{ matrix.pool }}
     # One seed at a time per pool, and never cancel-in-progress. main takes
     # several merges an hour and a cold seed takes 15-20 minutes, so
@@ -142,8 +144,10 @@ jobs:
           fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
           prefix="admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-"
           # Adoption scopes the prefix itself; the save names this width.
+          scoped="$(python3 scripts/ci/seed_derived_data.py scope "$prefix")"
+          test -n "$scoped"
           echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
-          echo "scoped=$(python3 scripts/ci/seed_derived_data.py scope "$prefix")" >> "$GITHUB_OUTPUT"
+          echo "scoped=$scoped" >> "$GITHUB_OUTPUT"
 
       - name: Install compilation dependencies
         run: |
