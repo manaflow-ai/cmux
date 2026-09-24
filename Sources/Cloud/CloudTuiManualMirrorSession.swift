@@ -971,7 +971,7 @@ final class CloudTuiManualMirrorSession {
               !geometryClaimed,
               !claimUnsupported,
               !claimInFlight,
-              resizeScheduler.inFlight != nil || resizeScheduler.lastAcknowledged != nil,
+              resizeScheduler.lastAcknowledged != nil,
               let connection else { return }
         manualMirrorLogger.info("geometry terminal=\(self.terminalID, privacy: .private(mask: .hash)) decision=claim")
         claimInFlight = true
