@@ -199,11 +199,6 @@ struct CLITmuxCompatStoreConcurrencyTests {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe
-        let exited = DispatchSemaphore(value: 0)
-        // Observe process termination directly. A waiter queued on the global
-        // pool can stay blocked behind concurrently running test fixtures even
-        // after this CLI has exited, producing a false timeout.
-        process.terminationHandler = { _ in exited.signal() }
 
         do {
             try process.run()
@@ -211,12 +206,12 @@ struct CLITmuxCompatStoreConcurrencyTests {
             return ProcessRunResult(status: -1, stderr: String(describing: error), timedOut: false)
         }
 
-        let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut && process.isRunning
+        let timedOut = waitForProcessExit(process, timeout: timeout) == .timedOut
         if timedOut {
             process.terminate()
-            if exited.wait(timeout: .now() + 1) == .timedOut && process.isRunning {
+            if waitForProcessExit(process, timeout: 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
-                _ = exited.wait(timeout: .now() + 1)
+                _ = waitForProcessExit(process, timeout: 1)
             }
         }
         let stderr = String(

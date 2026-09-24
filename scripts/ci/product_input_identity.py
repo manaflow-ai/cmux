@@ -35,6 +35,28 @@ PRODUCT_CI_INPUTS = frozenset({
 # Changing it changes product bytes, so it has to invalidate reuse.
 PRODUCT_WORKER_PREFIXES = ("workers/cmux-paste-text/",)
 
+# Developer and maintenance tooling that neither the Xcode build nor any macOS
+# CI lane reads: no build phase, compile helper, bundled-resource script, or
+# ci-macos.yml / test-e2e.yml step names them, and no native test executes
+# them. agent-chat/ is the standalone chat server a user starts with cmux-chat;
+# the app only connects to it. Each keeps its own Linux guard. Keep this exact:
+# scripts/ also holds the build phases' helpers, which must stay product inputs.
+NON_PRODUCT_TOOLING_PREFIXES = (
+    ".claude/",
+    "agent-chat/",
+    "scripts/git-hooks/",
+)
+NON_PRODUCT_TOOLING = frozenset({
+    "scripts/benchmark-dev-fleet-warm-slots.py",
+    "scripts/check-pbxproj.sh",
+    "scripts/check-test-determinism.py",
+    "scripts/dev-fleet-warm-slot.py",
+    "scripts/install-git-hooks.sh",
+    "scripts/merge-xcstrings.py",
+    "scripts/normalize-pbxproj.py",
+    "scripts/prune_nightly_release_assets.py",
+})
+
 REQUIRED_PRODUCT_JOB_ENV_KEYS = frozenset({
     "CMUX_CI_XCODE_APP",
     "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR",
@@ -86,6 +108,11 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Cache Swift packages",
     "Compute test compilation cache key",
     "Restore test compilation cache",
+    # Like the compilation cache, a seed DerivedData decides how much is
+    # rebuilt, never what the product is: Xcode rebuilds every input that
+    # differs from the seed, and replay only ages byte-identical files.
+    "Adopt the nightly DerivedData seed",
+    "Forget the adopted-build inode override",
     "Validate Swift warning budget",
     "Run early CLI binary smoke checks",
     "Start product publication timer",
@@ -114,6 +141,8 @@ def reaches_product(path: str) -> bool:
     if path.startswith(PRODUCT_WORKER_PREFIXES):
         return True
     if path.startswith("scripts/ci/"):
+        return False
+    if path in NON_PRODUCT_TOOLING or path.startswith(NON_PRODUCT_TOOLING_PREFIXES):
         return False
     if path.startswith((".github/", "tests/", "tests_v2/", "docs/", "design/", "plans/", "ios/", "web/", "workers/", "config/iroh/", "cmux-tui/", "cmux-browser/", "daemon/remote/")):
         return False
