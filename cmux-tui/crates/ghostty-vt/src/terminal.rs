@@ -3602,8 +3602,7 @@ impl Terminal {
         // recreate soft wraps naturally. Placement commands and history-bearing
         // ranges depend on physical row cursor positions, so retain the
         // row-delimited form for those cases.
-        let preserve_soft_wrap =
-            !history_bearing && !insert_at_start && !has_placement_anchor;
+        let preserve_soft_wrap = !history_bearing && !insert_at_start && !has_placement_anchor;
         let mut emitted_breaks = 0usize;
         for segment_end in segment_ends {
             if segment_end < segment_start {
