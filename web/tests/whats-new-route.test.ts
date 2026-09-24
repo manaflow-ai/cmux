@@ -120,4 +120,26 @@ describe("whats-new route channel targeting", () => {
   test("still accepts the legacy shape with no channel fields", () => {
     expect(validateList(base)).toEqual(base);
   });
+
+  test("ships the 1.0.6 connection notice only to beta and internal", () => {
+    const notice = whatsNewList.announcements.find(
+      (entry) => entry.id === "ios-1.0.6-connections",
+    );
+    expect(notice).toEqual({
+      id: "ios-1.0.6-connections",
+      minVersion: "1.0.6",
+      maxVersion: "1.0.6",
+      title: "What's New in 1.0.6",
+      releaseLabel: "1.0.6 · September 2026",
+      channels: ["beta", "internal"],
+      features: expect.arrayContaining([
+        expect.objectContaining({
+          title: "Updated Mac connections",
+        }),
+        expect.objectContaining({
+          detail: expect.stringContaining("0.64.25-nightly.3522337919701"),
+        }),
+      ]),
+    });
+  });
 });
