@@ -30,6 +30,7 @@ final class SurfaceCatalog {
     private var cloudProjectionIndex = Set<CloudProjectionKey>()
     private var cloudProjectionIndexDirty = true
     private(set) var projections: Set<SurfaceProjection> = [] { didSet { cloudProjectionIndexDirty = true; noteProjectionChanges(from: oldValue) } }
+    var localWorkspacePreviewPanelIDs: Set<UUID> = []
     var projectionVersions: [SurfaceMachineID: UInt64] = [:]
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
@@ -200,7 +201,7 @@ final class SurfaceCatalog {
         cloudStates[machine] = nil
         cloudStateObservations[machine] = nil
         updateCloudDirectoryMetadata(on: machine)
-        projections = projections.filter { $0.resource.machine != machine }
+        projections = projections.filter { $0.resource.machine != machine }; localWorkspacePreviewPanelIDs = localWorkspacePreviewPanelIDs.filter { panelID in projections.contains { $0.panelID == panelID } }
         projectionVersions[machine] = nil
         notifyChange()
     }
@@ -1108,7 +1109,7 @@ final class SurfaceCatalog {
     /// Records a materialized pane and reconciles it with the installed graph.
     func record(_ projection: SurfaceProjection) {
         consumePendingProjectionIfMaterialized(projection)
-        insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
+        insertSupersedingLocalPlaceholder(noteMaterializedProjection(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection)))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
         syncCloudTerminalTabIcon(projection)
@@ -1154,7 +1155,7 @@ final class SurfaceCatalog {
         var updated = projection
         updated.remoteWorkspaceID = view.workspace.id
         updated.remoteTabID = view.tabID
-        projections.insert(updated)
+        projections.insert(noteUpdatedProjection(updated))
         reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
         notifyChange()
         return updated
@@ -1201,7 +1202,7 @@ final class SurfaceCatalog {
         if removedPending { cloudProjectionIndexDirty = true }
         let ended = projections.filter { $0.panelID == panelID }
         guard !ended.isEmpty || removedPending else { return }
-        projections.subtract(ended)
+        projections.subtract(ended); forgetProjectionOrigins(ended)
         for projection in ended {
             cloudPlacementCoordinator.projectionDidEnd(projection, reason: projectionEndReasons[panelID] ?? reason, catalog: self)
             providers[projection.resource.machine]?.projectionDidEnd(projection)
@@ -1252,7 +1253,7 @@ final class SurfaceCatalog {
             projections.remove(projection)
             projection.remoteWorkspaceID = workspaceID
             projection.remoteTabID = tabID
-            projections.insert(projection)
+            projections.insert(noteUpdatedProjection(projection))
         }
         notifyChange()
     }

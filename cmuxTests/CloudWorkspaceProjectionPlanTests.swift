@@ -27,7 +27,9 @@ struct CloudWorkspaceProjectionPlanTests {
             remoteTabID: "remote-tab"
         )
 
-        let plan = CloudWorkspaceProjectionPlan(desired: [desired], existing: [preview])
+        let plan = CloudWorkspaceProjectionPlan(
+            desired: [desired], existing: [preview], localPreviewPanelIDs: [preview.panelID]
+        )
 
         #expect(plan.obsolete.isEmpty)
         #expect(plan.missing == [desired])

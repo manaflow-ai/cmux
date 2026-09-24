@@ -6,16 +6,12 @@ struct CloudWorkspaceProjectionPlan {
     let missing: [SurfaceResourcePlacement]
     let obsolete: [SurfaceProjection]
 
-    init(desired: [SurfaceResourcePlacement], existing: [SurfaceProjection]) {
+    init(desired: [SurfaceResourcePlacement], existing: [SurfaceProjection], localPreviewPanelIDs: Set<UUID> = []) {
         let wanted = Set(desired)
         var seen = Set<SurfaceResourcePlacement>()
         var obsolete: [SurfaceProjection] = []
         for projection in existing.sorted(by: { $0.panelID.uuidString < $1.panelID.uuidString }) {
-            // A local preview has no daemon tab but retains the bound remote
-            // workspace as its local-view provenance. A projection whose
-            // coordinates were cleared by an authoritative remote deletion has
-            // neither coordinate and must still be retired.
-            if projection.isLocalWorkspaceView && projection.remoteWorkspaceID != nil {
+            if localPreviewPanelIDs.contains(projection.panelID) {
                 continue
             }
             let placement = SurfaceResourcePlacement(

@@ -106,7 +106,7 @@ final class CloudWorkspaceProjectionCoordinator {
                 !catalog.cloudPlacementCoordinator.isPendingClose($0, on: machine)
             }
             let existing = catalog.projections.filter { $0.workspaceID == workspaceID && $0.resource.machine == machine }
-            let plan = CloudWorkspaceProjectionPlan(desired: desired, existing: Array(existing))
+            let plan = CloudWorkspaceProjectionPlan(desired: desired, existing: Array(existing), localPreviewPanelIDs: catalog.localWorkspacePreviewPanelIDs)
             do {
                 for placement in plan.missing {
                     guard isCurrent(state, catalog: catalog), environment.bindings()[workspaceID] == binding else {
