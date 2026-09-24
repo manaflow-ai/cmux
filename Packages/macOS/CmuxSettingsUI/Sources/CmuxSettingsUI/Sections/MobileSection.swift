@@ -12,6 +12,7 @@ public struct MobileSection: View {
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
     @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
+    @State private var browserTunnelAllowOtherHosts: DefaultsValueModel<Bool>
     @State private var status: MobilePairingStatusModel
     @State private var phonePush: MobilePhonePushSettingsModel
 
@@ -57,6 +58,10 @@ public struct MobileSection: View {
         _artifactFolderAccess = State(initialValue: DefaultsValueModel(
             store: defaultsStore,
             key: catalog.mobile.artifactFolderAccess
+        ))
+        _browserTunnelAllowOtherHosts = State(initialValue: DefaultsValueModel(
+            store: defaultsStore,
+            key: catalog.mobile.browserTunnelAllowOtherHosts
         ))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
         _phonePush = State(initialValue: MobilePhonePushSettingsModel(hostActions: hostActions))
@@ -108,6 +113,8 @@ public struct MobileSection: View {
                     displayNameRow
                     SettingsCardDivider()
                     artifactFolderAccessRow
+                    SettingsCardDivider()
+                    browserTunnelRow
                     // Keep diagnostics visible while a live endpoint is draining
                     // after the user turns pairing off.
                     if iOSPairingHost.current || status.current?.isRunning == true {
@@ -136,6 +143,7 @@ public struct MobileSection: View {
             port,
             displayName,
             artifactFolderAccess,
+            browserTunnelAllowOtherHosts,
             status,
             phonePush,
         ]
@@ -461,6 +469,37 @@ public struct MobileSection: View {
             .labelsHidden()
             .pickerStyle(.menu)
             .accessibilityIdentifier("SettingsMobileArtifactFolderAccessPicker")
+        }
+    }
+
+    @ViewBuilder
+    private var browserTunnelRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("mobile.browserTunnel.allowOtherHosts"),
+            String(
+                localized: "settings.mobile.browserTunnel.allowOtherHosts",
+                defaultValue: "iOS Browser Reaches Other Hosts"
+            ),
+            subtitle: browserTunnelAllowOtherHosts.current
+                ? String(
+                    localized: "settings.mobile.browserTunnel.allowOtherHosts.subtitleOn",
+                    defaultValue: "The iOS browser can load LAN, VPN, and internet hosts through this Mac. Link-local and cloud metadata addresses stay blocked."
+                )
+                : String(
+                    localized: "settings.mobile.browserTunnel.allowOtherHosts.subtitleOff",
+                    defaultValue: "The iOS browser reaches only this Mac's localhost through this Mac. Other sites load over the phone's own network."
+                )
+        ) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { browserTunnelAllowOtherHosts.current },
+                    set: { browserTunnelAllowOtherHosts.set($0) }
+                )
+            )
+            .labelsHidden()
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsMobileBrowserTunnelAllowOtherHostsToggle")
         }
     }
 

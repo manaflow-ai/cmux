@@ -331916,6 +331916,242 @@
         }
       }
     },
+    "settings.mobile.browserTunnel.allowOtherHosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS Browser Reaches Other Hosts"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS-Browser erreicht andere Hosts"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le navigateur iOS accède aux autres hôtes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "متصفح iOS يصل إلى مضيفين آخرين"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El navegador de iOS accede a otros hosts"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 瀏覽器可連線至其他主機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 浏览器可访问其他主机"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 브라우저의 다른 호스트 접근"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSブラウザから他のホストに接続"
+          }
+        }
+      }
+    },
+    "settings.mobile.browserTunnel.allowOtherHosts.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The iOS browser can load LAN, VPN, and internet hosts through this Mac. Link-local and cloud metadata addresses stay blocked."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der iOS-Browser kann LAN-, VPN- und Internet-Hosts über diesen Mac laden. Link-Local- und Cloud-Metadatenadressen bleiben gesperrt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le navigateur iOS peut charger des hôtes du réseau local, du VPN et d’Internet via ce Mac. Les adresses link-local et de métadonnées cloud restent bloquées."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن لمتصفح iOS تحميل مضيفي الشبكة المحلية وVPN والإنترنت عبر جهاز Mac هذا. تبقى عناوين الارتباط المحلي وعناوين بيانات التعريف السحابية محظورة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El navegador de iOS puede cargar hosts de la red local, VPN e internet a través de este Mac. Las direcciones link-local y de metadatos en la nube siguen bloqueadas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 瀏覽器可透過這台 Mac 載入區域網路、VPN 與網際網路主機。連結本機位址與雲端中繼資料位址仍會被封鎖。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 浏览器可通过这台 Mac 加载局域网、VPN 和互联网主机。链路本地地址和云元数据地址仍会被阻止。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 브라우저가 이 Mac을 통해 LAN, VPN, 인터넷 호스트를 불러올 수 있습니다. 링크 로컬 및 클라우드 메타데이터 주소는 계속 차단됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSブラウザはこのMac経由でLAN、VPN、インターネット上のホストを読み込めます。リンクローカルとクラウドメタデータのアドレスは引き続きブロックされます。"
+          }
+        }
+      }
+    },
+    "settings.mobile.browserTunnel.allowOtherHosts.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The iOS browser reaches only this Mac's localhost through this Mac. Other sites load over the phone's own network."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der iOS-Browser erreicht über diesen Mac nur dessen localhost. Andere Websites werden über das eigene Netzwerk des Telefons geladen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Via ce Mac, le navigateur iOS n’accède qu’au localhost de ce Mac. Les autres sites se chargent via le réseau du téléphone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يصل متصفح iOS عبر جهاز Mac هذا إلا إلى localhost الخاص به. تُحمَّل المواقع الأخرى عبر شبكة الهاتف نفسه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A través de este Mac, el navegador de iOS solo accede a su localhost. Los demás sitios se cargan con la red del propio teléfono."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 瀏覽器只會透過這台 Mac 連線至它的 localhost。其他網站會透過手機本身的網路載入。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 浏览器只会通过这台 Mac 访问它的 localhost。其他网站通过手机自身的网络加载。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOS 브라우저는 이 Mac을 통해 이 Mac의 localhost에만 접근합니다. 다른 사이트는 휴대폰 자체 네트워크로 불러옵니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iOSブラウザがこのMac経由で接続するのは、このMacのlocalhostだけです。他のサイトは電話自身のネットワークで読み込みます。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.mobile.browserTunnelAllowOtherHosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security mobil browser tunnel proxy lokales netzwerk hosts netzwerk sicherheit"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security mobile navigateur tunnel proxy réseau local hôtes réseau sécurité"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security متصفح نفق وكيل شبكة محلية مضيفون شبكة أمان"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security móvil navegador túnel proxy red local hosts red seguridad"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security 行動裝置 瀏覽器 通道 代理 區域網路 主機 網路 安全性"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security 移动 浏览器 隧道 代理 局域网 主机 网络 安全"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security 모바일 브라우저 터널 프록시 로컬 네트워크 호스트 네트워크 보안"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mobile ios iphone browser on iphone tunnel proxy localhost lan vpn internet hosts network security モバイル ブラウザ トンネル プロキシ ローカルネットワーク ホスト ネットワーク セキュリティ"
+          }
+        }
+      }
+    },
     "settings.mobile.artifactFolderAccess.subtitleSubtree": {
       "extractionState": "manual",
       "localizations": {

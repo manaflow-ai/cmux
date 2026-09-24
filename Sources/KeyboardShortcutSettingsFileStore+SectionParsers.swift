@@ -158,13 +158,26 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
-        guard section.keys.contains("artifactFolderAccess") else { return }
-        guard let raw = jsonString(section["artifactFolderAccess"]),
-              let value = MobileArtifactFolderAccess(rawValue: raw) else {
-            logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
-            return
+        if section.keys.contains("artifactFolderAccess") {
+            if let raw = jsonString(section["artifactFolderAccess"]),
+               let value = MobileArtifactFolderAccess(rawValue: raw) {
+                let key = SettingCatalog().mobile.artifactFolderAccess
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
+            } else {
+                logInvalid("mobile.artifactFolderAccess", sourcePath: sourcePath)
+            }
         }
-        let key = SettingCatalog().mobile.artifactFolderAccess
-        snapshot.managedUserDefaults[key.userDefaultsKey] = .string(value.rawValue)
+        if section.keys.contains("browserTunnel") {
+            guard let tunnel = section["browserTunnel"] as? [String: Any] else {
+                logInvalid("mobile.browserTunnel", sourcePath: sourcePath)
+                return
+            }
+            if let value = jsonBool(tunnel["allowOtherHosts"]) {
+                let key = SettingCatalog().mobile.browserTunnelAllowOtherHosts
+                snapshot.managedUserDefaults[key.userDefaultsKey] = .bool(value)
+            } else if tunnel.keys.contains("allowOtherHosts") {
+                logInvalid("mobile.browserTunnel.allowOtherHosts", sourcePath: sourcePath)
+            }
+        }
     }
 }

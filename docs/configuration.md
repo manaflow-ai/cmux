@@ -28,6 +28,25 @@ Controls which files and folders cmux on iOS may browse after a chat references 
 
 Authorization compares canonical paths after resolving symlinks. A symlink inside an authorized folder cannot grant access to a target outside that folder.
 
+## `mobile.browserTunnel.allowOtherHosts`
+
+Controls where the iOS "On iPhone" browser can reach through this Mac. The browser loads pages on the phone, and connections for this Mac's workspaces leave from this Mac.
+
+```json
+{
+  "mobile": {
+    "browserTunnel": {
+      "allowOtherHosts": false
+    }
+  }
+}
+```
+
+- `false` (default): only this Mac's `localhost` (`localhost`, `*.localhost`, `127.0.0.0/8`, `::1`) is reachable through the Mac. Other sites load over the phone's own network.
+- `true`: LAN, VPN, and internet hosts are also reachable through this Mac, with names resolved on this Mac.
+
+Link-local addresses, including the cloud metadata service at `169.254.169.254`, are refused either way. Only a phone signed in to the same account and admitted to this Mac can open connections, and they end when that phone disconnects. Turning off the embedded browser by configuration profile turns this off too.
+
 ## `paneBorderColor` and `activePaneBorderColor`
 
 Customize split-workspace pane boundaries controlled by cmux.

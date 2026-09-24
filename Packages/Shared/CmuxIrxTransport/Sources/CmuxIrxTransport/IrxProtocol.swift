@@ -93,6 +93,13 @@ public enum IrxLaneKind: String, Codable, Sendable {
     case terminalInput = "terminal_input"
     case artifact
     case simulatorStream = "simulator_stream"
+    /// Phone browser tunnel: one TCP connection opened from the Mac to the
+    /// descriptor's `host`/`port`, answered with an `IrxTunnelOpenReply`,
+    /// then raw bytes both ways (see `IrxTunnelHost`).
+    case tcpConnect = "tcp_connect"
+    /// Phone browser tunnel: the Mac's loopback listening ports, answered
+    /// with one `IrxListeningPortsReply` and a finished stream.
+    case listeningPorts = "listening_ports"
 }
 
 /// The first frame on every stream: which lane this is, plus lane-specific
@@ -107,18 +114,26 @@ public struct IrxLaneDescriptor: Codable, Equatable, Sendable {
     public var cursor: UInt64?
     /// Artifact byte offset.
     public var offset: UInt64?
+    /// `tcpConnect` destination host, as the phone's browser sent it.
+    public var host: String?
+    /// `tcpConnect` destination port.
+    public var port: Int?
 
     public init(
         lane: IrxLaneKind,
         resource: String? = nil,
         cursor: UInt64? = nil,
-        offset: UInt64? = nil
+        offset: UInt64? = nil,
+        host: String? = nil,
+        port: Int? = nil
     ) {
         v = IrxProtocol().version
         self.lane = lane
         self.resource = resource
         self.cursor = cursor
         self.offset = offset
+        self.host = host
+        self.port = port
     }
 }
 
