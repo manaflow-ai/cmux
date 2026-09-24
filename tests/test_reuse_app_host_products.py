@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import re
 from unittest import mock
 import shutil
 import sys
@@ -25,10 +26,11 @@ class ReuseProducts(TestProductHandoff):
         super().setUp()
         self.contract = {
             "product_inputs": {
-                "schema": "cmux-app-host-product-inputs/v1",
+                "schema": "cmux-app-host-product-inputs/v2",
                 "algorithm": "a" * 64,
                 "source": "b" * 64,
                 "recipe": "c" * 64,
+                "e2e_recipe": "d" * 64,
             },
             "xcode": "same-xcode",
             "sdk": "same-sdk",
@@ -249,8 +251,8 @@ class ReuseProducts(TestProductHandoff):
         )
 
         changed_recipe = mutate_admission(
-            "scripts/ci/compile-app-host-test-product.sh build \\",
-            "scripts/ci/compile-app-host-test-product.sh build --changed \\",
+            "scripts/ci/compile-app-host-test-product.sh canonical-build \\",
+            "scripts/ci/compile-app-host-test-product.sh canonical-build --changed \\",
         )
         self.assertNotEqual(
             base_identity,
@@ -273,11 +275,45 @@ class ReuseProducts(TestProductHandoff):
             "config/iroh/managed-relay-catalog.json",
             "vercel.json",
             ".vercelignore",
+            "cmux-browser/src/main.ts",
+            "daemon/remote/cmd/cmuxd-remote/cli.go",
         ):
             self.assertFalse(identity.reaches_product(path), path)
         self.assertTrue(identity.reaches_product("config/IrohRelayPolicyProduction.xcconfig"))
         self.assertTrue(identity.reaches_product("scripts/ci/compile-app-host-test-product.sh"))
         self.assertTrue(identity.reaches_product("cmuxTests/WorkspaceTests.swift"))
+
+    def test_product_identity_binds_the_e2e_build_recipe(self):
+        identity = reuse.product_inputs
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/ci-macos.yml").read_text()
+        e2e_workflow = (root / ".github/workflows/test-e2e.yml").read_text()
+        tree = [f"100644 blob {'1' * 40}\tSources/App.swift"]
+
+        base = identity.identity_from_tree_lines(tree, workflow, e2e_workflow)
+
+        changed_env = e2e_workflow.replace(
+            '      CMUX_SKIP_ZIG_BUILD: "1"\n',
+            '      CMUX_SKIP_ZIG_BUILD: "1"\n'
+            '      XCODE_XCCONFIG_FILE: /tmp/override.xcconfig\n',
+            1,
+        )
+        self.assertNotEqual(
+            base,
+            identity.identity_from_tree_lines(tree, workflow, changed_env),
+        )
+
+        changed_step = e2e_workflow.replace(
+            "      - name: Build the app-host and UI test product\n",
+            "      - name: Future product mutation\n"
+            "        run: touch Sources/App.swift\n\n"
+            "      - name: Build the app-host and UI test product\n",
+            1,
+        )
+        self.assertNotEqual(
+            base,
+            identity.identity_from_tree_lines(tree, workflow, changed_step),
+        )
 
     def test_bundled_paste_worker_source_reaches_product(self):
         """cmux.xcodeproj compiles this into the bundle, so reuse must see it."""
@@ -310,7 +346,9 @@ class ReuseProducts(TestProductHandoff):
         )
 
     def test_github_product_identity_is_recomputed_from_git_objects(self):
-        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text()
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/ci-macos.yml").read_text()
+        e2e_workflow = (root / ".github/workflows/test-e2e.yml").read_text()
         entries = [
             {"path": "Sources/App.swift", "mode": "100644", "type": "blob", "sha": "1" * 40},
             {
@@ -318,6 +356,12 @@ class ReuseProducts(TestProductHandoff):
                 "mode": "100644",
                 "type": "blob",
                 "sha": "2" * 40,
+            },
+            {
+                "path": ".github/workflows/test-e2e.yml",
+                "mode": "100644",
+                "type": "blob",
+                "sha": "4" * 40,
             },
         ]
 
@@ -332,12 +376,18 @@ class ReuseProducts(TestProductHandoff):
                         "encoding": "base64",
                         "content": base64.b64encode(workflow.encode()).decode(),
                     }
+                if path == f"git/blobs/{'4' * 40}":
+                    return {
+                        "encoding": "base64",
+                        "content": base64.b64encode(e2e_workflow.encode()).decode(),
+                    }
                 raise AssertionError(path)
 
         actual = reuse.github_product_identity(GitObjects(), "abc123")
         expected = reuse.product_inputs.identity_from_tree_lines(
             reuse.product_inputs.github_tree_lines(entries),
             workflow,
+            e2e_workflow,
         )
         self.assertEqual(actual, expected)
 
@@ -425,14 +475,17 @@ class ReuseProducts(TestProductHandoff):
             git("init", "-q", "-b", "main", ".")
             git("commit", "-q", "--allow-empty", "-m", "base")
             self.base_revision = git("rev-parse", "HEAD")
-            git("checkout", "-q", "-b", "head")
+            # Not "head": on a case-insensitive filesystem refs/heads/head and
+            # .git/HEAD are the same path, so every later "head" argument is an
+            # ambiguous refname and these tests cannot run on macOS at all.
+            git("checkout", "-q", "-b", "pull-request-head")
             git("commit", "-q", "--allow-empty", "-m", "pull request head")
             self.head_revision = git("rev-parse", "HEAD")
             git("checkout", "-q", "main")
-            git("merge", "-q", "--no-ff", "head", "-m", "merge pull request")
+            git("merge", "-q", "--no-ff", "pull-request-head", "-m", "merge pull request")
             # The same two commits merged the other way, leaving the pull
             # request head in the first-parent position.
-            git("checkout", "-q", "-b", "reversed", "head")
+            git("checkout", "-q", "-b", "reversed", "pull-request-head")
             git("merge", "-q", "--no-ff", "main", "-m", "merge base")
         checkout = root / branch
         git("clone", "-q", "--depth", "1", "--branch", branch, "--no-local",
@@ -465,7 +518,7 @@ class ReuseProducts(TestProductHandoff):
             # merged into it, not the pull request merged for testing.
             ("reversed", "head_revision"),
             # A non-merge checkout still has to be the attested commit itself.
-            ("head", "base_revision"),
+            ("pull-request-head", "base_revision"),
         )
         for branch, attribute in cases:
             with self.subTest(branch=branch):
@@ -522,6 +575,69 @@ class ReuseProducts(TestProductHandoff):
             "consumer_revision": "abc123",
             "upstream": None,
         }
+
+    def seal_at(self, revision):
+        """Re-seal the producer archive as a run that checked out `revision`."""
+        self.identity = {**self.identity, "revision": revision}
+        self.seal()
+
+    def test_pull_request_producer_sealed_at_its_merge_commit_is_reusable(self):
+        """A pull request producer seals the merge commit it checked out.
+
+        `reuse_app_host_products.py seal` records `git rev-parse HEAD`, which
+        on a pull request run is the ephemeral merge commit, while the run's
+        `head_sha` is the pull request head. Requiring those two to be equal
+        rejected every pull request producer, and only after its archive had
+        already been downloaded and expanded.
+        """
+        merge = "aaa111bbb222"
+        self.api.commit_parents[merge] = ["base999", self.api.run["head_sha"]]
+        self.api.product_identities[merge] = self.contract["product_inputs"]
+        self.seal_at(merge)
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertNotIn("product_provenance_invalid", report["miss_reasons"])
+        self.assertEqual(report["reason"], "hit")
+        provenance = json.loads(
+            (self.consumer / "Build/Products/cmux-original-producer.json").read_text())
+        self.assertEqual(provenance["revision"], merge)
+
+    def test_producer_revision_outside_the_attested_head_stays_a_miss(self):
+        """Only a merge of the producer's attested head vouches for its archive."""
+        merge = "aaa111bbb222"
+        cases = {
+            # The attested head is not a parent of the sealed revision at all.
+            "unrelated_merge": (["base999", "other77"], "pull_request", True),
+            # The attested head as first parent: the base merged into the pull
+            # request, not the pull request merged for testing.
+            "reversed_merge": ([self.api.run["head_sha"], "base999"],
+                               "pull_request", True),
+            # An octopus merge never names a single tested head.
+            "octopus_merge": (["base999", self.api.run["head_sha"], "third33"],
+                              "pull_request", True),
+            # Merge queue runs check out the attested commit, so nothing relaxes.
+            "merge_group": (["base999", self.api.run["head_sha"]],
+                            "merge_group", True),
+            # A well-formed merge whose tree carries different product inputs.
+            "foreign_product_inputs": (["base999", self.api.run["head_sha"]],
+                                       "pull_request", False),
+        }
+        for name, (parents, event, same_inputs) in cases.items():
+            with self.subTest(case=name):
+                self.setUp()
+                self.api.commit_parents[merge] = parents
+                self.api.product_identities[merge] = (
+                    self.contract["product_inputs"] if same_inputs
+                    else {**self.contract["product_inputs"], "source": "9" * 64})
+                if event == "merge_group":
+                    for run in (self.api.run, self.api.consumer_run):
+                        run["event"] = event
+                        run.pop("pull_requests", None)
+                self.seal_at(merge)
+                report = {}
+                self.assertFalse(self.restore_reuse(report=report))
+                self.assertIn("product_provenance_invalid", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
 
     def install_upstream(self, provenance):
         """Embed provenance in the producer archive and refresh its outer digest."""
@@ -588,13 +704,13 @@ class ReuseProducts(TestProductHandoff):
                 if failure == 'archive':
                     bad['digest'] = 'sha256:' + hashlib.sha256(b'corrupt').hexdigest()
                 bad_run = {**self.api.run, 'id': 99} if failure == 'receipt' else self.api.run
-                def download(artifact_id, target):
+                def download(artifact_id, target, size):
                     if artifact_id == 41 and failure == 'download':
                         raise OSError('candidate unavailable')
                     if artifact_id == 41 and failure == 'archive':
                         target.write_bytes(b'corrupt')
                     else:
-                        original_download(42, target)
+                        original_download(42, target, size)
                 with mock.patch.object(reuse, 'select', return_value=[
                         (bad, bad_run), (self.api.artifact, self.api.run)]), \
                         mock.patch.object(self.api, 'download', side_effect=download) as calls:
@@ -697,6 +813,194 @@ class ReuseProducts(TestProductHandoff):
         self.assertEqual(outputs["miss_reasons"], "consumer_provenance_unavailable")
         self.assertFalse(self.consumer.exists())
 
+
+    def dispatch_consumer(self):
+        """Make the consumer an E2E dispatch.
+
+        Its `head_sha` names the workflow definition's ref, never the revision
+        under test, because that arrives as a workflow input.
+        """
+        self.api.consumer_run.update({
+            "path": ".github/workflows/test-e2e.yml",
+            "event": "workflow_dispatch",
+            "pull_requests": [],
+            "head_sha": "aaa999",
+        })
+
+    def dispatch_producer(self):
+        self.api.run.update({
+            "path": ".github/workflows/test-e2e.yml",
+            "event": "workflow_dispatch",
+            # GitHub associates same-repo dispatches with an open PR. Keeping
+            # this populated makes the dispatch->PR prohibition exercise the
+            # event matrix instead of failing earlier on PR-number mismatch.
+            "pull_requests": [{"number": 7}],
+            "head_sha": "aaa999",
+        })
+        self.api.product_identities["aaa999"] = self.contract["product_inputs"]
+        self.api.job = {
+            "name": "build",
+            "conclusion": "success",
+            "status": "completed",
+            "steps": [{
+                "name": "Build the app-host and UI test product",
+                "conclusion": "success",
+                "status": "completed",
+                "started_at": "2026-09-21T08:00:00Z",
+                "completed_at": "2026-09-21T08:10:00Z",
+            }],
+        }
+
+    def test_a_dispatch_adopts_the_product_ci_already_compiled(self):
+        # `head_sha` here is "aaa999", which has no product identity at all, so
+        # a hit proves the dispatch was admitted on its checkout instead.
+        self.dispatch_consumer()
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertEqual(report["reason"], "hit")
+        self.assertEqual(report["producer_run_id"], "12")
+
+    def test_a_dispatch_checkout_must_still_match_githubs_copy(self):
+        self.dispatch_consumer()
+        self.api.product_identities["def456"] = {
+            **self.contract["product_inputs"], "source": "z" * 64,
+        }
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_one_dispatch_adopts_an_earlier_dispatch_product(self):
+        # Two dispatches of the same revision on the same pool compile the same
+        # product; the second should download the first one instead.
+        self.dispatch_consumer()
+        self.dispatch_producer()
+        report = {}
+        self.assertTrue(self.restore_reuse(report=report))
+        self.assertEqual(report["reason"], "hit")
+        # Found through the E2E lane's own compile job and step names.
+        self.assertEqual(report["compile_seconds_avoided"], 600.0)
+
+    def test_a_dispatch_producer_cannot_seal_a_revision_it_did_not_build(self):
+        # Nothing binds a dispatch producer's run to what it compiled, so the
+        # sealed revision is re-fingerprinted against GitHub. A receipt naming
+        # a revision whose tree carries other product inputs is a miss, and the
+        # products never reach the consumer's DerivedData.
+        self.dispatch_consumer()
+        self.dispatch_producer()
+        self.api.product_identities["abc123"] = {
+            **self.contract["product_inputs"], "source": "z" * 64,
+        }
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_a_dispatch_producer_recipe_must_match_the_workflow_github_ran(self):
+        self.dispatch_consumer()
+        self.dispatch_producer()
+        self.api.product_identities["aaa999"] = {
+            **self.contract["product_inputs"],
+            "e2e_recipe": "f" * 64,
+        }
+        report = {}
+        with mock.patch.object(self.api, "download") as download:
+            self.assertFalse(self.restore_reuse(report=report))
+            download.assert_not_called()
+        self.assertIn("producer_recipe_mismatch", report["miss_reasons"])
+        self.assertFalse(self.consumer.exists())
+
+    def test_ci_never_adopts_a_dispatch_product(self):
+        # Trust runs one way: a dispatch compiles a dispatcher-chosen revision,
+        # so CI's own lanes must not pick its products up.
+        self.dispatch_producer()
+        self.assertFalse(self.restore_reuse())
+        self.assertFalse(self.consumer.exists())
+
+    def test_products_are_read_over_parallel_range_requests(self):
+        # A single `gh api .../zip` stream sustained about 2 MB/s, so every
+        # ~900 MB candidate hit its budget and the job compiled instead --
+        # invisibly, because a miss looks exactly like a normal build.
+        target = self.producer.parent / "probe.zip"
+        with mock.patch.object(reuse.parallel, "download_zip") as download_zip, \
+                mock.patch.object(reuse.subprocess, "run") as run:
+            reuse.GitHub("manaflow-ai/cmux").download(42, target, 979844748)
+        download_zip.assert_called_once_with("manaflow-ai/cmux", 42, target, 979844748)
+        run.assert_not_called()
+
+    def test_restore_passes_the_listed_artifact_size_to_the_transport(self):
+        with mock.patch.object(self.api, "download", wraps=self.api.download) as download:
+            self.assertTrue(self.restore_reuse())
+        self.assertEqual(download.call_args.args[2], self.api.artifact["size_in_bytes"])
+
+    def test_a_failed_transfer_is_a_miss_not_a_crash(self):
+        for error in (reuse.parallel.TransportError("parallel download deadline exceeded"),
+                      OSError("connection reset"),
+                      reuse.http.client.IncompleteRead(b"partial"),
+                      EOFError("stream ended"),
+                      ValueError("size must be positive")):
+            with self.subTest(error=type(error).__name__):
+                with mock.patch.object(type(self.api), "download", side_effect=error):
+                    report = {}
+                    self.assertFalse(self.restore_reuse(report=report))
+                self.assertIn("artifact_download_error", report["miss_reasons"])
+                self.assertFalse(self.consumer.exists())
+
+    def test_product_archives_carry_no_appledouble_entries(self):
+        # macOS tar adds Build/._Products for Xcode's xattrs unless
+        # COPYFILE_DISABLE is set; unpack() rejects that as an unscoped path,
+        # so every product packed without it was a silent miss.
+        root = Path(__file__).resolve().parents[1] / ".github/workflows"
+        packers = [
+            (path.name, line.strip())
+            for path in sorted(root.glob("*.yml"))
+            for line in path.read_text().splitlines()
+            if re.search(r"\btar -c\w*\b.*\bBuild/Products\b", line)
+        ]
+        self.assertTrue(packers)
+        for name, line in packers:
+            with self.subTest(workflow=name):
+                self.assertTrue(line.startswith("COPYFILE_DISABLE=1 tar "), line)
+
+    def test_each_event_is_trusted_only_from_its_own_workflow(self):
+        for event, path, trusted in (
+            ("pull_request", ".github/workflows/ci.yml", True),
+            ("pull_request", ".github/workflows/test-e2e.yml", False),
+            ("merge_group", ".github/workflows/ci.yml", True),
+            ("workflow_dispatch", ".github/workflows/test-e2e.yml", True),
+            ("workflow_dispatch", ".github/workflows/ci.yml", False),
+            ("schedule", ".github/workflows/nightly.yml", False),
+        ):
+            with self.subTest(event=event, path=path):
+                run = {
+                    "event": event,
+                    "path": path,
+                    "head_repository": {"full_name": self.api.repository},
+                }
+                self.assertEqual(
+                    reuse.trusted_ci_run(run, self.api.repository), trusted
+                )
+
+    def test_dispatch_pairs_extend_the_matrix_in_one_direction(self):
+        ci = {
+            "path": ".github/workflows/ci.yml",
+            "head_repository": {"full_name": self.api.repository},
+            "pull_requests": [{"number": 7}],
+        }
+        dispatch = {
+            "path": ".github/workflows/test-e2e.yml",
+            "head_repository": {"full_name": self.api.repository},
+            "event": "workflow_dispatch",
+            "pull_requests": [{"number": 7}],
+        }
+        for name, producer, consumer, expected in (
+            ("pr_to_dispatch", {**ci, "event": "pull_request"}, dispatch, True),
+            ("merge_group_to_dispatch", {**ci, "event": "merge_group"}, dispatch, True),
+            ("dispatch_to_dispatch", dispatch, dispatch, True),
+            ("dispatch_to_pr", dispatch, {**ci, "event": "pull_request"}, False),
+            ("dispatch_to_merge_group", dispatch, {**ci, "event": "merge_group"}, False),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(
+                    reuse.permitted_pair(producer, consumer, self.api.repository),
+                    expected,
+                )
 
     def test_permitted_producer_consumer_matrix(self):
         base = {
@@ -977,6 +1281,9 @@ class FakeGitHub:
         }
         self.artifacts = [self.artifact]
         self.artifact_queries = []
+        # Parent revisions GitHub reports for a commit, so a pull request
+        # producer's ephemeral merge commit can be bound to its attested head.
+        self.commit_parents = {}
         self.run = {
             "id": 12,
             "path": ".github/workflows/ci.yml",
@@ -1037,11 +1344,16 @@ class FakeGitHub:
                 return {"jobs": [self.job]}
             raise OSError("jobs unavailable")
         if path.startswith("git/commits/"):
-            return {"tree": {"sha": "f" * 40}}
+            revision = path[len("git/commits/"):]
+            return {
+                "tree": {"sha": "f" * 40},
+                "parents": [{"sha": sha} for sha in self.commit_parents.get(revision, [])],
+            }
         raise AssertionError(path)
 
-    def download(self, artifact_id, target):
+    def download(self, artifact_id, target, size):
         assert artifact_id == self.artifact["id"]
+        assert size == self.artifact["size_in_bytes"]
         shutil.copyfile(self.archive, target)
 
 

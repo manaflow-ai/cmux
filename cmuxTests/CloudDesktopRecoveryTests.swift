@@ -27,6 +27,8 @@ struct CloudDesktopRecoveryTests {
     /// which is identical across carrier restarts.
     @Test("A replaced browser carrier rebinds the live desktop document")
     func desktopRebindsAfterCarrierReplacement() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
         let store = CloudPortAccessStore()
         let target = CloudPortForwardTarget(host: "10.0.0.7", port: 6901)
         let first = CloudBrowserProxyEndpoint(
@@ -50,8 +52,8 @@ struct CloudDesktopRecoveryTests {
                 }
             )
         }
-        let provider = provider(store: store, catalog: SurfaceCatalog())
-        let browser = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        let provider = provider(store: store, catalog: SurfaceCatalog(live: live))
+        let browser = BrowserPanel(workspaceId: live.id(), websiteDataStore: .nonPersistent())
         defer { browser.close() }
         let remote = try #require(URL(string: CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: target.host)))
 
