@@ -157,6 +157,7 @@ public struct CloudVMCursor: Hashable, Codable, Sendable {
 /// paths. Coercing that value with intValue would turn `true`, fractions, and
 /// overflowing values into a different cursor or index, which can make a delta
 /// look contiguous when it is not.
+/// lint:allow namespace-type — moved unchanged from the app target, where it was an internal static namespace; reshaping it is a separate change from this package move.
 public enum CloudWireNumber {
     public static func unsigned(_ raw: Any?) -> UInt64? {
         // A JSON number decodes as NSNumber, and `NSNumber(0) is Bool` is true,
@@ -1626,6 +1627,7 @@ public struct CloudVMPendingMutation: Hashable, Codable, Sendable {
 /// A snapshot repairs the document, but it does not by itself repair the live
 /// event feed. Keep an existing transport warning until the versioned feed is
 /// running again, so an agent never mistakes a point-in-time read for live sync.
+/// lint:allow namespace-type — moved unchanged from the app target, where it was an internal static namespace; reshaping it is a separate change from this package move.
 public enum CloudVMEventFeedRecoveryDecision {
     public static func shouldClearWarning(
         snapshotCursor: CloudVMCursor?,

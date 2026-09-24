@@ -38,6 +38,7 @@ public struct CloudVMStateDeltaApplication: Sendable {
     }
 }
 
+/// lint:allow namespace-type — moved unchanged from the app target, where it was an internal static namespace; reshaping the parser's many static call sites is a separate change from this package move.
 public struct CmuxTuiSnapshotParser: Sendable {
     /// Chooses a stable destination for projecting a terminal that currently has no remote
     /// tab view. The session snapshot lists structural records separately, so selection walks
