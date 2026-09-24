@@ -50,16 +50,24 @@ LOOKUP_ATTEMPTS = 3
 ARTIFACTS_PER_PAGE = 100
 MAX_CANDIDATES = 6
 
-# Producer events permitted for each consumer event. Pull-request consumers are
-# further restricted to the same pull request; merge groups may adopt an exact
-# product from either an in-repository PR or an earlier merge-group run.
+# Producer events permitted for each consumer event. A pull request consumer
+# may adopt an earlier run of the same pull request, or a product a push to main
+# compiled; merge groups may adopt an exact product from either an
+# in-repository PR or an earlier merge-group run.
+#
+# The main push producer is seed-derived-data.yml, which builds main on the
+# pool, Xcode and canonical paths pull request admission uses. A pull request
+# that changes no product input then adopts its base's product instead of
+# compiling it again. Only reviewed main code ran that build, so it is at least
+# as trusted as the same-repository pull request that adopts it. `push` is not a
+# consumer event, so nothing a pull request compiled can reach main.
 #
 # A dispatch consumer is at least as trusted as a merge group, because starting
 # one requires write access, so it may adopt any exact product CI compiled as
 # well as the ones earlier dispatches of its own lane compiled. Nothing adopts a
 # dispatch product in the other direction: CI's trust surface is unchanged.
 PERMITTED_PRODUCERS = {
-    "pull_request": {"pull_request"},
+    "pull_request": {"pull_request", "push"},
     "merge_group": {"pull_request", "merge_group"},
     "workflow_dispatch": {"pull_request", "merge_group", "workflow_dispatch"},
 }
@@ -71,6 +79,13 @@ TRUSTED_WORKFLOWS = {
     "pull_request": ".github/workflows/ci.yml",
     "merge_group": ".github/workflows/ci.yml",
     "workflow_dispatch": ".github/workflows/test-e2e.yml",
+    "push": ".github/workflows/seed-derived-data.yml",
+}
+
+# The branch a run of that event must have run on. A push to any other branch
+# runs whatever that branch's copy of the workflow says, so only main is trusted.
+TRUSTED_BRANCHES = {
+    "push": "main",
 }
 
 # The job, and the step inside it, that must have compiled a product before that
@@ -81,6 +96,9 @@ COMPILE_JOBS = {
     ),
     ".github/workflows/test-e2e.yml": (
         "build", "Build the app-host and UI test product",
+    ),
+    ".github/workflows/seed-derived-data.yml": (
+        "seed", "Build",
     ),
 }
 
@@ -332,12 +350,14 @@ def attested_producer_revision(api, run, revision, product_inputs):
 
 
 def trusted_ci_run(run, repository):
-    """Require the event's own trusted workflow and an in-repository source."""
+    """Require the event's own trusted workflow, branch and an in-repository source."""
     head_repository = run.get("head_repository")
     event = run.get("event")
     return (
-        event in PERMITTED_PRODUCERS
+        event in TRUSTED_WORKFLOWS
         and run.get("path") == TRUSTED_WORKFLOWS[event]
+        and (event not in TRUSTED_BRANCHES
+             or run.get("head_branch") == TRUSTED_BRANCHES[event])
         and isinstance(head_repository, dict)
         and str(head_repository.get("full_name", "")).casefold() == repository.casefold()
     )
@@ -348,8 +368,15 @@ def permitted_pair(producer, consumer, repository):
     if not trusted_ci_run(producer, repository) or not trusted_ci_run(consumer, repository):
         return False
     consumer_event = consumer["event"]
+    if consumer_event not in PERMITTED_PRODUCERS:
+        return False
     if producer["event"] not in PERMITTED_PRODUCERS[consumer_event]:
         return False
+    if producer["event"] == "push":
+        # A main push compiled its own head, which `select` re-fingerprints
+        # against these product inputs before download. No pull request
+        # number applies to it.
+        return True
     if consumer_event == "pull_request":
         producer_prs = pull_request_numbers(producer)
         consumer_prs = pull_request_numbers(consumer)
@@ -389,7 +416,9 @@ def load_consumer(api, value, current_run, current_attempt, current_revision, re
         if str(run.get("run_attempt")) != str(current_attempt):
             record_reason(reasons, "consumer_attempt_mismatch")
             return None
-        if not trusted_ci_run(run, api.repository):
+        # A trusted producer event is not necessarily a consumer: a main push
+        # never adopts a product.
+        if run.get("event") not in PERMITTED_PRODUCERS or not trusted_ci_run(run, api.repository):
             record_reason(reasons, "consumer_untrusted")
             return None
         # A dispatch takes the revision under test as a workflow input, so its
@@ -517,8 +546,9 @@ def select(api, value, current_run, current_attempt, consumer, reasons):
                 # the base, which this listing does not name, so its head alone
                 # can differ while the merge it sealed matches exactly. Its
                 # sealed merge is re-fingerprinted from GitHub after download,
-                # in `attested_producer_revision`; every other producer
-                # compiled its head and is rejected here, before download.
+                # in `attested_producer_revision`; every other producer,
+                # including a main push, compiled its head and is rejected
+                # here, before download.
                 record_reason(reasons, "producer_product_inputs_mismatch")
                 continue
             jobs = []

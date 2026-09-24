@@ -564,6 +564,14 @@ extension MobileShellComposite {
         if let immediate {
             let immediateBytes = immediate.bytes
             if immediate.latencyMetricsEligible {
+                if let frame = immediate.sourceRenderGridFrame, let timing = frame.hostTiming {
+                    terminalLatencyObserver.hostTimingReceived(
+                        surfaceID: surfaceID,
+                        appliedInputSequence: frame.appliedInputSequence,
+                        timing: timing,
+                        receivedAtNanos: immediate.receivedAtNanos
+                    )
+                }
                 terminalLatencyObserver.outputReceived(
                     surfaceID: surfaceID,
                     appliedInputSequence: immediate.sourceRenderGridFrame?.appliedInputSequence,
@@ -719,6 +727,14 @@ extension MobileShellComposite {
         }
         let nextBytes = next.bytes
         if next.latencyMetricsEligible {
+            if let frame = next.sourceRenderGridFrame, let timing = frame.hostTiming {
+                terminalLatencyObserver.hostTimingReceived(
+                    surfaceID: surfaceID,
+                    appliedInputSequence: frame.appliedInputSequence,
+                    timing: timing,
+                    receivedAtNanos: next.receivedAtNanos
+                )
+            }
             terminalLatencyObserver.outputReceived(
                 surfaceID: surfaceID,
                 appliedInputSequence: next.sourceRenderGridFrame?.appliedInputSequence,

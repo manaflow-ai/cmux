@@ -1,3 +1,4 @@
+import CmuxCloudTui
 import CmuxComputerUse
 import CmuxCloudMachines
 import AppKit
@@ -7,6 +8,7 @@ import CmuxBrowser
 import CmuxCommandPalette
 import CmuxPanes
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import CmuxWindowing
 import CmuxNotifications
 import CmuxTerminalCore
@@ -960,7 +962,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         layoutModel: titlebarControlsLayoutModel
     )
     private let windowDecorationsController = WindowDecorationsController()
-    private var menuBarExtraController: MenuBarExtraController?
+    /// Internal so app-host tests can substitute a controller whose Global
+    /// Search callback records the request.
+    var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
     /// App-owned computer-use graph; all runtime dependencies are injected here.

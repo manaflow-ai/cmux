@@ -171,9 +171,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["window_id"] as? String, windowID)
                 return self.v2Response(id: id, ok: true, result: ["window_id": windowID])
-            case "workspace.create":
+            case "workspace.ssh.open":
                 let params = payload["params"] as? [String: Any] ?? [:]
                 XCTAssertEqual(params["window_id"] as? String, windowID)
+                XCTAssertEqual(params["destination"] as? String, "cmux-macmini")
+                XCTAssertEqual(params["focus"] as? Bool, false)
                 XCTAssertNil(params["workspace_id"])
                 XCTAssertNil(params["surface_id"])
                 return self.v2Response(
@@ -181,28 +183,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ok: true,
                     result: [
                         "workspace_id": workspaceID,
+                        "workspace_ref": workspaceRef,
+                        "surface_id": surfaceID,
+                        "surface_ref": "surface:3",
                         "window_id": windowID,
                     ]
                 )
-            case "surface.list":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, workspaceID)
-                return self.surfaceListResponse(id: id, surfaceId: surfaceID)
-            case "workspace.remote.configure":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "workspace_ref": workspaceRef,
-                        "remote": [
-                            "enabled": true,
-                            "state": "connecting",
-                        ],
-                    ]
-                )
-            case "workspace.close":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             default:
                 return self.v2Response(
                     id: id,
@@ -234,7 +220,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
+        XCTAssertEqual(result.stdout, "OK \(workspaceRef) surface:3\n")
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in
@@ -243,7 +229,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["window.focus", "workspace.create", "surface.list", "workspace.remote.configure"]
+            ["window.focus", "workspace.ssh.open"]
         )
     }
 

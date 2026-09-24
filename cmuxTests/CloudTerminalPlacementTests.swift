@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxControlSocket
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)

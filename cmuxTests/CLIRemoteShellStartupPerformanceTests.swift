@@ -112,12 +112,16 @@ struct CLIRemoteShellStartupPerformanceTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        // `cmux ssh` hands TTY sessions to cmux-tui through
+        // `workspace.ssh.open`; the startup wrapper measured here is only
+        // produced for sessions without a TTY, so pin RequestTTY=no.
         let result = runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh", "--no-focus",
                 "--ssh-option", "ControlMaster no",
                 "--ssh-option", "ControlPath /tmp/cmux-ssh-%C",
+                "--ssh-option", "RequestTTY no",
                 "cmux-test-host",
             ],
             environment: environment,

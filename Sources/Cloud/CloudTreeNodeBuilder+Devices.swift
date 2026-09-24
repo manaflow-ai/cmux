@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Device rows for the Cloud-style outline: every `.device` machine the

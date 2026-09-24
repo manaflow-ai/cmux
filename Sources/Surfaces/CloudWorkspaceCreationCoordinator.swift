@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns the shared pending workspace projection; both sidebars consume its receipt identity.
