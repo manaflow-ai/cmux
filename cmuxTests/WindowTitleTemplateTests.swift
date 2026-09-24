@@ -265,10 +265,7 @@ struct WindowTitleTemplateTests {
                 relayID: "relay-\(UUID().uuidString)",
                 relayToken: String(repeating: "a", count: 64),
                 localSocketPath: "/tmp/cmux-issue-7268-window-title.sock",
-                terminalStartupCommand: sshCommand,
-                // A VM-baked daemon keeps the legacy Workspace path; since
-                // 5f0d2227241 cmux-tui owns SSH configs that bootstrap it.
-                skipDaemonBootstrap: true
+                terminalStartupCommand: sshCommand
             ),
             autoConnect: false
         )
@@ -346,10 +343,7 @@ struct WindowTitleTemplateTests {
                 relayID: "relay-\(UUID().uuidString)",
                 relayToken: String(repeating: "a", count: 64),
                 localSocketPath: "/tmp/cmux-issue-7268-local-window-title.sock",
-                terminalStartupCommand: "ssh seepine@192.168.5.20",
-                // A VM-baked daemon keeps the legacy Workspace path; since
-                // 5f0d2227241 cmux-tui owns SSH configs that bootstrap it.
-                skipDaemonBootstrap: true
+                terminalStartupCommand: "ssh seepine@192.168.5.20"
             ),
             autoConnect: false
         )
@@ -388,10 +382,7 @@ struct WindowTitleTemplateTests {
                 relayID: "relay-\(UUID().uuidString)",
                 relayToken: String(repeating: "a", count: 64),
                 localSocketPath: "/tmp/cmux-issue-7268-agent-focus.sock",
-                terminalStartupCommand: sshCommand,
-                // A VM-baked daemon keeps the legacy Workspace path; since
-                // 5f0d2227241 cmux-tui owns SSH configs that bootstrap it.
-                skipDaemonBootstrap: true
+                terminalStartupCommand: sshCommand
             ),
             autoConnect: false
         )

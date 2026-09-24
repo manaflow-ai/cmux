@@ -482,10 +482,6 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
         #expect(restored.remoteDirectoryTrustRequiredPanelIds.contains(restoredPanelId))
     }
 
-    /// These tests cover the legacy Workspace remote cwd trust path. Since 5f0d2227241
-    /// an SSH terminal config that bootstraps the daemon is owned by cmux-tui
-    /// (`configureSSHTuiConnection`), so the fixture uses a VM-baked daemon,
-    /// which still takes the legacy path.
     private func sshRemoteConfiguration(command: String) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
@@ -497,8 +493,7 @@ struct WorkspaceRemoteDirectoryProvenanceTests {
             relayID: "relay-\(UUID().uuidString)",
             relayToken: String(repeating: "a", count: 64),
             localSocketPath: "/tmp/cmux-issue-7268-\(UUID().uuidString).sock",
-            terminalStartupCommand: command,
-            skipDaemonBootstrap: true
+            terminalStartupCommand: command
         )
     }
 }

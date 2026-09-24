@@ -16,7 +16,7 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct RemoteSessionParkedReconnectTests {
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func reconnectStartsAReplacementAfterASessionThatNeverProvisionedTheRemote() async throws {
         // The first session never got a daemon, so it never wrote relay
         // metadata. Its transport cleanup then finds no slot file and the
@@ -87,7 +87,7 @@ struct RemoteSessionParkedReconnectTests {
         defer { manager.tabs.forEach { $0.teardownAllPanels() } }
         let workspace = try #require(manager.selectedWorkspace)
         let panel = try #require(workspace.focusedTerminalPanel)
-        workspace.configureRemoteConnection(Self.configuration(skipDaemonBootstrap: true), autoConnect: false)
+        workspace.configureRemoteConnection(Self.configuration(), autoConnect: false)
         workspace.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64012",
@@ -124,7 +124,7 @@ struct RemoteSessionParkedReconnectTests {
         #expect(workspace.remotePTYSessionIDsByPanelId[panel.id] == sessionID)
     }
 
-    @Test(.timeLimit(.minutes(1)), .disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test(.timeLimit(.minutes(1)))
     func aWaitingAttachFailsAtOnceWhenTheWorkspaceCannotCreateAController() async throws {
         // A cleanup that genuinely failed leaves the workspace in `.error`
         // with no controller. Nothing will create one until the user
@@ -177,11 +177,7 @@ struct RemoteSessionParkedReconnectTests {
         #expect((error["message"] as? String)?.isEmpty == false)
     }
 
-    /// `skipDaemonBootstrap` selects the legacy Workspace path. Since
-    /// 5f0d2227241 an SSH terminal config that bootstraps the daemon is owned by
-    /// cmux-tui (`configureSSHTuiConnection`), while a VM-baked daemon still
-    /// takes the legacy path.
-    private static func configuration(skipDaemonBootstrap: Bool = false) -> WorkspaceRemoteConfiguration {
+    private static func configuration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -194,8 +190,7 @@ struct RemoteSessionParkedReconnectTests {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ssh-parked-reconnect",
-            skipDaemonBootstrap: skipDaemonBootstrap
+            persistentDaemonSlot: "ssh-parked-reconnect"
         )
     }
 

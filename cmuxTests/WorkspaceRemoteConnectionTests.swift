@@ -863,7 +863,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteTerminalSurfaceLookupTracksOnlyActiveSSHSurfaces() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -874,8 +873,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
 
         workspace.configureRemoteConnection(config, autoConnect: false)
@@ -1000,7 +998,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteTerminalSessionEndPublishesDisconnectedDetailWithoutTransientNil() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1011,8 +1008,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
 
         workspace.configureRemoteConnection(config, autoConnect: false)
@@ -1042,7 +1038,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteTerminalSessionEndIgnoresDuplicateRelayCallbackAfterSurfaceProcessed() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1053,8 +1048,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
 
         workspace.configureRemoteConnection(config, autoConnect: false)
@@ -1073,7 +1067,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() async {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1085,8 +1078,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
-            foregroundAuthToken: "token-a",
-            skipDaemonBootstrap: true
+            foregroundAuthToken: "token-a"
         )
         let resolvedControlPath =
             "/tmp/cmux-ssh-\(getuid())-" +
@@ -1117,7 +1109,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testForegroundSSHAuthReadyReconnectsConfiguredConnectingRemoteWorkspace() async {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1129,8 +1120,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
-            foregroundAuthToken: "token-a",
-            skipDaemonBootstrap: true
+            foregroundAuthToken: "token-a"
         )
         workspace.configureRemoteConnection(config, autoConnect: false)
         XCTAssertEqual(workspace.remoteConnectionState, .connecting)
@@ -1148,7 +1138,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testForegroundSSHAuthReadyBufferedTokenDoesNotReconnectDifferentConfiguration() {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1160,8 +1149,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
-            foregroundAuthToken: "token-b",
-            skipDaemonBootstrap: true
+            foregroundAuthToken: "token-b"
         )
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
         workspace.configureRemoteConnection(config, autoConnect: false)
@@ -1199,7 +1187,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testForegroundSSHAuthReadyIgnoresMismatchedConfiguredToken() {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1211,8 +1198,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
-            foregroundAuthToken: "token-a",
-            skipDaemonBootstrap: true
+            foregroundAuthToken: "token-a"
         )
         workspace.configureRemoteConnection(config, autoConnect: false)
         workspace.notifyRemoteForegroundAuthenticationReady(token: "token-b")
@@ -1224,7 +1210,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     func testRemoteTerminalSessionEndRequestsControlMasterCleanupAndLeavesWorkspaceDisconnected() throws {
         let cleanup = NativeSSHCleanupRecorder()
         let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: 2222,
@@ -1240,8 +1225,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanup.onRequest = { cleanupRequested.fulfill() }
@@ -1276,7 +1260,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     func testRemoteTerminalSessionEndWithoutCallbackRelayPortStillCleansControlMaster() throws {
         let cleanup = NativeSSHCleanupRecorder()
         let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: 2222,
@@ -1291,8 +1274,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanup.onRequest = { cleanupRequested.fulfill() }
@@ -1323,7 +1305,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     func testRemoteTerminalSessionEndPreservesPersistentPTYWorkspace() throws {
         let cleanup = NativeSSHCleanupRecorder()
         let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: 2222,
@@ -1341,8 +1322,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ssh-persist-end",
-            skipDaemonBootstrap: true
+            persistentDaemonSlot: "ssh-persist-end"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
@@ -1377,7 +1357,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     func testTeardownRemoteConnectionRequestsControlMasterCleanupWhileStillConnecting() {
         let cleanup = NativeSSHCleanupRecorder()
         let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1392,8 +1371,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanup.onRequest = { cleanupRequested.fulfill() }
@@ -1463,7 +1441,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
         let remainingWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let remoteWorkspace = manager.addWorkspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: 2222,
@@ -1479,8 +1456,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanup.onRequest = { cleanupRequested.fulfill() }
@@ -1553,7 +1529,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     func testDetachLastRemoteSurfacePreservesRemoteSessionWithoutCleanup() throws {
         let cleanup = NativeSSHCleanupRecorder()
         let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1568,8 +1543,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
@@ -1631,7 +1605,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let workspace = Workspace()
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let lease = ManualRemotePTYLifecycleCommitLease()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1644,8 +1617,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "pending-lease",
-            skipDaemonBootstrap: true
+            persistentDaemonSlot: "pending-lease"
         )
 
         XCTAssertTrue(
@@ -1675,7 +1647,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let workspace = Workspace()
         let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
         let lease = ManualRemotePTYLifecycleCommitLease()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1688,8 +1659,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh cmux-macmini",
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "bounded-readiness-commit",
-            skipDaemonBootstrap: true
+            persistentDaemonSlot: "bounded-readiness-commit"
         )
         workspace.configureRemoteConnection(config, autoConnect: false)
         let attemptID = UUID()
@@ -1722,7 +1692,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testDockOwnedRemoteTerminalLifecycleSurvivesConnectedAndEndedRoundTrips() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1733,8 +1702,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         workspace.configureRemoteConnection(config, autoConnect: false)
         let workspacePane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -1896,7 +1864,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let manager = TabManager(nativeSSHConnectionBroker: cleanup.broker)
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
         let destinationWorkspace = manager.addWorkspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1911,8 +1878,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanup.onRequest = { cleanupRequested.fulfill() }
@@ -1948,7 +1914,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -1963,8 +1928,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
 
@@ -1988,7 +1952,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanup = NativeSSHCleanupRecorder()
         let workspace = Workspace(nativeSSHConnectionBroker: cleanup.broker)
         let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -2003,8 +1966,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
@@ -2043,7 +2005,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     @MainActor
     func testDaemonBootstrapUploadUsesAbsoluteHomePathForRemoteDestination() async throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-remote-daemon-upload-\(UUID().uuidString)",
@@ -2137,10 +2098,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             // becoming another scripted process owner.
             sshOptions: ["ControlMaster=no"],
             localProxyPort: nil,
-            relayPort: nil,
-            relayID: nil,
-            relayToken: nil,
-            localSocketPath: nil,
+            relayPort: 64036,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh test@hpc.example"
         )
         defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
@@ -2169,7 +2130,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
     @MainActor
     func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() async throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
             "cmux-remote-daemon-capability-reinstall-\(UUID().uuidString)",
@@ -2277,10 +2237,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             // transport keeps ControlMaster resolution out of this fixture's process script.
             sshOptions: ["ControlMaster=no"],
             localProxyPort: nil,
-            relayPort: nil,
-            relayID: nil,
-            relayToken: nil,
-            localSocketPath: nil,
+            relayPort: 64037,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: true
         )
@@ -2310,7 +2270,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testDetachAttachPreservesRemoteTerminalSurfaceTracking() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -2321,8 +2280,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
 
         workspace.configureRemoteConnection(config, autoConnect: false)
@@ -2515,7 +2473,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteDisconnectClearsExplicitRemotePTYSessionIDBeforeReseed() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let explicitSessionConfig = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -2527,8 +2484,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: nil,
-            preserveAfterTerminalExit: true,
-            skipDaemonBootstrap: true
+            preserveAfterTerminalExit: true
         )
         workspace.configureRemoteConnection(explicitSessionConfig, autoConnect: false)
 
@@ -2559,8 +2515,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "d", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh-pty-attach",
-            preserveAfterTerminalExit: true,
-            skipDaemonBootstrap: true
+            preserveAfterTerminalExit: true
         )
         workspace.configureRemoteConnection(reseededConfig, autoConnect: false)
 
@@ -2574,7 +2529,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testRemoteReconfigureClearsExplicitRemotePTYSessionIDForTrackedSurface() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let originalConfig = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -2586,8 +2540,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: nil,
-            preserveAfterTerminalExit: true,
-            skipDaemonBootstrap: true
+            preserveAfterTerminalExit: true
         )
         workspace.configureRemoteConnection(originalConfig, autoConnect: false)
 
@@ -2613,8 +2566,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayToken: String(repeating: "d", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh-pty-attach",
-            preserveAfterTerminalExit: true,
-            skipDaemonBootstrap: true
+            preserveAfterTerminalExit: true
         )
         workspace.configureRemoteConnection(replacementConfig, autoConnect: false)
 
@@ -2663,7 +2615,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testPersistentRemoteTerminalSeedsDefaultPTYSessionIDForSnapshot() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -2676,8 +2627,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             localSocketPath: "/tmp/cmux-debug-test.sock",
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: true,
-            persistentDaemonSlot: "ssh-seeded-default",
-            skipDaemonBootstrap: true
+            persistentDaemonSlot: "ssh-seeded-default"
         )
         workspace.configureRemoteConnection(config, autoConnect: false)
 
@@ -3235,7 +3185,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     @MainActor
     func testProxyOnlyErrorsKeepSSHWorkspaceConnectedAndLoggedInSidebar() throws {
         let workspace = Workspace()
-        // Legacy Workspace path: a daemon-bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
         let config = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
             port: nil,
@@ -3246,8 +3195,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
 
         workspace.configureRemoteConnection(config, autoConnect: false)

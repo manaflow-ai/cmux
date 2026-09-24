@@ -2271,7 +2271,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             localSocketPath: "/tmp/cmux-restore-test.sock",
             terminalStartupCommand: "ssh dev@example.com",
             agentSocketPath: originalAgentSocketPath,
-            // Legacy Workspace path: a bootstrapping SSH config is owned by cmux-tui since 5f0d2227241.
+            // Legacy restore path: this non-persistent snapshot drops the relay, and a
+            // relay-less SSH config that bootstraps the daemon is owned by cmux-tui since
+            // 5f0d2227241, so this uses a VM-baked daemon.
             skipDaemonBootstrap: true
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
@@ -2386,7 +2388,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionSnapshotRestoresPersistentSSHPTYSessionAfterRelaunch() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Persistent SSH")
@@ -2570,7 +2572,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionSnapshotRestoresSplitPersistentSSHPTYWithoutDefaultAttachScaffold() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Persistent SSH Split")
@@ -2639,7 +2641,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testPersistentSSHPTYRestoreRewritesStaleRemoteRelayContextIDs() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Relay Alias SSH")
@@ -2924,7 +2926,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testPersistentSSHPTYRestoreRewritesMovedSourceWorkspaceContextID() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let manager = TabManager()
         let sourceWorkspace = manager.addWorkspace(select: true)
         sourceWorkspace.setCustomTitle("Moved Relay Source")
@@ -3029,7 +3031,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testPersistentSSHPTYReattachRewritesStaleRemoteRelayContextIDs() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Relay Alias Reattach SSH")
@@ -3130,7 +3132,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testPersistentSSHPTYRestoreFallsBackToSnapshotPanelDefaultSessionIDWhenActiveMarkerExists() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Legacy Persistent SSH")
@@ -3194,7 +3196,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testPersistentSSHPTYRestoreDoesNotReattachEndedSnapshotPanel() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Ended Persistent SSH")
@@ -3315,7 +3317,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionSnapshotFallsBackWhenPersistentSSHPTYRestoreHasNoSocketPath() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         TerminalController.shared.stop(cleanupDiscoveryState: true)
         defer { TerminalController.shared.stop(cleanupDiscoveryState: true) }
 
@@ -3568,7 +3570,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionRemoteWorkspaceSnapshotRequiresPersistentDaemonSlotForPTYRestore() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3705,7 +3707,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionRemoteWorkspaceSnapshotRequiresRelayPortForPTYRestore() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3734,7 +3736,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionRemoteWorkspaceSnapshotRequiresLocalSocketPathForPTYRestore() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3763,7 +3765,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionRemoteWorkspaceSnapshotStripsTransientControlOptionsWhenPreservedRestoreFallsBack() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",
@@ -3794,7 +3796,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
     }
 
     func testSessionRemoteWorkspaceSnapshotRequiresValidPersistentDaemonSlotForPTYRestore() throws {
-        try XCTSkipIf(true, "Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui.")
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,
             destination: "dev@example.com",

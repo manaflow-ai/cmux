@@ -352,10 +352,6 @@ struct RemoteDisconnectLifecycleTests {
         #expect(workspace.remoteDisconnectPlaceholderPanelIds.contains(replacement.id))
     }
 
-    /// These tests cover the legacy Workspace disconnect placeholder path. Since
-    /// 5f0d2227241 an SSH terminal config that bootstraps the daemon is owned by
-    /// cmux-tui (`configureSSHTuiConnection`), so the fixture uses a VM-baked
-    /// daemon, which still takes the legacy path.
     private static func remoteConfiguration(port: Int? = nil) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -367,8 +363,7 @@ struct RemoteDisconnectLifecycleTests {
             relayID: String(repeating: "a", count: 16),
             relayToken: String(repeating: "b", count: 64),
             localSocketPath: "/tmp/cmux-debug-test.sock",
-            terminalStartupCommand: "ssh cmux-macmini",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh cmux-macmini"
         )
     }
 

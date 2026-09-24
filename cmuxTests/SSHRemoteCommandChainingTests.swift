@@ -159,7 +159,7 @@ struct SSHRemoteCommandChainingTests {
         #expect(remainingPayloads.isEmpty, "\(remainingPayloads)")
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
     func persistentWorkspaceRestoreKeepsConfiguredRemoteCommandInNewPaneBootstrap() throws {
         let configuredRemoteCommand = #"cd "/srv/project dir" && exec fish"#
         let liveConfiguration = WorkspaceRemoteConfiguration(
@@ -217,7 +217,8 @@ struct SSHRemoteCommandChainingTests {
                 destination: "dev@example.com",
                 sshOptions: testCase.options,
                 preserveAfterTerminalExit: true,
-                // Legacy restore path: a bootstrapping SSH snapshot restores through cmux-tui since 5f0d2227241.
+                // Legacy restore path: a preserved SSH snapshot that bootstraps the daemon restores
+                // through tuiSSHConfiguration since 5f0d2227241, so this uses a VM-baked daemon.
                 skipDaemonBootstrap: true,
                 relayPort: 64_123,
                 persistentDaemonSlot: "ssh-restore-slot"

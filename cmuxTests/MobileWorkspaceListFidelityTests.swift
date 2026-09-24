@@ -851,10 +851,6 @@ struct MobileWorkspaceListFidelityTests {
         #expect(boundedCluster.hasSuffix("\u{2026}"))
     }
 
-    /// These tests cover the legacy Workspace remote cwd trust path. Since 5f0d2227241
-    /// an SSH terminal config that bootstraps the daemon is owned by cmux-tui
-    /// (`configureSSHTuiConnection`), so the fixture uses a VM-baked daemon,
-    /// which still takes the legacy path.
     private func sshRemoteConfiguration() -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
             destination: "seepine@192.168.5.20",
@@ -866,8 +862,7 @@ struct MobileWorkspaceListFidelityTests {
             relayID: "relay-\(UUID().uuidString)",
             relayToken: String(repeating: "a", count: 64),
             localSocketPath: "/tmp/cmux-issue-7268-\(UUID().uuidString).sock",
-            terminalStartupCommand: "ssh seepine@192.168.5.20",
-            skipDaemonBootstrap: true
+            terminalStartupCommand: "ssh seepine@192.168.5.20"
         )
     }
 }

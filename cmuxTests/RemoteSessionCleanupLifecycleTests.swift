@@ -12,7 +12,7 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct RemoteSessionCleanupLifecycleTests {
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func manualDisconnectPreservesPersistentSlotUntilFinalCleanup() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
@@ -37,7 +37,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func manualReconnectWaitsForControllerBeforeReattachingPersistentPanel() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
@@ -86,7 +86,7 @@ struct RemoteSessionCleanupLifecycleTests {
         await workspace.remoteSessionTransitionTask?.value
         workspace.teardownAllPanels()
     }
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func replacementStartsOnlyAfterPriorTransportCleanupFinishes() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
@@ -108,7 +108,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(runner.nonCleanupRequestCount > requestsBeforeReplacement)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func supersededDifferentIdentityTransitionCannotDestroyLatestPersistentSession() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
@@ -143,7 +143,7 @@ struct RemoteSessionCleanupLifecycleTests {
         workspace.teardownAllPanels()
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func completedPersistentCleanupIsReconciledAfterTransitionIsSuperseded() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
@@ -182,7 +182,7 @@ struct RemoteSessionCleanupLifecycleTests {
         workspace.teardownAllPanels()
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func failedSameIdentityTransportCleanupPreventsReplacementStartup() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1])
         let workspace = Workspace()
@@ -203,7 +203,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteConnectionState == .error)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func failedDifferentIdentityCleanupOnSameRelayPreventsReplacementStartup() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1])
         let workspace = Workspace()
@@ -229,7 +229,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteConnectionState == .error)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func failedDifferentIdentityCleanupOnIndependentRelayAllowsReplacementStartup() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1])
         let workspace = Workspace()
@@ -256,7 +256,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteConfiguration == configurationB.scopedToOwnerWorkspace(workspace.id))
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func nonpersistentDisconnectDoesNotRetainStoppedController() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
@@ -274,7 +274,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func failedNonpersistentDisconnectRetainsOwnerForLaterCleanupRetry() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [1, 0])
         let workspace = Workspace()
@@ -300,7 +300,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func retainedOwnerMatchesStablePersistentIdentityAcrossConfigurationChanges() async throws {
         let runner = CleanupLifecycleRecordingRunner()
         let workspace = Workspace()
@@ -330,7 +330,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func failedFinalCleanupSurvivesReplacementAndRetries() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1, 0, 0, 0, 0])
         let workspace = Workspace()
@@ -368,7 +368,7 @@ struct RemoteSessionCleanupLifecycleTests {
         #expect(workspace.remoteSessionCleanupControllers.isEmpty)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func failedFinalCleanupTransfersRetryOwnershipToSameIdentityReplacement() async throws {
         let runner = CleanupLifecycleRecordingRunner(cleanupStatuses: [0, 1, 0, 0, 0])
         let workspace = Workspace()

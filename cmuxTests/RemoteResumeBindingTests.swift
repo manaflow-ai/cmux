@@ -304,8 +304,7 @@ struct RemoteResumeBindingTests {
         TerminalController.shared.setActiveTabManager(manager)
 
         let workspace = try #require(manager.selectedWorkspace)
-        // Legacy Workspace path: a VM-baked daemon keeps relay owner scoping.
-        workspace.configureRemoteConnection(remoteConfiguration(skipDaemonBootstrap: true), autoConnect: false)
+        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
         workspace.activeRemoteSessionControllerID = UUID()
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
         let request: [String: Any] = [
@@ -559,8 +558,7 @@ struct RemoteResumeBindingTests {
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
         let remoteSurfaceID = UUID()
-        // Legacy Workspace path: a VM-baked daemon keeps relay owner scoping.
-        workspace.configureRemoteConnection(remoteConfiguration(skipDaemonBootstrap: true), autoConnect: false)
+        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
         workspace.activeRemoteSessionControllerID = UUID()
         workspace.trackRemoteTerminalSurface(surfaceID)
         let relayToken = try #require(workspace.remoteConfiguration?.relayToken)
@@ -699,7 +697,7 @@ struct RemoteResumeBindingTests {
         ))
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func bundledKiroSessionStartRegistersAuthenticatedRemoteBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
@@ -890,7 +888,7 @@ struct RemoteResumeBindingTests {
         #expect(bindingAfterRejectedRegistrations is NSNull)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test
     func relayedRegistrationUsesExplicitRemoteFlavorAfterAliasRewrite() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
@@ -910,7 +908,7 @@ struct RemoteResumeBindingTests {
         #expect(environment["ANTHROPIC_API_KEY"] == nil)
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
     func persistentRestoreRunsRemoteResumeOnlyWhenSessionMustBeCreated() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
@@ -983,7 +981,7 @@ struct RemoteResumeBindingTests {
         )
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
@@ -1017,7 +1015,7 @@ struct RemoteResumeBindingTests {
         #expect(!startupCommand.contains("REMOTE_FLAG"), "\(startupCommand)")
     }
 
-    @Test(.disabled("Legacy SSH path unreachable since 5f0d2227241 routed daemon-bootstrapping SSH configs to cmux-tui; rewrite against cmux-tui."))
+    @Test(.disabled("Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui."))
     func legacyRemoteSnapshotWithoutWorkspaceIDMigratesBindingIntoPersistentSSHContext() throws {
         let fixture = try makeRelayedFixture()
         defer { withExtendedLifetime(fixture.relayPortReservation) {} }
