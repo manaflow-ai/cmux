@@ -18,18 +18,25 @@ struct TerminalLinkOpenCoordinator {
     private let containerResolver: @MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?
     private let externalOpen: @MainActor @Sendable (URL) -> Bool
     private let fileOpen: any FileOpening
+    private let recordsDiagnostics: Bool
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
+    /// Creates a coordinator using the supplied routing collaborators.
+    ///
+    /// The production preferred-editor service is created at the point of
+    /// opening so it always reads the current editor setting.
     init(
         defaults: UserDefaults = .standard,
         containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
         externalOpen: @escaping @MainActor @Sendable (URL) -> Bool = { NSWorkspace.shared.open($0) },
         fileOpen: (any FileOpening)? = nil,
+        recordsDiagnostics: Bool = true,
         deferOperation: @escaping @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void = { operation in
             Task { @MainActor in operation() }
         }
     ) {
         self.defaults = defaults
+        self.recordsDiagnostics = recordsDiagnostics
         self.externalNavigationHandler = BrowserExternalNavigationHandler(
             defaults: defaults,
             openURL: externalOpen
@@ -40,13 +47,22 @@ struct TerminalLinkOpenCoordinator {
         self.deferOperation = deferOperation
     }
 
+    /// Opens a terminal link according to the source terminal and URL policy.
     @discardableResult
     func open(_ request: TerminalLinkOpenRequest) -> Bool {
         log("link.openURL raw=\(request.rawValue)")
 
         let trimmed = request.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let container = containerResolver(request.sourceWorkspaceId, request.sourcePanelId)
+        if let sourcePanelId = request.sourcePanelId, let container,
+           container.terminalLinkIsRemoteTerminal(sourcePanelId),
+           RemoteTerminalPathResolver().isFileReference(trimmed),
+           container.deferRemoteTerminalFileLinkOpen(sourcePanelId: sourcePanelId, rawValue: trimmed) {
+            // A managed SSH path must never resolve to an unrelated file on this Mac.
+            return true
+        }
         var normalizedOpenURLString = request.rawValue
+        let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
 
         let canResolveLocalFilePath: Bool
         if let sourcePanelId = request.sourcePanelId, let container {
@@ -56,16 +72,30 @@ struct TerminalLinkOpenCoordinator {
         }
         if !trimmed.isEmpty,
            canResolveLocalFilePath,
-           let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(
+           let reference = TerminalPathResolver().resolveOpenURLFileReference(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
-            let fileURL = URL(fileURLWithPath: resolvedPath)
-            if CommandClickFileOpenRouter.shouldRouteInCmux(
-                path: resolvedPath,
-                defaults: defaults
-            ) {
-                log("link.openURL resolvedAsFilePath=\(resolvedPath)")
+            if let line = reference.line, !isExplicitLocalFileURL {
+                log(
+                    "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
+                    (reference.column.map { ":\($0)" } ?? "")
+                )
+                PreferredEditorService(defaults: defaults).open(
+                    URL(fileURLWithPath: reference.path),
+                    line: reference.line,
+                    column: reference.column
+                )
+                return true
+            }
+
+            if !isExplicitLocalFileURL,
+               CommandClickFileOpenRouter.shouldRouteInCmux(
+                   path: reference.path,
+                   defaults: defaults
+               ) {
+                let fileURL = URL(fileURLWithPath: reference.path)
+                log("link.openURL resolvedAsFilePath=\(reference.path)")
                 return routeLocalFile(
                     fileURL,
                     request: request,
@@ -73,7 +103,9 @@ struct TerminalLinkOpenCoordinator {
                     unavailableReason: "file route unavailable"
                 )
             }
-            normalizedOpenURLString = resolvedPath
+            if !isExplicitLocalFileURL {
+                normalizedOpenURLString = reference.path
+            }
         }
 
         guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
@@ -105,15 +137,18 @@ struct TerminalLinkOpenCoordinator {
             )
         }
 
-        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
-            return openExternally(target.url, reason: "cmux browser disabled")
+        let cloudURL = request.sourcePanelId.flatMap {
+            container?.cloudTerminalLinkTarget(url: target.url, sourcePanelId: $0)?.url
         }
-
+        let destinationURL = cloudURL ?? target.url
+        guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
+            return openExternally(destinationURL, reason: "cmux browser disabled")
+        }
         switch target {
-        case .external(let url):
-            return openExternally(url, reason: "external target")
-        case .embeddedBrowser(let url):
-            return openEmbeddedBrowserURL(url, request: request, container: container)
+        case .external:
+            return openExternally(destinationURL, reason: "external target")
+        case .embeddedBrowser:
+            return openEmbeddedBrowserURL(destinationURL, request: request, container: container)
         }
     }
 
@@ -243,25 +278,16 @@ struct TerminalLinkOpenCoordinator {
             "container=\(container.terminalLinkContainerDebugName) surfaceId=\(sourcePanelId)"
         )
 
+        if !request.focus {
+            return container.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId, focus: false)
+        }
         deferOperation { [self] in
-            let currentContainer = self.containerResolver(
-                request.sourceWorkspaceId,
-                sourcePanelId
-            )
+            let currentContainer = self.containerResolver(request.sourceWorkspaceId, sourcePanelId)
             let openedInBrowser = BrowserAvailabilitySettings.isEnabled(defaults: self.defaults)
-                && currentContainer?.openTerminalBrowserLink(
-                    url: url,
-                    sourcePanelId: sourcePanelId
-                ) == true
+                && currentContainer?.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelId) == true
             if openedInBrowser { return }
-
-            self.log(
-                "link.openURL embedded open failed, opening externally " +
-                "host=\(host) surfaceId=\(sourcePanelId) url=\(url)"
-            )
-            if !self.externalOpen(url) {
-                NSSound.beep()
-            }
+            self.log("link.openURL embedded open failed, opening externally host=\(host) surfaceId=\(sourcePanelId) url=\(url)")
+            if !self.externalOpen(url) { NSSound.beep() }
         }
         return true
     }
@@ -289,6 +315,11 @@ struct TerminalLinkOpenCoordinator {
         return externalOpen(url)
     }
 
+    /// Returns whether a raw link is an explicit local `file` URL.
+    private func isExplicitFileURL(_ rawValue: String) -> Bool {
+        URL(string: rawValue)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
+    }
+
     private static func resolveContainer(
         sourceWorkspaceId: UUID?,
         sourcePanelId: UUID?
@@ -306,7 +337,7 @@ struct TerminalLinkOpenCoordinator {
 
     private func log(_ message: @autoclosure () -> String) {
         #if DEBUG
-        cmuxDebugLog(message())
+        if recordsDiagnostics { cmuxDebugLog(message()) }
         #endif
     }
 }

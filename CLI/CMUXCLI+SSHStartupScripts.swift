@@ -130,7 +130,13 @@ extension CMUXCLI {
             "      if {[string length $cmux_buffer] > 0} { send_user -- $cmux_buffer }",
             "      cmux_relay_session",
             "    }",
-            "    eof { set status [wait]; exit [lindex $status 3] }",
+            // A session that authenticates and ends inside this window still
+            // owes the user its output: flush what expect buffered before exiting.
+            "    eof {",
+            "      catch { send_user -- $expect_out(buffer) }",
+            "      set status [wait]",
+            "      exit [lindex $status 3]",
+            "    }",
             "  }",
             "}",
             "expect {",
@@ -217,7 +223,13 @@ extension CMUXCLI {
             "      if {[string length $cmux_buffer] > 0} { send_user -- $cmux_buffer }",
             "      cmux_relay_session",
             "    }",
-            "    eof { set status [wait]; exit [lindex $status 3] }",
+            // A session that authenticates and ends inside this window still
+            // owes the user its output: flush what expect buffered before exiting.
+            "    eof {",
+            "      catch { send_user -- $expect_out(buffer) }",
+            "      set status [wait]",
+            "      exit [lindex $status 3]",
+            "    }",
             "  }",
             "}",
             "expect {",
@@ -332,13 +344,14 @@ extension CMUXCLI {
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
             scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
         }
-        let reconnectConfiguration = retryPTYAttachStatus ? [
-            // A missing limit used to mean infinity, which left a corrupt or
-            // permanently unavailable daemon spinning forever in the pane.
-            // Keep the supervisor finite even when an old persisted launcher
-            // omitted CMUX_SSH_RECONNECT_LIMIT.
-            "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-20}\"",
-            "case \"$cmux_ssh_reconnect_limit\" in ''|*[!0-9]*) cmux_ssh_reconnect_limit=20 ;; *) while [ \"${cmux_ssh_reconnect_limit#0}\" != \"$cmux_ssh_reconnect_limit\" ] && [ \"$cmux_ssh_reconnect_limit\" != 0 ]; do cmux_ssh_reconnect_limit=\"${cmux_ssh_reconnect_limit#0}\"; done; case \"$cmux_ssh_reconnect_limit\" in [1-9]|1[0-9]|20) ;; *) cmux_ssh_reconnect_limit=20 ;; esac ;; esac",
+        // A missing limit used to mean infinity, which left a corrupt or
+        // permanently unavailable daemon spinning forever in the pane.
+        // Keep the supervisor finite even when an old persisted launcher
+        // omitted CMUX_SSH_RECONNECT_LIMIT.
+        let reconnectLimitLines = SSHReconnectBudget().limitNormalizationShellLines(
+            variable: "cmux_ssh_reconnect_limit"
+        )
+        let reconnectConfiguration = retryPTYAttachStatus ? reconnectLimitLines + [
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_reconnect_delay=2 ;; esac",
             "cmux_ssh_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
@@ -514,13 +527,16 @@ extension CMUXCLI {
             "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/\(tempPrefix).XXXXXX\") || exit 1",
             "cmux_cleanup() { rm -f -- \"$cmux_tmp\" 2>/dev/null || true; }",
             "trap 'cmux_cleanup' EXIT HUP INT TERM",
-            "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
+            // Choose the decoder before writing the payload. Repeating the large
+            // bootstrap for a fallback can push the launcher past macOS ARG_MAX.
+            "if base64 -d </dev/null >/dev/null 2>&1; then cmux_decode_flag=-d; else cmux_decode_flag=-D; fi",
+            "(printf %s \(encodedLiteral) | base64 \"$cmux_decode_flag\") > \"$cmux_tmp\" || exit 1",
             "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
             "/bin/sh \"$cmux_tmp\"",
             "cmux_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
+            "unset cmux_tmp cmux_decode_flag",
             "unset -f cmux_cleanup 2>/dev/null || true",
             "exit $cmux_status",
         ].joined(separator: "\n")

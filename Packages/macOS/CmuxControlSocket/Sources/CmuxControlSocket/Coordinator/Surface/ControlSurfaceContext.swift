@@ -188,8 +188,9 @@ public protocol ControlSurfaceContext: AnyObject {
     ) -> ControlSurfaceTriggerFlashResolution
 
     /// The app-bundle-resolved localized terminal-input error strings, shared by
-    /// `surface.send_text` and `surface.send_key`. The app resolves each
-    /// `String(localized:)` so the package never binds them to the wrong bundle.
+    /// terminal creation, `surface.send_text`, and `surface.send_key`. The app
+    /// resolves each `String(localized:)` so the package never binds them to the
+    /// wrong bundle.
     /// `nonisolated`: a pure, thread-safe bundle lookup, called by the
     /// worker-lane send bodies' off-main reply shaping.
     ///
@@ -244,8 +245,11 @@ public protocol ControlSurfaceContext: AnyObject {
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings
 
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
-    /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
-    /// and stores the binding.
+    /// target, applies any stored approval, and stores the binding. It must not
+    /// present approval UI: a modal here parks the command on the main actor and
+    /// stops the socket from answering (#13369). A binding that still needs a
+    /// person's approval is stored without resume trust and reported through
+    /// ``ControlSurfaceResumeSnapshot/approvalRequired``.
     ///
     /// - Parameters:
     ///   - routing: The routing selectors (with the surface-resume precedence).
@@ -391,7 +395,9 @@ public protocol ControlSurfaceContext: AnyObject {
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
         terminalLifecycleID: UUID?,
-        stateRawValue: String
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution
 
     /// Returns the app-bundle-localized v2 error for a malformed terminal

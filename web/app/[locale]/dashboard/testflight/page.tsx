@@ -1,17 +1,23 @@
+import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
-import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { loadDashboardSection } from "@/app/lib/dashboard-auth";
+import { isStackConfigured } from "@/app/lib/stack";
 import { Link } from "@/i18n/navigation";
 import { isAscConfigured } from "@/services/asc/client";
 import { testerGroupStatus } from "@/services/asc/testflight";
 import { isTestflightEligible } from "@/services/billing/pro";
 import { captureAscError } from "@/services/errors";
+import { DashboardAuthRecovery } from "../components/dashboard-auth-recovery";
+import { TestflightPageHeader } from "../components/dashboard-page-headers";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 
-// Eligibility and App Store status are request-fresh values. Keep the current
-// tab visible while this page resolves instead of caching mutable user data.
-export const instant = false;
+const RETURN_PATH = "/dashboard/testflight";
+
+// The header is part of the static shell. Entitlement and enrollment are
+// request-specific and stream in behind the section boundary.
+export const instant = true;
 
 type SearchParams = {
   testflight?: string | string[];
@@ -23,42 +29,65 @@ type TestflightStatus = {
   unavailable?: boolean;
 };
 
-export default async function DashboardTestflightPage({
-  params,
-  searchParams,
-}: {
+type PageProps = {
   params: Promise<{ locale: string }>;
   searchParams?: Promise<SearchParams>;
-}) {
-  const { locale } = await params;
-  const query = await searchParams;
+};
 
+export default function DashboardTestflightPage(props: PageProps) {
   if (!isStackConfigured()) {
     redirect("/");
   }
-  const user = await getStackServerApp().getUser({ or: "return-null" });
-  if (!user || user.isAnonymous) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/testflight")));
-  }
-
-  const t = await getTranslations({ locale, namespace: "dashboard.testflight" });
-  const eligible = await isTestflightEligible(user);
-  const email = normalizedEmail(user.primaryEmail);
-  const status = eligible && email
-    ? await loadTestflightStatus(email, user.id)
-    : { enrolled: false };
-  const banner = testflightBanner(
-    Array.isArray(query?.testflight) ? query?.testflight[0] : query?.testflight,
-  );
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">
-      <div className="mb-4 border-b border-border pb-3">
-        <p className="text-xs font-medium text-muted">{t("eyebrow")}</p>
-        <h1 className="mt-1 text-sm font-medium">{t("title")}</h1>
-        <p className="mt-1 max-w-2xl text-muted">{t("description")}</p>
-      </div>
+      <TestflightPageHeader />
+      <Suspense fallback={<DashboardSectionSkeleton />}>
+        <ResolvedDashboardTestflightContent {...props} />
+      </Suspense>
+    </div>
+  );
+}
 
+async function ResolvedDashboardTestflightContent({
+  params,
+  searchParams,
+}: PageProps) {
+  const [{ locale }, query] = await Promise.all([params, searchParams]);
+  const testflight = Array.isArray(query?.testflight)
+    ? query.testflight[0]
+    : query?.testflight;
+
+  return (
+    <DashboardTestflightContent locale={locale} testflight={testflight} />
+  );
+}
+
+export async function DashboardTestflightContent({
+  locale,
+  testflight,
+}: {
+  locale: string;
+  testflight?: string;
+}) {
+  // The session comes from the private cache; entitlement and enrollment are
+  // read fresh so a lapsed subscription or a leave action shows at once.
+  const section = await loadDashboardSection(locale, RETURN_PATH);
+  if (section.kind === "unavailable") {
+    return <DashboardAuthRecovery locale={locale} returnPath={RETURN_PATH} />;
+  }
+  const { user } = section;
+  const eligible = await isTestflightEligible(user);
+  const email = normalizedEmail(user.primaryEmail);
+
+  const t = await getTranslations({ locale, namespace: "dashboard.testflight" });
+  const status = eligible && email
+    ? await loadTestflightStatus(email, user.id)
+    : { enrolled: false };
+  const banner = testflightBanner(testflight);
+
+  return (
+    <div>
       {banner ? (
         <div className="mb-3 border border-border bg-background p-3 text-sm">
           {t(`banners.${banner}`)}

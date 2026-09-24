@@ -228,7 +228,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
     }
 
     @Test
-    func testInstallAgentCommandShimsCreatesHermesAndClaudeExecutablesOutsideBundleBin() throws {
+    func testInstallAgentCommandShimsCreatesAmpHermesAndClaudeExecutablesOutsideBundleBin() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "GhosttyTerminalStartupEnvironmentTests-\(UUID().uuidString)", isDirectory: true)
@@ -259,6 +259,12 @@ struct GhosttyTerminalStartupEnvironmentTests {
             [.posixPermissions: 0o700],
             ofItemAtPath: hermesWrapperURL.path
         )
+        let ampWrapperURL = bundleBin.appendingPathComponent("cmux-amp-wrapper", isDirectory: false)
+        try "#!/usr/bin/env bash\nexit 0\n".write(to: ampWrapperURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: ampWrapperURL.path
+        )
 
         let surfaceId = UUID()
         let shims = try #require(
@@ -269,6 +275,7 @@ struct GhosttyTerminalStartupEnvironmentTests {
             ))
         let shim = try #require(shims.shim(named: "claude"))
         let hermesShim = try #require(shims.shim(named: "hermes"))
+        let ampShim = try #require(shims.shim(named: "amp"))
 
         expectEqual(
             shims.directoryPath,
@@ -280,9 +287,11 @@ struct GhosttyTerminalStartupEnvironmentTests {
         )
         expectEqual(URL(fileURLWithPath: shim.executablePath).lastPathComponent, "claude")
         expectEqual(URL(fileURLWithPath: hermesShim.executablePath).lastPathComponent, "hermes")
+        expectEqual(URL(fileURLWithPath: ampShim.executablePath).lastPathComponent, "amp")
         expectFalse(shim.executablePath.contains("/Contents/Resources/bin/claude"))
         expectTrue(FileManager.default.isExecutableFile(atPath: shim.executablePath))
         expectTrue(FileManager.default.isExecutableFile(atPath: hermesShim.executablePath))
+        expectTrue(FileManager.default.isExecutableFile(atPath: ampShim.executablePath))
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shim.executablePath)
