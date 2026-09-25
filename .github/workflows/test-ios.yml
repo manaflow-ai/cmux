@@ -413,7 +413,49 @@ jobs:
             *) echo "::error::Unsupported Swift package: $SELECTED_PACKAGE"; exit 1 ;;
           esac
 
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh, as ci-macos.yml does). The script is read at
+      # this commit over HTTPS because nothing is checked out yet. A miss, or a
+      # reused self-hosted workspace, leaves checkout to work as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
+          persist-credentials: false
+          submodules: false
+
+      # A seeded repository that checkout cannot use must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout without the git object seed
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
@@ -577,7 +619,51 @@ jobs:
               fi
               ;;
           esac
+
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh, as ci-macos.yml does). The script is read at
+      # this commit over HTTPS because nothing is checked out yet. A miss, or a
+      # reused self-hosted workspace, leaves checkout to work as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
+          persist-credentials: false
+          submodules: recursive
+
+      # A seeded repository that checkout cannot use (a submodule moved to
+      # another URL) must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout without the git object seed
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
