@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -65,6 +66,29 @@ class EligibilityTests(unittest.TestCase):
         head = self.repo.commit("cmux.xcodeproj/project.pbxproj", "y")
         self.assertEqual(rerun.non_test_changes(base, head, cwd=str(self.repo.path)), ["cmux.xcodeproj/project.pbxproj"])
 
+    def test_docs_and_ci_changes_do_not_change_the_app(self) -> None:
+        base = self.repo.commit("Sources/App.swift", "1")
+        self.repo.commit("docs/ci-runners.md", "x")
+        self.repo.commit(".github/workflows/ci.yml", "x")
+        head = self.repo.commit("scripts/ci/tool.py", "x")
+        self.assertEqual(rerun.non_test_changes(base, head, cwd=str(self.repo.path)), [])
+
+    def test_bundled_markdown_and_skills_change_the_app(self) -> None:
+        # The app copies these into its resources; the rerun keeps CI's app.
+        base = self.repo.commit("Sources/App.swift", "1")
+        self.repo.commit("Resources/en.lproj/cloud-agent-skill.md", "x")
+        head = self.repo.commit("skills/cmux-cua/SKILL.md", "x")
+        self.assertEqual(
+            rerun.non_test_changes(base, head, cwd=str(self.repo.path)),
+            ["Resources/en.lproj/cloud-agent-skill.md", "skills/cmux-cua/SKILL.md"],
+        )
+
+    def test_no_neutral_path_is_referenced_by_the_project(self) -> None:
+        paths = re.findall(r'path = "?([^";]+)"?;', (ROOT / "cmux.xcodeproj" / "project.pbxproj").read_text())
+        for path in paths:
+            if path.startswith(rerun.OUTSIDE_THE_APP) or path + "/" in rerun.OUTSIDE_THE_APP:
+                self.assertIn(path, ("cmuxTests", "cmuxUITests"), path)
+
     def test_limit_bounds_the_walk(self) -> None:
         for index in range(5):
             head = self.repo.commit("cmuxTests/ATests.swift", str(index))
@@ -106,6 +130,151 @@ class ProductLookupTests(unittest.TestCase):
         self.assertIsNone(rerun.find_products("o/r", ["only"], api))
 
 
+
+class PullRequestProductTests(unittest.TestCase):
+    """A pull_request run built its merge commit, not the head_sha GitHub reports."""
+
+    PRODUCTS = {"id": 7, "name": "app-host-products-v1-abc-1", "expired": False, "size_in_bytes": 1}
+
+    def setUp(self) -> None:
+        self.repo = RepositoryFixture()
+        self.addCleanup(self.repo.close)
+        self.base = self.repo.commit("Sources/App.swift", "1")
+        run_git(self.repo.path, "checkout", "-q", "-b", "topic")
+        self.head = self.repo.commit("cmuxTests/ATests.swift", "a")
+        run_git(self.repo.path, "checkout", "-q", "main")
+        self.base = self.repo.commit("Sources/Other.swift", "base moved")
+        run_git(self.repo.path, "merge", "-q", "--no-ff", "-m", "Merge topic", "topic")
+        self.merge = run_git(self.repo.path, "rev-parse", "HEAD")
+        run_git(self.repo.path, "checkout", "-q", "topic")
+
+    def pull_request_run(self, merge: str | None = None, run_id: int = 5) -> dict:
+        ref = [{"path": "o/r/.github/workflows/ci-macos.yml@x", "ref": "refs/pull/1/merge", "sha": merge or self.merge}]
+        return {"id": run_id, "event": "pull_request", "head_sha": self.head, "referenced_workflows": ref}
+
+    def built(self, run: dict) -> str:
+        return rerun.built_revision(run, cwd=str(self.repo.path), fetch=lambda revision: None)
+
+    def test_a_push_run_built_its_head(self) -> None:
+        self.assertEqual(self.built({"id": 1, "event": "push", "head_sha": self.head}), self.head)
+
+    def test_a_pull_request_run_built_the_recorded_merge(self) -> None:
+        self.assertEqual(self.built(self.pull_request_run()), self.merge)
+
+    def test_a_recorded_commit_that_does_not_merge_the_head_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "not a merge of its head"):
+            self.built(self.pull_request_run(merge=self.base))
+
+    def test_a_pull_request_run_without_a_recorded_merge_is_rejected(self) -> None:
+        run = self.pull_request_run()
+        run["referenced_workflows"] = []
+        with self.assertRaisesRegex(ValueError, "no single merge commit"):
+            self.built(run)
+
+    def dispatched_run(self, built: str, run_id: int = 6) -> dict:
+        title = f"cmuxTests/ATests on blacksmith-6vcpu-macos-26 @ {built} [abc123]"
+        return {"id": run_id, "event": "workflow_dispatch", "head_sha": self.head, "display_title": title,
+                "path": ".github/workflows/test-e2e.yml"}
+
+    def test_a_dispatched_ci_run_built_its_head(self) -> None:
+        # ci-main-full-suite.yml dispatches main's ci.yml, titled just "CI".
+        run = {"id": 7, "event": "workflow_dispatch", "head_sha": self.head, "display_title": "CI",
+               "path": ".github/workflows/ci.yml"}
+        self.assertEqual(self.built(run), self.head)
+
+    def test_a_dispatched_run_built_the_revision_its_title_names(self) -> None:
+        self.assertEqual(self.built(self.dispatched_run(self.base)), self.base)
+
+    def test_a_dispatched_run_without_a_full_revision_is_rejected(self) -> None:
+        run = self.dispatched_run(self.base)
+        run["display_title"] = "cmuxTests/ATests on blacksmith-6vcpu-macos-26 @ my-branch"
+        with self.assertRaisesRegex(ValueError, "no full revision"):
+            self.built(run)
+
+    def plan(self, ref: str, source_run_id: str, api) -> dict:
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(self.repo.path)
+        args = argparse.Namespace(
+            ref=ref, repository="o/r", only_testing="ATests", source_run_id=source_run_id, max_commits=10
+        )
+        with unittest.mock.patch.object(rerun, "product_runner", return_value="runner"):
+            return rerun.plan(args, api=api)
+
+    def test_plan_compares_the_test_ref_against_the_merge(self) -> None:
+        # The merge carries the base's app change, which the head does not.
+        def api(path: str) -> dict:
+            if path.endswith("/artifacts?per_page=100"):
+                return {"artifacts": [self.PRODUCTS]}
+            return self.pull_request_run()
+
+        with self.assertRaises(SystemExit) as raised:
+            self.plan(self.head, "5", api)
+        self.assertIn(f"run 5 built {self.merge}", str(raised.exception))
+        self.assertIn("Sources/Other.swift", str(raised.exception))
+
+    def test_plan_emits_the_merge_as_the_source_revision(self) -> None:
+        # A head that is up to date with its base merges to the same app.
+        run_git(self.repo.path, "merge", "-q", "--no-ff", "-m", "Merge main", "main")
+        self.head = run_git(self.repo.path, "rev-parse", "HEAD")
+        run_git(self.repo.path, "checkout", "-q", "main")
+        run_git(self.repo.path, "merge", "-q", "--no-ff", "-m", "Merge topic", "topic")
+        self.merge = run_git(self.repo.path, "rev-parse", "HEAD")
+        run_git(self.repo.path, "checkout", "-q", "topic")
+        tested = self.repo.commit("cmuxTests/BTests.swift", "b")
+
+        def api(path: str) -> dict:
+            if path.endswith("/artifacts?per_page=100"):
+                return {"artifacts": [self.PRODUCTS]}
+            return self.pull_request_run()
+
+        planned = self.plan(tested, "5", api)
+        self.assertEqual(planned["source_sha"], self.merge)
+        self.assertEqual(planned["changed_tests"], "cmuxTests/BTests.swift")
+
+    def test_automatic_plan_passes_over_a_merge_with_base_app_changes(self) -> None:
+        # The newer pull_request run for this head built a merge that also
+        # carries the base's app change; the older push run built the head.
+        runs = [
+            {**self.pull_request_run(run_id=2), "created_at": "2026-01-02"},
+            {"id": 1, "event": "push", "head_sha": self.head, "created_at": "2026-01-01"},
+        ]
+
+        def api(path: str) -> dict:
+            if "head_sha=" in path:
+                return {"workflow_runs": runs if f"head_sha={self.head}" in path else []}
+            return {"artifacts": [self.PRODUCTS]}
+
+        planned = self.plan(self.head, "", api)
+        self.assertEqual((planned["source_run_id"], planned["source_sha"]), ("1", self.head))
+
+    def test_automatic_plan_passes_over_a_dispatched_run_of_another_revision(self) -> None:
+        # test-e2e.yml runs list under main's head but compile the branch they test.
+        runs = [
+            {**self.dispatched_run(self.base, run_id=2), "created_at": "2026-01-02"},
+            {"id": 1, "event": "push", "head_sha": self.head, "created_at": "2026-01-01"},
+        ]
+
+        def api(path: str) -> dict:
+            if "head_sha=" in path:
+                return {"workflow_runs": runs if f"head_sha={self.head}" in path else []}
+            return {"artifacts": [self.PRODUCTS]}
+
+        planned = self.plan(self.head, "", api)
+        self.assertEqual((planned["source_run_id"], planned["source_sha"]), ("1", self.head))
+
+    def test_lookup_reports_the_built_revision_and_skips_ineligible_merges(self) -> None:
+        runs = {"h": [{"id": 1, "created_at": "2026-01-02"}, {"id": 2, "created_at": "2026-01-01"}]}
+
+        def api(path: str) -> dict:
+            match = re.search(r"head_sha=(\w+)", path)
+            if match:
+                return {"workflow_runs": runs.get(match.group(1), [])}
+            return {"artifacts": [self.PRODUCTS]}
+
+        found = rerun.find_products("o/r", ["h"], api, lambda run, revision: None if run["id"] == 1 else "merge")
+        self.assertEqual((found["run_id"], found["revision"]), ("2", "merge"))
+
+
 class ProductRunnerTests(unittest.TestCase):
     """The rerun must land on the pool whose Xcode compiled the products."""
 
@@ -126,6 +295,11 @@ class ProductRunnerTests(unittest.TestCase):
 
     def test_github_hosted_admission_maps_to_the_same_macos(self) -> None:
         api = self.api_for([{"name": "macos / macOS compile admission", "labels": ["macos-26"]}])
+        self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-26")
+
+    def test_owned_pool_admission_maps_to_the_lane_xcode_pool(self) -> None:
+        # An owned Mac carries the pull-request lane's Xcode, the macOS 26 pools' pin.
+        api = self.api_for([{"name": "macos / macOS compile admission", "labels": ["glaeda-std-xcode-26.6"]}])
         self.assertEqual(rerun.product_runner("o/r", "5", api), "blacksmith-6vcpu-macos-26")
 
     def test_macos_15_admission_and_unknown_producers_stay_on_macos_15(self) -> None:
@@ -299,6 +473,68 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][:3], ["gh", "run", "download"])
 
 
+class SourcePruningTests(unittest.TestCase):
+    """A rerun compiles only the test sources its suites can reach."""
+
+    SOURCES = {
+        "ATests.swift": "final class ATests: XCTestCase {\n    func testOne() { XCTAssertEqual(makeWidget().size, 2) }\n}\n",
+        "ATests+More.swift": "extension ATests {\n    func testTwo() {}\n}\n",
+        "WidgetSupport.swift": "func makeWidget() -> Widget { Widget(size: 2) }\nstruct Widget { let size: Int }\n",
+        "Unrelated.swift": "final class BTests: XCTestCase {\n    func testThree() { XCTAssertTrue(true) }\n}\n",
+        "Private.swift": "private func makeWidget() -> Int { 1 }\nstruct Other {}\n",
+        "Members.swift": "extension Widget {\n    var doubled: Int { size * 2 }\n    func unused() {\n        let size = 3\n    }\n}\n",
+        "Conformance.swift": "extension Widget: Equatable {}\n",
+        "Init.swift": "extension Widget {\n    init() { self.init(size: 1) }\n}\n",
+    }
+
+    def closure(self, suites: set[str], **changes: str) -> set[str] | None:
+        return rerun.source_closure({**self.SOURCES, **changes}, suites)
+
+    def test_follows_the_suite_to_the_helpers_it_uses(self) -> None:
+        self.assertEqual(
+            self.closure({"ATests"}),
+            {"ATests.swift", "ATests+More.swift", "WidgetSupport.swift", "Init.swift"},
+        )
+
+    def test_an_extension_member_or_conformance_comes_in_once_it_is_used(self) -> None:
+        uses = "final class ATests: XCTestCase {\n    func testOne() { XCTAssertEqual(makeWidget().doubled, makeWidget() as Equatable) }\n}\n"
+        kept = self.closure({"ATests"}, **{"ATests.swift": uses})
+        self.assertIn("Members.swift", kept)
+        self.assertIn("Conformance.swift", kept)
+
+    def test_a_local_variable_in_an_extension_is_not_a_member(self) -> None:
+        self.assertNotIn("Members.swift", self.closure({"ATests"}))
+
+    def test_a_suite_not_declared_at_the_top_level_compiles_everything(self) -> None:
+        self.assertIsNone(self.closure({"ATests", "MissingTests"}))
+
+    def test_prunes_only_test_sources_and_keeps_everything_else(self) -> None:
+        original = (ROOT / "cmux.xcodeproj" / "project.pbxproj").read_text()
+        sources = {path.name for path in (ROOT / "cmuxTests").rglob("*.swift")}
+        text, dropped = rerun.prune_project(original, {"CmuxPopoverGroupTests.swift"}, sources)
+        self.assertEqual(dropped, len(sources) - 1)
+        # Only removals; the rewritten list may re-indent the lines it keeps.
+        self.assertTrue({line.strip() for line in text.splitlines()} <= {line.strip() for line in original.splitlines()})
+        phase = text[text.index("F1000005A1B2C3D4E5F60718 /* Sources */ = {"):]
+        phase = phase[: phase.index("};")]
+        self.assertIn("CmuxPopoverGroupTests.swift in Sources", phase)
+        # The bundle also compiles CLI sources and the Objective-C release guard.
+        self.assertIn("CLIError.swift in Sources", phase)
+        self.assertIn("CmuxTestWindowReleaseGuard.m in Sources", phase)
+
+    def test_the_real_suites_reach_a_small_closure(self) -> None:
+        sources = {path.name: path.read_text(errors="replace") for path in (ROOT / "cmuxTests").rglob("*.swift")}
+        kept = rerun.source_closure(sources, {"CmuxPopoverGroupTests"})
+        self.assertIn("CmuxPopoverGroupTests.swift", kept)
+        self.assertLess(len(kept), len(sources) // 10)
+
+    def test_the_workflow_falls_back_to_every_source(self) -> None:
+        text = WORKFLOW.read_text()
+        step = text[text.index("- name: Compile only the cmuxTests bundle"): text.index("- name: Stage and validate products")]
+        self.assertLess(step.index("app_host_test_rerun.py\" prune"), step.index('cp "$RUNNER_TEMP/detached.pbxproj"'))
+        self.assertIn("&& compile; then", step)
+
+
 class WorkflowTests(unittest.TestCase):
     def test_runs_on_a_fork_without_repository_variables(self) -> None:
         labels = re.findall(r"runs-on: (.*)", WORKFLOW.read_text())
@@ -308,6 +544,14 @@ class WorkflowTests(unittest.TestCase):
                 label.startswith("${{ github.repository_owner != 'manaflow-ai' && '"),
                 f"a fork must reach a hosted label before any variable: {label}",
             )
+
+    def test_every_swiftpm_cache_key_carries_the_layout_version(self) -> None:
+        # #14013 moved the artifact zips into the seed and bumped the layout;
+        # a key without it restores a pre-#14013 seed, and resolution then
+        # downloads the artifacts again (116 s in run 36012287965).
+        for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            for key in re.findall(r"key: (spm-.*)", workflow.read_text()):
+                self.assertIn("scripts/ci/swiftpm-cache-layout", key, f"{workflow.name}: {key}")
 
     def test_the_helper_comes_from_the_workflow_revision(self) -> None:
         text = WORKFLOW.read_text()

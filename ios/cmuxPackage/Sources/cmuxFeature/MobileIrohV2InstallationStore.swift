@@ -1,7 +1,6 @@
 import CryptoKit
 import CmuxIrxTransport
 import Foundation
-import Security
 
 /// Fresh per-installation v2 identifiers. Production seeds remain in this device's keychain.
 actor MobileIrohV2InstallationStore {
@@ -9,11 +8,16 @@ actor MobileIrohV2InstallationStore {
     private let accessGroup: String?
     private let files = FileManager()
     private let keys: V2IdentityKeyStore
+    private let installationIDs: V2InstallationIDStore
 
     init(configuration: MobileIrohV2Configuration, accessGroup: String?) {
         self.configuration = configuration
         self.accessGroup = accessGroup
         keys = V2IdentityKeyStore(applicationNamespace: configuration.appNamespace, accessGroup: accessGroup)
+        installationIDs = V2InstallationIDStore(
+            applicationNamespace: configuration.appNamespace,
+            accessGroup: accessGroup
+        )
     }
 
     func deviceID() throws -> String {
@@ -24,24 +28,7 @@ actor MobileIrohV2InstallationStore {
         try Data(value.utf8).write(to: file, options: .atomic)
         return value
         #else
-        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: configuration.appNamespace + ".cmux-iroh-v2.installation",
-            kSecAttrAccount as String: "device-id"]
-        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
-        var read = query
-        read[kSecReturnData as String] = true
-        read[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(read as CFDictionary, &result)
-        if status == errSecSuccess, let data = result as? Data,
-           let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil { return value }
-        guard status == errSecItemNotFound else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
-        let value = UUID().uuidString.lowercased()
-        query[kSecValueData as String] = Data(value.utf8)
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let added = SecItemAdd(query as CFDictionary, nil)
-        guard added == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(added)) }
-        return value
+        return try installationIDs.loadOrCreate()
         #endif
     }
 

@@ -6,6 +6,9 @@ public import CmuxFoundation
 /// Wire/persistence shape: field names are encoded by `Codable`; do not rename
 /// stored properties without a migration.
 public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
+    /// Explicit persistent SSH owner; absent in legacy daemon snapshots.
+    public var sshSessionOwner: String? = nil
+
     /// The transport the workspace used when the snapshot was taken.
     public var transport: WorkspaceRemoteTransport
     /// The interactive terminal protocol, absent in snapshots written before Mosh support.

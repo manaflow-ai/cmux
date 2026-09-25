@@ -1273,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "cmux-konfigurasjon. Den globale cmux.json støtter appinnstillinger, snarveier, handlinger, egendefinerte kommandoer, varslingshooks og arbeidsområdeoppsett. En prosjektlokal .cmux/cmux.json eller cmux.json støtter handlinger, kommandoer, varslingshooks, kobling av UI-handlinger, overstyringer for Agent Chat, vault-agenter, overstyringer for arbeidsområdegrupper samt konfigurasjon av oppstart og knapper for arbeidsområder.",
         "rightSidebar": "Eldre og utvidelseseid konfigurasjon av høyre sidefelt som bevares i cmux.json.",
+        "packs": {
+          "description": "Lokale cmux-pakkefiler eller mapper som lastes før denne konfigurasjonen. Mapper viser til cmux.pack.json. Bruk en stistreng eller et objekt med et path-felt.",
+          "path": "Lokal fil- eller mappesti, relativ til denne konfigurasjonsfilen med mindre den er absolutt."
+        },
         "paneBorderColor": "Overstyr fargen på cmux-rutedeleren i delte arbeidsområder. Dette påvirker cmux-rutekanter, ikke Ghosttys interne delinger.",
         "activePaneBorderColor": "Valgfri kantfarge som tegnes rundt den fokuserte cmux-ruten i delte arbeidsområder.",
         "automation": {
@@ -4050,5 +4054,15 @@
     "organization": "Organisasjon",
     "personalAccount": "personlig konto",
     "switchAccountButton": "Bruk en annen konto"
+  },
+  "MobileRelease106": {
+    "title": "Nytt i 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Oppdaterte Mac-tilkoblinger",
+    "connectionDetail": "Denne oppdateringen bruker den nye tilkoblingstjenesten og Iroh-transport. Eldre Mac-bygg må oppdateres for å koble til.",
+    "updateTitle": "Oppdater cmux på Macen",
+    "updateDetail": "Krever cmux {stableVersion} eller nyere, eller NIGHTLY {nightlyVersion} eller nyere. Slå på iOS-sammenkobling i Innstillinger > Mobil på hver Mac.",
+    "rollbackTitle": "Må du beholde et eldre Mac-bygg?",
+    "rollbackDetail": "Bruk cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere bygg så lenge det er tilgjengelig. Velg akkurat dette bygget, siden senere bygg bruker en nyere tilkoblingstjeneste."
   }
 }

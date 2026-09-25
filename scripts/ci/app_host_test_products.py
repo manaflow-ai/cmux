@@ -12,7 +12,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCHEMES = {"cmux": "CMUX_UI_XCTESTRUN", "cmux-unit": "CMUX_APP_HOST_XCTESTRUN", "cmux-numeric-locale": "CMUX_NUMERIC_LOCALE_XCTESTRUN"}
+# Run directly by CI and loaded by path from tests; keep the sibling import
+# working under both.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import product_input_identity as product_inputs  # noqa: E402
+
+SCHEMES = {
+    "cmux": "CMUX_UI_XCTESTRUN",
+    "cmux-unit": "CMUX_APP_HOST_XCTESTRUN",
+    "cmux-numeric-locale": "CMUX_NUMERIC_LOCALE_XCTESTRUN",
+    # cmuxCLITests has no app host: its bundle is loaded by the platform's own
+    # xctest agent, so the manifest names no product as its test host.
+    "cmux-cli-tests": "CMUX_CLI_TESTS_XCTESTRUN",
+}
 RECEIPT = "cmux-test-products.json"
 
 
@@ -68,9 +81,15 @@ def check_xcode(produced: str | None, current: str) -> None:
 
 
 def manifests(products: Path) -> dict[str, Path]:
-    """Require one test manifest for each scheme, never silently select an old one."""
+    """Require one test manifest per scheme the active profile builds.
+
+    Exactly the profile's schemes, never a subset: a product missing a manifest
+    its key claims is a partial product, and a consumer restoring it would test
+    something that was never built. The scheme set comes from PRODUCT_PROFILES
+    so this check and the build cannot disagree.
+    """
     found = {}
-    for scheme in SCHEMES:
+    for scheme in product_inputs.profile_schemes():
         matches = list(products.glob(f"{scheme}_*.xctestrun"))
         if len(matches) != 1:
             raise ValueError(f"expected one {scheme} test manifest, found {len(matches)}")
@@ -104,6 +123,18 @@ def targets(value):
             yield from targets(item)
 
 
+def hosted_by_product(target) -> bool:
+    """False when the platform's xctest agent loads the bundle directly.
+
+    A unit-test target without TEST_HOST is hosted by
+    __PLATFORMS__/.../Agents/xctest, which lives inside Xcode and not inside
+    Build/Products. Such a target has no product test host to validate, only a
+    bundle.
+    """
+    host = target.get("TestHostPath", "")
+    return bool(host) and "__PLATFORMS__" not in host
+
+
 def validate_manifest(value, products: Path) -> None:
     """Prove that the relocated manifest references an existing app and test bundle."""
     found = list(targets(value))
@@ -112,7 +143,7 @@ def validate_manifest(value, products: Path) -> None:
     for target in found:
         host = target.get("TestHostPath", "").replace("__TESTROOT__", str(products))
         bundle = target["TestBundlePath"].replace("__TESTROOT__", str(products)).replace("__TESTHOST__", host)
-        paths = [("host", host), ("bundle", bundle)]
+        paths = [("host", host), ("bundle", bundle)] if hosted_by_product(target) else [("bundle", bundle)]
         if "UITargetAppPath" in target:
             app = target["UITargetAppPath"].replace("__TESTROOT__", str(products))
             paths.append(("UI target app", app))

@@ -93,8 +93,8 @@ jobs:
           # runner the wrapper cannot see an identical run already in flight.
           CMUX_MACOS_RUNNER_TESTS: ${{ vars.MACOS_RUNNER_TESTS }}
           CMUX_CI_E2E_LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
-          CMUX_CI_E2E_OVERFLOW_MIN_QUEUED: ${{ vars.CI_E2E_OVERFLOW_MIN_QUEUED }}
-          CMUX_CI_E2E_OVERFLOW_MAX_LARGE_RUNNING: ${{ vars.CI_E2E_OVERFLOW_MAX_LARGE_RUNNING }}
+          CMUX_CI_PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          CMUX_CI_PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           UNIT_TEST_SUITES: ${{ inputs.unit_test_suites }}
           TEST_REF: ${{ inputs.ref || github.sha }}
           TEST_TIMEOUT: ${{ inputs.test_timeout }}
@@ -395,12 +395,25 @@ jobs:
             ONLY_TESTING="-only-testing:cmuxUITests"
           fi
 
+          UI_TEST_LOG="$RUNNER_TEMP/cmux-ui-tests.log"
+          set +e
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             -maximum-test-execution-time-allowance "$TEST_TIMEOUT" \
-            "$ONLY_TESTING" test
+            "$ONLY_TESTING" test 2>&1 | tee "$UI_TEST_LOG"
+          UI_TEST_STATUS=${PIPESTATUS[0]}
+          set -e
+          if [ "$UI_TEST_STATUS" -ne 0 ]; then
+            exit "$UI_TEST_STATUS"
+          fi
+          # A filter that matches nothing exits 0 after executing zero tests.
+          if [ -n "$TEST_FILTER" ] && ! scripts/ci/require_selected_test_execution.sh \
+            "$UI_TEST_LOG" "cmuxUITests/$TEST_FILTER" >/dev/null; then
+            echo "::error::test_filter cmuxUITests/$TEST_FILTER executed zero tests; check the class and method names"
+            exit 1
+          fi
 
       - name: Upload unit test results
         if: ${{ always() && !inputs.skip_unit_tests }}

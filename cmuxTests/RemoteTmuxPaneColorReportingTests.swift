@@ -163,6 +163,49 @@ import Testing
             + dark.reportCommands(paneId: 5))
     }
 
+    @Test func topologyGapsRetainColorsUntilPaneOwnershipIsResolved() throws {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@pane-colors.test"),
+            sessionName: "work"
+        )
+        defer { connection.stop() }
+        func layout(_ paneId: Int) -> RemoteTmuxLayoutNode {
+            RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(paneId))
+        }
+        connection.windowsByID[1] = RemoteTmuxWindow(
+            id: 1, name: "published", width: 80, height: 24, layout: layout(4)
+        )
+        connection.pendingLayouts[2] = RemoteTmuxPendingLayout(
+            node: layout(5), visibleNode: layout(6), zoomed: true, name: "pending", generation: 1
+        )
+        connection.initialBatchStaged[3] = RemoteTmuxWindow(
+            id: 3, name: "staged", width: 80, height: 24, layout: layout(7)
+        )
+        connection.paneIDsRetainedUntilWindowList = [8]
+        let colors = try darkColors()
+        for paneId in 4...9 {
+            connection.paneColors[paneId] = colors
+            connection.sentPaneColors[paneId] = colors
+            connection.paneHeaderLabels[paneId] = "pane-\(paneId)"
+        }
+
+        connection.prunePaneState(keeping: connection.paneIDsForStatePruning())
+
+        let retainedPaneIds: Set<Int> = [4, 5, 6, 7, 8]
+        #expect(Set(connection.paneColors.keys) == retainedPaneIds)
+        #expect(Set(connection.sentPaneColors.keys) == retainedPaneIds)
+        #expect(Set(connection.paneHeaderLabels.keys) == retainedPaneIds)
+
+        connection.pendingLayouts.removeAll()
+        connection.initialBatchStaged.removeAll()
+        connection.paneIDsRetainedUntilWindowList.removeAll()
+        connection.prunePaneState(keeping: connection.paneIDsForStatePruning())
+
+        #expect(connection.paneColors == [4: colors])
+        #expect(connection.sentPaneColors == [4: colors])
+        #expect(connection.paneHeaderLabels == [4: "pane-4"])
+    }
+
     @Test func surfaceThemeChangesRefreshOnlyTheOwnedPane() async throws {
         let manager = TabManager()
         let workspace = manager.addWorkspace(select: false, autoWelcomeIfNeeded: false)

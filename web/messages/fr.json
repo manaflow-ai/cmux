@@ -1273,6 +1273,10 @@
       "schemaDescriptions": {
         "root": "Configuration de cmux. Le fichier global cmux.json prend en charge les réglages de l’application, les raccourcis, les actions, les commandes personnalisées, les hooks de notification et les dispositions d’espaces de travail. Un fichier .cmux/cmux.json ou cmux.json local au projet prend en charge les actions, les commandes, les hooks de notification, le câblage des actions d’interface, les surcharges d’Agent Chat, les agents du coffre, les surcharges de groupes d’espaces de travail ainsi que la configuration du lancement et des boutons des espaces de travail.",
         "rightSidebar": "Configuration héritée et appartenant aux extensions de la barre latérale droite, conservée dans cmux.json.",
+        "packs": {
+          "description": "Fichiers ou dossiers de packs cmux locaux chargés avant cette configuration. Les dossiers sont résolus en cmux.pack.json. Utilisez une chaîne de chemin ou un objet avec un champ path.",
+          "path": "Chemin de fichier ou de dossier local, relatif à ce fichier de configuration sauf s’il est absolu."
+        },
         "paneBorderColor": "Remplace la couleur du séparateur de volets cmux dans les espaces de travail divisés. Cela affecte les limites des volets cmux, pas les divisions internes de Ghostty.",
         "activePaneBorderColor": "Couleur de bordure facultative dessinée autour du volet cmux focalisé dans les espaces de travail divisés.",
         "automation": {
@@ -4055,5 +4059,15 @@
     "organization": "Organisation",
     "personalAccount": "compte personnel",
     "switchAccountButton": "Utiliser un autre compte"
+  },
+  "MobileRelease106": {
+    "title": "Nouveautés de la version 1.0.6",
+    "releaseLabel": "1.0.6 · Septembre 2026",
+    "connectionTitle": "Connexions Mac mises à jour",
+    "connectionDetail": "Cette mise à jour utilise le nouveau service de connexion et le transport Iroh. Les anciennes versions Mac doivent être mises à jour pour se connecter.",
+    "updateTitle": "Mettez à jour cmux sur votre Mac",
+    "updateDetail": "Nécessite cmux {stableVersion} ou version ultérieure, ou NIGHTLY {nightlyVersion} ou version ultérieure. Activez le jumelage iOS dans Réglages > Mobile sur chaque Mac.",
+    "rollbackTitle": "Vous devez conserver une ancienne version Mac ?",
+    "rollbackDetail": "Utilisez cmux BETA 1.0.5 ({rollbackBuild}) dans TestFlight > Versions précédentes tant qu’elle reste disponible. Choisissez exactement cette version, car les suivantes utilisent un service de connexion plus récent."
   }
 }

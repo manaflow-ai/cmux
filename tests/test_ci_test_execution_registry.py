@@ -176,6 +176,68 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         self.assertIn('lane = "<lane>"', message)
         self.assertIn("macos-cli-no-socket", message)
 
+    def recipe_root(self, workflow_line: str) -> Path:
+        root = self.make_root(
+            tests=["test_kept.py", "test_recipe.py"],
+            registry=self.kept_registry() + '\n[[test]]\npath = "tests/test_recipe.py"\nlane = "linux-guard"\n',
+        )
+        (root / "scripts").mkdir()
+        (root / "scripts" / "verify-local.py").write_text(
+            'CHECKS = (("recipe", "tests", "Recipe test", ["python3", "tests/test_recipe.py"]),)\n',
+            encoding="utf-8",
+        )
+        (root / ".github" / "workflows" / "ci.yml").write_text(
+            f"jobs:\n  static-preflight:\n    steps:\n      {workflow_line}\n", encoding="utf-8"
+        )
+        return root
+
+    def test_a_test_the_shared_preflight_recipe_runs_is_live(self) -> None:
+        root = self.recipe_root("- run: python3 scripts/verify-local.py")
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertEqual(errors, [])
+
+    def test_a_commented_out_recipe_run_does_not_make_its_tests_live(self) -> None:
+        root = self.recipe_root("# - run: python3 scripts/verify-local.py")
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+
+    def test_a_step_that_only_names_the_recipe_does_not_make_its_tests_live(self) -> None:
+        root = self.recipe_root("- name: Document scripts/verify-local.py")
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+
+    def test_an_only_selection_credits_just_the_selected_checks(self) -> None:
+        root = self.recipe_root("- run: python3 scripts/verify-local.py --only other")
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+        root = self.recipe_root("- run: python3 scripts/verify-local.py --only recipe")
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertEqual(errors, [])
+
+    def test_an_invocation_that_may_skip_checks_does_not_make_its_tests_live(self) -> None:
+        for args in ("--affected", "--affected=origin/main", "--list", "--only recipe --list",
+                     "--swift-changed", "--aff"):
+            with self.subTest(args=args):
+                root = self.recipe_root(f"- run: python3 scripts/verify-local.py {args}")
+                errors, _, _ = validator.validate(root, added=set())
+                self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+
+    def test_full_recipe_options_keep_its_tests_live(self) -> None:
+        for args in ("--all", "--timeout 120", "--receipt out.json", "--only=recipe", "&& echo done"):
+            with self.subTest(args=args):
+                root = self.recipe_root(f"- run: python3 scripts/verify-local.py {args}")
+                errors, _, _ = validator.validate(root, added=set())
+                self.assertEqual(errors, [])
+
+    def test_a_commented_out_recipe_check_is_not_live(self) -> None:
+        root = self.recipe_root("- run: python3 scripts/verify-local.py")
+        (root / "scripts" / "verify-local.py").write_text(
+            'CHECKS = (\n    # ("recipe", "tests", "Recipe test", ["python3", "tests/test_recipe.py"]),\n)\n',
+            encoding="utf-8",
+        )
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertIn("tests/test_recipe.py: linux-guard lane is not run by any workflow", errors)
+
     def test_write_registers_a_test_a_workflow_already_runs(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_new.py"], registry=self.kept_registry())
         workflow = root / ".github" / "workflows" / "ci-guards.yml"
@@ -185,6 +247,29 @@ class RegistryBlastRadiusTests(unittest.TestCase):
         errors, _, _ = validator.validate(root, added={"tests/test_new.py"})
         self.assertEqual(errors, [])
         self.assertEqual(validator.register_derivable(root), [])  # idempotent
+
+    def test_a_test_a_workflow_runs_through_a_workload_profile_is_live(self) -> None:
+        root = self.make_root(
+            tests=["test_kept.py", "test_profiled.py"],
+            registry=self.kept_registry()
+            + '\n[[test]]\npath = "tests/test_profiled.py"\nlane = "linux-guard"\n',
+        )
+        workflow = root / ".github" / "workflows" / "ci-guards.yml"
+        workflow.write_text(
+            GUARD_WORKFLOW + "      - run: python3 scripts/ci/cmux_workload_profile.py run test.guard\n",
+            encoding="utf-8",
+        )
+        (root / "scripts" / "ci" / "workloads").mkdir(parents=True)
+        (root / "scripts" / "ci" / "cmux-workload-profiles.json").write_text(
+            '{"profiles": [{"id": "test.guard", "entrypoint": "scripts/ci/workloads/guard.sh"}]}',
+            encoding="utf-8",
+        )
+        (root / "scripts" / "ci" / "workloads" / "guard.sh").write_text(
+            "python3 tests/test_profiled.py\n", encoding="utf-8"
+        )
+
+        errors, _, _ = validator.validate(root, added=set())
+        self.assertEqual(errors, [])
 
     def test_write_leaves_a_test_no_workflow_runs_for_a_person_to_place(self) -> None:
         root = self.make_root(tests=["test_kept.py", "test_orphan.py"], registry=self.kept_registry())
