@@ -1769,7 +1769,8 @@ class Wiring(unittest.TestCase):
 
     def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, "
+        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
+                                            "[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
                                             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
@@ -1905,21 +1906,22 @@ IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (gith
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache="", fork=False):
+              swift_package="", seed_cache="", fork=False, queue_rounds=None, pull_requests_since=0, log=None):
     calls = []
 
     def measured():
         calls.append(1)
         if measure is not None:
             return measure()
-        return ios_pool.IOSLoad(e2e_pool.PoolLoad(snap), ios_since)
+        return ios_pool.IOSLoad(e2e_pool.PoolLoad(snap, {}, pull_requests_since), ios_since)
 
     route = ios_pool.resolve(
         lane, requested, variable, ios_owned=ios_owned, owned=owned,
         owned_slots=json.dumps(IOS_SLOTS if slots is None else slots),
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
-        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, fork=fork)
+        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, fork=fork,
+        queue_rounds=queue_rounds, log=log or (lambda message: None))
     return route, len(calls)
 
 
@@ -2182,6 +2184,63 @@ class IOSRouting(unittest.TestCase):
         # One pool machine is enough.
         self.assertTrue(ios_route(sim_fleet(busy=39), swift_package="CmuxMobileShell")[0].persistent)
         self.assertFalse(ios_route(sim_fleet(busy=39))[0].persistent)
+
+    def incident_snapshot(self):
+        """The janitor snapshot run 36136190497 read (2026-09-25 12:34:57 UTC), with 8 simulator minis."""
+        snap = backlog(small=62, large=23, old=29)
+        snap["pools"][SMALL]["running"] = 5
+        snap["pools"][OLD]["reserved_queued"] = 1
+        # 8 of 32 std machines ran; the root runners were the queue; in-flight
+        # runs' whole future peaks (`committed`) were 43.
+        snap["pools"][MINI] = {"queued": 15, "running": 8, "committed": 43}
+        snap["pools"][ROOT_MINI] = {"queued": 15, "running": 8, "committed": 42}
+        return snap
+
+    INCIDENT_SLOTS = {MINI: 32, ROOT_MINI: 15, IOS_SIM: 8}
+
+    def test_a_busy_blacksmith_lane_queues_for_the_owned_pool_within_the_rounds(self):
+        # Run 36136190497: without the rounds, `committed` 43 of 32 read the std
+        # pool full with 24 machines idle, and the run sat 15 minutes behind
+        # 62 queued jobs on the 6vcpu macOS 26 pool.
+        snap = self.incident_snapshot()
+        messages = []
+        route, _ = ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=13, log=messages.append)
+        self.assertFalse(route.persistent)
+        self.assertIn("every pool is full", messages[-1])
+        # With CI_PR_POOL_QUEUE_ROUNDS (2 then) it takes the pull request rule's queue places.
+        messages = []
+        route, _ = ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=13, queue_rounds="2",
+                             log=messages.append)
+        self.assertEqual((route.label, json.loads(route.runs_on)), (MINI, [MINI, IOS_SIM]))
+        self.assertIn("queue places", messages[-1])
+        # Unset is the default of 1 round, not the kill switch.
+        self.assertTrue(ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=5,
+                                  queue_rounds="")[0].persistent)
+        self.assertFalse(ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=5)[0].persistent)
+        # 0 is the kill switch: the old rule.
+        self.assertFalse(ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=13,
+                                   queue_rounds="0")[0].persistent)
+
+    def test_the_rounds_still_bound_the_owned_queue_and_the_simulators(self):
+        snap = self.incident_snapshot()
+        # Enough newer runs replayed onto the std pool fill its queue bound: Blacksmith, the lane's default.
+        route, _ = ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=30, queue_rounds="2")
+        self.assertEqual((route.label, route.persistent), (SMALL, False))
+        # The simulators are never queued for: they must be free now.
+        snap["pools"][IOS_SIM] = {"running": 7, "queued": 0, "committed": 7}
+        route, _ = ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=13, queue_rounds="2")
+        self.assertFalse(route.persistent)
+        self.assertTrue(ios_route(snap, slots=self.INCIDENT_SLOTS, pull_requests_since=13, queue_rounds="2",
+                                  device_family="iphone")[0].persistent)
+        # An invalid value keeps the default without reading the queue.
+        route, calls = ios_route(snap, slots=self.INCIDENT_SLOTS, queue_rounds="x")
+        self.assertEqual((route.persistent, calls), (False, 0))
+
+    def test_the_workflow_passes_the_queue_rounds(self):
+        step = next(step for step in yaml.safe_load((WORKFLOWS / "test-ios.yml").read_text())["jobs"]["runner"]["steps"]
+                    if step.get("id") == "pool")
+        self.assertEqual(step["env"]["POOL_QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
+        self.assertIn('--queue-rounds "$POOL_QUEUE_ROUNDS"', step["run"])
 
     def test_the_screenshots_lane_never_reads_the_queue(self):
         route, calls = ios_route(sim_fleet(), lane="screenshots")
