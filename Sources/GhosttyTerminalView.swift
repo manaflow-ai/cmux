@@ -13214,6 +13214,13 @@ final class GhosttySurfaceScrollView: NSView {
             bottomThreshold: Double(Self.scrollToBottomThreshold)
         )
 
+        guard surfaceView.terminalSurface?.ioMode != .manualMirror else {
+            // A source-Mac grid can overflow a smaller local mirror pane. Its
+            // scroll is local presentation state; never send it back as a
+            // viewport mutation that could reflow the source terminal.
+            return
+        }
+
         let row = Int(topBasedScrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }
@@ -13346,7 +13353,9 @@ final class GhosttySurfaceScrollView: NSView {
         TerminalScrollBarPresencePolicy(
             allowedBySettings: terminalScrollBarAllowedBySettings(),
             scrollerStyle: scrollView.scrollerStyle == .legacy ? .legacy : .overlay,
-            hasScrollback: surfaceHasScrollback()
+            hasScrollback: surfaceHasScrollback(),
+            hasManualMirrorOverflow: surfaceView.terminalSurface?.ioMode == .manualMirror
+                && documentView.frame.height > scrollView.contentView.bounds.height + 0.5
         ).isPresent
     }
 
