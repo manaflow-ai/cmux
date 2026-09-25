@@ -184,6 +184,91 @@ class SeedDerivedData(unittest.TestCase):
         self.assertFalse((self.root / "escape").exists())
         self.assertIsNone(seed.cached("../k-3"))
 
+    def test_the_prune_spares_a_seed_a_job_may_be_cloning(self):
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        import time
+        seed.stash(self.derived, "k-old")
+        os.utime(cache / "k-old", (1000, 1000))
+        seed.stash(self.derived, "k-1")
+        # Touched a minute ago, as adopt does just before cloning it.
+        os.utime(cache / "k-1", (time.time() - 60, time.time() - 60))
+        seed.stash(self.derived, "k-2")
+        seed.stash(self.derived, "k-3")
+        # Past the newest two, but only the stale one goes.
+        self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-1", "k-2", "k-3"])
+
+    def prefetch_store(self, prefix="admission-derived-data-v1-macOS-ARM64-fp-"):
+        store = self.root / "state"
+        store.mkdir()
+        (store / seed.SEED_SOURCE).write_text(json.dumps(
+            {"prefix": prefix, "runner_os": "macOS", "runner_arch": "ARM64", "public_url": "https://cache.test"}))
+        return store
+
+    def test_prefetch_downloads_the_nearest_seed_into_the_local_cache_once(self):
+        store = self.prefetch_store()
+        key = "admission-derived-data-v1-macOS-ARM64-fp-j6-p1"
+        fetched = []
+
+        def fake_fetch(derived, exact, prefix):
+            fetched.append((exact, prefix))
+            staging = derived.with_name(derived.name + ".seed")
+            (staging / "Build").mkdir(parents=True)
+            (staging / seed.MANIFEST).write_text("{}")
+            return exact
+
+        exists = {key}
+        with mock.patch.object(seed, "lineage", return_value=["head", "p1", "p2"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=lambda k: k in exists), \
+                mock.patch.object(seed, "fetch", side_effect=fake_fetch):
+            first = seed.prefetch(store, "head")
+            second = seed.prefetch(store, "head")
+        self.assertEqual((first["fetched"], first["key"], first["distance"]), ("true", key, 1))
+        self.assertEqual(fetched, [(key, key)])  # the exact key only, never another width's
+        self.assertEqual((second["fetched"], second["reason"]), ("false", "already kept"))
+        self.assertTrue((store / "seeds" / key / seed.MANIFEST).is_file())
+        self.assertEqual([p.name for p in (store / "seeds").iterdir()], [key])
+        self.assertEqual(os.environ["CI_CACHE_R2_PUBLIC_URL"], "https://cache.test")
+
+    def test_prefetch_keeps_nothing_from_an_incomplete_download(self):
+        store = self.prefetch_store()
+        key = "admission-derived-data-v1-macOS-ARM64-fp-j6-head"
+
+        def partial(derived, exact, prefix):
+            derived.with_name(derived.name + ".seed").mkdir(parents=True)
+            return exact
+
+        with mock.patch.object(seed, "lineage", return_value=["head"]), \
+                mock.patch.object(seed, "seed_exists", return_value=True), \
+                mock.patch.object(seed, "fetch", side_effect=partial):
+            result = seed.prefetch(store, "head")
+        self.assertEqual((result["fetched"], result["key"]), ("false", key))
+        self.assertEqual(list((store / "seeds").iterdir()), [])
+
+    def test_prefetch_needs_a_recorded_prefix(self):
+        store = self.root / "state"
+        store.mkdir()
+        self.assertEqual(seed.prefetch(store, "head")["fetched"], "false")
+        (store / seed.SEED_SOURCE).write_text(json.dumps({"prefix": "../elsewhere-"}))
+        self.assertEqual(seed.prefetch(store, "head")["reason"], "recorded seed prefix is invalid")
+
+    def test_lineage_reads_a_local_git_directory_without_the_api(self):
+        import subprocess
+        repo = self.root / "repo"
+        repo.mkdir()
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        shas = []
+        for index in range(3):
+            subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", str(index)], check=True)
+            shas.append(subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True,
+                                       text=True).stdout.strip())
+        os.environ.pop("GITHUB_REPOSITORY", None)
+        os.environ["CMUX_SEED_GIT_DIR"] = str(repo)
+        self.assertEqual(seed.lineage(shas[-1]), shas[::-1])
+
     def start_then_adopt(self, mode, start_args=None):
         """Download in the background, as compile admission does while it resolves."""
         os.environ["FAKE_MODE"] = mode

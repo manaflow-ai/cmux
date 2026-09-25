@@ -56,6 +56,19 @@ class Fixture(unittest.TestCase):
 
 
 class Check(Fixture):
+    def test_check_records_the_seed_prefix_for_idle_prefetch(self):
+        env = {"RUNNER_OS": "macOS", "RUNNER_ARCH": "ARM64", "CI_CACHE_R2_PUBLIC_URL": "https://cache.test"}
+        with unittest.mock.patch.dict(os.environ, env):
+            run(state.check, self.store, "fp", self.workspace)
+        recorded = json.loads((self.store / state.seed.SEED_SOURCE).read_text())
+        self.assertEqual(recorded, {"prefix": "admission-derived-data-v1-macOS-ARM64-fp-", "runner_os": "macOS",
+                                    "runner_arch": "ARM64", "public_url": "https://cache.test"})
+        # Outside a job there is nothing to record.
+        (self.store / state.seed.SEED_SOURCE).unlink()
+        with unittest.mock.patch.dict(os.environ, {"RUNNER_OS": ""}):
+            run(state.check, self.store, "fp", self.workspace)
+        self.assertFalse((self.store / state.seed.SEED_SOURCE).exists())
+
     def test_cold_store(self):
         result = run(state.check, self.store, "fp", self.workspace)
         self.assertEqual((result["warm"], result["packages"]), ("false", "false"))

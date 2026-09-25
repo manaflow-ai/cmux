@@ -207,6 +207,21 @@ def clone(source: Path, destination: Path) -> None:
 
 def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
+    if fingerprint and os.environ.get("RUNNER_OS") and os.environ.get("RUNNER_ARCH"):
+        # Which seeds this root adopts, for seed_derived_data.py `prefetch`
+        # to fetch ahead while the Mac is idle. Best effort.
+        source = {
+            "prefix": f"admission-derived-data-v1-{os.environ['RUNNER_OS']}-{os.environ['RUNNER_ARCH']}-{fingerprint}-",
+            "runner_os": os.environ["RUNNER_OS"],
+            "runner_arch": os.environ["RUNNER_ARCH"],
+            "public_url": os.environ.get("CI_CACHE_R2_PUBLIC_URL", ""),
+        }
+        try:
+            incoming = store / f".{seed.SEED_SOURCE}.{os.getpid()}"
+            incoming.write_text(json.dumps(source) + "\n")
+            incoming.rename(store / seed.SEED_SOURCE)
+        except OSError:
+            pass
     stamp = read_stamp(store)
     result = {"warm": "false", "packages": "false"}
     derived = store / DERIVED
