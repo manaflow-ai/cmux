@@ -6016,55 +6016,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux read-screen [flags]\n\nRead terminal text from a surface as plain text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --scrollback                 Include scrollback (not just visible viewport)\n  --lines <n>                  Limit to the last n lines (implies --scrollback)\n  --selection                  Read only the active selection; cannot be combined with --scrollback or --lines\n\nExample:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "Usage: cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [flags]\n\nRead terminal text from a surface as plain text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (required unless --surface is provided)\n  --surface <id|ref|index>     Target surface (required unless --workspace is provided)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --scrollback                 Include scrollback (not just visible viewport)\n  --lines <n>                  Limit to the last n lines (implies --scrollback)\n  --selection                  Read only the active selection; cannot be combined with --scrollback or --lines\n\nExample:\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux read-screen [flags]\n\nサーフェスのターミナルテキストをプレーンテキストとして読み取ります。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --scrollback                 表示中のビューポートだけでなくスクロールバックも含める\n  --lines <n>                  末尾 n 行に制限する（--scrollback を含意）\n  --selection                  アクティブな選択範囲だけを読み取る（--scrollback、--lines との併用不可）\n\n例:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "使用方法: cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [flags]\n\nサーフェスのターミナルテキストをプレーンテキストとして読み取ります。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（--surface を指定しない場合は必須）\n  --surface <id|ref|index>     対象サーフェス（--workspace を指定しない場合は必須）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --scrollback                 表示中のビューポートだけでなくスクロールバックも含める\n  --lines <n>                  末尾 n 行に制限する（--scrollback を含意）\n  --selection                  アクティブな選択範囲だけを読み取る（--scrollback、--lines との併用不可）\n\n例:\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux read-screen [flags]\n\n以纯文本读取某个表面的终端文本。\n\n标志:\n  --workspace <id|ref|index>   目标工作区（默认：$CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     目标表面（默认：$CMUX_SURFACE_ID）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --scrollback                 包含回滚内容（不只是可见视口）\n  --lines <n>                  限制为最后 n 行（隐含 --scrollback）\n  --selection                  只读取当前选区；不能与 --scrollback 或 --lines 同用\n\n示例:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "用法：cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [选项]\n\n以纯文本读取表面的终端文本。\n\n选项：\n  --workspace <id|ref|index>   目标工作区（未提供 --surface 时必须指定）\n  --surface <id|ref|index>     目标表面（未提供 --workspace 时必须指定）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n  --scrollback                 包含回滚内容（不只是可见视口）\n  --lines <n>                  限制为最后 n 行（包含 --scrollback）\n  --selection                  只读取当前选区；不能与 --scrollback 或 --lines 同用\n\n示例：\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux read-screen [Flags]\n\nTerminaltext von einer Oberfläche als Klartext lesen.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Arbeitsbereich (Standard: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Ziel-Oberfläche (Standard: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächen-Referenzen und -Indizes\n  --scrollback                 Scrollback einbeziehen (nicht nur den sichtbaren Ausschnitt)\n  --lines <n>                  Auf die letzten n Zeilen beschränken (impliziert --scrollback)\n  --selection                  Nur die aktive Auswahl lesen; kann nicht mit --scrollback oder --lines kombiniert werden\n\nBeispiel:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "Verwendung: cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [Flags]\n\nTerminaltext einer Oberfläche als Klartext lesen.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Arbeitsbereich (erforderlich, sofern --surface nicht angegeben ist)\n  --surface <id|ref|index>     Ziel-Oberfläche (erforderlich, sofern --workspace nicht angegeben ist)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächenreferenzen und Indizes\n  --scrollback                 Scrollback einbeziehen (nicht nur den sichtbaren Ausschnitt)\n  --lines <n>                  Auf die letzten n Zeilen begrenzen (impliziert --scrollback)\n  --selection                  Nur die aktive Auswahl lesen; nicht mit --scrollback oder --lines kombinierbar\n\nBeispiel:\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux read-screen [options]\n\nLire le texte du terminal d’une surface d’affichage en texte brut.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface d’affichage cible (par défaut : $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index d’espace de travail/de surface d’affichage\n  --scrollback                 Inclure l’historique de défilement (pas seulement la zone d’affichage visible)\n  --lines <n>                  Limiter aux n dernières lignes (implique --scrollback)\n  --selection                  Lire uniquement la sélection active ; ne peut pas être combiné avec --scrollback ou --lines\n\nExemple :\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "Utilisation : cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [options]\n\nLire le texte du terminal d’une surface en texte brut.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (requis sans --surface)\n  --surface <id|ref|index>     Surface cible (requise sans --workspace)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index\n  --scrollback                 Inclure l’historique de défilement (pas seulement la zone visible)\n  --lines <n>                  Limiter aux n dernières lignes (implique --scrollback)\n  --selection                  Lire uniquement la sélection active ; incompatible avec --scrollback ou --lines\n\nExemple :\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux read-screen [flags]\n\nقراءة نص الطرفية من سطح كنص عادي.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     السطح المستهدف (الافتراضي: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      سياق النافذة لمراجع ومؤشرات مساحة العمل/السطح\n  --scrollback                 تضمين التمرير للخلف (وليس فقط مساحة العرض المرئية)\n  --lines <n>                  الحد الأقصى لآخر n من الأسطر (يتضمن --scrollback)\n  --selection                  قراءة التحديد النشط فقط؛ لا يمكن دمجه مع --scrollback أو --lines\n\nمثال:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "الاستخدام: cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [flags]\n\nقراءة نص الطرفية من سطح كنص عادي.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (مطلوبة ما لم يتم تحديد --surface)\n  --surface <id|ref|index>     السطح المستهدف (مطلوب ما لم يتم تحديد --workspace)\n  --window <id|ref|index>      سياق النافذة لمراجع ومساحات العمل والأسطح\n  --scrollback                 تضمين التمرير للخلف (وليس العرض المرئي فقط)\n  --lines <n>                  الحد من النص إلى آخر n أسطر (يتضمن --scrollback)\n  --selection                  قراءة التحديد النشط فقط؛ لا يمكن دمجه مع --scrollback أو --lines\n\nمثال:\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux read-screen [flags]\n\nLee el texto de la terminal de una superficie como texto plano.\n\nFlags:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (por defecto: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Superficie de destino (por defecto: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices de espacios de trabajo/superficies\n  --scrollback                 Incluye el scrollback (no solo el viewport visible)\n  --lines <n>                  Limita a las últimas n líneas (implica --scrollback)\n  --selection                  Lee solo la selección activa; no se puede combinar con --scrollback ni --lines\n\nEjemplo:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "Uso: cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [opciones]\n\nLee el texto de la terminal de una superficie como texto plano.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (obligatorio sin --surface)\n  --surface <id|ref|index>     Superficie de destino (obligatoria sin --workspace)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices\n  --scrollback                 Incluye el scrollback (no solo el viewport visible)\n  --lines <n>                  Limita a las últimas n líneas (implica --scrollback)\n  --selection                  Lee solo la selección activa; no se combina con --scrollback ni --lines\n\nEjemplo:\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux read-screen [旗標]\n\n從介面讀取終端機文字並輸出為純文字。\n\n旗標:\n  --workspace <id|ref|index>   目標工作區 (預設值: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     目標介面 (預設值: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      工作區/介面參照和索引的視窗內容\n  --scrollback                 包含捲動歷程 (不只是可見的視埠)\n  --lines <n>                  限制為最後 n 行 (隱含 --scrollback)\n  --selection                  僅讀取當前選取的內容；不可與 --scrollback 或 --lines 同時使用\n\n範例:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "用法：cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [選項]\n\n以純文字讀取表面的終端機文字。\n\n選項：\n  --workspace <id|ref|index>   目標工作區（未提供 --surface 時必須指定）\n  --surface <id|ref|index>     目標表面（未提供 --workspace 時必須指定）\n  --window <id|ref|index>      工作區／表面參照與索引的視窗內容\n  --scrollback                 包含回溯內容（不只是可見視窗）\n  --lines <n>                  限制為最後 n 行（包含 --scrollback）\n  --selection                  只讀取目前選取範圍；不能與 --scrollback 或 --lines 併用\n\n範例：\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux read-screen [flags]\n\n화면에서 터미널 텍스트를 일반 텍스트로 읽습니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 작업 공간 (기본값: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     대상 화면 (기본값: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      작업 공간/화면 참조 및 인덱스의 창 컨텍스트\n  --scrollback                 스크롤백 포함 (보이는 뷰포트뿐만 아니라)\n  --lines <n>                  마지막 n줄로 제한 (--scrollback 포함)\n  --selection                  활성 선택 영역만 읽기; --scrollback 또는 --lines와 함께 사용할 수 없음\n\n예시:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
+            "value": "사용법: cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [플래그]\n\n터미널 표면의 텍스트를 일반 텍스트로 읽습니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 작업 공간(--surface를 지정하지 않으면 필수)\n  --surface <id|ref|index>     대상 표면(--workspace를 지정하지 않으면 필수)\n  --window <id|ref|index>      작업 공간/표면 참조와 인덱스에 사용할 창 컨텍스트\n  --scrollback                 보이는 뷰포트뿐 아니라 스크롤백 포함\n  --lines <n>                  마지막 n줄로 제한(--scrollback 포함)\n  --selection                  활성 선택 영역만 읽기; --scrollback 또는 --lines와 함께 사용 불가\n\n예:\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection"
           }
         }
       }
@@ -6570,19 +6570,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
           }
         }
       }
@@ -558050,6 +558086,124 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@：需要指定 --workspace 或 --surface；請明確指定目標，不要依賴目前聚焦的工作區。"
+          }
+        }
+      }
+    },
+    "cli.help.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>\n\nSend text to a terminal surface. Escape sequences: \\n and \\r send Enter, \\t sends Tab.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (required unless --surface is provided)\n  --surface <id|ref|index>     Target surface (required unless --workspace is provided)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [Flags] [--] <Text>\n\nText an eine Terminaloberfläche senden. Escape-Sequenzen: \\n und \\r senden Enter, \\t sendet Tab.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Arbeitsbereich (erforderlich ohne --surface)\n  --surface <id|ref|index>     Ziel-Oberfläche (erforderlich ohne --workspace)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächenreferenzen und Indizes\n\nBeispiel:\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [options] [--] <texte>\n\nEnvoyer du texte à une surface de terminal. Séquences d’échappement : \\n et \\r envoient Entrée, \\t envoie Tab.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (requis sans --surface)\n  --surface <id|ref|index>     Surface cible (requise sans --workspace)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index\n\nExemple :\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>\n\nإرسال نص إلى سطح طرفية. تسلسلات الهروب: \\n و\\r ترسل Enter، و\\t ترسل Tab.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (مطلوبة ما لم يتم تحديد --surface)\n  --surface <id|ref|index>     السطح المستهدف (مطلوب ما لم يتم تحديد --workspace)\n  --window <id|ref|index>      سياق النافذة لمراجع ومساحات العمل والأسطح\n\nمثال:\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [opciones] [--] <texto>\n\nEnvía texto a una superficie de terminal. Las secuencias de escape: \\n y \\r envían Enter, y \\t envía Tab.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (obligatorio sin --surface)\n  --surface <id|ref|index>     Superficie de destino (obligatoria sin --workspace)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices\n\nEjemplo:\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [選項] [--] <文字>\n\n將文字傳送至終端機表面。跳脫序列：\\n 和 \\r 會送出 Enter，\\t 會送出 Tab。\n\n選項：\n  --workspace <id|ref|index>   目標工作區（未提供 --surface 時必須指定）\n  --surface <id|ref|index>     目標表面（未提供 --workspace 時必須指定）\n  --window <id|ref|index>      工作區／表面參照與索引的視窗內容\n\n範例：\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [选项] [--] <文本>\n\n向终端表面发送文本。转义序列：\\n 和 \\r 发送 Enter，\\t 发送 Tab。\n\n选项：\n  --workspace <id|ref|index>   目标工作区（未提供 --surface 时必须指定）\n  --surface <id|ref|index>     目标表面（未提供 --workspace 时必须指定）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n\n示例：\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [플래그] [--] <텍스트>\n\n터미널 표면에 텍스트를 보냅니다. 이스케이프 시퀀스 \\n 및 \\r는 Enter를 보내고, \\t는 Tab을 보냅니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 작업 공간(--surface를 지정하지 않으면 필수)\n  --surface <id|ref|index>     대상 표면(--workspace를 지정하지 않으면 필수)\n  --window <id|ref|index>      작업 공간/표면 참조와 인덱스에 사용할 창 컨텍스트\n\n예:\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>\n\nターミナルサーフェスにテキストを送信します。エスケープシーケンス: \\n と \\r は Enter、\\t は Tab を送信します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（--surface を指定しない場合は必須）\n  --surface <id|ref|index>     対象サーフェス（--workspace を指定しない場合は必須）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n\n例:\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\""
+          }
+        }
+      }
+    },
+    "cli.help.sendKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <key>\n\nSend a key event to a terminal surface.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (required unless --surface is provided)\n  --surface <id|ref|index>     Target surface (required unless --workspace is provided)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [Flags] [--] <Text>\n\nEin Tastenereignis an eine Terminaloberfläche senden.\n\nFlags:\n  --workspace <id|ref|index>   Ziel-Arbeitsbereich (erforderlich ohne --surface)\n  --surface <id|ref|index>     Ziel-Oberfläche (erforderlich ohne --workspace)\n  --window <id|ref|index>      Fensterkontext für Arbeitsbereichs-/Oberflächenreferenzen und Indizes\n\nBeispiel:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [options] [--] <texte>\n\nEnvoyer un événement de touche à une surface de terminal.\n\nOptions :\n  --workspace <id|ref|index>   Espace de travail cible (requis sans --surface)\n  --surface <id|ref|index>     Surface cible (requise sans --workspace)\n  --window <id|ref|index>      Contexte de fenêtre pour les références et index\n\nExemple :\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>\n\nإرسال حدث مفتاح إلى سطح طرفية.\n\nالخيارات:\n  --workspace <id|ref|index>   مساحة العمل المستهدفة (مطلوبة ما لم يتم تحديد --surface)\n  --surface <id|ref|index>     السطح المستهدف (مطلوب ما لم يتم تحديد --workspace)\n  --window <id|ref|index>      سياق النافذة لمراجع ومساحات العمل والأسطح\n\nمثال:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [opciones] [--] <texto>\n\nEnvía un evento de tecla a una superficie de terminal.\n\nOpciones:\n  --workspace <id|ref|index>   Espacio de trabajo de destino (obligatorio sin --surface)\n  --surface <id|ref|index>     Superficie de destino (obligatoria sin --workspace)\n  --window <id|ref|index>      Contexto de ventana para referencias e índices\n\nEjemplo:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [選項] [--] <文字>\n\n將按鍵事件傳送至終端機表面。\n\n選項：\n  --workspace <id|ref|index>   目標工作區（未提供 --surface 時必須指定）\n  --surface <id|ref|index>     目標表面（未提供 --workspace 時必須指定）\n  --window <id|ref|index>      工作區／表面參照與索引的視窗內容\n\n範例：\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [选项] [--] <文本>\n\n向终端表面发送按键事件。\n\n选项：\n  --workspace <id|ref|index>   目标工作区（未提供 --surface 时必须指定）\n  --surface <id|ref|index>     目标表面（未提供 --workspace 时必须指定）\n  --window <id|ref|index>      工作区/表面引用与索引的窗口上下文\n\n示例：\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [플래그] [--] <텍스트>\n\n터미널 표면에 키 이벤트를 보냅니다.\n\n플래그:\n  --workspace <id|ref|index>   대상 작업 공간(--surface를 지정하지 않으면 필수)\n  --surface <id|ref|index>     대상 표면(--workspace를 지정하지 않으면 필수)\n  --window <id|ref|index>      작업 공간/표면 참조와 인덱스에 사용할 창 컨텍스트\n\n예:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>\n\nターミナルサーフェスにキーイベントを送信します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（--surface を指定しない場合は必須）\n  --surface <id|ref|index>     対象サーフェス（--workspace を指定しない場合は必須）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n\n例:\n  cmux send-key --workspace workspace:2 \"echo hello\"\n  cmux send-key --surface surface:2 \"ls -la\\n\""
           }
         }
       }

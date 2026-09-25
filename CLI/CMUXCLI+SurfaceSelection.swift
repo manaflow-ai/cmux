@@ -9,6 +9,31 @@ extension CMUXCLI {
             return
         }
 
+        // Scan both target flags before parsing either one. A malformed value
+        // such as `--surface --workspace <id>` must not be hidden by the later
+        // valid workspace option and reach socket dispatch.
+        var pastTerminator = false
+        for (index, argument) in commandArgs.enumerated() {
+            if argument == "--" {
+                pastTerminator = true
+                continue
+            }
+            guard !pastTerminator else { continue }
+
+            let targetNames = ["--workspace", "--surface"]
+            if targetNames.contains(argument) {
+                let value = index + 1 < commandArgs.count ? commandArgs[index + 1] : nil
+                if value == nil || value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true || value?.hasPrefix("-") == true {
+                    try requireExplicitSurfaceTarget(commandName: command, workspaceArgument: nil, surfaceArgument: nil)
+                }
+            } else if let targetName = targetNames.first(where: { argument.hasPrefix("\($0)=") }) {
+                let value = String(argument.dropFirst(targetName.count + 1))
+                if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || value.hasPrefix("-") {
+                    try requireExplicitSurfaceTarget(commandName: command, workspaceArgument: nil, surfaceArgument: nil)
+                }
+            }
+        }
+
         let (workspaceArgument, afterWorkspace) = parseOption(commandArgs, name: "--workspace")
         let (surfaceArgument, _) = parseOption(afterWorkspace, name: "--surface")
         try requireExplicitSurfaceTarget(
@@ -235,24 +260,7 @@ extension CMUXCLI {
     }
 
     static var readScreenHelp: String {
-        String(localized: "cli.help.readScreen", defaultValue: """
-        Usage: cmux read-screen [flags]
-
-        Read terminal text from a surface as plain text.
-
-        Flags:
-          --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-          --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
-          --window <id|ref|index>      Window context for workspace/surface refs and indexes
-          --scrollback                 Include scrollback (not just visible viewport)
-          --lines <n>                  Limit to the last n lines (implies --scrollback)
-          --selection                  Read only the active selection; cannot be combined with --scrollback or --lines
-
-        Example:
-          cmux read-screen
-          cmux read-screen --surface surface:2 --scrollback --lines 200
-          cmux read-screen --surface surface:2 --selection
-        """)
+        String(localized: "cli.help.readScreen", defaultValue: "Usage: cmux read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [flags]\n\nRead terminal text from a surface as plain text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (required unless --surface is provided)\n  --surface <id|ref|index>     Target surface (required unless --workspace is provided)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --scrollback                 Include scrollback (not just visible viewport)\n  --lines <n>                  Limit to the last n lines (implies --scrollback)\n  --selection                  Read only the active selection; cannot be combined with --scrollback or --lines\n\nExample:\n  cmux read-screen --workspace workspace:2\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection")
     }
 
     static var readSelectionUsageLine: String {
@@ -265,7 +273,7 @@ extension CMUXCLI {
     static var readScreenUsageLine: String {
         String(
             localized: "cli.usage.readScreen",
-            defaultValue: "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+            defaultValue: "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
         )
     }
 }

@@ -314,7 +314,7 @@
   },
   "cli.usage.readScreen": {
     "class": "syntax",
-    "source": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
+    "source": "read-screen (--workspace <id|ref|index> | --surface <id|ref|index>) [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]"
   },
   "cli.usage.readSelection": {
     "class": "syntax",

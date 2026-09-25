@@ -19899,35 +19899,9 @@ struct CMUXCLI {
         case "read-screen":
             return Self.readScreenHelp
         case "send":
-            return """
-            Usage: cmux send [flags] [--] <text>
-
-            Send text to a terminal surface. Escape sequences: \\n and \\r send Enter, \\t sends Tab.
-
-            Flags:
-              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
-              --window <id|ref|index>      Window context for workspace/surface refs and indexes
-
-            Example:
-              cmux send "echo hello"
-              cmux send --surface surface:2 "ls -la\\n"
-            """
+            return String(localized: "cli.help.send", defaultValue: "Usage: cmux send (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <text>\n\nSend text to a terminal surface. Escape sequences: \\n and \\r send Enter, \\t sends Tab.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (required unless --surface is provided)\n  --surface <id|ref|index>     Target surface (required unless --workspace is provided)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux send --workspace workspace:2 \"echo hello\"\n  cmux send --surface surface:2 \"ls -la\\n\"")
         case "send-key":
-            return """
-            Usage: cmux send-key [flags] [--] <key>
-
-            Send a key event to a terminal surface.
-
-            Flags:
-              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
-              --window <id|ref|index>      Window context for workspace/surface refs and indexes
-
-            Example:
-              cmux send-key enter
-              cmux send-key --surface surface:2 ctrl+c
-            """
+            return String(localized: "cli.help.sendKey", defaultValue: "Usage: cmux send-key (--workspace <id|ref|index> | --surface <id|ref|index>) [flags] [--] <key>\n\nSend a key event to a terminal surface.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (required unless --surface is provided)\n  --surface <id|ref|index>     Target surface (required unless --workspace is provided)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux send-key --workspace workspace:2 enter\n  cmux send-key --surface surface:2 ctrl+c")
         case "send-panel":
             return """
             Usage: cmux send-panel --panel <id|ref|index> [flags] [--] <text>
