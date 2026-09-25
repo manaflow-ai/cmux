@@ -110,7 +110,8 @@ jobs:
     # run on. `auto` follows MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS. With
     # CI_PR_POOL_OWNED=1 and CI_IOS_OWNED=1 an auto run on the 6vcpu macOS 26
     # default takes an owned Mac when the pool picker E2E uses
-    # (e2e_runner_pool.py, pull request CI's rule) finds two machines free and
+    # (e2e_runner_pool.py, pull request CI's rule, with CI_PR_POOL_QUEUE_ROUNDS)
+    # places its two jobs on the owned pool within the queue rounds and
     # CI_OWNED_POOL_SLOTS' glaeda-ios-sim entry leaves one simulator mini free
     # per requested device family. The build and simulator jobs then ask for
     # the pool label with glaeda-ios-sim, the label glaeda puts on minis with
@@ -164,6 +165,7 @@ jobs:
           PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           IOS_VERSION: ${{ inputs.ios_version }}
           DEVICE_FAMILY: ${{ inputs.device_family }}
           SWIFT_PACKAGE: ${{ inputs.swift_package }}
@@ -181,6 +183,7 @@ jobs:
             --pr-xcode-app "$PR_XCODE_APP" \
             --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" \
+            --queue-rounds "$POOL_QUEUE_ROUNDS" \
             --ios-version "$IOS_VERSION" \
             --device-family "$DEVICE_FAMILY" \
             --swift-package "$SWIFT_PACKAGE" \
