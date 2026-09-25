@@ -1,8 +1,8 @@
 import CmuxSettingsUI
 import SwiftUI
 
-/// The nested team menu. Selection and creation keep both menu levels open.
-struct SidebarAccountTeamPicker: View {
+/// The Cloud team menu. Selection and creation use the shared account flow.
+struct CloudTeamPicker: View {
     let accountFlow: HostAccountFlow
     @State private var isCreatingTeam = false
     @State private var newTeamName = ""
@@ -12,29 +12,37 @@ struct SidebarAccountTeamPicker: View {
 
     var body: some View {
         teamPickerContent
-        .buttonStyle(SidebarAccountMenuButtonStyle())
-        .disabled(isSubmitting || accountFlow.isWorkingOnAuth)
-        .padding(12)
-        .frame(width: 220, alignment: .leading)
+            .buttonStyle(SidebarAccountMenuButtonStyle())
+            .disabled(isSubmitting || accountFlow.isWorkingOnAuth)
+            .padding(12)
+            .frame(width: 220, alignment: .leading)
     }
 
     @ViewBuilder
     private var teamPickerContent: some View {
+        let teams = accountFlow.availableTeams
+        let selectedTeamID = accountFlow.selectedTeamID
+        let pendingTeamID = accountFlow.pendingTeamSelection?.teamID
         VStack(alignment: .leading, spacing: 0) {
-            if accountFlow.availableTeams.isEmpty {
+            if teams.isEmpty {
                 Text(String(localized: "sidebar.account.loadingTeams", defaultValue: "Loading teams…"))
                     .cmuxFont(size: 12)
                     .foregroundStyle(.secondary)
                     .frame(minHeight: SidebarAccountMenuButtonStyle.rowHeight, alignment: .leading)
             } else {
-                ForEach(accountFlow.availableTeams) { team in
-                    teamRow(team)
+                ForEach(teams) { team in
+                    CloudTeamPickerTeamRow(
+                        team: team,
+                        isSelected: team.id == selectedTeamID,
+                        isPending: team.id == pendingTeamID,
+                        onSelect: { selectTeam(team) }
+                    )
                 }
             }
             if isCreatingTeam {
                 createTeamEditor
             } else {
-                accountMenuRow(
+                teamMenuRow(
                     title: String(localized: "sidebar.account.createTeam", defaultValue: "Create team…"),
                     systemImage: "plus"
                 ) {
@@ -42,7 +50,7 @@ struct SidebarAccountTeamPicker: View {
                     newTeamName = ""
                     isCreatingTeam = true
                 }
-                .accessibilityIdentifier("SidebarAccountCreateTeamButton")
+                .accessibilityIdentifier("CloudTeamPickerCreateTeamButton")
             }
             if let errorMessage {
                 Text(errorMessage)
@@ -55,43 +63,19 @@ struct SidebarAccountTeamPicker: View {
         }
     }
 
-    private func teamRow(_ team: AccountTeamSummary) -> some View {
-        let activeTeamID = accountFlow.selectedTeamID
-        let isSelected = team.id == activeTeamID
-        let isPending = team.id == accountFlow.pendingTeamSelection?.teamID
-        return Button {
-            guard !isSelected, !accountFlow.isSelectingTeam else { return }
-            errorMessage = nil
-            Task { @MainActor in
-                do {
-                    try await accountFlow.selectTeam(id: team.id)
-                } catch {
-                    errorMessage = String(
-                        localized: "sidebar.account.switchTeamFailed",
-                        defaultValue: "Could not switch teams. Try again."
-                    )
-                }
+    private func selectTeam(_ team: AccountTeamSummary) {
+        guard team.id != accountFlow.selectedTeamID, !accountFlow.isSelectingTeam else { return }
+        errorMessage = nil
+        Task { @MainActor in
+            do {
+                try await accountFlow.selectTeam(id: team.id)
+            } catch {
+                errorMessage = String(
+                    localized: "sidebar.account.switchTeamFailed",
+                    defaultValue: "Could not switch teams. Try again."
+                )
             }
-        } label: {
-            HStack(spacing: 8) {
-                Label(team.displayName, systemImage: "person.2")
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if isPending {
-                    ProgressView().controlSize(.mini)
-                } else if isSelected {
-                    Image(systemName: "checkmark")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityLabel(String(
-            format: String(localized: "sidebar.account.teamRowLabel", defaultValue: "%1$@%2$@"),
-            team.displayName,
-            isSelected ? String(localized: "sidebar.account.activeSuffix", defaultValue: ", active") : ""
-        ))
-        .accessibilityIdentifier("SidebarAccountTeam_\(team.id)")
     }
 
     private var createTeamEditor: some View {
@@ -139,7 +123,7 @@ struct SidebarAccountTeamPicker: View {
         .padding(.vertical, 2)
         .frame(minHeight: SidebarAccountMenuButtonStyle.rowHeight, alignment: .leading)
         .onAppear { isCreateFieldFocused = true }
-        .accessibilityIdentifier("SidebarAccountCreateTeamEditor")
+        .accessibilityIdentifier("CloudTeamPickerCreateTeamEditor")
     }
 
     private func submitCreateTeam() {
@@ -163,7 +147,7 @@ struct SidebarAccountTeamPicker: View {
         }
     }
 
-    private func accountMenuRow(
+    private func teamMenuRow(
         title: String,
         systemImage: String,
         action: @escaping () -> Void
