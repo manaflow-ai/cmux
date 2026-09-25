@@ -454,7 +454,8 @@ final class DeviceWorkspaceLayoutCoordinator {
                 var localPanesByRemotePane: [String: UUID] = [:]
                 for (panelID, remoteSurfaceID) in target.mapping {
                     guard let location = locations[remoteSurfaceID],
-                          let pane = native.paneId(forPanelId: panelID) else { continue }
+                          let panelUUID = UUID(uuidString: panelID),
+                          let pane = native.paneId(forPanelId: panelUUID) else { continue }
                     localPanesByRemotePane[location.paneID] = pane.id
                 }
                 let pendingReservation = native.pendingCloudTerminalReservation(
@@ -466,7 +467,7 @@ final class DeviceWorkspaceLayoutCoordinator {
                 for resourceID in wanted where !present.contains(resourceID) {
                     let view = try catalog.remoteView(for: resourceID, workspaceID: target.remoteID)
                     let location = locations[resourceID.key]
-                    let pane = location.flatMap { localPanesByRemotePane[$0.paneID] } ?? pendingPane
+                    let pane = location.flatMap { localPanesByRemotePane[$0.paneID] } ?? pendingPane?.id
                     let destination: SurfaceDestination = pane.map {
                         .tab(workspaceID: id, paneID: $0.uuidString, index: location?.tabIndex)
                     } ?? .workspace(id: id, placement: .tab)
