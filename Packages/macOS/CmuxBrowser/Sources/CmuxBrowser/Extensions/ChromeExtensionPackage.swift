@@ -50,9 +50,6 @@ public enum ChromeExtensionPackage {
     static let maximumHeaderBytes = 256 * 1024
     static let maximumHeaderFields = 64
     static let maximumProofBytes = 16 * 1024
-    /// `unzip -Z1` prints one name per entry; this bounds the listing well
-    /// above `maximumEntryCount` typical names.
-    static let maximumListingBytes = 8 * 1024 * 1024
     static let maximumPathBytes = 1024
     static let maximumPathDepth = 32
 
@@ -226,37 +223,21 @@ public enum ChromeExtensionPackage {
     /// Unpacks `zip` into `destination`, replacing it.
     ///
     /// Every entry name is checked before anything is written: absolute
-    /// paths, `..` components, backslashes, and NUL bytes are refused, as are
-    /// archives with too many entries. Extraction then happens in a private
-    /// scratch directory, and the result is refused when it contains a
-    /// symbolic link, a hard-linked or special file, a path that resolves
-    /// outside the extraction root, more than ``maximumExpandedBytes``, or no
-    /// `manifest.json`.
+    /// paths, `..` components, backslashes, NUL bytes, excessive depth or
+    /// length, and archives with too many entries are refused, as are links,
+    /// special files, encryption, and zip64. Files are inflated in-process
+    /// into a private scratch directory with every written byte counted
+    /// against their declared size and ``maximumExpandedBytes``. The result is
+    /// checked again before it replaces `destination`.
     public static func unpack(_ zip: Data, into destination: URL, fileManager: FileManager = .default) throws {
         guard zip.count <= maximumPackageBytes else { throw Failure.unpack("the extension is too large") }
         let scratch = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-crx-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: scratch) }
-        let archive = scratch.appendingPathComponent("payload.zip")
-        try zip.write(to: archive)
         let output = scratch.appendingPathComponent("out", isDirectory: true)
-
-        let listing = try runCapturingOutput("/usr/bin/unzip", ["-Z1", archive.path], maximumBytes: maximumListingBytes)
-        try validateArchiveEntryNames(listing.split(whereSeparator: \.isNewline).map(String.init))
-        // Refuse archives whose central directory declares more than the
-        // expansion budget before writing anything. The tree is measured again
-        // after extraction, since a hostile archive can understate sizes.
-        let totals = try runCapturingOutput("/usr/bin/unzip", ["-Zt", archive.path], maximumBytes: 4096)
-        guard let declared = declaredUncompressedBytes(inZipInfoTotals: totals),
-              declared <= Int64(maximumExpandedBytes) else {
-            throw Failure.unpack("the extension is too large")
-        }
-
-        try runCapturingOutput(
-            "/usr/bin/ditto",
-            ["-x", "-k", "--norsrc", "--noextattr", "--noacl", archive.path, output.path]
-        )
+        // In-process extraction enforces the byte budget as it writes.
+        try ChromeExtensionArchive.extract(zip, into: output, byteBudget: maximumExpandedBytes, fileManager: fileManager)
         try validateUnpackedTree(at: output, fileManager: fileManager)
         try replace(destination, with: output, fileManager: fileManager)
     }
@@ -272,13 +253,6 @@ public enum ChromeExtensionPackage {
         try fileManager.copyItem(at: source, to: scratch)
         try validateUnpackedTree(at: scratch, fileManager: fileManager)
         try replace(destination, with: scratch, fileManager: fileManager)
-    }
-
-    /// Reads the uncompressed total from `zipinfo -t` output, for example
-    /// `12 files, 34567 bytes uncompressed, 8901 bytes compressed:  74.2%`.
-    public static func declaredUncompressedBytes(inZipInfoTotals text: String) -> Int64? {
-        guard let range = text.range(of: #"([0-9]+) bytes uncompressed"#, options: .regularExpression) else { return nil }
-        return Int64(text[range].split(separator: " ").first ?? "")
     }
 
     /// Refuses archive entry names that could escape the extraction root.
@@ -347,38 +321,6 @@ public enum ChromeExtensionPackage {
         try? fileManager.removeItem(at: destination)
         try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fileManager.moveItem(at: source, to: destination)
-    }
-
-    /// Runs a tool and returns its standard output. Output is drained before
-    /// waiting for exit, so a listing larger than the pipe buffer cannot
-    /// deadlock the child, and reading stops (and the child is terminated)
-    /// once `maximumBytes` is exceeded.
-    @discardableResult
-    private static func runCapturingOutput(_ executable: String, _ arguments: [String], maximumBytes: Int = 1024 * 1024) throws -> String {
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        var data = Data()
-        let handle = pipe.fileHandleForReading
-        while true {
-            let chunk = handle.availableData
-            if chunk.isEmpty { break }
-            data.append(chunk)
-            if data.count > maximumBytes {
-                process.terminate()
-                process.waitUntilExit()
-                throw Failure.unpack("\(URL(fileURLWithPath: executable).lastPathComponent) output is too large")
-            }
-        }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw Failure.unpack("\(URL(fileURLWithPath: executable).lastPathComponent) exited \(process.terminationStatus)")
-        }
-        return String(data: data, encoding: .utf8) ?? ""
     }
 
     // MARK: - Encoding helpers

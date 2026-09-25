@@ -90,12 +90,6 @@ import Testing
         }
     }
 
-    @Test func readsDeclaredUncompressedTotal() {
-        let totals = "12 files, 34567 bytes uncompressed, 8901 bytes compressed:  74.2%"
-        #expect(ChromeExtensionPackage.declaredUncompressedBytes(inZipInfoTotals: totals) == 34567)
-        #expect(ChromeExtensionPackage.declaredUncompressedBytes(inZipInfoTotals: "garbage") == nil)
-    }
-
     @Test func unpacksVerifiedPayload() throws {
         let zip = try ChromeExtensionPackage.verifiedZip(Self.fixture(), extensionID: Self.fixtureID)
         let destination = FileManager.default.temporaryDirectory

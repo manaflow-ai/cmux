@@ -254,12 +254,10 @@ final class BrowserExtensions: NSObject, ObservableObject {
             guard let view = anchors[key]?.view, view.window != nil, !view.isHiddenOrHasHiddenAncestor else { return nil }
             return view
         }
-        for id in [panelID, lastFocusedPanelID].compactMap({ $0 }) {
-            if let view = live(AnchorKey(panelID: id, extensionID: extensionID)) ?? live(AnchorKey(panelID: id, extensionID: nil)) {
-                return view
-            }
-        }
-        return nil
+        // Only the popup's own tab: falling back to whichever tab was focused
+        // last could hang one profile's popup over another profile's page.
+        guard let panelID else { return nil }
+        return live(AnchorKey(panelID: panelID, extensionID: extensionID)) ?? live(AnchorKey(panelID: panelID, extensionID: nil))
     }
 
     fileprivate var focusedPanelID: UUID? { lastFocusedPanelID }
