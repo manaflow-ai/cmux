@@ -21,6 +21,7 @@ extension TerminalSurface {
             prepareNextRuntimeInitialInput(initialInput)
         }
         if let startupCommand, !startupCommand.isEmpty {
+            nextRuntimeInitialInput = nil
             startupRestoreAdmissionCommandOverride = startupCommand
             hasStartupRestoreAdmissionCommandOverride = true
             suppressConfiguredInitialInput = true
