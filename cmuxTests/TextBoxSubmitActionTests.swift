@@ -1362,7 +1362,7 @@ private struct TextBoxTerminalPanelReplacementHarness: View {
     var body: some View {
         TerminalPanelView(
             panel: model.panel,
-            paneId: PaneID(),
+            paneId: .init(),
             isFocused: true,
             isVisibleInUI: true,
             portalPaneOwnershipResolver: { true },
