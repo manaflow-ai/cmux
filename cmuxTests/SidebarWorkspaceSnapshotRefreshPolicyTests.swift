@@ -68,6 +68,39 @@ import Testing
         #expect(changedPoll.workspaces.first?.title == "Pi renamed")
     }
 
+    @Test("summary refresh keeps structured sidebar details cached")
+    @MainActor
+    func summaryRefreshPreservesBranchDirectoryAndPullRequestDetails() throws {
+        let workspace = Workspace(workingDirectory: "/tmp/sidebar-summary-refresh")
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/sidebar-summary-refresh")
+        workspace.updatePanelGitBranch(panelId: panelID, branch: "feature/sidebar", isDirty: true)
+        workspace.updatePanelPullRequest(
+            panelId: panelID,
+            number: 6546,
+            label: "Fix sidebar refresh",
+            url: try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/6546")),
+            status: .open
+        )
+        let defaults = try #require(UserDefaults(suiteName: "sidebar-summary-refresh-\(UUID())"))
+        defer { defaults.removePersistentDomain(forName: defaults.suiteName ?? "") }
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        )
+        let initial = factory.makeSnapshot()
+
+        workspace.applyAutomaticTitle("Renamed by the terminal")
+        let refreshed = factory.makeSummarySnapshot(from: initial)
+
+        #expect(refreshed.title == "Renamed by the terminal")
+        #expect(refreshed.branchDirectoryLines == initial.branchDirectoryLines)
+        #expect(refreshed.compactDirectoryCandidates == initial.compactDirectoryCandidates)
+        #expect(refreshed.pullRequestRows == initial.pullRequestRows)
+        #expect(refreshed.finderDirectoryPath == initial.finderDirectoryPath)
+    }
+
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",
