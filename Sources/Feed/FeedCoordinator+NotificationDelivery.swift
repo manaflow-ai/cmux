@@ -42,8 +42,8 @@ extension FeedCoordinator {
                 effects: effects
             )
         }
-        let ownerID = target.ownerID
-        let surfaceID = target.surfaceID
+        let ownerID = target.ownerId
+        let surfaceID = target.surfaceId
 
         if let dock = appDelegate.existingWindowDock(forWindowId: ownerID) {
             let context = appDelegate.mainWindowContexts.values.first {
