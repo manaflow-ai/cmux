@@ -143,6 +143,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
         ),
         .init(
+            jsonKey: "equalizeSplitsOnCreate",
+            defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),

@@ -822,9 +822,10 @@ class E2E(unittest.TestCase):
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
         self.assertNotIn("pull", api.calls)
-        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])  # attempt 2 is on Blacksmith
+        # The build never finished, so every job re-runs and the sibling wait looks again.
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is on Blacksmith
         self.assertIn("cancel", api.calls)
-        self.assertNotIn("rerun", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
 
     def test_a_refused_e2e_job_is_rerun(self):
         def jobs(seconds):
@@ -836,8 +837,31 @@ class E2E(unittest.TestCase):
         api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
         code, summary = run_main(api, clock, payload=e2e_event())
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])  # attempt 2 is on Blacksmith
+        self.assertEqual(api.calls[-2:], ["rerun", "jobs:2"])  # attempt 2 is on Blacksmith
         self.assertIn("refused", summary)
+        self.assertIn("so its sibling wait runs again", summary)
+
+    def test_an_e2e_run_whose_build_passed_keeps_it(self):
+        # Only the test job failed: re-running every job would compile again.
+        def jobs(seconds):
+            passed = dict(job("build", labels=[MINI], created=10, status="completed"), conclusion="success")
+            found = [e2e_runner()(seconds), passed]
+            if seconds >= 60:
+                found.append(refused_job("test"))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+
+    def test_only_e2e_runs_rerun_every_job_for_an_unfinished_build(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [refused_job("build")])
+        target = rescue.Target(run_id=RUN_ID, attempt=1, head_sha="a" * 40, pr_number=7)
+        self.assertFalse(rescue.e2e_build_unfinished(api, target, clock.sleep, lambda text: None))
+        self.assertEqual(api.calls, [], "a ci.yml run is not read here")
 
 
     def test_a_stuck_e2e_run_that_finished_otherwise_is_not_rerun(self):
