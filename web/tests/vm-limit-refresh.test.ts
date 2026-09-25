@@ -31,6 +31,8 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    networkPolicy: null,
+    networkPolicyStatus: null,
     ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? "team-limit-refresh",
     coderouterPoolId: null,
     ...overrides,
