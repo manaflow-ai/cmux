@@ -5,44 +5,49 @@ import Testing
 
 @testable import CmuxMobileCloudBridge
 
-@Suite("Cloud surface identity")
-struct CloudSurfaceIdentityTests {
+@Suite("Cloud address")
+struct CloudAddressTests {
     @Test("A surface id round-trips its machine and terminal")
     func surfaceRoundTrip() {
-        let id = CloudSurfaceIdentity.surfaceID(machineID: "vm-1", terminalID: "term_abc")
-        let parsed = CloudSurfaceIdentity.parse(id)
+        let id = CloudAddress(machineID: "vm-1", component: "term_abc").identifier
+        let parsed = CloudAddress(parsing: id)
         #expect(parsed?.machineID == "vm-1")
-        #expect(parsed?.remainder == "term_abc")
+        #expect(parsed?.component == "term_abc")
     }
 
     @Test("Identifiers outside the namespace are disowned")
     func foreignIdentifiers() {
-        #expect(!CloudSurfaceIdentity.owns("term_abc"))
-        #expect(!CloudSurfaceIdentity.owns(""))
-        #expect(CloudSurfaceIdentity.parse("term_abc") == nil)
+        #expect(!CloudAddress.owns("term_abc"))
+        #expect(!CloudAddress.owns(""))
+        #expect(CloudAddress(parsing: "term_abc") == nil)
         // A Mac surface id that merely starts with the word is not ours.
-        #expect(!CloudSurfaceIdentity.owns("cmux-cloudy"))
+        #expect(!CloudAddress.owns("cmux-cloudy"))
     }
 
-    @Test("A host id names its machine")
+    @Test("A host address carries no component, and a surface address does")
     func hostRoundTrip() {
-        let host = CloudSurfaceIdentity.hostID(machineID: "vm-9")
-        #expect(CloudSurfaceIdentity.machineID(fromHostID: host) == "vm-9")
-        #expect(CloudSurfaceIdentity.machineID(fromHostID: "vm-9") == nil)
+        let host = CloudAddress(machineID: "vm-9")
+        let parsed = CloudAddress(parsing: host.identifier)
+        #expect(parsed?.machineID == "vm-9")
+        #expect(parsed?.component == nil)
+        #expect(CloudAddress(parsing: "vm-9") == nil)
+        // A surface address reduces to its machine's host address.
+        #expect(CloudAddress(machineID: "vm-9", component: "t-1").host == host)
     }
 }
 
 @Suite("Cloud workspace projection")
-struct CloudWorkspaceProjectionTests {
+struct CloudWorkspaceProjectorTests {
     private func state(
         workspaces: [CloudWorkspaceSummary],
         terminals: [CloudTerminalSummary],
         status: MobileMacConnectionStatus = .connected,
         isAuthoritative: Bool = true
     ) -> MacWorkspaceState {
-        CloudWorkspaceProjection.hostState(
+        CloudWorkspaceProjector(
             machineID: "vm-1",
-            displayName: "sleepy-teal-otter",
+            displayName: "sleepy-teal-otter"
+        ).hostState(
             workspaces: workspaces,
             terminals: terminals,
             status: status,
@@ -81,12 +86,12 @@ struct CloudWorkspaceProjectionTests {
         )
 
         let row = try! #require(result.workspaces.first)
-        #expect(CloudSurfaceIdentity.owns(row.id.rawValue))
-        #expect(row.macDeviceID == CloudSurfaceIdentity.hostID(machineID: "vm-1"))
+        #expect(CloudAddress.owns(row.id.rawValue))
+        #expect(row.macDeviceID == CloudAddress(machineID: "vm-1").identifier)
         let terminal = try! #require(row.terminals.first)
-        let parsed = try! #require(CloudSurfaceIdentity.parse(terminal.id.rawValue))
+        let parsed = try! #require(CloudAddress(parsing: terminal.id.rawValue))
         #expect(parsed.machineID == "vm-1")
-        #expect(parsed.remainder == "t-1")
+        #expect(parsed.component == "t-1")
     }
 
     @Test("Terminals with no workspace are gathered instead of stranded")
@@ -110,7 +115,7 @@ struct CloudWorkspaceProjectionTests {
     func emptyCatalog() {
         let result = state(workspaces: [], terminals: [])
         #expect(result.workspaces.isEmpty)
-        #expect(result.macDeviceID == CloudSurfaceIdentity.hostID(machineID: "vm-1"))
+        #expect(result.macDeviceID == CloudAddress(machineID: "vm-1").identifier)
     }
 
     @Test("Workspace mutation stays hidden, since the daemon answers none of it")

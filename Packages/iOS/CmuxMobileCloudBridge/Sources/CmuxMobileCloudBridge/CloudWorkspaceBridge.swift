@@ -48,7 +48,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
         guard let store else { return }
         for machine in admittedMachines {
             store.removeExternalHostWorkspaceState(
-                macDeviceID: CloudSurfaceIdentity.hostID(machineID: machine.id)
+                macDeviceID: CloudAddress(machineID: machine.id).identifier
             )
         }
         store.unregisterExternalHostSource(self)
@@ -119,22 +119,27 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     // MARK: MobileExternalHostSource
 
     public func externalHostOwnsSurface(_ surfaceID: String) -> Bool {
-        guard let parsed = CloudSurfaceIdentity.parse(surfaceID) else { return false }
-        return admittedMachines.contains { $0.id == parsed.machineID }
+        guard let address = CloudAddress(parsing: surfaceID), address.component != nil else {
+            return false
+        }
+        return admittedMachines.contains { $0.id == address.machineID }
     }
 
     public func externalHostOwnsHost(_ hostID: String) -> Bool {
-        guard let machineID = CloudSurfaceIdentity.machineID(fromHostID: hostID) else { return false }
-        return admittedMachines.contains { $0.id == machineID }
+        guard let address = CloudAddress(parsing: hostID), address.component == nil else {
+            return false
+        }
+        return admittedMachines.contains { $0.id == address.machineID }
     }
 
     public func externalHostSendInput(_ text: String, surfaceID: String) {
-        guard let parsed = CloudSurfaceIdentity.parse(surfaceID),
-              let machine = machine(id: parsed.machineID) else { return }
+        guard let address = CloudAddress(parsing: surfaceID),
+              let terminalID = address.component,
+              let machine = machine(id: address.machineID) else { return }
         // Ensure this surface is the machine's attached terminal before its
         // keystrokes are queued: a keystroke sent while another terminal holds
         // the machine's single attachment would land in the wrong terminal.
-        ensureAttached(surfaceID: surfaceID, machine: machine, terminalID: parsed.remainder)
+        ensureAttached(surfaceID: surfaceID, machine: machine, terminalID: terminalID)
         guard attachedSurfaceIDsByMachine[machine.id] == surfaceID,
               let attachment = attachments[machine.id] else { return }
         attachment.send(Data(text.utf8))
@@ -142,8 +147,8 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
 
     public func externalHostReportViewport(surfaceID: String, columns: Int, rows: Int) {
         guard columns > 0, rows > 0,
-              let parsed = CloudSurfaceIdentity.parse(surfaceID),
-              let machine = machine(id: parsed.machineID) else { return }
+              let address = CloudAddress(parsing: surfaceID),
+              let machine = machine(id: address.machineID) else { return }
         let previous = lastReportedGridBySurfaceID[surfaceID]
         guard previous?.columns != columns || previous?.rows != rows else { return }
         lastReportedGridBySurfaceID[surfaceID] = (columns, rows)
@@ -157,15 +162,16 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     }
 
     public func externalHostRequestReplay(surfaceID: String) {
-        guard let parsed = CloudSurfaceIdentity.parse(surfaceID),
-              let machine = machine(id: parsed.machineID) else { return }
+        guard let address = CloudAddress(parsing: surfaceID),
+              let terminalID = address.component,
+              let machine = machine(id: address.machineID) else { return }
         // A replay request is the mount signal. Attaching delivers the
         // daemon's own snapshot, which is a complete screen rather than a
         // byte tail, so re-mounting always repaints correctly.
         ensureAttached(
             surfaceID: surfaceID,
             machine: machine,
-            terminalID: parsed.remainder,
+            terminalID: terminalID,
             forceReattach: true
         )
     }
@@ -242,9 +248,10 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     private func publishPlaceholderIfNeeded(_ machine: CloudMachine) {
         guard let store, catalogTasks[machine.id] == nil else { return }
         store.applyExternalHostWorkspaceState(
-            CloudWorkspaceProjection.hostState(
+            CloudWorkspaceProjector(
                 machineID: machine.id,
-                displayName: machine.displayName,
+                displayName: machine.displayName
+            ).hostState(
                 workspaces: [],
                 terminals: [],
                 status: .reconnecting,
@@ -262,9 +269,10 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
     ) {
         guard let store else { return }
         store.applyExternalHostWorkspaceState(
-            CloudWorkspaceProjection.hostState(
+            CloudWorkspaceProjector(
                 machineID: machine.id,
-                displayName: machine.displayName,
+                displayName: machine.displayName
+            ).hostState(
                 workspaces: workspaces,
                 terminals: terminals,
                 status: status,
@@ -281,7 +289,7 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             lastReportedGridBySurfaceID.removeValue(forKey: surfaceID)
         }
         store?.removeExternalHostWorkspaceState(
-            macDeviceID: CloudSurfaceIdentity.hostID(machineID: machineID)
+            macDeviceID: CloudAddress(machineID: machineID).identifier
         )
     }
 

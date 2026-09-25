@@ -5,29 +5,39 @@ import Foundation
 /// Turns one Cloud machine's daemon catalog into the per-host workspace state
 /// the shell store aggregates over.
 ///
-/// A pure function of its inputs, so every rule below is testable without a
-/// tunnel, a daemon or a store.
-public enum CloudWorkspaceProjection: Sendable {
-    /// Builds the host state for one machine.
-    ///
+/// Built per machine and holding only that machine's identity, so every rule
+/// below is exercised without a tunnel, a daemon or a store.
+public struct CloudWorkspaceProjector: Sendable {
+    /// The row a machine's terminals are gathered under when the daemon
+    /// reports them without a workspace.
+    static let unassignedWorkspaceID = "unassigned"
+
+    private let machineID: String
+    private let displayName: String?
+
+    /// Projects for one machine.
     /// - Parameters:
-    ///   - machineID: The Cloud machine's stable id; becomes the host id.
+    ///   - machineID: The machine's stable id; becomes the host id.
     ///   - displayName: The machine's user-facing name.
+    public init(machineID: String, displayName: String?) {
+        self.machineID = machineID
+        self.displayName = displayName
+    }
+
+    /// The host state for this machine's catalog.
+    /// - Parameters:
     ///   - workspaces: The daemon's workspaces.
     ///   - terminals: The daemon's terminals, each optionally naming its
     ///     workspace.
     ///   - status: Liveness of the link to this machine.
-    ///   - isAuthoritative: Whether `workspaces` and `terminals` came from a
-    ///     complete catalog read rather than a retained previous value.
-    public static func hostState(
-        machineID: String,
-        displayName: String?,
+    ///   - isAuthoritative: Whether the catalog came from a complete read
+    ///     rather than a retained previous value.
+    public func hostState(
         workspaces: [CloudWorkspaceSummary],
         terminals: [CloudTerminalSummary],
         status: MobileMacConnectionStatus,
         isAuthoritative: Bool
     ) -> MacWorkspaceState {
-        let hostID = CloudSurfaceIdentity.hostID(machineID: machineID)
         var terminalsByWorkspace: [String: [CloudTerminalSummary]] = [:]
         var orphans: [CloudTerminalSummary] = []
         for terminal in terminals {
@@ -40,9 +50,6 @@ public enum CloudWorkspaceProjection: Sendable {
 
         var rows: [MobileWorkspacePreview] = workspaces.map { workspace in
             preview(
-                machineID: machineID,
-                hostID: hostID,
-                displayName: displayName,
                 remoteWorkspaceID: workspace.id,
                 name: workspace.preferredName,
                 currentDirectory: workspace.root,
@@ -51,16 +58,13 @@ public enum CloudWorkspaceProjection: Sendable {
         }
 
         // A daemon that reports terminals without a workspace (an older build,
-        // or a terminal created outside a workspace) would otherwise strand
-        // them: the catalog would list a machine with no way to reach its
-        // terminals. Group them under one row named for the machine instead.
+        // or a terminal made outside a workspace) would otherwise strand them:
+        // the list would show a machine with no way to reach its terminals.
+        // Gather them under one row named for the machine instead.
         if !orphans.isEmpty {
             rows.append(
                 preview(
-                    machineID: machineID,
-                    hostID: hostID,
-                    displayName: displayName,
-                    remoteWorkspaceID: unassignedWorkspaceID,
+                    remoteWorkspaceID: Self.unassignedWorkspaceID,
                     name: displayName ?? machineID,
                     currentDirectory: nil,
                     terminals: orphans
@@ -69,7 +73,7 @@ public enum CloudWorkspaceProjection: Sendable {
         }
 
         return MacWorkspaceState(
-            macDeviceID: hostID,
+            macDeviceID: CloudAddress(machineID: machineID).identifier,
             instanceTag: nil,
             displayName: displayName,
             workspaces: rows,
@@ -84,24 +88,19 @@ public enum CloudWorkspaceProjection: Sendable {
         )
     }
 
-    /// The row id a machine's orphaned terminals are gathered under.
-    static let unassignedWorkspaceID = "unassigned"
-
-    private static func preview(
-        machineID: String,
-        hostID: String,
-        displayName: String?,
+    private func preview(
         remoteWorkspaceID: String,
         name: String,
         currentDirectory: String?,
         terminals: [CloudTerminalSummary]
     ) -> MobileWorkspacePreview {
-        MobileWorkspacePreview(
+        let hostID = CloudAddress(machineID: machineID).identifier
+        return MobileWorkspacePreview(
             id: MobileWorkspacePreview.ID(
-                rawValue: CloudSurfaceIdentity.workspaceID(
+                rawValue: CloudAddress(
                     machineID: machineID,
-                    remoteWorkspaceID: remoteWorkspaceID
-                )
+                    component: remoteWorkspaceID
+                ).identifier
             ),
             macDeviceID: hostID,
             macDisplayName: displayName,
@@ -110,10 +109,10 @@ public enum CloudWorkspaceProjection: Sendable {
             terminals: terminals.map { terminal in
                 MobileTerminalPreview(
                     id: MobileTerminalPreview.ID(
-                        rawValue: CloudSurfaceIdentity.surfaceID(
+                        rawValue: CloudAddress(
                             machineID: machineID,
-                            terminalID: terminal.id
-                        )
+                            component: terminal.id
+                        ).identifier
                     ),
                     name: terminal.name.flatMap { $0.isEmpty ? nil : $0 } ?? terminal.id,
                     isReady: true
