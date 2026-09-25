@@ -25321,15 +25321,20 @@ mod tests {
             )
             .unwrap()
         };
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 1).unwrap();
-        mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 2).unwrap();
+        mux.append_journal_ingress(&ingress("SessionStart", "old"), "test", "delayed-start-1")
+            .unwrap();
+        mux.append_journal_ingress(&ingress("SessionEnd", "old"), "test", "delayed-start-2")
+            .unwrap();
         // The old session can arrive after its end marker. Matching the ended
         // identity is still a stale event, not permission to reopen it.
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 3).unwrap();
+        mux.append_journal_ingress(&ingress("SessionStart", "old"), "test", "delayed-start-3")
+            .unwrap();
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
         assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
-        mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 4).unwrap();
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 5).unwrap();
+        mux.append_journal_ingress(&ingress("SessionStart", "new"), "test", "delayed-start-4")
+            .unwrap();
+        mux.append_journal_ingress(&ingress("SessionStart", "old"), "test", "delayed-start-5")
+            .unwrap();
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
     }
