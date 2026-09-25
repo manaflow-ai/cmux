@@ -58,12 +58,19 @@ public struct AutomationCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    /// Whether Claude Code agent spawns become native cmux panes.
+    public let agentPanesEnabled = DefaultsKey<Bool>(
+        id: "automation.agentPanesEnabled",
+        defaultValue: true,
+        userDefaultsKey: "agentPanesEnabled"
+    )
+
     // Several agent-integration toggles are intentionally exposed under both
     // `automation.*` (this catalog) and `integrations.*` (IntegrationsCatalogSection)
     // with the same `userDefaultsKey`, so writes through either namespace land
     // on the same persisted value. The shared keys are claudeCode*, cursor*,
     // gemini*, kiro* (including kiroNotificationLevel), amp*,
-    // ripgrepCustomBinaryPath, and suppressSubagentNotifications. There is no
+    // ripgrepCustomBinaryPath, suppressSubagentNotifications, and agentPanesEnabled. There is no
     // precedence ambiguity because both DefaultsKey wrappers read/write the
     // same `UserDefaults` slot — the dual namespace exists to keep the JSON
     // config UX (`automation.*`) and the Settings-catalog UX

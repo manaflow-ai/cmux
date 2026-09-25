@@ -71,5 +71,12 @@ public struct IntegrationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "suppressSubagentNotifications"
     )
 
+    /// Whether Claude Code agent spawns become native cmux panes.
+    public let agentPanesEnabled = DefaultsKey<Bool>(
+        id: "integrations.agentPanesEnabled",
+        defaultValue: true,
+        userDefaultsKey: "agentPanesEnabled"
+    )
+
     public init() {}
 }

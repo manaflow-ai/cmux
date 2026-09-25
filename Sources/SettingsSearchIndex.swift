@@ -157,6 +157,7 @@ enum SettingsSearchIndex {
         ),
         setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),
         setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
+        setting(.automation, "agent-panes", String(localized: "settings.automation.agentPanes", defaultValue: "Agent Panes"), "agent panes subagent teammate claude task split terminal"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
         setting(.automation, "gemini", String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), "agent hooks notifications"),
         setting(.automation, "kiro", String(localized: "settings.automation.kiro", defaultValue: "Kiro CLI Integration"), "agent hooks notifications"),

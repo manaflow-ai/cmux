@@ -180,6 +180,10 @@ extension TerminalSurface {
             spawnPolicy.subagentNotificationEnvironmentKey,
             spawnPolicy.suppressSubagentNotifications ? "1" : "0"
         )
+        setManagedEnvironmentValue(
+            "CMUX_AGENT_PANES_ENABLED",
+            spawnPolicy.agentPanesEnabled ? "1" : "0"
+        )
         if !spawnPolicy.cursorHooksEnabled {
             setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
         }

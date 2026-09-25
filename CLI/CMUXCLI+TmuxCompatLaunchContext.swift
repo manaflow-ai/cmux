@@ -227,6 +227,11 @@ extension CMUXCLI {
         if [[ -n "${CMUX_CLAUDE_TEAMS_CMUX_BIN:-}" ]]; then
           exec "$CMUX_CLAUDE_TEAMS_CMUX_BIN" __tmux-compat "$@"
         fi
+        if [[ "${CMUX_AGENT_PANES_ENABLED:-0}" == "1" ||
+              "${CMUX_CLAUDE_TEAMS_PANES_ENABLED:-0}" == "1" ]]; then
+          cmux_tmux_cli="${CMUX_BUNDLED_CLI_PATH:-cmux}"
+          exec "$cmux_tmux_cli" __tmux-compat "$@"
+        fi
 
         # This shim lives in a persistent per-surface PATH directory. Outside the
         # claude-teams launch it must behave transparently, even when several cmux

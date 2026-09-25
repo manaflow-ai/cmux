@@ -47,6 +47,10 @@ struct SettingCatalogTests {
                 "automation.suppressSubagentNotifications",
                 "integrations.suppressSubagentNotifications",
             ],
+            "agentPanesEnabled": [
+                "automation.agentPanesEnabled",
+                "integrations.agentPanesEnabled",
+            ],
             "sidebarActiveTabIndicatorStyle": [
                 "sidebar.activeTabIndicatorStyle",
                 "workspaceColors.indicatorStyle",

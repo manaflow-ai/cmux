@@ -34,4 +34,7 @@ public protocol AgentIntegrationSettingsReading: Sendable {
 
     /// Whether notifications from agent subagents are suppressed.
     var suppressesSubagentNotifications: Bool { get }
+
+    /// Whether Claude Code agent spawns become native cmux panes.
+    var agentPanesEnabled: Bool { get }
 }

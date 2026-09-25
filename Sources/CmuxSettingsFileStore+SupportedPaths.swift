@@ -119,6 +119,7 @@ extension CmuxSettingsFileStore {
         "automation.autoNamingAgent",
         "automation.ripgrepBinaryPath",
         "automation.suppressSubagentNotifications",
+        "automation.agentPanesEnabled",
         "automation.ampIntegration",
         "automation.cursorIntegration",
         "automation.geminiIntegration",

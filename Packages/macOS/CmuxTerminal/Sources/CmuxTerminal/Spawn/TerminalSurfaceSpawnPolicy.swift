@@ -40,6 +40,9 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
     /// under ``subagentNotificationEnvironmentKey``).
     public var suppressSubagentNotifications: Bool
 
+    /// Whether Claude Code agent spawns should use native cmux panes.
+    public var agentPanesEnabled: Bool
+
     /// Whether Cursor hooks are enabled (`CMUX_CURSOR_HOOKS_DISABLED`).
     public var cursorHooksEnabled: Bool
 
@@ -77,6 +80,7 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         customClaudePath: String?,
         subagentNotificationEnvironmentKey: String,
         suppressSubagentNotifications: Bool,
+        agentPanesEnabled: Bool = true,
         cursorHooksEnabled: Bool,
         geminiHooksEnabled: Bool,
         kiroHooksEnabled: Bool,
@@ -93,6 +97,7 @@ public struct TerminalSurfaceSpawnPolicy: Sendable {
         self.customClaudePath = customClaudePath
         self.subagentNotificationEnvironmentKey = subagentNotificationEnvironmentKey
         self.suppressSubagentNotifications = suppressSubagentNotifications
+        self.agentPanesEnabled = agentPanesEnabled
         self.cursorHooksEnabled = cursorHooksEnabled
         self.geminiHooksEnabled = geminiHooksEnabled
         self.kiroHooksEnabled = kiroHooksEnabled
