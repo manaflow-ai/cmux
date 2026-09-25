@@ -16,7 +16,10 @@ pool. The policy now is:
   against a real shallow clone.
 """
 
+import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -120,6 +123,90 @@ else:
         self.assertEqual(self.decision(files, baseline="")["upload"], "true")
         self.assertEqual(self.decision(files, event="workflow_dispatch")["upload"], "true")
         self.assertEqual(self.decision(files * 300)["upload"], "true")
+
+    def upload_notes(self, root, decision, build_number=""):
+        """Run the workflow wiring, substituting only the expensive upload."""
+        workflow = load("ios-appstore-upload.yml")["jobs"]
+        context = {
+            "runner.temp": str(root),
+            "github.event.inputs.build_number": build_number,
+            **{f"steps.decide.outputs.{key}": value for key, value in decision.items()},
+        }
+
+        def resolve(value):
+            return re.sub(r"\$\{\{\s*(.*?)\s*\}\}",
+                          lambda match: context.get(match[1], ""), str(value))
+
+        context.update({
+            f"needs.decide.outputs.{key}": resolve(value)
+            for key, value in workflow["decide"]["outputs"].items()
+        })
+        scripts = root / "ios/scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(FETCH_SCRIPT, scripts / FETCH_SCRIPT.name)
+        uploader = scripts / "upload-testflight.sh"
+        uploader.write_text("#!/usr/bin/env python3\n" + r'''
+import json, os, subprocess, sys
+from pathlib import Path
+args = sys.argv[1:]
+Path(os.environ["CAPTURE_ARGS"]).write_text(json.dumps(args))
+if "--notes-from-range" in args:
+    base = args[args.index("--notes-from-range") + 1]
+    notes = subprocess.check_output(
+        ["bash", os.environ["NOTES_SCRIPT"], base, "--audience", "internal"], text=True)
+else:
+    notes = "fixed changelog entry\n"
+Path(os.environ["CAPTURE_NOTES"]).write_text(notes)
+Path(os.environ["CMUX_BUILD_NUMBER_OUT_FILE"]).write_text("12345\n")
+''')
+        uploader.chmod(0o755)
+        env = {
+            **os.environ, "RUNNER_TEMP": str(root),
+            "GITHUB_OUTPUT": str(root / "upload-output"),
+            "CAPTURE_ARGS": str(root / "upload-args.json"),
+            "CAPTURE_NOTES": str(root / "notes.txt"),
+            "NOTES_SCRIPT": str(NOTES_SCRIPT),
+        }
+        for step in workflow["upload"]["steps"]:
+            if step.get("name") == "Fetch TestFlight notes history":
+                self.assertLessEqual(step["timeout-minutes"], 5)
+                self.assertIs(step["continue-on-error"], True)
+            elif step.get("id") != "upload":
+                continue
+            result = subprocess.run(
+                ["bash", "-c", step["run"]], cwd=root,
+                env={**env, **{key: resolve(value) for key, value in step["env"].items()}},
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+        return (root / "notes.txt").read_text(), json.loads((root / "upload-args.json").read_text())
+
+    def test_official_upload_generates_internal_notes_since_its_last_upload(self):
+        for event in ("schedule", "workflow_dispatch"):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(event=event):
+                root = Path(directory)
+                src, shas = build_remote(
+                    root, [START + i * HOUR for i in range(6)],
+                    {0: "ios/old.swift", 2: "ios/new.swift", 3: "web/page.tsx",
+                     4: "Packages/iOS/New.swift"},
+                )
+                base = shas[1]
+                clone = shallow_clone(root, src)
+                decision = self.decision([{"filename": "ios/new.swift"}], event=event, baseline=base)
+                actual, args = self.upload_notes(clone, decision, build_number="12345")
+                self.assertEqual(actual, notes(src, base))
+                self.assertIn("ios: change 4 (#4)", actual)
+                self.assertNotIn("change 0", actual)
+                self.assertNotIn("change 3", actual)
+                self.assertEqual(args, ["--lane", "appstore", "--signing", "manual",
+                                        "--notes-from-range", base, "--build-number", "12345"])
+
+    def test_official_first_upload_keeps_internal_changelog_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            decision = self.decision(event="workflow_dispatch", baseline="")
+            actual, args = self.upload_notes(Path(directory), decision)
+            self.assertEqual(actual, "fixed changelog entry\n")
+            self.assertEqual(args, ["--lane", "appstore", "--signing", "manual"])
 
 
 class WorkflowPolicyTests(unittest.TestCase):
@@ -232,16 +319,6 @@ class WorkflowPolicyTests(unittest.TestCase):
         self.assertLessEqual(int(step["timeout-minutes"]), 5)
         self.assertIs(step["continue-on-error"], True)
         self.assertIn('--notes-from-range "$LAST_UPLOADED_SHA"', run_text(steps[upload]))
-
-    def test_appstore_lane_reads_no_history(self):
-        steps = load("ios-appstore-upload.yml")["jobs"]["upload"]["steps"]
-        for step in steps:
-            text = run_text(step)
-            with self.subTest(step=step.get("name")):
-                self.assertNotIn("--notes-from-range", text)
-                self.assertNotIn("--auto-version", text)
-                self.assertNotIn("git fetch", text)
-
 
 def git(repo, *args, env=None):
     return subprocess.run(
