@@ -42,15 +42,16 @@ public struct LocalCommandArgumentLimitPolicy: Sendable {
 
         let quotedScript = Array(command.dropFirst(prefix.count))
         guard quotedScript.count >= 2,
-              quotedScript.first == "'",
-              quotedScript.last == "'" else {
+              let quote = quotedScript.first,
+              (quote == "'" || quote == "\""),
+              quotedScript.last == quote else {
             return nil
         }
 
         var script = ""
         var index = 1
         while index < quotedScript.count - 1 {
-            if quotedScript[index] == "'" {
+            if quote == "'", quotedScript[index] == "'" {
                 guard index + 3 < quotedScript.count,
                       quotedScript[index + 1] == "\\",
                       quotedScript[index + 2] == "'",
@@ -59,6 +60,19 @@ public struct LocalCommandArgumentLimitPolicy: Sendable {
                 }
                 script.append("'")
                 index += 4
+            } else if quote == "\"", quotedScript[index] == "\\" {
+                guard index + 1 < quotedScript.count - 1 else { return nil }
+                let escaped = quotedScript[index + 1]
+                if escaped == "\"" || escaped == "\\" || escaped == "$" || escaped == "`" {
+                    script.append(escaped)
+                } else if escaped == "\n" {
+                    // A backslash-newline pair is removed inside a POSIX
+                    // double-quoted string.
+                } else {
+                    script.append("\\")
+                    script.append(escaped)
+                }
+                index += 2
             } else {
                 script.append(quotedScript[index])
                 index += 1

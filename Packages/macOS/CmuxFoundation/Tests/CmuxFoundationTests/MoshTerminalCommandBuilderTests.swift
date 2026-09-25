@@ -198,6 +198,22 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("externalizes a large double-quoted POSIX shell command")
+    func largeDoubleQuotedCommandUsesExternalLauncher() throws {
+        let command = "/bin/sh -c \"printf '%s' \\\"" + String(repeating: "bootstrap", count: 120_000) + "\\\"\""
+        var writtenCommand: String?
+        let externalCommand = try #require(LocalCommandArgumentLimitPolicy().commandForSpawn(
+            command: command,
+            workingDirectory: nil
+        ) { commandToExternalize, _ in
+            writtenCommand = commandToExternalize
+            return "/bin/sh /tmp/cmux-launcher"
+        })
+
+        #expect(externalCommand == "/bin/sh /tmp/cmux-launcher")
+        #expect(writtenCommand == "printf '%s' \"" + String(repeating: "bootstrap", count: 120_000) + "\"")
+    }
+
     @Test("keeps a large SSH fallback within the local launcher argument budget")
     func largeFallbackIsEmbeddedOnce() throws {
         try withFakeCommands(sshStatus: 0, installMosh: false) { _, environment in
