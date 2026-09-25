@@ -8,4 +8,9 @@ extension TerminalController {
     nonisolated func agentJournalAppend(_ args: String) -> String {
         AgentJournalLifecycleCenter.shared.handleAppendCommand(args)
     }
+
+    /// v1 worker body for the read-only objective projection query.
+    nonisolated func agentJournalGoalQuery(_ args: String) -> String {
+        AgentJournalLifecycleCenter.shared.handleGoalQueryCommand(args)
+    }
 }

@@ -2,6 +2,22 @@ import CmuxAgentJournal
 import Foundation
 
 extension CMUXCLI {
+    private enum SessionsListGoalLookup {
+        case unavailable
+        case absent
+        case present(AgentGoalLifecycle)
+    }
+
+    private struct SessionsListGoalResponse: Decodable {
+        let available: Bool
+        let goalLifecycle: AgentGoalLifecycle?
+
+        enum CodingKeys: String, CodingKey {
+            case available
+            case goalLifecycle = "goal_lifecycle"
+        }
+    }
+
     private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
     private typealias SessionListEntry = (updatedAt: TimeInterval, payload: [String: Any])
     private typealias CodexSessionListIndex = (indexedSessionIds: Set<String>, transcriptPathBySessionId: [String: String])
@@ -121,8 +137,8 @@ extension CMUXCLI {
         var stores: [[String: Any]] = []
 
         let decoder = JSONDecoder()
-        let goalStore = sessionsListGoalStore(processEnv: processEnv)
-        defer { goalStore?.close() }
+        var goalClient = sessionsListGoalClient(processEnv: processEnv)
+        var goalJournalUnavailable = goalClient == nil
         for spec in selectedSpecs {
             let storePath = URL(fileURLWithPath: stateDir, isDirectory: true)
                 .appendingPathComponent("\(spec.sessionStoreSuffix)-hook-sessions.json", isDirectory: false)
@@ -172,12 +188,35 @@ extension CMUXCLI {
                     "updated_at": sessionsListTimestamp(record.updatedAt),
                     "updated_at_unix": record.updatedAt
                 ]
-                let goalLifecycle = goalStore.flatMap {
-                    try? $0.goalLifecycle(source: spec.name, sessionId: record.sessionId)
+                let goalLookup: SessionsListGoalLookup
+                if goalJournalUnavailable {
+                    goalLookup = .unavailable
+                } else if let client = goalClient {
+                    goalLookup = sessionsListGoalLookup(
+                        source: spec.name,
+                        sessionID: record.sessionId,
+                        client: client
+                    )
+                    if case .unavailable = goalLookup {
+                        goalJournalUnavailable = true
+                        goalClient = nil
+                    }
+                } else {
+                    goalLookup = .unavailable
                 }
-                let goalCapability = goalLifecycle == nil
-                    ? (spec.name == "codex" ? "unknown" : "unmanaged")
-                    : "supported"
+                let goalLifecycle: AgentGoalLifecycle?
+                let goalCapability: String
+                switch goalLookup {
+                case .present(let value):
+                    goalLifecycle = value
+                    goalCapability = "supported"
+                case .absent:
+                    goalLifecycle = nil
+                    goalCapability = "unmanaged"
+                case .unavailable:
+                    goalLifecycle = nil
+                    goalCapability = "unknown"
+                }
                 if rawRecord.sessionId != record.sessionId {
                     payload["hook_session_id"] = rawRecord.sessionId
                 }
@@ -436,7 +475,11 @@ extension CMUXCLI {
         let sessionDir = (payload["session_dir"] as? String) ?? "-"
         let activeWorkspace = ((payload["active_for_workspace"] as? Bool) == true) ? "yes" : "no"
         let activeSurface = ((payload["active_for_surface"] as? Bool) == true) ? "yes" : "no"
-        let goalLifecycle = (payload["goal_lifecycle"] as? String) ?? "unmanaged"
+        let goalLifecycle = (payload["goal_lifecycle"] as? String) ?? "unknown"
+        let goalLabel = String(
+            format: String(localized: "cli.sessions.output.goal", defaultValue: "goal=%@"),
+            goalLifecycle
+        )
         var parts = [
             "\(agent) \(sessionId)",
             "workspace=\(workspaceId)",
@@ -445,7 +488,7 @@ extension CMUXCLI {
             "active_ws=\(activeWorkspace)",
             "active_surface=\(activeSurface)",
             "updated=\(updatedAt)",
-            "goal=\(goalLifecycle)"
+            goalLabel
         ]
         if agent == "codex" {
             parts.append("session_home=\(sessionHome)")
@@ -495,26 +538,39 @@ extension CMUXCLI {
         return normalized
     }
 
-    private func sessionsListGoalStore(processEnv: [String: String]) -> AgentJournalStore? {
-        let path: URL
-        if let override = sessionsListNormalized(processEnv["CMUX_AGENT_JOURNAL_PATH"]) {
-            path = URL(fileURLWithPath: sessionsListExpandedPath(override))
-        } else {
-            guard let appSupport = FileManager.default.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first else { return nil }
-            let bundleID = sessionsListNormalized(processEnv["CMUX_BUNDLE_ID"]) ?? "com.cmuxterm.app"
-            let safeBundleID = bundleID.replacingOccurrences(
-                of: "[^A-Za-z0-9._-]",
-                with: "_",
-                options: .regularExpression
-            )
-            path = appSupport
-                .appendingPathComponent("cmux", isDirectory: true)
-                .appendingPathComponent("agent-journal-\(safeBundleID).sqlite3")
+    private func sessionsListGoalClient(processEnv: [String: String]) -> SocketClient? {
+        let path = sessionsListNormalized(processEnv["CMUX_SOCKET_PATH"])
+            ?? sessionsListNormalized(processEnv["CMUX_SOCKET"])
+            ?? CLISocketPathResolver.defaultSocketPath(bundleIdentifier: nil, environment: processEnv)
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        return SocketClient(path: path)
+    }
+
+    private func sessionsListGoalLookup(
+        source: String,
+        sessionID: String,
+        client: SocketClient
+    ) -> SessionsListGoalLookup {
+        let request: [String: String] = ["source": source, "session_id": sessionID]
+        guard let data = try? JSONSerialization.data(withJSONObject: request),
+              let payload = String(data: data, encoding: .utf8) else {
+            return .unavailable
         }
-        return try? AgentJournalStore(databaseURL: path)
+        do {
+            let response = try client.send(
+                command: "agent_journal_goal \(payload)",
+                responseTimeout: 0.5,
+                deadline: Date.now.addingTimeInterval(0.75)
+            )
+            guard let responseData = response.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode(SessionsListGoalResponse.self, from: responseData),
+                  decoded.available else {
+                return .unavailable
+            }
+            return decoded.goalLifecycle.map(SessionsListGoalLookup.present) ?? .absent
+        } catch {
+            return .unavailable
+        }
     }
 
 }

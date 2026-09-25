@@ -175,6 +175,9 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
         if kind == .goalStateChanged, sessionId?.isEmpty != false || (sessionId?.count ?? 0) > 256 {
             return "goal state events require session_id"
         }
+        if kind == .goalStateChanged, source != agentKey {
+            return "goal state source and agent_key must match"
+        }
         if kind == .goalStateChanged, goalLifecycle == nil {
             return "goal state events require goal_lifecycle"
         }

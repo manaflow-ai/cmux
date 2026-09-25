@@ -557451,55 +557451,55 @@
       "en": {
         "stringUnit": {
           "state": "translated",
-          "value": "Unknown agent '%@'."
+          "value": "Unknown agent."
         }
       },
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Unbekannter Agent '%@'."
+          "value": "Unbekannter Agent."
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Agent inconnu « %@ ». "
+          "value": "Agent inconnu."
         }
       },
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "الوكيل '%@' غير معروف."
+          "value": "الوكيل غير معروف."
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Agente desconocido '%@'."
+          "value": "Agente desconocido."
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "未知的代理程式「%@」。"
+          "value": "未知的代理程式。"
         }
       },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "未知代理“%@”。"
+          "value": "未知代理。"
         }
       },
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "알 수 없는 에이전트 '%@'입니다."
+          "value": "알 수 없는 에이전트입니다."
         }
       },
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "不明なエージェント '%@' です。"
+          "value": "不明なエージェントです。"
         }
       }
     }
@@ -557510,55 +557510,55 @@
       "en": {
         "stringUnit": {
           "state": "translated",
-          "value": "Usage: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "Usage: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       },
       "de": {
         "stringUnit": {
           "state": "translated",
-          "value": "Verwendung: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "Verwendung: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       },
       "fr": {
         "stringUnit": {
           "state": "translated",
-          "value": "Utilisation : cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "Utilisation : cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       },
       "ar": {
         "stringUnit": {
           "state": "translated",
-          "value": "الاستخدام: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "الاستخدام: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       },
       "es": {
         "stringUnit": {
           "state": "translated",
-          "value": "Uso: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "Uso: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       },
       "zh-Hant": {
         "stringUnit": {
           "state": "translated",
-          "value": "用法：cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "用法：cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       },
       "zh-Hans": {
         "stringUnit": {
           "state": "translated",
-          "value": "用法：cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "用法：cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       },
       "ko": {
         "stringUnit": {
           "state": "translated",
-          "value": "사용법: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "사용법: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       },
       "ja": {
         "stringUnit": {
           "state": "translated",
-          "value": "使用法: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]"
+          "value": "使用法: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
         }
       }
     }
@@ -557680,7 +557680,184 @@
         }
       }
     }
-  }
+  },
+    "cli.agent.goalState.output.updated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK updated"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK aktualisiert"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK mis à jour"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم التحديث"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK actualizado"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已更新"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已更新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 更新しました"
+          }
+        }
+      }
+    },
+    "cli.agent.goalState.output.replayed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK replayed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK wiederholt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK rejoué"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تمت إعادة التشغيل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK reproducido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已重播"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 已重放"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK 再実行しました"
+          }
+        }
+      }
+    },
+    "cli.sessions.output.goal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "goal=%@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziel=%@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "objectif=%@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الهدف=%@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "objetivo=%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標=%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标=%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목표=%@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標=%@"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

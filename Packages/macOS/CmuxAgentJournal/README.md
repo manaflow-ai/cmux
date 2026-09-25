@@ -38,13 +38,14 @@ event id so producer retries replay the original receipt.
 
 Providers that expose an authoritative objective receipt can publish it through
 the exact-session command below. The command requires workspace and surface UUIDs
-and uses a deterministic event id, so a retry replays the same journal receipt:
+and accepts explicit retry inputs. A retry must reuse both the original
+`--updated-at-ms` and `--event-id` values so it replays the same journal receipt:
 
 ```sh
 cmux agent goal-state complete \
   --agent codex --session <thread-id> --generation <goal-id> \
   --workspace <workspace-uuid> --surface <surface-uuid> \
-  --provenance provider_hook
+  --provenance provider_hook --updated-at-ms <timestamp> --event-id <event-id>
 ```
 
 Codex app-server `ThreadGoalUpdatedNotification` values map directly to

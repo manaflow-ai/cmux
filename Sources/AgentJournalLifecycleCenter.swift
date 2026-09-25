@@ -293,6 +293,46 @@ final class AgentJournalLifecycleCenter: Sendable {
         }
     }
 
+    /// Reads one current objective projection for the sessions CLI without
+    /// opening SQLite in the interactive CLI process. A missing projection is
+    /// encoded as `null`; an unavailable journal is reported as an error so
+    /// callers can distinguish unmanaged from unknown.
+    func handleGoalQueryCommand(_ args: String) -> String {
+        struct Request: Decodable {
+            let source: String
+            let sessionID: String
+
+            enum CodingKeys: String, CodingKey {
+                case source
+                case sessionID = "session_id"
+            }
+        }
+        struct Response: Encodable {
+            let available: Bool
+            let goalLifecycle: AgentGoalLifecycle?
+
+            enum CodingKeys: String, CodingKey {
+                case available
+                case goalLifecycle = "goal_lifecycle"
+            }
+        }
+        guard let data = args.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let request = try? JSONDecoder().decode(Request.self, from: data),
+              AgentJournalEventDraft.isValidSlug(request.source),
+              !request.sessionID.isEmpty, request.sessionID.count <= 256 else {
+            return "ERROR: invalid goal query"
+        }
+        guard let store = lazyStore?.store() else {
+            return "ERROR: agent journal unavailable"
+        }
+        do {
+            let goal = try store.goalLifecycle(source: request.source, sessionId: request.sessionID)
+            return String(decoding: try JSONEncoder().encode(Response(available: true, goalLifecycle: goal)), as: UTF8.self)
+        } catch {
+            return "ERROR: agent journal unavailable"
+        }
+    }
+
     /// Queues a diagnostic event for the owned journal consumer without
     /// blocking the caller on SQLite I/O.
     func enqueueAppend(_ draft: AgentJournalEventDraft) {

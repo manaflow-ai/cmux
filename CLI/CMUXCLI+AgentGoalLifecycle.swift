@@ -41,10 +41,7 @@ extension CMUXCLI {
         let normalizedAgent = agentInput.lowercased() == "claude-code" || agentInput.lowercased() == "claude_code"
             ? "claude" : agentInput.lowercased()
         guard AgentJournalEventDraft.isValidSlug(normalizedAgent) else {
-            throw CLIError(message: String(
-                format: String(localized: "cli.agent.goalState.error.unknownAgent", defaultValue: "Unknown agent '%@'."),
-                agentInput
-            ))
+            throw CLIError(message: String(localized: "cli.agent.goalState.error.unknownAgent", defaultValue: "Unknown agent."))
         }
         guard let state = AgentGoalLifecycleState(rawValue: stateRaw.lowercased()) else {
             throw CLIError(message: String(
@@ -103,8 +100,11 @@ extension CMUXCLI {
             nativeEvent: "goal-state",
             goalLifecycle: lifecycle
         )
-        guard draft.validationProblem() == nil else {
-            throw CLIError(message: String(localized: "cli.agent.goalState.error.invalidValue", defaultValue: "Invalid goal lifecycle value."))
+        if let problem = draft.validationProblem() {
+            throw CLIError(message: String(
+                format: String(localized: "cli.agent.goalState.error.invalidValue", defaultValue: "Invalid goal lifecycle value: %@"),
+                problem
+            ))
         }
         let data = try JSONEncoder().encode(draft)
         let socketResponse = try client.send(
@@ -116,12 +116,7 @@ extension CMUXCLI {
             throw CLIError(message: String(localized: "cli.agent.goalState.error.rejected", defaultValue: "Goal lifecycle update was rejected."))
         }
         let response: [String: Any] = [
-            "agent": source,
-            "session_id": sessionID,
-            "workspace_id": workspaceID,
-            "surface_id": surfaceID,
             "goal_lifecycle": lifecycle.state.rawValue,
-            "goal_generation": lifecycle.generation,
             "goal_updated_at_unix": Double(lifecycle.updatedAtMs) / 1_000,
             "goal_provenance": lifecycle.provenance,
             "result": socketResponse.contains("replayed") ? "replayed" : "updated",
@@ -129,8 +124,10 @@ extension CMUXCLI {
         ]
         if localJSONOutput {
             print(jsonString(response))
+        } else if socketResponse.contains("replayed") {
+            print(String(localized: "cli.agent.goalState.output.replayed", defaultValue: "OK replayed"))
         } else {
-            print(socketResponse.contains("replayed") ? "OK replayed" : "OK updated")
+            print(String(localized: "cli.agent.goalState.output.updated", defaultValue: "OK updated"))
         }
     }
 
@@ -145,7 +142,7 @@ extension CMUXCLI {
     }
 
     private func agentGoalStateUsage() -> String {
-        String(localized: "cli.agent.goalState.usage", defaultValue: "Usage: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--json]")
+        String(localized: "cli.agent.goalState.usage", defaultValue: "Usage: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]")
             + "\n\n"
             + String(localized: "cli.agent.goalState.description", defaultValue: "Record authoritative objective state for one exact agent session. The generation fences late updates from an earlier objective.")
     }
