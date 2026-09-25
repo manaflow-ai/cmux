@@ -263,12 +263,21 @@ extension CMUXCLI {
             let inline: String
             switch injectedEvent.delivery {
             case .queued:
-                inline = queuedAgentHookShellCommand(
-                    agent: def.name,
-                    subcommand: injectedEvent.cmuxSubcommand,
-                    disableEnvironmentVariable: def.disableEnvVar,
-                    identityMarker: "cmux-codex-hook"
-                )
+                if injectedEvent.cmuxSubcommand == "pre-tool-use"
+                    || injectedEvent.cmuxSubcommand == "post-tool-use" {
+                    inline = codexPersistentFeedHookShellCommand(
+                        subcommand: injectedEvent.cmuxSubcommand,
+                        disableEnvironmentVariable: def.disableEnvVar,
+                        identityMarker: "cmux-codex-hook"
+                    )
+                } else {
+                    inline = queuedAgentHookShellCommand(
+                        agent: def.name,
+                        subcommand: injectedEvent.cmuxSubcommand,
+                        disableEnvironmentVariable: def.disableEnvVar,
+                        identityMarker: "cmux-codex-hook"
+                    )
+                }
             case .direct:
                 inline = codexSynchronousAgentHookShellCommand(
                     "cmux hooks feed --source codex --event \(agentEvent)",

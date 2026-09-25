@@ -5190,7 +5190,8 @@ struct CMUXCLI {
                 print("{}")
                 return
             }
-            if commandArgs.first?.lowercased() == "feed" {
+            if commandArgs.first?.lowercased() == "feed",
+               !commandArgs.contains("--stream") {
                 try runFeedHook(
                     commandArgs: Array(commandArgs.dropFirst()),
                     socketPath: resolvedSocketPath,
@@ -39324,12 +39325,44 @@ export default CMUXSessionRestore;
     /// chained separately. For Claude, `hooks claude pre-tool-use` is
     /// async status-only telemetry; blocking decisions come through
     /// PermissionRequest.
+    ///
+    /// The stream variant keeps the socket client alive while the app-side
+    /// delivery queue forwards a burst of Codex tool telemetry. Each input
+    /// line is a small envelope containing the Codex event discriminator and
+    /// the original hook JSON payload.
+    private func runFeedHookStream(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) throws {
+        let source = optionValue(commandArgs, name: "--source") ?? ""
+        guard source == "codex" else {
+            throw CLIError(message: "cmux hooks feed --stream requires --source codex")
+        }
+        while let line = readLine(strippingNewline: true) {
+            guard let lineData = line.data(using: .utf8),
+                  let envelope = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+                  let event = envelope["_cmux_hook_event"] as? String,
+                  let payload = envelope["_cmux_hook_payload"] as? String,
+                  let payloadData = payload.data(using: .utf8) else {
+                continue
+            }
+            try runFeedHook(
+                commandArgs: ["--source", source, "--event", event],
+                client: client,
+                telemetry: telemetry,
+                inputData: payloadData
+            )
+        }
+    }
+
     private func runFeedHook(
         commandArgs: [String],
         client: SocketClient? = nil,
         socketPath: String? = nil,
         socketPassword: String? = nil,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        inputData: Data? = nil
     ) throws {
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
@@ -39366,19 +39399,23 @@ export default CMUXSessionRestore;
         // payloads and Pi's compacted terminal batches are bounded before JSON
         // decoding without changing other agents' actionable hook reads.
         let stdinData: Data
-        let feedHookStdinLimit: Int? = switch source {
-        case "codex": Self.feedHookMaxStdinBytes
-        case "pi": Self.piFeedHookMaxStdinBytes
-        default: nil
-        }
-        if let feedHookStdinLimit {
-            guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
-                print("{}")
-                return
-            }
-            stdinData = boundedData
+        if let inputData {
+            stdinData = inputData
         } else {
-            stdinData = FileHandle.standardInput.readDataToEndOfFile()
+            let feedHookStdinLimit: Int? = switch source {
+            case "codex": Self.feedHookMaxStdinBytes
+            case "pi": Self.piFeedHookMaxStdinBytes
+            default: nil
+            }
+            if let feedHookStdinLimit {
+                guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
+                    print("{}")
+                    return
+                }
+                stdinData = boundedData
+            } else {
+                stdinData = FileHandle.standardInput.readDataToEndOfFile()
+            }
         }
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
@@ -40478,7 +40515,7 @@ export default CMUXSessionRestore;
             )
             return true
 
-        case "enqueue":
+        case "enqueue", "enqueue-stream":
             return false
 
         case "claude":
@@ -40529,7 +40566,7 @@ export default CMUXSessionRestore;
 
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
         guard let first = commandArgs.first?.lowercased() else { return false }
-        if first == "enqueue" {
+        if first == "enqueue" || first == "enqueue-stream" {
             guard let agentName = commandArgs.dropFirst().first?.lowercased(),
                   let def = Self.agentDef(named: agentName)
             else {
@@ -40598,10 +40635,25 @@ export default CMUXSessionRestore;
                 socketPassword: socketPassword
             )
 
+        case "enqueue-stream":
+            try enqueueAgentHookStream(
+                commandArgs: rest,
+                client: client,
+                socketPassword: socketPassword
+            )
+
         case "feed":
             telemetry.breadcrumb("hooks.feed.dispatch")
             do {
-                try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
+                if rest.contains("--stream") {
+                    try runFeedHookStream(
+                        commandArgs: rest.filter { $0 != "--stream" },
+                        client: client,
+                        telemetry: telemetry
+                    )
+                } else {
+                    try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
+                }
                 telemetry.breadcrumb("hooks.feed.completed")
             } catch {
                 telemetry.breadcrumb("hooks.feed.failure")
