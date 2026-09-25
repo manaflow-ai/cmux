@@ -177,6 +177,12 @@ RUN_CLASSES = ("std", "light")
 # `glaeda-root-...` is the one runner per mini that may take a root job (ROOT_JOBS).
 OWNED_LABEL = re.compile(r"glaeda-(?:root-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 ROOT_PREFIX = "glaeda-root-"
+# Capability labels glaeda puts on some runners of an owned pool, requested
+# beside the pool label, never alone. `glaeda-ios-sim`: a mini with an iOS
+# simulator role and an iOS 26.x runtime (ios_runner_pool.py). They are not
+# pools: slots() leaves them out, and capability_slots() reads their count
+# (machines, one simulator job each) from CI_OWNED_POOL_SLOTS.
+CAPABILITY_LABELS = ("glaeda-ios-sim",)
 XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
@@ -520,6 +526,18 @@ def slots(raw: str | None, pr_xcode_app: str | None = None) -> dict[str, int]:
     return _slots(raw, pr_xcode_app)[0]
 
 
+def capability_slots(raw: str | None) -> dict[str, int]:
+    """CI_OWNED_POOL_SLOTS: capability label -> machines carrying it (`{"glaeda-ios-sim": 2}`)."""
+    try:
+        data = json.loads((raw or "").strip() or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(data, Mapping):
+        return {}
+    return {str(label): count for label, count in data.items()
+            if str(label) in CAPABILITY_LABELS and isinstance(count, int) and not isinstance(count, bool) and count > 0}
+
+
 def slot_problems(raw: str | None, pr_xcode_app: str | None = None) -> list[str]:
     """Why CI_OWNED_POOL_SLOTS, or an entry of it, counts as no machines.
 
@@ -537,6 +555,7 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
     #   40                             the std class, for the lane's Xcode pin
     #   {"root-std": 10}               a class's root runners, one per mini
     #   {"glaeda-root-std-xcode-26.6": 10}  (root_label()), beside its pool
+    #   {"glaeda-ios-sim": 2}          a capability label (capability_slots()), no pool
     text = (raw or "").strip()
     if not text:
         return {}, []
@@ -554,6 +573,8 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         label = str(label)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
+        elif label in CAPABILITY_LABELS:
+            continue
         elif persistent(label):
             counted[label] = count
         elif OWNED_LABEL.fullmatch(f"glaeda-{label}-xcode-0"):
