@@ -64,17 +64,19 @@ struct CLIOmpHookBindingTests {
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
             surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
-            pidTarget: nil
+            pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId]
         )
         let launchPath = "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
         var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
         environment["PATH"] = launchPath
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDirectory.path
         environment["CMUX_AGENT_LAUNCH_KIND"] = "pi"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = pi.path
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated([pi.path])
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
-
         let result = Harness.runHookProcess(
             context: context,
             arguments: [
@@ -186,7 +188,7 @@ struct CLIOmpHookBindingTests {
             $0.hasPrefix("set_agent_pid omp.\(resumedSessionId) ")
         })
         let lifecycleIndex = try #require(commands.firstIndex {
-            $0.hasPrefix("set_agent_lifecycle omp ")
+            $0.hasPrefix("agent_journal_append ") && $0.contains("\"agent_key\":\"omp\"")
         })
         let clearIndex = try #require(commands.firstIndex {
             Self.jsonObject($0)?["method"] as? String == "surface.resume.clear"
@@ -319,6 +321,9 @@ struct CLIOmpHookBindingTests {
         let context = try Harness.makeContext(name: "generic-tty-boundary")
         defer { context.cleanup() }
         let sessionId = "codex-ambient-tty-session"
+        let transcriptURL = context.root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try #"{"type":"session_meta","payload":{"id":"\#(sessionId)","source":"cli","originator":"codex-tui"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
         let staleTTY = "ttys-ambient-stale"
         let serverHandled = Harness.startDeliveryTargetServer(
             context: context,
@@ -327,9 +332,10 @@ struct CLIOmpHookBindingTests {
                 Self.leakedWorkspaceId: [Self.leakedSurfaceId],
             ],
             pidTarget: nil,
+            surfaceTargets: [Self.liveSurfaceId: Self.liveWorkspaceId],
             ttyRows: [
                 (tty: staleTTY, workspaceId: Self.leakedWorkspaceId, surfaceId: Self.leakedSurfaceId)
-            ]
+            ],
         )
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
@@ -339,19 +345,40 @@ struct CLIOmpHookBindingTests {
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = Self.base64NULSeparated(["/usr/local/bin/codex"])
         environment["CMUX_AGENT_LAUNCH_CWD"] = context.root.path
+        // The app-host process can itself sit below another Codex fixture in
+        // the shared test runner. Pin the synthetic callback identity to a
+        // non-agent PID so nested-session ancestry detection cannot classify
+        // this foreground routing test as a Codex subagent.
+        environment["CMUX_CODEX_HOOK_PID"] = "2"
+        environment["CMUX_CODEX_PID"] = "2"
+        environment["CMUX_CODEX_INVOCATION_ID"] = "foreground-ambient-tty-boundary"
+        environment["CMUX_CODEX_PARENT_INVOCATION_ID"] = ""
+        environment["CMUX_CODEX_TURN_LEDGER_PATH"] = context.root
+            .appendingPathComponent("codex-turn-ledger.json")
+            .path
 
         let result = Harness.runHookProcess(
             context: context,
             arguments: ["hooks", "codex", "session-start"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
+        // The harness serves one client connection per socket round trip. Its
+        // first connection can close before the later resume publication has
+        // arrived, so wait on the behavior under test rather than the server's
+        // connection count.
+        #expect(waitForConditionBlocking(timeout: 5) {
+            !Harness.resumeBindingParams(in: context).isEmpty
+        })
         let resumeBindings = Harness.resumeBindingParams(in: context)
-        #expect(resumeBindings.count == 1)
+        #expect(
+            resumeBindings.count == 1,
+            Comment(rawValue: context.state.snapshot().joined(separator: "\n"))
+        )
         let resume = try #require(resumeBindings.first)
         #expect(resume["workspace_id"] as? String == Self.liveWorkspaceId)
         #expect(resume["surface_id"] as? String == Self.liveSurfaceId)

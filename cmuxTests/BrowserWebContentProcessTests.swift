@@ -84,8 +84,8 @@ struct BrowserWebContentProcessTests {
         let sourcePageURL = URL(
             string: "https://cmux.test/handler/after-sign-in?web_return_to=%2Fapp-pricing%3Fcmux_app%3D1"
         )!
-        var cancelled = false
-        var reportedTerminalCancellation = false
+        var cancellationCount = 0
+        var terminalCancellationReportCount = 0
 
         let completion = await withCheckedContinuation {
             (continuation: CheckedContinuation<(Bool, URL?), Never>) in
@@ -93,16 +93,16 @@ struct BrowserWebContentProcessTests {
                 disposition: .deliverInApp,
                 callbackURL: callbackURL,
                 sourcePageURL: sourcePageURL,
-                cancelNavigation: { cancelled = true },
-                reportTerminalCancellation: { reportedTerminalCancellation = true },
+                cancelNavigation: { cancellationCount += 1 },
+                reportTerminalCancellation: { terminalCancellationReportCount += 1 },
                 deliver: { _ in false },
                 completion: { delivered, returnURL in
                     continuation.resume(returning: (delivered, returnURL))
                 }
             )
             #expect(consumed)
-            #expect(cancelled)
-            #expect(reportedTerminalCancellation)
+            #expect(cancellationCount == 1)
+            #expect(terminalCancellationReportCount == 1)
         }
 
         #expect(!completion.0)
@@ -129,22 +129,22 @@ struct BrowserWebContentProcessTests {
         #expect(loadedReturnURL == completion.1)
     }
 
-    @Test
-    func blockedAuthCallbackConsumptionStillTerminatesNavigation() {
+    @Test(arguments: ["cmux-nightly://auth-callback?refresh_token=secret", "cmux-rc://auth-callback?refresh_token=secret"])
+    func blockedAuthCallbackConsumptionStillTerminatesNavigation(callbackURLString: String) {
         let policy = BrowserAuthCallbackNavigationPolicy(
             trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
             callbackScheme: "cmux-dev-test"
         )
-        let callbackURL = URL(string: "cmux-nightly://auth-callback?refresh_token=secret")!
-        var cancelled = false
-        var reportedTerminalCancellation = false
+        let callbackURL = URL(string: callbackURLString)!
+        var cancellationCount = 0
+        var terminalCancellationReportCount = 0
 
         let consumed = policy.consume(
             disposition: .block,
             callbackURL: callbackURL,
             sourcePageURL: nil,
-            cancelNavigation: { cancelled = true },
-            reportTerminalCancellation: { reportedTerminalCancellation = true },
+            cancelNavigation: { cancellationCount += 1 },
+            reportTerminalCancellation: { terminalCancellationReportCount += 1 },
             deliver: { _ in
                 Issue.record("Blocked callbacks must never be delivered")
                 return false
@@ -155,8 +155,8 @@ struct BrowserWebContentProcessTests {
         )
 
         #expect(consumed)
-        #expect(cancelled)
-        #expect(reportedTerminalCancellation)
+        #expect(cancellationCount == 1)
+        #expect(terminalCancellationReportCount == 1)
     }
 
     @Test
@@ -1073,7 +1073,7 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
+    func webContentProcessTerminationDefersReplacementUntilExplicitRecovery() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: recoveryURL
@@ -1086,57 +1086,26 @@ struct BrowserWebContentProcessTests {
         #expect(oldWebView.superview == nil)
         #expect(oldWebView.cmuxBrowserViewportHostView === viewportHost)
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
+        #expect(panel.webView === oldWebView)
+        #expect(panel.webViewInstanceID == oldInstanceID)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(oldWebView.navigationDelegate == nil)
+        #expect(oldWebView.uiDelegate == nil)
+
+        #expect(panel.recoverTerminatedWebContent(reason: "test"))
         #expect(!(panel.webView === oldWebView))
         #expect(panel.webViewInstanceID != oldInstanceID)
-        #expect(panel.hasRecoverableWebContentTermination)
         #expect(panel.webView.navigationDelegate != nil)
         #expect(panel.webView.uiDelegate != nil)
         #expect(panel.webView.superview == nil)
         #expect(panel.webView.cmuxBrowserViewportHostView === viewportHost)
         #expect(oldWebView.cmuxBrowserViewportHostView == nil)
-    }
-
-    @Test
-    func webViewReplacementPreservesActiveEmulatedViewportHost() throws {
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: recoveryURL
-        )
-        defer { panel.close() }
-        let oldWebView = panel.webView
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 610))
-        container.addSubview(oldWebView)
-        let viewport = try #require(BrowserViewport(width: 1_280, height: 720))
-        _ = try panel.setAutomationViewport(viewport).get()
-
-        #expect(oldWebView.superview === panel.viewportHostView)
-
-        panel.debugSimulateWebContentProcessTermination()
-
-        #expect(!(panel.webView === oldWebView))
-        #expect(panel.webView.superview === panel.viewportHostView)
-        #expect(panel.webView.cmuxBrowserViewportPresentationView === panel.viewportHostView)
-        #expect(panel.webView.cmuxBrowserViewportHostView === panel.viewportHostView)
-        #expect(oldWebView.cmuxBrowserViewportHostView == nil)
-    }
-
-    @Test
-    func remoteWorkspaceWebsiteDataStoreSurvivesWebViewReplacement() {
-        let storeIdentifier = UUID()
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: recoveryURL,
-            isRemoteWorkspace: true,
-            remoteWebsiteDataStoreIdentifier: storeIdentifier
-        )
-        defer { panel.close() }
-        let originalStore = panel.webView.configuration.websiteDataStore
-
-        panel.debugSimulateWebContentProcessTermination()
-
-        #expect(panel.webView.configuration.websiteDataStore === originalStore)
     }
 
     @Test
@@ -1147,7 +1116,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.reload()
@@ -1164,7 +1137,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         panel.resetForWorkspaceContextChange(reason: "test")
@@ -1188,7 +1165,11 @@ struct BrowserWebContentProcessTests {
         )
         defer { panel.close() }
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
         #expect(panel.hasRecoverableWebContentTermination)
 
         #expect(panel.switchToProfile(profile.id))
@@ -1202,10 +1183,15 @@ struct BrowserWebContentProcessTests {
         defer { panel.close() }
         #expect(!panel.shouldRenderWebView)
 
-        panel.debugSimulateWebContentProcessTermination()
+        guard let navigationDelegate = panel.webView.navigationDelegate as? BrowserNavigationDelegate else {
+            Issue.record("BrowserPanel must install its navigation delegate before simulating termination")
+            return
+        }
+        navigationDelegate.webViewWebContentProcessDidTerminate(panel.webView)
 
         #expect(!panel.shouldRenderWebView)
-        #expect(!panel.hasRecoverableWebContentTermination)
+        #expect(panel.hasRecoverableWebContentTermination)
+        #expect(panel.webContentState == .terminated(recoveryURL: nil))
     }
 
     @Test

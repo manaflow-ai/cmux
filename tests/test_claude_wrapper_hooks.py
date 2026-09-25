@@ -8,10 +8,13 @@ from __future__ import annotations
 import base64
 import json
 import os
+import plistlib
 import shutil
+import signal
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from node_runtime import ensure_node_on_path
@@ -21,9 +24,82 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 
 
+def queued_hook_command(agent: str, subcommand: str, disabled_key: str) -> str:
+    pid_key = "CMUX_" + "".join(character if character.isalnum() else "_" for character in agent.upper()) + "_PID"
+    if agent == "claude":
+        executable = "${CMUX_CLAUDE_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
+    elif agent == "codex":
+        executable = "${CMUX_CODEX_HOOK_CMUX_BIN:-${CMUX_BUNDLED_CLI_PATH:-}}"
+    else:
+        executable = "${CMUX_BUNDLED_CLI_PATH:-}"
+    return "; ".join(
+        [
+            f'cmux_cli="{executable}"',
+            'if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi',
+            f'agent_pid="${{{pid_key}:-${{PPID:-}}}}"',
+            f'if [ -n "$CMUX_SURFACE_ID" ] && [ "${disabled_key}" != "1" ] && [ -n "$cmux_cli" ]; then if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 "$cmux_cli" --socket "$CMUX_SOCKET_PATH" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; else {pid_key}="$agent_pid" CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 "$cmux_cli" hooks enqueue {agent} {subcommand} 2>/dev/null || echo \'{{}}\'; fi; else echo \'{{}}\'; fi',
+        ]
+    )
+
+
+def generated_claude_hook_settings() -> str:
+    direct_cli = '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}"'
+
+    def direct(command: str, timeout: int, *, matcher: str = "", asynchronous: bool = False) -> dict:
+        hook = {"type": "command", "command": command, "timeout": timeout}
+        if asynchronous:
+            hook["async"] = True
+        return {"matcher": matcher, "hooks": [hook]}
+
+    def queued(subcommand: str, *, matcher: str = "") -> dict:
+        return direct(
+            queued_hook_command("claude", subcommand, "CMUX_CLAUDE_HOOKS_DISABLED"),
+            5,
+            matcher=matcher,
+        )
+
+    hooks = {
+        "SessionStart": [queued("session-start")],
+        "Stop": [
+            queued("stop"),
+            queued("feed"),
+            direct(f"{direct_cli} hooks claude auto-name", 120, asynchronous=True),
+        ],
+        "SubagentStop": [queued("feed")],
+        "SessionEnd": [queued("session-end")],
+        "Notification": [queued("notification")],
+        "UserPromptSubmit": [queued("prompt-submit")],
+        "PreToolUse": [
+            direct(f"{direct_cli} hooks claude cron-create-guard", 5, matcher="CronCreate"),
+            queued("pre-tool-use"),
+        ],
+        "PostToolUse": [queued("push-notification", matcher="PushNotification")],
+        "PermissionRequest": [direct(f"{direct_cli} hooks feed --source claude", 125)],
+    }
+    return json.dumps(
+        {"preferredNotifChannel": "notifications_disabled", "hooks": hooks},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def write_helper_info(path: Path, bundle_identifier: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as file:
+        plistlib.dump(
+            {
+                "CFBundleExecutable": "cmux-cua",
+                "CFBundleIdentifier": bundle_identifier,
+                "CFBundleName": "cmux Computer Use",
+                "CFBundlePackageType": "APPL",
+            },
+            file,
+        )
 
 
 def read_lines(path: Path) -> list[str]:
@@ -38,7 +114,10 @@ def parse_settings_arg(argv: list[str]) -> dict:
     index = argv.index("--settings")
     if index + 1 >= len(argv):
         return {}
-    return json.loads(argv[index + 1])
+    value = argv[index + 1]
+    if value.lstrip().startswith(("{", "[")):
+        return json.loads(value)
+    return json.loads(Path(value).read_text(encoding="utf-8"))
 
 
 def run_wrapper(
@@ -49,10 +128,15 @@ def run_wrapper(
     tmpdir: str | None = None,
     home: str | None = None,
     hooks_disabled: bool = False,
+    setup_sandbox=None,
+    process_timeout: float | None = None,
+    generated_hook_settings: str | None = None,
+    help_output: str | None = None,
+    help_behavior: str = "success",
 ) -> tuple[int, list[str], list[str], str, str, str, str, str, str, str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-test-") as td:
         tmp = Path(td)
-        wrapper_dir = tmp / "wrapper-bin"
+        wrapper_dir = tmp / "cmux.app" / "Contents" / "Resources" / "bin"
         real_dir = tmp / "real-bin"
         bundled_dir = tmp / "bundled cli"
         wrapper_dir.mkdir(parents=True, exist_ok=True)
@@ -95,16 +179,15 @@ for arg in "$@"; do
   printf '%s\\n' "$arg" >> "$FAKE_REAL_ARGS_LOG"
 done
 if [[ "${1:-}" == "--help" ]]; then
-  cat <<'HELP'
-Usage: claude [options] [command] [prompt]
-
-Commands:
-  agents             Manage agents
-  doctor             Check Claude health
-  experimental-next  Future command exposed by the real CLI help
-  plugin|plugins     Manage plugins
-  update|upgrade     Update Claude
-HELP
+  printf 'probe\\n' >> "$FAKE_REAL_HELP_CALLS_LOG"
+  case "${FAKE_REAL_HELP_BEHAVIOR:-success}" in
+    fail) printf '%s' "${FAKE_REAL_HELP_OUTPUT-}"; exit 1 ;;
+    hang)
+      sleep 30 &
+      printf '%s\\n' "$$" "$!" > "$FAKE_REAL_HELP_PIDS_LOG"
+      wait ;;
+  esac
+  printf '%s' "${FAKE_REAL_HELP_OUTPUT-}"
   exit 0
 fi
 exec node "$FAKE_REAL_NODE_SCRIPT" "$@"
@@ -166,6 +249,10 @@ exit 0
         make_executable(
             bundled_cli_path,
             """#!/usr/bin/env bash
+if [[ "${1:-}" == "hooks" && "${2:-}" == "claude" && "${3:-}" == "inject-settings" ]]; then
+  printf '%s' "$FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"
+  exit 0
+fi
 exit 0
 """,
         )
@@ -176,6 +263,10 @@ exit 0
             test_socket.bind(socket_path)
 
         env = os.environ.copy()
+        sandbox_home = tmp / "home"
+        if setup_sandbox is None:
+            sandbox_home.mkdir()
+            env["HOME"] = str(sandbox_home)
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
         env["CMUX_SURFACE_ID"] = "surface:test"
         env["CMUX_SOCKET_PATH"] = socket_path
@@ -186,11 +277,31 @@ exit 0
         env["FAKE_REAL_CHILD_NODE_OPTIONS_LOG"] = str(real_child_node_options_log)
         env["FAKE_REAL_LAUNCH_ARGV_B64_LOG"] = str(real_launch_argv_b64_log)
         env["FAKE_REAL_NODE_SCRIPT"] = str(real_dir / "claude-real.js")
+        env["FAKE_REAL_HELP_CALLS_LOG"] = str(tmp / "help-calls.log")
+        env["FAKE_REAL_HELP_PIDS_LOG"] = str(tmp / "help-pids.log")
+        env["FAKE_REAL_HELP_BEHAVIOR"] = help_behavior
+        env["FAKE_REAL_HELP_OUTPUT"] = (
+            "Usage: claude [options] [command] [prompt]\n\n"
+            "Commands:\n"
+            "  agents             Manage agents\n"
+            "  doctor             Check Claude health\n"
+            "  experimental-next  Future command exposed by the real CLI help\n"
+            "  plugin|plugins     Manage plugins\n"
+            "  update|upgrade     Update Claude\n"
+            if help_output is None
+            else help_output
+        )
         env["FAKE_HOOK_CMUX_BIN_LOG"] = str(hook_cmux_bin_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
+        env["FAKE_GENERATED_CLAUDE_HOOK_SETTINGS"] = (
+            generated_claude_hook_settings()
+            if generated_hook_settings is None
+            else generated_hook_settings
+        )
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
+        env.pop("CMUX_CLAUDE_HOOK_CMUX_BIN", None)
         if hooks_disabled:
             env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         else:
@@ -200,17 +311,36 @@ exit 0
         env["HOME"] = resolved_home
         if tmpdir is not None:
             env["TMPDIR"] = tmpdir
-        if node_options is not None:
+        if node_options == "__CMUX_TEST_PRELOAD__":
+            preload_path = tmp / "cmux-test-preload.js"
+            preload_path.write_text("// benign preload used to test MCP env scrubbing\n", encoding="utf-8")
+            env["NODE_OPTIONS"] = f"--require={preload_path}"
+        elif node_options is not None:
             env["NODE_OPTIONS"] = node_options
+        if setup_sandbox is not None:
+            setup_sandbox(tmp, env)
+        run_cwd = Path(env.pop("FAKE_WRAPPER_CWD", str(tmp)))
 
+        timed_out = False
         try:
             proc = subprocess.run(
                 [str(wrapper), *argv],
-                cwd=tmp,
+                cwd=run_cwd,
                 env=env,
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=process_timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            timed_out = True
+            stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            proc = subprocess.CompletedProcess(
+                [str(wrapper), *argv],
+                124,
+                stdout=stdout,
+                stderr=stderr,
             )
         finally:
             if test_socket is not None:
@@ -228,11 +358,14 @@ exit 0
         child_node_options_value = child_node_options_lines[0] if child_node_options_lines else ""
         hook_cmux_bin_value = hook_cmux_bin_lines[0] if hook_cmux_bin_lines else ""
         launch_argv_b64_value = launch_argv_b64_lines[0] if launch_argv_b64_lines else ""
+        stderr = proc.stderr.strip()
+        if timed_out:
+            stderr = f"timed out after {process_timeout}s: {stderr}".strip()
         return (
             proc.returncode,
             read_lines(real_args_log),
             read_lines(cmux_log),
-            proc.stderr.strip(),
+            stderr,
             claudecode_value,
             node_options_value,
             runtime_node_options_value,
@@ -248,6 +381,7 @@ def run_wrapper_terminal_env_probe(
     hooks_disabled: bool = False,
     socket_state: str = "live",
     restore_token: str | None = None,
+    help_output: str = "",
 ) -> tuple[int, dict[str, str], list[str], str, set[str]]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
@@ -289,6 +423,10 @@ def run_wrapper_terminal_env_probe(
             real_dir / "claude",
             f"""#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${{1:-}}" == "--help" ]]; then
+  printf '%s' "$FAKE_REAL_HELP_OUTPUT"
+  exit 0
+fi
 : > "$FAKE_REAL_ENV_LOG"
 : > "$FAKE_REAL_ARGS_LOG"
 keys=(
@@ -329,10 +467,14 @@ exit 0
                 test_socket.bind(socket_path)
 
             env = os.environ.copy()
+            sandbox_home = tmp / "home"
+            sandbox_home.mkdir()
+            env["HOME"] = str(sandbox_home)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env.update(fingerprint_env)
             env["FAKE_REAL_ENV_LOG"] = str(env_log)
             env["FAKE_REAL_ARGS_LOG"] = str(args_log)
+            env["FAKE_REAL_HELP_OUTPUT"] = help_output
             env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
 
             proc = subprocess.run(
@@ -448,6 +590,9 @@ exit 0
                 test_socket.bind(socket_path)
 
             env = os.environ.copy()
+            sandbox_home = tmp / "home"
+            sandbox_home.mkdir()
+            env["HOME"] = str(sandbox_home)
             for ambient_cmux_key in [k for k in env if k.startswith("CMUX_")]:
                 env.pop(ambient_cmux_key, None)
             for ambient_aws_key in [k for k in env if k.startswith("AWS_")]:
@@ -554,8 +699,8 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     }.items():
         hook_command = hooks.get(hook_name, [{}])[0].get("hooks", [{}])[0].get("command", "")
         expect(
-            hook_command == f'"${{CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}}" hooks claude {expected_subcommand}',
-            f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
+            f"hooks enqueue claude {expected_subcommand}" in hook_command,
+            f"{hook_name} hook should use queued admission, got {hook_command!r}",
             failures,
         )
     pre_tool_use_groups = hooks.get("PreToolUse", [])
@@ -575,7 +720,8 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
 
     # PushNotification delivers via a raw OSC notification that cmux suppresses
     # for agent surfaces and never fires the Notification hook, so a PostToolUse
-    # matcher is the only bridge into cmux notifications. Async: no decision.
+    # matcher is the only bridge into cmux notifications. It uses the same
+    # short queued-admission contract as lifecycle telemetry.
     post_tool_use_groups = hooks.get("PostToolUse", [])
     push_notification_groups = [group for group in post_tool_use_groups if group.get("matcher") == "PushNotification"]
     expect(
@@ -587,15 +733,16 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         push_hooks = push_notification_groups[0].get("hooks", [])
         expect(
             any(
-                h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude push-notification'
-                and h.get("async") is True
+                "hooks enqueue claude push-notification" in h.get("command", "")
+                and h.get("timeout") == 5
                 for h in push_hooks
             ),
-            f"PushNotification bridge should asynchronously call hooks claude push-notification, got {push_hooks}",
+            f"PushNotification bridge should use queued admission, got {push_hooks}",
             failures,
         )
 
-    # General PreToolUse telemetry should remain async to avoid blocking tool execution.
+    # General PreToolUse telemetry uses bounded queued admission; only decision
+    # hooks remain direct and synchronous.
     pre_tool_use_hooks = [
         hook
         for group in pre_tool_use_groups
@@ -603,8 +750,12 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         if "pre-tool-use" in hook.get("command", "")
     ]
     expect(
-        any(h.get("async") is True for h in pre_tool_use_hooks),
-        f"PreToolUse hook should have async:true, got {pre_tool_use_hooks}",
+        any(
+            "hooks enqueue claude pre-tool-use" in h.get("command", "")
+            and h.get("timeout") == 5
+            for h in pre_tool_use_hooks
+        ),
+        f"PreToolUse hook should use queued admission, got {pre_tool_use_hooks}",
         failures,
     )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
@@ -616,11 +767,11 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])
     expect(
         any(
-            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude'
-            and h.get("async") is True
+            "hooks enqueue claude feed" in h.get("command", "")
+            and h.get("timeout") == 5
             for h in subagent_stop_hooks
         ),
-        f"SubagentStop hook should call hooks feed asynchronously, got {subagent_stop_hooks}",
+        f"SubagentStop hook should use queued feed admission, got {subagent_stop_hooks}",
         failures,
     )
     expect(
@@ -628,13 +779,66 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SubagentStop hook should not call the visible stop hook, got {subagent_stop_hooks}",
         failures,
     )
-    # SessionEnd should have a short timeout (session is exiting)
+    # SessionEnd only waits for short queue admission (session is exiting).
     session_end_hooks = hooks.get("SessionEnd", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("timeout", 999) <= 2 for h in session_end_hooks),
+        any(h.get("timeout") == 5 for h in session_end_hooks),
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
         failures,
     )
+
+
+def test_semantically_empty_generated_settings_keep_decision_hook_fallback(
+    failures: list[str],
+) -> None:
+    for generated_settings in ("{}", '{"hooks":{}}'):
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            generated_hook_settings=generated_settings,
+        )
+        expect(
+            code == 0,
+            f"empty generated settings {generated_settings}: wrapper exited {code}: {stderr}",
+            failures,
+        )
+        settings = parse_settings_arg(real_argv)
+        hooks = settings.get("hooks", {})
+        expect(
+            set(hooks) == {"PreToolUse", "PermissionRequest"},
+            f"empty generated settings {generated_settings}: safe fallback hooks were lost: {hooks}",
+            failures,
+        )
+        expect(
+            "preferredNotifChannel" not in settings,
+            f"empty generated settings {generated_settings}: native notifications were disabled: {settings}",
+            failures,
+        )
+        cron_groups = [
+            group
+            for group in hooks.get("PreToolUse", [])
+            if group.get("matcher") == "CronCreate"
+        ]
+        expect(
+            any(
+                "hooks claude cron-create-guard" in hook.get("command", "")
+                and hook.get("async") is not True
+                for group in cron_groups
+                for hook in group.get("hooks", [])
+            ),
+            f"empty generated settings {generated_settings}: CronCreate denial was lost: {hooks}",
+            failures,
+        )
+        expect(
+            any(
+                "hooks feed --source claude" in hook.get("command", "")
+                and hook.get("async") is not True
+                for group in hooks.get("PermissionRequest", [])
+                for hook in group.get("hooks", [])
+            ),
+            f"empty generated settings {generated_settings}: PermissionRequest decision hook was lost: {hooks}",
+            failures,
+        )
 
 
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
@@ -782,6 +986,25 @@ def test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures: lis
     )
 
 
+def test_live_socket_preserves_genuine_user_hook_command(failures: list[str]) -> None:
+    user_hook = {
+        "matcher": "UserPromptSubmit",
+        "hooks": [{"type": "command", "command": "cmux hooks claude user-owned"}],
+    }
+    code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", json.dumps({"hooks": {"UserPromptSubmit": [user_hook]}}), "hi"],
+    )
+    expect(code == 0, f"user hook preservation: wrapper exited {code}: {stderr}", failures)
+    settings = parse_settings_arg(real_argv)
+    user_hooks = settings.get("hooks", {}).get("UserPromptSubmit", [])
+    expect(
+        user_hook in user_hooks,
+        f"user hook preservation: genuine user hook was dropped, got {user_hooks!r}",
+        failures,
+    )
+
+
 def test_live_socket_invalid_settings_warns_and_falls_back(failures: list[str]) -> None:
     # A malformed --settings must not be dropped in silence: the wrapper surfaces
     # a stderr warning instead of quietly reverting to the dual --settings
@@ -851,6 +1074,72 @@ def test_live_socket_empty_settings_warns_instead_of_silent_drop(failures: list[
     )
 
 
+def test_large_settings_argument_is_rejected_without_hanging(failures: list[str]) -> None:
+    large_settings = '{"large":"' + ("x" * 125_000) + '"}'
+    code, _real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", large_settings, "hello"],
+        process_timeout=2,
+    )
+    expect(code != 124, f"large settings: wrapper pinned the test process: {stderr!r}", failures)
+    expect(code != 0, f"large settings: expected a rejection status, got {code}", failures)
+    expect(
+        "argument" in stderr.lower() and "large" in stderr.lower(),
+        f"large settings: expected a clear argument-size error, got {stderr!r}",
+        failures,
+    )
+
+
+def test_multibyte_settings_argument_uses_byte_limit(failures: list[str]) -> None:
+    # 62,000 two-byte characters stay below Linux's per-argument exec ceiling
+    # while exceeding the wrapper's 120 KiB byte limit.
+    large_settings = '{"large":"' + ("é" * 62_000) + '"}'
+    code, _real_argv, _cmux_log, stderr, *_ = run_wrapper(
+        socket_state="live",
+        argv=["--settings", large_settings, "hello"],
+        process_timeout=2,
+    )
+    expect(code != 124, f"multibyte settings: wrapper pinned the test process: {stderr!r}", failures)
+    expect(code != 0, f"multibyte settings: expected a rejection status, got {code}", failures)
+    expect(
+        "argument too large" in stderr.lower(),
+        f"multibyte settings: expected a byte-size error, got {stderr!r}",
+        failures,
+    )
+
+
+def test_large_settings_file_is_merged_without_argv_growth(failures: list[str]) -> None:
+    with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-large-settings-file-") as td:
+        settings_path = Path(td) / "large-settings.json"
+        large_value = "x" * 200_000
+        settings_path.write_text(json.dumps({"largeUserValue": large_value}), encoding="utf-8")
+        code, real_argv, _cmux_log, stderr, *_ = run_wrapper(
+            socket_state="live",
+            argv=["--settings", str(settings_path), "hello"],
+            process_timeout=5,
+        )
+    expect(code == 0, f"large settings file: wrapper exited {code}: {stderr}", failures)
+    if "--settings" not in real_argv:
+        failures.append(f"large settings file: missing merged settings path: {real_argv}")
+        return
+    merged_path = real_argv[real_argv.index("--settings") + 1]
+    expect(
+        len(merged_path) < 4096,
+        f"large settings file: merged argv path grew unexpectedly: {len(merged_path)} bytes",
+        failures,
+    )
+    try:
+        merged = json.loads(Path(merged_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        failures.append(f"large settings file: merged settings could not be read: {exc}")
+        return
+    expect(
+        merged.get("largeUserValue") == large_value,
+        "large settings file: genuine user value was not preserved",
+        failures,
+    )
+
+
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
     code, _, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
         socket_state="live",
@@ -871,6 +1160,14 @@ def test_command_like_invocations_bypass_hook_injection(failures: list[str]) -> 
         "remote-control",
         "agents",
         "doctor",
+        "attach",
+        "logs",
+        "stop",
+        "kill",
+        "rm",
+        "respawn",
+        "gateway",
+        "import",
         "update",
         "upgrade",
         "auth",
@@ -918,6 +1215,246 @@ def test_hidden_attach_subcommand_bypasses_hook_injection(failures: list[str]) -
     expect(node_options == "__UNSET__", f"attach passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
 
 
+def test_discovered_subcommands_and_aliases_pass_through(failures: list[str]) -> None:
+    """New advertised commands use the same argv/environment boundary as builtins."""
+    help_output = (
+        "Usage: claude [options] [command] [prompt]\n\n"
+        "Options:\n  --model <model>  Pick a model\n\n"
+        "Commands:\n"
+        "  future-command|future-alias [options] <id>  A new command\n"
+        "                                              wrapped description\n"
+        "  another-command [id]                       Another command\n"
+        "\nExamples:\n  example-word  A usage example, not a command\n"
+    )
+    for argv in (
+        ["future-command", "abc123"],
+        ["future-alias"],
+        ["another-command"],
+        ["--model", "sonnet", "future-command", "abc123"],
+    ):
+        code, env, real_argv, stderr, keys = run_wrapper_terminal_env_probe(
+            argv, help_output=help_output,
+        )
+        expect(code == 0, f"discovery {argv}: exit {code}: {stderr}", failures)
+        expect(real_argv == argv, f"discovery {argv}: argv changed: {real_argv}", failures)
+        expect(all(env.get(key) == "__UNSET__" for key in keys),
+               f"discovery {argv}: cmux environment leaked: {env}", failures)
+    for prompt in ("hello", "wrapped", "example-word"):
+        code, argv, _, stderr, *_ = run_wrapper(
+            socket_state="live", argv=[prompt], help_output=help_output,
+        )
+        expect(code == 0 and "--settings" in argv and "--session-id" in argv,
+               f"prompt {prompt}: expected hooks and session id: {argv}: {stderr}", failures)
+
+
+def test_subcommand_discovery_cache_and_binary_identity(failures: list[str]) -> None:
+    """Reuse help until the binary path or mtime changes; ignore obsolete commands."""
+    for change in ("mtime", "path", "symlink"):
+        with tempfile.TemporaryDirectory(prefix="cmux-help-calls-") as td:
+            calls = Path(td) / "calls"
+
+            def setup(tmp: Path, env: dict) -> None:
+                home = tmp / "home"
+                home.mkdir()
+                env["HOME"] = str(home)
+                env["FAKE_REAL_HELP_CALLS_LOG"] = str(calls)
+                real = tmp / "real-bin" / "claude"
+                wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+                env["CMUX_CUSTOM_CLAUDE_PATH"] = str(real)
+                if change == "symlink":
+                    link = tmp / "claude-link"
+                    link.symlink_to(real)
+                    env["CMUX_CUSTOM_CLAUDE_PATH"] = str(link)
+
+                def invoke(word: str, *, passthrough: bool) -> None:
+                    proc = subprocess.run([str(wrapper), word], cwd=tmp, env=env,
+                                          capture_output=True, text=True, timeout=15)
+                    observed = read_lines(Path(env["FAKE_REAL_ARGS_LOG"]))
+                    expect(proc.returncode == 0, f"cache {change}: {proc.stderr}", failures)
+                    expect((observed == [word]) == passthrough,
+                           f"cache {change}, {word}: unexpected argv {observed}", failures)
+
+                env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-first  First command\n"
+                invoke("future-first", passthrough=True)
+                env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-second  Replacement command\n"
+                invoke("future-first", passthrough=True)
+                expect(read_lines(calls) == ["probe"],
+                       f"cache {change}: expected one help call: {read_lines(calls)}", failures)
+                if change == "mtime":
+                    before = real.stat()
+                    os.utime(real, ns=(before.st_atime_ns, before.st_mtime_ns + 2_000_000_000))
+                else:
+                    replacement = tmp / "replacement-claude"
+                    shutil.copy2(real, replacement)
+                    if change == "symlink":
+                        link.unlink()
+                        link.symlink_to(replacement)
+                    else:
+                        env["CMUX_CUSTOM_CLAUDE_PATH"] = str(replacement)
+                invoke("future-first", passthrough=False)
+
+            code, argv, _, stderr, *_ = run_wrapper(
+                socket_state="live", argv=["future-second", "abc123"], setup_sandbox=setup,
+                process_timeout=15,
+            )
+            expect(code == 0 and argv == ["future-second", "abc123"],
+                   f"cache {change}: new command not recognized: {argv}: {stderr}", failures)
+            expect(read_lines(calls) == ["probe", "probe"],
+                   f"cache {change}: expected exactly one refresh: {read_lines(calls)}", failures)
+
+
+def test_subcommand_cache_expires_for_unchanged_launchers(failures: list[str]) -> None:
+    """An unchanged launcher eventually refreshes its downstream command catalog."""
+    def setup(tmp: Path, env: dict) -> None:
+        home = tmp / "home"
+        home.mkdir()
+        env["HOME"] = str(home)
+        wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+        # Perl's test-only preload replaces the clock imported by the wrapper;
+        # alarms and filesystem timestamps retain their real behavior.
+        (tmp / "CmuxTestClock.pm").write_text(
+            'package CmuxTestClock;\n'
+            'use Time::HiRes ();\n'
+            'BEGIN { no warnings "redefine"; '
+            '*Time::HiRes::time = sub () { 0 + $ENV{FAKE_CLAUDE_CLOCK} }; }\n'
+            '1;\n',
+            encoding="utf-8",
+        )
+        epoch = 1_800_000_000
+        env["PERL5LIB"] = str(tmp)
+        env["PERL5OPT"] = "-MCmuxTestClock"
+        env["FAKE_CLAUDE_CLOCK"] = str(epoch)
+        env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-first  Old downstream command\n"
+        proc = subprocess.run([str(wrapper), "future-first"], cwd=tmp, env=env,
+                              capture_output=True, text=True, timeout=15)
+        expect(proc.returncode == 0 and read_lines(Path(env["FAKE_REAL_ARGS_LOG"])) == ["future-first"],
+               f"expiry: initial catalog did not load: {proc.stderr}", failures)
+        cache_files = list((home / "Library/Caches/cmux/claude-commands-v1").iterdir())
+        expect(len(cache_files) == 1, f"expiry: expected one published cache: {cache_files}", failures)
+        if not cache_files:
+            return
+        cached = cache_files[0].read_text().splitlines()
+        expires = int(cached[1])
+        expect(expires == epoch + 3600,
+               f"expiry: successful discovery is not bounded to one hour: {expires}", failures)
+        # Advance the clock without changing either the launcher or its cache.
+        env["FAKE_CLAUDE_CLOCK"] = str(epoch + 3601)
+        env["FAKE_REAL_HELP_OUTPUT"] = "Commands:\n  future-second  Updated downstream command\n"
+
+    code, argv, _, stderr, *_ = run_wrapper(
+        socket_state="live", argv=["future-second"], setup_sandbox=setup, process_timeout=15,
+    )
+    expect(code == 0 and argv == ["future-second"],
+           f"expiry: stale launcher catalog was retained: {argv}: {stderr}", failures)
+
+
+def test_subcommand_help_failure_falls_back_and_is_cached(failures: list[str]) -> None:
+    """Failed, empty, or hung help never changes prompt or hidden-command dispatch."""
+    for behavior, output in (("fail", "Commands:\n  hello  Partial output\n"),
+                             ("success", ""), ("hang", "")):
+        with tempfile.TemporaryDirectory(prefix="cmux-help-fallback-") as td:
+            calls = Path(td) / "calls"
+
+            def setup(tmp: Path, env: dict) -> None:
+                home = tmp / "home"
+                home.mkdir()
+                env["HOME"] = str(home)
+                env["FAKE_REAL_HELP_CALLS_LOG"] = str(calls)
+                wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+                proc = subprocess.run([str(wrapper), "hello"], cwd=tmp, env=env,
+                                      capture_output=True, text=True, timeout=15)
+                observed = read_lines(Path(env["FAKE_REAL_ARGS_LOG"]))
+                expect(proc.returncode == 0 and "--session-id" in observed and "--settings" in observed,
+                       f"fallback {behavior}: prompt launch failed: {observed}: {proc.stderr}", failures)
+
+            code, argv, _, stderr, *_ = run_wrapper(
+                socket_state="live", argv=["hello"], setup_sandbox=setup,
+                help_behavior=behavior, help_output=output, process_timeout=15,
+            )
+            expect(code == 0 and "--settings" in argv and "--session-id" in argv,
+                   f"fallback {behavior}: lost prompt integration: {argv}: {stderr}", failures)
+            expect(read_lines(calls) == ["probe"],
+                   f"fallback {behavior}: failure was not cached: {read_lines(calls)}", failures)
+        for command in ("attach", "logs", "stop", "kill", "rm", "respawn", "gateway", "import"):
+            code, argv, _, stderr, *_ = run_wrapper(
+                socket_state="live", argv=[command, "abc123"],
+                help_behavior=behavior, help_output=output, process_timeout=15,
+            )
+            expect(code == 0 and argv == [command, "abc123"],
+                   f"fallback {behavior}, {command}: argv changed: {argv}: {stderr}", failures)
+
+
+def test_explicit_prompt_modes_skip_subcommand_discovery(failures: list[str]) -> None:
+    """Session entry flags and non-command text do not need a help subprocess."""
+    for argv in ([], ["hello world"], ["--", "future-command"],
+                 ["-p", "future-command"], ["--print", "future-command"],
+                 ["--continue"], ["--resume", "abc123"], ["--worktree", "tree"],
+                 ["--remote-control"], ["--from-pr", "123"]):
+        with tempfile.TemporaryDirectory(prefix="cmux-help-fast-path-") as td:
+            calls = Path(td) / "calls"
+
+            def setup(tmp: Path, env: dict) -> None:
+                home = tmp / "home"
+                home.mkdir()
+                env["HOME"] = str(home)
+                env["FAKE_REAL_HELP_CALLS_LOG"] = str(calls)
+
+            code, observed, _, stderr, *_ = run_wrapper(
+                socket_state="live", argv=argv, setup_sandbox=setup,
+                help_behavior="hang", process_timeout=15,
+            )
+            expect(code == 0 and "--settings" in observed,
+                   f"session entry {argv}: missing hooks: {observed}: {stderr}", failures)
+            expect(not calls.exists(), f"session entry {argv}: unexpectedly probed help", failures)
+
+
+def test_subcommand_help_cancellation_cleans_up_children(failures: list[str]) -> None:
+    """Interrupting a cold lookup also stops its isolated help process group."""
+    for interrupt in (signal.SIGINT, signal.SIGTERM):
+        def setup(tmp: Path, env: dict) -> None:
+            home = tmp / "home"
+            home.mkdir()
+            env["HOME"] = str(home)
+            wrapper = tmp / "cmux.app/Contents/Resources/bin/cmux-claude-wrapper"
+            pid_log = Path(env["FAKE_REAL_HELP_PIDS_LOG"])
+            proc = subprocess.Popen([str(wrapper), "hello"], cwd=tmp, env=env,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    start_new_session=True)
+            pids: list[int] = []
+            try:
+                deadline = time.monotonic() + 15
+                while not pid_log.exists() and proc.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                pids = [int(pid) for pid in read_lines(pid_log)]
+                expect(len(pids) == 2, "cancellation: help process was not reached", failures)
+                os.killpg(proc.pid, interrupt)
+                proc.communicate(timeout=15)
+                expect(read_lines(Path(env["FAKE_REAL_ARGS_LOG"])) == ["--help"],
+                       f"cancellation {interrupt}: interrupted discovery launched a prompt", failures)
+                for pid in pids:
+                    # The help launcher is reaped by the probe; its killed child is
+                    # adopted and reaped by the OS, which may lag the wrapper exit.
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        try:
+                            os.kill(pid, 0)
+                        except ProcessLookupError:
+                            break
+                        time.sleep(0.01)
+                    else:
+                        failures.append(f"cancellation: help child {pid} survived")
+            finally:
+                for pid in [proc.pid, *pids]:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                proc.communicate()
+
+        run_wrapper(socket_state="live", argv=["agents"], setup_sandbox=setup,
+                    help_behavior="hang", process_timeout=15)
+
+
 def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
     for flag in ("--help", "--version", "-h", "-v"):
         code, real_argv, _, stderr, _, node_options, _, _, _, _ = run_wrapper(
@@ -929,6 +1466,503 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
         expect("--settings" not in real_argv, f"{flag} passthrough: expected no --settings injection, got {real_argv}", failures)
         expect("--session-id" not in real_argv, f"{flag} passthrough: expected no --session-id injection, got {real_argv}", failures)
         expect(node_options == "__UNSET__", f"{flag} passthrough: expected no NODE_OPTIONS injection, got {node_options!r}", failures)
+
+
+# --- cmux computer use MCP injection ------------------------------------------
+#
+# The wrapper attaches the bundled cmux Computer Use client via --mcp-config.
+# Source checkouts without the bundled binary fail closed. There is no ambient
+# executable override and no Node/Bun MCP fallback.
+
+
+def computer_use_sandbox(
+    *,
+    bundled_driver: bool = True,
+    override_driver: bool = False,
+    group_writable_override: bool = False,
+    group_writable_ancestor: bool = False,
+    disabled: bool = False,
+    managed_sideload_source: str | None = None,
+    path_helper_trap: bool = False,
+    auth_token: bool = True,
+    auth_token_file: bool = False,
+):
+    def setup(tmp: Path, env: dict) -> None:
+        sandbox_home = tmp / "home"
+        sandbox_home.mkdir()
+        env["HOME"] = str(sandbox_home)
+        env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
+        env.pop("CMUX_CUA_EXTERNAL_CLIENT", None)
+        env.pop("CMUX_CUA_AUTH_TOKEN_FILE", None)
+        env.pop("CMUX_CUA_SOCKET_AUTH_TOKEN", None)
+        if auth_token_file:
+            token_file = tmp / "auth-token"
+            token_file.write_text("cmux-test-auth-token\n", encoding="utf-8")
+            token_file.chmod(0o600)
+            env["CMUX_CUA_AUTH_TOKEN_FILE"] = str(token_file)
+        elif auth_token:
+            env["CMUX_CUA_SOCKET_AUTH_TOKEN"] = "cmux-test-auth-token"
+        if bundled_driver:
+            make_executable(
+                tmp / "cmux.app" / "Contents" / "Resources" / "bin" / "cmux-cua",
+                "#!/usr/bin/env bash\nexit 0\n",
+            )
+            helper_driver = (
+                tmp
+                / "cmux.app"
+                / "Contents"
+                / "Library"
+                / "cmux Computer Use.app"
+                / "Contents"
+                / "MacOS"
+                / "cmux-cua"
+            )
+            helper_driver.parent.mkdir(parents=True)
+            make_executable(
+                helper_driver,
+                "#!/usr/bin/env bash\nexit 0\n",
+            )
+            write_helper_info(
+                helper_driver.parents[1] / "Info.plist",
+                "com.cmuxterm.test.current.computer-use",
+            )
+        if override_driver:
+            env["CMUX_CUA_EXTERNAL_CLIENT"] = "/bin/echo"
+        if group_writable_override:
+            override_dir = tmp / "override-bin"
+            override_dir.mkdir(parents=True, exist_ok=True)
+            override = override_dir / "cmux-cua"
+            make_executable(override, "#!/usr/bin/env bash\nexit 0\n")
+            override.chmod(0o775)
+            env["CMUX_CUA_EXTERNAL_CLIENT"] = str(override)
+        if group_writable_ancestor:
+            # Group-writable (not world-writable) parent with a
+            # correctly-permissioned driver: rejection can only come from the
+            # ancestor group-write check.
+            ancestor_dir = tmp / "group-writable-dir"
+            ancestor_dir.mkdir(parents=True, exist_ok=True)
+            ancestor_dir.chmod(0o775)
+            ancestor = ancestor_dir / "cmux-cua"
+            make_executable(ancestor, "#!/usr/bin/env bash\nexit 0\n")
+            env["CMUX_CUA_EXTERNAL_CLIENT"] = str(ancestor)
+        if path_helper_trap:
+            helper_dir = tmp / "path-helper-trap"
+            helper_dir.mkdir(parents=True, exist_ok=True)
+            for helper in ("env", "stat", "tr"):
+                make_executable(helper_dir / helper, f"#!/bin/sh\necho unexpected {helper} >&2\nexit 99\n")
+            env["PATH"] = f"{helper_dir}:{env['PATH']}"
+        if disabled:
+            env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
+        # Point every managed-policy source at the sandbox and neutralize the
+        # real MDM domain so tests never depend on the host's managed state.
+        env["CMUX_CLAUDE_MANAGED_SETTINGS_FILE"] = str(tmp / "managed-settings.json")
+        env["CMUX_CLAUDE_MANAGED_SETTINGS_DIR"] = str(tmp / "managed-settings.d")
+        env["CMUX_CLAUDE_REMOTE_SETTINGS_FILE"] = str(tmp / "remote-settings.json")
+        env["CMUX_CLAUDE_SKIP_DEFAULTS"] = "1"
+        if managed_sideload_source == "base":
+            (tmp / "managed-settings.json").write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+        elif managed_sideload_source == "fragment":
+            frag_dir = tmp / "managed-settings.d"
+            frag_dir.mkdir(parents=True, exist_ok=True)
+            (frag_dir / "20-security.json").write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+        elif managed_sideload_source == "remote":
+            (tmp / "remote-settings.json").write_text(
+                '{"disableSideloadFlags": true}\n', encoding="utf-8"
+            )
+        elif managed_sideload_source == "policy_helper":
+            (tmp / "managed-settings.json").write_text(
+                '{"policyHelper": {"path": "/usr/local/bin/helper"}}\n', encoding="utf-8"
+            )
+
+    return setup
+
+
+def injected_mcp_config_index(argv: list[str]) -> int | None:
+    # The wrapper must inject the single-token `--mcp-config=<json>` form:
+    # --mcp-config is variadic in the claude CLI, so a separate value token
+    # would swallow a following positional prompt as another config.
+    for index, arg in enumerate(argv):
+        if arg.startswith("--mcp-config="):
+            return index
+    return None
+
+
+def extract_injected_mcp_config(argv: list[str]) -> dict | None:
+    index = injected_mcp_config_index(argv)
+    if index is None:
+        return None
+    return json.loads(argv[index].split("=", 1)[1])
+
+
+def expect_computer_use_env_scrubbed(
+    server: dict,
+    failures: list[str],
+    context: str,
+    *,
+    helper_owned: bool,
+) -> None:
+    env = server.get("env")
+    expect(isinstance(env, dict), f"{context}: expected MCP env, got {server}", failures)
+    if not isinstance(env, dict):
+        return
+    expected_common = {
+        "CMUX_CUA_DEFAULT_SESSION": "cmux-surface:test",
+        "CMUX_CUA_MCP_FORCE_PROXY": "1",
+        "CMUX_CUA_EXTERNAL_PERMISSION_FLOW": "1",
+        "CMUX_CUA_SOCKET_AUTH_TOKEN": "cmux-test-auth-token",
+        "CMUX_CUA_TELEMETRY_ENABLED": "false",
+        "CMUX_CUA_UPDATE_CHECK": "false",
+        "CMUX_CUA_CURSOR_GRADIENT": "#12c7f5,#2d8cff,#6c5cff",
+        "CMUX_CUA_CURSOR_BLOOM": "#2d8cff",
+        "CMUX_CUA_CURSOR_LABEL": "cmux",
+        "NODE_OPTIONS": "",
+        "BUN_OPTIONS": "",
+    }
+    for key, value in expected_common.items():
+        expect(env.get(key) == value, f"{context}: expected {key}={value!r}, got {env}", failures)
+    state_owner_pid = env.get("CMUX_CUA_STATE_OWNER_PID")
+    expect(
+        isinstance(state_owner_pid, str)
+        and state_owner_pid.isdigit()
+        and int(state_owner_pid) > 1,
+        f"{context}: expected a stable agent process owner PID, got {env}",
+        failures,
+    )
+    state_dir = env.get("CMUX_CUA_STATE_DIR", "")
+    expect(
+        state_dir.endswith("/Library/Application Support/cmux/cmux-cua/runtime/default/state"),
+        f"{context}: unexpected state directory {state_dir!r}",
+        failures,
+    )
+    expect("CMUX_CUA_EMBEDDED" not in env, f"{context}: computer use must never be embedded: {env}", failures)
+    expect("CMUX_CUA_PERMISSIONS_GATE" not in env, f"{context}: proxy must not own the daemon gate: {env}", failures)
+    expect("CMUX_CUA_DAEMON_APP" not in env, f"{context}: proxy must not launch the helper: {env}", failures)
+
+
+def expect_cmux_cua_config(
+    config: dict | None,
+    failures: list[str],
+    context: str,
+    expected_name: str,
+    *,
+    bundled_client: bool,
+) -> None:
+    expect(config is not None, f"{context}: expected --mcp-config=<json>", failures)
+    if config is None:
+        return
+    server = config.get("mcpServers", {}).get("cmux-cua", {})
+    command = server.get("command")
+    expect(
+        isinstance(command, str) and Path(command).is_absolute() and Path(command).name == expected_name,
+        f"{context}: expected absolute {expected_name} command, got {config}",
+        failures,
+    )
+    args = server.get("args", [])
+    expect(
+        len(args) == 3 and args[:2] == ["mcp", "--socket"],
+        f"{context}: expected shared daemon proxy args, got {config}",
+        failures,
+    )
+    if len(args) == 3:
+        expect(
+            args[2].startswith("/tmp/cmux-cua-") and args[2].endswith("/default/cmux-cua.sock"),
+            f"{context}: expected short per-user daemon socket, got {args[2]!r}",
+            failures,
+        )
+    if bundled_client:
+        expect(
+            isinstance(command, str)
+            and Path(command).parts[-3:] == (
+                "Resources",
+                "bin",
+                expected_name,
+            ),
+            f"{context}: proxy command must use the bundled cmux Computer Use client, got {command}",
+            failures,
+        )
+    expect_computer_use_env_scrubbed(server, failures, context, helper_owned=bundled_client)
+
+
+def test_live_socket_attaches_cmux_cua_when_available(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, launch_argv_b64 = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options="__CMUX_TEST_PRELOAD__",
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use inject: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--mcp-config" not in real_argv,
+        f"computer use inject: a separate value token would let the variadic --mcp-config swallow positional prompts, got {real_argv}",
+        failures,
+    )
+    config = extract_injected_mcp_config(real_argv)
+    expect_cmux_cua_config(
+        config,
+        failures,
+        "computer use inject",
+        "cmux-cua",
+        bundled_client=True,
+    )
+    inject_index = injected_mcp_config_index(real_argv)
+    expect(
+        inject_index is not None and inject_index < real_argv.index("hello"),
+        f"computer use inject: expected --mcp-config=<json> before user args, got {real_argv}",
+        failures,
+    )
+    # Injection must happen after launch-argv capture so restore/resume records
+    # the user's own command, not cmux's injected flag.
+    captured = decode_nul_argv(launch_argv_b64)
+    expect(
+        injected_mcp_config_index(captured) is None and "--mcp-config" not in captured,
+        f"computer use inject: captured launch argv must not include the injected flag, got {captured}",
+        failures,
+    )
+
+
+def test_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None:
+    source = SOURCE_WRAPPER.read_text(encoding="utf-8")
+    expect(
+        "cmux_computer_use_standalone_helper" not in source,
+        "computer use wrapper must not install or replace the standalone helper",
+        failures,
+    )
+    expect(
+        "CMUX_CUA_DAEMON_APP" not in source,
+        "computer use wrapper must not own helper daemon launch",
+        failures,
+    )
+    expect(
+        "CMUX_CUA_MCP_FORCE_PROXY" in source,
+        "computer use wrapper must force the shared daemon proxy path",
+        failures,
+    )
+
+
+def test_computer_use_skips_without_daemon_credential(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(auth_token=False),
+    )
+    expect(code == 0, f"computer use missing auth: wrapper exited {code}: {stderr}", failures)
+    expect(
+        extract_injected_mcp_config(real_argv) is None,
+        f"computer use missing auth: expected no MCP injection, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_reads_private_daemon_credential_file(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(auth_token=False, auth_token_file=True),
+    )
+    expect(code == 0, f"computer use auth file: wrapper exited {code}: {stderr}", failures)
+    expect_cmux_cua_config(
+        extract_injected_mcp_config(real_argv),
+        failures,
+        "computer use auth file",
+        "cmux-cua",
+        bundled_client=True,
+    )
+
+
+def test_computer_use_probe_uses_absolute_system_helpers(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(path_helper_trap=True),
+    )
+    expect(code == 0, f"computer use helper trap: wrapper exited {code}: {stderr}", failures)
+    expect(
+        extract_injected_mcp_config(real_argv) is not None,
+        f"computer use helper trap: expected injection despite PATH helper traps, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_driver_does_not_require_external_runtime_auth(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        node_options="__CMUX_TEST_PRELOAD__",
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use no external auth: wrapper exited {code}: {stderr}", failures)
+    config = extract_injected_mcp_config(real_argv)
+    expect_cmux_cua_config(
+        config,
+        failures,
+        "computer use no external auth",
+        "cmux-cua",
+        bundled_client=True,
+    )
+
+
+def test_computer_use_rejects_external_client_override(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, override_driver=True),
+    )
+    expect(code == 0, f"computer use override: wrapper exited {code}: {stderr}", failures)
+    expect(
+        extract_injected_mcp_config(real_argv) is None,
+        f"computer use override must be ignored when the bundled cmux-cua client is absent, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_driver_skipped_for_strict_mcp_config(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["--strict-mcp-config", "--mcp-config", "{}", "-p", "hello"],
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use strict: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use strict: expected no injected --mcp-config=<json>, got {real_argv}",
+        failures,
+    )
+    expect(
+        real_argv.count("--mcp-config") == 1,
+        f"computer use strict: expected the user's own --mcp-config to survive, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_driver_skipped_when_disabled(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(disabled=True),
+    )
+    expect(code == 0, f"computer use disabled: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use disabled: expected no injection with kill switch, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_driver_skipped_when_no_driver_available(failures: list[str]) -> None:
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False),
+    )
+    expect(code == 0, f"computer use no-driver: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use no-driver: expected no injection without bundled driver or override, got {real_argv}",
+        failures,
+    )
+
+
+def test_hooks_disabled_is_fully_inert_for_computer_use(failures: list[str]) -> None:
+    # CMUX_CLAUDE_HOOKS_DISABLED is the documented master opt-out: the wrapper
+    # stays fully inert even when the bundled driver is present — no hook
+    # injection, no computer-use attach, no argv changes.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        hooks_disabled=True,
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use hooks-disabled: wrapper exited {code}: {stderr}", failures)
+    expect(
+        real_argv == ["hello"],
+        f"computer use hooks-disabled: expected fully inert passthrough argv, got {real_argv}",
+        failures,
+    )
+
+
+def test_stale_socket_fails_closed_for_computer_use(failures: list[str]) -> None:
+    # CMUX_SURFACE_ID can be stale (a shell that outlived cmux). Without a
+    # live socket ping there is no authoritative evidence cmux owns this
+    # process chain, so the TCC-sensitive driver must NOT be attached.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="stale",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(),
+    )
+    expect(code == 0, f"computer use stale-socket: wrapper exited {code}: {stderr}", failures)
+    expect(
+        "--settings" not in real_argv,
+        f"computer use stale-socket: hooks must not be injected on passthrough, got {real_argv}",
+        failures,
+    )
+    expect("hello" in real_argv, f"computer use stale-socket: prompt must survive, got {real_argv}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use stale-socket: expected NO attach (fail closed), got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_skipped_under_managed_sideload_policy(failures: list[str]) -> None:
+    # Claude Code managed policy disableSideloadFlags makes claude refuse to
+    # start when a non-SDK --mcp-config flag is passed; the wrapper must not
+    # inject computer use under that policy, through ANY managed-settings
+    # channel (base file, fragment dir, cached remote), and must also skip when
+    # a policyHelper is configured (its output cannot be ruled out). Hooks via
+    # --settings are unaffected by the policy and must still inject.
+    for source in ("base", "fragment", "remote", "policy_helper"):
+        code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+            socket_state="live",
+            argv=["hello"],
+            setup_sandbox=computer_use_sandbox(managed_sideload_source=source),
+        )
+        expect(code == 0, f"managed sideload [{source}]: wrapper exited {code}: {stderr}", failures)
+        expect(
+            injected_mcp_config_index(real_argv) is None,
+            f"managed sideload [{source}]: expected no --mcp-config injection, got {real_argv}",
+            failures,
+        )
+        expect(
+            "--settings" in real_argv,
+            f"managed sideload [{source}]: hook injection must survive, got {real_argv}",
+            failures,
+        )
+
+
+def test_computer_use_rejects_group_writable_ancestor(failures: list[str]) -> None:
+    # Write permission on a parent directory allows renaming the driver away
+    # and dropping a replacement regardless of the file's own permissions.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, group_writable_ancestor=True),
+    )
+    expect(code == 0, f"computer use group-writable ancestor: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use group-writable ancestor: expected rejection, got {real_argv}",
+        failures,
+    )
+
+
+def test_computer_use_rejects_group_writable_override(failures: list[str]) -> None:
+    # A group-writable override binary could be swapped by another local user
+    # and then run under cmux's TCC identity; the wrapper must reject it.
+    code, real_argv, _, stderr, _, _, _, _, _, _ = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        setup_sandbox=computer_use_sandbox(bundled_driver=False, group_writable_override=True),
+    )
+    expect(code == 0, f"computer use group-writable override: wrapper exited {code}: {stderr}", failures)
+    expect(
+        injected_mcp_config_index(real_argv) is None,
+        f"computer use group-writable override: expected rejection, got {real_argv}",
+        failures,
+    )
 
 
 def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]) -> None:
@@ -2078,17 +3112,43 @@ def main() -> int:
         return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_semantically_empty_generated_settings_keep_decision_hook_fallback(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)
     test_live_socket_user_nonobject_hooks_does_not_drop_cmux_hooks(failures)
+    test_live_socket_preserves_genuine_user_hook_command(failures)
     test_live_socket_invalid_settings_warns_and_falls_back(failures)
     test_live_socket_merges_settings_file_form(failures)
     test_live_socket_empty_settings_warns_instead_of_silent_drop(failures)
+    test_large_settings_argument_is_rejected_without_hanging(failures)
+    test_multibyte_settings_argument_uses_byte_limit(failures)
+    test_large_settings_file_is_merged_without_argv_growth(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_hidden_attach_subcommand_bypasses_hook_injection(failures)
+    test_discovered_subcommands_and_aliases_pass_through(failures)
+    test_subcommand_discovery_cache_and_binary_identity(failures)
+    test_subcommand_cache_expires_for_unchanged_launchers(failures)
+    test_subcommand_help_failure_falls_back_and_is_cached(failures)
+    test_explicit_prompt_modes_skip_subcommand_discovery(failures)
+    test_subcommand_help_cancellation_cleans_up_children(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
+    test_live_socket_attaches_cmux_cua_when_available(failures)
+    test_computer_use_wrapper_is_a_pure_proxy(failures)
+    test_computer_use_skips_without_daemon_credential(failures)
+    test_computer_use_reads_private_daemon_credential_file(failures)
+    test_computer_use_probe_uses_absolute_system_helpers(failures)
+    test_computer_use_driver_does_not_require_external_runtime_auth(failures)
+    test_computer_use_rejects_external_client_override(failures)
+    test_computer_use_driver_skipped_for_strict_mcp_config(failures)
+    test_computer_use_driver_skipped_when_disabled(failures)
+    test_computer_use_driver_skipped_when_no_driver_available(failures)
+    test_hooks_disabled_is_fully_inert_for_computer_use(failures)
+    test_stale_socket_fails_closed_for_computer_use(failures)
+    test_computer_use_skipped_under_managed_sideload_policy(failures)
+    test_computer_use_rejects_group_writable_ancestor(failures)
+    test_computer_use_rejects_group_writable_override(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)

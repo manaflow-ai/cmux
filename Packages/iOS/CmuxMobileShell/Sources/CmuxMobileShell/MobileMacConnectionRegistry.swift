@@ -86,19 +86,11 @@ final class MobileMacConnectionRegistry {
         return true
     }
 
-    /// Publish a newly established control owner only while the pool still has
-    /// capacity. The count check and insertion share one MainActor operation,
-    /// so concurrent dial completions cannot each consume the last slot.
+    /// Publish a newly established control owner for its pairing.
     func insertControlIfAbsent(
-        _ subscription: SecondaryMacSubscription,
-        maximumControlCount: Int
+        _ subscription: SecondaryMacSubscription
     ) -> Bool {
-        let focusedSessionAllowance = entriesByOwnerKey.values.contains {
-            $0.focusedConnection != nil
-        } ? 1 : 0
-        guard entriesByOwnerKey[subscription.ownerKey] == nil,
-              sessionCount
-                < maximumControlCount + focusedSessionAllowance else {
+        guard entriesByOwnerKey[subscription.ownerKey] == nil else {
             return false
         }
         entriesByOwnerKey[subscription.ownerKey] = Entry(
@@ -208,8 +200,7 @@ final class MobileMacConnectionRegistry {
     /// focused client means another handoff won and this transition is refused.
     func transitionToControl(
         _ subscription: SecondaryMacSubscription,
-        replacing connection: MacConnection,
-        maximumControlCount: Int
+        replacing connection: MacConnection
     ) -> Bool {
         guard var entry = entriesByOwnerKey[connection.ownerKey],
               let current = entry.focusedConnection,
@@ -220,7 +211,6 @@ final class MobileMacConnectionRegistry {
         if let existingControl = entry.controlSubscription {
             guard existingControl.client === connection.client else { return false }
         } else {
-            guard controlEntryCount < maximumControlCount else { return false }
             entry.controlSubscription = subscription
         }
         entry.focusedConnection = nil
@@ -329,7 +319,8 @@ final class MobileMacConnectionRegistry {
                         fallback: ownerKey.canonicalMacDeviceID
                     ),
                     instanceTag: connection.instanceTag,
-                    role: .focused
+                    role: .focused,
+                    routeKind: connection.route.kind
                 )
             }
             guard let subscription = entry.controlSubscription else {
@@ -343,7 +334,8 @@ final class MobileMacConnectionRegistry {
                 ),
                 instanceTag: subscription.authenticatedInstanceTag
                     ?? subscription.storedInstanceTag,
-                role: .control
+                role: .control,
+                routeKind: subscription.route.kind
             )
         }
         .sorted {

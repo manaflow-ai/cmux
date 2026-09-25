@@ -95,6 +95,8 @@ public final class Results {
 
     public record TerminalScreenResult(
         String text,
+        Optional<Decimal> revision,
+        Optional<String> oscProgress,
         int cols,
         int rows,
         int cursorRow,
@@ -104,6 +106,8 @@ public final class Results {
     ) {
         public TerminalScreenResult {
             Objects.requireNonNull(text, "text");
+            revision = revision == null ? Optional.empty() : revision;
+            oscProgress = oscProgress == null ? Optional.empty() : oscProgress;
             positiveUint16(cols, "cols");
             positiveUint16(rows, "rows");
             uint16(cursorRow, "cursorRow");
@@ -111,6 +115,20 @@ public final class Results {
             extra = extra == null
                 ? Map.of()
                 : JsonValue.immutableObject(extra, "terminal screen extra");
+        }
+
+        /** Compatibility constructor for clients compiled against the first SDK. */
+        public TerminalScreenResult(
+            String text,
+            int cols,
+            int rows,
+            int cursorRow,
+            int cursorCol,
+            boolean cursorVisible,
+            Map<String, Object> extra
+        ) {
+            this(text, Optional.empty(), Optional.empty(), cols, rows,
+                cursorRow, cursorCol, cursorVisible, extra);
         }
     }
 
@@ -295,15 +313,33 @@ public final class Results {
         Optional<String> executable,
         List<String> argv,
         Optional<String> cwd,
-        List<Long> children
+        Optional<String> foregroundCwd,
+        List<Long> children,
+        Optional<String> foregroundExecutable
     ) {
         public ProcessInfoResult {
             uint32(pid, "pid");
             executable = executable == null ? Optional.empty() : executable;
             argv = List.copyOf(argv);
             cwd = cwd == null ? Optional.empty() : cwd;
+            foregroundCwd = foregroundCwd == null ? Optional.empty() : foregroundCwd;
             children = List.copyOf(children);
             children.forEach(value -> uint32(value, "child pid"));
+            foregroundExecutable = foregroundExecutable == null
+                ? Optional.empty()
+                : foregroundExecutable;
+        }
+
+        /** Compatibility constructor for clients compiled against the first SDK. */
+        public ProcessInfoResult(
+            long pid,
+            Optional<String> executable,
+            List<String> argv,
+            Optional<String> cwd,
+            Optional<String> foregroundCwd,
+            List<Long> children
+        ) {
+            this(pid, executable, argv, cwd, foregroundCwd, children, Optional.empty());
         }
     }
 

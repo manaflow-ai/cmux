@@ -4,14 +4,25 @@ import Foundation
 @MainActor
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
+    var paneCreateInputs: ControlPaneCreateInputs?
+    var splitResolution: ControlSurfaceSplitResolution = .tabManagerUnavailable
+    var splitInputs: ControlSurfaceSplitInputs?
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var createInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
+    var resumeGetClaim: (
+        checkpointID: String?,
+        source: String?,
+        updatedAt: Double?
+    )?
+    var resumeClearExpectedUpdatedAt: Double?
     var resumeClearAgentSessionEnded: Bool?
     var resumeStrings = ControlSurfaceResumeStrings(
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
-        launchCommandMustBeValid: "launch_command must be valid"
+        launchCommandMustBeValid: "launch_command must be valid",
+        restoreClaimMustBeValid: "restore claim must be valid"
     )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
@@ -47,14 +58,33 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
-        paneCreateResolution
+        paneCreateInputs = inputs
+        return paneCreateResolution
+    }
+
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution {
+        splitInputs = inputs
+        return splitResolution
     }
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        createResolution
+        createInputs = inputs
+        return createResolution
+    }
+
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+        ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: "app-localized terminal creation type error",
+            inputQueueFull: "",
+            surfaceUnavailable: "",
+            processExited: ""
+        )
     }
 
     func controlSurfaceResumeSet(
@@ -74,9 +104,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution {
-        resumeResolution
+        resumeGetClaim = (claimCheckpointID, claimSource, claimUpdatedAt)
+        return resumeResolution
     }
 
     func controlSurfaceResumeClear(
@@ -85,9 +119,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        expectedUpdatedAt: Double?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution {
         resumeClearAgentSessionEnded = agentSessionEnded
+        resumeClearExpectedUpdatedAt = expectedUpdatedAt
         return resumeResolution
     }
 
@@ -133,7 +169,9 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
         terminalLifecycleID: UUID?,
-        stateRawValue: String
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution {
         reportedShellState = (
             workspaceID,

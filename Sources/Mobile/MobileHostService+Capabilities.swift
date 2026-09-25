@@ -44,11 +44,17 @@ extension MobileHostService {
         "mobile.events.subscribe",
         "mobile.events.unsubscribe",
         "mobile.host.status",
+        "mobile.panel.artifact.fetch",
+        "mobile.panel.artifact.stat",
+        "mobile.panel.artifact.thumbnail",
         "mobile.rpc.methods",
+        "mobile.simulator.device.select",
+        "mobile.simulator.devices.list",
         "mobile.simulator.input.button",
         "mobile.simulator.input.pointer",
         "mobile.simulator.input.text",
         "mobile.simulator.list",
+        "mobile.simulator.recover",
         "mobile.simulator.stream.start",
         "mobile.simulator.stream.stop",
         "mobile.sync.fetch",
@@ -99,8 +105,24 @@ extension MobileHostService {
         "workspace.group.expand",
         "workspace.list",
         "workspace.move",
-    ]
+    ].sorted()
 #endif
+    /// Mobile RPC methods that move file bytes between the phone and this
+    /// Mac (attachment upload, artifact and changed-file fetch, image paste).
+    /// `DisableFileTransfer` refuses them before dispatch on every lane.
+    nonisolated static func methodTransfersFiles(_ method: String) -> Bool {
+        switch method {
+        case "mobile.task.attachment.upload",
+             "mobile.workspace.changes.file_fetch",
+             "mobile.terminal.paste_image",
+             "terminal.paste_image":
+            return true
+        default:
+            return method.hasPrefix("mobile.terminal.artifact.")
+                || method.hasPrefix("mobile.panel.artifact.")
+        }
+    }
+
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
     nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
@@ -142,7 +164,12 @@ extension MobileHostService {
             ),
             includingTaskComposer: CmuxFeatureFlags.offMainEffectiveValue(
                 for: CmuxFeatureFlags.mobileTaskComposerFlag
-            )
+            ),
+            // Managed policy only: under it every browser pane is closed, so
+            // no browser affordance can work. A user-level disable keeps live
+            // panes (session restore re-materializes them), and iOS must
+            // still be able to view/stream those, so keep advertising then.
+            includingBrowser: !BrowserAvailabilitySettings.isManagedByPolicy
         )
     }
 
@@ -160,7 +187,8 @@ extension MobileHostService {
     nonisolated static func mobileHostCapabilities(
         includingWorkspaceChanges: Bool,
         includingSimulator: Bool = true,
-        includingTaskComposer: Bool = true
+        includingTaskComposer: Bool = true,
+        includingBrowser: Bool = true
     ) -> [String] {
         var capabilities = [
             Self.irohPrivatePathsCapability,
@@ -172,11 +200,15 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
             MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+            MobileSimulatorStreamCapability.current.streamV2Identifier,
+            MobileSimulatorStreamCapability.current.devicesIdentifier,
+            MobileSimulatorStreamCapability.current.recoverIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
             "notification.feed.v1",
             "notification.reconcile.v1",
+            "phone_push.keys.exchange.v1",
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.render_grid.verified_replay.v1",
@@ -187,6 +219,7 @@ extension MobileHostService {
             "terminal.render_grid.screen_anchor.v1",
             "terminal.replay.v1",
             Self.terminalInputOrderedCapability,
+            MobileTerminalInputFrame.capability,
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
@@ -235,6 +268,9 @@ extension MobileHostService {
                 MobileSimulatorStreamCapability.current.inputIdentifier,
                 MobileSimulatorStreamCapability.current.ownershipIdentifier,
                 MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+                MobileSimulatorStreamCapability.current.streamV2Identifier,
+                MobileSimulatorStreamCapability.current.devicesIdentifier,
+                MobileSimulatorStreamCapability.current.recoverIdentifier,
             ]
             capabilities.removeAll { simulatorCapabilities.contains($0) }
         }
@@ -248,6 +284,18 @@ extension MobileHostService {
                 Self.taskDirectorySearchV2Capability,
             ]
             capabilities.removeAll { taskComposerCapabilities.contains($0) }
+        }
+        if !includingBrowser {
+            // The embedded browser is disabled by MDM policy: every pane is
+            // closed and none can be created, so stop advertising browser
+            // streaming/creation and iOS feature-detects the affordances away.
+            let browserCapabilities: Set<String> = [
+                MobileBrowserStreamCapability.identifier,
+                MobileBrowserStreamCapability.viewportIdentifier,
+                MobileBrowserStreamCapability.dialogIdentifier,
+                MobileBrowserStreamCapability.createIdentifier,
+            ]
+            capabilities.removeAll { browserCapabilities.contains($0) }
         }
         return applyingDebugCapabilitySuppressions(capabilities)
     }

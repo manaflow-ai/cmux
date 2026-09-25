@@ -46,7 +46,7 @@ if test "$_cmux_integration_enabled" != 0
         CMUX_TAG \
         CMUX_TERMINAL_LIFECYCLE_ID \
         CMUX_WORKSPACE_ID
-    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_PANEL_ID CMUX_SURFACE_ID
+    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_HISTORY_FILE CMUX_PANEL_ID CMUX_SURFACE_ID
 
     function _cmux_tmux_sync_key_is_managed --argument-names candidate
         contains -- "$candidate" $_CMUX_TMUX_SYNC_KEYS
@@ -401,6 +401,9 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_install_cli_wrapper --argument-names command_name wrapper_file
+        if test "$command_name" = claude; and set -q CMUX_CLAUDE_INTEGRATION_DISABLED; and test "$CMUX_CLAUDE_INTEGRATION_DISABLED" = 1
+            return 0
+        end
         test -n "$CMUX_SHELL_INTEGRATION_DIR"; or return 0
         set -l integration_dir (string replace -r '/$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")
         set -l bundle_dir (string replace -r '/shell-integration$' '' -- "$integration_dir")

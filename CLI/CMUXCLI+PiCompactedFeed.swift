@@ -218,11 +218,19 @@ extension CMUXCLI {
                     throw CLIError(
                         message: error.message,
                         exitCode: Self.piHookSurfaceUnavailableExitCode,
-                        v2Code: error.v2Code
+                        v2Code: error.v2Code,
+                        isStructuredProtocolResponse: error.isStructuredProtocolResponse
                     )
                 }
                 resolvedWorkspaceId = nil
             }
+        }
+        // `resolveWorkspaceId` hands an unmatched ref back unchanged when it
+        // cannot scan every window (a failed `window.list`, or a relay). That
+        // is not a resolution: routing on the surface alone would drop the
+        // caller's explicit scope, so an explicit selector must end as a UUID.
+        if let workspace = trimmedWorkspace, !isUUID(resolvedWorkspaceId ?? "") {
+            throw piHookSurfaceNotFoundError(workspace)
         }
         guard let surface else {
             guard let resolvedWorkspaceId else {
@@ -244,7 +252,8 @@ extension CMUXCLI {
                 throw CLIError(
                     message: error.message,
                     exitCode: Self.piHookSurfaceUnavailableExitCode,
-                    v2Code: error.v2Code ?? "not_found"
+                    v2Code: error.v2Code ?? "not_found",
+                    isStructuredProtocolResponse: error.isStructuredProtocolResponse
                 )
             }
         }

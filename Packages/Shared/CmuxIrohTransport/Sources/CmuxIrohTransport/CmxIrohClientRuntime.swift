@@ -326,6 +326,7 @@ public actor CmxIrohClientRuntime {
             let expectation = try CmxIrohLocalBindingExpectation(
                 deviceID: configuration.deviceID,
                 appInstanceID: configuration.appInstanceID,
+                clientNamespace: configuration.clientNamespace,
                 tag: configuration.tag,
                 platform: .ios,
                 endpointID: liveEndpointIdentity,
@@ -733,6 +734,14 @@ public actor CmxIrohClientRuntime {
                 bindingID: binding.bindingID
             )
         }
+        let bindingAuthorization = localBinding.flatMap { binding in
+            try? CmxIrohBindingRequestAuthorization(
+                bindingID: binding.bindingID,
+                clientNamespace: binding.clientNamespace,
+                identity: configuration.identity,
+                endpointID: binding.endpointID
+            )
+        }
         lifecyclePhase = .signingOut
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
@@ -745,6 +754,7 @@ public actor CmxIrohClientRuntime {
         let operation = Task {
             await self.performSignOut(
                 pendingRevocation: pendingRevocation,
+                bindingAuthorization: bindingAuthorization,
                 revision: revision
             )
         }

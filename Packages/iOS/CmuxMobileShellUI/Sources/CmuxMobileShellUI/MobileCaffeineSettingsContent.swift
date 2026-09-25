@@ -2,10 +2,15 @@
 import CmuxMobileSupport
 import SwiftUI
 
-/// Value-only Settings section for the connected Mac's cmux-owned power state.
+/// Value-only "Mac Power" section for ONE Mac's cmux-owned power state, hosted
+/// by that computer's detail view. Keep-awake is per device: the toggle, the
+/// status, and every message name the Mac whose detail this section sits in.
 struct MobileCaffeineSettingsContent: View {
     let isEnabled: Bool?
     let isSupported: Bool
+    /// Whether the phone has a live connection to THIS Mac. Without one the
+    /// toggle is inert and the footer says how to get control back.
+    let isConnected: Bool
     let isBusy: Bool
     let statusLoadFailed: Bool
     let onRetryStatus: () -> Void
@@ -24,7 +29,18 @@ struct MobileCaffeineSettingsContent: View {
                     systemImage: "cup.and.saucer.fill"
                 )
                 Spacer()
-                if isSupported, isEnabled == nil {
+                if !isConnected {
+                    Toggle(
+                        L10n.string(
+                            "mobile.settings.keepMacAwake",
+                            defaultValue: "Keep Mac Awake"
+                        ),
+                        isOn: .constant(isEnabled ?? false)
+                    )
+                    .labelsHidden()
+                    .disabled(true)
+                    .accessibilityIdentifier("MobileSettingsKeepMacAwakeToggle")
+                } else if isSupported, isEnabled == nil {
                     if statusLoadFailed || mutationFailed {
                         Button(
                             L10n.string("mobile.common.retry", defaultValue: "Retry"),
@@ -59,7 +75,13 @@ struct MobileCaffeineSettingsContent: View {
                 }
             }
 
-            if !isSupported {
+            if !isConnected {
+                Text(L10n.string(
+                    "mobile.settings.keepMacAwake.notConnected",
+                    defaultValue: "Connect to this Mac to control Keep Mac Awake."
+                ))
+                .foregroundStyle(.secondary)
+            } else if !isSupported {
                 Text(L10n.string(
                     "mobile.settings.keepMacAwake.updateRequired",
                     defaultValue: "Update cmux on this Mac to control Keep Mac Awake from iPhone."
