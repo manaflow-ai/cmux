@@ -9457,6 +9457,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
+        // Captured before the transfer starts; see the note in
+        // handleCustomDropUploadIfMatched about reattached views. The hosted
+        // view is captured for the same reason: the indicator must end on the
+        // view it began on.
+        let originSurfaceId = terminalSurface?.id
+        let originHostedView = terminalSurface?.hostedView
+
         TerminalImageTransferPlanner.execute(
             plan: plan,
             operation: operation,
@@ -9487,14 +9494,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     }
                 )
             },
-            insertText: { [weak self] text in
+            insertText: { [weak self, weak originHostedView] text in
                 let send = {
                     if let operation {
-                        self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                        (originHostedView ?? self?.terminalSurface?.hostedView)?
+                            .endImageTransferIndicator(for: operation)
                     }
                     if let self {
                         _ = self.deliverUploadResultText(
                             text,
+                            originSurfaceId: originSurfaceId,
                             onCompleted: onTextCompletion
                         )
                     } else {
@@ -9507,18 +9516,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     DispatchQueue.main.async(execute: send)
                 }
             },
-            onFailure: { [weak self] error in
+            onFailure: { [weak self, weak originHostedView] error in
                 if let operation {
-                    self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                    (originHostedView ?? self?.terminalSurface?.hostedView)?
+                        .endImageTransferIndicator(for: operation)
                 }
                 DispatchQueue.main.async {
                     if ManagedFileTransferPolicy.isRefusal(error) {
                         ManagedFileTransferPolicy.presentRefusal()
                     } else {
-                        NSSound.beep()
+                        let outcome = TerminalUploadFailureNotification.post(
+                            error: error,
+                            surfaceId: originSurfaceId
+                        )
+                        if outcome == .unavailable { NSSound.beep() }
                     }
 #if DEBUG
-                    cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+                    cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(originSurfaceId?.uuidString.prefix(5) ?? "nil")")
 #endif
                 }
             }
