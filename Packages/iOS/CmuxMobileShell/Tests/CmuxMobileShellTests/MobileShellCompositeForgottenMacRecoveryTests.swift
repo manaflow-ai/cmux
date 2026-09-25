@@ -88,34 +88,27 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let pairedStore = DelayedTeamPairedMacStore(
-            recordsByTeam: [
-                "team-a": [
-                    MobilePairedMac(
-                        macDeviceID: macID,
-                        displayName: "Desk Mac",
-                        routes: [],
-                        createdAt: Date(timeIntervalSince1970: 1),
-                        lastSeenAt: Date(timeIntervalSince1970: 2),
-                        isActive: false,
-                        stackUserID: "user-1",
-                        teamID: "team-a"
-                    ),
-                    MobilePairedMac(
-                        macDeviceID: macID,
-                        displayName: "Nightly Mac",
-                        routes: [],
-                        createdAt: Date(timeIntervalSince1970: 1),
-                        lastSeenAt: Date(timeIntervalSince1970: 2),
-                        isActive: false,
-                        stackUserID: "user-1",
-                        teamID: "team-a",
-                        instanceTag: "nightly"
-                    ),
-                ],
-            ],
-            blockedTeams: []
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
         )
+        // Seed the tagged row first so inserting the legacy unclaimed row does
+        // not claim it as Nightly during the store's normal identity migration.
+        for tag: String? in ["nightly", nil] {
+            try await pairedStore.upsert(
+                macDeviceID: macID,
+                displayName: tag == nil ? "Legacy Mac" : "Nightly Mac",
+                routes: [],
+                instanceTag: tag,
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: "team-a",
+                now: Date(timeIntervalSince1970: 2)
+            )
+        }
         let route = try CmxAttachRoute(
             id: "iroh-recovered",
             kind: .iroh,
@@ -128,7 +121,7 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
             MobileDiscoveredIrohMac(
                 deviceID: macID.uppercased(),
                 displayName: "Recovered Mac",
-                instanceTag: "",
+                instanceTag: "default",
                 routes: [route],
                 lastSeenAt: Date(timeIntervalSince1970: 10)
             ),
@@ -137,7 +130,7 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
             MobileDiscoveredIrohMac(
                 deviceID: macID,
                 displayName: "Duplicate Mac",
-                instanceTag: "",
+                instanceTag: "default",
                 routes: [route],
                 lastSeenAt: Date(timeIntervalSince1970: 10)
             ),
@@ -205,7 +198,7 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
             teamID: "team-a"
         )
         #expect(recovered.count == 2)
-        let recoveredStable = try #require(recovered.first { $0.instanceTag == nil })
+        let recoveredStable = try #require(recovered.first { $0.instanceTag == "default" })
         let recoveredNightly = try #require(recovered.first { $0.instanceTag == "nightly" })
         #expect(recoveredStable.macDeviceID == macID)
         #expect(recoveredStable.displayName == "Recovered Mac")
@@ -219,33 +212,24 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let pairedStore = DelayedTeamPairedMacStore(
-            recordsByTeam: [
-                "team-a": [
-                    MobilePairedMac(
-                        macDeviceID: "mac-a",
-                        displayName: "Desk Mac A",
-                        routes: [],
-                        createdAt: Date(timeIntervalSince1970: 1),
-                        lastSeenAt: Date(timeIntervalSince1970: 2),
-                        isActive: false,
-                        stackUserID: "user-1",
-                        teamID: "team-a"
-                    ),
-                    MobilePairedMac(
-                        macDeviceID: "mac-b",
-                        displayName: "Desk Mac B",
-                        routes: [],
-                        createdAt: Date(timeIntervalSince1970: 1),
-                        lastSeenAt: Date(timeIntervalSince1970: 2),
-                        isActive: false,
-                        stackUserID: "user-1",
-                        teamID: "team-a"
-                    ),
-                ],
-            ],
-            blockedTeams: []
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suiteName, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
         )
+        for macID in ["mac-a", "mac-b"] {
+            try await pairedStore.upsert(
+                macDeviceID: macID,
+                displayName: "Desk \(macID)",
+                routes: [],
+                markActive: false,
+                stackUserID: "user-1",
+                teamID: "team-a",
+                now: Date(timeIntervalSince1970: 2)
+            )
+        }
         let route = try CmxAttachRoute(
             id: "iroh-recovered",
             kind: .iroh,
@@ -308,7 +292,6 @@ private final class RecoveryDirectoryStub: MobileIrohMacDiscovering {
         // The queued rerun observes the second Mac in the next authenticated
         // snapshot and consumes its marker.
         await discovery.waitUntilDiscoveryCount(2)
-        await pairedStore.waitUntilUpsertCount(2)
         let recovered = try await pairedStore.loadAll(
             stackUserID: "user-1",
             teamID: "team-a"

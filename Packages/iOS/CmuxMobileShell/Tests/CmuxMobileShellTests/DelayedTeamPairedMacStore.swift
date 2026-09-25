@@ -74,16 +74,7 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
                 return copy
             }
         }
-        let expectedIdentity = CmxMacAppInstanceIdentity(
-            macDeviceID: macDeviceID,
-            instanceTag: instanceTag
-        )
-        if let index = recordsByTeam[key]?.firstIndex(where: {
-            CmxMacAppInstanceIdentity(
-                macDeviceID: $0.macDeviceID,
-                instanceTag: $0.instanceTag
-            ).id == expectedIdentity.id
-        }) {
+        if let index = recordsByTeam[key]?.firstIndex(where: { $0.macDeviceID == macDeviceID }) {
             recordsByTeam[key]?[index].displayName = displayName
             recordsByTeam[key]?[index].routes = routes
             recordsByTeam[key]?[index].instanceTag = instanceTag
@@ -218,19 +209,6 @@ actor DelayedTeamPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshi
             self.recordReplacement = nil
         }
         return result
-    }
-
-    func loadAllInstances(
-        macDeviceID: String,
-        stackUserID: String?
-    ) async throws -> [MobilePairedMac] {
-        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
-        return recordsByTeam.values
-            .joined()
-            .filter { row in
-                cmxCanonicalDeviceID(row.macDeviceID) == canonicalID
-                    && row.stackUserID == stackUserID
-            }
     }
 
     func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? { nil }
