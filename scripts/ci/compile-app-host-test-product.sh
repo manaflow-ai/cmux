@@ -88,6 +88,13 @@ fingerprint() {
   } | shasum -a 256 | cut -c1-32
 }
 
+# The resolve and every build run xcodebuild through
+# `swiftpm-manifest-cache.sh run`, with FileSystemMode as the one extra
+# variable, so all of them share one environment. SwiftPM keys each evaluated
+# Package.swift on that whole environment: the first scheme build then reuses
+# the manifests the resolve (or the restored seed cache) evaluated instead of
+# evaluating all 91 again, which took 18 to 44 s per admission.
+#
 # `build` disables package resolution, so a resolve that reports success
 # without the Sparkle and Sentry binary artifacts would fail it. A restored
 # source-packages cache can do that, and a failed resolve can leave a partial
@@ -103,7 +110,7 @@ resolve() {
   local derived_data="$1" source_packages="$2" attempt
   if [ "${CMUX_CI_SWIFTPM_CACHE_EXACT_HIT:-}" = true ]; then
     mkdir -p "$source_packages" "$derived_data"
-    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+    if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
       xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
@@ -118,7 +125,7 @@ resolve() {
   fi
   for attempt in 1 2 3; do
     mkdir -p "$source_packages" "$derived_data"
-    if "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+    if FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
       xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
@@ -212,13 +219,33 @@ build() {
   if xcode_older_than 26 6; then
     cache_setting+=(CMUX_CI_COMPILATION_CACHE_cmux=NO)
   fi
+  # xcodebuild runs under the resolve's fixed environment (see resolve()), but
+  # the app's script phases still need the caller's: PATH for cargo, rustup,
+  # go and zig (Nucleo FFI, the diff sidecar, wireguard-go, bundled
+  # resources), HOME for ~/.cargo, CI and CMUX_SKIP_ZIG_BUILD for what they
+  # build. Command-line build settings reach every script phase's environment
+  # without entering SwiftPM's key. Swift Build builds a script's PATH from its
+  # own process PATH and ignores a PATH build setting, so PATH travels as
+  # CMUX_CALLER_PATH and scripts/build-phase-caller-path.sh puts it back.
+  local -a caller_settings=("CMUX_CALLER_PATH=$PATH")
+  local name
+  while IFS= read -r name; do
+    case "$name" in
+      CMUX_CALLER_PATH) ;;
+      CI|HOME|TMPDIR|ZIG_REQUIRED|CMUX_*|CARGO_*|RUSTUP_*|RUSTC_WRAPPER|RUSTFLAGS|GOROOT|GOPATH|GOCACHE|GOMODCACHE|GOFLAGS|GOPROXY|GOTOOLCHAIN)
+        caller_settings+=("$name=${!name}")
+        ;;
+    esac
+  done < <(compgen -e)
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
   for scheme in "${schemes[@]}"; do
-    FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
+    FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" "$SCRIPT_DIR/swiftpm-manifest-cache.sh" run \
+      xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
       -derivedDataPath "$derived_data" \
       -clonedSourcePackagesDirPath "$source_packages" \
       -disableAutomaticPackageResolution \
       -destination "platform=macOS" \
+      "${caller_settings[@]}" \
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
       'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
       "${cache_setting[@]}" \
