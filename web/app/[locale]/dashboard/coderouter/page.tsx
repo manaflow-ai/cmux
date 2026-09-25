@@ -50,6 +50,7 @@ type DashboardTeam = {
   readonly name: string;
   readonly use: boolean;
   readonly manageAccounts: boolean;
+  readonly manageApiKeys: boolean;
   readonly personal: boolean;
 };
 
@@ -184,6 +185,7 @@ export async function CoderouterOverviewContent({
         teamId={selectedTeam.id}
         viewerUserId={userId}
         canManage={selectedTeam.manageAccounts}
+        canManageApiKeys={selectedTeam.manageApiKeys}
         claude={claudeAccounts}
         native={nativeAccounts}
         shared={sharedAccounts}
@@ -248,6 +250,7 @@ async function resolveCoderouterAuthorization(
         name: candidate.teamName,
         use: candidate.use,
         manageAccounts: candidate.manageAccounts,
+        manageApiKeys: candidate.manageApiKeys,
         personal: candidate.personal,
       }));
     if (teams.length === 0) {

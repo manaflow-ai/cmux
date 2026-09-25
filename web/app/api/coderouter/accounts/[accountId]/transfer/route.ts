@@ -1,19 +1,19 @@
 import { transferAccount } from "../../../../../../services/coderouter/accounts";
 import { resolveCodeRouterRequestContext } from "../../../../../../services/coderouter/requestContext";
-import { authorizedCoderouterTeams } from "../../../../../../services/coderouter/permissions";
+import { authorizedSubrouterTeams } from "../../../../../../services/subrouter/routeHelpers";
 import type { AuthedUser } from "../../../../../../services/vms/auth";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type TransferDependencies = {
   readonly resolve: typeof resolveCodeRouterRequestContext;
-  readonly listTeams: (user: AuthedUser) => Awaited<ReturnType<typeof authorizedCoderouterTeams>> | ReturnType<typeof authorizedCoderouterTeams>;
+  readonly listTeams: (user: AuthedUser) => ReturnType<typeof authorizedSubrouterTeams> | Promise<ReturnType<typeof authorizedSubrouterTeams>>;
   readonly transfer: typeof transferAccount;
 };
 
 const defaultTransferDependencies: TransferDependencies = {
   resolve: resolveCodeRouterRequestContext,
-  listTeams: authorizedCoderouterTeams,
+  listTeams: authorizedSubrouterTeams,
   transfer: transferAccount,
 };
 

@@ -98,6 +98,7 @@ export function CoderouterAccountsSection({
   teamId,
   viewerUserId,
   canManage,
+  canManageApiKeys,
   claude,
   native,
   shared,
@@ -105,6 +106,7 @@ export function CoderouterAccountsSection({
   readonly teamId: string;
   readonly viewerUserId?: string;
   readonly canManage: boolean;
+  readonly canManageApiKeys: boolean;
   readonly claude: ClaudeAccountsState;
   readonly native: NativeAccountsState;
   readonly shared: SharedAccountsState;
@@ -187,7 +189,7 @@ export function CoderouterAccountsSection({
       )}
 
       {canManage ? <><p className="mt-2 text-xs text-muted">{t("privateImportHint")}</p><AddAccountPanel teamId={teamId} /></> : null}
-      <CoderouterApiKeysSection teamId={teamId} canManage={canManage} />
+      <CoderouterApiKeysSection teamId={teamId} canManage={canManageApiKeys} />
     </section>
   );
 }
