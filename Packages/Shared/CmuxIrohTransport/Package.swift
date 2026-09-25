@@ -18,7 +18,10 @@ let package = Package(
         .package(path: "../CMUXMobileCore"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
-            exact: "1.0.2-cmux.7.ios17.2"
+            // The v1.0.2-cmux.7.ios17.2 asset was republished without the
+            // checksum baked into its tag. Pin the immutable checksum-bake
+            // commit until the corrected versioned release is published.
+            revision: "51607f3031d9ec1453c258527db5d0735077c631"
         ),
     ],
     targets: [
