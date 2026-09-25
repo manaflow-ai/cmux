@@ -1,7 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
-import Combine
 import Darwin
+import Observation
 import SwiftUI
 import Testing
 
@@ -1347,8 +1347,9 @@ struct TextBoxSubmitActionTests {
 }
 
 @MainActor
-private final class TextBoxTerminalPanelReplacementModel: ObservableObject {
-    @Published var panel: TerminalPanel
+@Observable
+private final class TextBoxTerminalPanelReplacementModel {
+    var panel: TerminalPanel
 
     init(panel: TerminalPanel) {
         self.panel = panel
@@ -1357,7 +1358,7 @@ private final class TextBoxTerminalPanelReplacementModel: ObservableObject {
 
 @MainActor
 private struct TextBoxTerminalPanelReplacementHarness: View {
-    @ObservedObject var model: TextBoxTerminalPanelReplacementModel
+    let model: TextBoxTerminalPanelReplacementModel
 
     var body: some View {
         TerminalPanelView(

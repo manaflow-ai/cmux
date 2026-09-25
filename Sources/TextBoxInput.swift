@@ -2570,6 +2570,7 @@ struct TextBoxInputContainer: View {
         if let launchCommand = providerLaunchCommand(for: launchAction) {
             startPendingProviderLaunch(launchAction)
             onRecordLaunchCommand(launchAction.launchContextCommand() ?? launchCommand)
+            focusTerminalForSubmission()
             TextBoxSubmit.sendEvents(
                 TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
                 via: surface
@@ -2610,6 +2611,7 @@ struct TextBoxInputContainer: View {
             startPendingProviderLaunch(launchAction)
             onRecordLaunchCommand(launchContextCommand)
         }
+        focusTerminalForSubmission()
         TextBoxSubmit.sendEvents(
             submitPlan.events,
             via: surface
@@ -2754,6 +2756,14 @@ struct TextBoxInputContainer: View {
 
     private func focusTerminal() {
         surface.hostedView.ensureFocus(for: surface.tabId, surfaceId: surface.id)
+    }
+
+    private func focusTerminalForSubmission() {
+        surface.hostedView.ensureFocus(
+            for: surface.tabId,
+            surfaceId: surface.id,
+            respectForeignFirstResponder: false
+        )
     }
 
     private func forwardText(_ text: String, focusTerminalAfterSend: Bool) {
