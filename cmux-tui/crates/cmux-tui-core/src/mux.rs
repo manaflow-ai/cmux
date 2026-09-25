@@ -3215,7 +3215,6 @@ impl Mux {
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
-        let mut template_terminal: Option<String> = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
         // completion cannot collapse the exact status into "host missing".
@@ -3272,7 +3271,6 @@ impl Mux {
             {
                 terminal = Some(self.claim_template_terminal(&options, &record)?);
                 template_claimed = true;
-                template_terminal = Some(terminal_id.clone());
             }
             if terminal.is_none() {
                 // One-release migration path for hosts launched before SQLite
@@ -3441,6 +3439,7 @@ impl Mux {
                 }
                 continue;
             }
+            self.complete_template_adoption(&terminal_id)?;
             handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
         }
@@ -3466,17 +3465,32 @@ impl Mux {
                 &options,
             )?;
         }
-        if let (Some(terminal_id), Some(path)) =
-            (template_terminal, options.template_bound_file.as_deref())
-        {
-            // The legacy import placed the terminal in memory only. Commit it
-            // to the public topology before the binding announces it, so the
-            // first `terminal.list` after the daemon listens includes it.
-            self.commit_ordinary_full_resource_projection(
-                "terminal.adopt-template",
-                serde_json::json!({}),
-            )?;
-            self.publish_template_binding(&terminal_id, path)?;
+        Ok(())
+    }
+
+    /// Finish a template terminal once its host is adopted, on the startup
+    /// pass or the asynchronous retry: commit its new placement to the public
+    /// topology, then tell the template shell its new identity. The binding is
+    /// written only after the commit, so the first `terminal.list` after it
+    /// appears includes the terminal it names.
+    #[cfg(unix)]
+    fn complete_template_adoption(&self, terminal_id: &str) -> anyhow::Result<()> {
+        let is_template = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_record(terminal_id)?
+            .is_some_and(|terminal| is_template_terminal(&terminal));
+        if !is_template {
+            return Ok(());
+        }
+        self.commit_ordinary_full_resource_projection(
+            "terminal.adopt-template",
+            serde_json::json!({}),
+        )?;
+        let bound_file = self.surface_options.lock().unwrap().template_bound_file.clone();
+        if let Some(path) = bound_file {
+            self.publish_template_binding(terminal_id, &path)?;
         }
         Ok(())
     }
@@ -3907,6 +3921,12 @@ impl Mux {
                             )
                             .is_ok()
                         {
+                            if let Err(error) = mux.complete_template_adoption(&terminal_id) {
+                                eprintln!(
+                                    "cmux-tui: could not publish template terminal \
+                                     {terminal_id}: {error:#}"
+                                );
+                            }
                             mux.reap_if_dead(&surface);
                             break;
                         }

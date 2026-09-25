@@ -29,30 +29,38 @@ if ! declare -F __cmux_prompt_name >/dev/null; then
   # written the new session and terminal ids (/run/cmux/bound). The ids in
   # this shell's environment name the snapshot builder until then, so no
   # prompt, command or agent hook may run before they are replaced. After a
-  # clone starts (/run/cmux/clone-started) the wait is bounded: on timeout the
-  # builder's ids are removed rather than kept. It then waits up to 1.5 s for
-  # the machine name, so the first prompt normally shows cmux@<slug> and
-  # cmux-prompt-sync does not need to clear and interrupt it.
+  # clone starts (/run/cmux/clone-started) the wait is bounded (3 s, or
+  # CMUX_PROMPT_TEMPLATE_WAIT_US): on timeout the builder's ids are removed
+  # rather than kept, and each later prompt imports the binding once it
+  # appears. It then waits up to 1.5 s for the machine name, so the first
+  # prompt normally shows cmux@<slug> and cmux-prompt-sync does not need to
+  # clear and interrupt it.
+  __cmux_template_import() {
+    local key value
+    while IFS='=' read -r key value; do
+      case $key in
+        CMUX_TUI_SESSION_ID | CMUX_TUI_TERMINAL_ID) export "$key=$value" ;;
+      esac
+    done < "$1"
+  }
   __cmux_template_gate() {
     local waited=0 run=${CMUX_PROMPT_RUN_DIR:-/run/cmux} since=
+    local limit=${CMUX_PROMPT_TEMPLATE_WAIT_US:-3000000}
     : > "$run"/template-shell-ready 2>/dev/null
     while [ ! -e "$run"/bound ]; do
       if [ -e "$run"/clone-started ]; then
-        # Wall-clock bound (EPOCHREALTIME, microseconds): 3 s after the
-        # clone started. Counting iterations would include fork time.
+        # Wall-clock bound (EPOCHREALTIME, microseconds) after the clone
+        # started. Counting iterations would include fork time.
         [ -n "$since" ] || since=${EPOCHREALTIME/./}
-        [ $((${EPOCHREALTIME/./} - since)) -gt 3000000 ] && break
+        [ $((${EPOCHREALTIME/./} - since)) -ge "$limit" ] && break
       fi
       sleep 0.05
     done
     unset CMUX_TUI_SESSION_ID CMUX_TUI_TERMINAL_ID
-    local key value
     if [ -r "$run"/bound ]; then
-      while IFS='=' read -r key value; do
-        case $key in
-          CMUX_TUI_SESSION_ID | CMUX_TUI_TERMINAL_ID) export "$key=$value" ;;
-        esac
-      done < "$run"/bound
+      __cmux_template_import "$run"/bound
+    else
+      __cmux_template_unbound=1
     fi
     waited=0
     while [ "$waited" -lt 30 ]; do
@@ -69,6 +77,9 @@ if ! declare -F __cmux_prompt_name >/dev/null; then
     if [[ ${__cmux_template_shell:-} ]]; then
       __cmux_template_shell=
       __cmux_template_gate
+    elif [[ ${__cmux_template_unbound:-} ]] && [ -r "${CMUX_PROMPT_RUN_DIR:-/run/cmux}"/bound ]; then
+      __cmux_template_unbound=
+      __cmux_template_import "${CMUX_PROMPT_RUN_DIR:-/run/cmux}"/bound
     fi
     __cmux_read_vm_name
     __cmux_report_cwd

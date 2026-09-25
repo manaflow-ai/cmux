@@ -62,7 +62,7 @@ describe("Cloud Bash prompt", () => {
       .digest("hex");
     expect({ bashrc: digest("bashrc"), prompt: digest("prompt.bash") }).toEqual({
       bashrc: "b5229855c3edd1961e8bd695ea1254b410ca2146a8f37903d7c2b9db588692c8",
-      prompt: "a54db7a272d41cb2e924638f3d323ea61e1138260a13866c4ffaf055bab44a00",
+      prompt: "af6c2d4797c6c6e4ff3ec617b2bfceda66a3efa847d8c5511d6662a3656c8dde",
     });
   });
 
