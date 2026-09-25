@@ -881,6 +881,7 @@ struct ContentView: View {
     @EnvironmentObject var sidebarSelectionState: SidebarSelectionState
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
+    @ObservedObject private var parkedWorkspaceStore = ParkedWorkspaceStore.shared
     @Environment(\.colorScheme) private var colorScheme
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
@@ -7513,6 +7514,23 @@ struct ContentView: View {
                 keywords: ["restore", "unpark", "parked", "workspace", "resume"]
             )
         )
+        for record in parkedWorkspaceStore.records {
+            let title = record.snapshot.customTitle ?? record.snapshot.processTitle
+            let transcriptTerms = record.snapshot.panels
+                .compactMap { $0.terminal?.scrollback }
+                .joined(separator: " ")
+                .split(whereSeparator: { $0.isWhitespace })
+                .prefix(48)
+                .map(String.init)
+            contributions.append(
+                CommandPaletteCommandContribution(
+                    commandId: "palette.unparkWorkspace.\(record.id.uuidString)",
+                    title: constant(title),
+                    subtitle: constant(String(localized: "command.unparkWorkspace.subtitle", defaultValue: "Workspace")),
+                    keywords: ["restore", "unpark", "parked", "workspace", "resume", title, record.snapshot.currentDirectory] + transcriptTerms
+                )
+            )
+        }
         contributions.append(
             CommandPaletteCommandContribution(
                 commandId: "palette.closeWindow",
@@ -8794,10 +8812,21 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.unparkWorkspace") {
-            guard let record = ParkedWorkspaceStore.shared.records.first,
+            guard let record = parkedWorkspaceStore.records.first,
                   tabManager.unparkWorkspace(record) else {
                 NSSound.beep()
                 return
+            }
+        }
+        for record in parkedWorkspaceStore.records {
+            let commandId = "palette.unparkWorkspace.\(record.id.uuidString)"
+            let recordID = record.id
+            registry.register(commandId: commandId) {
+                guard let parked = parkedWorkspaceStore.records.first(where: { $0.id == recordID }),
+                      tabManager.unparkWorkspace(parked) else {
+                    NSSound.beep()
+                    return
+                }
             }
         }
         registry.register(commandId: "palette.closeWindow") {

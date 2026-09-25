@@ -2369,6 +2369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         }
         ClosedItemHistoryStore.shared.flushPendingSaves()
+        _ = ParkedWorkspaceStore.shared.flush()
         terminationWatchdog.arm()
         sentryStopMemoryContextRefresh()
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
@@ -2425,6 +2426,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             removeWhenEmpty: false
         )
         ClosedItemHistoryStore.shared.flushPendingSaves()
+        _ = ParkedWorkspaceStore.shared.flush()
     }
 
     func configure(

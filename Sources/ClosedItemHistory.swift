@@ -112,11 +112,12 @@ final class ParkedWorkspaceStore: ObservableObject {
 
     var isEmpty: Bool { records.isEmpty }
 
-    func append(_ record: ParkedWorkspaceRecord) {
+    @discardableResult
+    func append(_ record: ParkedWorkspaceRecord) -> Bool {
         records.removeAll { $0.id == record.id }
         records.append(record)
         records.sort { $0.parkedAt > $1.parkedAt }
-        persist()
+        return persist()
     }
 
     @discardableResult
@@ -161,20 +162,21 @@ final class ParkedWorkspaceStore: ObservableObject {
         }
         guard filtered.count != records.count else { return }
         records = filtered
-        persist()
+        _ = persist()
     }
 
-    func flush() {
-        guard let fileURL else { return }
+    @discardableResult
+    func flush() -> Bool {
+        guard let fileURL else { return true }
         let snapshot = records
         let revisionSnapshot = revision
         if persistsSynchronously {
-            Self.saveRecords(snapshot, fileURL: fileURL)
-            return
+            return Self.saveRecords(snapshot, fileURL: fileURL)
         }
         let semaphore = DispatchSemaphore(value: 0)
+        let result = ParkedWorkspaceSaveResult()
         Task.detached(priority: .userInitiated) {
-            await ParkedWorkspacePersistenceActor.shared.save(
+            result.value = await ParkedWorkspacePersistenceActor.shared.save(
                 snapshot,
                 fileURL: fileURL,
                 revision: revisionSnapshot
@@ -182,33 +184,53 @@ final class ParkedWorkspaceStore: ObservableObject {
             semaphore.signal()
         }
         semaphore.wait()
+        return result.value
     }
 
-    private func persist() {
+    @discardableResult
+    private func persist() -> Bool {
         revision &+= 1
-        guard let fileURL else { return }
+        guard let fileURL else { return true }
         let revisionSnapshot = revision
         if persistsSynchronously {
-            Self.saveRecords(records, fileURL: fileURL)
+            return Self.saveRecords(records, fileURL: fileURL)
         } else {
             let snapshot = records
             Task {
-                await ParkedWorkspacePersistenceActor.shared.save(
+                _ = await ParkedWorkspacePersistenceActor.shared.save(
                     snapshot,
                     fileURL: fileURL,
                     revision: revisionSnapshot
                 )
             }
+            return true
         }
     }
 
-    private static func defaultFileURL() -> URL? {
-        guard !SessionRestorePolicy.isRunningUnderAutomatedTests(),
-              let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        else { return nil }
+    static func defaultFileURL(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil,
+        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
+    ) -> URL? {
+        guard !isRunningUnderAutomatedTests else { return nil }
+        let appSupport: URL
+        if let appSupportDirectory {
+            appSupport = appSupportDirectory
+        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            appSupport = discovered
+        } else {
+            return nil
+        }
+        let bundleID = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBundleID = bundleID?.isEmpty == false ? bundleID! : "com.cmuxterm.app"
+        let safeBundleID = resolvedBundleID.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
         return appSupport
             .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("parked-workspaces.json", isDirectory: false)
+            .appendingPathComponent("parked-workspaces-\(safeBundleID).json", isDirectory: false)
     }
 
     private static func loadRecords(fileURL: URL) -> [ParkedWorkspaceRecord] {
@@ -216,7 +238,8 @@ final class ParkedWorkspaceStore: ObservableObject {
         return (try? JSONDecoder().decode([ParkedWorkspaceRecord].self, from: data)) ?? []
     }
 
-    nonisolated fileprivate static func saveRecords(_ records: [ParkedWorkspaceRecord], fileURL: URL) {
+    @discardableResult
+    nonisolated fileprivate static func saveRecords(_ records: [ParkedWorkspaceRecord], fileURL: URL) -> Bool {
         do {
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(),
@@ -224,10 +247,16 @@ final class ParkedWorkspaceStore: ObservableObject {
             )
             let data = try JSONEncoder().encode(records)
             try data.write(to: fileURL, options: .atomic)
+            return true
         } catch {
             closedItemHistoryLogger.error("parkedWorkspace.save.failed error=\(error.localizedDescription, privacy: .public)")
+            return false
         }
     }
+}
+
+private final class ParkedWorkspaceSaveResult: @unchecked Sendable {
+    var value = false
 }
 
 private actor ParkedWorkspacePersistenceActor {
@@ -235,6 +264,7 @@ private actor ParkedWorkspacePersistenceActor {
 
     private var latestRevisionByPath: [String: UInt64] = [:]
 
+    @discardableResult
     func save(
         _ records: [ParkedWorkspaceRecord],
         fileURL: URL,
@@ -242,10 +272,10 @@ private actor ParkedWorkspacePersistenceActor {
     ) {
         let path = fileURL.standardizedFileURL.path
         if let latestRevision = latestRevisionByPath[path], revision < latestRevision {
-            return
+            return false
         }
         latestRevisionByPath[path] = revision
-        ParkedWorkspaceStore.saveRecords(records, fileURL: fileURL)
+        return ParkedWorkspaceStore.saveRecords(records, fileURL: fileURL)
     }
 }
 struct ClosedWindowHistoryEntry: Codable, Sendable {

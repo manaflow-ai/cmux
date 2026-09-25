@@ -54,6 +54,25 @@ struct ReopenLastClosedTests {
         #expect(restored.isEmpty)
     }
 
+    @Test
+    func parkedWorkspaceManifestIsNamespacedPerBundle() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-parked-paths-\(UUID().uuidString)", isDirectory: true)
+        let debugURL = ParkedWorkspaceStore.defaultFileURL(
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            appSupportDirectory: appSupport,
+            isRunningUnderAutomatedTests: false
+        )
+        let releaseURL = ParkedWorkspaceStore.defaultFileURL(
+            bundleIdentifier: "com.cmuxterm.app",
+            appSupportDirectory: appSupport,
+            isRunningUnderAutomatedTests: false
+        )
+        #expect(debugURL?.lastPathComponent == "parked-workspaces-com.cmuxterm.app.debug.json")
+        #expect(releaseURL?.lastPathComponent == "parked-workspaces-com.cmuxterm.app.json")
+        #expect(debugURL != releaseURL)
+    }
+
     private enum RestoredKind: Equatable {
         case panel
         case window

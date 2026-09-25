@@ -18,21 +18,33 @@ extension TabManager {
         // A TabManager keeps one live workspace while its window is open. Seed a
         // replacement shell before parking the final workspace so the action is
         // available on every workspace without leaving the app window empty.
+        let replacementWorkspace: Workspace?
         if tabs.count == 1 {
-            guard addWorkspaceIfActive(
+            guard let replacement = addWorkspaceIfActive(
                 select: true,
                 eagerLoadTerminal: true,
                 autoWelcomeIfNeeded: false
-            ) != nil else {
+            ) else {
                 return false
             }
+            replacementWorkspace = replacement
+        } else {
+            replacementWorkspace = nil
         }
-        ParkedWorkspaceStore.shared.append(ParkedWorkspaceRecord(
+        let record = ParkedWorkspaceRecord(
             id: workspace.id,
             workspaceIndex: index,
             windowId: AppDelegate.shared?.windowId(for: self),
             snapshot: snapshot
-        ))
+        )
+        guard ParkedWorkspaceStore.shared.append(record),
+              ParkedWorkspaceStore.shared.flush() else {
+            _ = ParkedWorkspaceStore.shared.remove(id: record.id)
+            if let replacementWorkspace {
+                closeWorkspace(replacementWorkspace, recordHistory: false)
+            }
+            return false
+        }
         closeWorkspace(workspace, recordHistory: false)
         return !tabs.contains(where: { $0.id == workspace.id })
     }
