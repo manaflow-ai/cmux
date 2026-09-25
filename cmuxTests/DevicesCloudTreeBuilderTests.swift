@@ -329,6 +329,25 @@ struct DevicesCloudTreeBuilderTests {
         #expect(emptyState == state)
     }
 
+    @Test("Discovering another Mac keeps this Mac's opt-in controls available", arguments: [false, true])
+    func populatedDevicesRetainControls(incomingEnabled: Bool) throws {
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(studio, name: "Studio", online: true, linkState: .connected)],
+            resources: [], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false,
+            source: .cloudWithDevicesSection,
+            devicesSection: .init(discoveryEnabled: true, incomingAccessEnabled: incomingEnabled)
+        )
+        let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
+        #expect(section.children.contains { if case .device = $0.kind { true } else { false } })
+        let controls = try #require(section.children.first { if case .devicesEmpty = $0.kind { true } else { false } })
+        guard case .devicesEmpty(let state) = controls.kind else { return }
+        #expect(state.count == 1)
+        #expect(state.incomingAccessEnabled == incomingEnabled)
+    }
+
     @Test("An empty My Devices section remains visible beneath the Cloud Machines section")
     func emptyDevicesSectionRemainsVisible() throws {
         let nodes = CloudTreeNodeBuilder.nodes(
