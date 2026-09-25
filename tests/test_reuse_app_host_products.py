@@ -292,6 +292,7 @@ class ReuseProducts(TestProductHandoff):
             "agent-chat/src/components/Chat.tsx",
             "scripts/git-hooks/pre-commit",
             "scripts/benchmark-dev-fleet-warm-slots.py",
+            "scripts/check-pbxproj-group-membership.py",
             "scripts/check-pbxproj.sh",
             "scripts/check-test-determinism.py",
             "scripts/dev-fleet-warm-slot.py",
