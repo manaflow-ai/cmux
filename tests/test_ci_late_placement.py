@@ -125,6 +125,18 @@ class Workflow(unittest.TestCase):
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))
         self.assertEqual(spec["outputs"]["runners"], "${{ steps.place.outputs.runners || '{}' }}")
 
+    def test_moved_jobs_leave_the_marker_the_rescue_watch_looks_for(self):
+        steps = {step["name"]: step for step in self.jobs["late-placement"]["steps"]}
+        marker = steps["Upload the late placement marker"]
+        self.assertIn("steps.place.outputs.runners != '{}'", marker["if"])
+        rescue = (ROOT / "scripts/ci/owned_pool_rescue.py").read_text()
+        # owned_pool_rescue.late_marker_name() and LATE_JOB: the names the watch reads.
+        self.assertIn('LATE_MARKER_PREFIX = "macos-pool-late"', rescue)
+        self.assertEqual(marker["with"]["name"], "macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}")
+        self.assertIn('LATE_JOB = "macos / late-placement"', rescue)
+        # It starts nothing itself: ci.yml's owned-pool-watch holds the only actions: write.
+        self.assertEqual(self.jobs["late-placement"]["permissions"], {"contents": "read"})
+
 
 if __name__ == "__main__":
     unittest.main()

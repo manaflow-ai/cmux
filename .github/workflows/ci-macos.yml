@@ -1414,6 +1414,24 @@ jobs:
           ADMISSION_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
           ADMISSION_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
         run: python3 scripts/ci/late_placement.py
+      # A moved job waits for a root runner, which another run may take first.
+      # ci.yml's owned-pool-watch starts the rescue for a run that might get
+      # here, and this marker tells it jobs moved (owned_pool_rescue.py,
+      # LATE_MARKER_PREFIX), so it watches them like any owned job.
+      - name: Record the moved jobs
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
+        continue-on-error: true
+        env:
+          RUNNERS: ${{ steps.place.outputs.runners }}
+        run: mkdir -p "$RUNNER_TEMP/late-placement" && printf '%s\n' "$RUNNERS" > "$RUNNER_TEMP/late-placement/runners.json"
+      - name: Upload the late placement marker
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/late-placement/runners.json
+          retention-days: 1
 
   app-host-unit-tests:
     permissions:

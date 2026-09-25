@@ -122,7 +122,10 @@ It stops watching, doing nothing, when:
 - on the attempt 2 it re-ran from failed jobs, no job runs on an owned label;
 - on the attempt 2 it re-ran in full, `changes` finished without that
   attempt's marker, or CI_OWNED_LIGHT_RETRY is off (not watched at all);
-- `changes` finished without a marker: the run is on an ephemeral pool;
+- `changes` finished without a marker: the run is on an ephemeral pool.
+  When ci.yml started the watch for late placement (LATE_PLACEMENT=1), it
+  first waits for ci-macos.yml's late-placement job and follows the run if
+  that job uploaded its marker (it moved jobs onto owned root runners);
 - the run finished, or the watch limit passed.
 
 Request budget: the GITHUB_TOKEN allows about 1000 requests an hour for the
@@ -217,6 +220,10 @@ SIDE_WATCH_LIMIT_SECONDS = WATCH_LIMIT_SECONDS
 READ_ATTEMPTS = 3
 READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
+# ci-macos.yml's late-placement moved jobs after compile admission onto idle
+# owned root runners (late_placement.py), and started this watch itself.
+LATE_MARKER_PREFIX = "macos-pool-late"
+LATE_JOB = "macos / late-placement"
 # A cancelled run is only useful re-run: giving up leaves the pull request's
 # run cancelled for good. A Mac job mid-compile has taken over 5 minutes to
 # settle after a force-cancel (run 36074561333, 2026-09-24), so wait long, and
@@ -460,6 +467,9 @@ class Target:
     full_rerun: bool = False
     side: bool = False  # a side-lane workflow (SIDE_WORKFLOW_PATHS): no picker job
     main: bool = False  # main's full-suite dispatch of ci.yml: no pull request, main's HEAD instead
+    # ci.yml started this watch because late-placement may move jobs onto owned
+    # root runners after compile admission (LATE_PLACEMENT=1); the picker placed none.
+    late: bool = False
 
     @property
     def picker_job(self) -> str:
@@ -509,6 +519,11 @@ def marker_name(target: Target) -> str:
     return f"{MARKER_PREFIX}-{target.run_id}-{target.attempt}-"
 
 
+def late_marker_name(target: Target) -> str:
+    """The marker late-placement uploads when it moved jobs onto owned root runners."""
+    return f"{LATE_MARKER_PREFIX}-{target.run_id}-{target.attempt}"
+
+
 READ_ERRORS = (urllib.error.URLError, http.client.HTTPException, OSError, ValueError)
 
 
@@ -542,6 +557,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False
+    picker_marker: bool | None = None
     first_seen: dict[Any, dt.datetime] = {}
     while True:
         looks += 1
@@ -565,13 +581,25 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 return "stop", "no job of this attempt asked for a persistent pool"
         elif not on_persistent:
             if picker_finished(jobs, target.picker_job):
-                if not read(lambda: api.has_artifact(target.run_id, marker_name(target)), sleep, log):
+                if picker_marker is None:
+                    picker_marker = bool(read(lambda: api.has_artifact(target.run_id, marker_name(target)),
+                                              sleep, log))
+                if picker_marker:
+                    log("the picker chose a persistent pool")
+                    on_persistent = True
+                elif not target.late:
                     return "stop", "the run is on an ephemeral pool"
-                on_persistent = True
-                log("the picker chose a persistent pool")
+                elif picker_finished(jobs, LATE_JOB):
+                    if not read(lambda: api.has_artifact(target.run_id, late_marker_name(target)), sleep, log):
+                        return "stop", "late placement moved no job onto a persistent pool"
+                    log("late placement moved jobs onto a persistent pool")
+                    on_persistent = True
+                elif run_finished(jobs):
+                    return "stop", "the run finished on an ephemeral pool"
             elif run_finished(jobs):
                 return "stop", "the run finished before the pool choice"
-        interval = POLL_SECONDS
+        # Waiting for compile admission and late placement: nothing can be stuck yet.
+        interval = POLL_SECONDS if on_persistent or picker_marker is None else IDLE_POLL_SECONDS
         if on_persistent:
             if any(refused(job) for job in jobs):
                 look = assess(jobs, now=now(), budget_seconds=budget_seconds, first_seen=first_seen,
@@ -755,6 +783,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     target = target_from_event(event, repository)
     if isinstance(target, str):
         return finish(f"not watched: {target}")
+    if ((env.get("LATE_PLACEMENT") or "").strip() == "1" and target.attempt == 1
+            and not (target.e2e or target.main or target.side)):
+        target = dataclasses.replace(target, late=True)
     subject = ("an E2E dispatch" if target.path == E2E_WORKFLOW_PATH else f"a dispatch of {target.path}") \
         if target.e2e else f"main's full-suite dispatch at {target.head_sha[:12]}" if target.main \
         else f"pull request #{target.pr_number}"
