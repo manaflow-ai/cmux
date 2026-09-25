@@ -6478,6 +6478,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
             "Dock split drags should enter the same window-scoped terminal resize transaction"
         )
+        XCTAssertFalse(
+            TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: otherWindow),
+            "A stale non-pointer event must not scope the drag to its window"
+        )
         store.bonsplitController.noteDividerDragSession(false)
         XCTAssertFalse(
             TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
