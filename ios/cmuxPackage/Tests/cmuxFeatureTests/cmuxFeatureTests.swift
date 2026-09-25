@@ -2570,7 +2570,13 @@ struct TerminalStreamTests {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"])
+    // Render-grid transport: grid frames, never the raw byte stream. The rest
+    // of the topic list (sync, notifications, browser, simulator) grows with
+    // features and is owned by `TerminalOutputTransport.eventTopics`.
+    let topics = try #require(subscribeRequests.first?.topics)
+    #expect(topics == MobileShellComposite.TerminalOutputTransport.renderGrid.eventTopics)
+    #expect(topics.contains("terminal.render_grid"))
+    #expect(!topics.contains("terminal.bytes"))
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
