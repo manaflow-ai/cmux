@@ -1,9 +1,9 @@
 name: Seed SwiftPM manifests
 
 # Seeds SwiftPM's evaluated-manifest cache (scripts/ci/swiftpm-manifest-cache.sh)
-# for the macOS 15 pool. Compile admission and cli-pipe-regressions restore it
-# read-only; seed-derived-data.yml already seeds the macOS 26 pool on every
-# main push that changes the build. The cache key names the Xcode, and the pull
+# for the macOS 15 pool. Compile admission restores it read-only;
+# seed-derived-data.yml already seeds the macOS 26 pool on every main push that
+# changes the build. The cache key names the Xcode, and the pull
 # request pool picker sends some jobs to blacksmith-6vcpu-macos-15 with
 # CMUX_CI_XCODE_APP_MACOS_15, so without this those jobs always miss: 40-121 s
 # resolves against 12-24 s on the seeded pool (#14257).
@@ -80,11 +80,10 @@ jobs:
         if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
-      # The same two resolves seed-derived-data.yml runs: the canonical root
-      # compile admission uses, then the workspace path cli-pipe-regressions
-      # uses. A manifest's entry names its absolute path. Starts empty so the
-      # saved cache holds only this revision's manifests.
-      - name: Evaluate manifests at the reader paths
+      # The resolve seed-derived-data.yml runs, at the canonical root compile
+      # admission uses: a manifest's entry names its absolute path. Starts
+      # empty so the saved cache holds only this revision's manifests.
+      - name: Evaluate manifests at the reader path
         if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
@@ -92,15 +91,6 @@ jobs:
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$root/derived-data-compile-admission" "$PWD/.ci-source-packages"
-          # canonical-resolve copied the workspace, so this copy stays out of it.
-          rm -rf .spm-cache
-          cp -cR .ci-source-packages .spm-cache
-          scripts/ci/swiftpm-manifest-cache.sh run \
-            xcodebuild -project cmux.xcodeproj -scheme cmux-cli \
-            -configuration Debug -derivedDataPath "$RUNNER_TEMP/cmux-cli-resolve" \
-            -clonedSourcePackagesDirPath "$PWD/.spm-cache" \
-            -packageCachePath "$PWD/.spm-cache/.package-cache" \
-            -resolvePackageDependencies
           scripts/ci/swiftpm-manifest-cache.sh stage "$RUNNER_TEMP/swiftpm-manifests"
 
       - name: Save SwiftPM manifest cache

@@ -1,18 +1,22 @@
-import AppKit
+public import AppKit
 import CoreGraphics
-import CmuxBrowser
-import Foundation
+public import Foundation
 
-struct SyntheticKeySpecification {
-    let storedKey: String
-    let keyCode: UInt16
-    let modifierFlags: NSEvent.ModifierFlags
-    let characters: String
-    let charactersIgnoringModifiers: String
+/// AppKit key code, modifiers, and characters for one synthetic key event.
+public struct SyntheticKeySpecification {
+    public let storedKey: String
+    public let keyCode: UInt16
+    public let modifierFlags: NSEvent.ModifierFlags
+    public let characters: String
+    public let charactersIgnoringModifiers: String
 }
 
-enum SyntheticKeyEventFactory {
-    static func parseShortcutCombo(_ combo: String) -> SyntheticKeySpecification? {
+/// Builds synthetic AppKit key events for socket automation, the mobile
+/// browser stream, and browser keyboard replay.
+// TRANSITIONAL: moved verbatim from the app target. Scope these onto
+// `SyntheticKeySpecification` and `NSEvent` once the app callers move too.
+public enum SyntheticKeyEventFactory {
+    public static func parseShortcutCombo(_ combo: String) -> SyntheticKeySpecification? {
         let raw = combo.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !raw.isEmpty else { return nil }
 
@@ -37,7 +41,7 @@ enum SyntheticKeyEventFactory {
         return specification(key: keyToken, modifierFlags: flags)
     }
 
-    static func specification(
+    public static func specification(
         key: String,
         modifierNames: [String]
     ) -> SyntheticKeySpecification? {
@@ -57,14 +61,14 @@ enum SyntheticKeyEventFactory {
     /// conversion beside the existing factory makes mobile replay and socket
     /// automation share one native mapping instead of maintaining two event
     /// pipelines.
-    static func specification(forBrowserEvent event: BrowserKeyboardEvent) -> SyntheticKeySpecification? {
+    public static func specification(forBrowserEvent event: BrowserKeyboardEvent) -> SyntheticKeySpecification? {
         guard let nativeKey = event.nativeKey else { return nil }
         return specification(forBrowserNativeKey: nativeKey)
     }
 
     /// Converts the browser package's platform-neutral descriptor into the
     /// AppKit representation consumed by CGEvent construction.
-    static func specification(
+    public static func specification(
         forBrowserNativeKey key: BrowserKeyboardNativeKey,
         additionalModifierFlags: NSEvent.ModifierFlags = []
     ) -> SyntheticKeySpecification {
@@ -94,7 +98,7 @@ enum SyntheticKeyEventFactory {
         return flags
     }
 
-    static func specification(forASCIICharacter character: Character) -> SyntheticKeySpecification? {
+    public static func specification(forASCIICharacter character: Character) -> SyntheticKeySpecification? {
         switch character {
         case "\n", "\r": return specification(key: "return", modifierFlags: [])
         case "\t": return specification(key: "tab", modifierFlags: [])
@@ -124,7 +128,7 @@ enum SyntheticKeyEventFactory {
 
     /// Builds an `NSEvent` backed by a real `CGEvent` so WebKit text input can
     /// safely interpret it. Callers choose their own direct delivery target.
-    static func keyEvent(
+    public static func keyEvent(
         specification: SyntheticKeySpecification,
         keyDown: Bool,
         timestamp: TimeInterval,
