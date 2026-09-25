@@ -337,6 +337,7 @@ extension TerminalController {
                     let remotePane = location.pane
                     return ControlSurfaceSummary(
                         surfaceID: remotePane.panel.id,
+                        stableSurfaceID: remotePane.panel.stableSurfaceId,
                         typeRawValue: remotePane.panel.panelType.rawValue,
                         title: remotePane.title,
                         isFocused: panel.id == workspace.focusedPanelId && remotePane.isFocused,
@@ -357,6 +358,7 @@ extension TerminalController {
             let simulatorPanel = panel as? SimulatorPanel
             return [ControlSurfaceSummary(
                 surfaceID: panel.id,
+                stableSurfaceID: panel.stableSurfaceId,
                 typeRawValue: panel.panelType.rawValue,
                 title: workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle,
                 isFocused: panel.id == workspace.focusedPanelId,

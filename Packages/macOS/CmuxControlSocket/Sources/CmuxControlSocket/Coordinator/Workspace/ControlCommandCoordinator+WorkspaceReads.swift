@@ -31,6 +31,9 @@ extension ControlCommandCoordinator {
             "latest_submitted_message": orNull(summary.latestSubmittedMessage),
             "latest_submitted_at": orNull(summary.latestSubmittedAt),
         ]
+        if let stableID = summary.stableID {
+            object["stable_id"] = .string(stableID.uuidString)
+        }
         if let index {
             object["index"] = .int(Int64(index))
         }

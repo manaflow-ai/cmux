@@ -57,6 +57,7 @@ extension TerminalController {
             let terminal = panel as? TerminalPanel
             return ControlSurfaceSummary(
                 surfaceID: panel.id,
+                stableSurfaceID: panel.stableSurfaceId,
                 typeRawValue: panel.panelType.rawValue,
                 title: titleByPanelID[panel.id] ?? panel.displayTitle,
                 isFocused: panel.id == dock.focusedPanelId,

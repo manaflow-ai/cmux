@@ -143,6 +143,7 @@ extension TerminalController: ControlSystemContext {
             let browserPanel = panel as? BrowserPanel
             let node = ControlSystemTreeSurfaceNode(
                 surfaceID: surface.surfaceID,
+                stableSurfaceID: surface.stableSurfaceID,
                 index: surfaceIndex,
                 typeRawValue: surface.typeRawValue,
                 title: surface.title,
@@ -198,6 +199,7 @@ extension TerminalController: ControlSystemContext {
 
         return ControlSystemTreeWorkspaceNode(
             workspaceID: workspace.id,
+            stableWorkspaceID: workspace.stableId,
             index: index,
             title: workspace.title,
             description: workspace.customDescription,

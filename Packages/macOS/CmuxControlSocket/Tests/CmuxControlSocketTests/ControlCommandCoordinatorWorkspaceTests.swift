@@ -26,6 +26,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
     private func summary(id: UUID = UUID(), title: String, customTitle: String?) -> ControlWorkspaceSummary {
         ControlWorkspaceSummary(
             id: id,
+            stableID: id,
             title: title,
             customTitle: customTitle,
             customDescription: nil,

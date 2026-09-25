@@ -259,6 +259,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             windowID: nil,
             surfaces: [ControlSurfaceSummary(
                 surfaceID: surfaceID,
+                stableSurfaceID: surfaceID,
                 typeRawValue: "simulator",
                 title: "Simulator",
                 isFocused: true,

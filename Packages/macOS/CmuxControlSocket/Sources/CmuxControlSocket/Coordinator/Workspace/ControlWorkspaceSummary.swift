@@ -9,8 +9,10 @@ public import Foundation
 /// summary into the `workspace.list` / `workspace.current` payload row,
 /// minting the workspace ref and writing the `selected` / `index` keys it owns.
 public struct ControlWorkspaceSummary: Sendable, Equatable {
-    /// The workspace's stable identifier.
+    /// The workspace's live runtime identifier.
     public let id: UUID
+    /// The workspace's restart-stable identifier, when the app can provide it.
+    public let stableID: UUID?
     /// The workspace's display title.
     public let title: String
     /// The user-set title, if any.
@@ -37,7 +39,8 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
     /// Creates a workspace summary.
     ///
     /// - Parameters:
-    ///   - id: The workspace's stable identifier.
+    ///   - id: The workspace's live runtime identifier.
+    ///   - stableID: The workspace's restart-stable identifier, if available.
     ///   - title: The display title.
     ///   - customTitle: The user-set title, if any.
     ///   - customDescription: The user-set description, if any.
@@ -51,6 +54,7 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
     ///   - latestSubmittedAt: The ISO-formatted latest submitted timestamp, if any.
     public init(
         id: UUID,
+        stableID: UUID? = nil,
         title: String,
         customTitle: String?,
         customDescription: String?,
@@ -64,6 +68,7 @@ public struct ControlWorkspaceSummary: Sendable, Equatable {
         latestSubmittedAt: String?
     ) {
         self.id = id
+        self.stableID = stableID
         self.title = title
         self.customTitle = customTitle
         self.customDescription = customDescription
