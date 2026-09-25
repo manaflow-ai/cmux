@@ -655,35 +655,17 @@ extension Workspace {
                 ) {
                     return true
                 }
-                // No observation, or liveness the evidence cannot decide, stays
-                // nil ("unknown") so the shell state and the caller's default
-                // decide, as before the Computer Use merge (#13055).
-                guard let matchingObservation else {
-                    return RestorableAgentProcessLiveness.unknown.wasRunning(
+                // Unknown liveness stays nil so the shell state and the caller's
+                // default (`agentWasRunning ?? true`) decide. The Computer Use
+                // merge (#13055) had turned it into false.
+                return (matchingObservation?.processLiveness ?? .unknown)
+                    .wasRunning(
                         fallingBackTo: panelShellActivityStates[panelId],
-                        recordedProcessIdentities: [:],
+                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,
                         processPresence: agentProcessPresence
                     )
-                }
-                if let resumeBinding {
-                    return matchingObservation.wasRunningForSnapshot(
-                        effectiveRestorableAgent,
-                        binding: resumeBinding,
-                        fallingBackTo: panelShellActivityStates[panelId],
-                        confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
-                        currentProcessIdentity: currentAgentProcessIdentity,
-                        processPresence: agentProcessPresence
-                    )
-                }
-                return matchingObservation.processLiveness.wasRunning(
-                    fallingBackTo: panelShellActivityStates[panelId],
-                    recordedProcessIdentities: matchingObservation.agentProcessIdentities,
-                    confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
-                    currentProcessIdentity: currentAgentProcessIdentity,
-                    processPresence: agentProcessPresence
-                )
             }()
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
