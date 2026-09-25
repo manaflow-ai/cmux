@@ -220,6 +220,106 @@ class AdoptAndSave(Fixture):
             self.assertEqual(state.main(["x", "check", "only"]), 2)
 
 
+A = "a" * 40
+B = "b" * 40
+C = "c" * 40
+D = "d" * 40
+E = "e" * 40
+
+
+class WarmKeys(Fixture):
+    """`keep` stamps the merge base; `warm-keys` prints what owned_warm_state.py folds."""
+
+    def setUp(self):
+        super().setUp()
+        self.seeds = self.store / "seeds"
+
+    def kept(self, fingerprint="fp", merged_onto=A):
+        self.derived.mkdir(parents=True, exist_ok=True)
+        return run(state.keep, self.store, self.derived, fingerprint, merged_onto)
+
+    def seed(self, commit, fingerprint="fp", jobs=14, when=0, manifest=True):
+        path = self.seeds / f"admission-derived-data-v1-macOS-ARM64-{fingerprint}-j{jobs}-{commit}"
+        path.mkdir(parents=True)
+        if manifest:
+            (path / state.seed.MANIFEST).write_text("{}")
+        os.utime(path, (1_000_000 + when, 1_000_000 + when))
+        return path
+
+    def keys(self, fingerprint="fp", cache=True):
+        env = {"CMUX_SEED_LOCAL_CACHE": str(self.seeds) if cache else ""}
+        with unittest.mock.patch.dict(os.environ, env):
+            return state.warm_keys(self.store, "cmux11s-glaeda-1", "glaeda-root-std-xcode-26.6", fingerprint)
+
+    def test_keep_stamps_the_merge_base_and_replaces_it(self):
+        self.kept(merged_onto=A.upper())
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["merged_onto"], A)
+        self.kept(merged_onto="")
+        self.assertNotIn("merged_onto", json.loads((self.store / "stamp.json").read_text()))
+        self.kept(merged_onto="not-a-commit")
+        self.assertNotIn("merged_onto", json.loads((self.store / "stamp.json").read_text()))
+
+    def test_kept_build_first_then_the_newest_seeds_of_this_fingerprint(self):
+        self.kept()
+        self.seed(B, when=10)
+        self.seed(C, when=30, jobs=12)
+        self.seed(D, when=20)
+        self.seed(E, fingerprint="other", when=40)  # another Xcode: never adopted here
+        self.seed("f" * 40, when=50, manifest=False)  # incomplete
+        self.assertEqual(self.keys(), {"runner": "cmux11s-glaeda-1", "pool": "glaeda-root-std-xcode-26.6",
+                                       "keys": ["a" * 12, "c" * 12, "d" * 12, "b" * 12]})
+
+    def test_at_most_four_keys_without_repeats(self):
+        self.kept()
+        for when, commit in enumerate((A, B, C, D, E)):
+            self.seed(commit, when=when)
+        self.assertEqual(self.keys()["keys"], ["a" * 12, "e" * 12, "d" * 12, "c" * 12])
+        self.assertEqual(state.MAX_WARM_KEYS, __import__("owned_warm_state").MAX_KEYS)
+
+    def test_seeds_count_only_when_prefer_may_clone_them(self):
+        self.kept()
+        self.seed(B)
+        self.assertEqual(self.keys(cache=False)["keys"], ["a" * 12])
+
+    def test_a_kept_build_of_another_fingerprint_or_none_is_not_warm(self):
+        self.seed(B)
+        self.assertEqual(self.keys()["keys"], ["b" * 12])
+        self.kept(fingerprint="old")
+        self.assertEqual(self.keys(fingerprint="fp")["keys"], ["b" * 12])
+        self.assertEqual(self.keys(fingerprint="")["keys"], ["a" * 12, "b" * 12])
+
+    def test_a_kept_build_without_a_merge_base_adds_no_key(self):
+        self.kept(merged_onto="")
+        self.assertEqual(self.keys()["keys"], [])
+
+    def test_main_prints_only_the_document_the_janitor_folds(self):
+        import owned_warm_state
+
+        self.kept()
+        self.seed(B)
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output), \
+             unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(self.seeds),
+                                                   "GITHUB_OUTPUT": str(self.store / "out")}):
+            self.assertEqual(state.main(["x", "warm-keys", str(self.store), "cmux11s-glaeda-1",
+                                         "glaeda-root-std-xcode-26.6", "fp"]), 0)
+        document = json.loads(output.getvalue())
+        self.assertFalse((self.store / "out").exists())
+        jobs = [{"name": "CI / " + owned_warm_state.ADMISSION_JOB, "runner_name": "cmux11s-glaeda-1",
+                 "workflow_name": owned_warm_state.CI_WORKFLOW}]
+        self.assertEqual(owned_warm_state.record(document, jobs), ("cmux11s-glaeda-1", ["a" * 12, "b" * 12]))
+
+    def test_main_never_fails(self):
+        output = io.StringIO()
+        with unittest.mock.patch("sys.stdout", output), \
+             unittest.mock.patch.object(state, "warm_keys", side_effect=OSError("disk")):
+            self.assertEqual(state.main(["x", "warm-keys", str(self.store), "r", "p"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"runner": "r", "pool": "p", "keys": []})
+
+    def test_the_usage_names_warm_keys(self):
+        self.assertIn("owned_build_state.py warm-keys STORE RUNNER POOL", state.__doc__)
+
+
 class Replay(Fixture):
     """A warm job must see the times the kept build saw, not the copy's (job 107904138254)."""
 
@@ -611,7 +711,7 @@ class WorkflowCommandLines(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         steps = workflow["jobs"]["macos-compile-admission"]["steps"]
         calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
-        # check, prefer, adopt, record, keep, warm-keys (skipped until the script has it), save.
+        # check, prefer, adopt, record, keep, warm-keys, save.
         self.assertEqual(len(calls), 7)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -619,7 +719,8 @@ class WorkflowCommandLines(unittest.TestCase):
             env = {"PATH": "/usr/bin:/bin", "CMUX_OWNED_STATE_ROOT": str(base / "store"),
                    "CMUX_COMPILE_ADMISSION_DERIVED_DATA": str(base / "derived"),
                    "CMUX_CI_CANONICAL_SRC": str(base / "src"), "FINGERPRINT": "fp",
-                   "HOME": str(base)}
+                   "MERGED_ONTO": "a" * 40, "RUNNER_NAME": "runner", "RUNNER_TEMP": str(base),
+                   "CMUX_PRODUCT_RUNNER": "glaeda-root-std-xcode-26.6", "HOME": str(base)}
             for step in calls:
                 script = step["run"]
                 # The fingerprint comes from Xcode; stand in for it.
@@ -632,6 +733,8 @@ class WorkflowCommandLines(unittest.TestCase):
                 # adopt runs `defaults` on macOS only after a hit; a miss here is fine.
                 self.assertEqual(result.returncode, 0, f"{step['name']}: {result.stderr[-400:]}")
                 self.assertNotIn("owned_build_state.py check STORE", result.stderr, step["name"])
+            # keep ran before warm-keys, so the kept build's merge base is listed.
+            self.assertEqual(json.loads((base / "warm-keys.json").read_text())["keys"], ["a" * 12])
 
 
 class Wiring(unittest.TestCase):
