@@ -107,6 +107,13 @@ extension CMUXCLI {
                 )
                 return
             }
+            if let invocation {
+                try requireCodexWriterAvailable(
+                    record: record,
+                    invocation: invocation,
+                    workingDirectory: workingDirectory
+                )
+            }
             if let launchLease { try transferRestoreLaunchLease(launchLease) }
             switch execution {
             case .invocation(let invocation):

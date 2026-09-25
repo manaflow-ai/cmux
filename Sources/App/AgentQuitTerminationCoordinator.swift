@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Terminates the agent processes cmux spawned and waits for their exact
@@ -14,8 +13,9 @@ import Foundation
 ///
 /// The signal path is the hibernation teardown's: exact PID-generation, process
 /// group, controlling-TTY, and cmux-scope validation before SIGTERM, then a
-/// bounded wait, SIGKILL for survivors, and a bounded post-kill wait. Nothing
-/// here signals a process it cannot prove is the recorded generation.
+/// bounded wait, validated SIGKILL escalation for survivors, and a bounded
+/// post-kill wait. If the refresh cannot prove the target group, the process is
+/// left alone rather than signaling stale process-group data.
 struct AgentQuitTerminationCoordinator: Sendable {
     struct Outcome: Equatable, Sendable {
         /// Panels whose recorded agent processes were live and validated.
@@ -49,7 +49,12 @@ struct AgentQuitTerminationCoordinator: Sendable {
         gracePeriod + postKillExitPeriod
     }
 
-    func terminateAndWait(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated func terminateAndWait(
         scopes: [AgentHibernationController.ProcessTerminationScope]
     ) async -> Outcome {
         let liveScopes = scopes.filter { !$0.processIDs.isEmpty }
@@ -106,7 +111,12 @@ struct AgentQuitTerminationCoordinator: Sendable {
         case survived
     }
 
-    private static func terminatePanel(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    private nonisolated static func terminatePanel(
         _ terminations: [AgentHibernationController.ScopedProcessTermination],
         processScopeKey: AgentHibernationPanelKey,
         gracePeriod: Duration,
@@ -143,37 +153,12 @@ struct AgentQuitTerminationCoordinator: Sendable {
                 }
             )
         if didExit { return .exited }
-        // The escalation waiter answers false both for a real survivor and for
-        // signalled generations that did exit but whose late-child refresh was
-        // unavailable. Quit only cares about the exact generations it signalled,
-        // so decide by them: gone means exited; alive means SIGKILL now and one
-        // more bounded wait, because the waiter's own escalation never ran.
-        let alive = terminations.filter {
+        // The shared hibernation waiter owns escalation. If its authoritative
+        // process-group refresh cannot prove a safe SIGKILL target, leave the
+        // generation alone rather than signaling a reused group from stale data.
+        let alive = terminations.contains {
             AgentPIDProcessIdentity(pid: pid_t($0.processID)) == $0.processIdentity
         }
-        if alive.isEmpty { return .exited }
-        for termination in Set(alive.map(\.processGroupID)) where termination > 1 {
-            _ = kill(-termination, SIGKILL)
-        }
-        for termination in alive where termination.processGroupID <= 1 {
-            _ = kill(pid_t(termination.processID), SIGKILL)
-        }
-        let killed = await withTaskGroup(of: Bool?.self) { group in
-            group.addTask(priority: .userInitiated) {
-                await AgentHibernationController
-                    .waitForExactProcessGenerationsToExitWithoutTimeout(alive)
-            }
-            group.addTask(priority: .utility) {
-                try? await ContinuousClock().sleep(for: postKillExitPeriod)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first ?? false
-        }
-        if killed { return .exited }
-        return alive.allSatisfy {
-            AgentPIDProcessIdentity(pid: pid_t($0.processID)) != $0.processIdentity
-        } ? .exited : .survived
+        return alive ? .survived : .exited
     }
 }
