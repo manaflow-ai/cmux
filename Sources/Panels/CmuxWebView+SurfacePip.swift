@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 
 extension CmuxWebView {
     func appendSurfacePipContextMenuItem(to menu: NSMenu) {
