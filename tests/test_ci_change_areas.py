@@ -5388,14 +5388,9 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert '.conclusion != null and .conclusion != "success" and .conclusion != "skipped"' in watcher
     assert "permissions: {}" in watcher and "actions: write" in watcher
     assert "uses:" not in watcher
-    # ci.yml's only actions: write is owned-pool-watch, which runs no
-    # repository code: it dispatches ci-owned-pool-rescue.yml from main.
-    ci_jobs = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
-    writers = [name for name, job in ci_jobs.items()
-               if (job.get("permissions") or {}).get("actions") == "write"]
-    assert writers == ["owned-pool-watch"]
-    assert CI_WORKFLOW.read_text(encoding="utf-8").count("actions: write") == 1
-    assert all("uses" not in step for step in ci_jobs["owned-pool-watch"]["steps"])
+    # ci.yml holds no actions: write: the owned-pool rescue sweeper finds its
+    # runs by marker (ci-owned-pool-rescue.yml).
+    assert "actions: write" not in CI_WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_macos_compile_admission_precedes_expensive_shards() -> None:
