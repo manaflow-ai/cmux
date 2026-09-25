@@ -22,5 +22,10 @@ struct SettingsSectionIDTests {
         #expect(SettingsSectionID.computersSubsectionAnchorID == "setting:mobile:computers")
         #expect(SettingsSectionID.canonicalAnchorID("section:computers") == "setting:mobile:computers")
         #expect(SettingsSectionID.canonicalAnchorID("setting:computers:pair") == "setting:mobile:computers")
+        #expect(
+            SettingsSectionID.canonicalNavigationAnchor(
+                rawValue: "computers", providedAnchor: nil, visibleAnchor: "section:mobile"
+            ) == "setting:mobile:computers"
+        )
     }
 }

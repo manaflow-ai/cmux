@@ -27,6 +27,7 @@ public struct ComputersSection: View {
                 .accessibilityIdentifier("SettingsComputersRefresh")
                 optionsMenu
             }
+            .settingsSearchAnchors([SettingsSectionID.computersSubsectionAnchorID])
             SettingsCard {
                 if !snapshot.isSignedIn {
                     SettingsCardNote(String(localized: "settings.computers.signIn", defaultValue: "Sign in to the same account on both Macs to discover and connect to them."))
@@ -55,7 +56,6 @@ public struct ComputersSection: View {
                     .textSelection(.enabled)
             }
         }
-        .settingsSearchAnchors([SettingsSectionID.computersSubsectionAnchorID])
         .task {
             for await value in actions.updates() {
                 guard !Task.isCancelled else { break }
