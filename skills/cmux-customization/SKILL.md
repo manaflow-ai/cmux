@@ -26,8 +26,9 @@ have not shipped yet.
 Viewer-specific JSON settings live in the global `cmux.json`: `browser.*`,
 `markdown.*`, `fileEditor.*`, `fileExplorer.*`, and `diffViewer.*`. Generic file
 preview routing also uses `app.openSupportedFilesInCmux` and
-`app.preferredEditor`. Right-sidebar tools are structural state and Dock
-configuration, not a `templates.rightSidebarTool` object.
+`app.openMarkdownInCmuxViewer` plus `app.preferredEditor`. Right-sidebar tools
+are structural state and Dock configuration, not a `templates.rightSidebarTool`
+object.
 
 Project-local `.cmux/cmux.json` and `.cmux/dock.json` let worktree, SSH, review, dev, CI, and docs patterns travel with the repo; project actions and commands override global entries with the same ID or name. Global app preferences do not belong there.
 
