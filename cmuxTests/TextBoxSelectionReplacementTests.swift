@@ -114,6 +114,20 @@ struct TextBoxSelectionReplacementTests {
         #expect(textView.string == "XX")
     }
 
+    @Test("a caret inside a selection is ignored instead of swallowing input")
+    func caretInsideSelectionDoesNotCreateAnOverlappingEdit() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        textView.string = "abcd"
+        textView.setSelectedRange(NSRange(location: 0, length: 2))
+        textView.addTextBoxCursor(at: 1)
+
+        textView.insertText("X", replacementRange: textView.selectedRange())
+
+        #expect(textView.string == "Xcd")
+    }
+
     @Test("deletion preserves the primary and boundary cursors")
     func deletionPreservesPrimaryAndBoundaryCursors() {
         let textView = TextBoxInputTextView(
@@ -157,6 +171,27 @@ struct TextBoxSelectionReplacementTests {
 
         #expect(!textView.hasPendingAttachmentUploadPlaceholder())
         #expect(textView.string == "oXneX")
+    }
+
+    @Test("multi-range edits leave unrelated pending paste markers active")
+    func multiRangeEditPreservesUntouchedPendingPasteMarker() throws {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        textView.string = "one two"
+        let firstID = UUID()
+        let secondID = UUID()
+        textView.setSelectedRange(NSRange(location: 0, length: 3))
+        #expect(textView.beginPendingPasteReservation(id: firstID))
+        textView.setSelectedRange(NSRange(location: 4, length: 3))
+        #expect(textView.beginPendingPasteReservation(id: secondID))
+        textView.addTextBoxCursor(at: 1)
+
+        textView.insertText("X", replacementRange: textView.selectedRange())
+
+        #expect(textView.pendingPasteReservations[firstID] == nil)
+        #expect(textView.pendingPasteReservations[secondID] != nil)
+        _ = textView.rollbackPendingPasteReservation(id: secondID)
     }
 
     @Test("stale parent refresh does not resurrect text replaced in the editor")

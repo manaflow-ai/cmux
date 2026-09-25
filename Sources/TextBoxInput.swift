@@ -3565,13 +3565,14 @@ final class TextBoxInputTextView: NSTextView {
            let ranges = activeEditingRanges(),
            ranges.count > 1,
            let replacement = attributedReplacement(for: insertString) {
-            _ = performMultipleSelectionEdit(
+            if performMultipleSelectionEdit(
                 ranges: ranges,
                 replacements: Array(repeating: replacement, count: ranges.count),
                 primaryRange: selectedRange()
-            )
-            onMarkedTextStateChanged(hasMarkedText())
-            return
+            ) {
+                onMarkedTextStateChanged(hasMarkedText())
+                return
+            }
         }
 
         queueAutomaticAttachmentFileCleanup(in: replacementRange)
@@ -3598,6 +3599,17 @@ final class TextBoxInputTextView: NSTextView {
     func addTextBoxCursor(at location: Int) {
         let length = attributedString().length
         guard location >= 0, location <= length else { return }
+        let primary = selectedRange()
+        guard primary.length == 0
+            || location < primary.location
+            || location >= NSMaxRange(primary) else {
+            return
+        }
+        guard !additionalSelectionRanges.contains(where: {
+            $0.length > 0 && location >= $0.location && location < NSMaxRange($0)
+        }) else {
+            return
+        }
         let candidate = NSRange(location: location, length: 0)
         guard candidate != selectedRange(),
               !additionalSelectionRanges.contains(candidate) else { return }
@@ -3624,6 +3636,21 @@ final class TextBoxInputTextView: NSTextView {
 
         var result: [NSRange] = []
         for candidate in candidates where !result.contains(candidate) {
+            if candidate.length == 0,
+               result.contains(where: {
+                   $0.length > 0
+                       && candidate.location >= $0.location
+                       && candidate.location < NSMaxRange($0)
+               }) {
+                continue
+            }
+            if candidate.length > 0 {
+                result.removeAll {
+                    $0.length == 0
+                        && $0.location >= candidate.location
+                        && $0.location < NSMaxRange(candidate)
+                }
+            }
             guard let previous = result.last else {
                 result.append(candidate)
                 continue
@@ -3668,17 +3695,26 @@ final class TextBoxInputTextView: NSTextView {
         let rangeValues = ranges.map { NSValue(range: $0) }
         let replacementStrings = replacements.map(\.string)
         let markerRanges = pendingPasteMarkerRanges()
-        let touchesPendingPasteMarker = pendingPasteReservations.contains { id, reservation in
+        let touchedMarkerIDs = pendingPasteReservations.compactMap { id, reservation -> UUID? in
             guard reservation.usesMarker,
-                  let markerRange = markerRanges[id] else { return false }
-            return ranges.contains {
-                Self.pasteReservationRangesIntersect($0, markerRange)
+                  let markerRange = markerRanges[id],
+                  ranges.contains(where: {
+                      Self.pasteReservationRangesIntersect($0, markerRange)
+                  }) else {
+                return nil
             }
+            return id
         }
-        if touchesPendingPasteMarker {
-            // Restore marker-backed reservations before applying a multi-range edit.
-            // The single-range AppKit interception cannot observe in-range edits here.
-            rollbackAllPendingPasteReservations(notifyingTextChange: false)
+        if !touchedMarkerIDs.isEmpty {
+            // Restore only marker-backed reservations touched by this edit. The
+            // single-range AppKit interception cannot observe in-range edits here.
+            for id in touchedMarkerIDs {
+                _ = rollbackPendingPasteReservation(
+                    id: id,
+                    notifyingTextChange: false,
+                    markerRangesByID: markerRanges
+                )
+            }
         }
         guard shouldChangeText(inRanges: rangeValues, replacementStrings: replacementStrings) else {
             return false
@@ -4823,11 +4859,14 @@ final class TextBoxInputTextView: NSTextView {
               let suggestion = explicitSuggestion ?? mentionCompletionController.selectedSuggestion,
               explicitSuggestion == nil ||
                   mentionCompletionController.suggestions.contains(where: { $0.id == suggestion.id }),
-              isValidSelectedRange(query.range),
-              shouldChangeText(in: query.range, replacementString: suggestion.insertionText) else {
+              isValidSelectedRange(query.range) else {
+            return false
+        }
+        guard shouldChangeText(in: query.range, replacementString: suggestion.insertionText) else {
             return false
         }
 
+        clearAdditionalTextBoxSelections()
         let replacement = mentionCompletionReplacementText(
             for: suggestion,
             replacing: query.range
