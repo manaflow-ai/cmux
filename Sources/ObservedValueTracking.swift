@@ -6,6 +6,8 @@ import os
 // Observation keeps an onChange callback registered until a tracked property
 // mutates. The cancellation flag is therefore set synchronously before the
 // main-actor teardown can run, so a queued re-arm cannot deliver after cancel.
+// @unchecked Sendable is safe because every access to this boolean is guarded
+// by the lock below.
 private final class ObservedValueCancellationFlag: @unchecked Sendable {
     private let state = OSAllocatedUnfairLock(initialState: false)
 
@@ -143,33 +145,5 @@ final class ObservedValueTracking<Value: Equatable> {
 
     func cancel() {
         token.cancel()
-    }
-}
-
-/// Reuses one tracking registration while a source is rebound or its consumer
-/// is mounted repeatedly. A source swap cancels the old registration once and
-/// starts one loop for the replacement source.
-@MainActor
-final class ObservedValueObserver<Value: Equatable> {
-    private var sourceID: ObjectIdentifier?
-    private var token: ObservationToken?
-
-    func observe(
-        source: AnyObject,
-        initial: Bool = true,
-        read: @escaping @MainActor () -> Value,
-        onChange: @escaping @MainActor (Value) -> Void
-    ) {
-        let nextSourceID = ObjectIdentifier(source)
-        guard sourceID != nextSourceID || token?.isCancelled == true else { return }
-        token?.cancel()
-        sourceID = nextSourceID
-        token = ObservationToken.start(initial: initial, read: read, onChange: onChange)
-    }
-
-    func cancel() {
-        token?.cancel()
-        token = nil
-        sourceID = nil
     }
 }

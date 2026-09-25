@@ -1,4 +1,5 @@
 import CmuxSurfaceCatalogModel
+import Combine
 import Foundation
 import CmuxCore
 import CmuxFoundation
@@ -26,7 +27,9 @@ final class CloudBrowserAccessState {
     private(set) var desktopConnected = false
     @ObservationIgnored private let connectionDeadline: MainActorDeferredActionScheduler
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
-    @ObservationIgnored private let routeObserver = ObservedValueObserver<CloudPortAccessModel.Phase>()
+    @ObservationIgnored private var routeTracking: ObservedValueTracking<CloudPortAccessModel.Phase>?
+    @ObservationIgnored private var routeTrackingSourceID: ObjectIdentifier?
+    @ObservationIgnored private var routeTrackingSubscription: AnyCancellable?
     @ObservationIgnored private var routeObservationSuspended = false
     @ObservationIgnored private var preservingCommittedRoute = false
     private var activeNavigationID: ObjectIdentifier?
@@ -73,21 +76,30 @@ final class CloudBrowserAccessState {
 
     private func observeRoute() {
         guard let model, navigate != nil else {
-            routeObserver.cancel()
+            cancelRouteTracking()
             return
         }
         routeObservationSuspended = false
-        routeObserver.observe(
-            source: model,
-            initial: false,
-            read: { [weak model] in model?.phase ?? .closed },
-            onChange: { [weak self, weak model] _ in
+        let sourceID = ObjectIdentifier(model)
+        if routeTrackingSourceID != sourceID {
+            cancelRouteTracking()
+            let tracking = ObservedValueTracking { [weak model] in model?.phase ?? .closed }
+            routeTracking = tracking
+            routeTrackingSourceID = sourceID
+            routeTrackingSubscription = tracking.publisher.sink { [weak self, weak model] _ in
                 guard let self, let model, self.model === model,
                       !self.routeObservationSuspended else { return }
                 self.evaluateRoute()
             }
-        )
+        }
         evaluateRoute()
+    }
+
+    private func cancelRouteTracking() {
+        routeTrackingSubscription = nil
+        routeTracking?.cancel()
+        routeTracking = nil
+        routeTrackingSourceID = nil
     }
 
     private func evaluateRoute() {
@@ -358,7 +370,7 @@ final class CloudBrowserAccessState {
 
     func leave() {
         routeObservationSuspended = true
-        routeObserver.cancel()
+        cancelRouteTracking()
         navigate = nil
         connectionDeadline.cancel()
         desktopConnected = false

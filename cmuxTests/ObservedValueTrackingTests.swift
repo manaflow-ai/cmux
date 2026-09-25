@@ -83,28 +83,4 @@ final class ObservedValueTrackingTests: XCTestCase {
         XCTAssertEqual(received, [[0, 1], [0, 1]])
     }
 
-    func testObserverDoesNotRearmTheSameSource() async {
-        let model = ObservedValueTrackingTestModel()
-        let observer = ObservedValueObserver<Int>()
-        var readCount = 0
-        var changes = 0
-        let read = {
-            readCount += 1
-            return model.value
-        }
-        observer.observe(source: model, initial: false, read: read) { _ in changes += 1 }
-        let countAfterFirstArm = readCount
-        observer.observe(source: model, initial: false, read: read) { _ in changes += 1 }
-        XCTAssertEqual(readCount, countAfterFirstArm)
-
-        let changed = expectation(description: "the source change is delivered once")
-        model.value = 1
-        Task { @MainActor in
-            while changes == 0 { await Task.yield() }
-            changed.fulfill()
-        }
-        await fulfillment(of: [changed], timeout: 1)
-        XCTAssertEqual(changes, 1)
-        observer.cancel()
-    }
 }
