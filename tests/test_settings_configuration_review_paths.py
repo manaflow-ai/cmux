@@ -15,12 +15,10 @@ parsers in `KeyboardShortcutSettingsFileStore.swift` and
 two declarations (the UI row and the documented set), not proof that writing the
 key does anything.
 
-The gap is real in both directions. `canvas.paneGap` and
-`canvas.snappingEnabled` are advertised by rows, are listed in the supported
-set, and therefore pass this guard -- yet `root["canvas"]` is never read by any
-parser, so writing them does nothing. Catching that class needs an oracle
-derived from the parsers; see the tracking issue. Until then, a pass here means
-"the row and the documented set agree", nothing stronger.
+Issue #13993 demonstrated the other drift direction: the canvas paths passed
+this guard while the parser ignored them. CanvasSettingsFileTests now exercises
+their ingestion through runtime metrics. This guard still checks declarations
+only; a pass means "the row and the documented set agree", nothing stronger.
 """
 
 import re

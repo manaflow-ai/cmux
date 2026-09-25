@@ -1,8 +1,32 @@
 import CmuxSettings
 import Foundation
 
-/// Settings-file section parsers for file editor, file explorer, markdown, mobile, and sidebar workspace-todo options, extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
+/// Settings-file section parsers extracted from `KeyboardShortcutSettingsFileStore.swift`, which sits at its file-length budget.
 extension CmuxSettingsFileStore {
+    func parseCanvasSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let canvas = CanvasCatalogSection()
+        if section.keys.contains("paneGap") {
+            // Validate before converting to Int so oversized JSON numbers cannot wrap
+            // into the accepted range. Integral numeric values such as 40.0 are valid.
+            if let value = jsonDouble(section["paneGap"]),
+               CanvasLayoutSettings.paneGapRange.contains(value),
+               value.rounded() == value {
+                snapshot.managedUserDefaults[canvas.paneGap.userDefaultsKey] = .int(Int(value))
+            } else {
+                logInvalid(canvas.paneGap.id, sourcePath: sourcePath)
+            }
+        }
+        if let value = jsonBool(section["snappingEnabled"]) {
+            snapshot.managedUserDefaults[canvas.snappingEnabled.userDefaultsKey] = .bool(value)
+        } else if section.keys.contains("snappingEnabled") {
+            logInvalid(canvas.snappingEnabled.id, sourcePath: sourcePath)
+        }
+    }
+
     func parseFileEditorSection(
         _ section: [String: Any],
         sourcePath: String,
