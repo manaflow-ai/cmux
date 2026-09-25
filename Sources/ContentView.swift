@@ -10851,13 +10851,17 @@ enum CmuxExtensionSidebarSelection {
     /// Synchronous read of the experimental custom-sidebars flag, mirroring
     /// ``isEnabled`` for the AppKit/static paths (the picker menu).
     static var customSidebarsEnabled: Bool {
+        areCustomSidebarsEnabled(defaults: .standard)
+    }
+
+    static func areCustomSidebarsEnabled(defaults: UserDefaults) -> Bool {
         // `DisableCustomSidebars` (MDM): interpreted sidebars are user- or
         // agent-authored code that can dispatch `cmux(...)` commands.
         guard !ManagedDevicePolicy().isEnforced(.disableCustomSidebars) else { return false }
         // See ``isEnabled``: read only the beta-features section so a body-path
         // access does not allocate the entire `SettingCatalog` (issue #5970).
         let key = BetaFeaturesCatalogSection().customSidebars
-        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
+        return Bool.decodeFromUserDefaults(defaults.object(forKey: key.userDefaultsKey)) ?? key.defaultValue
     }
 
     /// Directory custom sidebars are authored into.
