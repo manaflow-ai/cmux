@@ -401,6 +401,45 @@ class Watching(unittest.TestCase):
         self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
         self.assertIn("the run is on an ephemeral pool", summary)
 
+    def test_jobs_late_placement_moved_are_watched_and_rescued(self):
+        # The picker put everything on Blacksmith (no marker), so ci.yml started the watch
+        # for late placement, which moved a shard onto an owned root runner that another
+        # run took first.
+        def jobs(seconds):
+            found = [changes()(seconds),
+                     job("macos / macOS compile admission", status="completed", labels=[BLACKSMITH], created=5),
+                     job("macos / swift-package-tests", status="in_progress", labels=[BLACKSMITH], created=5,
+                         runner="bs-1")]
+            if seconds >= 600:
+                found.append(job(rescue.LATE_JOB, status="completed", created=590))
+                found.append(job("macos / app-host unit tests (1/7)", labels=[MINI], created=600))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=lambda name: name.startswith("macos-pool-late-"))
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": "",
+                                                     "LATE_PLACEMENT": "1"})
+        self.assertIn(f"artifact:macos-pool-late-{RUN_ID}-1", api.calls)
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+        # The picker's marker is read once, not on every look while admission runs.
+        self.assertEqual(api.calls.count(f"artifact:macos-pool-persistent-{RUN_ID}-1-"), 1)
+
+    def test_late_placement_that_moved_nothing_ends_the_watch(self):
+        def jobs(seconds):
+            found = [changes()(seconds),
+                     job("macos / macOS compile admission", status="completed", labels=[BLACKSMITH], created=5),
+                     job("macos / swift-package-tests", status="in_progress", labels=[BLACKSMITH], created=5,
+                         runner="bs-1")]
+            if seconds >= 300:
+                found.append(job(rescue.LATE_JOB, status="completed", created=290))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=False)
+        _, summary = run_main(api, clock, env_extra={"LATE_PLACEMENT": "1"})
+        self.assertIn("late placement moved no job", summary)
+        self.assertNotIn("cancel", api.calls)
+        # Admission's minutes pass at IDLE_POLL_SECONDS: looks at 45, 165, 285 and 405 s.
+        self.assertLessEqual(api.calls.count("jobs"), 5)
+
     def test_waits_for_the_picker_before_looking_for_the_marker(self):
         clock = Clock()
         api = FakeAPI(clock, lambda s: [changes(done_at=100)(s)])
@@ -1117,9 +1156,15 @@ class Workflow(unittest.TestCase):
             # Fail-safe: ci.yml at job level (macos-admission-gate skips a job
             # that cannot fail); the dispatch workflows at step level.
             self.assertIs(job.get("continue-on-error", job["steps"][0].get("continue-on-error")), True, path)
+            # ci.yml also says whether to wait for late placement (the picker owned nothing).
+            late = ' -f late="$LATE"' if path.endswith("/ci.yml") else ""
             self.assertEqual(job["steps"][0]["run"],
                              'gh workflow run ci-owned-pool-rescue.yml --ref main '
-                             '-f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"', path)
+                             '-f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"' + late, path)
+        watch = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]["owned-pool-watch"]
+        self.assertEqual(watch["steps"][0]["env"]["LATE"], "${{ needs.changes.outputs.macos_pr_owned_jobs == '' && '1' || '0' }}")
+        # A run the picker placed nothing owned is watched only where late placement can move jobs.
+        self.assertIn("github.event_name == 'pull_request' && vars.GLAEDA_ROUTE_APP_ID != ''", watch["if"])
         ios = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text(encoding="utf-8"))["jobs"]
         self.assertEqual(ios["runner"]["outputs"]["owned_marker"], "${{ steps.marker.outputs.path != '' }}")
         screenshots = yaml.safe_load((ROOT / ".github/workflows/ios-screenshots.yml").read_text(encoding="utf-8"))
