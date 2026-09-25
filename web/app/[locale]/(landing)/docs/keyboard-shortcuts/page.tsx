@@ -10,6 +10,7 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 const shortcutChordExample = `{
   "shortcuts": {
     "bindings": {
+      "moveWorkspaceToTop": "ctrl+opt+cmd+up",
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
       "toggleSidebar": "cmd+b",

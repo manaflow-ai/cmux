@@ -20,7 +20,7 @@ extension ShortcutAction {
              .selectSurfaceByNumber,
              .nextSidebarTab, .prevSidebarTab,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
-             .moveWorkspaceUp, .moveWorkspaceDown,
+             .moveWorkspaceUp, .moveWorkspaceDown, .moveWorkspaceToTop,
              .focusHistoryBack, .focusHistoryForward, .selectWorkspaceByNumber,
              .renameTab, .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete,

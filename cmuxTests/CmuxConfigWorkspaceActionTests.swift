@@ -12,7 +12,8 @@ import Testing
 /// plus-button menu auto-append, trust disclosure, and executor behavior.
 struct CmuxConfigWorkspaceActionTests {
     @MainActor
-    @Test func backgroundCommandRunsWithoutCreatingATerminal() async throws {
+    @Test(arguments: [false, true], [false, true])
+    func backgroundCommandRunsWithoutCreatingATerminal(browserOnly: Bool, tabBarButton: Bool) async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-background-action-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -34,20 +35,45 @@ struct CmuxConfigWorkspaceActionTests {
         ))
         let manager = TabManager(initialWorkingDirectory: directory.path)
         let workspace = try #require(manager.selectedWorkspace)
+        if browserOnly {
+            let terminalID = try #require(workspace.focusedPanelId)
+            let pane = try #require(workspace.bonsplitController.focusedPaneId)
+            _ = try #require(workspace.newBrowserSurface(inPane: pane, focus: true))
+            #expect(workspace.closePanel(terminalID, force: true))
+            #expect(workspace.panels.values.allSatisfy { $0.panelType == .browser })
+        }
         let panels = Set(workspace.panels.keys)
         let focusedPanel = workspace.focusedPanelId
 
-        #expect(CmuxConfigExecutor.execute(
-            action: action,
-            commands: [],
-            commandSourcePaths: [:],
-            tabManager: manager,
-            baseCwd: directory.path,
-            globalConfigPath: directory.appendingPathComponent("cmux.json").path
-        ))
+        if tabBarButton {
+            let button = CmuxSurfaceTabBarButton(
+                id: "quiet", action: try #require(definition.action),
+                terminalCommandTarget: definition.terminalCommandTarget
+            )
+            workspace.applySurfaceTabBarButtons(
+                [button], sourcePath: nil,
+                globalConfigPath: directory.appendingPathComponent("cmux.json").path,
+                terminalCommandSourcePaths: [:], workspaceCommands: [:]
+            )
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestCustomAction: "quiet",
+                inPane: try #require(workspace.bonsplitController.focusedPaneId)
+            )
+        } else {
+            #expect(CmuxConfigExecutor.execute(
+                action: action,
+                commands: [],
+                commandSourcePaths: [:],
+                tabManager: manager,
+                baseCwd: directory.path,
+                globalConfigPath: directory.appendingPathComponent("cmux.json").path
+            ))
+        }
 
         // A bounded test-only wait observes the shell's filesystem side effect.
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker.path) {
+        for _ in 0..<250 {
+            if (try? String(contentsOf: marker, encoding: .utf8)) == workspace.id.uuidString { break }
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(try String(contentsOf: marker, encoding: .utf8) == workspace.id.uuidString)

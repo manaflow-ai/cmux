@@ -8988,12 +8988,9 @@ struct ContentView: View {
             tabManager.moveSelectedWorkspace(by: 1)
         }
         registry.register(commandId: "palette.moveWorkspaceToTop") {
-            guard let workspace = tabManager.selectedWorkspace else {
+            if !tabManager.moveSelectedWorkspaceToTop() {
                 NSSound.beep()
-                return
             }
-            tabManager.moveTabsToTop([workspace.id])
-            tabManager.selectWorkspace(workspace)
         }
         WorkspaceTodoPaletteCommands.registerHandlers(in: &registry, tabManager: tabManager)
         registry.register(commandId: "palette.closeOtherWorkspaces") {

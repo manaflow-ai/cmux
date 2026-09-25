@@ -71,6 +71,7 @@ extension ShortcutAction {
         case .prevSidebarTabInGroup:
             return String(localized: "shortcut.previousWorkspaceInGroup.label", defaultValue: "Previous Workspace in Group")
         case .moveWorkspaceUp: return String(localized: "shortcut.moveWorkspaceUp.label", defaultValue: "Move Workspace Up")
+        case .moveWorkspaceToTop: return String(localized: "shortcut.moveWorkspaceToTop.label", defaultValue: "Move Workspace to Top")
         case .moveWorkspaceDown: return String(localized: "shortcut.moveWorkspaceDown.label", defaultValue: "Move Workspace Down")
         case .focusHistoryBack: return "Focus Back"
         case .focusHistoryForward: return "Focus Forward"

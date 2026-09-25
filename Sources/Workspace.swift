@@ -14672,36 +14672,24 @@ extension Workspace: BonsplitDelegate {
         }
 
         guard let command = executable.button.terminalCommand else { return }
-        let target = executable.button.resolvedTerminalCommandTarget
-        let didExecute = CmuxConfigExecutor.prepareShellInputIfAuthorized(
+        let panelID = bonsplitController.selectedTab(inPane: pane)
+            .flatMap { panelIdFromSurfaceId($0.id) }
+        let directory = panelID.flatMap { panelDirectories[$0] } ?? currentDirectory
+        _ = CmuxConfigExecutor.executeCommand(
             command,
+            target: executable.button.resolvedTerminalCommandTarget,
+            workspace: self,
+            pane: pane,
+            baseCwd: directory.isEmpty ? FileManager.default.homeDirectoryForCurrentUser.path : directory,
             confirm: executable.button.confirm ?? false,
             actionID: executable.button.id,
-            target: target,
             configSourcePath: executable.terminalCommandSourcePath ?? surfaceTabBarButtonSourcePath,
             globalConfigPath: globalConfigPath,
             displayTitle: executable.button.title ?? executable.button.tooltip,
             icon: executable.button.icon ?? executable.button.action.defaultButtonIcon,
             iconSourcePath: executable.button.iconSourcePath,
             presentingWindow: presentingWindow
-        ) { [weak self] shellInput in
-            guard let self else { return }
-            self.bonsplitController.focusPane(pane)
-            switch target {
-            case .currentTerminal:
-                self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
-            case .newTabInCurrentPane:
-                _ = self.newTerminalSurface(
-                    inPane: pane,
-                    focus: true,
-                    initialInput: shellInput,
-                    inheritWorkingDirectoryFallback: true
-                )
-            }
-        }
-        guard didExecute else {
-            return
-        }
+        )
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {

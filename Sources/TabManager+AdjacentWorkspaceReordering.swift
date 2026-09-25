@@ -2,6 +2,15 @@ import Foundation
 
 /// Shared adjacent workspace-reorder entrypoints for shortcuts, menus, and automation.
 extension TabManager {
+    /// Shares the palette's batch reorder policy, including pin and group boundaries.
+    @discardableResult
+    func moveSelectedWorkspaceToTop() -> Bool {
+        guard let workspace = selectedWorkspace else { return false }
+        moveTabsToTop([workspace.id])
+        selectWorkspace(workspace)
+        return true
+    }
+
     /// Reorders one workspace by a relative offset. The existing coordinator
     /// clamps the result to the workspace's pinned or unpinned tier.
     @discardableResult

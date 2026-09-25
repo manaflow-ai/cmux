@@ -38,6 +38,21 @@ struct ReorderShortcutActionTests {
         #expect(ContentView.commandPaletteShortcutAction(forCommandID: "palette.moveWorkspaceToTop") == action)
     }
 
+    @Test func moveSelectedWorkspaceToTopPreservesPinTierAndSelection() {
+        let manager = TabManager()
+        let pinned = manager.tabs[0]
+        manager.setPinned(pinned, pinned: true)
+        let first = manager.addWorkspace()
+        let last = manager.addWorkspace()
+        manager.selectWorkspace(last)
+
+        #expect(manager.moveSelectedWorkspaceToTop())
+        #expect(manager.tabs.map(\.id) == [pinned.id, last.id, first.id])
+        #expect(manager.selectedTabId == last.id)
+        #expect(manager.moveSelectedWorkspaceToTop())
+        #expect(manager.tabs.map(\.id) == [pinned.id, last.id, first.id])
+    }
+
     @Test func selectedSurfaceMovesByFinalPositionAndClampsAtEdges() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)

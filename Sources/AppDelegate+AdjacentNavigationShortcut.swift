@@ -63,6 +63,10 @@ extension AppDelegate {
             }
             return true
         }
+        if matchConfiguredShortcut(event: event, action: .moveWorkspaceToTop) {
+            routedTabs?.moveSelectedWorkspaceToTop()
+            return true
+        }
         if matchConfiguredShortcut(event: event, action: .moveWorkspaceUp) {
             if moveFocusedCloudMachine(by: -1, event: event) { return true }
             routedTabs?.moveSelectedWorkspace(by: -1)

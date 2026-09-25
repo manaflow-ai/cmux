@@ -158,6 +158,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       },
       { id: "moveWorkspaceUp", combos: [["⌃", "⌥", "⌘", "["]], description: { en: "Move workspace up", ja: "ワークスペースを上へ移動" } },
       { id: "moveWorkspaceDown", combos: [["⌃", "⌥", "⌘", "]"]], description: { en: "Move workspace down", ja: "ワークスペースを下へ移動" } },
+      { id: "moveWorkspaceToTop", combos: [], description: { en: "Move workspace to top", ja: "ワークスペースを先頭へ移動" } },
       {
         id: "focusHistoryBack",
         combos: [["⌘", "["]],
