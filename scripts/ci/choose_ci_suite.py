@@ -375,6 +375,10 @@ def consumer_canary_selectors(
     return []
 
 
+SHARD_LAYOUT_SETTING_RE = re.compile(r"^      CMUX_APP_HOST_[A-Z_]*(SHARD|RESERVED_WALL_SECONDS):")
+SHARD_MATRIX_ENTRY_RE = re.compile(r'^\s*\{"shard":')
+
+
 def shard_layout_lines(workflow: str) -> set[int]:
     """1-based lines of `app-host unit tests` that lay out its shards.
 
@@ -391,9 +395,31 @@ def shard_layout_lines(workflow: str) -> set[int]:
         text = lines[number - 1]
         if re.match(r"^    [A-Za-z_-]+:", text):
             in_strategy = text.startswith("    strategy:")
-        if in_strategy or re.match(r"^      CMUX_APP_HOST_[A-Z_]*(SHARD|RESERVED_WALL_SECONDS):", text):
+        if in_strategy or SHARD_LAYOUT_SETTING_RE.match(text):
             layout.add(number)
     return layout
+
+
+def removed_shard_layout_setting(diff: str) -> bool:
+    """True when a ci-macos.yml hunk removes a line that set the shard layout.
+
+    changed_lines() reports new-side lines only, so a shard setting that an
+    edit deletes or renames to another key would not show up in
+    shard_layout_lines() of the new workflow.
+    """
+    path: str | None = None
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            target = line[4:].strip()
+            path = target[2:] if target.startswith("b/") else None
+            continue
+        if line.startswith("--- "):
+            continue
+        if path == MACOS_WORKFLOW_PATH and line.startswith("-"):
+            removed = line[1:]
+            if SHARD_LAYOUT_SETTING_RE.match(removed) or SHARD_MATRIX_ENTRY_RE.match(removed):
+                return True
+    return False
 
 
 def shard_layout_changed(root: Path, paths: Iterable[str] | None, diff: str | None) -> bool:
@@ -412,6 +438,8 @@ def shard_layout_changed(root: Path, paths: Iterable[str] | None, diff: str | No
         return False
     hunks = changed_lines(diff).get(MACOS_WORKFLOW_PATH) if diff else None
     if not hunks:
+        return True
+    if removed_shard_layout_setting(diff):
         return True
     try:
         workflow = (root / MACOS_WORKFLOW_PATH).read_text(encoding="utf-8")
