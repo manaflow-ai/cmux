@@ -637,7 +637,8 @@ extension ControlCommandCoordinator {
         // Capture the target's ref before closing. Teardown forgets a closed
         // surface's ref, so minting one for the reply would hand the caller a
         // fresh ref for a surface that no longer exists.
-        let targetSurfaceRef = surfaceID.flatMap { handles.existingRef(kind: .surface, uuid: $0) }
+        let targetSurfaceID = surfaceID ?? routing.surfaceID
+        let targetSurfaceRef = targetSurfaceID.flatMap { handles.existingRef(kind: .surface, uuid: $0) }
         let resolution = context.controlSurfaceClose(
             routing: routing,
             surfaceID: surfaceID,
@@ -667,7 +668,7 @@ extension ControlCommandCoordinator {
                 data: .object(["surface_id": .string(id.uuidString)])
             )
         case .closed(let windowID, let workspaceID, let closedSurfaceID):
-            let closedSurfaceRef = closedSurfaceID == surfaceID ? targetSurfaceRef.map(JSONValue.string) : nil
+            let closedSurfaceRef = closedSurfaceID == targetSurfaceID ? targetSurfaceRef.map(JSONValue.string) : nil
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
