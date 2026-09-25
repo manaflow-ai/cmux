@@ -14,6 +14,18 @@ extension MobileCoreRPCClient {
         return try MobileBrowserListResponse.decode(data).panels
     }
 
+    /// Creates a new browser panel in one workspace for immediate streaming.
+    /// - Parameter workspaceID: The Mac-local workspace identifier.
+    /// - Returns: The descriptor of the freshly created panel.
+    /// - Throws: A transport, authorization, RPC, or response-decoding error.
+    public func createMobileBrowserPanel(workspaceID: String) async throws -> MobileBrowserPanelDescriptor {
+        let data = try await sendBrowserRequest(
+            method: "mobile.browser.create",
+            parameters: MobileBrowserCreateParameters(workspaceID: workspaceID)
+        )
+        return try JSONDecoder().decode(MobileBrowserPanelDescriptor.self, from: data)
+    }
+
     /// Starts streaming one browser panel and returns its descriptor.
     /// - Parameters:
     ///   - panelID: The Mac browser panel identifier.

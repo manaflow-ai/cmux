@@ -65,6 +65,9 @@ public enum TerminalInputSessionCommand: Equatable, Sendable {
 /// Facts and user intents consumed by the terminal input-session reducer.
 public enum TerminalInputSessionEvent: Equatable, Sendable {
     case requestFocus(TerminalInputOwner)
+    /// Reasserts UIKit focus even when the owner is already current, so a hidden
+    /// keyboard can be shown again without changing semantic ownership.
+    case requestVisibleFocus(TerminalInputOwner)
     case releaseFocus
     case focusCompleted(owner: TerminalInputOwner, succeeded: Bool)
     case resignCompleted(owner: TerminalInputOwner, succeeded: Bool)
@@ -135,6 +138,10 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         case .requestFocus(let owner):
             deferredTapID = nil
             requestFocus(owner, commands: &transition.commands)
+
+        case .requestVisibleFocus(let owner):
+            deferredTapID = nil
+            requestVisibleFocus(owner, commands: &transition.commands)
 
         case .releaseFocus:
             requestedOwner = nil
@@ -248,12 +255,22 @@ public struct TerminalInputSessionState: Equatable, Sendable {
         commands: inout [TerminalInputSessionCommand]
     ) {
         requestedOwner = owner
-        guard canFocus, actualOwner != owner else { return }
+        guard canFocus else { return }
+        guard actualOwner != owner else { return }
+        commands.append(.focus(owner))
+    }
+
+    private mutating func requestVisibleFocus(
+        _ owner: TerminalInputOwner,
+        commands: inout [TerminalInputSessionCommand]
+    ) {
+        requestedOwner = owner
+        guard canFocus else { return }
         commands.append(.focus(owner))
     }
 
     private func reconcileFocus(commands: inout [TerminalInputSessionCommand]) {
-        guard canFocus, let requestedOwner, actualOwner != requestedOwner else { return }
+        guard canFocus, let requestedOwner else { return }
         commands.append(.focus(requestedOwner))
     }
 }

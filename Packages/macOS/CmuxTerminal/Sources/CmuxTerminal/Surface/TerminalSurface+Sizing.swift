@@ -35,9 +35,13 @@ extension TerminalSurface {
     /// Returns whether a backing-pixel resize should be forwarded to Ghostty.
     ///
     /// Ghostty uses one surface-size API for both renderer pixels and PTY
-    /// geometry. During AppKit live resize, pixel churn can arrive without a
-    /// terminal grid change; coalescing those pixel-only updates avoids
-    /// redundant PTY resizes while preserving ordinary layout and scale changes.
+    /// geometry. Pixel churn can arrive without a terminal grid change;
+    /// coalescing those pixel-only updates avoids redundant PTY resizes (and
+    /// their `SIGWINCH`s) while preserving ordinary layout and scale changes.
+    /// Process-owned surfaces use this in steady state because a harmless
+    /// renderer-pixel delta would otherwise notify a tmux client; manual-I/O
+    /// mirrors opt in only during interactions so their geometry samples keep
+    /// refining the feed-forward size calculation.
     ///
     /// - Parameter currentColumns: The current terminal grid column count.
     /// - Parameter currentRows: The current terminal grid row count.
@@ -190,7 +194,7 @@ extension TerminalSurface {
     /// - Returns: Whether a runtime size or scale change was applied.
     @discardableResult
     @MainActor
-    public func updateSize(
+    func updateSize(
         width: CGFloat,
         height: CGFloat,
         xScale: CGFloat,
@@ -387,14 +391,19 @@ extension TerminalSurface {
         // must still report, because a hidden mirror's one-time size claim
         // (see RemoteTmuxWindowMirror.updateClientSize) is triggered by its
         // surfaces' first applied resize — the LISTENER owns the policy of
-        // what a hidden report may do.
+        // what a hidden report may do. A hidden bootstrap window is not a
+        // real pane window and must never become sizing truth.
         if ioMode.usesManualIO, let report = onManualSizeApplied {
-            if let attachedView, attachedView.window != nil {
+            if let attachedView,
+               let realWindow = uiWindow,
+               attachedView.window === realWindow {
                 manualSizeReportPendingWindowAttach = false
                 let applied = ghostty_surface_size(surface)
                 let cols = Int(applied.columns)
                 let rows = Int(applied.rows)
                 if cols > 1, rows > 1 {
+                    let work = terminalWork.begin(.ptyResizeRequest, workspaceID: tabId)
+                    defer { work?.end() }
                     report(TerminalSurfaceRawSizingSample(
                         columns: cols, rows: rows,
                         cellWidthPx: Int(applied.cell_width_px),
@@ -431,67 +440,4 @@ extension TerminalSurface {
             height: Double(size.cell_height_px) / scale
         )
     }
-
-    /// Raw sizing sample for calibration diagnostics: `ghostty_surface_size`'s
-    /// device-pixel fields UNCONVERTED, plus the attached view's bounds in
-    /// points and its window's backing scale. Callers separate view layout,
-    /// scale, padding, and cell quantization themselves — pre-mixed units are
-    /// how sizing bugs hide (call sites have treated the raw pixel cell size
-    /// as points in one place and as pixels in another).
-    @MainActor
-    public func rawSizingSample() -> TerminalSurfaceRawSizingSample? {
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "rawSizingSample") else { return nil }
-        let size = ghostty_surface_size(surface)
-        return TerminalSurfaceRawSizingSample(
-            columns: Int(size.columns),
-            rows: Int(size.rows),
-            cellWidthPx: Int(size.cell_width_px),
-            cellHeightPx: Int(size.cell_height_px),
-            surfaceWidthPx: Int(size.width_px),
-            surfaceHeightPx: Int(size.height_px),
-            viewBoundsPt: attachedView?.bounds.size,
-            backingScale: attachedView?.window?.backingScaleFactor
-        )
-    }
-
-    /// Delivers the manual-size report that was skipped because the view was
-    /// outside any window when the size applied (see
-    /// ``manualSizeReportPendingWindowAttach``). Called from the attach path;
-    /// a no-op unless a report is actually owed and deliverable.
-    @MainActor
-    public func flushPendingManualSizeReportIfAttached() {
-        guard manualSizeReportPendingWindowAttach,
-              let report = onManualSizeApplied,
-              attachedView?.window != nil,
-              let sample = rawSizingSample(),
-              sample.columns > 1, sample.rows > 1
-        else { return }
-        manualSizeReportPendingWindowAttach = false
-        report(sample)
-    }
-
-    /// Which of ``renderedGridCells()``'s nil conditions currently hold —
-    /// lets sizing diagnostics name the mechanism (view detached from its
-    /// window vs surface not live vs no real grid) instead of a bare nil.
-    @MainActor
-    public func renderedGridDiagnostics() -> (viewInWindow: Bool, surfaceLive: Bool) {
-        (
-            viewInWindow: attachedView?.window != nil,
-            surfaceLive: liveSurfaceForGhosttyAccess(reason: "renderedGridDiagnostics") != nil
-        )
-    }
-
-    /// The on-screen rendered grid, or nil while the runtime surface is not
-    /// live, is not in a window, or has no real grid yet.
-    @MainActor
-    public func renderedGridCells() -> (columns: Int, rows: Int)? {
-        guard attachedView?.window != nil,
-              let surface = liveSurfaceForGhosttyAccess(reason: "renderedGridCells") else { return nil }
-        let size = ghostty_surface_size(surface)
-        let cols = Int(size.columns)
-        let rows = Int(size.rows)
-        guard cols > 1, rows > 1 else { return nil }
-        return (cols, rows)
-    }
-
 }

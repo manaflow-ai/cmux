@@ -10,15 +10,32 @@ import Testing
 @Suite(.serialized)
 struct ClaudeBackgroundWorkNotifyTests {
     private func notifyLine(_ snapshot: [String], containing needle: String) -> String? {
-        snapshot.first { $0.hasPrefix("notify_target_async ") && $0.contains(needle) }
+        (snapshot.compactMap(AgentHookTestNotificationPipeline.candidatePresentation) + snapshot).first { $0.hasPrefix("notify_target_async ") && $0.contains(needle) }
+    }
+
+    @Test func stopHookContinuationDoesNotPoisonTheLaterIdleSignal() throws {
+        let result = try runStopHook(name: "stop-continuation", sessionId: "continued-session", stdin: """
+        {"session_id":"continued-session","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}
+        """)
+        #expect(result.cachedPending == false)
+        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=1") != nil)
+        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: true) != nil)
     }
 
     private func statusLine(_ snapshot: [String], value: String) -> String? {
         snapshot.first { $0.hasPrefix("set_status claude_code \(value) ") }
     }
 
-    private func lifecycleLine(_ snapshot: [String], value: String) -> String? {
-        snapshot.first { $0.hasPrefix("set_agent_lifecycle claude_code \(value) ") }
+    private func journalEvent(
+        _ snapshot: [String],
+        kind: String,
+        pendingWork: Bool? = nil
+    ) -> AgentJournalAppendCapture? {
+        AgentJournalAppendCapture.captures(in: snapshot).first { capture in
+            capture.kind == kind
+                && capture.agentKey == "claude_code"
+                && (pendingWork == nil || capture.pendingWork == pendingWork)
+        }
     }
 
     private func runStopHook(
@@ -46,7 +63,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "stop"],
             environment: environment,
             standardInput: stdin,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
@@ -80,11 +97,12 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(statusLine(snapshot, value: "Running") != nil,
                 "Pending stop must show a Running pill, not Idle; saw \(snapshot)")
         #expect(statusLine(snapshot, value: "Idle") == nil)
-        // And the hibernation lifecycle must stay non-idle so the planner can't
-        // SIGTERM the live background task.
-        #expect(lifecycleLine(snapshot, value: "running") != nil,
-                "Pending stop must publish a running lifecycle; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "idle") == nil)
+        // And the journaled turn boundary must carry pending_work=true so the
+        // reduced lifecycle stays running (non-hibernatable) while the
+        // background task is live.
+        #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: true) != nil,
+                "Pending stop must journal a pending turn completion; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: false) == nil)
     }
 
     @Test func stopWithEmptyArraysTagsIdleAndCachesFalse() throws {
@@ -96,11 +114,13 @@ struct ClaudeBackgroundWorkNotifyTests {
         #expect(notifyLine(snapshot, containing: "c=turn-complete;p=0") != nil,
                 "Truly-idle stop must tag pending=0; saw \(snapshot)")
         #expect(cached == false)
-        // Truly-idle turn end keeps the "Idle" pill and the hibernatable lifecycle.
+        // Truly-idle turn end keeps the "Idle" pill and journals a
+        // non-pending turn completion (which reduces to the hibernatable
+        // idle lifecycle).
         #expect(statusLine(snapshot, value: "Idle") != nil,
                 "Truly-idle stop must show the Idle pill; saw \(snapshot)")
-        #expect(lifecycleLine(snapshot, value: "idle") != nil,
-                "Truly-idle stop must publish an idle lifecycle; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.turn.completed", pendingWork: false) != nil,
+                "Truly-idle stop must journal a non-pending turn completion; saw \(snapshot)")
     }
 
     @Test func stopWithPendingCronTagsPending() throws {
@@ -146,7 +166,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
             standardInput: #"{"session_id":"notif-perm-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude needs your permission","notification_type":"permission_prompt"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
@@ -177,7 +197,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
             standardInput: #"{"session_id":"notif-cue-session","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude needs your permission to run a tool"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
@@ -210,7 +230,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "stop"],
             environment: environment,
             standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[{"id":"t1","type":"shell","status":"running","description":"build","command":"sleep 1"}],"session_crons":[]}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(stopResult)
@@ -220,7 +240,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
             standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(notifResult)
@@ -231,6 +251,12 @@ struct ClaudeBackgroundWorkNotifyTests {
         // banner is suppressed app-side and the pane is still Running.
         #expect(statusLine(snapshot, value: "Needs input") == nil,
                 "Pending idle_prompt must not set a Needs input pill; saw \(snapshot)")
+        // And the journal must record it as an observation, never as a
+        // needs-input question, so the reduced lifecycle stays running.
+        #expect(journalEvent(snapshot, kind: "agent.question.requested") == nil,
+                "Pending idle_prompt must not journal a needs-input question; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.idle.observed") != nil,
+                "Pending idle_prompt must still journal an idle observation; saw \(snapshot)")
     }
 
     @Test func idlePromptAfterIdleStopTagsNotPending() throws {
@@ -256,7 +282,7 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "stop"],
             environment: environment,
             standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Stop","last_assistant_message":"ok","background_tasks":[],"session_crons":[]}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(stopResult)
@@ -265,15 +291,17 @@ struct ClaudeBackgroundWorkNotifyTests {
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
             standardInput: #"{"session_id":"\#(session)","cwd":"/tmp/x","hook_event_name":"Notification","message":"Claude is waiting for your input","notification_type":"idle_prompt"}"#,
-            timeout: 5
+            timeout: ClaudeHookLiveDeliveryHarness.processWallBound
         )
         #expect(handled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(notifResult)
         let snapshot = context.state.snapshot()
         #expect(notifyLine(snapshot, containing: "c=idle-reminder;p=0") != nil,
                 "idle_prompt after an idle stop must tag pending=0; saw \(snapshot)")
-        // With no pending work this is a real waiting state, so the pill flips.
-        #expect(statusLine(snapshot, value: "Needs input") != nil,
-                "Idle idle_prompt must still set the Needs input pill; saw \(snapshot)")
+        // An idle reminder is the same settled episode, not a new blocking request.
+        #expect(statusLine(snapshot, value: "Needs input") == nil,
+                "Idle reminders must not invent a blocking Needs input state; saw \(snapshot)")
+        #expect(journalEvent(snapshot, kind: "agent.idle.observed") != nil,
+                "Idle idle_prompt must journal a settled-idle observation; saw \(snapshot)")
     }
 }

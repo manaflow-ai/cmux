@@ -8,9 +8,11 @@ import Testing
 private actor GateClock: FileWatchClock {
     private var sleepers: [CheckedContinuation<Void, Never>] = []
     private var arrivalWaiters: [CheckedContinuation<Void, Never>] = []
+    private var requestedDurations: [Duration] = []
 
     func sleep(for duration: Duration) async throws {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            requestedDurations.append(duration)
             sleepers.append(continuation)
             let waiters = arrivalWaiters
             arrivalWaiters.removeAll()
@@ -20,6 +22,9 @@ private actor GateClock: FileWatchClock {
 
     /// Number of throttle delays currently parked on the clock.
     var sleeperCount: Int { sleepers.count }
+
+    /// Durations requested by the watcher, in arrival order.
+    var sleepDurations: [Duration] { requestedDurations }
 
     /// Suspends until at least one sleeper has registered.
     func waitForSleeper() async {
@@ -33,6 +38,40 @@ private actor GateClock: FileWatchClock {
     func releaseOne() {
         guard !sleepers.isEmpty else { return }
         sleepers.removeFirst().resume()
+    }
+}
+
+private actor WatchRecheckCounter {
+    private var count = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func record() {
+        count += 1
+        let pending = waiters
+        waiters.removeAll()
+        for waiter in pending { waiter.resume() }
+    }
+
+    func waitForFirstRecheck() async {
+        if count > 0 { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    var recheckCount: Int { count }
+}
+
+extension RecursivePathWatcher {
+    fileprivate func simulateFileSystemEventForTesting(
+        paths: [String] = [],
+        requiresFullRescan: Bool = false
+    ) {
+        receive(
+            FileSystemEventBatch(
+                paths: paths,
+                requiresFullRescan: requiresFullRescan
+            ))
     }
 }
 
@@ -61,7 +100,7 @@ private actor GateClock: FileWatchClock {
     /// changes stop.
     @Test func burstCoalescesAndThrottleRearms() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let watcher = RecursivePathWatcher(clock: clock)
         var iterator = watcher.events.makeAsyncIterator()
 
         // Window 1: five events, but only the first arms the throttle.
@@ -94,7 +133,7 @@ private actor GateClock: FileWatchClock {
     /// Events delivered after `stop()` produce no further yields.
     @Test func eventsAfterStopAreIgnored() async {
         let clock = GateClock()
-        let watcher = RecursivePathWatcher(testThrottleClock: clock)
+        let watcher = RecursivePathWatcher(clock: clock)
         var iterator = watcher.events.makeAsyncIterator()
 
         await watcher.stop()
@@ -102,5 +141,114 @@ private actor GateClock: FileWatchClock {
         let next: Void? = await iterator.next()
         #expect(next == nil)
         #expect(await clock.sleeperCount == 0)
+    }
+
+    @Test func pathEventsAggregateAndDeduplicatePaths() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(clock: clock)
+        var iterator = watcher.pathEvents.makeAsyncIterator()
+
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/build/output.js"])
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/Sources/App.swift"])
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/Sources/App.swift"])
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+
+        let change = await iterator.next()
+        #expect(change == RecursivePathChange(paths: [
+            "/repo/Sources/App.swift",
+            "/repo/build/output.js",
+        ]))
+        await watcher.stop()
+    }
+
+    @Test func fullRescanMarkerSurvivesCoalescing() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(clock: clock)
+        var iterator = watcher.pathEvents.makeAsyncIterator()
+
+        await watcher.simulateFileSystemEventForTesting(
+            paths: ["/repo/partial"],
+            requiresFullRescan: true
+        )
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+
+        let change = await iterator.next()
+        #expect(change?.paths == [])
+        #expect(change?.requiresFullRescan == true)
+        await watcher.stop()
+    }
+
+    @Test func droppedPathDetailBecomesFullRescanMarker() async {
+        let (events, continuation) = AsyncStream<RecursivePathChange>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        RecursivePathWatcher.yieldPathChangePreservingRescan(
+            RecursivePathChange(paths: ["/repo/first.swift"]),
+            to: continuation
+        )
+        RecursivePathWatcher.yieldPathChangePreservingRescan(
+            RecursivePathChange(paths: ["/repo/second.swift"]),
+            to: continuation
+        )
+
+        var iterator = events.makeAsyncIterator()
+        let change = await iterator.next()
+        #expect(change == RecursivePathChange(paths: [], requiresFullRescan: true))
+        continuation.finish()
+    }
+
+    @Test func callerControlsThrottleCeiling() async {
+        let clock = GateClock()
+        let interval: Duration = .seconds(30)
+        let watcher = RecursivePathWatcher(
+            clock: clock,
+            throttleInterval: interval
+        )
+
+        await watcher.simulateFileSystemEventForTesting()
+        await clock.waitForSleeper()
+        #expect(await clock.sleepDurations == [interval])
+        await watcher.stop()
+    }
+
+    @Test func eventFilterRejectsIrrelevantBatchesBeforeDebounce() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(clock: clock) { change in
+            change.paths.contains { $0.hasPrefix("/repo/Sources/") }
+        }
+
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/node_modules/output.js"])
+        #expect(await clock.sleeperCount == 0)
+
+        await watcher.simulateFileSystemEventForTesting(paths: ["/repo/Sources/App.swift"])
+        await clock.waitForSleeper()
+        #expect(await clock.sleeperCount == 1)
+        await watcher.stop()
+    }
+
+    /// A rapid notification burst drives exactly one consumer re-check, not one
+    /// re-check per filesystem callback.
+    @Test func rapidEventsCoalesceIntoOneConsumerRecheck() async {
+        let clock = GateClock()
+        let watcher = RecursivePathWatcher(clock: clock)
+        let counter = WatchRecheckCounter()
+        let consumer = Task {
+            for await _ in watcher.events {
+                await counter.record()
+            }
+        }
+
+        for _ in 0..<25 {
+            await watcher.simulateFileSystemEventForTesting()
+        }
+        await clock.waitForSleeper()
+        await clock.releaseOne()
+        await counter.waitForFirstRecheck()
+        await watcher.stop()
+        await consumer.value
+
+        #expect(await counter.recheckCount == 1)
     }
 }

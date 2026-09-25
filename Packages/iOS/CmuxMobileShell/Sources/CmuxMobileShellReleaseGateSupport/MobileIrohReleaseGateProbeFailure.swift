@@ -7,8 +7,24 @@
 public enum MobileIrohReleaseGateProbeFailure: String, Error, Equatable, Sendable {
     /// The shell did not hold a live authenticated Iroh session.
     case unauthenticatedIrohSession
+    /// The soak deliberately disconnected, but the shared retry did not recover.
+    case soakReconnectFailed = "soak_reconnect_failed"
+    /// Reconnect returned without replacing the native connection.
+    case soakConnectionNotReplaced = "soak_connection_not_replaced"
     /// The authenticated host-status RPC did not return current-main identity.
     case hostStatusRejected
+    /// The RPC inventory request failed before returning a response.
+    case rpcMethodInventoryTransportFailed
+    /// The Mac rejected the debug-only RPC inventory method.
+    case rpcMethodInventoryRejected
+    /// The Mac returned an RPC inventory payload with an invalid shape.
+    case rpcMethodInventoryMalformed
+    /// The Mac returned an RPC inventory with an unsupported schema version.
+    case rpcMethodInventorySchemaMismatch
+    /// The Mac returned duplicate RPC method names.
+    case rpcMethodInventoryDuplicateMethods
+    /// The Mac did not advertise every RPC method required by this iOS build.
+    case rpcMethodInventoryMissingMethods
     /// No selected terminal could be exercised.
     case terminalUnavailable
     /// The terminal input marker did not return through the output stream.

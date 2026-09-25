@@ -202,6 +202,12 @@ extension ControlCommandCoordinator {
                 message: "Pane not found",
                 data: .object(["pane_id": .string(id.uuidString)])
             )
+        case .dockUnavailable(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["pane_id": .string(paneID.uuidString)])
+            )
         case .focused(let windowID, let workspaceID, let focusedPaneID):
             return .ok(.object([
                 "window_id": orNull(windowID?.uuidString),
@@ -301,6 +307,9 @@ extension ControlCommandCoordinator {
 
     /// `pane.create` — split the source surface into a new pane.
     func paneCreate(_ params: [String: JSONValue]) -> ControlCallResult {
+        if let error = incompatibleTerminalCreationInputError(params) {
+            return error
+        }
         let routing = routingSelectors(params)
         guard context?.controlPaneRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -320,6 +329,7 @@ extension ControlCommandCoordinator {
             hasMultipleProfileParams: profileKeys.filter { hasNonNull(params, $0) }.count > 1,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedSourceSurfaceID: string(params, "surface_id").flatMap(UUID.init(uuidString:)),

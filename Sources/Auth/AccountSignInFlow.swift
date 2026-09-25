@@ -10,6 +10,9 @@ protocol AccountSignInFlow: AnyObject {
     var signInIsSlow: Bool { get }
     var lastSignInFailure: AccountSignInModel.Failure? { get }
 
+    /// Callback-bound URL of the attempt currently presenting, if any.
+    var activeSignInURL: URL? { get }
+
     /// Starts the shared hosted sign-in attempt and returns its callback-bound URL.
     func startSignInForPane() -> URL?
 
