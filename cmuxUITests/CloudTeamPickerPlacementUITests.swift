@@ -25,16 +25,82 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         )
     }
 
-    private func launchSignedInApp() -> XCUIApplication {
+    func testShortcutAndPaletteRevealCloudAndOpenItsPicker() {
+        let app = launchSignedInApp(sidebarVisible: false)
+        defer { app.terminate() }
+        app.typeKey("t", modifierFlags: [.command, .option, .shift])
+        let create = app.buttons["CloudTeamPickerCreateTeamButton"]
+        XCTAssertTrue(create.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["CloudTeamPickerButton"].exists)
+        XCTAssertFalse(app.buttons["SidebarAccountSignOutButton"].exists)
+        capture("shortcut-opens-cloud-picker")
+
+        create.click()
+        let name = app.textFields["Team name"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.typeText("Draft team")
+        app.buttons["Cancel"].click()
+        XCTAssertTrue(create.waitForExistence(timeout: 5))
+        capture("cloud-create-team-editor-cancelled")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(create.waitForNonExistence(timeout: 5))
+        app.buttons["RightSidebar.closeButton"].click()
+
+        invokePickerFromPalette(app)
+        XCTAssertTrue(create.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["CloudTeamPickerButton"].exists)
+        capture("palette-opens-cloud-picker")
+    }
+
+    func testCloudGateExplainsWhyPickerCannotOpen() {
+        let app = launchSignedInApp(cloudEnabled: false, sidebarVisible: false)
+        defer { app.terminate() }
+        app.typeKey("t", modifierFlags: [.command, .option, .shift])
+        let unavailable = app.staticTexts["Cloud Machines are temporarily unavailable."]
+        XCTAssertTrue(unavailable.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["CloudTeamPickerButton"].exists)
+        capture("shortcut-cloud-unavailable")
+        app.buttons["OK"].click()
+        XCTAssertTrue(unavailable.waitForNonExistence(timeout: 5))
+
+        invokePickerFromPalette(app)
+        XCTAssertTrue(unavailable.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["CloudTeamPickerButton"].exists)
+        capture("palette-cloud-unavailable")
+    }
+
+    private func invokePickerFromPalette(_ app: XCUIApplication) {
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        let search = app.textFields["CommandPaletteSearchField"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.click()
+        search.typeText("open team picker")
+        let command = app.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND value == %@",
+            "CommandPaletteResultRow.", "palette.auth.teamPicker"
+        )).firstMatch
+        XCTAssertTrue(command.waitForExistence(timeout: 5))
+        command.click()
+    }
+
+    private func launchSignedInApp(
+        cloudEnabled: Bool = true,
+        sidebarVisible: Bool = true
+    ) -> XCUIApplication {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UITEST_AUTH_FIXTURE"] = "1"
         app.launchEnvironment["CMUX_UITEST_AUTH_USER_ID"] = "team-picker-fixture"
         app.launchEnvironment["CMUX_UITEST_AUTH_NAME"] = "Team Picker Fixture"
-        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        if sidebarVisible {
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        }
         app.launchArguments += [
             "-workspacePresentationMode", "minimal",
-            "-cloud.beta.machines.enabled", "YES",
+            "-cloud.beta.machines.enabled", cloudEnabled ? "YES" : "NO",
+            "-fileExplorer.isVisible", sidebarVisible ? "YES" : "NO",
+            "-rightSidebar.mode", "files",
+            "-menuBarOnly", "false",
             "-cmux.flags.override.cloud-machines-enabled-release", "YES",
             "-cmux.flags.override.sidebar-account-button-enabled-release", "YES",
             "-AppleLanguages", "(en)",
