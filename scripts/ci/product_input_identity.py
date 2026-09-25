@@ -159,6 +159,7 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     # and fetched, like the seed above, never what the product is.
     "Reuse this owned Mac's build state",
     "Adopt this owned Mac's DerivedData",
+    "Record this owned Mac's build inputs",
     "Keep this owned Mac's DerivedData",
     "Keep this owned Mac's build state",
     "Validate Swift warning budget",
