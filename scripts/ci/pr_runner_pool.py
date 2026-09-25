@@ -24,11 +24,13 @@ The run goes where it expects to wait least (pick()):
                     DerivedData seed for its Xcode and compiles cold
 
 Owned pools come first in the default order and take the run while the jobs
-they would hold start no later than this run's jobs would on the best
-Blacksmith pool, within vars.CI_PR_POOL_QUEUE_ROUNDS job lengths (default 1,
-at most MAX_QUEUE_ROUNDS), and within the queue bound (owned_room()).
-Otherwise the Blacksmith pool with the least expected wait takes it, the
-earlier in the order on a tie.
+they would hold start within vars.CI_PR_POOL_QUEUE_ROUNDS job lengths
+(default 1, at most MAX_QUEUE_ROUNDS) and within the queue bound
+(owned_room()), whatever Blacksmith's expected wait: Blacksmith is overflow.
+Comparing with that wait, read from a snapshot up to MAX_SNAPSHOT_MINUTES old,
+sent runs off minis busy for a few minutes whenever a Blacksmith pool had
+looked free. Otherwise the Blacksmith pool with the least expected wait takes
+it, the earlier in the order on a tie.
 
 The wait counts what holds a label now: jobs queued and running, and each
 run since the snapshot at what it holds (young_charge(): admission and its
@@ -83,7 +85,13 @@ API (this repository's and the org's glaeda-minis group, GitHub.runners())
 gives the online runners carrying each label, its capacity, and the
 idle ones among them; every other online runner counts as busy
 (live_pools()); a label with no idle runner is charged the
-snapshot's queue and the runs since it, since the API shows no queue.
+snapshot's queue and one job per run since it, since the API shows no queue.
+Read live, in-flight runs' peaks (`committed`, the markers' peaks beyond the
+live window) are not charged at all: those are the fallback without the
+runners API. With the runners read, attempt 1 does not need the snapshot
+either: when it cannot be downloaded or is stale, the owned pools are
+decided from the runners alone and Blacksmith's queues count as unknown
+(empty), instead of every job keeping its default.
 A job on an owned pool may therefore wait up to about CI_PR_POOL_QUEUE_ROUNDS
 job lengths, and ci-owned-pool-rescue.yml gives a CI run's jobs that much
 (QUEUE_ROUND_SECONDS per round) on top of its budget before it moves the
@@ -508,11 +516,19 @@ class Routed:
     pick already finished without a marker, so they hold no owned machine.
     `unknown` counts runs whose pick this one cannot see yet; they are
     replayed and charged REPLAYED_RUN_JOBS on an owned pool they could take.
+    `owned_runs` counts the runs behind `owned` on each pool.
     """
     unknown: int = 0
     owned: Mapping[str, int] = dataclasses.field(default_factory=dict)
     ephemeral: int = 0
     owned_now: Mapping[str, int] | None = dataclasses.field(default=None, compare=False)  # None: `owned`
+    # None: one run per pool with a peak in `owned`.
+    owned_runs: Mapping[str, int] | None = dataclasses.field(default=None, compare=False)
+
+    def runs(self) -> Mapping[str, int]:
+        if self.owned_runs is not None:
+            return self.owned_runs
+        return {label: 1 for label, peak in self.owned.items() if peak}
 
 
 def flag(value: str | None) -> bool:
@@ -955,6 +971,18 @@ def owned_room(label: str, counts: Mapping[str, int], added_jobs: int, taken_pea
     return min(wait, bound)
 
 
+def snapshot_problem(snapshot: Any, now: dt.datetime) -> str:
+    """Why decide() would not read `snapshot` (missing, undated, stale or without pools), or ""."""
+    if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
+        return "no readable pool snapshot"
+    if not isinstance(snapshot.get("pools"), Mapping):
+        return "malformed pool snapshot"
+    age = snapshot_age_minutes(snapshot, now)
+    if age is None or age < -5 or age > MAX_SNAPSHOT_MINUTES:
+        return f"pool snapshot is stale or undated (age {age if age is None else round(age)} min)"
+    return ""
+
+
 def iso(moment: dt.datetime) -> str:
     return moment.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -1136,11 +1164,17 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
     an offline machine counts as running. What is not idle is running. The
     runners API shows no queue:
     a label with an idle runner has none, and one without counts the
-    snapshot's queue plus the peaks of the runs that took the pool since the
-    snapshot and before the live window (`older`), which errs high.
-    `future`, for the queue bound only (owned_room()), is what the runs
-    holding the label will need at their peak: the snapshot's `committed`
-    plus those older peaks, since the API cannot see jobs not created yet.
+    snapshot's queue plus `older`: the jobs of the runs that took the pool
+    since the snapshot and before the live window that may still wait there
+    (pull request CI passes one per run, its admission).
+
+    In-flight runs' peaks (the snapshot's `committed`, the markers' peaks)
+    are not charged: jobs that do not exist yet hold no runner, and charging
+    them kept runs off idle minis ("0 of 19 root runners free" and "every
+    pool is full" while 12.7k unit-min of owned time sat idle beside
+    Blacksmith work on 2026-09-25). They remain the fallback when the
+    runners cannot be read. `future` is 0, so the queue bound (owned_room())
+    counts only what holds the label now and this run's queue rounds.
 
     A root label counts only while CI_OWNED_POOL_SLOTS gives it a root count,
     which is what turns root routing on (root_label()).
@@ -1156,10 +1190,8 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
         else:
             capacity[label] = max(int(slot_counts.get(label) or 0), free)
         seen = (pools.get(label) or {}) if isinstance(pools.get(label), Mapping) else {}
-        older_peaks = older.get(pool_label(label), 0)
-        queued = 0 if free else int(seen.get("queued") or 0) + older_peaks
-        pools[label] = {"queued": queued, "running": capacity[label] - free, "committed": 0,
-                        "future": int(seen.get("committed") or 0) + older_peaks}
+        queued = 0 if free else int(seen.get("queued") or 0) + max(0, int(older.get(pool_label(label), 0)))
+        pools[label] = {"queued": queued, "running": capacity[label] - free, "committed": 0, "future": 0}
     return {**snapshot, "pools": pools}, capacity
 
 
@@ -1184,21 +1216,20 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
          compared_jobs: int | None = None) -> Pick:
     """The rule itself. `added` counts runs replayed since the snapshot on each pool.
 
-    With `queue_rounds` (CI_PR_POOL_QUEUE_ROUNDS) above 0, the run goes where
-    it expects to wait least (expected_wait()): an owned pool, in order,
-    when the jobs it would place there start no later than this run's jobs
-    would on the best Blacksmith pool, within `queue_rounds` job lengths,
-    and within the queue bound (owned_room()); else the Blacksmith pool with
-    the least expected wait, the earlier in order on a tie. `taken` is the
+    With `queue_rounds` (CI_PR_POOL_QUEUE_ROUNDS) above 0: an owned pool, in
+    order, when the jobs it would place there start within `queue_rounds`
+    job lengths and within the queue bound (owned_room()), whatever
+    Blacksmith's expected wait (Blacksmith is overflow); else the Blacksmith
+    pool with the least expected wait (expected_wait()), the earlier in
+    order on a tie. `taken` is the
     peak of the runs since the snapshot that took each owned pool, by their
     markers, and `taken_now` what they hold now (young_charge()). A
     replayed run counts REPLAYED_RUN_JOBS on an owned pool and one on its
     root runners and on Blacksmith. `reserve` (main's full suite with
     CI_OWNED_MAIN_RESERVE) is kept free on top of this run's jobs and root
     jobs, and turns `split` off. `compared_jobs` (default `jobs`) is how
-    many jobs the owned and Blacksmith waits are compared at: a replayed run
-    takes the pool with one job but is compared at REPLAYED_RUN_JOBS, the
-    jobs it has at once.
+    many jobs Blacksmith's wait (reported, not compared) is read at: a
+    replayed run takes the pool with one job but has REPLAYED_RUN_JOBS at once.
 
     With 0, the old rule: an owned pool only with machines free now, the
     first Blacksmith pool with a free machine (or at most max_queued
@@ -1224,7 +1255,12 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     for label in usable:
         if not persistent(label):
             continue
-        limit = min(whole, queue_rounds * job_minutes(label)) if queue_rounds else 0.0
+        # Fleet first: an owned pool may queue its full allowance whatever
+        # Blacksmith's wait looks like. That wait comes from a snapshot up to
+        # MAX_SNAPSHOT_MINUTES old and is 0 whenever a Blacksmith pool showed
+        # a free machine, which sent runs off minis busy for a few minutes
+        # (2026-09-25: 2.5k Blacksmith job-min on "0 of 19 root runners free").
+        limit = float(queue_rounds * job_minutes(label))
         peak, now = taken.get(label, 0), taken_now.get(label, 0)
         room = owned_room(label, load[label], added[label] * REPLAYED_RUN_JOBS, peak, now, queue_rounds, limit)
         root_room = (owned_room(label, roots[label], added[label], peak, now, queue_rounds, limit)
@@ -1523,11 +1559,14 @@ def choose(
         if limits is None:
             return Choice("", "", f"{OVERFLOW_VARIABLE} is 0, or {ORDER_VARIABLE}/{MAX_QUEUED_VARIABLE}/"
                                   f"{QUEUE_ROUNDS_VARIABLE} is invalid"), None
+    unreadable = ""
     try:
         snapshot = fetch()
-    except Exception as error:  # noqa: BLE001 - every failure keeps the default
-        return Choice("", "", f"could not read the pool snapshot ({error})"), None
+    except Exception as error:  # noqa: BLE001 - every failure keeps the default, or the live runners decide
+        snapshot, unreadable = None, f"could not read the pool snapshot ({error})"
     if fork:
+        if unreadable:
+            return Choice("", "", unreadable), None
         # No repository variables reach a fork run; the janitor copied them.
         copied = snapshot.get("settings") if isinstance(snapshot, Mapping) else None
         if not isinstance(copied, Mapping):
@@ -1559,16 +1598,32 @@ def choose(
             if not persistent(label) or light and label.startswith(f"glaeda-{LIGHT_CLASS}-")))
         if not limits.order:
             return Choice("", "", f"retry attempt {run_attempt}; no ephemeral pool in the order"), snapshot
+    live = live_owned is not None and not fork
+    # Attempt 1 with the owned runners read live does not need the janitor:
+    # a failed download (an HTTP 503 from artifact storage) or a stale
+    # snapshot leaves the owned pools to the live runners and Blacksmith's
+    # queues unknown, instead of skipping the fleet (2026-09-25: 2.8k
+    # Blacksmith job-min on a stale snapshot, 0.6k on a 503).
+    live_only = ""
+    if live and not retry:
+        live_only = unreadable or snapshot_problem(snapshot, now)
+        if live_only:
+            snapshot, unreadable = {"generated_at": iso(now), "pools": {}, "source": "live"}, ""
+    if unreadable:
+        return Choice("", "", unreadable), snapshot
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
         return Choice("", "", "no readable pool snapshot"), snapshot
-    try:
-        routed = count_routed(str(snapshot["generated_at"]))
-    except Exception as error:  # noqa: BLE001 - every failure keeps the default
-        return Choice("", "", f"could not count runs since the snapshot ({error})"), snapshot
+    if live_only:
+        # The live window below counts the runs that matter.
+        routed = Routed()
+    else:
+        try:
+            routed = count_routed(str(snapshot["generated_at"]))
+        except Exception as error:  # noqa: BLE001 - every failure keeps the default
+            return Choice("", "", f"could not count runs since the snapshot ({error})"), snapshot
     if not isinstance(routed, Routed):
         routed = Routed(unknown=int(routed))
     owned_capacity = {} if fork else slots(owned_slots, xcode_pins.get(PR_XCODE_VARIABLE))
-    live = live_owned is not None and not fork
     if live:
         # The idle runners replace the slot counts and the snapshot's owned
         # counts. Only the runs of the last LIVE_WINDOW_MINUTES are charged to
@@ -1581,11 +1636,13 @@ def choose(
             recent = Routed(unknown=int(recent))
         before = routed
         routed = Routed(unknown=recent.unknown, owned=recent.owned, owned_now=recent.owned_now,
+                        owned_runs=recent.owned_runs,
                         ephemeral=routed.ephemeral + max(0, routed.unknown - recent.unknown))
         # Runs since the snapshot but before the live window: their owned jobs
         # are running (so busy below) or still queued, which the runners API
-        # cannot show.
-        older = {label: max(0, count - recent.owned.get(label, 0)) for label, count in before.owned.items()}
+        # cannot show. One job each (admission) may still wait where no
+        # runner is idle; their later jobs are not charged (live_pools()).
+        older = {label: max(0, count - recent.runs().get(label, 0)) for label, count in before.runs().items()}
         snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older, live_online)
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
@@ -1602,6 +1659,9 @@ def choose(
                                 f"({choice.reason})")
     if live and persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
+    if live_only and choice.runner:
+        choice = dataclasses.replace(choice, reason=f"{choice.reason}; no janitor snapshot ({live_only}), so "
+                                                    "Blacksmith's queues are unknown")
     if fork and choice.runner:
         choice = dataclasses.replace(choice, reason=f"fork head; {choice.reason}")
     if retry and choice.runner:
@@ -1751,6 +1811,7 @@ class GitHub:
                 if routed_run(run) and run.get("id") != exclude_run_id and run.get("status") != "completed"]
         owned: dict[str, int] = {}
         owned_now: dict[str, int] = {}
+        owned_runs: dict[str, int] = {}
         ephemeral = unknown = looked_up = 0
         for run in runs:
             if not may_hold_owned_pool(run, light_retry=light_retry):
@@ -1766,13 +1827,14 @@ class GitHub:
                 route = None
             if isinstance(route, tuple):
                 owned[route[0]] = owned.get(route[0], 0) + route[1]
+                owned_runs[route[0]] = owned_runs.get(route[0], 0) + 1
                 owned_now[route[0]] = owned_now.get(route[0], 0) + young_charge(
                     route[1], run_age_minutes(run, now or dt.datetime.now(dt.timezone.utc)))
             elif route == "ephemeral":
                 ephemeral += 1
             else:
                 unknown += 1
-        return Routed(unknown=unknown, owned=owned, ephemeral=ephemeral, owned_now=owned_now)
+        return Routed(unknown=unknown, owned=owned, ephemeral=ephemeral, owned_now=owned_now, owned_runs=owned_runs)
 
     def run_route(self, run: Mapping[str, Any]) -> tuple[str, int] | str | None:
         """(owned pool, peak), "ephemeral", or None while this run's pick is unknown."""
@@ -1857,7 +1919,11 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
         lines.append(f"- Compile admission takes {labels}: an idle root runner kept a build of this run's merge base")
     for problem in problems:
         lines.append(f"- **Error:** {problem}; that pool gets no machines")
-    if isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping):
+    if isinstance(snapshot, Mapping) and snapshot.get("source") == "live":
+        lines.append("- No janitor snapshot: owned pools read live from the runners API:")
+        for label in sorted(owned_slots or {}):
+            lines.append(f"  - {describe(snapshot, label, owned_slots)}")
+    elif isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping):
         age = snapshot_age_minutes(snapshot, now)
         lines.append(f"- Queue seen by the janitor at {snapshot.get('generated_at')}"
                      + (f" ({round(age)} min before this run)" if age is not None else "") + ":")
