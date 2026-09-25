@@ -78,6 +78,10 @@ extension TerminalWindowPortalLifecycleTests {
     /// test shell needs no graceful exit, so kill every process on the
     /// surface's terminal first and the close finds nothing left to wait for.
     func killShellProcesses(of surface: TerminalSurface) {
+        // Ghostty opens the PTY on its IO thread, so right after spawn the
+        // device may not be known yet. Only a live runtime has a process.
+        guard surface.surface != nil else { return }
+        _ = waitUntil(timeout: 1) { surface.controllingTTYDeviceIdentifier != nil }
         guard let device = surface.controllingTTYDeviceIdentifier else { return }
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_TTY, Int32(truncatingIfNeeded: device)]
         var size = 0
