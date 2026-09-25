@@ -292,7 +292,7 @@ class FailSafe(unittest.TestCase):
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
                                               f"refused_retry_runner=\nroot_runner=\nside_runner=\n"
-                                              "admission_runner=\nowned_jobs=\n")
+                                              "admission_runner=\nadmission_placement=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)

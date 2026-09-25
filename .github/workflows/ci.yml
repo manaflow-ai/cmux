@@ -704,6 +704,8 @@ jobs:
           # the root runner the snapshot calls warm for it (warm affinity).
           MERGED_ONTO: ${{ steps.source-identity.outputs.parent1 || github.event.pull_request.base.sha }}
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
+          # 0 stops pinning admission to a root runner on a mini with no root job.
+          OWNED_SPREAD: ${{ vars.CI_OWNED_SPREAD }}
         run: python3 scripts/ci/pr_runner_pool.py
 
       # A job queued on a persistent pool (owned Macs) waits for it however long

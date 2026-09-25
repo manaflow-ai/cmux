@@ -80,14 +80,16 @@ against the machines, as before (owned_free()). An owned pool is
 skipped when it has no slot count, and like every pool when the snapshot is
 older than MAX_SNAPSHOT_MINUTES. With the org route App's token, the runners
 API (this repository's and the org's glaeda-minis group, GitHub.runners())
-gives the idle runners carrying each label, and every other runner
-counts as busy (live_pools()); a label with no idle runner is charged the
+gives the online runners carrying each label, its capacity, and the
+idle ones among them; every other online runner counts as busy
+(live_pools()); a label with no idle runner is charged the
 snapshot's queue and the runs since it, since the API shows no queue.
 A job on an owned pool may therefore wait up to about CI_PR_POOL_QUEUE_ROUNDS
 job lengths, and ci-owned-pool-rescue.yml gives a CI run's jobs that much
 (QUEUE_ROUND_SECONDS per round) on top of its budget before it moves the
-run to Blacksmith (owned_pool_rescue.py). An offline machine still counts
-as a slot; what that gets wrong, ci-owned-pool-rescue.yml catches: a run whose
+run to Blacksmith (owned_pool_rescue.py). Without the runners API an
+offline machine still counts toward capacity; what that gets wrong,
+ci-owned-pool-rescue.yml catches: a run whose
 job waits on an owned pool past its budget is re-run on Blacksmith. A re-run
 of failed jobs reuses this run's outputs, so a persistent choice also names
 `retry_runner`, the Blacksmith pool every macOS job takes from attempt 2 on. The owned order is `std` (48 GB minis),
@@ -158,6 +160,17 @@ needs only "Self-hosted runners: Read-only". The match is exact: v1 does not
 rank runners by commit distance. A warm runner taken between the pick and
 the queue leaves admission waiting on its label, and
 ci-owned-pool-rescue.yml moves it to Blacksmith.
+
+Spread-first admission: a compile wants 8 to 10 of a mini's 14 cores, and
+GitHub hands a root job to any idle root runner, so two compiles could share
+a mini while another mini's root runners sat idle. Unless
+`vars.CI_OWNED_SPREAD == '0'`, admission placed on a pool with a root count,
+with the runners read live, is pinned the same way to an idle root runner on
+a mini none of whose root runners is busy (spread_admission_runner()),
+preferring a warm one there. With no such mini, warm affinity above decides,
+then the root label. A pinned runner taken first has the warm path's
+exposure: the rescue re-runs the run, and attempt 2 never takes the pinned
+label.
 
 GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
 `vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
@@ -231,6 +244,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import hashlib
 import io
 import json
 import os
@@ -276,6 +290,9 @@ WARM_KEY = re.compile(r"[0-9a-f]{12}")
 # `glaeda-runner-<runner name>`: the static label naming one root runner
 # (glaeda-cmux-runner runner_label()), which warm affinity puts in runs-on.
 RUNNER_LABEL_PREFIX = "glaeda-runner-"
+# A glaeda runner's name: `<member>-glaeda` or `<member>-glaeda-<K>`, where
+# the member is the mini it runs on (runner_member()).
+GLAEDA_RUNNER_NAME = re.compile(r"(?P<member>.+)-glaeda(?:-[0-9]+)?")
 XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
@@ -958,6 +975,20 @@ def runner_label(name: str) -> str:
     return RUNNER_LABEL_PREFIX + re.sub(r"[^a-z0-9._-]+", "-", name.lower())
 
 
+def warm_runners(merged_onto: str | None, warm: Any) -> set[str]:
+    """The runners the snapshot's `warm` (owned_warm_state.py) calls warm for `merged_onto`."""
+    key = warm_key(merged_onto)
+    kept = warm.get("runners") if isinstance(warm, Mapping) else None
+    if not key or not isinstance(kept, Mapping):
+        return set()
+    return {str(name) for name, entry in kept.items()
+            if isinstance(entry, Mapping) and key in (entry.get("keys") or [])}
+
+
+def runner_labels(runner: Mapping[str, Any]) -> set[str]:
+    return {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+
+
 def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
                           warm: Any) -> str:
     """Admission's runs-on labels as JSON when an idle `root` runner is warm for `merged_onto`, else "".
@@ -965,31 +996,86 @@ def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merge
     `warm` is the snapshot's `warm` (owned_warm_state.py). The runner must
     carry its own runner_label(), or a job naming it would wait forever.
     """
-    key = warm_key(merged_onto)
-    kept = warm.get("runners") if isinstance(warm, Mapping) else None
-    if not key or not root.startswith(ROOT_PREFIX) or not isinstance(kept, Mapping):
+    hot = warm_runners(merged_onto, warm)
+    if not hot or not root.startswith(ROOT_PREFIX):
         return ""
     for runner in runners:
         if runner.get("status") != "online" or runner.get("busy"):
             continue
         name = str(runner.get("name") or "")
-        entry = kept.get(name)
-        if not name or not isinstance(entry, Mapping) or key not in (entry.get("keys") or []):
-            continue
-        names = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
-        own = runner_label(name)
-        if root in names and own in names:
-            return json.dumps([root, own], separators=(",", ":"))
+        names = runner_labels(runner)
+        if name in hot and root in names and runner_label(name) in names:
+            return json.dumps([root, runner_label(name)], separators=(",", ":"))
     return ""
 
 
+def runner_member(name: str) -> str:
+    """The mini a glaeda runner runs on: its name less `-glaeda` or `-glaeda-<K>`, or "" for another name."""
+    match = GLAEDA_RUNNER_NAME.fullmatch(name or "")
+    return match.group("member") if match else ""
+
+
+def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
+                            warm: Any, *, seed: str = "") -> tuple[str, bool]:
+    """Admission's runs-on labels as JSON for an idle `root` runner on a mini running no `root` job.
+
+    A compile wants 8 to 10 of a mini's 14 cores, and GitHub hands a root
+    job to any idle root runner, so two compiles can share one mini while
+    another's root runners sit idle. This pins admission to a mini none of
+    whose online `root` runners is busy. Among those runners it prefers one
+    the snapshot's `warm` calls warm for `merged_onto`, then picks by `seed`
+    (the run ID), so runs picking at once spread instead of all naming the
+    first. The runner must carry its own runner_label(). Returns the labels
+    ("" when no mini is empty) and whether the runner is warm.
+    """
+    if not root.startswith(ROOT_PREFIX):
+        return "", False
+    busy: set[str] = set()
+    idle: list[str] = []
+    for runner in runners:
+        name = str(runner.get("name") or "")
+        member = runner_member(name)
+        names = runner_labels(runner)
+        if runner.get("status") != "online" or not member or root not in names:
+            continue
+        if runner.get("busy"):
+            busy.add(member)
+        elif runner_label(name) in names:
+            idle.append(name)
+    free = sorted(name for name in idle if runner_member(name) not in busy)
+    hot = warm_runners(merged_onto, warm)
+    candidates = [name for name in free if name in hot] or free
+    if not candidates:
+        return "", False
+    index = int(hashlib.sha256(seed.encode()).hexdigest(), 16) % len(candidates) if seed else 0
+    name = candidates[index]
+    return json.dumps([root, runner_label(name)], separators=(",", ":")), name in hot
+
+
+def live_online(runners: Sequence[Mapping[str, Any]], labels: Sequence[str]) -> dict[str, int]:
+    """Runners online and carrying each owned label, busy or idle: its live capacity."""
+    online = {label: 0 for label in labels}
+    for runner in runners:
+        if runner.get("status") != "online":
+            continue
+        names = runner_labels(runner)
+        for label in labels:
+            if label in names:
+                online[label] += 1
+    return online
+
+
 def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts: Mapping[str, int],
-               older: Mapping[str, int]) -> tuple[Mapping[str, Any], dict[str, int]]:
+               older: Mapping[str, int], online: Mapping[str, int] | None = None,
+               ) -> tuple[Mapping[str, Any], dict[str, int]]:
     """The snapshot with each owned label's counts read live, and the owned capacities.
 
-    A label's capacity is its slot count (CI_OWNED_POOL_SLOTS), or its idle
-    runners when those are more (a label without a count). What is not idle
-    is running, an offline machine included. The runners API shows no queue:
+    A label's capacity is its online runners (`online`, live_online()): the
+    hand-set CI_OWNED_POOL_SLOTS drifts from what is registered, and an
+    offline runner takes no job. Without `online` it is the variable's count,
+    or the idle runners when those are more (a label without a count), and
+    an offline machine counts as running. What is not idle is running. The
+    runners API shows no queue:
     a label with an idle runner has none, and one without counts the
     snapshot's queue plus the peaks of the runs that took the pool since the
     snapshot and before the live window (`older`), which errs high.
@@ -1006,7 +1092,10 @@ def live_pools(snapshot: Mapping[str, Any], idle: Mapping[str, int], slot_counts
         if label.startswith(ROOT_PREFIX) and label not in slot_counts:
             continue
         free = max(0, int(count))
-        capacity[label] = max(int(slot_counts.get(label) or 0), free)
+        if online is not None and label in online:
+            capacity[label] = max(int(online[label]), free)
+        else:
+            capacity[label] = max(int(slot_counts.get(label) or 0), free)
         seen = (pools.get(label) or {}) if isinstance(pools.get(label), Mapping) else {}
         older_peaks = older.get(pool_label(label), 0)
         queued = 0 if free else int(seen.get("queued") or 0) + older_peaks
@@ -1329,6 +1418,7 @@ def choose(
     now: dt.datetime,
     run_attempt: int = 1,
     live_owned: Mapping[str, int] | None = None,
+    live_online: Mapping[str, int] | None = None,
     shards: int = 0,
     queue_rounds: str | None = None,
     ref: str = "",
@@ -1436,7 +1526,7 @@ def choose(
         # are running (so busy below) or still queued, which the runners API
         # cannot show.
         older = {label: max(0, count - recent.owned.get(label, 0)) for label, count in before.owned.items()}
-        snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older)
+        snapshot, owned_capacity = live_pools(snapshot, live_owned or {}, owned_capacity, older, live_online)
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
                     auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
@@ -1690,7 +1780,8 @@ class GitHub:
 
 def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime,
             owned_slots: Mapping[str, int] | None = None, problems: Sequence[str] = (),
-            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "") -> str:
+            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "",
+            admission_placement: str = "") -> str:
     runner = choice.runner or "each job's default (MACOS_RUNNER_PR or its fallback)"
     lines = ["### macOS pool for this run", "", f"- Pool: `{runner}`", f"- Why: {choice.reason}"]
     if choice.xcode_app:
@@ -1704,7 +1795,13 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
         lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`")
     if admission_runner:
         labels = " + ".join(f"`{label}`" for label in json.loads(admission_runner))
-        lines.append(f"- Compile admission takes {labels}: an idle root runner kept a build of this run's merge base")
+        why = {
+            "spread": "an idle root runner on a mini with no root job running",
+            "spread-warm": "an idle root runner on a mini with no root job running, which kept a build "
+                           "of this run's merge base",
+            "warm": "an idle root runner kept a build of this run's merge base (every mini runs a root job)",
+        }.get(admission_placement, "an idle root runner kept a build of this run's merge base")
+        lines.append(f"- Compile admission takes {labels}: {why}")
     for problem in problems:
         lines.append(f"- **Error:** {problem}; that pool gets no machines")
     if isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping):
@@ -1769,7 +1866,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # The org App's token (ci.yml mints it for same-repository pull requests
     # only) reads which owned runners are idle now. Without it, or on any
     # error, the slot counts and the snapshot decide as before.
-    live_owned = None
+    live_owned = online = None
     live_runners: list[Mapping[str, Any]] | None = None
     route_token = (env.get("ROUTE_TOKEN") or "").strip()
     if route_token and repo and not args.snapshot and (env.get("POOL_OWNED") or "").strip() == "1":
@@ -1779,9 +1876,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             labels += tuple(root_label(label) for label in labels)
             live_runners = GitHub(route_token, repo).runners() if labels else None
             live_owned = live_owned_free(live_runners, labels) if live_runners is not None else None
+            online = live_online(live_runners, labels) if live_runners is not None else None
         except Exception as error:  # noqa: BLE001 - the snapshot path still decides
             print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
-            live_owned = live_runners = None
+            live_owned = online = live_runners = None
     choice, snapshot = choose(
         event=event,
         ref=ref,
@@ -1806,6 +1904,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         now=now,
         run_attempt=int(attempt) if attempt.isdigit() else 1,
         live_owned=live_owned,
+        live_online=online,
         shards=sum(1 for key in plan.after if key.startswith("shard-")),
         queue_rounds=env.get("POOL_QUEUE_ROUNDS") or "",
     )
@@ -1824,19 +1923,26 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run takes retry_runner. The marker's jobs are the owned machines held.
     owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None)
                         if persistent(choice.runner) else ((), plan.peak))
-    # Admission on a root runner whose kept build is of this run's merge base
-    # (see "Warm affinity" above); attempt 1 only, since only it is placed.
-    admission_runner = ""
-    # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
-    # turns affinity off.
-    if (env.get("OWNED_WARM") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
-            and live_runners is not None and snapshot):
-        admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
-                                                 snapshot.get("warm"))
+    # Admission pinned to one root runner (see "Spread-first admission" and
+    # "Warm affinity" above); attempt 1 only, since only it is placed.
+    admission_runner = admission_placement = ""
+    if choice.root_runner and ADMISSION_JOB in owned_jobs and live_runners is not None:
+        # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
+        # turns affinity off.
+        warm = snapshot.get("warm") if env.get("OWNED_WARM") == "1" and snapshot else None
+        if (env.get("OWNED_SPREAD") or "").strip() != "0":
+            admission_runner, hit = spread_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
+                                                            warm, seed=run_id)
+            admission_placement = ("spread-warm" if hit else "spread") if admission_runner else ""
+        if not admission_runner and warm is not None:
+            # Every mini runs a root job: double up only for a kept build.
+            admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"), warm)
+            admission_placement = "warm" if admission_runner else ""
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
-                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
+                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side,
+                   admission_placement=admission_placement)
     print(text)
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
@@ -1857,9 +1963,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # the pool label, on attempt 1 and on that attempt 2.
                          f"side_runner={side}\n"
                          # JSON labels for admission's attempt 1: the root label
-                         # and the static label of the runner warm for this
-                         # run's merge base, or "".
+                         # and the static label of the runner it is pinned to
+                         # (spread-first or warm), or "".
                          f"admission_runner={admission_runner}\n"
+                         # Why: spread, spread-warm, warm, or "".
+                         f"admission_placement={admission_placement}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.
                          f"owned_jobs={' ' + ' '.join(owned_jobs) + ' ' if owned_jobs else ''}\n")

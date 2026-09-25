@@ -185,9 +185,10 @@ The version comes from `CMUX_CI_XCODE_APP_PR`, so moving that pin moves the
 pool, and no machine carries the new label until glaeda has verified the new
 Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
 `glaeda-std-xcode-<version>` (48 GB minis), then `glaeda-light-xcode-<version>`
-(16 GB), then the Blacksmith pools as overflow. An owned pool's capacity is its entry in
-`CI_OWNED_POOL_SLOTS`, and the janitor's snapshot counts the jobs queued and
-running on that label. A pull request run puts several macOS jobs on its pool
+(16 GB), then the Blacksmith pools as overflow. An owned pool's capacity is
+the online runners carrying its label when the picker can list runners
+(below), else its entry in `CI_OWNED_POOL_SLOTS`, and the janitor's snapshot
+counts the jobs queued and running on that label. A pull request run puts several macOS jobs on its pool
 at once, each on its own machine, so a run takes the owned pool only when its
 own peak fits there by the expected wait above. The picker runs after the suite choice and counts
 that peak from the run's routing: the Claude wrapper and remote daemon lanes
@@ -218,7 +219,7 @@ names no owned pool.
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
 | `CI_OWNED_MAIN_RESERVE` | `0` | machines, and root runners, main's full-suite dispatch leaves free for pull requests; above 0 it takes an owned pool only whole (below) |
-| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online, idle runners carrying an owned label are that pool's free machines, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces `CI_OWNED_POOL_SLOTS` and the snapshot's owned counts and age. Any failure falls back to them |
+| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online runners carrying an owned label are that pool's capacity, and the idle ones its free runners, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces the counts of `CI_OWNED_POOL_SLOTS` (which still turns a pool's root routing on) and the snapshot's owned counts and age. Any failure falls back to them |
 | `CI_OWNED_LIGHT_RETRY` | unset (off) | `1` lets attempt 2, the full re-run the rescue starts for a job stuck on a full `std` pool, take the `light` pool when the run's whole owned peak is free there and `github-actions[bot]` started the re-run (a person's re-run of attempt 2 stays on Blacksmith). The rescue watches that attempt like attempt 1, and a job stuck or refused there goes to Blacksmith on attempt 3. Only while it is on do the janitor and the picker look up attempt 2's marker. Order: std, light, Blacksmith |
 
 Main's full suite: `ci-main-full-suite.yml` dispatches `ci.yml` on main about
@@ -276,10 +277,25 @@ exactly; it does not rank runners by commit distance. A warm runner taken
 between the pick and the queue leaves admission waiting, and the rescue moves
 it to Blacksmith like any other stuck owned job.
 
+Spread-first admission (on unless `CI_OWNED_SPREAD=0`): a compile wants 8 to
+10 of a mini's 14 cores, and GitHub hands a root job to any idle root runner,
+so two compiles could share a mini while another mini's root runners sat
+idle. With live runners and a root count, the picker groups the pool's online
+root runners by mini (the runner name less `-glaeda` or `-glaeda-<K>`) and
+pins admission to an idle root runner, carrying its `glaeda-runner-` label, on
+a mini none of whose root runners is busy. It prefers a warm one there
+(`CI_OWNED_WARM=1`) and otherwise picks by run ID, so runs picking at once
+land on different minis. With no such mini it falls back to warm affinity,
+then to the root label, so two compiles share a mini only under pressure.
+The `admission_placement` output says which (`spread`, `spread-warm`, `warm`,
+or empty). A pinned root runner taken before admission queues has the same
+exposure as a warm one: the rescue re-runs the run, and attempt 2 never takes
+the pinned label.
+
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it
-stays busy. An offline mini still counts as a slot, and the snapshot can be
-minutes old. When the picker chooses a persistent pool, `changes`
+stays busy. Without the runner listing an offline mini still counts toward
+capacity, and the snapshot can be minutes old. When the picker chooses a persistent pool, `changes`
 uploads a `macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>` marker (the
 janitor reads the run's peak and pool from its name), and the
 `owned-pool-watch` job dispatches `ci-owned-pool-rescue.yml` (from `main`, with
