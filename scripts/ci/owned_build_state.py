@@ -77,7 +77,7 @@ rebuild: those whose content differs from the kept RECORD, and from the
 MANIFEST of the nearest seed in this commit's history that this Mac keeps
 (seed_derived_data.py CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the
 one with fewer changed inputs wins, and the adopt that follows clones exactly
-that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 190 s,
+that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 250 s,
 so it wins only within MAX_DISTANCE commits, and only when MAX_DISTANCE is
 given. A kept DerivedData without a record replays nothing and rebuilds the
 whole `cmux` module, so any seed beats it. Every error keeps the warm path.
@@ -92,7 +92,7 @@ behind a package change that a nearer bucket seed had already built (jobs
 to one that does not, and when both the kept DerivedData and the kept seed
 would, a nearer bucket seed wins at any distance if GitHub's compare of its
 commit with the checkout shows no package source change: its download (about
-250 s on a mini) costs less than recompiling the app (365 to 958 s).
+250 s on a mini) costs less than recompiling the app (365 to 1,053 s).
 
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
@@ -389,9 +389,10 @@ def bucket_seed_rebuilds_app(key: str, workspace: Path) -> bool | None:
         return None
     # A submodule bump (vendor/bonsplit) is listed as the bare submodule
     # path, while the local records see the .swift files under it.
-    return rebuilds_app(files) or any(
-        path in submodules(workspace) and path.startswith(PACKAGE_SOURCES) for path in files
-    )
+    if rebuilds_app(files):
+        return True
+    bumped = [path for path in files if path.startswith(PACKAGE_SOURCES)]
+    return bool(bumped) and not submodules(workspace).isdisjoint(bumped)
 
 
 def submodules(workspace: Path) -> set[str]:
