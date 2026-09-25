@@ -259,6 +259,7 @@ public actor V2ControlService {
         run: UUID, canRefreshAuth: Bool = true
     ) async throws -> Response {
         let data = try codec.encode(request)
+        try await renewTicketIfDue(before: schemaID, run: run)
         do {
             let reply = try await exchange(data: data, requestID: requestID, schemaID: schemaID, run: run)
             try assertCurrent(run)
@@ -287,6 +288,28 @@ public actor V2ControlService {
             return try JSONDecoder().decode(Response.self, from: reply)
         } catch is DecodingError {
             throw V2ControlFailure.invalidWireData
+        }
+    }
+
+    /// Renews an API ticket whose refresh time has passed before a request is sent.
+    ///
+    /// After sleep or suspension every maintenance deadline is overdue at once,
+    /// and a request sent ahead of the renewal is rejected as `ticket_expired`.
+    /// A renewal failure is tolerated while the ticket is still valid; once it
+    /// has expired the request fails here instead of reaching the server.
+    func renewTicketIfDue(before schemaID: String, run: UUID) async throws {
+        guard schemaID != V2TicketRequestSchemaID.ticketRequestV1.rawValue,
+              schemaID != "session.goodbye.v1",
+              let ticket = cache.ticket,
+              ticket.refreshAfter <= Int(dependencies.now().timeIntervalSince1970) else { return }
+        do {
+            _ = try await refreshAPITicket()
+            try assertCurrent(run)
+        } catch {
+            try assertCurrent(run)
+            let expiresAt = cache.ticket?.expiresAt ?? ticket.expiresAt
+            if expiresAt > Int(dependencies.now().timeIntervalSince1970) { return }
+            throw error
         }
     }
 
