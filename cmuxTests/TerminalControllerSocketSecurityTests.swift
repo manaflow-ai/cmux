@@ -926,7 +926,7 @@ final class TerminalControllerSocketSecurityTests {
         )
         XCTAssertEqual(envelope["ok"] as? Bool, true, "\(envelope)")
         let result = try XCTUnwrap(envelope["result"] as? [String: Any], "\(envelope)")
-        XCTAssertNotNil(result["text"] as? String)
+        _ = try XCTUnwrap(result["text"] as? String, "\(envelope)")
 
         // v1 twin: read_screen shares the capture-hop/format-off-main split
         // and the not-mainThreadCallable policy.
