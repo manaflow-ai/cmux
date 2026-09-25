@@ -41,7 +41,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// where each record's backup actually lives, learned from the upload echo,
     /// so its delete tombstone can be routed there instead of re-resolving a
     /// nil team at delete time.
-    private let backupTeamStore: any PairedMacBackupTeamStoring
+    let backupTeamStore: any PairedMacBackupTeamStoring
     private var pendingDeleteIDsByScope: [String: Set<String>] = [:]
     /// Bumped by every `removeAll()` (sign-out wipe). A restore captures it before
     /// awaiting its task and re-checks after: a restore that completed/resumed
@@ -85,7 +85,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// same (account, device, tag) pairing to exist under several team scopes,
     /// so a key without the team would let team B's upload overwrite team A's
     /// destination and later route A's tombstone into B's backup.
-    private func backupTeamKey(account: String, rowTeamID: String?, pairingID: String) -> String {
+    func backupTeamKey(account: String, rowTeamID: String?, pairingID: String) -> String {
         "\(account)\u{0}\(rowTeamID ?? "")\u{0}\(pairingID)"
     }
 
@@ -373,12 +373,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
-            stackUserID: target?.stackUserID,
+            stackUserID: target.stackUserID,
             teamID: team,
             now: now
         )
@@ -412,9 +413,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setActive(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -520,9 +522,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -533,6 +536,46 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     }
 
     /// Persist customizations for one exact tagged pairing.
+    /// Device-local per-Computer Direct addresses: forwarded verbatim and
+    /// deliberately NOT mirrored into the account backup.
+    public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let team = await resolvedTeam(teamID)
+        try await inner.setDirectAddresses(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawJSON: rawJSON,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+    }
+
+    /// Device-local per-Computer connection method: forwarded verbatim and
+    /// deliberately NOT mirrored into the account backup.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let team = await resolvedTeam(teamID)
+        try await inner.setConnectionMethod(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawValue: rawValue,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+    }
+
     public func setCustomization(
         macDeviceID: String,
         instanceTag: String?,
@@ -588,9 +631,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await remove(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -1074,7 +1118,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         )?.stackUserID
     }
 
-    private func macFor(
+    func macFor(
         _ macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
@@ -1082,10 +1126,19 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         requiresExactInstanceTag: Bool
     ) async throws -> MobilePairedMac? {
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        return try await inner.loadAll(stackUserID: stackUserID, teamID: teamID).first {
+        let matches = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID).filter {
             cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
+                && (!requiresExactInstanceTag
+                    || MacPairingKey(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ) == MacPairingKey(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ))
         }
+        guard requiresExactInstanceTag || matches.count == 1 else { return nil }
+        return matches.first
     }
 
     /// Build a backup record for a Mac from the local row. Callers choose whether
@@ -1118,7 +1171,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         teamID: String? = nil,
         includesCustomizations: Bool = false,
         allowTombstoneRevive: Bool = false,
-        instanceAuthority: PairedMacBackupInstanceAuthorityWriteMode = .authoritative
+        instanceAuthority: PairedMacBackupInstanceAuthorityWriteMode = .authoritative,
+        resolvesNilTeam: Bool = true
     ) async -> Bool {
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
         let pairingID = MobilePairedMac.pairingID(
@@ -1129,7 +1183,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             .pairedMacBackupWriteStarted,
             correlationID: pairingID
         )
-        let team = await resolvedTeam(teamID)
+        let team = resolvesNilTeam ? await resolvedTeam(teamID) : teamID
         let localMacs: [MobilePairedMac]
         do {
             localMacs = try await inner.loadAll(stackUserID: account, teamID: team)
@@ -1142,9 +1196,14 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             return false
         }
         guard let mac = localMacs.first(where: {
-                cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                    && $0.instanceTag == instanceTag
-            }) else {
+            MacPairingKey(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            ) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        }) else {
             diagnosticLog?.recordAppEvent(
                 .pairedMacBackupWriteFailed,
                 correlationID: pairingID,

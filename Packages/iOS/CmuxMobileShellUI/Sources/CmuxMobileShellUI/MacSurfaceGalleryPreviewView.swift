@@ -3,6 +3,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileShellModel
+import CmuxMobileToast
 import Foundation
 import SwiftUI
 
@@ -17,6 +18,9 @@ import SwiftUI
 /// `simctl ui appearance` exercises both palettes of the same views.
 public struct MacSurfaceGalleryPreviewView: View {
     private let page: String
+    @State private var filesPresented = false
+    @State private var displaySettings = MobileDisplaySettings()
+    @State private var toasts = ToastCenter()
 
     /// Creates the gallery for the page named in the launch environment.
     public init() {
@@ -25,6 +29,8 @@ public struct MacSurfaceGalleryPreviewView: View {
 
     public var body: some View {
         switch page {
+        case "files":
+            filesPage
         case "file":
             PanelFileSurfaceView(
                 surface: Self.fileSurface,
@@ -52,9 +58,27 @@ public struct MacSurfaceGalleryPreviewView: View {
             TodoSurfaceView(
                 surface: Self.todoSurface,
                 todo: Self.todoSnapshot,
+                allowsMutations: true,
                 mutate: { _ in }
             )
         }
+    }
+
+    private var filesPage: some View {
+        Button("Open Files") { filesPresented = true }
+            .accessibilityIdentifier("FilesPreviewOpen")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(.systemBackground))
+            .preferredColorScheme(.dark)
+            .popover(isPresented: $filesPresented, arrowEdge: .bottom) {
+                TerminalArtifactFilesPreview()
+                .environment(displaySettings)
+                .environment(toasts)
+                .preferredColorScheme(.dark)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationCompactAdaptation(.sheet)
+            }
     }
 
     /// Hosts the production picker in a plain chrome bar; the menu itself is
@@ -76,8 +100,7 @@ public struct MacSurfaceGalleryPreviewView: View {
                         selectedID: nil,
                         selectedMacSurfaceID: Self.todoSurface.id,
                         canCreateWorkspace: true,
-                        hasActiveBrowser: false,
-                        isChatMode: false
+                        hasActiveBrowser: false
                     ),
                     actions: TerminalPickerMenuActions(
                         selectTerminal: { _ in },
@@ -86,6 +109,7 @@ public struct MacSurfaceGalleryPreviewView: View {
                         createTerminal: {},
                         openBrowser: {},
                         selectBrowserStream: { _ in },
+                        selectSimulatorStream: { _ in },
                         openTextSheet: {},
                         copyDebugLogs: {},
                         sendFeedback: {}
@@ -158,14 +182,14 @@ public struct MacSurfaceGalleryPreviewView: View {
             ChatArtifactStat(
                 exists: true,
                 isDirectory: false,
-                size: Int64(MacSurfaceGalleryFixtureBytes.body(for: path).count),
+                size: Int64(MacSurfaceGalleryFixtureBytes().body(for: path).count),
                 modifiedAt: Date(timeIntervalSince1970: 1_753_800_000),
                 kind: .text,
                 mimeType: path.hasSuffix(".md") ? "text/markdown" : "text/plain"
             )
         },
         fetch: { path, progress in
-            let data = MacSurfaceGalleryFixtureBytes.body(for: path)
+            let data = MacSurfaceGalleryFixtureBytes().body(for: path)
             progress?(Int64(data.count), Int64(data.count))
             return data
         }
@@ -173,8 +197,10 @@ public struct MacSurfaceGalleryPreviewView: View {
 }
 
 /// Off-actor fixture bytes so the `@Sendable` loader closures can read them.
-private enum MacSurfaceGalleryFixtureBytes {
-    static let textBody = Data("""
+private struct MacSurfaceGalleryFixtureBytes: Sendable {
+    init() {}
+
+    let textBody = Data("""
     cmux iOS all-surfaces UX round — panel file preview fixture.
 
     This body streams through the panel-scoped artifact loader and renders in
@@ -185,7 +211,7 @@ private enum MacSurfaceGalleryFixtureBytes {
     - The header shows the surface kind badge, title, and Open on Mac.
     """.utf8)
 
-    static let markdownBody = Data("""
+    let markdownBody = Data("""
     # iosrf-demo
 
     Markdown panels now render **natively** on iOS through the shared
@@ -204,7 +230,7 @@ private enum MacSurfaceGalleryFixtureBytes {
     ```
     """.utf8)
 
-    static func body(for path: String) -> Data {
+    func body(for path: String) -> Data {
         path.hasSuffix(".md") ? markdownBody : textBody
     }
 }

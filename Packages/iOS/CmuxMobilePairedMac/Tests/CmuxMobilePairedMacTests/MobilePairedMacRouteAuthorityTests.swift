@@ -97,6 +97,136 @@ import Testing
         #expect(current.instanceTag == "feature-b")
     }
 
+    @Test func emptyTagRestoreCannotCreateLegacySibling() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let taggedRoute = try route(id: "tagged", port: 51_003)
+        let staleRoute = try route(id: "stale", port: 51_004)
+        try await store.upsert(
+            macDeviceID: "shared-mac",
+            displayName: "Stable",
+            routes: [taggedRoute],
+            instanceTag: "stable",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 10)
+        )
+
+        let wrote = try await store.upsertIfNewer(
+            macDeviceID: "shared-mac",
+            displayName: "Legacy restore",
+            routes: [staleRoute],
+            instanceTag: "   ",
+            customName: nil,
+            customColor: nil,
+            customIcon: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 20)
+        )
+
+        #expect(!wrote)
+        let rows = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(rows.count == 1)
+        #expect(rows.first?.instanceTag == "stable")
+    }
+
+    @Test func explicitPairingAuthorizationReinstatesDeletedTailscaleRoute() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let deletedRoute = try route(id: "deleted", port: 51_005)
+        let retainedRoute = try route(id: "retained", port: 51_006)
+        let scope = MobilePairedMacRouteWriteCondition.matchingInstanceTag("default")
+        try await store.upsert(
+            macDeviceID: "shared-mac",
+            displayName: "Desk Mac",
+            routes: [deletedRoute, retainedRoute],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 10)
+        )
+        #expect(try await store.removeRouteIfAuthorized(
+            macDeviceID: "shared-mac",
+            route: deletedRoute,
+            condition: scope,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 20)
+        ))
+
+        // A successful scan first persists the newly advertised route, then
+        // records that the user explicitly authorized its exact destination.
+        // Passive advertisement alone must remain unable to undo a deletion.
+        try await store.upsert(
+            macDeviceID: "shared-mac",
+            displayName: "Desk Mac",
+            routes: [deletedRoute, retainedRoute],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 30)
+        )
+        #expect(try await store.activeMac(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )?.routes == [retainedRoute])
+
+        try await store.authorizeUserTailscaleRoutes(
+            macDeviceID: "shared-mac",
+            instanceTag: "default",
+            stackUserID: "user-1",
+            teamID: "team-a",
+            routes: [deletedRoute]
+        )
+
+        #expect(try await store.activeMac(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )?.routes.map(\.id).sorted() == ["deleted", "retained"])
+    }
+
+    @Test func routeRemovalRejectsStaleIdForDifferentEndpoint() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let routeA = try route(id: "shared-id", port: 51_007)
+        let routeB = try route(id: "other-id", port: 51_008)
+        try await store.upsert(
+            macDeviceID: "shared-mac",
+            displayName: "Desk Mac",
+            routes: [routeA, routeB],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 10)
+        )
+
+        // The stale record reuses routeB's id while still naming routeA's
+        // endpoint. Removal must follow the endpoint, never the stale id.
+        let staleRoute = try CmxAttachRoute(
+            id: routeB.id,
+            kind: routeA.kind,
+            endpoint: routeA.endpoint
+        )
+        #expect(try await store.removeRouteIfAuthorized(
+            macDeviceID: "shared-mac",
+            route: staleRoute,
+            condition: .matchingInstanceTag("default"),
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 20)
+        ))
+        #expect(try await store.activeMac(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )?.routes == [routeB])
+    }
+
     private func makeStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

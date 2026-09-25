@@ -45,9 +45,9 @@ import Testing
             group("c", anchor: "c"),
         ]
         #expect(MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups) == [
-            .groupHeader(groups[0], hasUnread: false),
-            .groupHeader(groups[1], hasUnread: false),
-            .groupHeader(groups[2], hasUnread: false),
+            .groupHeader(groups[0], unread: .read),
+            .groupHeader(groups[1], unread: .read),
+            .groupHeader(groups[2], unread: .read),
         ])
     }
 

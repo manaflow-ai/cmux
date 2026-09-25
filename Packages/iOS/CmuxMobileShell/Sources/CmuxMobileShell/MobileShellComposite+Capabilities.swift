@@ -1,5 +1,5 @@
 import CMUXMobileCore
-import CmuxMobileShellModel
+public import CmuxMobileShellModel
 
 extension MobileShellComposite {
     /// Whether the connected Mac supports browser-pane streaming.
@@ -40,6 +40,14 @@ extension MobileShellComposite {
     public var usesVerifiedTerminalReplay: Bool {
         terminalOutputTransport == .renderGrid
             && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
+    }
+
+    /// Hybrid sessions subscribe to render-grid events only for screen-state
+    /// tracking and alternate-screen recovery. Primary-screen painting stays
+    /// on the sequence-aware byte lane, so an advisory grid must never impose
+    /// its shared viewport dimensions on the local natural surface.
+    public var usesHybridTerminalOutput: Bool {
+        terminalOutputTransport == .hybrid
     }
 
     /// Screen-anchored render-grid sessions receive active-area-anchored
@@ -119,9 +127,40 @@ extension MobileShellComposite {
         supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability)
             && discoversMacScopedWorkspaceMutations
     }
-    /// Whether the Mac supports creating task-composer workspaces.
+    /// Whether the New Task composer entrypoint is available. A connected
+    /// Mac's capability snapshot is authoritative for that Mac: any connected
+    /// Mac advertising task creation shows the entrypoint, and a fleet of
+    /// connected Macs that all lack it (remote flag off, or older builds)
+    /// hides it. With zero connected Macs there is no snapshot to consult, so
+    /// the entrypoint stays visible and the composer warns that no Mac is
+    /// connected instead of the button silently disappearing while offline.
     public var supportsTaskComposer: Bool {
-        supportedHostCapabilities.contains(Self.taskCreateCapability)
+        var sawConnectedMac = false
+        if connectionState == .connected {
+            if supportedHostCapabilities.contains(Self.taskCreateCapability) {
+                return true
+            }
+            sawConnectedMac = true
+        }
+        for (_, subscription) in secondaryMacSubscriptions {
+            if subscription.supportedHostCapabilities.contains(Self.taskCreateCapability) {
+                return true
+            }
+            sawConnectedMac = true
+        }
+        // With no connected Mac the composer normally gets the benefit of the
+        // doubt (offline Macs may support tasks once they come up) — but not
+        // when the only listed computer is the demonstration Mac, which can
+        // never run a real task.
+        return !sawConnectedMac && !pairedMacsAreDemonstrationOnly
+    }
+
+    /// True while at least one Mac session is live: the foreground connection
+    /// or any control-role secondary. The task composer keys its "No Mac is
+    /// connected" warning off this so the warning clears the moment any Mac
+    /// comes up, not only the foreground one.
+    public var hasAnyConnectedMac: Bool {
+        connectionState == .connected || !secondaryMacSubscriptions.isEmpty
     }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }

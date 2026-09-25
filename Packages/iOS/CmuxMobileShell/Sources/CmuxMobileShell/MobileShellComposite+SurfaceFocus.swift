@@ -4,6 +4,13 @@ public import CmuxMobileShellModel
 extension MobileShellComposite {
     public nonisolated static let surfaceFocusCapability = "surface.focus.v1"
 
+    /// Shows a Mac surface in the workspace detail. Deliberately leaves
+    /// ``selectedTerminalID`` alone so the terminal selection (and composer
+    /// draft) survives the surface visit.
+    public func selectMacSurface(_ surfaceID: MobileSurfacePreview.ID) {
+        selectedMacSurfaceID = surfaceID
+    }
+
     /// Whether the workspace's owning Mac advertises surface focus.
     public func supportsSurfaceFocus(in workspaceID: MobileWorkspacePreview.ID) -> Bool {
         let target = workspaceMutationTarget(for: workspaceID)

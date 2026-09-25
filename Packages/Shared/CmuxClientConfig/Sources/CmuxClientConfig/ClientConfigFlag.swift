@@ -28,6 +28,8 @@ public extension ClientConfigFlag where Value == Bool {
         }
     }
 
+    /// Stops terminal timing collection remotely while preserving connectivity diagnostics.
+    static let iosTerminalLatencyEnabled = Self(booleanKey: "ios-terminal-latency-enabled", defaultValue: true)
     /// Enables Windows download/sign-up surfaces.
     static let cmuxForWindows = Self(booleanKey: "cmux-for-windows")
     /// Enables Linux download/sign-up surfaces.
@@ -43,6 +45,16 @@ public extension ClientConfigFlag where Value == Bool {
     static let iosArtifactChipEnabledRelease = Self(
         booleanKey: "ios-artifact-chip-enabled-release",
         defaultValue: true
+    )
+    /// Reverts iOS 26-and-earlier terminal keyboard pinning to the rebuilt
+    /// single-constraint dock path. Off by default: the legacy
+    /// notification+transform path ships everywhere (iOS 27 and newer never
+    /// revert because the rebuild misreads that OS's keyboard frames), and an
+    /// unavailable control plane preserves that shipping behavior. Terminal
+    /// hosts snapshot the value at mount, so a remote change applies when the
+    /// workspace is reopened.
+    static let iosKeyboardDockRebuildRevert = Self(
+        booleanKey: "ios-keyboard-dock-rebuild-revert"
     )
 }
 

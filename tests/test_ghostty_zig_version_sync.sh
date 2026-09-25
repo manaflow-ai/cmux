@@ -69,6 +69,8 @@ python3 \
   --require-setup-zig \
   "$ROOT_DIR/.github/workflows"
 
+"$ROOT_DIR/tests/test_ghostty_cli_helper_cache.sh"
+
 if ! grep -Fq 'source "$SCRIPT_DIR/ghostty-zig-version.sh"' "$ROOT_DIR/scripts/setup.sh" ||
    ! grep -Fq 'ghostty_minimum_zig_version "$PROJECT_DIR"' "$ROOT_DIR/scripts/setup.sh" ||
    ! grep -Fq 'ZIG_ACTUAL="$(zig version)"' "$ROOT_DIR/scripts/setup.sh" ||
@@ -82,7 +84,7 @@ if ! awk '
   in_job && /^  [[:alnum:]_-]+:$/ { exit }
   in_job && index($0, "git submodule update --init --depth 1 ghostty") { found = 1 }
   END { exit !found }
-' "$ROOT_DIR/.github/workflows/ci.yml"; then
+' "$ROOT_DIR/.github/workflows/ci-guards.yml"; then
   echo "workflow-guard-tests does not initialize Ghostty before reading its Zig manifest" >&2
   exit 1
 fi

@@ -40,6 +40,7 @@ def run_claude_teams(
     base_env: dict[str, str],
     node_options: str,
     tmpdir: str | None = None,
+    unexpected_path_entries: tuple[str, ...] = (),
 ) -> tuple[subprocess.CompletedProcess[str], str, str, str]:
     with (
         tempfile.TemporaryDirectory(prefix="cmux-claude-teams-env-") as td,
@@ -142,7 +143,10 @@ fs.writeFileSync(
 
         env = base_env.copy()
         env["HOME"] = str(fake_home)
-        env["PATH"] = f"{real_bin}:{base_env.get('PATH', '/usr/bin:/bin')}"
+        inherited_path = base_env.get("PATH", "/usr/bin:/bin")
+        if unexpected_path_entries:
+            inherited_path = ":".join((*unexpected_path_entries, inherited_path))
+        env["PATH"] = f"{real_bin}:{inherited_path}"
         env["FAKE_AGENT_TEAMS_LOG"] = str(env_log)
         env["FAKE_SANDBOXED_LOG"] = str(sandboxed_log)
         env["FAKE_SANDBOXED_MARKER_LOG"] = str(marker_log)
@@ -258,6 +262,36 @@ fs.writeFileSync(
                 f"(managed shim first, invoking tool path retained), got {transported_path!r}"
             )
             raise SystemExit(1)
+        if unexpected_path_entries:
+            transported_components = transported_path.split(":")
+            for unexpected_path_entry in unexpected_path_entries:
+                normalized_unexpected_path = os.path.normpath(
+                    os.path.join(os.getcwd(), unexpected_path_entry.strip())
+                )
+                if (
+                    unexpected_path_entry in transported_path
+                    or normalized_unexpected_path in transported_components
+                ):
+                    print(
+                        "FAIL: respawn transport must reject the malformed relative PATH entry "
+                        "and its cwd-normalized form, "
+                        f"got {transported_path!r}"
+                    )
+                    raise SystemExit(1)
+            malformed_scalars = {
+                scalar
+                for component in transported_components
+                for scalar in component
+                if ord(scalar) < 0x20
+                or 0x7F <= ord(scalar) <= 0x9F
+                or scalar == "\uFFFD"
+            }
+            if malformed_scalars:
+                print(
+                    "FAIL: respawn transport PATH contains malformed control/replacement "
+                    f"scalars {sorted(malformed_scalars)!r}: {transported_path!r}"
+                )
+                raise SystemExit(1)
 
         expected_config_directory = str(fake_home / "claude-config")
         if respawn_environment.get("CLAUDE_CONFIG_DIR") != expected_config_directory:
@@ -375,7 +409,8 @@ fs.writeFileSync(
 
 
 def main() -> int:
-    if ensure_node_on_path() is None:
+    node_path = ensure_node_on_path()
+    if node_path is None:
         print("SKIP: node runtime not found; fake claude execs node")
         return 0
     try:
@@ -385,11 +420,20 @@ def main() -> int:
         return 1
 
     base_env = os.environ.copy()
+    # Keep the PATH fixture independent of the runner's shell. In particular,
+    # an ambient component resolving to this checkout would make the malformed
+    # `.../..` assertion indistinguishable from a pre-existing current-directory
+    # entry. The fake Claude only needs its Node directory and the system tools.
+    base_env["PATH"] = f"{Path(node_path).parent}:/usr/bin:/bin"
 
     proc, node_options_value, runtime_node_options_value, child_node_options_value = run_claude_teams(
         cli_path,
         base_env,
         "--trace-warnings",
+        unexpected_path_entries=(
+            "\ncmux-10221-garbage-dir\n",
+            "\ncmux-10221-garbage-dir/..\n",
+        ),
     )
     if proc.returncode != 0:
         print("FAIL: `cmux claude-teams --version` exited non-zero")

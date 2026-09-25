@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::config::{MachineConfig, MachineCreationSourceConfig, MachineTargetConfig};
@@ -431,15 +431,38 @@ pub(crate) struct MachineConnectionHub {
     inner: Arc<MachineConnectionHubInner>,
 }
 
+/// How many machine connections stay warm at once. The most recently used
+/// connections survive; older ones are shut down when a new one would exceed
+/// the bound, so switching between the last N machines is instant while
+/// memory and remote relays stay bounded.
+const DEFAULT_WARM_CONNECTION_LIMIT: usize = 5;
+
+fn warm_connection_limit_from_env() -> usize {
+    std::env::var("CMUX_TUI_WARM_MACHINES")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|limit| *limit >= 2)
+        .unwrap_or(DEFAULT_WARM_CONNECTION_LIMIT)
+}
+
 struct MachineConnectionHubInner {
     slots: Mutex<HashMap<MachineKey, MachineConnectionSlot>>,
     changed: Condvar,
     closed: AtomicBool,
+    warm_limit: usize,
+    use_counter: AtomicU64,
+    /// The machine whose session is on screen. Its warm connection is never
+    /// evicted, whatever its LRU age: evicting it would kill the session the
+    /// user is looking at and break switch rollback while a replacement is
+    /// still uncommitted.
+    presented: Mutex<Option<MachineKey>>,
 }
 
 struct MachineConnectionSlot {
     connector: MachineConnectFn,
     state: MachineConnectionState,
+    /// Monotonic use stamp for least-recently-used eviction of Ready slots.
+    last_used: u64,
 }
 
 enum MachineConnectionState {
@@ -453,6 +476,13 @@ impl MachineConnectionHub {
     pub(crate) fn new(
         connectors: impl IntoIterator<Item = (MachineKey, MachineConnectFn)>,
     ) -> Self {
+        Self::with_warm_limit(connectors, warm_connection_limit_from_env())
+    }
+
+    pub(crate) fn with_warm_limit(
+        connectors: impl IntoIterator<Item = (MachineKey, MachineConnectFn)>,
+        warm_limit: usize,
+    ) -> Self {
         let slots = connectors
             .into_iter()
             .map(|(key, connector)| {
@@ -461,6 +491,7 @@ impl MachineConnectionHub {
                     MachineConnectionSlot {
                         connector,
                         state: MachineConnectionState::Disconnected,
+                        last_used: 0,
                     },
                 )
             })
@@ -470,8 +501,85 @@ impl MachineConnectionHub {
                 slots: Mutex::new(slots),
                 changed: Condvar::new(),
                 closed: AtomicBool::new(false),
+                // Floor of 2: the machine being switched away from is the
+                // second most recently used connection and must never be
+                // evicted while it is still presented.
+                warm_limit: warm_limit.max(2),
+                use_counter: AtomicU64::new(0),
+                presented: Mutex::new(None),
             }),
         }
+    }
+
+    fn next_use_stamp(&self) -> u64 {
+        self.inner.use_counter.fetch_add(1, Ordering::AcqRel) + 1
+    }
+
+    /// Record which machine's session is presented on screen (None when no
+    /// commit is live). Called at presentation commit; eviction never touches
+    /// this connection. Presentation is also a use, so the slot moves to the
+    /// front of the LRU order.
+    pub(crate) fn note_presented(&self, key: Option<MachineKey>) {
+        if let Ok(mut presented) = self.inner.presented.lock() {
+            *presented = key;
+        }
+        if let Some(key) = key {
+            let stamp = self.next_use_stamp();
+            if let Ok(mut slots) = self.inner.slots.lock()
+                && let Some(slot) = slots.get_mut(&key)
+            {
+                slot.last_used = stamp;
+            }
+        }
+    }
+
+    fn presented(&self) -> Option<MachineKey> {
+        self.inner.presented.lock().ok().and_then(|guard| *guard)
+    }
+
+    /// Drop the least recently used Ready connections beyond the warm limit,
+    /// keeping `keep` alive regardless. Evicted slots return to Disconnected
+    /// with their connector intact, so a later switch reconnects normally.
+    fn evict_beyond_warm_limit(
+        slots: &mut HashMap<MachineKey, MachineConnectionSlot>,
+        warm_limit: usize,
+        keep: MachineKey,
+        presented: Option<MachineKey>,
+    ) -> Vec<MachineConnection> {
+        let protected = |key: MachineKey| key == keep || presented == Some(key);
+        let mut ready = slots
+            .iter()
+            .filter(|(key, slot)| {
+                !protected(**key) && matches!(slot.state, MachineConnectionState::Ready(_))
+            })
+            .map(|(key, slot)| (slot.last_used, *key))
+            .collect::<Vec<_>>();
+        let protected_ready = slots
+            .iter()
+            .filter(|(key, slot)| {
+                protected(**key) && matches!(slot.state, MachineConnectionState::Ready(_))
+            })
+            .count();
+        let ready_count = ready.len() + protected_ready;
+        if ready_count <= warm_limit {
+            return Vec::new();
+        }
+        ready.sort_unstable();
+        let evict_count = (ready_count - warm_limit).min(ready.len());
+        ready
+            .into_iter()
+            .take(evict_count)
+            .filter_map(|(_, key)| {
+                let slot = slots.get_mut(&key)?;
+                match std::mem::replace(&mut slot.state, MachineConnectionState::Disconnected) {
+                    MachineConnectionState::Ready(connection) => Some(connection),
+                    other => {
+                        slot.state = other;
+                        None
+                    }
+                }
+            })
+            .collect()
     }
 
     pub(crate) fn register(&self, key: MachineKey, connector: MachineConnectFn) {
@@ -484,6 +592,7 @@ impl MachineConnectionHub {
                     MachineConnectionSlot {
                         connector,
                         state: MachineConnectionState::Disconnected,
+                        last_used: 0,
                     },
                 );
             }
@@ -491,17 +600,39 @@ impl MachineConnectionHub {
     }
 
     pub(crate) fn insert_ready(&self, key: MachineKey, connection: MachineConnection) {
-        let Ok(mut slots) = self.inner.slots.lock() else { return };
-        let Some(slot) = slots.get_mut(&key) else { return };
-        slot.state = MachineConnectionState::Ready(connection);
+        let stamp = self.next_use_stamp();
+        let evicted = {
+            let Ok(mut slots) = self.inner.slots.lock() else { return };
+            let Some(slot) = slots.get_mut(&key) else { return };
+            slot.state = MachineConnectionState::Ready(connection);
+            slot.last_used = stamp;
+            // Read under the slots lock so a concurrent note_presented cannot
+            // slip in between (note_presented never holds `presented` while
+            // taking `slots`, so this ordering cannot deadlock).
+            let presented = self.presented();
+            Self::evict_beyond_warm_limit(&mut slots, self.inner.warm_limit, key, presented)
+        };
+        for connection in evicted {
+            connection.session.begin_shutdown();
+        }
         self.inner.changed.notify_all();
     }
 
     pub(crate) fn connect(&self, key: MachineKey) -> anyhow::Result<Session> {
+        self.connect_tracked(key).map(|(session, _)| session)
+    }
+
+    /// Like `connect`, and also reports whether an already-warm connection was
+    /// reused (true) or a fresh connection was opened (false).
+    pub(crate) fn connect_tracked(&self, key: MachineKey) -> anyhow::Result<(Session, bool)> {
         self.connect_with_retry(key, true)
     }
 
-    fn connect_with_retry(&self, key: MachineKey, retry_failed: bool) -> anyhow::Result<Session> {
+    fn connect_with_retry(
+        &self,
+        key: MachineKey,
+        retry_failed: bool,
+    ) -> anyhow::Result<(Session, bool)> {
         loop {
             if self.inner.closed.load(Ordering::Acquire) {
                 anyhow::bail!(crate::localization::catalog().sidebar.no_active_session);
@@ -516,7 +647,21 @@ impl MachineConnectionHub {
             })?;
             match &slot.state {
                 MachineConnectionState::Ready(connection) => {
-                    return Ok(connection.session.clone());
+                    if connection.session.is_alive() {
+                        let session = connection.session.clone();
+                        slot.last_used = self.next_use_stamp();
+                        return Ok((session, true));
+                    }
+                    // The stream died while the connection sat warm (VM
+                    // paused, network drop). Drop the corpse so its lease
+                    // cleans up, and fall through to a fresh connect.
+                    let dead =
+                        std::mem::replace(&mut slot.state, MachineConnectionState::Disconnected);
+                    drop(slots);
+                    if let MachineConnectionState::Ready(connection) = dead {
+                        connection.session.begin_shutdown();
+                    }
+                    self.inner.changed.notify_all();
                 }
                 MachineConnectionState::Connecting => {
                     drop(self.inner.changed.wait(slots).map_err(|_| {
@@ -552,8 +697,21 @@ impl MachineConnectionHub {
                         Ok(connection) => {
                             let session = connection.session.clone();
                             slot.state = MachineConnectionState::Ready(connection);
+                            slot.last_used = self.next_use_stamp();
+                            // Read under the slots lock (see insert_ready).
+                            let presented = self.presented();
+                            let evicted = Self::evict_beyond_warm_limit(
+                                &mut slots,
+                                self.inner.warm_limit,
+                                key,
+                                presented,
+                            );
+                            drop(slots);
+                            for connection in evicted {
+                                connection.session.begin_shutdown();
+                            }
                             self.inner.changed.notify_all();
-                            return Ok(session);
+                            return Ok((session, false));
                         }
                         Err(error) => {
                             let message = error.to_string();
@@ -575,7 +733,15 @@ impl MachineConnectionHub {
                 let phase = match &slot.state {
                     MachineConnectionState::Disconnected => MachineConnectionPhase::Disconnected,
                     MachineConnectionState::Connecting => MachineConnectionPhase::Connecting,
-                    MachineConnectionState::Ready(_) => MachineConnectionPhase::Ready,
+                    // A warm slot whose stream died is not usable as-is; report
+                    // it honestly so badges and the interstitial reflect it.
+                    MachineConnectionState::Ready(connection) => {
+                        if connection.session.is_alive() {
+                            MachineConnectionPhase::Ready
+                        } else {
+                            MachineConnectionPhase::Disconnected
+                        }
+                    }
                     MachineConnectionState::Failed(_) => MachineConnectionPhase::Failed,
                 };
                 (*key, phase)
@@ -585,7 +751,12 @@ impl MachineConnectionHub {
 
     pub(crate) fn is_ready(&self, key: MachineKey) -> bool {
         self.inner.slots.lock().ok().and_then(|slots| {
-            slots.get(&key).map(|slot| matches!(slot.state, MachineConnectionState::Ready(_)))
+            slots.get(&key).map(|slot| match &slot.state {
+                MachineConnectionState::Ready(connection) => connection.session.is_alive(),
+                MachineConnectionState::Disconnected
+                | MachineConnectionState::Connecting
+                | MachineConnectionState::Failed(_) => false,
+            })
         }) == Some(true)
     }
 

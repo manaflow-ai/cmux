@@ -102,7 +102,10 @@ extension MobileShellComposite {
         }
         pushedRouteSyncScope = scope
         for instance in hostInstances {
-            let key = "\(cmxCanonicalDeviceID(instance.deviceId))\u{0}\(instance.tag)"
+            let key = CmxMacAppInstanceIdentity(
+                macDeviceID: instance.deviceId,
+                instanceTag: instance.tag
+            ).id
             pushedRouteSyncPendingInstances[key] = instance
         }
         if let pushedRouteSyncTask {
@@ -169,11 +172,11 @@ extension MobileShellComposite {
             // without refreshing this shell's display cache. Take one scoped
             // store snapshot per batch so every host is matched against current
             // authority without a database scan per instance.
-            await self.loadPairedMacs()
+            await self.loadPairedMacs(forceRefresh: true)
             guard await self.isScopeCurrent(scope) else { return }
-            let pairedMacsByDeviceID = Dictionary(
+            let pairedMacsByPairingID = Dictionary(
                 self.storedPairedMacsIncludingHidden.map {
-                    ($0.macDeviceID, $0)
+                    ($0.id, $0)
                 },
                 uniquingKeysWith: { current, candidate in
                     current.lastSeenAt >= candidate.lastSeenAt
@@ -183,9 +186,21 @@ extension MobileShellComposite {
             var persistedRoutes = false
             for instance in hostInstances {
                 guard await self.isScopeCurrent(scope) else { return }
+                let pairingID = MobilePairedMac.pairingID(
+                    macDeviceID: instance.deviceId,
+                    instanceTag: instance.tag
+                )
+                // An untagged legacy row adopts its device's sole
+                // route-advertising build; `applyPushedRoutes` checks that
+                // this instance is that build before writing.
+                let legacyPairingID = MobilePairedMac.pairingID(
+                    macDeviceID: instance.deviceId,
+                    instanceTag: nil
+                )
                 if await self.applyPushedRoutes(
                     from: instance,
-                    pairedMac: pairedMacsByDeviceID[instance.deviceId],
+                    pairedMac: pairedMacsByPairingID[pairingID]
+                        ?? pairedMacsByPairingID[legacyPairingID],
                     scope: scope
                 ) {
                     persistedRoutes = true
@@ -193,7 +208,7 @@ extension MobileShellComposite {
             }
             guard await self.isScopeCurrent(scope) else { return }
             if persistedRoutes {
-                await self.loadPairedMacs()
+                await self.loadPairedMacs(forceRefresh: true)
             }
             guard await self.isScopeCurrent(scope) else { return }
             if self.connectionState != .connected {
@@ -254,7 +269,15 @@ extension MobileShellComposite {
         let deviceId = instance.deviceId
         if let deviceIndex = registryDevices.firstIndex(where: { $0.deviceId == deviceId }),
            let instanceIndex = registryDevices[deviceIndex].instances
-               .firstIndex(where: { $0.tag == instance.tag }) {
+               .firstIndex(where: {
+                   CmxMacAppInstanceIdentity(
+                       macDeviceID: deviceId,
+                       instanceTag: $0.tag
+                   ).id == CmxMacAppInstanceIdentity(
+                       macDeviceID: deviceId,
+                       instanceTag: instance.tag
+                   ).id
+               }) {
             registryDevices[deviceIndex].instances[instanceIndex].routes = routes
         }
         guard !routes.isEmpty,
@@ -262,9 +285,17 @@ extension MobileShellComposite {
               let mac = pairedMac,
               await isScopeCurrent(scope),
               presenceMap.reconnectRouteAuthority(
-                  deviceId: deviceId,
-                  pairedMacInstanceTag: mac.instanceTag
-              )?.tag == instance.tag,
+                deviceId: deviceId,
+                pairedMacInstanceTag: mac.instanceTag
+              ).map({ authority in
+                  CmxMacAppInstanceIdentity(
+                      macDeviceID: deviceId,
+                      instanceTag: authority.tag
+                  ).id
+              }) == CmxMacAppInstanceIdentity(
+                  macDeviceID: deviceId,
+                  instanceTag: instance.tag
+              ).id,
               let updated = DeviceRegistryService.selectReconnectRoutes(
                   local: mac.routes,
                   registry: routes

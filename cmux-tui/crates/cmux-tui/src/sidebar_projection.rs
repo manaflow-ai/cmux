@@ -1,4 +1,9 @@
 //! Pure projection of mux resources into configurable native sidebar trees.
+//!
+//! The agent-priority buckets and row projection are adapted from herdr's
+//! `src/app/agent_view.rs` at commit
+//! `7b675f42af35508eab66ac42fe1598628597a893` (Apache-2.0). They are modified
+//! by manaflow for cmux's configurable resource tree and journal-backed rows.
 
 use std::collections::{HashMap, HashSet};
 
@@ -59,6 +64,104 @@ pub(crate) struct ProjectionRailState {
     pub collapsed: HashSet<ProjectionBranch>,
 }
 
+/// Reusable ordering for agent rows. The order changes only when the agent
+/// roster or terminal topology changes, so renders can reuse the index.
+#[derive(Default)]
+pub(crate) struct AgentOrderCache {
+    key: Option<AgentOrderCacheKey>,
+    order: Vec<SurfaceId>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+struct AgentOrderCacheKey {
+    tree_workspace_revision: u64,
+    tree_pane_revision: Option<u64>,
+    tree_surfaces: Vec<SurfaceId>,
+    agents: Vec<(SurfaceId, u8, u64)>,
+}
+
+impl AgentOrderCache {
+    fn ordered_surfaces(&mut self, tree: &TreeView, agents: &[AgentInfo]) -> &[SurfaceId] {
+        let cache_is_valid = self.key.as_ref().is_some_and(|key| {
+            if key.tree_workspace_revision != tree.workspace_revision
+                || key.tree_pane_revision != tree.pane_revision
+                || key.agents.len() != agents.len()
+            {
+                return false;
+            }
+            if !key.agents.iter().zip(agents).all(
+                |(&(surface, attention, updated_at_ms), agent)| {
+                    (surface, attention, updated_at_ms)
+                        == (agent.surface, agent_attention(&agent.state), agent.updated_at_ms)
+                },
+            ) {
+                return false;
+            }
+            tree_surface_sequence_matches(tree, &key.tree_surfaces)
+        });
+        if cache_is_valid {
+            return &self.order;
+        }
+
+        let tree_surfaces = tree
+            .workspaces()
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .map(|tab| tab.surface)
+            .collect::<Vec<_>>();
+        let agent_metadata = agents
+            .iter()
+            .map(|agent| (agent.surface, agent_attention(&agent.state), agent.updated_at_ms))
+            .collect::<Vec<_>>();
+        let agent_keys = agents
+            .iter()
+            .map(|agent| {
+                (
+                    agent.surface,
+                    (u8::MAX - agent_attention(&agent.state), u64::MAX - agent.updated_at_ms),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let mut indexed = tree_surfaces
+            .iter()
+            .enumerate()
+            .filter_map(|(index, surface)| {
+                agent_keys
+                    .get(surface)
+                    .map(|&(attention, recency)| (attention, recency, index, *surface))
+            })
+            .collect::<Vec<_>>();
+        indexed.sort_unstable_by_key(|&(attention, recency, index, _)| (attention, recency, index));
+        self.order = indexed.into_iter().map(|(_, _, _, surface)| surface).collect();
+        self.key = Some(AgentOrderCacheKey {
+            tree_workspace_revision: tree.workspace_revision,
+            tree_pane_revision: tree.pane_revision,
+            tree_surfaces,
+            agents: agent_metadata,
+        });
+        &self.order
+    }
+}
+
+fn tree_surface_sequence_matches(tree: &TreeView, expected: &[SurfaceId]) -> bool {
+    let mut expected = expected.iter();
+    for surface in tree
+        .workspaces()
+        .iter()
+        .flat_map(|workspace| workspace.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .map(|tab| tab.surface)
+    {
+        if expected.next() != Some(&surface) {
+            return false;
+        }
+    }
+    expected.next().is_none()
+}
+
 impl Default for ProjectionRailState {
     fn default() -> Self {
         Self {
@@ -79,6 +182,7 @@ struct ProjectionContext {
     pane: Option<PaneId>,
 }
 
+#[cfg(test)]
 pub(crate) fn rows(
     spec: &SidebarViewSpec,
     tree: &TreeView,
@@ -86,9 +190,31 @@ pub(crate) fn rows(
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) -> Vec<ProjectionRow> {
-    let mut rows = Vec::new();
+    let mut order_cache = AgentOrderCache::default();
+    rows_cached(spec, tree, agents, selected_workspace, collapsed, &mut order_cache)
+}
+
+pub(crate) fn rows_cached(
+    spec: &SidebarViewSpec,
+    tree: &TreeView,
+    agents: &[AgentInfo],
+    selected_workspace: usize,
+    collapsed: &HashSet<ProjectionBranch>,
+    order_cache: &mut AgentOrderCache,
+) -> Vec<ProjectionRow> {
+    // Workspace rows are the common projection and can reach roughly 1000
+    // entries. Reserve that baseline up front so a render does not repeatedly
+    // grow and copy the backing buffer while appending the tree.
+    let mut rows = Vec::with_capacity(tree.workspaces().len());
     let agents_by_surface: HashMap<SurfaceId, &AgentInfo> =
         agents.iter().map(|agent| (agent.surface, agent)).collect();
+    // Tabs and other resource views keep tree order. Do not walk the full
+    // topology to prepare an agent index when this view has no agent level.
+    let agent_order = if spec.levels.contains(&SidebarResourceKind::Agents) {
+        order_cache.ordered_surfaces(tree, agents)
+    } else {
+        &[]
+    };
     append_level(
         &mut rows,
         &spec.levels,
@@ -96,7 +222,8 @@ pub(crate) fn rows(
         None,
         tree,
         &agents_by_surface,
-        selected_workspace.min(tree.workspaces.len().saturating_sub(1)),
+        agent_order,
+        selected_workspace.min(tree.workspaces().len().saturating_sub(1)),
         collapsed,
     );
     rows
@@ -110,6 +237,7 @@ fn append_level(
     context: Option<ProjectionContext>,
     tree: &TreeView,
     agents: &HashMap<SurfaceId, &AgentInfo>,
+    agent_order: &[SurfaceId],
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) {
@@ -118,7 +246,7 @@ fn append_level(
     match resource {
         SidebarResourceKind::Machines => {}
         SidebarResourceKind::Workspaces => {
-            for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
+            for (workspace_index, workspace) in tree.workspaces().iter().enumerate() {
                 let branch = has_children.then_some(ProjectionBranch::Workspace(workspace.id));
                 let expanded = branch.is_none_or(|branch| !collapsed.contains(&branch));
                 output.push(ProjectionRow {
@@ -147,6 +275,7 @@ fn append_level(
                         }),
                         tree,
                         agents,
+                        agent_order,
                         selected_workspace,
                         collapsed,
                     );
@@ -155,7 +284,7 @@ fn append_level(
         }
         SidebarResourceKind::Panes => {
             let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
-            let Some(workspace) = tree.workspaces.get(workspace_index) else { return };
+            let Some(workspace) = tree.workspaces().get(workspace_index) else { return };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 for pane in &screen.panes {
                     if context.is_some_and(|context| {
@@ -198,6 +327,7 @@ fn append_level(
                             }),
                             tree,
                             agents,
+                            agent_order,
                             selected_workspace,
                             collapsed,
                         );
@@ -207,8 +337,14 @@ fn append_level(
         }
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
+            // Agents views sort by (attention desc, recency desc): a blocked
+            // agent outranks a working one regardless of age, and within a
+            // bucket the latest transition floats up. Tab views keep tree
+            // order. The herdr-style idle-unseen bucket needs frontend focus
+            // history and is deferred.
+            let mut agent_entries = HashMap::<SurfaceId, ProjectionRow>::new();
             let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
-            let Some(workspace) = tree.workspaces.get(workspace_index) else { return };
+            let Some(workspace) = tree.workspaces().get(workspace_index) else { return };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 if context.is_some_and(|context| {
                     context.screen.is_some_and(|candidate| candidate != screen_index)
@@ -243,7 +379,7 @@ fn append_level(
                         } else {
                             pane.short_id.clone()
                         };
-                        output.push(ProjectionRow {
+                        let row = ProjectionRow {
                             resource,
                             depth: depth as u16,
                             name,
@@ -265,11 +401,33 @@ fn append_level(
                                 surface: tab.surface,
                                 agent: agent_only,
                             },
-                        });
+                        };
+                        if agent_only {
+                            debug_assert!(agent.is_some(), "agent rows are filtered above");
+                            agent_entries.insert(tab.surface, row);
+                        } else {
+                            output.push(row);
+                        }
                     }
                 }
             }
+            for surface in agent_order {
+                if let Some(row) = agent_entries.remove(surface) {
+                    output.push(row);
+                }
+            }
         }
+    }
+}
+
+/// How urgently an agent state needs the user: blocked agents wait on a
+/// human, working agents may block next, idle agents are at rest.
+fn agent_attention(state: &str) -> u8 {
+    match state {
+        "blocked" => 3,
+        "working" => 2,
+        "idle" => 1,
+        _ => 0,
     }
 }
 
@@ -281,8 +439,8 @@ mod tests {
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
     fn tree() -> TreeView {
-        TreeView {
-            workspaces: vec![WorkspaceView {
+        TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 1,
                 resource_id: None,
                 key: "workspace-1".into(),
@@ -310,10 +468,10 @@ mod tests {
                 }],
                 active_screen: 0,
             }],
-            workspace_revision: 1,
-            pane_revision: Some(1),
-            active_workspace: 0,
-        }
+            1,
+            Some(1),
+            0,
+        )
     }
 
     fn tab(surface: SurfaceId, title: &str) -> TabView {
@@ -338,6 +496,7 @@ mod tests {
             id: "test".into(),
             levels,
             actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
             width: 22,
             max_width: 0,
             collapse_priority: 20,
@@ -352,6 +511,7 @@ mod tests {
             state: "working".into(),
             source: "detected".into(),
             session: Some("fix sidebar".into()),
+            agent: None,
             updated_at_ms: 1,
         }];
         let rows = rows(
@@ -422,8 +582,152 @@ mod tests {
     }
 
     #[test]
+    fn screen_detect_agents_view_sorts_by_attention_then_recency() {
+        let mut tree = tree();
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs = vec![
+            tab(4, "idle-late"),
+            tab(5, "working-old"),
+            tab(6, "blocked-old"),
+            tab(7, "working-new"),
+            tab(8, "shell"),
+        ];
+        let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
+            surface,
+            state: state.into(),
+            source: "detected".into(),
+            session: None,
+            agent: Some("codex".into()),
+            updated_at_ms,
+        };
+        // The most recent update is an idle agent: attention still outranks
+        // recency, so blocked > working > idle, newest first inside buckets.
+        let agents = vec![
+            agent(4, "idle", 90),
+            agent(5, "working", 30),
+            agent(6, "blocked", 10),
+            agent(7, "working", 40),
+        ];
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 0, &HashSet::new());
+
+        let order: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+        assert_eq!(order, vec!["blocked-old", "working-new", "working-old", "idle-late"]);
+
+        // Tab views keep tree order even when agents are present.
+        let tabs = rows_tab_order(&tree, &agents);
+        assert_eq!(tabs, vec!["idle-late", "working-old", "blocked-old", "working-new", "shell"]);
+    }
+
+    fn rows_tab_order(tree: &TreeView, agents: &[AgentInfo]) -> Vec<String> {
+        rows(&spec(vec![SidebarResourceKind::Tabs]), tree, agents, 0, &HashSet::new())
+            .into_iter()
+            .map(|row| row.name)
+            .collect()
+    }
+
+    #[test]
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
         let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
         assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn agent_order_cache_reuses_order_until_roster_or_tree_changes() {
+        let mut tree = tree();
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs =
+            vec![tab(4, "working"), tab(5, "blocked")];
+        let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
+            surface,
+            state: state.into(),
+            source: "detected".into(),
+            session: None,
+            agent: Some("codex".into()),
+            updated_at_ms,
+        };
+        let mut agents = vec![agent(4, "working", 10), agent(5, "blocked", 1)];
+        let mut cache = AgentOrderCache::default();
+        let first = rows_cached(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+            &mut cache,
+        );
+        assert_eq!(
+            first.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
+            ["blocked", "working"]
+        );
+        let cached_order = cache.order.clone();
+        let _ = rows_cached(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+            &mut cache,
+        );
+        assert_eq!(cache.order, cached_order);
+
+        agents[0].updated_at_ms = 20;
+        let _ = rows_cached(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+            &mut cache,
+        );
+        assert_eq!(cache.order, vec![5, 4]);
+
+        agents[0].updated_at_ms = 1;
+        agents[1].state = "working".into();
+        let _ = rows_cached(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+            &mut cache,
+        );
+        assert_eq!(cache.order, vec![4, 5]);
+        tree.workspaces_mut()[0].screens[0].panes[0].tabs.reverse();
+        let rows = rows_cached(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+            &mut cache,
+        );
+        assert_eq!(
+            rows.iter().map(|row| row.name.as_str()).collect::<Vec<_>>(),
+            ["blocked", "working"]
+        );
+    }
+
+    #[test]
+    fn tabs_view_does_not_build_agent_order_cache() {
+        let tree = tree();
+        let agents = vec![AgentInfo {
+            surface: 4,
+            state: "working".into(),
+            source: "detected".into(),
+            session: None,
+            agent: Some("codex".into()),
+            updated_at_ms: 1,
+        }];
+        let mut cache = AgentOrderCache::default();
+
+        let _ = rows_cached(
+            &spec(vec![SidebarResourceKind::Tabs]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+            &mut cache,
+        );
+
+        assert!(cache.key.is_none());
     }
 }

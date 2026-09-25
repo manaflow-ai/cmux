@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxWorkspaces
 import Foundation
 import Observation
@@ -23,6 +24,12 @@ final class RestoredAgentLifecycleCoordinator {
     var resumeWorkingDirectoriesByPanelId: [UUID: String] = [:]
 
     private var completedGenerationsByPanelId: [UUID: RestoredAgentCompletedGeneration] = [:]
+
+    /// Startup input a restored launch types into its shell, retained until shell
+    /// integration reports the command running. The terminal's one-shot readiness
+    /// gate delivers it after the first prompt (#5473); this copy only records
+    /// restore ownership and travels with Workspace/Dock transfers.
+    private var pendingStartupInputsByPanelId: [UUID: String] = [:]
 
     /// Replaces one panel's mutable snapshot while preserving an in-flight restore target.
     func setSnapshot(_ snapshot: SessionRestorableAgentSnapshot?, panelId: UUID) {
@@ -182,6 +189,33 @@ final class RestoredAgentLifecycleCoordinator {
         invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
     }
 
+    /// Retains the startup input a restored launch will type into its shell.
+    /// Passing `nil` or an empty string forgets any earlier registration.
+    func registerStartupInput(_ input: String?, panelId: UUID) {
+        guard let input, !input.isEmpty else {
+            pendingStartupInputsByPanelId.removeValue(forKey: panelId)
+            return
+        }
+        pendingStartupInputsByPanelId[panelId] = input
+    }
+
+    /// Forgets retained startup input once the shell ran it, the user took over
+    /// the pane, or the launch was abandoned.
+    func clearStartupInput(panelId: UUID) {
+        pendingStartupInputsByPanelId.removeValue(forKey: panelId)
+    }
+
+    /// The retained startup input, so a pane transfer can carry it to the new owner.
+    func startupInput(panelId: UUID) -> String? {
+        pendingStartupInputsByPanelId[panelId]
+    }
+
+    /// Whether a restored launch is still waiting for its typed startup input to run.
+    func awaitsStartupInput(panelId: UUID) -> Bool {
+        resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand &&
+            pendingStartupInputsByPanelId[panelId] != nil
+    }
+
     /// Removes continuation metadata without discarding an invalidation fingerprint.
     func clearSessionRestore(panelId: UUID) {
         queuedRestoreSnapshotsByPanelId.removeValue(forKey: panelId)
@@ -189,6 +223,7 @@ final class RestoredAgentLifecycleCoordinator {
         snapshotsByPanelId.removeValue(forKey: panelId)
         resumeWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         completedGenerationsByPanelId.removeValue(forKey: panelId)
+        clearStartupInput(panelId: panelId)
     }
 
     /// Resets every restored-session lifecycle collection.
@@ -199,15 +234,18 @@ final class RestoredAgentLifecycleCoordinator {
         invalidatedFingerprintsByPanelId.removeAll(keepingCapacity: false)
         resumeWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         completedGenerationsByPanelId.removeAll(keepingCapacity: false)
+        pendingStartupInputsByPanelId.removeAll(keepingCapacity: false)
     }
 
-    /// Shell integration has observed the restored launch enter its command
-    /// phase and has not subsequently reported the prompt returning.
+    /// Shell integration has advanced a cmux-authored restore into its command
+    /// phase without returning to the prompt. An observed command can instead
+    /// be unrelated shell activity, so it still requires matching process evidence.
     func confirmsRunningRestoredCommand(panelId: UUID) -> Bool {
         switch resumeStatesByPanelId[panelId] {
-        case .autoResumeCommandRunning, .observedAgentCommandRunning:
+        case .autoResumeCommandRunning:
             true
-        case .manualResumeAvailable, .awaitingAutoResumeCommand, .completedAgentExit, nil:
+        case .manualResumeAvailable, .awaitingAutoResumeCommand, .observedAgentCommandRunning,
+             .completedAgentExit, nil:
             false
         }
     }
@@ -263,8 +301,15 @@ final class RestoredAgentLifecycleCoordinator {
         snapshot: SessionRestorableAgentSnapshot?,
         resumeState: Workspace.RestoredAgentResumeState?,
         completedGeneration: RestoredAgentCompletedGeneration?,
-        resumeWorkingDirectory: String?
+        resumeWorkingDirectory: String?,
+        startupInput: String? = nil
     ) {
+        // A launch still awaiting its typed selector keeps the replay safety
+        // net across a Workspace/Dock move; any other phase has nothing to replay.
+        registerStartupInput(
+            resumeState == .awaitingAutoResumeCommand ? startupInput : nil,
+            panelId: panelId
+        )
         replaceQueuedRestoreSnapshot(
             Self.retainsStartupRestoreIdentity(resumeState) ? snapshot : nil,
             panelId: panelId
