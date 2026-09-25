@@ -293,7 +293,8 @@ final class DeviceSurfaceProvider: SurfaceProvider {
         }
         session.bind(surface: created.surface)
         if let reservation = adopting {
-            session.onAttached = { [weak reservation] in
+            session.onAttached = { [weak session, weak reservation] in
+                guard let session else { return }
                 reservation?.inputRelay.attach(session.inputRouter)
             }
         }
