@@ -2057,7 +2057,7 @@ jobs:
         run: |
           set -euo pipefail
           # App-host wrapper regressions, including OpenCode and Claude hooks,
-          # execute JavaScript through `node`. The tart-macos-15 runner image
+          # execute JavaScript through `node`. A self-hosted macOS 15 runner image
           # shipped without node on the runner PATH (2026-07-10), which failed
           # every branch. Reuse an image-provided node when present; otherwise
           # install one below before the unit-test batches start.

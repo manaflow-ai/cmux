@@ -179,7 +179,7 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).runner, SMALL)
         self.assertIn("replaying 5", pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).reason)
         # A pool outside the order is ignored rather than trusted.
-        self.assertEqual(pool.decide(snap, pool.Settings(), placed={"tart-small": 9}, **args).runner, LARGE)
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={"blacksmith-6vcpu-macos-latest": 9}, **args).runner, LARGE)
         busy = backlog(small=13, large=14, old=0)
         self.assertEqual(pool.decide(busy, pool.Settings(), **args).runner, OLD)
         self.assertEqual(pool.decide(busy, pool.Settings(), choose_from=(LARGE, SMALL), **args).runner, SMALL)
@@ -290,7 +290,8 @@ class FailSafe(unittest.TestCase):
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
-                                              f"refused_retry_runner=\nroot_runner=\nadmission_runner=\nowned_jobs=\n")
+                                              f"refused_retry_runner=\nroot_runner=\nside_runner=\n"
+                                              "admission_runner=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -460,6 +461,14 @@ def root_lane(key: str) -> str:
             "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
             "|| inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
+
+
+def side_lane(key: str) -> str:
+    """retry_lane() for a side lane: the side label, when the picker named one, before the pool label."""
+    return (f"github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, {key}) "
+            "&& (inputs.pr_side_runner || inputs.pr_refused_retry_runner) "
+            f"|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, {key})) && inputs.pr_retry_runner "
+            "|| inputs.pr_side_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'")
 
 
 def warm_lane(index: str = "") -> str:
@@ -1118,6 +1127,7 @@ class PerJobPlacement(unittest.TestCase):
 
 
 ROOT_MINI = "glaeda-root-std-xcode-26.6"
+SIDE_MINI = "glaeda-side-std-xcode-26.6"
 
 
 class QueueBehindBusyRunners(unittest.TestCase):
@@ -1534,6 +1544,21 @@ class RootRunners(unittest.TestCase):
                            jobs=3, root_jobs=1)
         self.assertEqual((off.runner, off.root_runner), (MINI, ""))
 
+    def test_side_lanes_take_the_side_label_beside_a_root_count(self):
+        self.assertTrue(pool.persistent(SIDE_MINI))
+        self.assertEqual((pool.side_label(MINI), pool.pool_label(SIDE_MINI)), (SIDE_MINI, MINI))
+        self.assertEqual((pool.side_label(ROOT_MINI), pool.side_label(SIDE_MINI), pool.side_label(SMALL)), ("", "", ""))
+        rooted = pool.Choice(MINI, PR_XCODE, "", LARGE, 5, root_runner=ROOT_MINI, root_budget=3)
+        self.assertEqual(pool.side_runner(rooted, {MINI: 36, ROOT_MINI: 16}), SIDE_MINI)
+        self.assertEqual(pool.side_runner(pool.Choice(LIGHT, PR_XCODE, "", LARGE, 2,
+                                                      root_runner=pool.root_label(LIGHT), root_budget=1),
+                                          {LIGHT: 4, pool.root_label(LIGHT): 2}), pool.side_label(LIGHT))
+        # Every machine a root runner: no side runner carries the label, so the pool label stays.
+        self.assertEqual(pool.side_runner(rooted, {MINI: 16, ROOT_MINI: 16}), "")
+        # No root count (root routing off) or a Blacksmith pick: the pool label as before.
+        self.assertEqual(pool.side_runner(pool.Choice(MINI, PR_XCODE, "", LARGE, 5), {MINI: 36}), "")
+        self.assertEqual(pool.side_runner(pool.Choice(LARGE, "", ""), {MINI: 36, ROOT_MINI: 16}), "")
+
     def test_no_root_count_keeps_the_pool_label(self):
         choice = owned_choice(fleet(busy=0), jobs=4, root_jobs=2)
         self.assertEqual((choice.runner, choice.root_runner), (MINI, ""))
@@ -1563,6 +1588,8 @@ class RootRunners(unittest.TestCase):
             outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
         self.assertEqual((outputs["runner"], outputs["root_runner"], outputs["refused_retry_runner"]),
                          (MINI, ROOT_MINI, MINI))
+        # The side lanes take the side runners: 30 of the 40 machines.
+        self.assertEqual(outputs["side_runner"], SIDE_MINI)
         # Three root runners free: admission and two shards, beside every side lane.
         self.assertEqual(outputs["owned_jobs"],
                          " admission shard-1 shard-2 shard-3 remote-daemon claude-wrapper ")
@@ -1578,6 +1605,13 @@ class RootRunners(unittest.TestCase):
         snap = janitor.pool_load_snapshot([run], jobs, now=NOW, markers={1: (MINI, 7)})
         self.assertEqual({key: snap["pools"][ROOT_MINI][key] for key in ("queued", "running", "committed")},
                          {"queued": 1, "running": 1, "committed": 5})
+        self.assertEqual({key: snap["pools"][MINI][key] for key in ("queued", "running", "committed")},
+                         {"queued": 1, "running": 2, "committed": 7})
+        # Side lanes on the side label (side_runner) leave the root share the same.
+        jobs = {1: [job(ROOT_MINI, "in_progress"), job(ROOT_MINI, "queued"), job(SIDE_MINI, "in_progress"),
+                    job(SIDE_MINI, "completed")]}
+        snap = janitor.pool_load_snapshot([run], jobs, now=NOW, markers={1: (MINI, 7)})
+        self.assertEqual(snap["pools"][ROOT_MINI]["committed"], 5)
         self.assertEqual({key: snap["pools"][MINI][key] for key in ("queued", "running", "committed")},
                          {"queued": 1, "running": 2, "committed": 7})
         # An E2E marker names the root label: one root runner, one machine.
@@ -1719,12 +1753,14 @@ class Wiring(unittest.TestCase):
 
     def test_every_pr_route_in_the_run_reads_the_choice(self):
         expected = {
-            "ci.yml": "needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
+            # The Claude wrapper, a side lane: the side label first.
+            "ci.yml": "needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_runner "
+                      "|| vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15'",
             # Compile admission (and its CMUX_PRODUCT_RUNNER mirror) and
             # tests-build-and-lag each test their own owned_jobs key, and are
             # root jobs; the side lanes are not.
             "ci-macos.yml": {warm_lane(), warm_lane("[0]"), root_lane("' lag '")},
-            "remote-daemon.yml": {retry_lane("' remote-daemon '")},
+            "remote-daemon.yml": {side_lane("' remote-daemon '")},
         }
         for name, lane in expected.items():
             lanes = self.lanes(name)
@@ -1741,7 +1777,8 @@ class Wiring(unittest.TestCase):
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
         self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains("
                       "needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "
-                      "needs.changes.outputs.macos_pr_refused_retry_runner || github.event_name == 'pull_request' && "
+                      "(needs.changes.outputs.macos_pr_side_runner || needs.changes.outputs.macos_pr_refused_retry_runner) "
+                      "|| github.event_name == 'pull_request' && "
                       "(github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, "
                       "' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner", wrapper)
 
@@ -1755,9 +1792,14 @@ class Wiring(unittest.TestCase):
         retry = "${{ needs.changes.outputs.macos_pr_retry_runner }}"
         for name in ("macos", "remote-daemon"):
             self.assertEqual(jobs[name]["with"]["pr_retry_runner"], retry, name)
-        # Only ci-macos.yml runs root jobs; the side lanes keep the pool label.
+        # Only ci-macos.yml runs root jobs; the side lanes take the side label.
         self.assertEqual(jobs["macos"]["with"]["pr_root_runner"], "${{ needs.changes.outputs.macos_pr_root_runner }}")
         self.assertNotIn("pr_root_runner", jobs["remote-daemon"]["with"])
+        self.assertEqual(jobs["remote-daemon"]["with"]["pr_side_runner"],
+                         "${{ needs.changes.outputs.macos_pr_side_runner }}")
+        self.assertNotIn("pr_side_runner", jobs["macos"]["with"])
+        self.assertEqual(self.workflow("ci.yml")["jobs"]["changes"]["outputs"]["macos_pr_side_runner"],
+                         "${{ steps.macos-pool.outputs.side_runner }}")
         self.assertEqual(jobs["macos"]["with"]["pr_admission_runner"],
                          "${{ needs.changes.outputs.macos_pr_admission_runner }}")
         self.assertNotIn("pr_admission_runner", jobs["remote-daemon"]["with"])
@@ -1858,7 +1900,7 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache="", tart_fleet="1"):
+              swift_package="", seed_cache=""):
     calls = []
 
     def measured():
@@ -1872,7 +1914,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         owned_slots=json.dumps(IOS_SLOTS if slots is None else slots),
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
-        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, tart_fleet=tart_fleet)
+        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW)
     return route, len(calls)
 
 
@@ -2078,22 +2120,13 @@ class IOSRouting(unittest.TestCase):
             self.assertEqual((route.label, route.persistent, calls), (SMALL, False, 0), (ios_owned, owned))
 
     def test_explicit_runners_and_other_defaults_are_never_rerouted(self):
-        for requested in ("blacksmith-6vcpu-macos-26", "tart-ios"):
+        for requested in ("blacksmith-6vcpu-macos-26", "blacksmith-6vcpu-macos-15"):
             route, calls = ios_route(sim_fleet(), requested=requested)
             self.assertEqual((route.label, json.loads(route.runs_on), json.loads(route.package_runs_on),
                               route.retry_label, calls), (requested, requested, requested, requested, 0))
         # MACOS_RUNNER_TESTS naming another pool is honored, as for E2E.
-        route, calls = ios_route(sim_fleet(), variable="tart-ios")
-        self.assertEqual((route.label, route.persistent, calls), ("tart-ios", False, 0))
-
-    def test_a_tart_request_routes_as_auto_while_the_tart_fleet_is_off(self):
-        # 2026-09-25: every Tart VM was offline and tart-ios jobs queued for hours.
-        auto, _ = ios_route(sim_fleet())
-        for fleet in ("", "0"):
-            route, _ = ios_route(sim_fleet(), requested="tart-ios", tart_fleet=fleet)
-            self.assertEqual((route.label, route.persistent), (auto.label, auto.persistent), fleet)
-        route, calls = ios_route(sim_fleet(), requested="tart-ios", tart_fleet="1")
-        self.assertEqual((route.label, calls), ("tart-ios", 0))
+        route, calls = ios_route(sim_fleet(), variable="blacksmith-6vcpu-macos-15")
+        self.assertEqual((route.label, route.persistent, calls), ("blacksmith-6vcpu-macos-15", False, 0))
 
     def test_ios_version_upload_release_and_seed_runs_stay_off_the_fleet(self):
         # seed_cache runs in the ci-cache-writer environment with the R2 write keys.
@@ -2262,7 +2295,7 @@ class IOSWiring(unittest.TestCase):
             self.assertEqual(jobs[name]["env"]["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
-        self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned", "tart-ios"])
+        self.assertEqual(options, ["auto", "blacksmith-6vcpu-macos-26", "owned"])
 
     def test_screenshots_take_the_runner_jobs_pool_without_actions_read(self):
         workflow = self.workflow("ios-screenshots.yml")

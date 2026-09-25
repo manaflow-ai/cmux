@@ -391,9 +391,9 @@ extension DockSplitStore {
             }
             filePreviewSnapshot = nil
         case .filePreview:
-            guard let filePreview = panel as? FilePreviewPanel else {
-                return nil
-            }
+            guard let filePreview = panel as? FilePreviewPanel,
+                  filePreview.cloudPreviewLease == nil,
+                  filePreview.cloudPreviewRemotePath == nil else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
