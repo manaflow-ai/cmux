@@ -1769,47 +1769,64 @@ class RootRunners(unittest.TestCase):
                                               owned_slots={MINI: 40, ROOT_MINI: 10}).startswith("glaeda-"))
 
 
-WARM = "glaeda-warm-0123456789ab"
 MERGE_BASE = "0123456789ab" + "c" * 28
+KEY = MERGE_BASE[:12]
 
 
-def live_runner(runner_id, *labels, busy=False, status="online"):
-    return {"id": runner_id, "name": f"cmux{runner_id}", "status": status, "busy": busy,
-            "labels": [{"name": name} for name in labels]}
+def live_runner(runner_id, *labels, busy=False, status="online", own=True):
+    """Runner cmux<id>, carrying its own static glaeda-runner- label unless `own` is False."""
+    name = f"cmux{runner_id}-glaeda"
+    return {"id": runner_id, "name": name, "status": status, "busy": busy,
+            "labels": [{"name": label} for label in (*labels, *([f"glaeda-runner-{name}"] if own else []))]}
+
+
+def warm(*runner_ids, keys=(KEY,)):
+    return {"through": 9, "runners": {f"cmux{runner_id}-glaeda": {"keys": list(keys), "at": "2026-09-25T00:00:00Z"}
+                                      for runner_id in runner_ids}}
 
 
 class WarmAffinity(unittest.TestCase):
-    """Compile admission goes to the idle root runner that kept a build of its merge base."""
+    """Compile admission goes to the idle root runner the snapshot calls warm for its merge base."""
 
-    def test_warm_label_takes_twelve_hex_digits(self):
-        self.assertEqual(pool.warm_label(MERGE_BASE), WARM)
-        self.assertEqual(pool.warm_label(MERGE_BASE.upper()), WARM)
+    def test_warm_key_takes_twelve_hex_digits(self):
+        self.assertEqual(pool.warm_key(MERGE_BASE), KEY)
+        self.assertEqual(pool.warm_key(MERGE_BASE.upper()), KEY)
         for commit in ("", None, "0123456789a", "not-a-commit-sha", "../../etc/passwd"):
-            self.assertEqual(pool.warm_label(commit), "", commit)
+            self.assertEqual(pool.warm_key(commit), "", commit)
 
-    def test_only_an_idle_root_runner_carrying_the_label_is_picked(self):
-        expected = json.dumps([ROOT_MINI, WARM], separators=(",", ":"))
-        idle = live_runner(1, MINI, ROOT_MINI, WARM)
-        self.assertEqual(pool.warm_admission_runner([idle], ROOT_MINI, MERGE_BASE), expected)
-        self.assertEqual(json.loads(expected), [ROOT_MINI, WARM])
-        for runners in ([live_runner(1, MINI, ROOT_MINI, WARM, busy=True)],
-                        [live_runner(1, MINI, ROOT_MINI, WARM, status="offline")],
-                        # The label on a runner of another root pool, or on no root runner.
-                        [live_runner(1, LIGHT, "glaeda-root-light-xcode-26.6", WARM)],
-                        [live_runner(1, MINI, WARM)],
-                        [live_runner(1, MINI, ROOT_MINI, "glaeda-warm-ffffffffffff")]):
-            self.assertEqual(pool.warm_admission_runner(runners, ROOT_MINI, MERGE_BASE), "", runners)
+    def test_runner_label_matches_glaedas(self):
+        self.assertEqual(pool.runner_label("cmux7s-glaeda-1"), "glaeda-runner-cmux7s-glaeda-1")
+        self.assertEqual(pool.runner_label("Mini 6_A"), "glaeda-runner-mini-6_a")
+
+    def test_only_an_idle_warm_root_runner_with_its_own_label_is_picked(self):
+        own = "glaeda-runner-cmux1-glaeda"
+        expected = json.dumps([ROOT_MINI, own], separators=(",", ":"))
+        idle = live_runner(1, MINI, ROOT_MINI)
+        self.assertEqual(pool.warm_admission_runner([idle], ROOT_MINI, MERGE_BASE, warm(1)), expected)
+        for runners in ([live_runner(1, MINI, ROOT_MINI, busy=True)],
+                        [live_runner(1, MINI, ROOT_MINI, status="offline")],
+                        # Not installed with its static label yet: a job naming it would wait forever.
+                        [live_runner(1, MINI, ROOT_MINI, own=False)],
+                        # A runner of another root pool, or no root runner.
+                        [live_runner(1, LIGHT, "glaeda-root-light-xcode-26.6")],
+                        [live_runner(1, MINI)]):
+            self.assertEqual(pool.warm_admission_runner(runners, ROOT_MINI, MERGE_BASE, warm(1)), "", runners)
+        # Warm for another commit, another runner warm, or no warm state at all.
+        for state in (warm(1, keys=("ffffffffffff",)), warm(2), {}, None, {"runners": []}):
+            self.assertEqual(pool.warm_admission_runner([idle], ROOT_MINI, MERGE_BASE, state), "", state)
         # No merge base, or no root label: nothing.
-        self.assertEqual(pool.warm_admission_runner([idle], ROOT_MINI, ""), "")
-        self.assertEqual(pool.warm_admission_runner([idle], MINI, MERGE_BASE), "")
+        self.assertEqual(pool.warm_admission_runner([idle], ROOT_MINI, "", warm(1)), "")
+        self.assertEqual(pool.warm_admission_runner([idle], MINI, MERGE_BASE, warm(1)), "")
         # A busy warm runner is skipped for an idle one.
-        both = [live_runner(1, MINI, ROOT_MINI, WARM, busy=True), live_runner(2, MINI, ROOT_MINI, WARM)]
-        self.assertEqual(pool.warm_admission_runner(both, ROOT_MINI, MERGE_BASE), expected)
+        both = [live_runner(1, MINI, ROOT_MINI, busy=True), live_runner(2, MINI, ROOT_MINI)]
+        self.assertEqual(json.loads(pool.warm_admission_runner(both, ROOT_MINI, MERGE_BASE, warm(1, 2))),
+                         [ROOT_MINI, "glaeda-runner-cmux2-glaeda"])
 
     def outputs(self, runners, *, merged_onto=MERGE_BASE, slots='{"std": 40, "root-std": 10}', token="app-token",
-                warm_labels="1"):
+                owned_warm="1", state=None):
         fresh = fleet(busy=0)
         fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        fresh["warm"] = warm(2) if state is None else state
         with tempfile.TemporaryDirectory() as tmp, \
                 unittest.mock.patch.object(pool.GitHub, "snapshot", return_value=fresh), \
                 unittest.mock.patch.object(pool.GitHub, "pull_request_routes_since", return_value=pool.Routed()), \
@@ -1821,29 +1838,32 @@ class WarmAffinity(unittest.TestCase):
                    "POOL_OWNED_SPLIT": "1", "OWNED_SLOTS": slots, "ROUTE_TOKEN": token,
                    "CMUX_CI_XCODE_APP_PR": PR_XCODE, "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15,
                    "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary),
-                   "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "WARM_LABELS": warm_labels}
+                   "RUN_MACOS": "true", "MERGED_ONTO": merged_onto, "OWNED_WARM": owned_warm}
             pool.main([], env)
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
             values["summary"] = summary.read_text()
         return values
 
     def test_main_names_the_warm_runner_for_admission(self):
-        runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI, WARM), live_runner(3, MINI)]
+        own = "glaeda-runner-cmux2-glaeda"
+        runners = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI), live_runner(3, MINI)]
         values = self.outputs(runners)
         self.assertEqual((values["runner"], values["root_runner"]), (MINI, ROOT_MINI))
         self.assertIn(" admission ", values["owned_jobs"])
-        self.assertEqual(json.loads(values["admission_runner"]), [ROOT_MINI, WARM])
-        self.assertIn(f"`{WARM}`", values["summary"])
+        self.assertEqual(json.loads(values["admission_runner"]), [ROOT_MINI, own])
+        self.assertIn(f"`{own}`", values["summary"])
         # Another merge base, a busy warm runner, or no root count: admission keeps the root label.
         self.assertEqual(self.outputs(runners, merged_onto="f" * 40)["admission_runner"], "")
-        busy = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI, WARM, busy=True)]
+        busy = [live_runner(1, MINI, ROOT_MINI), live_runner(2, MINI, ROOT_MINI, busy=True)]
         self.assertEqual(self.outputs(busy)["admission_runner"], "")
         self.assertEqual(self.outputs(runners, slots='{"std": 40}')["admission_runner"], "")
+        # A snapshot without `warm` (the janitor's sweep off or failed).
+        self.assertEqual(self.outputs(runners, state={})["admission_runner"], "")
         # Without the route token the runners are never read.
         self.assertEqual(self.outputs(runners, token="")["admission_runner"], "")
-        # CI_OWNED_WARM_LABELS off ignores labels already on the runners.
+        # CI_OWNED_WARM off ignores the snapshot's warm state.
         for off in ("", "0"):
-            self.assertEqual(self.outputs(runners, warm_labels=off)["admission_runner"], "", off)
+            self.assertEqual(self.outputs(runners, owned_warm=off)["admission_runner"], "", off)
 
 
 class Wiring(unittest.TestCase):
@@ -2008,35 +2028,23 @@ class Wiring(unittest.TestCase):
         self.assertIs(upload["continue-on-error"], True)
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", listed["if"])
         self.assertIn('*"owned_build_state.py warm-keys"*', listed["run"])
-        self.assertEqual(upload["with"]["name"], "owned-warm-keys-${{ github.run_id }}-${{ github.run_attempt }}")
+        # A fixed name, which the janitor can list; a re-run attempt replaces it.
+        self.assertEqual(upload["with"]["name"], "owned-warm-keys")
+        self.assertIs(upload["with"]["overwrite"], True)
         self.assertIn("steps.owned-warm-keys.outputs.path != ''", upload["if"])
 
-    def test_the_labeler_runs_from_main_off_by_default(self):
-        labeler = self.workflow("ci-owned-warm-labels.yml")
-        self.assertEqual(labeler[True]["workflow_run"], {"workflows": ["CI"], "types": ["completed"]})
-        self.assertEqual(labeler["permissions"], {})
-        job = labeler["jobs"]["label"]
-        self.assertIn("vars.CI_OWNED_WARM_LABELS == '1'", job["if"])
-        self.assertIn("vars.GLAEDA_ROUTE_APP_ID != ''", job["if"])
-        self.assertIn("github.event.workflow_run.head_repository.full_name == github.repository", job["if"])
-        self.assertEqual(job["runs-on"], "ubuntu-24.04")
-        steps = {step.get("id") or step.get("name"): step for step in job["steps"]}
-        self.assertEqual(steps["Checkout trusted labeler"]["with"]["ref"], "main")
-        self.assertEqual(steps["keys"]["with"]["name"], "owned-warm-keys-${{ github.event.workflow_run.id }}-"
-                                                        "${{ github.event.workflow_run.run_attempt }}")
-        self.assertEqual(steps["route-token"]["with"]["permission-administration"], "write")
-        # The minis are org runners (glaeda-minis): their labels need the org permission.
-        self.assertEqual(steps["route-token"]["with"]["permission-organization-self-hosted-runners"], "write")
-        # All or nothing: without the org permission granted, the repository one alone.
-        fallback = steps["route-token-repo"]
-        self.assertEqual(fallback["if"], "steps.route-token.outcome == 'failure'")
-        self.assertIs(fallback["continue-on-error"], True)
-        self.assertEqual(fallback["with"], {key: value for key, value in steps["route-token"]["with"].items()
-                                            if key != "permission-organization-self-hosted-runners"})
-        both = "steps.route-token.outputs.token || steps.route-token-repo.outputs.token"
-        self.assertEqual(steps["Label the runner"]["env"]["ROUTE_TOKEN"], "${{ %s }}" % both)
-        self.assertIn(f"({both}) != ''", steps["Label the runner"]["if"])
-        self.assertEqual(steps["Label the runner"]["run"], "python3 scripts/ci/owned_warm_labels.py")
+    def test_warm_state_is_read_never_written_as_labels(self):
+        self.assertFalse((WORKFLOWS / "ci-owned-warm-labels.yml").exists())
+        step = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
+                    if step.get("id") == "macos-pool")
+        self.assertEqual(step["env"]["OWNED_WARM"], "${{ vars.CI_OWNED_WARM }}")
+        sweep = next(step for step in self.workflow("ci-queue-janitor.yml")["jobs"]["sweep"]["steps"]
+                     if step.get("name") == "Cancel wasted macOS runs")
+        self.assertEqual(sweep["env"]["OWNED_WARM"], "${{ vars.CI_OWNED_WARM }}")
+        # No workflow asks the routing App for more than reading runners.
+        for path in WORKFLOWS.glob("*.yml"):
+            text = path.read_text()
+            self.assertNotIn("permission-organization-self-hosted-runners: write", text, path.name)
 
     def test_package_tests_take_an_owned_mac_only_where_the_picker_placed_them(self):
         # swift-package-tests builds the SDK 15 helper on a full suite with

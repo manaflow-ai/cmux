@@ -396,9 +396,9 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
-      - name: Validate the owned Mac warm labels
+      - name: Validate the owned Mac warm state
         if: ${{ matrix.group == 'ci' }}
-        run: python3 tests/test_ci_owned_warm_labels.py
+        run: python3 tests/test_ci_owned_warm_state.py
 
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
