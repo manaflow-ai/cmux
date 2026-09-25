@@ -60,14 +60,17 @@ struct AgentFeedBubbleShape: Shape {
             control1: CGPoint(x: left, y: bottom - 1),
             control2: CGPoint(x: rect.minX, y: bottom)
         )
+        // The inner edge peaks with a horizontal tangent so it arches
+        // smoothly back into the bottom edge instead of meeting it in a cusp.
+        let archPeak = CGPoint(x: left + 7, y: bottom - 3.5)
         path.addCurve(
-            to: CGPoint(x: left + 7, y: bottom - 4),
-            control1: CGPoint(x: rect.minX + 4, y: bottom + 0.5),
-            control2: CGPoint(x: left + 4, y: bottom - 1)
+            to: archPeak,
+            control1: CGPoint(x: rect.minX + 3, y: bottom + 0.3),
+            control2: CGPoint(x: left + 4, y: archPeak.y)
         )
         path.addCurve(
             to: CGPoint(x: left + 21, y: bottom),
-            control1: CGPoint(x: left + 12, y: bottom),
+            control1: CGPoint(x: left + 10, y: archPeak.y),
             control2: CGPoint(x: left + 16, y: bottom)
         )
         path.closeSubpath()
