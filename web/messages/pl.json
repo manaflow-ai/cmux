@@ -1313,7 +1313,7 @@
           "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
         },
         "terminal": {
-          "adaptiveDefaultTheme": "Przy true (domyślnie) cmux udostępnia domyślną paletę dostosowaną do wyglądu, chyba że skonfigurowano motyw Ghostty lub kolory terminala. Czcionka i inne ustawienia są zachowywane. Przy false Ghostty używa swojej stałej wbudowanej palety. Jawnie ustawione motywy i kolory zawsze mają pierwszeństwo, w tym theme = light:X,dark:Y.",
+          "adaptiveDefaultTheme": "Przy true (domyślnie) cmux udostępnia domyślną paletę dostosowaną do wyglądu, chyba że skonfigurowano motyw Ghostty. Jawnie ustawione kolory terminala zastępują tylko odpowiadające im wartości, a czcionka i inne ustawienia są zachowywane. Przy false Ghostty używa swojej stałej wbudowanej palety. Jawnie ustawione motywy zawsze mają pierwszeństwo, w tym theme = light:X,dark:Y.",
           "sessionContentMaxWidth": "Opcjonalna maksymalna szerokość w punktach dla zawartości terminala i wbudowanego czatu agenta. Ustaw false, aby użyć pełnej szerokości panelu.",
           "sessionContentAlignment": "Poziome położenie zawartości terminala i wbudowanego czatu agenta po włączeniu sessionContentMaxWidth.",
           "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",
