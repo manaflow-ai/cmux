@@ -71,4 +71,24 @@ final class CloudVMFileExplorerProvider: RemoteFileExplorerProvider, Sendable {
         guard isAvailable else { throw FileExplorerError.providerUnavailable }
         try await service.download(vmID: vmID, path: path, to: localURL)
     }
+
+    nonisolated func createFile(path: String) async throws {
+        guard isAvailable else { throw FileExplorerError.providerUnavailable }
+        try await service.createFile(vmID: vmID, path: path)
+    }
+
+    nonisolated func createDirectory(path: String) async throws {
+        guard isAvailable else { throw FileExplorerError.providerUnavailable }
+        try await service.createDirectory(vmID: vmID, path: path)
+    }
+
+    nonisolated func rename(path: String, to destinationPath: String) async throws {
+        guard isAvailable else { throw FileExplorerError.providerUnavailable }
+        try await service.rename(vmID: vmID, path: path, to: destinationPath)
+    }
+
+    nonisolated func delete(path: String) async throws {
+        guard isAvailable else { throw FileExplorerError.providerUnavailable }
+        try await service.delete(vmID: vmID, path: path)
+    }
 }

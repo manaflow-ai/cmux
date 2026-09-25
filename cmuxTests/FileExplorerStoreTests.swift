@@ -49,6 +49,7 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
     private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
     private(set) var listedPaths: [String] = []
     private(set) var downloadedPaths: [String] = []
+    private(set) var mutationOperations: [String] = []
 
     init(homePath: Result<String, Error> = .success("/home/dev")) {
         self.homePath = homePath
@@ -83,6 +84,30 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
             withIntermediateDirectories: true
         )
         try data.write(to: localURL)
+    }
+
+    func createFile(path: String, connection: SSHFileExplorerConnection) async throws {
+        mutationOperations.append("create-file:\(path)")
+        throw FileExplorerError.mutationFailed
+    }
+
+    func createDirectory(path: String, connection: SSHFileExplorerConnection) async throws {
+        mutationOperations.append("create-directory:\(path)")
+        throw FileExplorerError.mutationFailed
+    }
+
+    func rename(
+        path: String,
+        to destinationPath: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        mutationOperations.append("rename:\(path)->\(destinationPath)")
+        throw FileExplorerError.mutationFailed
+    }
+
+    func delete(path: String, connection: SSHFileExplorerConnection) async throws {
+        mutationOperations.append("delete:\(path)")
+        throw FileExplorerError.mutationFailed
     }
 }
 
@@ -193,6 +218,39 @@ struct FileExplorerStoreTests {
         store.setProviderForTesting(provider)
         store.rootPath = "/home/user/project"
         #expect(store.displayRootPath == "~/project")
+    }
+
+    @Test
+    func testRemoteProviderSupportsFilesystemMutations() async throws {
+        let transport = MockSSHFileExplorerTransport()
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@example.com",
+            port: nil,
+            identityFile: nil,
+            sshOptions: []
+        )
+        let provider = SSHFileExplorerProvider(
+            connection: connection,
+            displayTarget: "dev@example.com",
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: transport
+        )
+
+        try await provider.createDirectory(path: "/home/dev/new-folder")
+        try await provider.createFile(path: "/home/dev/new-folder/new-file")
+        try await provider.rename(
+            path: "/home/dev/new-folder/new-file",
+            to: "/home/dev/new-folder/renamed-file"
+        )
+        try await provider.delete(path: "/home/dev/new-folder")
+
+        #expect(transport.mutationOperations == [
+            "create-directory:/home/dev/new-folder",
+            "create-file:/home/dev/new-folder/new-file",
+            "rename:/home/dev/new-folder/new-file->/home/dev/new-folder/renamed-file",
+            "delete:/home/dev/new-folder",
+        ])
     }
 
     @Test

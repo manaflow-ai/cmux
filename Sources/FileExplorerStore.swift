@@ -219,8 +219,30 @@ enum FileExplorerRootResolver {
 
 protocol FileExplorerProvider: AnyObject {
     func listDirectory(path: String, showHidden: Bool) async throws -> [FileExplorerEntry]
+    func createFile(path: String) async throws
+    func createDirectory(path: String) async throws
+    func rename(path: String, to destinationPath: String) async throws
+    func delete(path: String) async throws
     var homePath: String { get }
     var isAvailable: Bool { get }
+}
+
+extension FileExplorerProvider {
+    func createFile(path: String) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    func createDirectory(path: String) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    func rename(path: String, to destinationPath: String) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    func delete(path: String) async throws {
+        throw FileExplorerError.mutationFailed
+    }
 }
 
 struct SSHFileExplorerConnection: Equatable, Sendable {
@@ -242,6 +264,54 @@ protocol SSHFileExplorerTransport: AnyObject {
         connection: SSHFileExplorerConnection,
         to localURL: URL
     ) async throws
+    nonisolated func createFile(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws
+    nonisolated func createDirectory(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws
+    nonisolated func rename(
+        path: String,
+        to destinationPath: String,
+        connection: SSHFileExplorerConnection
+    ) async throws
+    nonisolated func delete(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws
+}
+
+extension SSHFileExplorerTransport {
+    nonisolated func createFile(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    nonisolated func createDirectory(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    nonisolated func rename(
+        path: String,
+        to destinationPath: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    nonisolated func delete(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        throw FileExplorerError.mutationFailed
+    }
 }
 
 enum FileExplorerWorkspaceRoot: Equatable {
@@ -282,6 +352,28 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
             guard fm.fileExists(atPath: fullPath, isDirectory: &isDir) else { return nil }
             return FileExplorerEntry(name: name, path: fullPath, isDirectory: isDir.boolValue)
         }
+    }
+
+    func createFile(path: String) async throws {
+        guard FileManager.default.createFile(atPath: path, contents: nil) else {
+            throw FileExplorerError.mutationFailed
+        }
+    }
+
+    func createDirectory(path: String) async throws {
+        try FileManager.default.createDirectory(
+            atPath: path,
+            withIntermediateDirectories: false,
+            attributes: nil
+        )
+    }
+
+    func rename(path: String, to destinationPath: String) async throws {
+        try FileManager.default.moveItem(atPath: path, toPath: destinationPath)
+    }
+
+    func delete(path: String) async throws {
+        try FileManager.default.removeItem(atPath: path)
     }
 }
 
@@ -390,6 +482,34 @@ final class SSHFileExplorerProvider: RemoteFileExplorerProvider, @unchecked Send
         }
         try await transport.downloadFile(path: path, connection: connection, to: localURL)
     }
+
+    func createFile(path: String) async throws {
+        guard isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        try await transport.createFile(path: path, connection: connection)
+    }
+
+    func createDirectory(path: String) async throws {
+        guard isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        try await transport.createDirectory(path: path, connection: connection)
+    }
+
+    func rename(path: String, to destinationPath: String) async throws {
+        guard isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        try await transport.rename(path: path, to: destinationPath, connection: connection)
+    }
+
+    func delete(path: String) async throws {
+        guard isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        try await transport.delete(path: path, connection: connection)
+    }
 }
 
 final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
@@ -436,6 +556,47 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             try? FileManager.default.removeItem(at: outputURL)
             throw FileExplorerError.sshCommandFailed(result.stderr)
         }
+    }
+
+    nonisolated func createFile(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        try await Self.runSSHMutationCommand(
+            connection: connection,
+            command: ": > (Self.shellSingleQuote(path))"
+        )
+    }
+
+    nonisolated func createDirectory(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        try await Self.runSSHMutationCommand(
+            connection: connection,
+            command: "mkdir -- (Self.shellSingleQuote(path))"
+        )
+    }
+
+    nonisolated func rename(
+        path: String,
+        to destinationPath: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        try await Self.runSSHMutationCommand(
+            connection: connection,
+            command: "mv -- (Self.shellSingleQuote(path)) (Self.shellSingleQuote(destinationPath))"
+        )
+    }
+
+    nonisolated func delete(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        try await Self.runSSHMutationCommand(
+            connection: connection,
+            command: "rm -rf -- (Self.shellSingleQuote(path))"
+        )
     }
 
     private struct SSHCommandResult: Sendable {
@@ -636,6 +797,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return result.stdout
     }
 
+    private static func runSSHMutationCommand(
+        connection: SSHFileExplorerConnection,
+        command: String
+    ) async throws {
+        _ = try await runSSHCommand(connection: connection, command: command)
+    }
+
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
         var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
         if let port = connection.port {
@@ -695,6 +863,8 @@ enum FileExplorerError: LocalizedError {
     case providerUnavailable
     case sshCommandFailed(String)
     case remoteCommandFailed(String)
+    case mutationFailed
+    case invalidMutationName
     case previewCapacity
     case remoteFileTooLarge
 
@@ -710,8 +880,17 @@ enum FileExplorerError: LocalizedError {
             return String(localized: "fileExplorer.error.cloudPreviewTooLarge", defaultValue: "Cloud file previews are limited to 1 MB.")
         case .remoteCommandFailed:
             return String(localized: "fileExplorer.error.remoteFailed", defaultValue: "Remote command failed")
+        case .mutationFailed:
+            return String(localized: "fileExplorer.error.mutationFailed", defaultValue: "Unable to update this file or folder.")
+        case .invalidMutationName:
+            return String(localized: "fileExplorer.error.invalidName", defaultValue: "Enter a single file or folder name.")
         }
     }
+}
+
+enum FileExplorerEntryKind: Equatable, Sendable {
+    case file
+    case directory
 }
 
 // MARK: - Selection Restoration
@@ -933,6 +1112,95 @@ final class FileExplorerStore: ObservableObject {
         return cacheURL
     }
 
+    func createEntry(
+        kind: FileExplorerEntryKind,
+        in directoryPath: String,
+        named name: String
+    ) async throws -> String {
+        let path = try Self.childPath(directoryPath: directoryPath, name: name)
+        guard let provider, provider.isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        let context = resourceContextID
+        switch kind {
+        case .file:
+            try await provider.createFile(path: path)
+        case .directory:
+            try await provider.createDirectory(path: path)
+        }
+        guard self.provider === provider, resourceContextID == context else {
+            throw FileExplorerError.providerUnavailable
+        }
+        selectedPath = path
+        selectedPaths = [path]
+        reload()
+        refreshGitStatus()
+        return path
+    }
+
+    func renameEntry(path: String, toName name: String) async throws -> String {
+        let parentPath = (path as NSString).deletingLastPathComponent
+        let destinationPath = try Self.childPath(directoryPath: parentPath, name: name)
+        guard let provider, provider.isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        if path == destinationPath {
+            return path
+        }
+        let context = resourceContextID
+        try await provider.rename(path: path, to: destinationPath)
+        guard self.provider === provider, resourceContextID == context else {
+            throw FileExplorerError.providerUnavailable
+        }
+        if selectedPaths.contains(path) {
+            selectedPaths.remove(path)
+            selectedPaths.insert(destinationPath)
+        }
+        if selectedPath == path {
+            selectedPath = destinationPath
+        }
+        expandedPaths = Set(expandedPaths.map { $0 == path ? destinationPath : $0 })
+        reload()
+        refreshGitStatus()
+        return destinationPath
+    }
+
+    func deleteEntries(paths: [String]) async throws {
+        guard let provider, provider.isAvailable else {
+            throw FileExplorerError.providerUnavailable
+        }
+        let uniquePaths = Set(paths)
+        let topLevelPaths = uniquePaths.filter { path in
+            !uniquePaths.contains { other in
+                other != path && Self.path(path, isContainedIn: other)
+            }
+        }
+        let context = resourceContextID
+        do {
+            for path in topLevelPaths.sorted() {
+                try await provider.delete(path: path)
+            }
+        } catch {
+            reload()
+            throw error
+        }
+        guard self.provider === provider, resourceContextID == context else {
+            throw FileExplorerError.providerUnavailable
+        }
+        selectedPaths = selectedPaths.filter { selected in
+            !topLevelPaths.contains { deleted in Self.path(selected, isContainedIn: deleted) }
+        }
+        if let selectedPath,
+           topLevelPaths.contains(where: { Self.path(selectedPath, isContainedIn: $0) }) {
+            self.selectedPath = nil
+        }
+        expandedPaths = expandedPaths.filter { expanded in
+            !topLevelPaths.contains { deleted in Self.path(expanded, isContainedIn: deleted) }
+        }
+        reload()
+        refreshGitStatus()
+    }
+
     private func updateDirectoryWatcher() {
         if provider is LocalFileExplorerProvider, !rootPath.isEmpty {
             guard directoryWatchPath != rootPath || directoryWatcher == nil else { return }
@@ -952,6 +1220,20 @@ final class FileExplorerStore: ObservableObject {
         } else {
             stopDirectoryWatcher()
         }
+    }
+
+    private static func childPath(directoryPath: String, name rawName: String) throws -> String {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty,
+              name != ".",
+              name != "..",
+              !name.contains("/"),
+              !name.contains("\0"),
+              !name.contains("\n"),
+              !name.contains("\r") else {
+            throw FileExplorerError.invalidMutationName
+        }
+        return (directoryPath as NSString).appendingPathComponent(name)
     }
 
     /// Cancels the directory-watch consumer and drops the watcher; the watcher's

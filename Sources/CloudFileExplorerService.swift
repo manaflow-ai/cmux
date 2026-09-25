@@ -60,6 +60,27 @@ json.dump(entries, sys.stdout, separators=(",", ":"))
         }
     }
 
+    func createFile(vmID: String, path: String) async throws {
+        try await runMutation(vmID: vmID, operation: "create_file", path: path)
+    }
+
+    func createDirectory(vmID: String, path: String) async throws {
+        try await runMutation(vmID: vmID, operation: "create_directory", path: path)
+    }
+
+    func rename(vmID: String, path: String, to destinationPath: String) async throws {
+        try await runMutation(
+            vmID: vmID,
+            operation: "rename",
+            path: path,
+            destinationPath: destinationPath
+        )
+    }
+
+    func delete(vmID: String, path: String) async throws {
+        try await runMutation(vmID: vmID, operation: "delete", path: path)
+    }
+
     /// Downloads one bounded remote file to a local preview cache.
     func download(vmID: String, path: String, to localURL: URL) async throws {
         let script = #"""
@@ -178,6 +199,49 @@ sys.exit(0 if exit_code in (0, 1) else exit_code)
             status: results.isEmpty ? .noMatches : (limitCount.map { .limited($0) } ?? .matches),
             isSearching: false
         )
+    }
+
+    private func runMutation(
+        vmID: String,
+        operation: String,
+        path: String,
+        destinationPath: String? = nil
+    ) async throws {
+        let script = #"""
+import os, shutil, sys
+operation = sys.argv[1]
+path = sys.argv[2]
+destination = sys.argv[3] if len(sys.argv) > 3 else None
+try:
+    if operation == "create_file":
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        os.close(descriptor)
+    elif operation == "create_directory":
+        os.mkdir(path)
+    elif operation == "rename":
+        if destination is None:
+            sys.exit(74)
+        os.rename(path, destination)
+    elif operation == "delete":
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.unlink(path)
+    else:
+        sys.exit(74)
+except OSError:
+    sys.exit(74)
+"""#
+        var arguments = [operation, path]
+        if let destinationPath {
+            arguments.append(destinationPath)
+        }
+        let command = "python3 -c \(Self.shellQuote(script)) "
+            + arguments.map(Self.shellQuote).joined(separator: " ")
+        let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
+        guard result.exitCode == 0 else {
+            throw FileExplorerError.remoteCommandFailed("")
+        }
     }
 
     private static func shellQuote(_ value: String) -> String {
