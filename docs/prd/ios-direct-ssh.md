@@ -58,6 +58,18 @@ _Filled in as the interview answers them._
 - **Your key pair** = padlock + key. Private key (the key) is created in the iPhone's Secure Enclave and never leaves it. Public key (the padlock) is safe to share. The server lists padlocks it accepts in `~/.ssh/authorized_keys`; at login the phone proves it can open the padlock without sending any secret.
 - **Server identity key** = the server's own key pair, so the phone knows it reached the real server. Phone remembers its fingerprint on first connect and checks it every time. A change means either a reinstall/recreated VM/reassigned IP (common, harmless) or someone impersonating the server (rare, dangerous). The phone cannot tell which.
 
+## Round 2 decisions (2026-09-24)
+
+| # | Decision |
+|---|---|
+| D24 | tmux maps session = workspace, pane = tab (via tmux control mode), windows as groupings; New Terminal = new window. The phone attaches through its own linked session so the laptop's view never moves. |
+| D25 | Plain mode: each shell is a workspace row; no terminal tabs. cmux-tui: New Terminal creates a terminal in the workspace. |
+| D26 | Browser: one design (bottom controls). Streamed stays the default; a per-browser picker switches to On iPhone (native WebKit). SSH On iPhone routes through a SOCKS5 proxy over SSH plus a loopback port mirror. |
+| D27 | On iPhone for paired Macs via a Mac-side TCP relay lane, default deny (Mac loopback only; opt-in for other hosts; metadata/link-local always refused). Separate PR #14301. |
+| D28 | Files live on the terminal Files chip (opens at the shell's folder). No separate open-port feature: typing localhost in the browser works. |
+| D29 | UX: quiet "Use with SSH only" sign-in option; mode-aware empty states with Mac-parity status; + asks which computer under All Computers; declined identity prompts pause auto-connect persistently. |
+| D30 | tmux is never installed for the user; cmux-tui is the zero-install path. |
+
 ## Persistence modes (D4/D9 detail)
 
 Every persistent mode needs a process on the server that outlives the SSH connection. The difference is who installs it.
