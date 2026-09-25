@@ -45,16 +45,22 @@ extension MobileHostRPCRequest {
         }
     }
 
-    /// The per-surface ordering domain for an ordered terminal request.
-    /// Requests without a surface selection share one conservative bucket.
+    /// The fallback ordering domain for an ordered terminal request.
+    /// Production admission resolves aliases and focused targets against the
+    /// live main-actor topology before choosing the final FIFO key.
     var orderedInputSurfaceKey: String {
-        let raw = (params["surface_id"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        // UUID spelling is not identity. Normalize it before the connection
-        // local admission queue so upper/lower-case wire variants cannot race
-        // one another while the canonical main-actor owner resolves the live
-        // surface target.
-        return UUID(uuidString: raw)?.uuidString.lowercased() ?? raw
+        for key in ["surface_id", "terminal_id", "tab_id"] {
+            let raw = (params[key] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !raw.isEmpty else { continue }
+            // UUID spelling is not identity. Normalize it before the fallback
+            // admission queue so upper/lower-case wire variants cannot race
+            // one another when the live topology resolver is unavailable.
+            return UUID(uuidString: raw)?.uuidString.lowercased() ?? raw
+        }
+        // Requests without a direct alias share one conservative bucket. The
+        // production resolver replaces this with the focused/handle target.
+        return ""
     }
 }
 

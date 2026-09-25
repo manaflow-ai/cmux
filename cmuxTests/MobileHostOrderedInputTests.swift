@@ -211,6 +211,43 @@ struct MobileHostOrderedInputTests {
     }
 
     @Test
+    func equivalentTerminalAndSurfaceAliasesShareOneOrderingDomain() async throws {
+        let transport = OrderedInputRecordingTransport()
+        let gate = CanonicalSurfaceInputGate()
+        let connection = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await gate.handle(request)
+                return .ok(["handled": request.id ?? NSNull()])
+            },
+            onClose: { _ in }
+        )
+        let surfaceID = UUID()
+        let batch = try Self.framedBatch(
+            [
+                ("input-1", "terminal.input"),
+                ("input-2", "terminal.input"),
+            ],
+            surfaceIDsByRequestID: [
+                "input-1": surfaceID.uuidString.uppercased(),
+            ],
+            terminalIDsByRequestID: [
+                "input-2": surfaceID.uuidString.lowercased(),
+            ]
+        )
+
+        await connection.debugHandleReceiveDataForTesting(batch)
+        await gate.waitUntilFirstInputStarts()
+        #expect(!(await gate.secondInputStarted()))
+        await gate.releaseFirstInput()
+        _ = await transport.waitForResponseCount(2)
+        await connection.close(reason: "test complete")
+    }
+
+    @Test
     func stalledResponseWriteDoesNotBlockLaterOrderedInput() async throws {
         let transport = OrderedInputRecordingTransport()
         await transport.setHoldSends(true)
@@ -256,7 +293,8 @@ struct MobileHostOrderedInputTests {
 
     private static func framedBatch(
         _ requests: [(id: String, method: String)],
-        surfaceIDsByRequestID: [String: String] = [:]
+        surfaceIDsByRequestID: [String: String] = [:],
+        terminalIDsByRequestID: [String: String] = [:]
     ) throws -> Data {
         var batch = Data()
         for request in requests {
@@ -265,6 +303,9 @@ struct MobileHostOrderedInputTests {
                 : [:]
             if let surfaceID = surfaceIDsByRequestID[request.id] {
                 params["surface_id"] = surfaceID
+            }
+            if let terminalID = terminalIDsByRequestID[request.id] {
+                params["terminal_id"] = terminalID
             }
             let payload: [String: Any] = [
                 "id": request.id,

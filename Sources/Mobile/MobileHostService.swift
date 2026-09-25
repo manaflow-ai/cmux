@@ -929,10 +929,12 @@ final class MobileHostService {
                 }
                 await MobileHostService.shared.recordClientID(clientID, for: id)
                 await MainActor.run {
-                    MobileHostService.shared.terminalInputOrdering.rebind(
-                        inputOrderingToken,
-                        identity: "client:\(clientID)"
-                    )
+                    if case .stackBearer = authorization {
+                        MobileHostService.shared.terminalInputOrdering.rebind(
+                            inputOrderingToken,
+                            identity: "client:\(clientID)"
+                        )
+                    }
                 }
             },
             onUsableSession: {
@@ -979,6 +981,17 @@ final class MobileHostService {
                 )
                 return result
             },
+            orderedInputSurfaceKey: { request in
+                await MainActor.run {
+                    let resolved = TerminalController.shared.mobileResolveWorkspaceAndSurface(
+                        params: request.params,
+                        requireTerminal: true,
+                        materializeSurface: false
+                    )
+                    return resolved?.surfaceId?.uuidString.lowercased()
+                        ?? ""
+                }
+            },
             onClose: { id in
                 await MainActor.run {
                     MobileHostService.shared.terminalInputOrdering.invalidate(
@@ -999,6 +1012,11 @@ final class MobileHostService {
         )
         guard await isCurrent() else {
             await transport.close()
+            await MainActor.run {
+                MobileHostService.shared.terminalInputOrdering.invalidate(
+                    inputOrderingToken
+                )
+            }
             MobileHostRequestActivity.endConnection()
             return expectedExit
         }
@@ -1012,6 +1030,11 @@ final class MobileHostService {
                 "mobile host rejected connection because an active connection quota was reached"
             )
             await transport.close()
+            await MainActor.run {
+                MobileHostService.shared.terminalInputOrdering.invalidate(
+                    inputOrderingToken
+                )
+            }
             MobileHostRequestActivity.endConnection()
             return expectedExit
         }
@@ -1472,6 +1495,10 @@ actor MobileHostConnection {
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
+    /// Resolves an ordered request to the canonical live surface before it is
+    /// assigned to a per-surface FIFO. The default keeps standalone tests and
+    /// compatibility callers on the legacy request-key behavior.
+    private let orderedInputSurfaceKey: @Sendable (MobileHostRPCRequest) async -> String
     private let onClose: @Sendable (UUID) async -> Void
     private let requestSimulatorFrameReplay: @Sendable (UUID, Set<String>) async -> Void
     private let responseWorkQuota = MobileHostRPCWorkQuota()
@@ -1515,6 +1542,9 @@ actor MobileHostConnection {
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
         isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
+        orderedInputSurfaceKey: @escaping @Sendable (MobileHostRPCRequest) async -> String = {
+            $0.orderedInputSurfaceKey
+        },
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
     ) {
@@ -1529,6 +1559,7 @@ actor MobileHostConnection {
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
+        self.orderedInputSurfaceKey = orderedInputSurfaceKey
         self.onClose = onClose
         self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
         self.eventQueue = eventQueue
@@ -1545,6 +1576,9 @@ actor MobileHostConnection {
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
         isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
+        orderedInputSurfaceKey: @escaping @Sendable (MobileHostRPCRequest) async -> String = {
+            $0.orderedInputSurfaceKey
+        },
         onClose: @escaping @Sendable (UUID) async -> Void,
         requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
     ) {
@@ -1558,6 +1592,7 @@ actor MobileHostConnection {
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
+        self.orderedInputSurfaceKey = orderedInputSurfaceKey
         self.onClose = onClose
         self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
         self.eventQueue = eventQueue
@@ -1680,7 +1715,7 @@ actor MobileHostConnection {
                     }
                     for frame in frames {
                         guard !isClosed else { return }
-                        if !startResponseTask(for: frame) {
+                        if !(await startResponseTask(for: frame)) {
                             // Work pressure fails this request explicitly; it
                             // does not invalidate the authenticated connection.
                             let request = try? MobileHostRPCEnvelope.decodeRequest(frame).get()
@@ -1717,7 +1752,7 @@ actor MobileHostConnection {
         }
     }
 
-    private func startResponseTask(for frame: Data) -> Bool {
+    private func startResponseTask(for frame: Data) async -> Bool {
         guard !isClosed else {
             return false
         }
@@ -1735,7 +1770,7 @@ actor MobileHostConnection {
         ) else { return false }
         if case let .success(request) = decodedRequest,
            request.isOrderedTerminalInput {
-            let surfaceKey = request.orderedInputSurfaceKey
+            let surfaceKey = await orderedInputSurfaceKey(request)
             orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
                 .enqueue(MobileHostOrderedRequest(
                     frameByteCount: frame.count,

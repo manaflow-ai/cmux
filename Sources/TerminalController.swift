@@ -14686,12 +14686,11 @@ class TerminalController {
                 executionContext: executionContext
             )
         }
-
-        let inputSequence: UInt64? = if let raw = request.params["input_sequence"] as? String {
-            UInt64(raw)
-        } else {
-            (request.params["input_sequence"] as? NSNumber).map { $0.uint64Value }
+        if let error = mobileTerminalAliasValidationError(params: request.params) {
+            return error
         }
+
+        let inputSequence = mobileInputSequence(params: request.params)
         guard case let .success(ticket) = MobileHostService.shared.terminalInputOrdering.reserve(
             surfaceID: surfaceID,
             token: orderingToken,
@@ -14715,10 +14714,35 @@ class TerminalController {
                 data: ["surface_id": surfaceID.uuidString]
             )
         }
+        var pinnedParams = request.params
+        pinnedParams.removeValue(forKey: "terminal_id")
+        pinnedParams.removeValue(forKey: "tab_id")
+        pinnedParams["surface_id"] = surfaceID.uuidString
+        let pinnedRequest = MobileHostRPCRequest(
+            id: request.id,
+            method: request.method,
+            params: pinnedParams,
+            auth: request.auth
+        )
         return await mobileHostHandleRPCUnordered(
-            request,
+            pinnedRequest,
             executionContext: executionContext
         )
+    }
+
+    private func mobileInputSequence(params: [String: Any]) -> UInt64? {
+        guard let raw = params["input_sequence"] else { return nil }
+        if let string = raw as? String {
+            return UInt64(string)
+        }
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        // NSNumber's decimal spelling preserves integer precision beyond the
+        // 53-bit exact range of Double while rejecting fractional and negative
+        // values through UInt64's parser.
+        return UInt64(number.stringValue)
     }
 
     @MainActor
@@ -16141,7 +16165,8 @@ class TerminalController {
 
     func mobileResolveWorkspaceAndSurface(
         params: [String: Any],
-        requireTerminal: Bool
+        requireTerminal: Bool,
+        materializeSurface: Bool = true
     ) -> (tabManager: TabManager, workspace: Workspace, surfaceId: UUID?)? {
         guard let tabManager = v2ResolveTabManager(params: params),
               let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
@@ -16182,7 +16207,8 @@ class TerminalController {
         // resolves a terminal to read or drive, materialize the surface
         // headlessly so attaching alone loads it. Idempotent and a no-op once
         // the surface exists.
-        if requireTerminal,
+        if materializeSurface,
+           requireTerminal,
            let surfaceId,
            let owned = workspace.terminalInputTarget(forPanelID: surfaceId),
            let target = workspace.controlSocketTerminalTarget(for: owned) {
