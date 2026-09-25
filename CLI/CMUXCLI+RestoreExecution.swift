@@ -69,6 +69,10 @@ extension CMUXCLI {
                 )
             )
         }
+        try requireCodexWriterAvailable(
+            invocation: invocation,
+            workingDirectory: FileManager.default.currentDirectoryPath
+        )
         let executionError = withCStringArray(invocation.arguments) { argv in
             withEnvironmentCStringArray(invocationEnvironment) { environment in
                 executable.withCString { path in

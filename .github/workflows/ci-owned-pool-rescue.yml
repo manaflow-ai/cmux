@@ -15,6 +15,10 @@ run-name: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event
 # from main: a pull request cannot change it. Only attempt 1 is watched, in the
 # job condition below and again in the script, so the re-run this workflow
 # starts is never watched, whether or not GitHub delivers `requested` for it.
+# Side-lane pull request runs (auth-refresh-tests, cloud-command-deadlines,
+# cloud-machine-tests, cloud-task-local-tests, iroh-v2, relay-tls,
+# terminal-hang-diagnostics) are watched while vars.CI_SIDE_LANE_RUNNER names a
+# glaeda-side-* label, which their light jobs then take on attempt 1.
 # test-e2e.yml dispatches are watched the same way: e2e_runner_pool.py may put
 # an E2E run on an owned pool too, and its runner job uploads the same marker.
 # So are test-ios.yml and ios-screenshots.yml dispatches, whose runner job runs
@@ -26,7 +30,20 @@ run-name: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event
 # GitHub-hosted runner rather than holding a slot in CI's Linux pool.
 on:
   workflow_run:
-    workflows: [CI, E2E test with video recording, iOS simulator tests, iOS App Store screenshots]
+    workflows:
+      - CI
+      - E2E test with video recording
+      - iOS simulator tests
+      - iOS App Store screenshots
+      # Side lanes (owned_pool_rescue.SIDE_WORKFLOW_PATHS): watched only while
+      # vars.CI_SIDE_LANE_RUNNER routes them to the fleet.
+      - Auth and session lifecycle
+      - Cloud command deadlines
+      - Cloud machine lifecycle
+      - Cloud task-local lifecycle
+      - IROH v2
+      - Relay TLS system trust
+      - Terminal hang diagnostics
     types: [requested]
 
 permissions: {}
@@ -35,7 +52,13 @@ env:
   # Renaming the source workflow silently stops every `workflow_run` consumer
   # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
   # this path. The script confirms the run's own `path` again before acting.
-  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml .github/workflows/test-e2e.yml .github/workflows/test-ios.yml .github/workflows/ios-screenshots.yml
+  SOURCE_WORKFLOW_PATHS: >-
+    .github/workflows/ci.yml .github/workflows/test-e2e.yml
+    .github/workflows/test-ios.yml .github/workflows/ios-screenshots.yml
+    .github/workflows/auth-refresh-tests.yml .github/workflows/cloud-command-deadlines.yml
+    .github/workflows/cloud-machine-tests.yml .github/workflows/cloud-task-local-tests.yml
+    .github/workflows/iroh-v2.yml .github/workflows/relay-tls.yml
+    .github/workflows/terminal-hang-diagnostics.yml
 
 concurrency:
   group: owned-pool-rescue-${{ github.event.workflow_run.id }}-${{ github.event.workflow_run.run_attempt }}
@@ -44,7 +67,7 @@ concurrency:
 jobs:
   rescue:
     name: Rescue a run stuck on a persistent pool
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.path == '.github/workflows/test-e2e.yml' || github.event.workflow_run.path == '.github/workflows/test-ios.yml' || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml') && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event.workflow_run.event == 'pull_request' || (github.event.workflow_run.path == '.github/workflows/test-e2e.yml' || github.event.workflow_run.path == '.github/workflows/test-ios.yml' || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml') && github.event.workflow_run.event == 'workflow_dispatch') && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 && (github.event.workflow_run.event != 'pull_request' || github.event.workflow_run.path == '.github/workflows/ci.yml' || startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-')) }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
     # The watch limit is 60 minutes (150 for an E2E run), reads may retry, and
     # a rescue may run 25 more for a cancel to settle and the re-run
@@ -66,4 +89,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          # 1: a stuck run's full re-run may take the light pool; watch it.
+          OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
         run: python3 scripts/ci/owned_pool_rescue.py

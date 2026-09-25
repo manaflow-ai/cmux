@@ -142,6 +142,9 @@
          location = "group:CmuxCanvasUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxCloud">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCloudBannerCore">
       </FileRef>
       <FileRef
