@@ -1652,6 +1652,7 @@
 				DEC1CE000000000000000022 /* DeviceSurfaceProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000021 /* DeviceSurfaceProvider.swift */; };
 				DEC1CE000000000000000026 /* DeviceSurfaceProviderRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE000000000000000025 /* DeviceSurfaceProviderRegistry.swift */; };
 				E04616B1BE0A4C27889B11FA /* DeviceTerminalAttachmentStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDFEB48E4700451CBC750DAE /* DeviceTerminalAttachmentStatus.swift */; };
+				9AC0361F27FE13B54BA90F55 /* DeviceTerminalGridPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84297AC295659EC4D88B9FA3 /* DeviceTerminalGridPublisher.swift */; };
 				DEC1CE00000000000000001E /* DeviceTerminalInputRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */; };
 				DEC1CE000000000000000020 /* DeviceTerminalMirrorSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */; };
 				DEC1CE00000000000000004E /* DeviceTerminalMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */; };
@@ -5622,6 +5623,7 @@
 				DEC1CE000000000000000021 /* DeviceSurfaceProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProvider.swift"; sourceTree = "<group>"; };
 				DEC1CE000000000000000025 /* DeviceSurfaceProviderRegistry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceSurfaceProviderRegistry.swift"; sourceTree = "<group>"; };
 				DDFEB48E4700451CBC750DAE /* DeviceTerminalAttachmentStatus.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalAttachmentStatus.swift"; sourceTree = "<group>"; };
+				84297AC295659EC4D88B9FA3 /* DeviceTerminalGridPublisher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalGridPublisher.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001D /* DeviceTerminalInputRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalInputRouter.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000001F /* DeviceTerminalMirrorSession.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Devices/DeviceTerminalMirrorSession.swift"; sourceTree = "<group>"; };
 				DEC1CE00000000000000004D /* DeviceTerminalMirrorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DeviceTerminalMirrorTests.swift; sourceTree = "<group>"; };
@@ -10734,6 +10736,7 @@
 				DEC1CE000000000000000011 /* DeviceRouteSelector.swift */,
 				DEC1CE000000000000000013 /* DeviceLinkRuntime.swift */,
 				DEC1CE000000000000000015 /* DeviceLinkTerminalEvents.swift */,
+				84297AC295659EC4D88B9FA3 /* DeviceTerminalGridPublisher.swift */,
 				DEC1CE000000000000000017 /* DeviceLink.swift */,
 				DE1345800000000000000009 /* DeviceLinkDiagnostics.swift */,
 				DE1345800000000000000007 /* DeviceDirectoryStamp.swift */,
@@ -13627,6 +13630,7 @@
 				DEC1CE000000000000000022 /* DeviceSurfaceProvider.swift in Sources */,
 				DEC1CE000000000000000026 /* DeviceSurfaceProviderRegistry.swift in Sources */,
 				E04616B1BE0A4C27889B11FA /* DeviceTerminalAttachmentStatus.swift in Sources */,
+				9AC0361F27FE13B54BA90F55 /* DeviceTerminalGridPublisher.swift in Sources */,
 				DEC1CE00000000000000001E /* DeviceTerminalInputRouter.swift in Sources */,
 				DEC1CE000000000000000020 /* DeviceTerminalMirrorSession.swift in Sources */,
 				7F3B63556D5661AB1682A514 /* DeviceWorkspaceCreationCoordinator.swift in Sources */,

@@ -592,7 +592,7 @@ final class MobileHostService {
     /// on. `nil` for topics without per-surface recovery semantics.
     nonisolated static func eventCoalesceKey(topic: String, payload: [String: Any]) -> String? {
         switch topic {
-        case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes":
+        case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes", DeviceTerminalGridPublisher.eventTopic:
             return payload["surface_id"] as? String
         case MobileHostEventTopicPolicy.simulatorFrameTopic:
             return payload["panel_id"] as? String

@@ -18,6 +18,58 @@ import Testing
 struct DeviceTerminalMirrorTests {
     private let surfaceID = UUID()
 
+    @Test("A slow Mac keeps the latest grid for each surface without changing phone event admission")
+    func pendingGridUpdatesAreBoundedAndSurfaceScoped() {
+        let topic = DeviceTerminalGridPublisher.eventTopic
+        let queue = MobileHostConnectionEventQueue(maximumEventCount: 1, maximumByteCount: 4)
+        queue.updateSubscribedTopics([topic, "terminal.bytes"])
+        for value in 0..<100 {
+            _ = queue.enqueue(topic: topic, coalesceKey: "first", isFullRenderGridFrame: false, frame: Data([UInt8(value)]))
+        }
+        _ = queue.enqueue(topic: topic, coalesceKey: "second", isFullRenderGridFrame: false, frame: Data([200]))
+        _ = queue.enqueue(topic: "terminal.bytes", coalesceKey: "first", isFullRenderGridFrame: false, frame: Data([0]))
+        #expect(queue.count == 2, "Other event pressure cannot discard a surface's last known dimensions")
+        #expect(queue.byteCount == 2)
+        #expect(queue.dequeue()?.frame == Data([99]))
+        #expect(queue.dequeue()?.frame == Data([200]))
+        #expect(queue.byteCount == 0)
+        let phone = MobileHostConnectionEventQueue()
+        phone.updateSubscribedTopics(["terminal.updated", "terminal.render_grid"])
+        #expect(!phone.enqueue(topic: topic, coalesceKey: "first", isFullRenderGridFrame: false, frame: Data([1])).admitted)
+    }
+
+    @Test("Global render ticks emit only changed Mac dimensions and reuse the live surface index")
+    func gridPublishingIsBoundedByGeometryChanges() {
+        let other = UUID()
+        var publisher = DeviceTerminalGridPublisher()
+        var grids = [surfaceID: DeviceTerminalGridPublisher.Grid(columns: 80, rows: 24, generation: 1),
+                     other: DeviceTerminalGridPublisher.Grid(columns: 120, rows: 40, generation: 1)]
+        var indexReads = 0
+        var emitted: [UUID] = []
+        func update(topology: UInt64 = 1) {
+            publisher.refresh(updatedSurfaceIDs: [surfaceID], global: true, topologyGeneration: topology,
+                allSurfaceIDs: { indexReads += 1; return Set(grids.keys) },
+                sample: { grids[$0] }, publish: { id, _ in emitted.append(id) })
+        }
+        update()
+        #expect(Set(emitted) == [surfaceID, other])
+        emitted.removeAll()
+        for _ in 0..<100 { update() }
+        #expect(emitted.isEmpty, "Typing and render ticks must not cause replays when dimensions have not changed")
+        #expect(indexReads == 1)
+        grids[surfaceID] = .init(columns: 60, rows: 24, generation: 1)
+        update()
+        #expect(emitted == [surfaceID])
+        emitted.removeAll()
+        grids[other] = nil
+        update(topology: 2)
+        #expect(emitted.isEmpty)
+        #expect(indexReads == 2)
+        publisher.reset()
+        update(topology: 2)
+        #expect(emitted == [surfaceID], "A new subscriber receives the current dimensions")
+    }
+
     @Test func deviceNoticeDismissesWithoutClosingAndResetsAfterRecovery() {
         var retries = 0
         let status = DeviceTerminalAttachmentStatus()

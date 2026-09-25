@@ -53,7 +53,7 @@ enum DeviceLinkError: Error, LocalizedError, Equatable {
 final class DeviceLink {
     typealias Phase = DeviceLinkReconnectPolicy.Phase
 
-    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", DeviceWorkspaceLayoutHost.eventTopic]
+    static let eventTopics: Set<String> = ["mobile.sync.delta", "workspace.updated", "terminal.bytes", "terminal.updated", DeviceTerminalGridPublisher.eventTopic, DeviceWorkspaceLayoutHost.eventTopic]
 
     let instance: SurfaceDeviceInstanceID
     private(set) var record: DeviceDirectoryRecord
@@ -426,7 +426,7 @@ final class DeviceLink {
             onLayoutChange?(snapshot)
         case "mobile.sync.delta":
             applyDelta(envelope.payloadJSON)
-        case "terminal.bytes", "terminal.updated":
+        case "terminal.bytes", "terminal.updated", DeviceTerminalGridPublisher.eventTopic:
             if let decoded = DeviceTerminalEvent.decode(envelope) {
                 terminalEvents.send(decoded.event, surfaceID: decoded.surfaceID)
             }

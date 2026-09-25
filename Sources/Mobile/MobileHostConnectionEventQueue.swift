@@ -178,6 +178,15 @@ final class MobileHostConnectionEventQueue: @unchecked Sendable {
             lock.unlock()
             return .rejected
         }
+        if topic == DeviceTerminalGridPublisher.eventTopic, let coalesceKey {
+            // A Mac grid is an absolute snapshot. Keep its newest dimensions
+            // per surface while a slow peer drains, never one entry per drag tick.
+            queuedEvents.removeAll { event in
+                guard event.topic == topic, event.coalesceKey == coalesceKey else { return false }
+                queuedByteCount -= event.frame.count
+                return true
+            }
+        }
         let isRenderGrid = topic == MobileHostEventTopicPolicy.renderGridTopic
         if isRenderGrid,
            let coalesceKey,

@@ -25,7 +25,7 @@ enum DeviceTerminalEvent: Equatable, Sendable {
             guard let event = MobileTerminalBytesEvent.decode(payload),
                   let surfaceID = UUID(uuidString: event.surfaceID) else { return nil }
             return (surfaceID, .bytes(sequence: event.sequence, data: event.bytes))
-        case "terminal.updated":
+        case "terminal.updated", DeviceTerminalGridPublisher.eventTopic:
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
                   let raw = object["surface_id"] as? String,
                   let surfaceID = UUID(uuidString: raw) else { return nil }
