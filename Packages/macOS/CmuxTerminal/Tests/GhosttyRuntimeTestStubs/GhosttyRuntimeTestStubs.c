@@ -503,7 +503,33 @@ uint64_t ghostty_surface_foreground_pid(void *surface) {
     return cmux_test_foreground_pid;
 }
 void ghostty_surface_has_selection(void) {}
-void ghostty_surface_key(void) {}
+// Input is main-actor confined. Only capture the fixture's surface so other
+// suites using these stubs cannot contribute unrelated events.
+static void *cmux_test_key_capture_surface = NULL;
+static cmux_test_key_event cmux_test_key_events[32];
+static char cmux_test_key_text[32][16];
+static uint32_t cmux_test_key_count = 0;
+
+void cmux_test_key_capture_begin(void *surface) {
+    cmux_test_key_capture_surface = surface;
+    cmux_test_key_count = 0;
+}
+void cmux_test_key_capture_end(void) { cmux_test_key_capture_surface = NULL; }
+uint32_t cmux_test_key_capture_count(void) { return cmux_test_key_count; }
+cmux_test_key_event cmux_test_key_capture_event(uint32_t index) {
+    return index < cmux_test_key_count ? cmux_test_key_events[index] : (cmux_test_key_event){0};
+}
+bool ghostty_surface_key(void *surface, cmux_test_key_event event) {
+    if (surface == cmux_test_key_capture_surface && cmux_test_key_count < 32) {
+        const uint32_t index = cmux_test_key_count++;
+        cmux_test_key_events[index] = event;
+        if (event.text != NULL) {
+            snprintf(cmux_test_key_text[index], sizeof(cmux_test_key_text[index]), "%s", event.text);
+            cmux_test_key_events[index].text = cmux_test_key_text[index];
+        }
+    }
+    return true;
+}
 void ghostty_surface_mouse_button(void) {}
 void ghostty_surface_mouse_pos(void) {}
 void ghostty_surface_mouse_scroll(void) {}

@@ -69,7 +69,21 @@ float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);
 uint64_t ghostty_surface_foreground_pid(void *surface);
 void ghostty_surface_has_selection(void);
-void ghostty_surface_key(void);
+// Mirrors the libghostty key-event ABI; records calls at the runtime boundary.
+typedef struct {
+    int32_t action;
+    int32_t mods;
+    int32_t consumed_mods;
+    uint32_t keycode;
+    const char *text;
+    uint32_t unshifted_codepoint;
+    bool composing;
+} cmux_test_key_event;
+bool ghostty_surface_key(void *surface, cmux_test_key_event event);
+void cmux_test_key_capture_begin(void *surface);
+void cmux_test_key_capture_end(void);
+uint32_t cmux_test_key_capture_count(void);
+cmux_test_key_event cmux_test_key_capture_event(uint32_t index);
 void ghostty_surface_mouse_button(void);
 void ghostty_surface_mouse_pos(void);
 void ghostty_surface_mouse_scroll(void);

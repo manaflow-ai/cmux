@@ -10,7 +10,7 @@ import CmuxTerminal
 #endif
 
 @MainActor
-@Suite
+@Suite(.serialized)
 struct GhosttyDECCKMArrowKeyTests {
     private struct HostedTerminalWindow {
         let surface: TerminalSurface
@@ -159,6 +159,105 @@ struct GhosttyDECCKMArrowKeyTests {
             firstResponderIsTerminal: true,
             flags: [.numericPad, .function]
         ))
+    }
+
+    @Test(arguments: ["legacy", "kitty", "kitty-events", "kitty-all", "modifyOtherKeys"], [false, true])
+    func negotiatedKeyboardBytes(protocolName: String, physicalInput: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let negotiation: String
+            let expected: String
+            let arrows = "\u{1B}[A\u{1B}[B\u{1B}[D\u{1B}[C"
+            switch protocolName {
+            case "kitty":
+                negotiation = "\u{1B}[>1u"
+                expected = arrows + "\r\u{1B}[99;5u"
+            case "kitty-events":
+                negotiation = "\u{1B}[>3u"
+                expected = "\u{1B}[A\u{1B}[1;1:3A\u{1B}[B\u{1B}[1;1:3B"
+                    + "\u{1B}[D\u{1B}[1;1:3D\u{1B}[C\u{1B}[1;1:3C\r"
+                    + "\u{1B}[99;5u\u{1B}[99;5:3u"
+            case "kitty-all":
+                negotiation = "\u{1B}[>9u"
+                expected = arrows + "\u{1B}[13u\u{1B}[99;5u"
+            case "modifyOtherKeys":
+                negotiation = "\u{1B}[>4;2m"
+                expected = arrows + "\r\u{1B}[27;5;99~"
+            default:
+                negotiation = ""
+                expected = arrows + "\r\u{03}"
+            }
+
+            let scriptURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-key-protocol-\(UUID().uuidString).py")
+            let readyURL = scriptURL.appendingPathExtension("ready")
+            let captureURL = scriptURL.appendingPathExtension("capture")
+            defer {
+                for url in [scriptURL, readyURL, captureURL, scriptURL.appendingPathExtension("pending")] {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+            let script = """
+            import os, select, termios, time, tty
+            from pathlib import Path
+            old = termios.tcgetattr(0)
+            try:
+                tty.setraw(0)
+                Path(__file__ + ".ready").write_text("ready")
+                data = bytearray()
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if select.select([0], [], [], 0.2 if data else 0.05)[0]:
+                        data.extend(os.read(0, 4096))
+                    elif data:
+                        break
+                pending = Path(__file__ + ".pending")
+                pending.write_bytes(data)
+                pending.replace(__file__ + ".capture")
+            finally:
+                termios.tcsetattr(0, termios.TCSADRAIN, old)
+            """
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            let terminal = try makeHostedTerminalWindow(
+                initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path))"
+            )
+            defer { terminal.window.orderOut(nil) }
+            let ready = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+                FileManager.default.fileExists(atPath: readyURL.path)
+            }
+            try #require(ready, "Expected the PTY reader to enter raw mode")
+            let runtime = try #require(terminal.surface.surface)
+            // Parse negotiation synchronously: a child-ready file alone does not
+            // prove Ghostty has consumed terminal output on its IO thread.
+            let output = "\u{1B}[?1l\u{1B}[>m\u{1B}[<8u" + negotiation
+            output.withCString { ghostty_surface_process_output(runtime, $0, UInt(output.utf8.count)) }
+
+            let keys: [(String, String, String, UInt16, NSEvent.ModifierFlags)] = [
+                ("up", String(UnicodeScalar(NSUpArrowFunctionKey)!), String(UnicodeScalar(NSUpArrowFunctionKey)!), 126, []),
+                ("down", String(UnicodeScalar(NSDownArrowFunctionKey)!), String(UnicodeScalar(NSDownArrowFunctionKey)!), 125, []),
+                ("left", String(UnicodeScalar(NSLeftArrowFunctionKey)!), String(UnicodeScalar(NSLeftArrowFunctionKey)!), 123, []),
+                ("right", String(UnicodeScalar(NSRightArrowFunctionKey)!), String(UnicodeScalar(NSRightArrowFunctionKey)!), 124, []),
+                ("enter", "\r", "\r", 36, []),
+                ("ctrl-c", "\u{03}", "c", 8, [.control]),
+            ]
+            for (name, characters, unmodified, code, mods) in keys {
+                if physicalInput {
+                    #expect(terminal.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+                        characters: characters,
+                        charactersIgnoringModifiers: unmodified,
+                        keyCode: code,
+                        modifierFlags: mods
+                    ))
+                } else {
+                    #expect(terminal.surface.sendNamedKey(name).accepted)
+                }
+            }
+            let captured = await AppKitTestEventPump().waitUntil(timeout: .seconds(6)) {
+                FileManager.default.fileExists(atPath: captureURL.path)
+            }
+            try #require(captured, "Expected the child to publish captured PTY bytes")
+            let bytes = try Data(contentsOf: captureURL)
+            #expect(bytes == Data(expected.utf8), "\(protocolName), physical=\(physicalInput): \(bytes as NSData)")
+        }
     }
 
     private func makeHostedTerminalWindow(initialCommand: String? = nil) throws -> HostedTerminalWindow {

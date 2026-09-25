@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import GhosttyRuntimeTestStubs
 import Testing
 @testable import CmuxTerminal
 
@@ -297,6 +298,54 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(events.dropFirst().contains("attach"))
     }
 
+    @Test(arguments: [false, true])
+    func namedKeyDeliversACompletePressAndRelease(queued: Bool) throws {
+        let runtime = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: queued ? nil : runtime)
+        defer {
+            cmux_test_key_capture_end()
+            fixture.surface.releaseSurfaceForTesting()
+            runtime.deallocate()
+        }
+        cmux_test_key_capture_begin(runtime)
+        #expect(fixture.surface.sendNamedKey("up").accepted)
+        if queued {
+            #expect(cmux_test_key_capture_count() == 0)
+            fixture.registry.registerRuntimeSurface(runtime, ownerId: fixture.surface.id)
+            fixture.surface.installRuntimeSurfaceForTesting(runtime)
+            fixture.surface.flushPendingSocketInputIfNeeded()
+        }
+        try #require(cmux_test_key_capture_count() == 2)
+        let press = cmux_test_key_capture_event(0)
+        let release = cmux_test_key_capture_event(1)
+        #expect(press.action == Int32(GHOSTTY_ACTION_PRESS.rawValue))
+        #expect(release.action == Int32(GHOSTTY_ACTION_RELEASE.rawValue))
+        #expect(press.keycode == 126)
+        #expect(release.keycode == press.keycode)
+        #expect(press.text == nil)
+        #expect(release.text == nil)
+    }
+
+    @Test(arguments: ["c", "ctrl-c", "shift-c", "ctrl-shift-c", "space", "ctrl-\\"])
+    func namedPrintableKeysSupplyEncoderText(name: String) throws {
+        let runtime = allocatedRuntimeSurface()
+        let fixture = makeFixture(runtimeSurface: runtime)
+        defer {
+            cmux_test_key_capture_end()
+            fixture.surface.releaseSurfaceForTesting()
+            runtime.deallocate()
+        }
+        cmux_test_key_capture_begin(runtime)
+        #expect(fixture.surface.sendNamedKey(name).accepted)
+        try #require(cmux_test_key_capture_count() > 0)
+        let press = cmux_test_key_capture_event(0)
+        let base = name == "space" ? " " : name == "ctrl-\\" ? "\\" : "c"
+        let text = name.contains("shift") ? base.uppercased() : base
+        #expect(press.unshifted_codepoint == base.unicodeScalars.first!.value)
+        #expect(press.text.map { String(cString: $0) } == text)
+        #expect(press.consumed_mods == 0, "Named modifiers must reach the protocol encoder")
+    }
+
     private func makeFixture(
         initialInput: String? = nil,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
@@ -305,7 +354,8 @@ struct TerminalSurfaceExplicitInputTests {
     ) -> (
         surface: TerminalSurface,
         paneHost: FakeTerminalSurfacePaneHost,
-        nativeView: FakeTerminalSurfaceNativeView
+        nativeView: FakeTerminalSurfaceNativeView,
+        registry: FakeSurfaceRegistry
     ) {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -348,7 +398,7 @@ struct TerminalSurfaceExplicitInputTests {
             registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
             surface.installRuntimeSurfaceForTesting(runtimeSurface)
         }
-        return (surface, paneHost, nativeView)
+        return (surface, paneHost, nativeView, registry)
     }
 
     private func allocatedRuntimeSurface() -> ghostty_surface_t {
