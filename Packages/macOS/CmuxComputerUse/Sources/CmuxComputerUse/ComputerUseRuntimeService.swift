@@ -1344,6 +1344,7 @@ public final class ComputerUseRuntimeService {
             paths.runtimeDirectoryURL.deletingLastPathComponent(),
             paths.runtimeDirectoryURL,
             paths.computerUseDirectoryURL,
+            paths.installedHelperDirectoryURL.deletingLastPathComponent(),
             paths.installedHelperDirectoryURL,
             paths.stateDirectoryURL.deletingLastPathComponent().deletingLastPathComponent(),
             paths.stateDirectoryURL.deletingLastPathComponent(),
