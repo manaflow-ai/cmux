@@ -242,6 +242,11 @@ extension MobileIrxRuntimeComposition {
         journal.record("v2-lifecycle", "foreground", ["backgroundMs": backgroundTime.map {
             String(Int(Date().timeIntervalSince($0) * 1000)) } ?? "0", "admittedSessions": String(admittedSessionCount)])
         backgroundTime = nil
+        // iroh disables its sleep detection on iOS, so the network may have
+        // changed while suspended without iroh noticing; tell it before the
+        // peer probes run so they measure fresh paths.
+        await notifyNetworkChange()
+        guard generation == activityGeneration else { return }
         // Backend renewal starts before peer probes; neither waits for the other.
         foregroundTask?.cancel()
         let service = control
@@ -295,6 +300,15 @@ extension MobileIrxRuntimeComposition {
             }
             await runtime.endpointSupervisor?.deactivate()
             await runtime.directEndpointSupervisor?.deactivate()
+        }
+    }
+
+    /// Forwards a platform network change to every live iroh endpoint so
+    /// paths that died with the old network are abandoned immediately.
+    func notifyNetworkChange() async {
+        let supervisors = [endpointSupervisor, directEndpointSupervisor].compactMap { $0 }
+        for supervisor in supervisors {
+            await supervisor.notifyNetworkChange()
         }
     }
 }
