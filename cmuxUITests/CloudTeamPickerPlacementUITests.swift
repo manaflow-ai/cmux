@@ -1,6 +1,36 @@
 import XCTest
 
 final class CloudTeamPickerPlacementUITests: XCTestCase {
+    private let flagKeys = [
+        "cmux.flags.override.cloud-machines-enabled-release",
+        "cmux.flags.override.sidebar-account-button-enabled-release",
+    ]
+    private var savedFlags: [String: Any] = [:]
+    private var fixtureDefaults: UserDefaults?
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "com.cmuxterm.app.debug"))
+        fixtureDefaults = defaults
+        // The flag reader accepts typed Booleans. Launch arguments such as YES
+        // are strings and do not force the effective flag on.
+        for key in flagKeys {
+            savedFlags[key] = defaults.object(forKey: key)
+            defaults.set(true, forKey: key)
+        }
+        defaults.synchronize()
+    }
+
+    override func tearDown() {
+        for key in flagKeys {
+            fixtureDefaults?.set(savedFlags[key], forKey: key)
+        }
+        fixtureDefaults?.synchronize()
+        fixtureDefaults = nil
+        savedFlags.removeAll()
+        super.tearDown()
+    }
+
     func testAccountFooterDoesNotOfferTeamPickerAndCloudHeaderDoes() {
         let app = launchSignedInApp()
         defer { app.terminate() }
@@ -103,8 +133,6 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
             "-fileExplorer.isVisible", sidebarVisible ? "YES" : "NO",
             "-rightSidebar.mode", "files",
             "-menuBarOnly", "false",
-            "-cmux.flags.override.cloud-machines-enabled-release", "YES",
-            "-cmux.flags.override.sidebar-account-button-enabled-release", "YES",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
