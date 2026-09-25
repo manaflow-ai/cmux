@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxTerminal
 import GhosttyKit
 
 #if canImport(cmux_DEV)
