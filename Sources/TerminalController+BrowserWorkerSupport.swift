@@ -51,7 +51,7 @@ extension TerminalController {
         // Snapshot work is dispatched to the established blocking worker seam
         // after native delivery; the cooperative socket task never performs
         // v2BrowserAppendPostSnapshot directly.
-        return await v2BrowserKeyboardResponseWithWorkerSnapshot(
+        return await v2BrowserResponseWithWorkerSnapshot(
             encodedResponse: Self.v2Encoder.response(id: request.id, result),
             request: request
         )
@@ -59,7 +59,7 @@ extension TerminalController {
 
     /// Adds an optional post-action snapshot on a dedicated blocking worker,
     /// keeping WebKit callback waits off the cooperative executor and main actor.
-    private nonisolated func v2BrowserKeyboardResponseWithWorkerSnapshot(
+    private nonisolated func v2BrowserResponseWithWorkerSnapshot(
         encodedResponse: String,
         request: ControlRequest
     ) async -> String {
@@ -355,7 +355,7 @@ extension TerminalController {
             }
         }
         guard let encodedResponse else { return nil }
-        return await v2BrowserTextInputResponseWithWorkerSnapshot(
+        return await v2BrowserResponseWithWorkerSnapshot(
             encodedResponse: encodedResponse,
             request: request
         )
@@ -407,36 +407,6 @@ extension TerminalController {
         case .fallback:
             return nil
         }
-    }
-
-    private nonisolated func v2BrowserTextInputResponseWithWorkerSnapshot(
-        encodedResponse: String,
-        request: ControlRequest
-    ) async -> String {
-        guard v2Bool(request.params.mapValues(\.foundationObject), "snapshot_after") == true,
-              let result = Self.controlCallResult(fromEncodedResponse: encodedResponse),
-              case .ok(let payload) = result,
-              let payloadObject = payload.foundationObject as? [String: Any],
-              let rawSurfaceID = payloadObject["surface_id"] as? String,
-              let surfaceID = UUID(uuidString: rawSurfaceID) else {
-            return encodedResponse
-        }
-        let params = request.params.mapValues(\.foundationObject)
-        let snapshotPayload = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var mutablePayload = payloadObject
-                self.v2BrowserAppendPostSnapshot(
-                    params: params,
-                    surfaceId: surfaceID,
-                    payload: &mutablePayload
-                )
-                continuation.resume(returning: mutablePayload)
-            }
-        }
-        guard let jsonPayload = JSONValue(foundationObject: snapshotPayload) else {
-            return encodedResponse
-        }
-        return Self.v2Encoder.response(id: request.id, .ok(jsonPayload))
     }
 
     /// Performs one text action after focusing the target through the page's
@@ -634,9 +604,10 @@ extension TerminalController {
             )
         }
         if replaceSelection {
-            guard replayTextInputKey("Meta", in: context.webView, action: .keyDown),
-                  replayTextInputKey("a", in: context.webView, action: .press),
-                  replayTextInputKey("Meta", in: context.webView, action: .keyUp) else {
+            let metaDown = replayTextInputKey("Meta", in: context.webView, action: .keyDown)
+            let selectAll = metaDown && replayTextInputKey("a", in: context.webView, action: .press)
+            let metaUp = metaDown && replayTextInputKey("Meta", in: context.webView, action: .keyUp)
+            guard metaDown, selectAll, metaUp else {
                 return Self.v2Encoder.response(
                     id: request.id,
                     .err(

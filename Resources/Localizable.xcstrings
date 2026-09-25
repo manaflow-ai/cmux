@@ -71002,7 +71002,7 @@
         "ja": { "stringUnit": { "state": "translated", "value": "フォーカスされたブラウザサーフェスがありません" } },
         "de": { "stringUnit": { "state": "translated", "value": "Keine fokussierte Browser-Oberfläche" } },
         "fr": { "stringUnit": { "state": "translated", "value": "Aucune surface de navigateur n’est focalisée" } },
-        "ar": { "stringUnit": { "state": "translated", "value": "لا توجد سطحية متصفح مركّزة" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا توجد واجهة متصفح مركّزة" } },
         "es": { "stringUnit": { "state": "translated", "value": "No hay una superficie del navegador enfocada" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "沒有聚焦的瀏覽器介面" } },
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "没有聚焦的浏览器表面" } },

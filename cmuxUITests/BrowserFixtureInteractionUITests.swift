@@ -502,23 +502,23 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
     /// a selector that cannot describe a shadow-DOM node.
     func testFocusedTypeUsesNativeWebKitInput() throws {
         try launchApp()
-        let sid = try openFixture("event-trust-and-order")
+        let sid = try openFixture("shadow-open")
 
-        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#field"])
-        try socketResult(method: "browser.type", params: ["surface_id": sid, "text": "abc"])
+        try socketResult(method: "browser.click", params: ["surface_id": sid, "selector": "#s-btn"])
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#s-input"])
+        try socketResult(method: "browser.type", params: ["surface_id": sid, "text": "shadow-ok"])
 
         XCTAssertEqual(
-            try evalString("document.getElementById('field').value", surfaceID: sid),
-            "abc"
+            try evalString("document.getElementById('host').shadowRoot.getElementById('s-input').value", surfaceID: sid),
+            "shadow-ok"
         )
         XCTAssertTrue(
             try evalBool(
-                "window.__cmuxLog.filter(e => e.type === 'keydown').length === 3 && " +
-                    "window.__cmuxLog.filter(e => e.type === 'input').length === 3 && " +
+                "window.__cmuxLog.filter(e => e.target === '#s-input' && e.type === 'input').length === 1 && " +
                     "window.__cmuxLog.filter(e => e.isTrusted !== true).length === 0",
                 surfaceID: sid
             ),
-            "type should deliver trusted per-character keyboard and input events"
+            "selector-free shadow type should deliver trusted input events"
         )
     }
 

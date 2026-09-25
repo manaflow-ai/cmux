@@ -106,10 +106,10 @@ extension BrowserControlService {
               __cmuxCollectMatches(root, parts[index], matches, seen);
             }
             if (index === parts.length - 1) return matches;
-            // A generated snapshot path uses `>>>` between every ancestor,
-            // including ordinary light-DOM hops. Keep the matched element as
-            // a search root for those hops, and add its open shadow root when
-            // the next segment crosses into a web component.
+            // Generated paths use > for direct light-DOM hops and >>> when
+            // crossing an open shadow root. Keep both the matched element and
+            // its open root as search roots so older refs that used >>> for
+            // every hop remain compatible.
             roots = matches.flatMap((element) => {
               const nextRoots = [element];
               if (element.shadowRoot) nextRoots.push(element.shadowRoot);

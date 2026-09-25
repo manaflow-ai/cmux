@@ -90,6 +90,7 @@ extension BrowserControlService {
           const __cmuxCssPath = (el) => {
             if (!el || el.nodeType !== 1) return null;
             const parts = [];
+            const separators = [];
             let cur = el;
             while (cur && cur.nodeType === 1 && parts.length < 12) {
               let part = String(cur.tagName || '').toLowerCase();
@@ -105,9 +106,14 @@ extension BrowserControlService {
               }
               parts.unshift(part);
               const root = cur.getRootNode && cur.getRootNode();
-              cur = root && root.host ? root.host : cur.parentElement;
+              const crossesShadowRoot = !!(root && root.host);
+              const parent = crossesShadowRoot ? root.host : cur.parentElement;
+              if (parent) separators.unshift(crossesShadowRoot ? ' >>> ' : ' > ');
+              cur = parent;
             }
-            return parts.join(' >>> ');
+            return parts.reduce((path, part, index) => {
+              return index === 0 ? part : path + separators[index - 1] + part;
+            }, '');
           };
 
           const __cmuxFound = (() => {
