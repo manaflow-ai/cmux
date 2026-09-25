@@ -9338,12 +9338,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// inside a single tab, so the pane gets the full native cmux pane chrome —
     /// background, focus overlay, dividers).
     func makeRemoteTmuxPanePanel(
-        onInput: @escaping @Sendable (TerminalManualInput) -> Void,
+        id panelID: UUID = UUID(), onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
-            tabId: id,
+            id: panelID, tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedTerminalFontSizeConfig(),
             ioMode: .manualMirror,
