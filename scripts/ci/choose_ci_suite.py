@@ -191,7 +191,7 @@ def strict_steps(workflow: str, suites: Iterable[str]) -> list[str] | None:
         for selector in FOCUSED_GATE_SELECTORS:
             if re.search(rf"\b{selector.split('/', 1)[1]}\b", block):
                 owners.setdefault(selector, set()).add(name)
-        for suite in re.findall(r"-only-testing:(cmuxTests/[A-Za-z0-9_]+)\b", block):
+        for suite in re.findall(r"-only-testing:[\"']?(cmuxTests/[A-Za-z0-9_]+)", block):
             owners.setdefault(suite, set()).add(name)
     names: set[str] = set()
     for suite in suites:

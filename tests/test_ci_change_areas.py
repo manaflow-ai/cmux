@@ -4611,6 +4611,7 @@ def test_a_changed_gated_test_runs_the_step_that_sets_its_gate() -> None:
     """
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import changed_unit_selectors, strict_steps
+    from test_impact import affected_suites
 
     step_name = "Run five-tab renderer memory regression"
     suite = "cmuxTests/GhosttySurfaceOverlayTests"
@@ -4671,7 +4672,26 @@ def test_a_changed_gated_test_runs_the_step_that_sets_its_gate() -> None:
             "}\n",
             encoding="utf-8",
         )
+        # The fixture does select the suite, so the empty answer below comes
+        # from the unselectable step and not from an untraced edit.
+        assert affected_suites(root, ["cmuxTests/Overlay.swift"], None) == [suite]
         assert changed_unit_selectors(root, ["cmuxTests/Overlay.swift"]) == []
+
+    # A step that loops over `-only-testing:"cmuxTests/$suite"` names no suite
+    # this module can read from the selector, so its suites have to be ones
+    # strict_steps() finds by name: FOCUSED_GATE_SELECTORS.
+    from cmux_unit_test_shard import FOCUSED_GATE_SELECTORS
+
+    looped = 0
+    for step in yaml.safe_load(text)["jobs"]["app-host-unit-tests"]["steps"]:
+        run = step.get("run", "")
+        if '-only-testing:"cmuxTests/$' not in run or "_SHARD)" not in str(step.get("if", "")):
+            continue
+        looped += 1
+        for listing in re.findall(r"for suite in(.*?)\n\s*do\b", run, re.S):
+            for name in re.findall(r"[A-Za-z_][A-Za-z0-9_]*", listing):
+                assert f"cmuxTests/{name}" in FOCUSED_GATE_SELECTORS, (step["name"], name)
+    assert looped, "no looped -only-testing step found; update this check"
 
 
 def test_a_test_only_diff_runs_every_suite_it_edits() -> None:
