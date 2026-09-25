@@ -50,7 +50,7 @@ extension TerminalController {
         }
         if tab.cloudVMBinding != nil { tab.clearSidebarGitMetadata(); return true }
         if let focusedPanelId = tab.focusedPanelId, tab.cloudDirectoryProvenanceRequired(panelId: focusedPanelId) { tab.clearPanelGitBranch(panelId: focusedPanelId); return true }
-        let existingGitBranch = tab.gitBranch
+        let existingGitBranch = tab.authoritativeWorkspaceGitBranch()
         let nextIsDirty = isDirty ?? (existingGitBranch?.branch == branch ? existingGitBranch?.isDirty ?? false : false)
         let state = SidebarGitBranchState(
             branch: branch,

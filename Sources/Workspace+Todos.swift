@@ -9,10 +9,12 @@ import Foundation
 final class WorkspaceTaskStatusSignalOwner {
     private(set) var signals = WorkspaceTaskStatusSignals()
 
+    var workspaceGitBranch: SidebarGitBranchState? { workspaceGitBranchState }
+
     private var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] = [:]
     private var panelGitBranches: [UUID: SidebarGitBranchState] = [:]
     private var panelPullRequests: [UUID: SidebarPullRequestState] = [:]
-    private var workspaceGitBranch: SidebarGitBranchState?
+    private var workspaceGitBranchState: SidebarGitBranchState?
     private var observers: [UUID: AsyncStream<WorkspaceTaskStatusSignals>.Continuation] = [:]
 
     /// Emits the current signal sample immediately, then every distinct sample.
@@ -38,6 +40,10 @@ final class WorkspaceTaskStatusSignalOwner {
     }
 
     /// Records a panel's structured git state independently of sidebar visibility settings.
+    func panelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
+        panelGitBranches[panelId]
+    }
+
     @discardableResult
     func setPanelGitBranch(
         _ state: SidebarGitBranchState?,
@@ -58,7 +64,7 @@ final class WorkspaceTaskStatusSignalOwner {
     /// Records the workspace-level git fallback used when no panel has a branch.
     @discardableResult
     func setWorkspaceGitBranch(_ state: SidebarGitBranchState?) -> WorkspaceTaskStatusSignalTransition {
-        workspaceGitBranch = state
+        workspaceGitBranchState = state
         return recomputeSignals()
     }
 
@@ -82,7 +88,7 @@ final class WorkspaceTaskStatusSignalOwner {
         panelBranches: [UUID: SidebarGitBranchState],
         validPanelIds: Set<UUID>
     ) {
-        workspaceGitBranch = workspaceBranch
+        workspaceGitBranchState = workspaceBranch
         panelGitBranches = panelBranches.filter { validPanelIds.contains($0.key) }
         _ = recomputeSignals(emit: false)
     }
@@ -111,7 +117,7 @@ final class WorkspaceTaskStatusSignalOwner {
         agentLifecycleStatesByPanelId.removeAll()
         panelGitBranches.removeAll()
         panelPullRequests.removeAll()
-        workspaceGitBranch = nil
+        workspaceGitBranchState = nil
 
         return recomputeSignals()
     }
@@ -124,7 +130,7 @@ final class WorkspaceTaskStatusSignalOwner {
             }
             return state
         }
-        let branches = Array(panelGitBranches.values) + (workspaceGitBranch.map { [$0] } ?? [])
+        let branches = Array(panelGitBranches.values) + (workspaceGitBranchState.map { [$0] } ?? [])
         let next = WorkspaceTaskStatusSignals(
             anyAgentNeedsInput: agentLifecycleStatesByPanelId.values.contains { states in
                 states.values.contains(.needsInput)
@@ -187,6 +193,17 @@ extension Workspace {
     /// authoritative fallback signal.
     func recordWorkspaceGitBranchSignal(_ state: SidebarGitBranchState?) {
         handleTaskStatusSignalTransition(taskStatusSignalOwner.setWorkspaceGitBranch(state))
+    }
+
+    /// Returns the panel branch retained by the live signal owner, even when
+    /// sidebar presentation metadata has been cleared or hidden.
+    func authoritativePanelGitBranch(panelId: UUID) -> SidebarGitBranchState? {
+        taskStatusSignalOwner.panelGitBranch(panelId: panelId)
+    }
+
+    /// Returns the workspace fallback branch retained by the live signal owner.
+    func authoritativeWorkspaceGitBranch() -> SidebarGitBranchState? {
+        taskStatusSignalOwner.workspaceGitBranch
     }
 
     /// Returns the authoritative live signal sample owned by this workspace.

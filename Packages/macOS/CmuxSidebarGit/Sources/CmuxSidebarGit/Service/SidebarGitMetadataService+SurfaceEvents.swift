@@ -118,7 +118,8 @@ extension SidebarGitMetadataService {
         guard let host, host.workspaceExists(workspaceId) else { return }
         let probeKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
         let activity = host.gitMetadataActivity
-        let current = host.panelGitBranch(workspaceId: workspaceId, panelId: panelId)
+        let current = host.panelGitBranchSignal(workspaceId: workspaceId, panelId: panelId)
+            ?? host.panelGitBranch(workspaceId: workspaceId, panelId: panelId)
         let normalizedBranch = GitMetadataService.normalizedBranchName(branch) ?? branch
         let nextIsDirty = isDirty ?? (current?.branch == normalizedBranch ? current?.isDirty ?? false : false)
         let branchChanged = current?.branch != normalizedBranch || current?.isDirty != nextIsDirty

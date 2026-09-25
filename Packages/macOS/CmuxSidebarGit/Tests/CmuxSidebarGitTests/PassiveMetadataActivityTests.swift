@@ -77,4 +77,34 @@ import CmuxGit
         ))
         #expect(!host.events.contains(.clearAllGitMetadata))
     }
+
+    @Test func omittedDirtyReportUsesTheLiveSignalAfterPresentationCacheIsHidden() async throws {
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: "/srv/project")
+        host.gitMetadataActivity = .disabled
+        let service = SidebarGitMetadataService(
+            workspaceGitMetadataReader: GatedMetadataReader(metadata: .nonRepository),
+            gitMetadataService: GitMetadataService(),
+            pullRequestProbing: RecordingPullRequestProbing(),
+            probeLimiter: WorkspaceGitMetadataProbeLimiter(limit: 1),
+            clock: ManualGitPollClock()
+        )
+        service.attach(host: host)
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: "reported-while-disabled",
+            isDirty: true
+        )
+        host.clearAllSidebarGitMetadata()
+
+        service.updateSurfaceGitBranch(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            branch: "reported-while-disabled",
+            isDirty: nil
+        )
+
+        #expect(host.workspaces[0].state.panels[panelId]?.branch?.isDirty == true)
+    }
 }

@@ -33,6 +33,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     }
 
     var workspaces: [(id: UUID, state: WorkspaceState)] = []
+    private var signalBranches: [String: SidebarPanelGitBranch] = [:]
     var gitMetadataActivity: SidebarGitMetadataActivity = .activePolling
     var pullRequestActivity: SidebarGitMetadataActivity = .disabled
     var pollingEnabled: Bool {
@@ -104,6 +105,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
         state(workspaceId)?.panels[panelId]?.branch
     }
+    func panelGitBranchSignal(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
+        signalBranches[signalKey(workspaceId: workspaceId, panelId: panelId)]
+            ?? panelGitBranch(workspaceId: workspaceId, panelId: panelId)
+    }
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID> {
         guard let state = state(workspaceId) else { return [] }
         return Set(state.panels.filter { $0.value.branch != nil }.keys)
@@ -151,6 +156,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     }
 
     func updatePanelGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool) {
+        signalBranches[signalKey(workspaceId: workspaceId, panelId: panelId)] = SidebarPanelGitBranch(
+            branch: branch,
+            isDirty: isDirty
+        )
         mutate(workspaceId) {
             $0.panels[panelId]?.branch = SidebarPanelGitBranch(branch: branch, isDirty: isDirty)
         }
@@ -158,6 +167,7 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     }
 
     func clearPanelGitBranch(workspaceId: UUID, panelId: UUID) {
+        signalBranches.removeValue(forKey: signalKey(workspaceId: workspaceId, panelId: panelId))
         mutate(workspaceId) {
             $0.panels[panelId]?.branch = nil
             $0.panels[panelId]?.badge = nil
@@ -199,6 +209,10 @@ final class RecordingSidebarGitHost: SidebarGitHosting {
     }
 
     // MARK: Environment
+
+    private func signalKey(workspaceId: UUID, panelId: UUID) -> String {
+        "\(workspaceId.uuidString):\(panelId.uuidString)"
+    }
 
     func mobileHostHasRecentActivity(within interval: TimeInterval) -> Bool { mobileHostActive }
     func mobileHostQuietDelay(for interval: TimeInterval) -> TimeInterval { mobileHostActive ? interval : 0 }

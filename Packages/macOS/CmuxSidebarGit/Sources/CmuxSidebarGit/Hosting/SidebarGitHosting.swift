@@ -45,6 +45,9 @@ public protocol SidebarGitHosting: AnyObject {
     func hasTrustedRemotePanelDirectory(workspaceId: UUID, panelId: UUID) -> Bool
     /// The panel's currently displayed git branch state, if any.
     func panelGitBranch(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch?
+    /// The branch retained by the workspace's live signal owner, independent
+    /// of whether sidebar presentation metadata is currently visible.
+    func panelGitBranchSignal(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch?
     /// Panel ids currently showing a git branch in the workspace.
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID>
     /// The panel's currently displayed pull-request badge, if any.

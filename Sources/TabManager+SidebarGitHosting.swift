@@ -64,6 +64,13 @@ extension TabManager: SidebarGitHosting {
         return SidebarPanelGitBranch(branch: state.branch, isDirty: state.isDirty)
     }
 
+    func panelGitBranchSignal(workspaceId: UUID, panelId: UUID) -> SidebarPanelGitBranch? {
+        guard let state = tabs.first(where: { $0.id == workspaceId })?.authoritativePanelGitBranch(panelId: panelId) else {
+            return nil
+        }
+        return SidebarPanelGitBranch(branch: state.branch, isDirty: state.isDirty)
+    }
+
     func panelGitBranchPanelIds(in workspaceId: UUID) -> Set<UUID> {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return [] }
         return Set(workspace.panelGitBranches.keys)
