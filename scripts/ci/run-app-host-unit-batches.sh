@@ -235,13 +235,17 @@ collect_unit_test_output() {
   # shellcheck disable=SC2206
   local output_paths=("$RUNNER_TEMP"/cmux-unit-output-*-of-${LOGICAL_SHARD_TOTAL}-run-*.txt)
   shopt -u nullglob
-  for output_path in "${output_paths[@]}"; do
-    {
-      echo "===== $(basename "$output_path") ====="
-      cat "$output_path"
-      echo
-    } >>"$TEST_OUTPUT"
-  done
+  # Bash with `set -u` treats an empty array expansion as an unset variable.
+  # A changed-suites run can legitimately produce no shared-batch output.
+  if ((${#output_paths[@]} > 0)); then
+    for output_path in "${output_paths[@]}"; do
+      {
+        echo "===== $(basename "$output_path") ====="
+        cat "$output_path"
+        echo
+      } >>"$TEST_OUTPUT"
+    done
+  fi
 }
 
 set +e
