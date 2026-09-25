@@ -10,6 +10,8 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
     var createInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
+    var paneListSnapshot: ControlPaneListSnapshot?
+    var paneSurfacesSnapshot: ControlPaneSurfacesSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
     var resumeGetClaim: (
@@ -53,6 +55,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         surfaceListSnapshot
     }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
+    func controlPaneList(routing: ControlRoutingSelectors) -> ControlPaneListSnapshot? {
+        paneListSnapshot
+    }
+    func controlPaneSurfaces(
+        routing: ControlRoutingSelectors,
+        paneID: UUID?
+    ) -> ControlPaneSurfacesSnapshot? {
+        paneSurfacesSnapshot
+    }
 
     func controlPaneCreate(
         routing: ControlRoutingSelectors,
