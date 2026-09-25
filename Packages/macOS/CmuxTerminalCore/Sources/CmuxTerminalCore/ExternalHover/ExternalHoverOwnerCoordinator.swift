@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// (B) ExternalHover — the lock-protected coordinator around one surface's
 /// `ExternalHoverMailbox`, and the only place the mailbox lock is taken.

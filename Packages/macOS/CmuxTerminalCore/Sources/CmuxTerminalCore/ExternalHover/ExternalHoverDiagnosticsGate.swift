@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// (C) ExternalHover diagnostics — the host-side half of design
 /// v4 §6.2's "gate is evaluated exactly once" contract. Ghostty (Zig)

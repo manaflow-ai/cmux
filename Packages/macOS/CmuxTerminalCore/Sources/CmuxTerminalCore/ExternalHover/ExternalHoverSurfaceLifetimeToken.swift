@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Owns one external-hover mailbox for exactly one native surface lifetime.
 ///
