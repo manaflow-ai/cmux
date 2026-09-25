@@ -720,7 +720,7 @@ structured error instead of a hung or `EPIPE` connection
 
 | Reply | When | Client behavior |
 | --- | --- | --- |
-| `overloaded` (`data.retryable: true`, `data.retry_after_ms`, `data.reason`) | The connection pool had no live or pending slot (`pool_saturated`), the request waited longer than 15 s for a slot (`pending_expired`), too many unauthenticated peers were being read (`preauthorization_saturated`), the accept buffer between the listener and the pool was full (`accept_buffer_full`), or the app is stopping (`server_stopping`). The command never ran. | `cmux` retries within its response timeout, honoring `retry_after_ms`. |
+| `overloaded` (`data.retryable: true`, `data.retry_after_ms`, `data.reason`) | The connection pool had no live or pending slot (`pool_saturated`), the request waited longer than 15 s for a slot (`pending_expired`), too many unauthenticated peers were being read (`preauthorization_saturated`), the accept buffer between the listener and the pool was full (`accept_buffer_full`), or the app is stopping (`server_stopping`). The command never ran. | Direct control-socket requests retry within their response timeout, honoring `retry_after_ms`. Relay-backed requests (`cmux ssh`) surface the error without retrying. |
 | `timeout` (`data.stage: "main_actor"`, `data.deadline_ms: 10000`, `data.retryable`) | The command's hop onto the main thread did not complete within 10 s (for example the main thread is stalled in a modal dialog or a long synchronous turn). `retryable: true` means the hop was withdrawn before the command ran; `false` means it had started and its result is unknown. | Print the error; retry only when `retryable` is true. |
 
 The v1 line protocol reports the same conditions as
