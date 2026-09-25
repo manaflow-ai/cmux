@@ -10,6 +10,12 @@ import Testing
 struct SettingsSectionMountModelTests {
     private let order: [SettingsSectionID] = [.account, .app, .terminal, .browser, .reset]
 
+    @Test func computersFollowsMobileInTheDetailStack() throws {
+        let order = SettingsSectionMountModel.displayOrder
+        let mobile = try #require(order.firstIndex(of: .mobile))
+        #expect(order[mobile + 1] == .computers)
+    }
+
     @Test func displayOrderGivesEverySectionASlotExceptTheEmbeddedBrowserImport() {
         let slots = Set(SettingsSectionMountModel.displayOrder)
         #expect(slots.count == SettingsSectionMountModel.displayOrder.count)

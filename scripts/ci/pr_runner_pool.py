@@ -180,7 +180,24 @@ watches it, and a job stuck or refused there goes to Blacksmith on attempt
 3. The order is std, then light, then Blacksmith. The `persistent` output
 tells ci.yml to publish the marker the rescue watcher looks for.
 
-Anything uncertain keeps today's route: an event other than pull_request, a
+Main's full suite: ci-main-full-suite.yml dispatches ci.yml on main about
+32 times a day, each a full suite (compile admission, 7 app-host shards,
+tests-build-and-lag, cli-product-tests). That is main's own code, so it may
+take an owned pool like a same-repository pull request, and ci-macos.yml
+already routes a `workflow_dispatch` on `refs/heads/main` through the same
+inputs. It is placed like a pull request, split and queue allowance
+(CI_PR_POOL_QUEUE_ROUNDS) included, on the owned pools only; what does not
+fit keeps its own route (MACOS_RUNNER_PR), since only an owned pool is a
+candidate for it. CI_OWNED_MAIN_RESERVE (0 when unset) holds that many
+machines and root runners back for pull requests; with a reserve it takes
+an owned pool only whole, and only while its peak is free now (no queue
+allowance). Its side lanes (the Claude wrapper and
+remote daemon) route only for pull requests, so they are not in its plan.
+Main's CI concurrency group holds one run at a time, so main holds at most
+one run's machines. ci-owned-pool-rescue.yml watches it like a pull request.
+
+Anything uncertain keeps today's route: an event other than pull_request or
+main's dispatch, a
 lane (MACOS_RUNNER_PR) naming another pool or unset (the documented way back
 to the macOS 15 lane), an API error, a missing, stale or malformed snapshot,
 or an invalid setting. The script then prints an empty runner, and every
@@ -250,6 +267,14 @@ LIGHT_CLASS = "light"
 # re-run. A human re-run sends them to pr_retry_runner, so the picker must not
 # take light (or publish its marker) for one.
 RESCUE_ACTOR = "github-actions[bot]"
+MAIN_RESERVE_VARIABLE = "CI_OWNED_MAIN_RESERVE"
+# Machines and root runners main's full suite leaves free for pull requests.
+# 0: main takes the minis like a pull request. Its run holds 9 root runners
+# at peak, so a reserve only lets it in whole when the fleet is nearly idle.
+DEFAULT_MAIN_RESERVE = 0
+# The ref of main's full-suite dispatch (ci-main-full-suite.yml).
+MAIN_REF = "refs/heads/main"
+MAIN_BRANCH = "main"
 # A pull request run holds several macOS machines at once, each job on its
 # own. Beside compile admission run the Claude wrapper and remote daemon
 # lanes; once admission passes, a full suite adds APP_HOST_SHARDS
@@ -858,7 +883,7 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
          max_queued: int, jobs: int = MAX_RUN_JOBS,
          taken: Mapping[str, int] | None = None, split: bool = False,
          root_free: Mapping[str, int] | None = None, root_jobs: int = 0,
-         queue_rounds: int = 0) -> tuple[str, bool]:
+         queue_rounds: int = 0, reserve: int = 0) -> tuple[str, bool]:
     """The rule itself: first usable pool with headroom, else the shortest queue.
 
     An owned pool has headroom while every job of this run (`jobs` of them,
@@ -868,8 +893,9 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     with the most room (the earlier on a tie) has headroom too, if it has
     any: the jobs that do not fit go to Blacksmith (place()). A pool in
     `root_free` (it has a root count; the root runners' room, allowance
-    included) fits the whole run only while it holds `root_jobs`. An owned
-    pool is never the fallback.
+    included) fits the whole run only while it holds `root_jobs`. `reserve`
+    (main's full suite) is kept free on top of both, and turns `split` off.
+    An owned pool is never the fallback.
 
     A Blacksmith pool has headroom while this run's job finds at most
     `queue_rounds` rounds of queue there once it arrives (queue_allowance()), or
@@ -880,9 +906,10 @@ def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable
     queued = {label: effective_queue(load[label], added[label] + 1) for label in usable}
     free = {label: owned_room(load[label], added[label], (taken or {}).get(label, 0), queue_rounds)
             for label in usable if persistent(label)}
-    fits = [label for label in free if free[label] >= max(1, jobs)
-            and (root_free or {}).get(label, root_jobs) >= root_jobs]
-    if split and not fits and free and max(free.values()) >= 1:
+    reserve = max(0, reserve)
+    fits = [label for label in free if free[label] >= max(1, jobs) + reserve
+            and (root_free or {}).get(label, root_jobs + reserve) >= root_jobs + reserve]
+    if split and not reserve and not fits and free and max(free.values()) >= 1:
         fits = [max(free, key=lambda label: free[label])]
     for label in usable:
         if persistent(label):
@@ -916,6 +943,7 @@ def decide(
     split: bool = False,
     shards: int = 0,
     root_jobs: int = 0,
+    reserve: int = 0,
 ) -> Choice:
     """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
 
@@ -936,7 +964,8 @@ def decide(
     `root_jobs` is this run's peak on root runners, which an owned pool with
     a root count must have free too. Its root runners are charged one per
     replayed run (its admission), and a newer run's whole marker peak, since
-    a marker does not split it.
+    a marker does not split it. `reserve` (main's full suite) is how many
+    machines, and root runners, an owned pool must keep free beyond this run.
     """
     if not isinstance(snapshot, Mapping) or not isinstance(snapshot.get("pools"), Mapping):
         return Choice("", "", "no readable pool snapshot")
@@ -980,11 +1009,18 @@ def decide(
     for _ in range(max(0, routed_since)):
         earlier, _ = pick(load, added, usable, limits.max_queued, jobs=1, taken=taken, queue_rounds=queue_rounds)
         added[earlier] += 1
+    if reserve:
+        # Main's full suite with a reserve (CI_OWNED_MAIN_RESERVE) takes an
+        # owned pool only while its peak and the reserve are free now: no
+        # queue allowance, which would queue it behind the pull requests the
+        # reserve keeps room for. The replay above keeps the allowance.
+        queue_rounds = 0
     # The root runners' room: free, plus the same queue allowance over their count.
     root_free = {label: owned_room(counts, 0, taken.get(label, 0), queue_rounds) - added[label]
                  for label, counts in roots.items() if label in usable}
     label, headroom = pick(load, added, candidates, limits.max_queued, jobs, taken=taken, split=split,
-                           root_free=root_free, root_jobs=root_jobs, queue_rounds=queue_rounds)
+                           root_free=root_free, root_jobs=root_jobs, queue_rounds=queue_rounds,
+                           reserve=reserve)
     if persistent(label) and not headroom:
         return Choice("", "", "every owned pool this run may take is busy, and no other pool is in the order")
     replayed = sum(added.values())
@@ -1007,8 +1043,9 @@ def decide(
                              queue_allowance(roots[label], queue_rounds), "root runners")
             root = f"; {root_room}, it needs {root_jobs}"
         machines = room(free, load[label]["capacity"], allowance, "owned machines")
+        kept = f", and {reserve} kept free for pull requests" if reserve else ""
         if free >= max(1, jobs) and root_free.get(label, root_jobs) >= root_jobs:
-            why = f"first pool in order with headroom ({machines}, this run needs {max(1, jobs)}{root}){replay}"
+            why = f"first pool in order with headroom ({machines}, this run needs {max(1, jobs)}{root}{kept}){replay}"
         else:
             why = (f"owned pool with the most room ({machines}, this run needs {max(1, jobs)}{root}): "
                    f"the jobs that fit run there, the rest on the retry runner{replay}")
@@ -1102,14 +1139,38 @@ def choose(
     live_owned: Mapping[str, int] | None = None,
     shards: int = 0,
     queue_rounds: str | None = None,
+    ref: str = "",
+    main_reserve: str | None = None,
 ) -> tuple[Choice, Mapping[str, Any] | None]:
     """The pool for this run and the snapshot it was read from (None when none was read).
+
+    Main's full-suite dispatch (`workflow_dispatch` on MAIN_REF) may take an
+    owned pool only, placed like a pull request unless `main_reserve` holds
+    machines back (see "Main's full suite" above); anything else keeps its route.
 
     `queue_rounds` is CI_PR_POOL_QUEUE_ROUNDS as settings() reads it; a fork
     run reads the janitor's copy instead.
     """
-    if event != "pull_request":
-        return Choice("", "", f"{event or 'unknown'} event; not a pull request"), None
+    main = event == "workflow_dispatch" and ref == MAIN_REF
+    if event != "pull_request" and not main:
+        return Choice("", "", f"{event or 'unknown'} event on {ref or 'an unknown ref'}; "
+                              "not a pull request or main's full-suite dispatch"), None
+    reserve = 0
+    if main:
+        if (owned or "").strip() != "1":
+            return Choice("", "", f"main's full-suite dispatch takes only an owned pool, and {OWNED_VARIABLE} "
+                                  "is not 1"), None
+        if run_attempt > 1:
+            return Choice("", "", f"retry attempt {run_attempt} of main's full-suite dispatch; "
+                                  "it keeps its own route"), None
+        try:
+            reserve = int(main_reserve) if (main_reserve or "").strip() else DEFAULT_MAIN_RESERVE
+        except ValueError:
+            return Choice("", "", f"{MAIN_RESERVE_VARIABLE} is not a number"), None
+        if reserve < 0:
+            return Choice("", "", f"{MAIN_RESERVE_VARIABLE} is negative"), None
+        # Main's own code: the same repository by definition.
+        head_repo = repo
     if not head_repo:
         return Choice("", "", "pull request head repository unknown"), None
     fork = head_repo != repo
@@ -1188,18 +1249,38 @@ def choose(
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
                     auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
                     split=(split or "").strip() == "1", shards=shards,
-                    root_jobs=root_jobs)
+                    root_jobs=root_jobs, reserve=reserve,
+                    # Main only ever takes an owned pool; the replay still
+                    # spreads newer runs over the whole order.
+                    choose_from=tuple(label for label in limits.order if persistent(label)) if main else None)
+    if main and not persistent(choice.runner):
+        # A Blacksmith pick would move main off MACOS_RUNNER_PR; keep its route.
+        choice = Choice("", "", f"main's full-suite dispatch: no owned pool fits its whole run with "
+                                f"{reserve} machine(s) and root runner(s) left free for pull requests "
+                                f"({choice.reason})")
     if live and persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
     if fork and choice.runner:
         choice = dataclasses.replace(choice, reason=f"fork head; {choice.reason}")
     if retry and choice.runner:
         choice = dataclasses.replace(choice, reason=f"retry attempt {run_attempt}; {choice.reason}")
+    if main and choice.runner:
+        choice = dataclasses.replace(choice, reason=f"main's full-suite dispatch; {choice.reason}")
     return choice, snapshot
 
 
+def main_dispatch(run: Mapping[str, Any]) -> bool:
+    """A CI run of main's full-suite dispatch (ci-main-full-suite.yml)."""
+    return run.get("event") == "workflow_dispatch" and run.get("head_branch") == MAIN_BRANCH
+
+
+def routed_run(run: Mapping[str, Any]) -> bool:
+    """A CI run this picker routes: a pull request, or main's full-suite dispatch."""
+    return run.get("event") == "pull_request" or main_dispatch(run)
+
+
 def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) -> bool:
-    """Only attempt 1 of a same-repository pull request run can take an owned pool,
+    """Only attempt 1 of a same-repository pull request run (or of main's dispatch) can take an owned pool,
     and attempt 2 too while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
 
     Attempt 2 then may hold the light tier, or a refused job's retry
@@ -1307,7 +1388,10 @@ class GitHub:
 
     def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None,
                                   light_retry: bool = False) -> Routed:
-        """Where the pull request runs since `since` went, so they are not all guessed.
+        """Where the pull request runs (and main's dispatches) since `since` went, so they are not all guessed.
+
+        One unfiltered page of CI runs, kept to the routed ones (routed_run()),
+        so main's full-suite dispatch is counted at no extra request.
 
         A fork run or a retry attempt never takes an owned pool, so it is off
         them without a lookup (and a fork's own marker is never trusted). For
@@ -1316,8 +1400,8 @@ class GitHub:
         was not an owned pool. Any other run (still picking, a lost marker
         upload, a failed lookup, or past ROUTE_LOOKUPS) is replayed.
         """
-        runs = [run for run in self.runs_since(CI_WORKFLOW, since, event="pull_request")
-                if run.get("id") != exclude_run_id and run.get("status") != "completed"]
+        runs = [run for run in self.runs_since(CI_WORKFLOW, since)
+                if routed_run(run) and run.get("id") != exclude_run_id and run.get("status") != "completed"]
         owned: dict[str, int] = {}
         ephemeral = unknown = looked_up = 0
         for run in runs:
@@ -1433,6 +1517,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             since, exclude_run_id=int(run_id) if run_id.isdigit() else None,
             light_retry=(env.get("OWNED_LIGHT_RETRY") or "").strip() == "1")
 
+    event = env.get("EVENT_NAME") or ""
+    ref = env.get("GITHUB_REF") or ""
+    on_main = event == "workflow_dispatch" and ref == MAIN_REF
     # The changes job's routing, when the step runs after it; without it every
     # run is charged the most machines any run can hold.
     plan = FULL_RUN if "RUN_MACOS" not in env else run_plan(
@@ -1442,6 +1529,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         unit_in_admission="false", claude_wrapper=env.get("RUN_CLAUDE_WRAPPER"),
         cli=env.get("RUN_CLI"), remote_daemon=env.get("RUN_REMOTE_DAEMON"),
         unit_selectors=env.get("RUN_UNIT_SELECTORS"))
+    if on_main:
+        # The side lanes read the pick only on a pull request (ci.yml's
+        # claude-wrapper, remote-daemon.yml); main's keep their own route.
+        plan = dataclasses.replace(plan, side=())
     # What an owned pool must have free for the whole run: its owned-eligible
     # jobs at their peak.
     gui = (env.get("POOL_OWNED_GUI") or "").strip() != "0"
@@ -1463,7 +1554,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             print(f"::warning title=live owned capacity::could not list runners ({error}); using the snapshot")
             live_owned = live_runners = None
     choice, snapshot = choose(
-        event=env.get("EVENT_NAME") or "",
+        event=event,
+        ref=ref,
+        main_reserve=env.get("OWNED_MAIN_RESERVE"),
         repo=repo,
         head_repo=env.get("HEAD_REPO") or "",
         default_runner=env.get("DEFAULT_RUNNER") or "",
@@ -1488,9 +1581,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         queue_rounds=env.get("POOL_QUEUE_ROUNDS") or "",
     )
     pr_xcode_app = env.get(PR_XCODE_VARIABLE)
-    # Only a same-repository pull request reads the slots; ci.yml blanks the pin
-    # everywhere else, so checking there would flag a class entry on every run.
-    same_repo_pr = env.get("EVENT_NAME") == "pull_request" and env.get("HEAD_REPO") == repo
+    # Only a same-repository pull request (and main's dispatch) reads the slots;
+    # ci.yml blanks the pin everywhere else, so checking there would flag a
+    # class entry on every run.
+    same_repo_pr = event == "pull_request" and env.get("HEAD_REPO") == repo or on_main
     problems = (slot_problems(env.get("OWNED_SLOTS"), pr_xcode_app)
                 if same_repo_pr and (env.get("POOL_OWNED") or "").strip() == "1" else [])
     for problem in problems:
