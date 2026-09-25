@@ -53,6 +53,8 @@ public enum ChromeExtensionPackage {
     /// `unzip -Z1` prints one name per entry; this bounds the listing well
     /// above `maximumEntryCount` typical names.
     static let maximumListingBytes = 8 * 1024 * 1024
+    static let maximumPathBytes = 1024
+    static let maximumPathDepth = 32
 
     /// Returns the 32-letter extension id in a bare id, a
     /// `chromewebstore.google.com/detail/...` URL, or a legacy
@@ -283,6 +285,20 @@ public enum ChromeExtensionPackage {
     public static func validateArchiveEntryNames(_ names: [String]) throws {
         guard !names.isEmpty else { throw Failure.unpack("the archive is empty") }
         guard names.count <= maximumEntryCount else { throw Failure.unpack("the archive has too many files") }
+        // Directories the names imply count toward the entry budget too, and
+        // path length and depth are bounded, before anything is written.
+        var directories = Set<Substring>()
+        for raw in names {
+            guard raw.utf8.count <= maximumPathBytes else { throw Failure.unpack("an archive path is too long") }
+            let parts = raw.split(separator: "/", omittingEmptySubsequences: true)
+            guard parts.count <= maximumPathDepth else { throw Failure.unpack("an archive path is too deep") }
+            for depth in 1..<max(parts.count, 1) {
+                directories.insert(parts.prefix(depth).joined(separator: "/")[...])
+            }
+            guard names.count + directories.count <= maximumEntryCount else {
+                throw Failure.unpack("the archive has too many files")
+            }
+        }
         for raw in names {
             guard !raw.isEmpty, !raw.contains("\\"), !raw.contains("\0") else {
                 throw Failure.unpack("unsafe path in archive")

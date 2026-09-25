@@ -115,6 +115,17 @@ import Testing
         }
     }
 
+    @Test func refusesDeepOrLongArchivePaths() {
+        let deep = (0..<40).map { "d\($0)" }.joined(separator: "/") + "/f.js"
+        #expect(throws: ChromeExtensionPackage.Failure.self) {
+            try ChromeExtensionPackage.validateArchiveEntryNames(["manifest.json", deep])
+        }
+        let long = String(repeating: "a", count: 2000) + ".js"
+        #expect(throws: ChromeExtensionPackage.Failure.self) {
+            try ChromeExtensionPackage.validateArchiveEntryNames(["manifest.json", long])
+        }
+    }
+
     @Test func acceptsOrdinaryArchiveEntryNames() throws {
         try ChromeExtensionPackage.validateArchiveEntryNames(["manifest.json", "icons/", "icons/128.png", "a..b.js"])
     }

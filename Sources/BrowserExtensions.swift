@@ -1259,7 +1259,11 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     func title(for context: WKWebExtensionContext) -> String? {
         // The current document's own title, not the tab's cached one, which
         // can still hold a protected page's title after navigation.
-        showsPageAccessible(to: context) ? livePanel?.webView.title : nil
+        // Only for a settled document: while a navigation is pending, the URL
+        // can already be the destination while the title is still the old,
+        // possibly protected, page's.
+        guard showsPageAccessible(to: context), let webView = livePanel?.webView, !webView.isLoading else { return nil }
+        return webView.title
     }
     func url(for context: WKWebExtensionContext) -> URL? {
         guard showsPageAccessible(to: context), let panel = livePanel else { return nil }
