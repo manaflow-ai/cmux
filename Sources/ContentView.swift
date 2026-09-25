@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
@@ -15716,19 +15717,19 @@ private struct SidebarHelpMenuButton: View {
             }
         case .docs:
             guard let docsURL else { return }
-            NSWorkspace.shared.open(docsURL)
+            BrowserExternalAppOpener().open(docsURL)
         case .changelog:
             guard let changelogURL else { return }
-            NSWorkspace.shared.open(changelogURL)
+            BrowserExternalAppOpener().open(changelogURL)
         case .github:
             guard let githubURL else { return }
-            NSWorkspace.shared.open(githubURL)
+            BrowserExternalAppOpener().open(githubURL)
         case .githubIssues:
             guard let githubIssuesURL else { return }
-            NSWorkspace.shared.open(githubIssuesURL)
+            BrowserExternalAppOpener().open(githubIssuesURL)
         case .discord:
             guard let discordURL else { return }
-            NSWorkspace.shared.open(discordURL)
+            BrowserExternalAppOpener().open(discordURL)
         case .checkForUpdates:
             Task { @MainActor in
                 AppDelegate.shared?.checkForUpdates(nil)

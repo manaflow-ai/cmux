@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxFoundation
 import AppKit
 import SwiftUI

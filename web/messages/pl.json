@@ -1328,7 +1328,7 @@
           "soundOverride": "Zastąpienie dźwięku powiadomienia. default używa notifications.sound, none wyłącza odtwarzanie, a pozostałe wartości wybierają dźwięk wbudowany lub niestandardowy."
         },
         "browser": {
-          "externalApplication": "Nazwa aplikacji, identyfikator pakietu lub ścieżka .app używana dla adresów URL otwieranych poza cmux. Pozostaw puste, aby użyć aplikacji systemowej.",
+          "externalApplication": "Nazwa aplikacji, identyfikator pakietu lub ścieżka .app używana tylko dla adresów HTTP(S) otwieranych poza cmux. Pozostaw puste albo użyj nierozpoznanej wartości, aby użyć aplikacji systemowej.",
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
           "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",

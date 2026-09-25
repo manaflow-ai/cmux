@@ -4117,7 +4117,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             // Browser disabled (user setting or MDM policy): a URL-carrying
             // request must still reach the user's default browser. Only the
             // blank browser pane silently degrades to the terminal below.
-            BrowserExternalAppOpener().open(externalFallbackURL)
+            _ = MainActor.assumeIsolated {
+                BrowserExternalAppOpener().open(externalFallbackURL)
+            }
         }
         if let initialDetachedSurface {
             if let initialPaneId = bonsplitController.allPaneIds.first,
@@ -9679,7 +9681,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 url: url,
                 initialRequest: initialRequest
             ) {
-                _ = BrowserExternalAppOpener().open(externalURL)
+                _ = MainActor.assumeIsolated {
+                    BrowserExternalAppOpener().open(externalURL)
+                }
             }
             return nil
         }
@@ -9808,7 +9812,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 url: url,
                 initialRequest: initialRequest
             ) {
-                _ = BrowserExternalAppOpener().open(externalURL)
+                _ = MainActor.assumeIsolated {
+                    BrowserExternalAppOpener().open(externalURL)
+                }
             }
             return nil
         }

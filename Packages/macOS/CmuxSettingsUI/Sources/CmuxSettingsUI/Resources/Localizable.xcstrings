@@ -4679,6 +4679,72 @@
             "state": "translated",
             "value": "外部瀏覽器應用"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vanjska aplikacija preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstern browserprogram"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applicazione browser esterna"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីកម្មវិធីរុករកខាងក្រៅ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekstern nettleserapp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zewnętrzna aplikacja przeglądarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicativo de navegador externo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Внешнее приложение браузера"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แอปเบราว์เซอร์ภายนอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harici tarayıcı uygulaması"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зовнішня програма браузера"
+          }
         }
       }
     },
@@ -4688,55 +4754,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تستخدم عناوين URL المفتوحة خارج cmux اسم هذا التطبيق أو معرّف الحزمة أو مسار ‎.app. اتركه فارغًا لاستخدام الإعداد الافتراضي للنظام."
+            "value": "تستخدم عناوين HTTP(S) المفتوحة خارج cmux اسم هذا التطبيق أو معرّف الحزمة أو مسار ‎.app. اتركه فارغًا أو استخدم قيمة غير قابلة للحل لاستخدام إعداد النظام الافتراضي."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Für außerhalb von cmux geöffnete URLs werden der App-Name, die Bundle-ID oder der .app-Pfad verwendet. Leer lassen, um den Systemstandard zu verwenden."
+            "value": "Für außerhalb von cmux geöffnete HTTP(S)-URLs werden der App-Name, die Bundle-ID oder der .app-Pfad verwendet. Leer lassen oder einen nicht auflösbaren Wert verwenden, um die Systemstandard-App zu nutzen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "URLs opened outside cmux use this app name, bundle identifier, or .app path. Leave empty for the system default."
+            "value": "HTTP(S) URLs opened outside cmux use this app name, bundle identifier, or .app path. Leave empty, or use an unresolved value, to use the system default."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Las URL abiertas fuera de cmux usan el nombre, el identificador del paquete o la ruta .app de esta aplicación. Déjalo vacío para usar el valor predeterminado del sistema."
+            "value": "Las URL HTTP(S) abiertas fuera de cmux usan el nombre, el identificador del paquete o la ruta .app de esta aplicación. Déjalo vacío o usa un valor no resoluble para usar la aplicación predeterminada del sistema."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les URL ouvertes hors de cmux utilisent le nom de cette app, son identifiant de bundle ou son chemin .app. Laissez vide pour utiliser le réglage par défaut du système."
+            "value": "Les URL HTTP(S) ouvertes hors de cmux utilisent le nom de cette app, son identifiant de bundle ou son chemin .app. Laissez vide ou utilisez une valeur introuvable pour utiliser l’application par défaut du système."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux の外部で開く URL に使用するアプリ名、バンドル識別子、または .app パスです。空欄にするとシステムのデフォルトを使用します。"
+            "value": "cmux の外部で開く HTTP(S) URL に使用するアプリ名、バンドル識別子、または .app パスです。空欄または解決できない値にするとシステムのデフォルトを使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 외부에서 여는 URL에 사용할 앱 이름, 번들 식별자 또는 .app 경로입니다. 비워 두면 시스템 기본값을 사용합니다."
+            "value": "cmux 외부에서 여는 HTTP(S) URL에 사용할 앱 이름, 번들 식별자 또는 .app 경로입니다. 비워 두거나 확인할 수 없는 값을 사용하면 시스템 기본 앱을 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 外打开的 URL 使用此应用名称、包标识符或 .app 路径。留空则使用系统默认值。"
+            "value": "在 cmux 外打开的 HTTP(S) URL 使用此应用名称、包标识符或 .app 路径。留空或使用无法解析的值即可使用系统默认应用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 cmux 外開啟的 URL 會使用此應用程式名稱、套件識別碼或 .app 路徑。留空則使用系統預設值。"
+            "value": "在 cmux 外開啟的 HTTP(S) URL 會使用此應用程式名稱、套件識別碼或 .app 路徑。留空或使用無法解析的值即可使用系統預設應用程式。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP(S) URL-ovi otvoreni izvan cmuxa koriste naziv aplikacije, identifikator paketa ili .app putanju. Ostavite prazno ili koristite neriješenu vrijednost za sistemsku zadanu aplikaciju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP(S)-URL’er, der åbnes uden for cmux, bruger dette appnavn, bundle-id eller denne .app-sti. Lad feltet stå tomt, eller brug en uløst værdi, for systemets standardapp."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli URL HTTP(S) aperti fuori da cmux usano il nome dell’app, l’identificatore del bundle o il percorso .app indicato. Lascia vuoto o usa un valore non risolto per l’app predefinita del sistema."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL HTTP(S) ដែលបើកក្រៅ cmux នឹងប្រើឈ្មោះកម្មវិធី លេខសម្គាល់ bundle ឬផ្លូវ .app នេះ។ ទុកទទេ ឬប្រើតម្លៃដែលមិនអាចដោះស្រាយបាន ដើម្បីប្រើកម្មវិធីលំនាំដើមរបស់ប្រព័ន្ធ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP(S)-URL-er som åpnes utenfor cmux bruker dette appnavnet, bundle-ID-en eller .app-stien. La feltet stå tomt, eller bruk en verdi som ikke kan løses, for systemets standardapp."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adresy HTTP(S) otwierane poza cmux używają tej nazwy aplikacji, identyfikatora pakietu lub ścieżki .app. Pozostaw puste albo użyj nierozpoznanej wartości, aby użyć aplikacji systemowej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URLs HTTP(S) abertas fora do cmux usam este nome de app, identificador de pacote ou caminho .app. Deixe vazio ou use um valor não resolvido para usar o app padrão do sistema."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для HTTP(S)-адресов, открываемых вне cmux, используются это имя приложения, идентификатор пакета или путь .app. Оставьте поле пустым или укажите нераспознаваемое значение, чтобы использовать системное приложение по умолчанию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "URL HTTP(S) ที่เปิดนอก cmux จะใช้ชื่อแอป ตัวระบุบันเดิล หรือเส้นทาง .app นี้ เว้นว่างหรือใช้ค่าที่แก้ไขไม่ได้เพื่อใช้แอปเริ่มต้นของระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux dışında açılan HTTP(S) URL’leri bu uygulama adını, paket kimliğini veya .app yolunu kullanır. Sistem varsayılan uygulaması için boş bırakın ya da çözülemeyen bir değer kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для HTTP(S)-адрес, відкритих поза cmux, використовуються назва цієї програми, ідентифікатор пакета або шлях .app. Залиште поле порожнім або вкажіть нерозпізнане значення, щоб використати системну програму за замовчуванням."
           }
         }
       }
@@ -4797,6 +4929,72 @@
             "state": "translated",
             "value": "browser.externalApplication 外部瀏覽器 應用程式 套件識別碼 路徑 連結 URL"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication vanjski preglednik aplikacija identifikator paketa putanja HTTP HTTPS URL veze"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication ekstern browser app bundle-id sti HTTP HTTPS URL links"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication browser esterno app identificatore bundle percorso HTTP HTTPS URL link"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication កម្មវិធីរុករកខាងក្រៅ កម្មវិធី bundle ផ្លូវ HTTP HTTPS URL តំណ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication ekstern nettleser app bundle-ID sti HTTP HTTPS URL lenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication zewnętrzna przeglądarka aplikacja identyfikator pakietu ścieżka HTTP HTTPS URL linki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication navegador externo app identificador de pacote caminho HTTP HTTPS URL links"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication внешний браузер приложение идентификатор пакета путь HTTP HTTPS URL ссылки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication เบราว์เซอร์ภายนอก แอป ตัวระบุบันเดิล เส้นทาง HTTP HTTPS URL ลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication harici tarayıcı uygulama paket kimliği yol HTTP HTTPS URL bağlantılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.externalApplication зовнішній браузер програма ідентифікатор пакета шлях HTTP HTTPS URL посилання"
+          }
         }
       }
     },
@@ -4855,6 +5053,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "例如：com.google.Chrome"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "npr. com.google.Chrome"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "f.eks. com.google.Chrome"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "es. com.google.Chrome"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧ. com.google.Chrome"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "f.eks. com.google.Chrome"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "np. com.google.Chrome"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ex.: com.google.Chrome"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "например, com.google.Chrome"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เช่น com.google.Chrome"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "örn. com.google.Chrome"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "наприклад, com.google.Chrome"
           }
         }
       }

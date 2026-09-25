@@ -1327,7 +1327,7 @@
           "soundOverride": "تجاوز لصوت الإشعار. يستخدم default قيمة notifications.sound، ويعطّل none التشغيل، وتختار القيم الأخرى صوتًا مدمجًا أو مخصصًا."
         },
         "browser": {
-          "externalApplication": "اسم التطبيق أو معرّف الحزمة أو مسار ‎.app المستخدم لعناوين URL المفتوحة خارج cmux. اتركه فارغًا لاستخدام المتصفح الافتراضي للنظام.",
+          "externalApplication": "اسم التطبيق أو معرّف الحزمة أو مسار ‎.app المستخدم فقط لعناوين HTTP(S) المفتوحة خارج cmux. اتركه فارغًا أو استخدم قيمة غير قابلة للحل لاستخدام إعداد النظام الافتراضي.",
           "defaultSearchEngine": "محرك البحث الافتراضي لاستعلامات شريط عنوان المتصفح التي ليست عناوين URL. استخدم custom مع customSearchEngineURLTemplate لموفري بحث آخرين.",
           "customSearchEngineName": "اسم العرض المستخدم عندما تكون defaultSearchEngine هي custom.",
           "customSearchEngineURLTemplate": "عنوان URL للبحث عند استخدام custom. أدرج موضع الاستعلام أو %s لعبارة البحث المرمزة. عند عدم وجود موضع، يضيف cmux q= إلى العنوان.",

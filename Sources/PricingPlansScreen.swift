@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxCloud
 import AppKit
 import Bonsplit
@@ -499,7 +500,7 @@ private struct NativePricingPlansView: View {
                 period: String(localized: "pricing.native.period.userMonth", defaultValue: "/user/month"),
                 isCurrent: false,
                 actionTitle: String(localized: "pricing.native.team.cta", defaultValue: "Get Teams"),
-                action: { NSWorkspace.shared.open(AuthEnvironment.websiteOrigin) },
+                action: { BrowserExternalAppOpener().open(AuthEnvironment.websiteOrigin) },
                 features: [
                     String(localized: "pricing.native.team.feature.billing", defaultValue: "Unified billing for the whole team"),
                     String(localized: "pricing.native.team.feature.seats", defaultValue: "Centralized seat management"),

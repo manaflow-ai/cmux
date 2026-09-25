@@ -55295,115 +55295,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يستخدم %@ بروتوكول HTTP غير مشفر، لذا يمكن قراءة حركة البيانات أو تعديلها على الشبكة.\n\nافتح هذا URL في متصفحك الافتراضي، أو تابع في cmux."
+            "value": "يستخدم %@ بروتوكول HTTP غير مشفر، لذا يمكن قراءة حركة البيانات أو تعديلها على الشبكة.\n\nافتح هذا URL في متصفحك الخارجي، أو تابع في cmux."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ koristi čisti HTTP, pa se promet može čitati ili mijenjati na mreži.\n\nOtvorite ovaj URL u podrazumijevanom pregledniku ili nastavite u cmux."
+            "value": "%@ koristi čisti HTTP, pa se promet može čitati ili mijenjati na mreži.\n\nOtvorite ovaj URL u vanjskom pregledniku ili nastavite u cmux."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ bruger almindelig HTTP, så trafikken kan læses eller ændres på netværket.\n\nÅbn denne URL i din standardbrowser, eller fortsæt i cmux."
+            "value": "%@ bruger almindelig HTTP, så trafikken kan læses eller ændres på netværket.\n\nÅbn denne URL i din ekstern browser, eller fortsæt i cmux."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ verwendet unverschlüsseltes HTTP, daher kann der Datenverkehr im Netzwerk gelesen oder verändert werden.\n\nÖffnen Sie diese URL in Ihrem Standardbrowser oder fahren Sie in cmux fort."
+            "value": "%@ verwendet unverschlüsseltes HTTP, daher kann der Datenverkehr im Netzwerk gelesen oder verändert werden.\n\nÖffnen Sie diese URL in Ihrem externen Browser oder fahren Sie in cmux fort."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your default browser, or proceed in cmux."
+            "value": "%@ uses plain HTTP, so traffic can be read or modified on the network.\n\nOpen this URL in your external browser, or proceed in cmux."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ usa HTTP sin cifrar, por lo que el tráfico puede ser leído o modificado en la red.\n\nAbre esta URL en tu navegador predeterminado o continúa en cmux."
+            "value": "%@ usa HTTP sin cifrar, por lo que el tráfico puede ser leído o modificado en la red.\n\nAbre esta URL en tu navegador externo o continúa en cmux."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ utilise le protocole HTTP non chiffré, le trafic peut donc être lu ou modifié sur le réseau.\n\nOuvrez cette URL dans votre navigateur par défaut ou continuez dans cmux."
+            "value": "%@ utilise le protocole HTTP non chiffré, le trafic peut donc être lu ou modifié sur le réseau.\n\nOuvrez cette URL dans votre navigateur externe ou continuez dans cmux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ utilizza HTTP non crittografato, quindi il traffico può essere letto o modificato sulla rete.\n\nApri questo URL nel browser predefinito oppure continua in cmux."
+            "value": "%@ utilizza HTTP non crittografato, quindi il traffico può essere letto o modificato sulla rete.\n\nApri questo URL nel browser esterno oppure continua in cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ は HTTP 接続を使用しているため、通信内容がネットワーク上で読み取られたり改ざんされる可能性があります。\n\nデフォルトブラウザで開くか、cmux で続行してください。"
+            "value": "%@ は HTTP 接続を使用しているため、通信内容がネットワーク上で読み取られたり改ざんされる可能性があります。\n\n外部ブラウザで開くか、cmux で続行してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@은(는) 일반 HTTP를 사용하므로, 네트워크에서 트래픽이 읽히거나 변조될 수 있습니다.\n\n기본 브라우저에서 이 URL을 열거나, cmux에서 계속 진행하세요."
+            "value": "%@은(는) 일반 HTTP를 사용하므로, 네트워크에서 트래픽이 읽히거나 변조될 수 있습니다.\n\n외부 브라우저에서 이 URL을 열거나, cmux에서 계속 진행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ bruker vanlig HTTP, så trafikk kan leses eller endres på nettverket.\n\nÅpne denne URL-en i standard nettleser, eller fortsett i cmux."
+            "value": "%@ bruker vanlig HTTP, så trafikk kan leses eller endres på nettverket.\n\nÅpne denne URL-en i ekstern nettleser, eller fortsett i cmux."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ używa zwykłego HTTP, więc ruch sieciowy może być odczytany lub zmodyfikowany.\n\nOtwórz ten URL w domyślnej przeglądarce lub kontynuuj w cmux."
+            "value": "%@ używa zwykłego HTTP, więc ruch sieciowy może być odczytany lub zmodyfikowany.\n\nOtwórz ten URL w zewnętrznej przeglądarce lub kontynuuj w cmux."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ usa HTTP simples, então o tráfego pode ser lido ou modificado na rede.\n\nAbra esta URL no seu navegador padrão ou continue no cmux."
+            "value": "%@ usa HTTP simples, então o tráfego pode ser lido ou modificado na rede.\n\nAbra esta URL no seu navegador externo ou continue no cmux."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ использует незащищенный протокол HTTP, поэтому трафик может быть перехвачен или изменен в сети.\n\nОткройте этот URL в браузере по умолчанию или продолжите в cmux."
+            "value": "%@ использует незащищенный протокол HTTP, поэтому трафик может быть перехвачен или изменен в сети.\n\nОткройте этот URL в внешнем браузере или продолжите в cmux."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ ใช้ HTTP แบบธรรมดา ดังนั้นข้อมูลอาจถูกอ่านหรือแก้ไขบนเครือข่ายได้\n\nเปิด URL นี้ในเบราว์เซอร์เริ่มต้น หรือดำเนินการต่อใน cmux"
+            "value": "%@ ใช้ HTTP แบบธรรมดา ดังนั้นข้อมูลอาจถูกอ่านหรือแก้ไขบนเครือข่ายได้\n\nเปิด URL นี้ในเบราว์เซอร์ภายนอก หรือดำเนินการต่อใน cmux"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ düz HTTP kullanıyor, bu nedenle trafik ağda okunabilir veya değiştirilebilir.\n\nBu URL'yi varsayılan tarayıcınızda açın ya da cmux'ta devam edin."
+            "value": "%@ düz HTTP kullanıyor, bu nedenle trafik ağda okunabilir veya değiştirilebilir.\n\nBu URL'yi harici tarayıcınızda açın ya da cmux'ta devam edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ використовує незахищений HTTP, тому трафік може бути прочитаний або змінений у мережі.\n\nВідкрийте цю URL-адресу у стандартному браузері або продовжте в cmux, якщо довіряєте цьому ресурсу."
+            "value": "%@ використовує незахищений HTTP, тому трафік може бути прочитаний або змінений у мережі.\n\nВідкрийте цю URL-адресу у зовнішньому браузері або продовжте в cmux, якщо довіряєте цьому ресурсу."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 使用纯 HTTP 连接，网络上的流量可能被读取或修改。\n\n请在默认浏览器中打开此 URL，或在 cmux 中继续访问。"
+            "value": "%@ 使用纯 HTTP 连接，网络上的流量可能被读取或修改。\n\n请在外部浏览器中打开此 URL，或在 cmux 中继续访问。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 使用未加密的 HTTP，網路上的流量可能被讀取或竄改。\n\n在您的預設瀏覽器中開啟此 URL，或在 cmux 中繼續。"
+            "value": "%@ 使用未加密的 HTTP，網路上的流量可能被讀取或竄改。\n\n在您的外部瀏覽器中開啟此 URL，或在 cmux 中繼續。"
           }
         }
       }
@@ -64079,115 +64079,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "فتح في المتصفح الافتراضي"
+            "value": "فتح في المتصفح الخارجي"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otvori u podrazumijevanom pregledniku"
+            "value": "Otvori u vanjskom pregledniku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åbn i standardbrowser"
+            "value": "Åbn i ekstern browser"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Im Standardbrowser öffnen"
+            "value": "Im externen Browser öffnen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open in Default Browser"
+            "value": "Open in External Browser"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir en el navegador predeterminado"
+            "value": "Abrir en el navegador externo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir dans le navigateur par défaut"
+            "value": "Ouvrir dans le navigateur externe"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Apri nel browser predefinito"
+            "value": "Apri nel browser esterno"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "デフォルトブラウザで開く"
+            "value": "外部ブラウザで開く"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "기본 브라우저에서 열기"
+            "value": "외부 브라우저에서 열기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Åpne i standard nettleser"
+            "value": "Åpne i ekstern nettleser"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otwórz w domyślnej przeglądarce"
+            "value": "Otwórz w zewnętrznej przeglądarce"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abrir no Navegador Padrão"
+            "value": "Abrir no Navegador Externo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть в браузере по умолчанию"
+            "value": "Открыть в внешнем браузере"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิดในเบราว์เซอร์เริ่มต้น"
+            "value": "เปิดในเบราว์เซอร์ภายนอก"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Varsayılan Tarayıcıda Aç"
+            "value": "Harici Tarayıcıda Aç"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Відкрити у стандартному браузері"
+            "value": "Відкрити у зовнішньому браузері"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在默认浏览器中打开"
+            "value": "在外部浏览器中打开"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在預設瀏覽器中開啟"
+            "value": "在外部瀏覽器中開啟"
           }
         }
       }

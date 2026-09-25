@@ -1327,7 +1327,7 @@
           "soundOverride": "Eine Überschreibung des Benachrichtigungstons. default verwendet notifications.sound, none deaktiviert die Wiedergabe; die übrigen Werte wählen einen integrierten oder benutzerdefinierten Ton."
         },
         "browser": {
-          "externalApplication": "Anwendungsname, Bundle-ID oder .app-Pfad für URLs, die außerhalb von cmux geöffnet werden. Leer lassen, um die Systemstandard-App zu verwenden.",
+          "externalApplication": "Anwendungsname, Bundle-ID oder .app-Pfad, der nur für HTTP(S)-URLs verwendet wird, die außerhalb von cmux geöffnet werden. Leer lassen oder einen nicht auflösbaren Wert verwenden, um die Systemstandard-App zu nutzen.",
           "defaultSearchEngine": "Standardsuchmaschine für Nicht-URL-Eingaben in der Browser-Adressleiste. Verwenden Sie custom mit customSearchEngineURLTemplate für beliebige Anbieter.",
           "customSearchEngineName": "Anzeigename, der verwendet wird, wenn defaultSearchEngine custom ist.",
           "customSearchEngineURLTemplate": "Such-URL, die verwendet wird, wenn defaultSearchEngine custom ist. Verwenden Sie den Abfrageplatzhalter oder %s für den kodierten Suchbegriff. Ohne Platzhalter fügt cmux q= zur URL hinzu.",

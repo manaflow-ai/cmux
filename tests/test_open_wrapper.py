@@ -369,6 +369,23 @@ def test_external_application_preserves_mixed_passthrough_args(failures: list[st
         )
 
 
+def test_external_application_only_handles_http_urls(failures: list[str]) -> None:
+    html_url = "file:///tmp/cmux-open-wrapper-test/index.html"
+    open_log, cmux_log, code, stderr = run_wrapper(
+        args=[html_url],
+        intercept_setting="0",
+        external_application="com.google.Chrome",
+        whitelist="",
+    )
+    expect(code == 0, f"non-web configured application: wrapper exited {code}: {stderr}", failures)
+    expect(cmux_log == [], f"non-web configured application: cmux should not be called, got {cmux_log}", failures)
+    expect(
+        open_log == [html_url],
+        f"non-web configured application: expected system open, got {open_log}",
+        failures,
+    )
+
+
 def test_whitelist_miss_passthrough(failures: list[str]) -> None:
     url = "https://example.com"
     open_log, cmux_log, code, stderr = run_wrapper(
@@ -1124,6 +1141,7 @@ def main() -> int:
     test_browser_disabled_override_passthrough(failures)
     test_configured_external_application_is_used(failures)
     test_external_application_preserves_mixed_passthrough_args(failures)
+    test_external_application_only_handles_http_urls(failures)
     test_whitelist_miss_passthrough(failures)
     test_whitelist_match_routes_to_cmux(failures)
     test_external_literal_pattern_is_deferred_to_app(failures)

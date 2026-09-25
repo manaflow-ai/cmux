@@ -311,7 +311,7 @@ public struct BrowserSection: View {
             SettingsCardRow(
                 configurationReview: .json("browser.externalApplication"),
                 String(localized: "settings.browser.externalApplication", defaultValue: "External Browser Application"),
-                subtitle: String(localized: "settings.browser.externalApplication.subtitle", defaultValue: "URLs opened outside cmux use this app name, bundle identifier, or .app path. Leave empty for the system default.")
+                subtitle: String(localized: "settings.browser.externalApplication.subtitle", defaultValue: "HTTP(S) URLs opened outside cmux use this app name, bundle identifier, or .app path. Leave empty, or use an unresolved value, to use the system default.")
             ) {
                 TextField(
                     String(localized: "settings.browser.externalApplication.placeholder", defaultValue: "e.g. com.google.Chrome"),

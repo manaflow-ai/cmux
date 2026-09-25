@@ -2603,7 +2603,7 @@
           "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
         },
         "browser": {
-          "externalApplication": "Application name, bundle identifier, or .app path used for URLs opened outside cmux. Leave empty for the system default.",
+          "externalApplication": "Application name, bundle identifier, or .app path used only for HTTP(S) URLs opened outside cmux. Leave empty, or use an unresolved value, to use the system default.",
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",

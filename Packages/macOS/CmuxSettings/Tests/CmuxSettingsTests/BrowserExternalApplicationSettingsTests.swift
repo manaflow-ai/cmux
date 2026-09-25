@@ -6,8 +6,9 @@ import Testing
 struct BrowserExternalApplicationSettingsTests {
     @Test("empty and whitespace values use the system default")
     func emptyValuesUseSystemDefault() {
-        let defaults = UserDefaults(suiteName: "cmux.browser-external-application-tests")!
-        defaults.removePersistentDomain(forName: "cmux.browser-external-application-tests")
+        let suiteName = "cmux.browser-external-application-tests.empty.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
         let settings = BrowserExternalApplicationSettings(defaults: defaults)
 
         #expect(settings.applicationIdentifier == nil)
@@ -18,8 +19,9 @@ struct BrowserExternalApplicationSettingsTests {
 
     @Test("trims a configured application identifier")
     func trimsConfiguredIdentifier() {
-        let defaults = UserDefaults(suiteName: "cmux.browser-external-application-tests")!
-        defaults.removePersistentDomain(forName: "cmux.browser-external-application-tests")
+        let suiteName = "cmux.browser-external-application-tests.trimming.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
         defaults.set("  com.google.Chrome  ", forKey: BrowserExternalApplicationSettings.userDefaultsKey)
 
         #expect(
