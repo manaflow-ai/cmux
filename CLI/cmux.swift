@@ -23577,9 +23577,8 @@ struct CMUXCLI {
         let root: URL
         if let rawHomeDirectory, !rawHomeDirectory.isEmpty {
             root = URL(fileURLWithPath: rawHomeDirectory, isDirectory: true)
-                .appendingPathComponent(".claude", isDirectory: true)
-                .appendingPathComponent("cmux", isDirectory: true)
-                .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
+                .appendingPathComponent(".cmux", isDirectory: true)
+                .appendingPathComponent("claude-node-options", isDirectory: true)
         } else {
             root = URL(fileURLWithPath: temporaryDirectory, isDirectory: true)
                 .appendingPathComponent("cmux-claude-node-options", isDirectory: true)

@@ -143,8 +143,8 @@ def run_wrapper(
         real_dir.mkdir(parents=True, exist_ok=True)
         bundled_dir.mkdir(parents=True, exist_ok=True)
 
-        # Sandbox HOME so the wrapper never touches the real ~/.claude tree
-        # (cmux #3463 puts the NODE_OPTIONS guard file under $HOME).
+        # Sandbox HOME so the wrapper never touches the real ~/.claude or ~/.cmux
+        # trees (cmux #3463 puts the NODE_OPTIONS guard file under $HOME/.cmux).
         if home is None:
             sandbox_home = tmp / "fake-home"
             sandbox_home.mkdir(parents=True, exist_ok=True)
@@ -2872,7 +2872,7 @@ def test_live_socket_preserves_explicit_bypass_availability_flag(failures: list[
 def test_live_socket_stale_mktemp_literal_does_not_warn(failures: list[str]) -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-stale-") as td:
         home_dir = Path(td) / "home"
-        guard_dir = home_dir / ".claude" / "cmux" / "cmux-claude-node-options"
+        guard_dir = home_dir / ".cmux" / "claude-node-options"
         guard_dir.mkdir(parents=True, exist_ok=True)
         (guard_dir / "restore-node-options.XXXXXX.cjs").write_text("stale", encoding="utf-8")
         code, _, _, stderr, _, node_options, runtime_node_options, child_node_options, _, _ = run_wrapper(
@@ -3017,7 +3017,7 @@ def test_issue_3463_guard_file_lives_under_home_not_tmpdir(failures: list[str]) 
         )
         expect(code == 0, f"#3463 home guard: wrapper exited {code}: {stderr}", failures)
 
-        guard_path_home = home_dir / ".claude" / "cmux" / "cmux-claude-node-options" / "restore-node-options.cjs"
+        guard_path_home = home_dir / ".cmux" / "claude-node-options" / "restore-node-options.cjs"
         guard_dir_tmpdir = tmp_dir / "cmux-claude-node-options"
 
         expect(
@@ -3029,10 +3029,10 @@ def test_issue_3463_guard_file_lives_under_home_not_tmpdir(failures: list[str]) 
         )
 
         require_flag, _, _ = node_options.partition(" ")
-        expected_prefix = f"--require={home_dir}/.claude/cmux/cmux-claude-node-options/"
+        expected_prefix = f"--require={home_dir}/.cmux/claude-node-options/"
         expect(
             require_flag.startswith(expected_prefix),
-            f"#3463 home guard: NODE_OPTIONS --require should target $HOME/.claude/cmux, "
+            f"#3463 home guard: NODE_OPTIONS --require should target $HOME/.cmux, "
             f"expected prefix {expected_prefix!r}, got {require_flag!r} (full NODE_OPTIONS={node_options!r})",
             failures,
         )

@@ -450,7 +450,7 @@ def main() -> int:
             f"got {node_options_value!r}"
         )
         return 1
-    if "/.claude/cmux/cmux-claude-node-options/" not in require_flag:
+    if "/.cmux/claude-node-options/" not in require_flag:
         print(f"FAIL: expected restore preload under HOME, got {require_flag!r}")
         return 1
 
