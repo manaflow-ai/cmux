@@ -156,19 +156,22 @@ export async function reconcileFreestyleEgress(
   const tlsToCreate = plan.domains.filter((domain) => !existingDomains.has(domain));
   const tlsToDelete = managedTls.filter((rule) => !wantedDomains.has(rule.domain));
 
-  for (const destination of firewallToCreate) {
-    await fs.firewall.rules.create({
+  // Each rule call is a ~0.5 s round trip; serial calls made a policy change
+  // take 5-11 s. All grants go out together, then all removals, so the
+  // create-before-delete guarantee holds for the batch as a whole.
+  await inBatches([
+    ...firewallToCreate.map((destination) => () => fs.firewall.rules.create({
       action: "allow",
       source: { vmId },
       destination: { ...destination },
       description: EGRESS_RULE_DESCRIPTION,
-    });
-  }
-  for (const domain of tlsToCreate) {
-    await fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } });
-  }
-  for (const rule of firewallToDelete) await deleteIgnoringMissing(() => fs.firewall.rules.delete(rule.id));
-  for (const rule of tlsToDelete) await deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id));
+    })),
+    ...tlsToCreate.map((domain) => () => fs.tls.rules.create({ action: "allow", domain, source: { vmId }, destination: { public: true } })),
+  ]);
+  await inBatches([
+    ...firewallToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.firewall.rules.delete(rule.id))),
+    ...tlsToDelete.map((rule) => () => deleteIgnoringMissing(() => fs.tls.rules.delete(rule.id))),
+  ]);
 
   return {
     firewallCreated: firewallToCreate.length,
@@ -176,6 +179,15 @@ export async function reconcileFreestyleEgress(
     tlsCreated: tlsToCreate.length,
     tlsDeleted: tlsToDelete.length,
   };
+}
+
+/** Run calls with bounded concurrency; the first failure rejects after in-flight calls settle. */
+async function inBatches(calls: ReadonlyArray<() => Promise<unknown>>, concurrency = 8): Promise<void> {
+  for (let start = 0; start < calls.length; start += concurrency) {
+    const results = await Promise.allSettled(calls.slice(start, start + concurrency).map((call) => call()));
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
+  }
 }
 
 async function deleteIgnoringMissing(remove: () => Promise<void>): Promise<void> {
