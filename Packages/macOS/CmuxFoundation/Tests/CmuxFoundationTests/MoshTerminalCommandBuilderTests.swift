@@ -174,6 +174,24 @@ struct MoshTerminalCommandBuilderTests {
         }
     }
 
+    @Test("launches a large Mosh preparation through the terminal boundary")
+    func largePreparationLaunchesWithoutE2BIG() throws {
+        let largePreparation = ": # " + String(repeating: "bootstrap", count: 120_000)
+        let command = builder(preparationShellScript: largePreparation).command()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ["PATH": "/usr/bin:/bin"]
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            #expect(process.terminationStatus == 0)
+        } catch {
+            Issue.record("launching the generated Mosh command failed: \(error)")
+        }
+    }
+
     @Test("keeps a large SSH fallback within the local launcher argument budget")
     func largeFallbackIsEmbeddedOnce() throws {
         try withFakeCommands(sshStatus: 0, installMosh: false) { _, environment in
