@@ -6453,15 +6453,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         realizeWindowLayout(window)
 
         store.bonsplitController.noteDividerDragSession(true)
-        func describe(_ w: NSWindow?) -> String {
-            w.map { "\(type(of: $0))#\($0.windowNumber)" } ?? "nil"
-        }
         XCTAssertTrue(
             TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
             "Dock split drags should enter the same window-scoped terminal resize transaction"
-                + " [test=\(describe(window)) currentEvent=\(NSApp.currentEvent.map { "\($0.type.rawValue)" } ?? "nil")"
-                + " eventWindow=\(describe(NSApp.currentEvent?.window)) hosted=\(describe(panel.hostedView.window))"
-                + " key=\(describe(NSApp.keyWindow)) main=\(describe(NSApp.mainWindow))]"
         )
         store.bonsplitController.noteDividerDragSession(false)
         XCTAssertFalse(
