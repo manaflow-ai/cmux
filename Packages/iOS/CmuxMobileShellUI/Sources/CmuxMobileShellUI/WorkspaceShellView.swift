@@ -203,6 +203,8 @@ private struct WorkspaceShellRenderPresentation {
 struct WorkspaceShellView: View {
     #if os(iOS) && DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    /// The Cloud tab's content, supplied by the composition root.
+    @Environment(\.mobileCloudTabContent) private var cloudTabContent
     #endif
     @Bindable var store: CMUXMobileShellStore
     let signOut: @MainActor @Sendable () -> Void
@@ -279,6 +281,9 @@ struct WorkspaceShellView: View {
     @State var workspaceActionToast: WorkspaceActionToastContent?
     var workspaceActionToastClock: any Clock<Duration> = ContinuousClock()
     @Environment(ToastCenter.self) var toasts
+    #if os(iOS)
+    @Environment(\.cloudSessionController) private var cloudSessionController
+    #endif
     @State private var pendingMacSwitchID: String?
     @State private var pendingMacSwitchGeneration: UInt64 = 0
     #if os(iOS)
@@ -331,20 +336,8 @@ struct WorkspaceShellView: View {
         )
         #if os(iOS)
         GeometryReader { geometry in
-            Group {
-                if usesCompactStack {
-                    compactScaffold(presentation: presentation)
-                } else {
-                    // Regular-width (iPad): the NavigationSplitView is the one
-                    // navigation hierarchy. Wrapping it in the TabView renders
-                    // the iOS 26 floating tab strip on top of the split
-                    // columns' own toolbars; destinations move into the
-                    // sidebar's bottom bar instead.
-                    workspaceTabContent(
-                        presentation: presentation
-                    )
-                }
-            }
+            primaryScaffold(presentation: presentation)
+            .cloudSessionLifetime()
             .background {
                 NotificationFeedSearchProjectionSync(
                     searchCoordinator: primarySearchCoordinator,
@@ -419,9 +412,9 @@ struct WorkspaceShellView: View {
     }
 
     #if os(iOS)
-    /// The compact (iPhone-style) shell: the primary destinations live in the
-    /// system TabView with the transient search tab.
-    private func compactScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
+    /// Primary destinations retain their own navigation across tab switches.
+    /// Workspace tabs keep split navigation at regular widths.
+    private func primaryScaffold(presentation: WorkspaceShellRenderPresentation) -> some View {
         MobilePrimaryTabScaffold(
             selection: $selectedPrimaryTab,
             searchCoordinator: primarySearchCoordinator,
@@ -434,6 +427,9 @@ struct WorkspaceShellView: View {
                 presentation: presentation
             )
         } notifications: {
+            if !usesCompactStack {
+                workspaceTabContent(presentation: presentation)
+            } else {
             NavigationStack(path: $notificationNavigationPath) {
                 NotificationFeedStoreView(
                     store: store,
@@ -466,10 +462,15 @@ struct WorkspaceShellView: View {
             .onChange(of: pendingPrimarySearchNotificationNavigationID) { _, _ in
                 consumePendingPrimarySearchNavigation(for: .notifications)
             }
+            }
+        } cloud: {
+            // Supplied by the composition root; the shell owns no Cloud code.
+            cloudTabContent?.makeView()
         } search: {
             primarySearchTabContent(presentation: presentation)
         }
     }
+
     #endif
 
     #if os(iOS)
@@ -942,15 +943,12 @@ struct WorkspaceShellView: View {
     #endif
 
     #if os(iOS)
-    /// The split (iPad) sidebar column: one destination surface switched by
-    /// the bottom-bar control, the shared root toolbar on top, and the native
-    /// search field scoped to the visible destination. There is no TabView in
-    /// this hierarchy, so no floating tab strip can overlap the column
-    /// toolbars.
+    /// The workspace tab's split sidebar. Top-level destination navigation is
+    /// provided by the system tab bar; this sidebar owns workspace search and
+    /// the Mac picker.
     private func splitSidebar(presentation: WorkspaceShellRenderPresentation) -> some View {
         let selectedMacDeviceIDs = presentation.selectedNotificationFeedMacDeviceIDs
         let notificationItems = presentation.notificationFeedItems
-        let unreadCount = presentation.notificationUnreadCount
         return Group {
             switch splitSidebarDestination {
             case .notifications:
@@ -961,7 +959,7 @@ struct WorkspaceShellView: View {
                     projection: notificationFeedProjection,
                     selectedMacDeviceIDs: selectedMacDeviceIDs
                 )
-            case .workspaces, .search:
+            case .workspaces, .cloud, .search:
                 workspaceList(
                     navigationStyle: .sidebar,
                     searchText: primarySearchCoordinator.searchDestinationText(for: .workspaces),
@@ -984,9 +982,6 @@ struct WorkspaceShellView: View {
         }
         .toolbar {
             rootToolbarContent
-        }
-        .toolbar {
-            splitSidebarBottomBar(unreadCount: unreadCount)
         }
         // Keep NavigationSplitView's synthesized control out of the toolbar.
         // The shared custom action is owned by this sidebar while open and by
@@ -1372,6 +1367,9 @@ struct WorkspaceShellView: View {
             names[mac.macDeviceID] = mac.resolvedName
             names[mac.id] = mac.resolvedName
         }
+        for machine in cloudSessionController?.visibleMachines ?? [] {
+            names[cloudPickerID(for: machine.id)] = machine.preferredName
+        }
         if let buildScope = MobileIOSBuildScope.current() {
             names = names.mapValues(buildScope.computerDisplayName)
         }
@@ -1380,10 +1378,12 @@ struct WorkspaceShellView: View {
             workspaces: store.workspaces,
             existing: store.pairedMacBuildLabelsByEntryID()
         )
+        var pickerMachineIDs = scope.machineIDs
+        pickerMachineIDs.formUnion((cloudSessionController?.visibleMachines ?? []).map { cloudPickerID(for: $0.id) })
         let toolbarMachineSnapshots = WorkspaceMachineSnapshots(
             workspaces: store.workspaces,
             filterMachineIDFor: { scope.aliasIndex.representativeID(for: $0) },
-            macPickerMachineIDs: scope.machineIDs,
+            macPickerMachineIDs: pickerMachineIDs,
             namesByID: names,
             buildLabelsByID: buildLabelsByID,
             fallbackName: L10n.string("mobile.workspaces.macPicker.connectionLabel", defaultValue: "Computer")
@@ -1539,6 +1539,8 @@ struct WorkspaceShellView: View {
             if notificationNavigationPath.last != workspaceID {
                 notificationNavigationPath = [workspaceID]
             }
+        case .cloud:
+            break
         case .search:
             break
         }
@@ -1551,7 +1553,7 @@ struct WorkspaceShellView: View {
     ) -> Bool {
         let previousTab = selectedPrimaryTab
         if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
+           tab != .search {
             primarySearchCoordinator.deactivateCurrentSearch()
         }
         beforeSelection()
@@ -1609,6 +1611,7 @@ struct WorkspaceShellView: View {
         switch tab {
         case .workspaces: .workspaces
         case .notifications: .notifications
+        case .cloud: .cloud
         case .search: .search
         }
     }
@@ -1723,10 +1726,15 @@ struct WorkspaceShellView: View {
             notificationFeedItems: store.notificationFeedItems,
             foregroundMacDeviceID: store.connectedMacDeviceID ?? store.activeTicket?.macDeviceID,
             foregroundInstanceTag: store.connectedMacInstanceTag,
+            additionalMachineIDs: Set((cloudSessionController?.visibleMachines ?? []).map { cloudPickerID(for: $0.id) }),
             aliasesFor: {
                 store.pairedMacAliasIDs(for: $0, instanceTag: $1)
             }
         )
+    }
+
+    private func cloudPickerID(for machineID: String) -> String {
+        "cloud:\(machineID)"
     }
 
     private func autoOpenSelectedWorkspaceForSoakIfNeeded() {

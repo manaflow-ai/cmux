@@ -390,6 +390,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// (``MobileWorkspaceAggregation``), never assigned directly, so a stale or
     /// half-merged aggregate is unrepresentable. Transport-agnostic: fed by N
     /// direct phone->Mac connections today, one phone->Durable Object stream later.
+    /// Non-Mac hosts contributing workspaces and serving terminals through the
+    /// same store paths (``MobileExternalHostSource``), keyed by instance so a
+    /// source can be registered and torn down without a name.
+    var externalHostSources: [ObjectIdentifier: any MobileExternalHostSource] = [:]
     var workspacesByMac: [MacPairingKey: MacWorkspaceState] = [:] {
         didSet {
             recomputeDerivedWorkspaceState()
@@ -9006,8 +9010,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             count: text.utf8.count
         )
         terminalInputText = ""
-        let selectedTerminalIsDemonstration = terminalID.map(demonstrationOwnsSurface) ?? false
-        guard remoteClient != nil || selectedTerminalIsDemonstration else {
+        // A locally served terminal (demonstration content, or an external
+        // host reached over its own link) has no Mac RPC client, so the
+        // offline guard below must not drop its input.
+        let selectedTerminalIsLocallyServed = terminalID.map {
+            demonstrationOwnsSurface($0) || externalHostOwnsSurface($0)
+        } ?? false
+        guard remoteClient != nil || selectedTerminalIsLocallyServed else {
             recordAppEvent(
                 .terminalInputDropped,
                 correlationID: terminalID,
@@ -9575,7 +9584,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // client; without this the composer fails its connection gate before
         // reaching the demo paste fence and shows the send-failure banner.
         guard remoteClient != nil
-            || demonstrationOwnsSurface(terminalID.rawValue) else { return false }
+            || demonstrationOwnsSurface(terminalID.rawValue)
+            || externalHostOwnsSurface(terminalID.rawValue) else { return false }
         // Reject a re-entrant send (e.g. a double tap on Send) so the same text
         // is not pasted twice. The flag is set/cleared on the main actor around
         // the await, so no second call can slip past it.
@@ -9847,6 +9857,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue) {
             return
         }
+        // An external host's terminal answers over its own link, for the same
+        // reason: the send-status pipeline models a Mac RPC round trip.
+        if let terminalID = selectedTerminalID,
+           handleExternalHostTerminalInput(text, surfaceID: terminalID.rawValue) {
+            return
+        }
         // The explicit selection id, not `selectedWorkspace`: its first-row
         // fallback would pair a foreign workspace id with the held terminal
         // id when the selected row is transiently absent mid-reconnect.
@@ -9886,6 +9902,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // delegate), not through the awaiting funnel: demonstration surfaces
         // answer from the local engine, outside the send-status pipeline.
         if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) {
+            return
+        }
+        if handleExternalHostTerminalInput(text, surfaceID: surfaceID) {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
@@ -9977,6 +9996,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // foreground pairing, which the demo Mac never is, so without this
         // branch demo keystrokes would silently drop.
         if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) {
+            return
+        }
+        // An external host is never the foreground pairing either, so its
+        // keystrokes would drop in the same way.
+        if handleExternalHostTerminalInput(text, surfaceID: surfaceID) {
             return
         }
         guard let workspaceID = workspaceID(forTerminalID: surfaceID) else { return }
@@ -13370,6 +13394,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 surfaceID: terminalID.rawValue
             )
         }
+        // An external host's terminal takes the same composed block over its
+        // own link; its daemon owns the pseudo-terminal, so a paste is just
+        // input bytes followed by the submit key.
+        if externalHostOwnsSurface(terminalID.rawValue) {
+            var pasted = text
+            if submitKey == "return" {
+                pasted += "\r"
+            }
+            return handleExternalHostTerminalInput(
+                pasted,
+                surfaceID: terminalID.rawValue
+            )
+        }
         guard let client = remoteClient else {
             #if DEBUG
             mobileShellLog.info("skip remote terminal paste remoteClient=0")
@@ -15172,6 +15209,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 reason: "demo_content"
             )
             deliverDemonstrationTerminalReplay(surfaceID: surfaceID)
+            return
+        }
+        // An external host (a Cloud machine) repaints from its own snapshot
+        // for the same reason, and releases the barrier so its output is
+        // never gated on a Mac that does not know this surface.
+        if externalHostOwnsSurface(surfaceID) {
+            clearTerminalReplayBarrierIfCurrent(
+                surfaceID: surfaceID,
+                token: replayBarrierTokenForRequest,
+                reason: "external_host"
+            )
+            handleExternalHostReplayRequest(surfaceID: surfaceID)
             return
         }
         if replayBarrierToken == nil, terminalViewportReplayBarrierPendingAckTokensBySurfaceID[surfaceID] != nil {

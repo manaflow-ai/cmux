@@ -45,6 +45,9 @@ extension MobileShellComposite {
         if demonstrationOwnsSurface(terminalID.rawValue) {
             return handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue)
         }
+        if handleExternalHostTerminalInput(text, surfaceID: terminalID.rawValue) {
+            return true
+        }
         let target = workspaceMutationTarget(for: workspaceID)
         guard let client = target.client else { return false }
         let tracksInputSequence = supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)

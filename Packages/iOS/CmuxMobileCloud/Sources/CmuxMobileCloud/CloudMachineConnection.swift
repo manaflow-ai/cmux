@@ -126,6 +126,23 @@ public final class CloudMachineConnection {
         return CloudTerminalAttachment(session: session, terminalID: terminalID)
     }
 
+    /// Reads the daemon's workspaces and terminals in one pass, connecting
+    /// first if needed.
+    ///
+    /// The observable ``terminals``/``workspaces`` properties drive the Cloud
+    /// tab's own screens; this returns the same catalog directly, for a caller
+    /// that publishes it somewhere else and needs the failure rather than a
+    /// rendered error state.
+    public func loadCatalog() async throws -> (
+        workspaces: [CloudWorkspaceSummary],
+        terminals: [CloudTerminalSummary]
+    ) {
+        let session = try await connectedSession()
+        async let workspaceRows = session.listWorkspaces()
+        async let terminalRows = session.listTerminals()
+        return try await (workspaceRows, terminalRows)
+    }
+
     /// Close the link.
     public func close() {
         closed = true
