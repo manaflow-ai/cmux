@@ -1,4 +1,6 @@
 import AppKit
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
     /// Mouse, keyboard and status-button activation share the machine's current plan gate.

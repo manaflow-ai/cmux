@@ -1,4 +1,5 @@
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CloudTreeNodeBuilder {

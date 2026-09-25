@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 import SwiftUI
 
 /// Owns one reusable setup window and observes VPN state only while it is open.

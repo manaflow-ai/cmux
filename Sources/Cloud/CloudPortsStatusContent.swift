@@ -1,5 +1,7 @@
 import AppKit
+import CmuxCloud
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 
 /// Native, wrapping Ports guidance hosted above the outline's passthrough SwiftUI row.
 @MainActor

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import CmuxCloud
 
 /// Projects the existing tunnel coordinator. Reading help never activates it.
 @MainActor

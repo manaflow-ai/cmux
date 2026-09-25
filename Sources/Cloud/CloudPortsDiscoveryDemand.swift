@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSurfaceCatalogModel
 
 /// Starts a scan only for an expanded, visible Ports group, including restored/default expansion.
 @MainActor
