@@ -5114,6 +5114,98 @@ def test_an_app_host_consumer_edit_runs_a_canary_after_the_compile() -> None:
         f"${{{{ !({dropped}) && steps.suite.outputs.unit_selectors || '' }}}}", changes["outputs"]["unit_selectors"]
 
 
+def test_a_shard_layout_edit_runs_every_app_host_unit_shard() -> None:
+    """A new shard layout puts suites in a new order, and only running all of it shows that.
+
+    #14393 rebalanced the shards from measured timings, took the one-suite
+    consumer canary, and merged; main then failed four suites that only fail
+    in the new order (run 36101756298).
+    """
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+    from choose_ci_suite import SHARD_LAYOUT_PATHS, shard_layout_changed
+
+    workflow_path = ".github/workflows/ci-macos.yml"
+    lines = MACOS_WORKFLOW.read_text(encoding="utf-8").splitlines()
+    job_start = lines.index("  app-host-unit-tests:") + 1
+
+    def line_of(prefix: str) -> int:
+        return next(number for number, text in enumerate(lines[job_start:], start=job_start + 1)
+                    if text.startswith(prefix))
+
+    def hunk(line: int, count: int = 1) -> str:
+        return f"--- a/{workflow_path}\n+++ b/{workflow_path}\n@@ -{line},{count} +{line},{count} @@\n"
+
+    for path in SHARD_LAYOUT_PATHS[1:]:
+        assert (ROOT / path).is_file(), path
+        assert shard_layout_changed(ROOT, [path], None), path
+    # The generator runs in no CI job; its layout change arrives as the JSON.
+    assert "scripts/ci/generate_test_timings.py" not in SHARD_LAYOUT_PATHS
+    # Other consumer scripts keep the canary.
+    assert not shard_layout_changed(ROOT, ["scripts/ci/app_host_test_products.py"], None)
+    assert not shard_layout_changed(ROOT, ["Sources/Workspace.swift"], None)
+    assert not shard_layout_changed(ROOT, None, None)
+    # The shards' matrix, and the env that places strict steps and reserves
+    # their time on a worker, are the layout.
+    for prefix in ('          {"shard": 3},', "    strategy:", "      CMUX_APP_HOST_RESERVED_WALL_SECONDS:",
+                   "      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD:", "      CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD:"):
+        assert shard_layout_changed(ROOT, [workflow_path], hunk(line_of(prefix))), prefix
+    # The rest of the job, and other jobs, are not.
+    for prefix in ("      CMUX_UNIT_TEST_TIMEOUT_SECONDS:", "    timeout-minutes:", "    runs-on:"):
+        assert not shard_layout_changed(ROOT, [workflow_path], hunk(line_of(prefix))), prefix
+    compile_line = lines.index("  macos-compile-admission:") + 2
+    assert not shard_layout_changed(ROOT, [workflow_path], hunk(compile_line))
+    # An edit nothing can place counts.
+    assert shard_layout_changed(ROOT, [workflow_path], None)
+    # A shard setting deleted or renamed to another key counts, although the
+    # new-side line it leaves behind is not a layout line.
+    timeout_line = line_of("      CMUX_UNIT_TEST_TIMEOUT_SECONDS:")
+    for removed in ('      CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "3"', '          {"shard": 7},'):
+        renamed = (f"--- a/{workflow_path}\n+++ b/{workflow_path}\n@@ -{timeout_line},1 +{timeout_line},1 @@\n"
+                   f"-{removed}\n+      CMUX_APP_HOST_RENAMED: \"3\"\n")
+        assert shard_layout_changed(ROOT, [workflow_path], renamed), removed
+    unrelated = (f"--- a/{workflow_path}\n+++ b/{workflow_path}\n@@ -{timeout_line},1 +{timeout_line},1 @@\n"
+                 "-      CMUX_UNIT_TEST_TIMEOUT_SECONDS: \"1\"\n+      CMUX_UNIT_TEST_TIMEOUT_SECONDS: \"2\"\n")
+    assert not shard_layout_changed(ROOT, [workflow_path], unrelated)
+
+    script = ROOT / "scripts/ci/choose_ci_suite.py"
+    with tempfile.TemporaryDirectory() as directory:
+        changed = Path(directory) / "changed.txt"
+        labels = Path(directory) / "labels.txt"
+        diff = Path(directory) / "tests.diff"
+
+        def outputs(paths: list[str], hunks: str = "", label: str = "") -> dict[str, str]:
+            changed.write_text("".join(f"{path}\n" for path in paths))
+            labels.write_text(label)
+            diff.write_text(hunks)
+            run = subprocess.run(
+                [sys.executable, str(script), "--event-name", "pull_request",
+                 "--pull-request-policy", "compile-only", "--labels-file", str(labels),
+                 "--files-from", str(changed), "--diff-from", str(diff), "--root", str(ROOT)],
+                capture_output=True, text=True, check=True,
+            )
+            return dict(line.split("=", 1) for line in run.stdout.splitlines())
+
+        every_shard = {"full_suite": "false", "unit_suite": "true", "unit_selectors": "",
+                       "unit_strict_steps": "", "unit_canary": "false", "unit_in_admission": "false"}
+        # #14393's files, with and without the workflow hunk.
+        rebalance = ["scripts/ci/cmux-unit-test-timings.json", "scripts/ci/cmux_unit_test_shard.py",
+                     "scripts/ci/generate_test_timings.py", "scripts/ci/run-app-host-unit-batches.sh"]
+        reserved = hunk(line_of("      CMUX_APP_HOST_RESERVED_WALL_SECONDS:"))
+        for paths, hunks in (
+            (rebalance, ""),
+            (rebalance + [workflow_path], reserved),
+            ([workflow_path], reserved),
+            (["scripts/ci/cmux-unit-test-timings.json"], ""),
+            # An edited suite does not narrow a layout change to that suite.
+            (["scripts/ci/cmux-unit-test-timings.json", "cmuxTests/TerminalTabIconRegressionTests.swift"], ""),
+        ):
+            result = outputs(paths, hunks)
+            assert {key: result[key] for key in every_shard} == every_shard, (paths, result)
+        # A consumer hunk elsewhere in the job keeps the one-suite canary.
+        other = outputs([workflow_path], hunk(line_of("      CMUX_UNIT_TEST_TIMEOUT_SECONDS:")))
+        assert (other["unit_selectors"], other["unit_canary"]) == ("cmuxTests/CmuxSSHURLRequestTests", "true"), other
+
+
 def test_the_unit_tier_closes_only_the_gap_its_job_can_judge() -> None:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
     from choose_ci_suite import coverage_gap
