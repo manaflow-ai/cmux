@@ -223,6 +223,34 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
+    @Test func surfaceCommandsRejectAmbientTargetsWithoutExplicitWorkspaceOrSurface() throws {
+        let cases: [[String]] = [
+            ["send", "hello"],
+            ["send-key", "enter"],
+            ["read-screen"],
+            ["read-screen", "--selection"],
+        ]
+
+        for (index, arguments) in cases.enumerated() {
+            let socketPath = Self.makeSocketPath("missing-target-\(index)")
+            defer { unlink(socketPath) }
+
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: ["--socket", socketPath] + arguments,
+                environment: cliEnvironment(socketPath: socketPath),
+                timeout: Self.processTimeout
+            )
+
+            #expect(!result.timedOut, Comment(rawValue: result.stderr + result.stdout))
+            #expect(result.status == 2, Comment(rawValue: result.stderr + result.stdout))
+            #expect(
+                (result.stderr + result.stdout).contains("requires --workspace or --surface"),
+                Comment(rawValue: result.stderr + result.stdout)
+            )
+        }
+    }
+
     private func assertRefusedTerminalCommand(
         arguments: [String],
         expectedMethod: String
