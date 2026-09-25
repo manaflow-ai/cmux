@@ -821,6 +821,30 @@ final class WindowTerminalPortal: NSObject {
     let hostView = WindowTerminalHostView(frame: .zero)
     let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private let paneSwapOverlayView = PaneSwapSelectionOverlayView(frame: .zero)
+
+    func ensureDividerOverlayOnTop() {
+        if dividerOverlayView.superview !== hostView {
+            dividerOverlayView.frame = hostView.bounds
+            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
+        }
+        if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
+            dividerOverlayView.frame = hostView.bounds
+        }
+        dividerOverlayView.needsDisplay = true
+
+        if paneSwapOverlayView.superview !== hostView {
+            paneSwapOverlayView.frame = hostView.bounds
+            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: dividerOverlayView)
+        } else if hostView.subviews.last !== paneSwapOverlayView {
+            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: nil)
+        }
+        if !Self.rectApproximatelyEqual(paneSwapOverlayView.frame, hostView.bounds) {
+            paneSwapOverlayView.frame = hostView.bounds
+        }
+        paneSwapOverlayView.needsDisplay = true
+        refreshPortalZOrder()
+    }
+
     private let chromeComposition = AppWindowChromeComposition()
     private var paneSwapSelectionObservers: [NSObjectProtocol] = []
     private var paneSwapSourceWorkspaceID: UUID?

@@ -10,29 +10,6 @@ extension WindowTerminalPortal {
         }
     }
 
-    func ensureDividerOverlayOnTop() {
-        if dividerOverlayView.superview !== hostView {
-            dividerOverlayView.frame = hostView.bounds
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-        }
-        if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
-            dividerOverlayView.frame = hostView.bounds
-        }
-        dividerOverlayView.needsDisplay = true
-
-        if paneSwapOverlayView.superview !== hostView {
-            paneSwapOverlayView.frame = hostView.bounds
-            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: dividerOverlayView)
-        } else if hostView.subviews.last !== paneSwapOverlayView {
-            hostView.addSubview(paneSwapOverlayView, positioned: .above, relativeTo: nil)
-        }
-        if !Self.rectApproximatelyEqual(paneSwapOverlayView.frame, hostView.bounds) {
-            paneSwapOverlayView.frame = hostView.bounds
-        }
-        paneSwapOverlayView.needsDisplay = true
-        refreshPortalZOrder()
-    }
-
     func portalZPriority(of view: NSView) -> Int {
         if view === dividerOverlayView { return Self.raisedPortalPriority - 1 }
         for entry in entriesByHostedId.values where entry.hostedView === view {
