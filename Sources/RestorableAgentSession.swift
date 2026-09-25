@@ -1010,6 +1010,7 @@ struct RestorableAgentSessionIndex: Sendable {
     private let hasUnboundedCodexIncompleteness: Bool
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]]
+    private let boundedAmbiguousStableSurfaceIds: Set<UUID>
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
     private let equalRankAmbiguousPanelIds: Set<UUID>
@@ -1043,6 +1044,9 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     func hasAmbiguousPanel(_ panelId: UUID, stableSurfaceId: UUID? = nil) -> Bool {
+        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
+            return true
+        }
         if let stableSurfaceId, let candidates = candidatesByStableSurfaceId[stableSurfaceId] {
             return candidates.count > 1
         }
@@ -1152,6 +1156,9 @@ struct RestorableAgentSessionIndex: Sendable {
         if stableSurfaceId == nil && boundedAmbiguousPanelIds.contains(panelId) {
             return true
         }
+        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
+            return true
+        }
         let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
             ?? candidatesByPanelId[panelId]
             ?? []
@@ -1183,6 +1190,9 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Bool {
+        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
+            return true
+        }
         let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
             ?? candidatesByPanelId[panelId]
             ?? []
@@ -1228,6 +1238,9 @@ struct RestorableAgentSessionIndex: Sendable {
         },
         revalidateProcessEvidence: Bool = true
     ) -> Bool {
+        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
+            return true
+        }
         let candidates = stableSurfaceId.flatMap { candidatesByStableSurfaceId[$0] }
             ?? candidatesByPanelId[panelId]
             ?? []
@@ -1348,6 +1361,9 @@ struct RestorableAgentSessionIndex: Sendable {
             ?? candidatesByPanelId[panelId]
             ?? []
         guard !candidates.isEmpty else { return nil }
+        if let stableSurfaceId, boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) {
+            return nil
+        }
         guard stableSurfaceId != nil || !boundedAmbiguousPanelIds.contains(panelId) else { return nil }
 
         let candidatesWithEvidence = candidates.map { key, entry in
@@ -3552,7 +3568,24 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
         self.candidatesByPanelId = candidatesByPanelId
-        self.candidatesByStableSurfaceId = [:]
+        var candidatesByStableSurfaceId: [UUID: [(PanelKey, Entry)]] = [:]
+        var boundedAmbiguousStableSurfaceIds: Set<UUID> = []
+        for (key, entry) in entriesByPanel {
+            guard let stableSurfaceId = entry.stableSurfaceId,
+                  !boundedAmbiguousStableSurfaceIds.contains(stableSurfaceId) else {
+                continue
+            }
+            var candidates = candidatesByStableSurfaceId[stableSurfaceId, default: []]
+            if candidates.count == Self.maximumStablePanelCandidates {
+                boundedAmbiguousStableSurfaceIds.insert(stableSurfaceId)
+                candidatesByStableSurfaceId.removeValue(forKey: stableSurfaceId)
+                continue
+            }
+            candidates.append((key, entry))
+            candidatesByStableSurfaceId[stableSurfaceId] = candidates
+        }
+        self.candidatesByStableSurfaceId = candidatesByStableSurfaceId
+        self.boundedAmbiguousStableSurfaceIds = boundedAmbiguousStableSurfaceIds
         self.entriesByPanelId = entriesByPanelId
         self.ambiguousPanelIds = ambiguousPanelIds
         self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds
