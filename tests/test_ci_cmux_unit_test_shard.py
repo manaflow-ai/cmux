@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
-CI_PHYSICAL_SHARD_TOTAL = 6
+CI_PHYSICAL_SHARD_TOTAL = 7
 CI_LOGICAL_BATCHES_PER_WORKER = 2
 CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
@@ -444,11 +444,12 @@ def check_reserved_workers_get_less_of_the_batch() -> int:
             encoding="utf-8",
         )
 
-        # Two workers, two logical shards each. Worker 1 carries 40 s of wall
-        # time outside the batch, worth 100 s of the 240 s batch.
+        # Two workers, two logical shards each. Worker 1 carries 100 s of wall
+        # time outside the batch. A batch runs its tests one at a time, so
+        # that is worth 100 s of the 240 s batch.
         assigned: dict[int, list[str]] = {}
         for shard in range(1, 5):
-            result = run_reserved_shard(tmp_root, shard, 4, 2, ["1=40"], manifest)
+            result = run_reserved_shard(tmp_root, shard, 4, 2, ["1=100"], manifest)
             if result.returncode != 0:
                 print(result.stdout + result.stderr)
                 return 1
@@ -499,8 +500,14 @@ def focused_steps_in_ci_workflow() -> tuple[set[str], set[str], dict[str, str]]:
         body = "\n".join(line for line in step.splitlines() if not line.strip().startswith("#"))
         for selector in re.finditer(r'-only-testing:"?cmuxTests/([A-Za-z0-9_]+)(/[A-Za-z0-9_]+)?', body):
             (partial if selector.group(2) else whole).add(selector.group(1))
-        for loop in re.finditer(r"(?s)for suite in(.*?)(?:;|\n\s*do\b)", body):
-            whole |= {word for word in re.findall(r"[A-Za-z0-9_]+", loop.group(1)) if word[0].isupper()}
+        for loop in re.finditer(r"(?s)for (?:suite|selector) in(.*?)(?:;|\n\s*do\b)", body):
+            for token in re.findall(r"[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)?", loop.group(1)):
+                if not token or not token[0].isupper():
+                    continue
+                if "/" in token:
+                    partial.add(token.split("/", 1)[0])
+                else:
+                    whole.add(token)
     env = dict(re.findall(r'(?m)^      (CMUX_APP_HOST_[A-Z_]+): "([^"]*)"$', job))
     return whole, partial, env
 
@@ -620,8 +627,8 @@ def check_folded_fish_suite_keeps_prerequisite() -> int:
     return 0
 
 
-def check_global_search_has_dedicated_consumer() -> int:
-    """Global search must run beside, never ahead of, the six broad workers."""
+def check_global_search_worker_runs_broad_batches() -> int:
+    """Global search keeps worker 7, which also packs its share of the broad batches."""
     import re
 
     workflow = (ROOT / ".github" / "workflows" / "ci-macos.yml").read_text(encoding="utf-8")
@@ -670,15 +677,17 @@ def check_global_search_has_dedicated_consumer() -> int:
     if "matrix.shard == fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD)" not in global_step:
         print("FAIL: global search step is not pinned to its dedicated consumer")
         return 1
-    if "matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD)" not in broad_step:
-        print("FAIL: dedicated global-search consumer can still enter broad batches")
+    # Global search takes about 90 seconds. A worker that ran only that sat
+    # idle while the other six ran five to ten minutes of batches.
+    if not broad_step or "if:" in broad_step.split("run:", 1)[0]:
+        print("FAIL: every numbered consumer must run its broad batches")
         return 1
 
     physical, _ = production_shard_constants()
-    if physical != 6:
-        print(f"FAIL: dedicated consumer must not change six-worker broad topology, got {physical}")
+    if physical != len(rows):
+        print(f"FAIL: broad batches must be packed over all {len(rows)} consumers, got {physical}")
         return 1
-    print("PASS: global search has a seventh consumer and the broad topology stays six workers")
+    print("PASS: global search keeps consumer 7 and every consumer packs broad batches")
     return 0
 
 
@@ -717,13 +726,118 @@ def check_focused_gates_run_once() -> int:
             "CMUX_APP_HOST_CLI_REGRESSION_SHARD",
             "CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD",
             "CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD",
+            "CMUX_APP_HOST_GLOBAL_SEARCH_SHARD",
         )
     }
     reserved = {value.split("=")[0] for value in env.get("CMUX_APP_HOST_RESERVED_WALL_SECONDS", "").split()}
-    if None in groups or len(groups) != 3 or groups != reserved:
+    if None in groups or len(groups) != 4 or groups != reserved:
         print(f"FAIL: shared strict groups run on shards {sorted(map(str, groups))} but wall time is reserved on {sorted(reserved)}")
         return 1
     print("PASS: strict suites run once, exist, and every worker that runs them has wall time reserved")
+    return 0
+
+
+def check_repo_plan_is_balanced() -> int:
+    """The production plan must give every worker about the same measured work.
+
+    Each worker's load is its reserved strict-step wall time plus the measured
+    weight of its batches. A regression here means a suite outgrew its share of
+    a batch, a reservation no longer matches the worker count, or the batches
+    and reservations stopped being measured in the same unit.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("cmux_unit_test_shard_balance", HELPER)
+    assert spec is not None and spec.loader is not None
+    helper = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = helper
+    spec.loader.exec_module(helper)
+
+    physical, batches = production_shard_constants()
+    total = physical * batches
+    _, _, env = focused_steps_in_ci_workflow()
+    reserved = helper.parse_reservations(
+        env.get("CMUX_APP_HOST_RESERVED_WALL_SECONDS", "").split(), physical
+    )
+    selectors, _ = helper.reweight_selectors(
+        helper.discover_selectors(ROOT), helper.load_timings(helper.DEFAULT_TIMINGS_PATH)
+    )
+    initial = helper.initial_bucket_weights(total, physical, reserved)
+    loads = [reserved.get(worker, 0) * 1000 for worker in range(1, physical + 1)]
+    for logical in range(1, total + 1):
+        batch = helper.shard_selectors(selectors, logical, total, initial)
+        loads[(logical - 1) % physical] += sum(selector.weight for selector in batch)
+    mean = sum(loads) / len(loads)
+    if max(loads) > mean * 1.1:
+        seconds = ", ".join(f"{index}={load / 1000:.0f}s" for index, load in enumerate(loads, 1))
+        print(f"FAIL: predicted worker load is more than 10% over the mean {mean / 1000:.0f}s: {seconds}")
+        return 1
+    print(f"PASS: predicted worker loads stay within 10% of the mean {mean / 1000:.0f}s")
+    return 0
+
+
+def check_generated_timings_map_display_names_and_take_medians() -> int:
+    """The generator measures display-named suites and takes the median run."""
+    import json
+
+    generator = ROOT / "scripts" / "ci" / "generate_test_timings.py"
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        test_root = root / "cmuxTests"
+        test_root.mkdir()
+        (test_root / "Fixture.swift").write_text(
+            """@Suite("Display name", .serialized)
+@MainActor
+struct DisplayTests {
+    @Test func first() {}
+}
+struct SplitTests {
+    @Test func first() {}
+}
+final class LegacyTests: XCTestCase {
+    func testOne() {}
+    func testTwo() {}
+}
+""",
+            encoding="utf-8",
+        )
+        runs = []
+        for run_id, scale in (("101", 1), ("102", 2), ("103", 10)):
+            run_dir = root / run_id
+            run_dir.mkdir()
+            (run_dir / "shard-1.log").write_text(
+                f"""2026-09-24T19:29:06.9839830Z Running app-host unit-test batch 1/2, execution 1
+Test Case '-[cmuxTests.LegacyTests testOne]' passed ({1 * scale}.000 seconds).
+Test Case '-[cmuxTests.LegacyTests testTwo]' passed ({2 * scale}.000 seconds).
+\u25c7 Suite "Display name" started.
+\u2714 Suite "Display name" passed after {4 * scale}.000 seconds.
+\u25c7 Suite SplitTests started.
+\u2714 Suite SplitTests passed after {1 * scale}.000 seconds.
+Running app-host unit-test batch 2/2, execution 1
+\u2714 Suite SplitTests passed after {2 * scale}.000 seconds.
+\u2714 Suite "Nobody declares this" passed after 9.000 seconds.
+""",
+                encoding="utf-8",
+            )
+            runs.append(str(run_dir))
+        output = root / "timings.json"
+        result = subprocess.run(
+            [sys.executable, str(generator), *runs, "--root", str(root), "--output", str(output)],
+            text=True, capture_output=True, check=False,
+        )
+        if result.returncode != 0:
+            print(result.stdout + result.stderr)
+            print("FAIL: timings generator exited nonzero")
+            return 1
+        manifest = json.loads(output.read_text(encoding="utf-8"))
+    expected = {"DisplayTests": 8000, "LegacyTests": 6000, "SplitTests": 6000}
+    if manifest["suites"] != expected:
+        print(f"FAIL: expected median suite timings {expected}, got {manifest['suites']}")
+        return 1
+    if manifest["source_run_ids"] != ["101", "102", "103"]:
+        print(f"FAIL: manifest must name its source runs, got {manifest['source_run_ids']}")
+        return 1
+    print("PASS: generated timings map display names, sum split batches and take the median run")
     return 0
 
 
@@ -883,7 +997,13 @@ def main() -> int:
     if (rc := check_folded_fish_suite_keeps_prerequisite()) != 0:
         return rc
 
-    if (rc := check_global_search_has_dedicated_consumer()) != 0:
+    if (rc := check_global_search_worker_runs_broad_batches()) != 0:
+        return rc
+
+    if (rc := check_repo_plan_is_balanced()) != 0:
+        return rc
+
+    if (rc := check_generated_timings_map_display_names_and_take_medians()) != 0:
         return rc
 
     if (rc := check_focused_gates_run_once()) != 0:

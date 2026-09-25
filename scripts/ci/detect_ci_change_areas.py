@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import os
 import re
 import subprocess
@@ -70,7 +71,6 @@ CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 GUARD_WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
 WEB_WORKFLOW_PATH = ".github/workflows/ci-web.yml"
 MACOS_WORKFLOW_PATH = ".github/workflows/ci-macos.yml"
-CLI_WORKFLOW_PATH = ".github/workflows/cli-pipe-regressions.yml"
 MACOS_XCODE_PROJECT_PATH = "cmux.xcodeproj/project.pbxproj"
 MACOS_PRODUCT_TARGET = "cmux"
 CLI_PRODUCT_TARGET = "cmux-cli"
@@ -136,6 +136,9 @@ CI_PUBLISHING_ONLY = frozenset({
     "scripts/ci/nightly-sparkle-key.sh",
     "scripts/prebuild_sparkle_deltas.sh",
     "scripts/sparkle_generate_appcast.sh",
+    # The local release script behind /release-local and /release-nightly. No
+    # workflow runs it; its guards read it as text on Linux.
+    "scripts/build-sign-upload.sh",
 })
 
 CI_MACOS_ADMISSION_CONTROL_INPUTS = frozenset({
@@ -209,70 +212,6 @@ def _files_naming(root: Path, token: str) -> Optional[list[str]]:
         if whole_name.search(text):
             named.append(candidate)
     return named
-
-
-def ci_helper_reaches_routed_lane(
-    path: str,
-    root: Path,
-    test_references: Optional[tuple[frozenset[str], frozenset[str]]],
-    base_root: Optional[Path] = None,
-) -> bool:
-    """Whether any job ci.yml routes could execute this scripts/ci helper.
-
-    Walks back from the helper through every tracked file that names it: a
-    script or composite action that names it is followed in turn, a workflow
-    outside ci.yml's call tree or a Linux-only guard test is a dead end. Any
-    other referrer (a routed workflow, app sources, the Xcode project) and any
-    read failure answer yes, which keeps today's fail-open routing. Names are
-    matched as plain text, so a comment or a shared stem also answers yes.
-    """
-    # A helper absent from the tree (deleted, or never added) cannot be traced.
-    if not (root / path).is_file():
-        return True
-    # The pull request's ci.yml can add routed workflows but never remove one:
-    # the call tree is the union with the base's, which the trusted router's
-    # working directory holds.
-    routed = routed_workflows(root)
-    base_routed = routed_workflows(base_root) if base_root is not None else frozenset()
-    if routed is None or base_routed is None:
-        return True
-    routed |= base_routed
-    visited_tokens: set[str] = set()
-    visited_files = {path}
-    tokens = [Path(path).stem]
-    referenced = False
-    while tokens:
-        token = tokens.pop()
-        if token in visited_tokens:
-            continue
-        visited_tokens.add(token)
-        referrers = _files_naming(root, token)
-        if referrers is None:
-            return True
-        for referrer in referrers:
-            if referrer in visited_files:
-                continue
-            visited_files.add(referrer)
-            referenced = True
-            if referrer.endswith(_DOCUMENTATION_SUFFIXES):
-                continue
-            if referrer.startswith(".github/workflows/"):
-                if referrer in routed:
-                    return True
-                continue
-            if referrer.startswith(".github/actions/") and referrer.endswith(("/action.yml", "/action.yaml")):
-                tokens.append(str(Path(referrer).parent))
-                continue
-            if referrer.startswith("tests/"):
-                if is_guard_only_test(referrer, test_references):
-                    continue
-                return True
-            if referrer.startswith("scripts/"):
-                tokens.append(Path(referrer).stem)
-                continue
-            return True
-    # A helper nothing names is unknown, not unreachable.
-    return not referenced
 
 
 def is_unowned_ci_helper(path: str) -> bool:
@@ -368,17 +307,15 @@ NO_AREAS = ChangeAreas(
 
 # What a ci.yml job that calls one of these reusable workflows selects. Its
 # `with:` inputs, `if:` and `needs:` all sit in the calling job's own block.
+# The job that calls ci-macos.yml also passes the `cli` route that runs the
+# CLI lane there (compile admission's CLI smoke checks, cli-product-tests).
 _CALLED_WORKFLOW_AREAS = {
     MACOS_WORKFLOW_PATH: ChangeAreas(
-        macos=True, web=False, agent_session_web=False, cli=False,
+        macos=True, web=False, agent_session_web=False, cli=True,
         swift_packages=False, release_build=True,
     ),
     WEB_WORKFLOW_PATH: ChangeAreas(
         macos=False, web=True, agent_session_web=True, cli=False,
-        swift_packages=False, release_build=False,
-    ),
-    CLI_WORKFLOW_PATH: ChangeAreas(
-        macos=False, web=False, agent_session_web=False, cli=True,
         swift_packages=False, release_build=False,
     ),
 }
@@ -392,7 +329,7 @@ def ci_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
 
     A plainly Linux job selects nothing, including the gates that decide
     whether macOS runs without running Mac work (`macos-admission-gate`). A job that
-    calls ci-macos.yml, ci-web.yml or the CLI lane selects that area. Routing
+    calls ci-macos.yml or ci-web.yml selects that area. Routing
     jobs, the preamble, and any other job run every area.
     """
     diff = _changed_workflow_jobs(base, head)
@@ -454,6 +391,83 @@ def _release_jobs(jobs: dict[str, str]) -> frozenset[str]:
 MACOS_CLI_LANE_JOBS = frozenset({"cli-product-tests", "macos-compile-admission"})
 
 
+_FULL_LINE_COMMENT_RE = re.compile(r"(?m)^[ \t]*#(?![!{]).*\n?")
+_INPUTS_BLOCK_RE = re.compile(r"(?ms)^  workflow_call:\n    inputs:\n(.*?)(?=^ {0,4}\S)")
+_INPUT_ENTRY_RE = re.compile(r"(?m)^      ([A-Za-z0-9_-]+):[ \t]*(?:#.*)?\n")
+_INPUT_LEVEL_RE = re.compile(r"(?m)^      \S.*$")
+
+
+def _significant_lines(text: str) -> list[str]:
+    return [line.rstrip() for line in text.splitlines() if line.strip()]
+
+
+def _workflow_call_inputs(preamble: str) -> Optional[tuple[str, dict[str, str]]]:
+    """The preamble without its workflow_call inputs, and each input's block.
+
+    None when an inputs block is there but unreadable. Without one, the rest is
+    None, and the caller compares the whole preamble instead.
+    """
+    preamble = _FULL_LINE_COMMENT_RE.sub("", preamble)
+    match = _INPUTS_BLOCK_RE.search(preamble + "\nend:\n")
+    if match is None:
+        return (None, {}) if "inputs:" not in preamble else None
+    block = match.group(1)
+    # Every line at an input's indent must open a block-style input; a flow
+    # style or unfamiliar one would pin its edit on the input before it.
+    if any(not _INPUT_ENTRY_RE.fullmatch(line + "\n") for line in _INPUT_LEVEL_RE.findall(block)):
+        return None
+    names = _INPUT_ENTRY_RE.findall(block)
+    pieces = _INPUT_ENTRY_RE.split(block)
+    if pieces[0].strip() or len(names) != len(set(names)):
+        return None
+    inputs = dict(zip(names, pieces[2::2]))
+    return preamble[: match.start(1)] + preamble[match.end(1) :], inputs
+
+
+def _macos_workflow_changed_jobs(
+    base: str, head: str,
+) -> Optional[tuple[dict[str, str], dict[str, str], frozenset[str]]]:
+    """Like _changed_workflow_jobs(), for ci-macos.yml.
+
+    Full-line comments change no job, though the macOS area still runs the
+    file. A changed workflow_call input reaches only the jobs that read it;
+    any other change above `jobs:` reaches every job, so the answer is None.
+    """
+    if base == head:
+        return None
+    base_parts = split_workflow_jobs(base)
+    head_parts = split_workflow_jobs(head)
+    if base_parts is None or head_parts is None:
+        return None
+    (base_preamble, base_jobs), (head_preamble, head_jobs) = base_parts, head_parts
+    base_inputs = _workflow_call_inputs(base_preamble)
+    head_inputs = _workflow_call_inputs(head_preamble)
+    if base_inputs is None or head_inputs is None:
+        return None
+    base_rest = base_inputs[0] if base_inputs[0] is not None else _FULL_LINE_COMMENT_RE.sub("", base_preamble)
+    head_rest = head_inputs[0] if head_inputs[0] is not None else _FULL_LINE_COMMENT_RE.sub("", head_preamble)
+    if _significant_lines(base_rest) != _significant_lines(head_rest):
+        return None
+    changed_inputs = {
+        name for name in base_inputs[1].keys() | head_inputs[1].keys()
+        if _significant_lines(base_inputs[1].get(name, "")) != _significant_lines(head_inputs[1].get(name, ""))
+        or (name in base_inputs[1]) != (name in head_inputs[1])
+    }
+    if any(re.search(rf"\binputs\.{re.escape(item)}\b", head_rest) for item in changed_inputs):
+        # The workflow's own env reads it, and every job inherits that.
+        return None
+    changed = {
+        name
+        for name in base_jobs.keys() | head_jobs.keys()
+        if _FULL_LINE_COMMENT_RE.sub("", base_jobs.get(name, "")) != _FULL_LINE_COMMENT_RE.sub("", head_jobs.get(name, ""))
+    }
+    for name, block in head_jobs.items():
+        if any(re.search(rf"\binputs\.{re.escape(item)}\b", block) for item in changed_inputs):
+            changed.add(name)
+    # Nothing but comments differs: the macOS area still runs the file.
+    return base_jobs, head_jobs, frozenset(changed)
+
+
 def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     """The areas a ci-macos.yml edit selects, compared job by job, or None for all.
 
@@ -462,9 +476,10 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
     helper, the status gate that reports them), or whose outputs such a job
     reads, needs the Release build as well. The CLI lane runs only when
     cli-product-tests or the admission job that builds its product changed.
-    The preamble, which holds the workflow_call inputs, reaches every job.
+    A changed workflow_call input reaches the jobs that read it; the rest of
+    the preamble reaches every job.
     """
-    diff = _changed_workflow_jobs(base, head)
+    diff = _macos_workflow_changed_jobs(base, head)
     if diff is None:
         return None
     base_jobs, head_jobs, changed = diff
@@ -474,6 +489,228 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
         cli=bool(changed & MACOS_CLI_LANE_JOBS),
         swift_packages=False, release_build=bool(changed & release),
     )
+
+
+_AREA_NAMES = ("macos", "web", "agent_session_web", "cli", "swift_packages", "release_build")
+_AREA_OUTPUT_RE = re.compile(r"needs\.changes\.outputs\.([A-Za-z0-9_]+)")
+# `changes` outputs the areas do not decide: the Linux guards route by path.
+_SELF_ROUTED_OUTPUTS = frozenset({
+    "linux_guard_tests", "linux_guard_test_groups", "linux_guard_history",
+    "linux_guard_cli", "linux_guard_source",
+})
+# `changes` outputs derived from the macOS area (detect_linux_guard_changes.py
+# sets ghosttykit_release from it; the suite and pool outputs serve macOS).
+_MACOS_DERIVED_OUTPUTS = frozenset({
+    "ghosttykit_release", "full_suite", "unit_suite", "unit_selectors", "unit_strict_steps",
+    "unit_in_admission", "coverage_gap", "compile_admitted", "source_parent1",
+    "macos_pr_runner", "macos_pr_xcode_app", "macos_pr_retry_runner",
+})
+
+
+# Scripts that name CI helpers as paths to classify them. Only their imports
+# run a helper; following their path lists would reach the `changes` job, and
+# so every area, from any helper they list.
+_ROUTING_TABLES = frozenset({
+    "scripts/ci/detect_ci_change_areas.py",
+    "scripts/ci/detect_linux_guard_changes.py",
+    "scripts/ci/workflow_guard_groups.py",
+})
+_COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
+
+
+def _without_comments(text: str) -> str:
+    """`text` without `#` comments, which name helpers without running them.
+
+    A `#` must start the line or follow whitespace; `${{`, `#!` and a `#` inside
+    a word stay. A string holding " #" loses its tail, which can only hide a
+    name, so the walk then answers from the referrers it still finds.
+    """
+    return _COMMENT_RE.sub("", text)
+
+
+def _names(text: str, token: str) -> bool:
+    return bool(re.search(rf"(?<![A-Za-z0-9_-]){re.escape(token)}(?![A-Za-z0-9_-])", _without_comments(text)))
+
+
+def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optional[bool]:
+    """Whether Python source imports `token` or names it in a string that is not
+    a docstring (a path it runs), or None when it does not parse. A routing
+    table's strings are paths it classifies, so there only imports count."""
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", [])
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                docstrings.add(id(body[0].value))
+    whole_name = re.compile(rf"(?<![A-Za-z0-9_-]){re.escape(token)}(?![A-Za-z0-9_-])")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(alias.name.split(".")[-1] == token for alias in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[-1] == token:
+            return True
+        if (not imports_only and isinstance(node, ast.Constant) and isinstance(node.value, str)
+                and id(node) not in docstrings and whole_name.search(node.value)):
+            return True
+    return False
+
+
+def _jobs_naming(jobs: dict[str, str], token: str) -> frozenset[str]:
+    return frozenset(name for name, block in jobs.items() if _names(block, token))
+
+
+def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAreas]:
+    """The areas that decide whether the routed jobs naming `token` run, or None
+    for every area.
+
+    A ci-macos.yml job runs behind the macOS area, with Release and the CLI lane
+    only for their own jobs, as macos_workflow_change_areas() reads an edit. A
+    ci-web.yml job runs behind web. Any other plainly Linux job runs behind the
+    areas its `if:` reads, which may be none: the static stage and the guards
+    route themselves. The routing and status jobs, other Mac jobs, and a name
+    outside any job answer None.
+    """
+    # A leading newline lets a file that starts at `jobs:` split too.
+    parts = split_workflow_jobs("\n" + text)
+    if parts is None:
+        return None
+    preamble, jobs = parts
+    naming = _jobs_naming(jobs, token)
+    if _names(preamble, token):
+        return None
+    if not naming:
+        return NO_AREAS
+    if workflow == MACOS_WORKFLOW_PATH:
+        if "swift-package-tests" in naming:
+            # That lane is chosen by package path, which a helper is not.
+            return None
+        return ChangeAreas(
+            macos=True, web=False, agent_session_web=False,
+            cli=bool(naming & MACOS_CLI_LANE_JOBS), swift_packages=False,
+            release_build=bool(naming & _release_jobs(jobs)),
+        )
+    if workflow == WEB_WORKFLOW_PATH:
+        return _CALLED_WORKFLOW_AREAS[workflow]
+    selected = NO_AREAS
+    for name in naming:
+        block = jobs[name]
+        if (workflow == CI_WORKFLOW_PATH and name in _ROUTING_JOBS) or not job_is_plainly_linux(block):
+            return None
+        # Gated only by `changes` outputs this can read, anywhere in the job
+        # (its condition, folded or not, and its steps'): a job that waits
+        # on another job may be skipped by more than it says, so it runs
+        # every area.
+        needs = re.search(r"(?m)^    needs:[ \t]*(.*)$", block)
+        needed = set(re.findall(r"[A-Za-z0-9_-]+", needs.group(1))) if needs else set()
+        if needs and not needed:
+            needed = set(re.findall(r"(?m)^      - ([A-Za-z0-9_-]+)[ \t]*$", block))
+        if needed - {"changes", "static-preflight"}:
+            return None
+        read = set(_AREA_OUTPUT_RE.findall(block))
+        areas = {output for output in read if output in _AREA_NAMES}
+        for output in read - areas - _SELF_ROUTED_OUTPUTS:
+            if output not in _MACOS_DERIVED_OUTPUTS:
+                return None
+            areas.add("macos")
+        selected = selected | ChangeAreas(**{area: area in areas for area in _AREA_NAMES})
+    return selected
+
+
+def ci_helper_areas(
+    path: str,
+    root: Path,
+    test_references: Optional[tuple[frozenset[str], frozenset[str]]],
+    base_root: Optional[Path] = None,
+    why: Optional[list[str]] = None,
+) -> Optional[ChangeAreas]:
+    """The areas whose routed jobs could execute this scripts/ci helper, or None
+    for every area.
+
+    Walks back from the helper through every tracked file that runs it: a
+    script or composite action is followed in turn; a workflow outside ci.yml's
+    call tree, a Linux-only guard test and documentation are dead ends.
+    Comments, Python docstrings and the routing tables' path lists do not
+    count as running it. A routed workflow that names the helper (or a script
+    or action that runs it) selects only the areas gating the jobs that name
+    it, per _routed_job_areas(). A helper no routed job reaches selects none.
+    Anything the walk cannot place (app sources, a test that runs on a Mac, a
+    read failure, a helper nothing names) answers None, as before, and appends
+    the reason to `why`.
+    """
+    def every_area(reason: str) -> None:
+        if why is not None:
+            why.append(reason)
+        return None
+
+    if not (root / path).is_file():
+        return every_area(f"{path} is not in the tree")
+    routed = routed_workflows(root)
+    base_routed = routed_workflows(base_root) if base_root is not None else frozenset()
+    if routed is None or base_routed is None:
+        return every_area("ci.yml is unreadable")
+    routed |= base_routed
+    selected = NO_AREAS
+    visited_tokens: set[str] = set()
+    visited_files = {path}
+    tokens = [Path(path).stem]
+    referenced = False
+    while tokens:
+        token = tokens.pop()
+        if token in visited_tokens:
+            continue
+        visited_tokens.add(token)
+        referrers = _files_naming(root, token)
+        if referrers is None:
+            return every_area(f"could not search for {token}")
+        for referrer in referrers:
+            if referrer.startswith(".github/workflows/") and referrer in routed:
+                # One workflow can name several tokens of the same chain.
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                areas = _routed_job_areas(referrer, text, token)
+                if areas is None:
+                    return every_area(f"{referrer} runs {token} in a routing, status or Mac job, or its header")
+                selected = selected | areas
+                referenced = True
+                continue
+            if referrer in visited_files:
+                continue
+            visited_files.add(referrer)
+            referenced = True
+            if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
+                continue
+            if referrer == ".gitattributes":
+                continue
+            if referrer.startswith(("scripts/", ".github/actions/")):
+                try:
+                    text = (root / referrer).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return every_area(f"could not read {referrer}")
+                named = (
+                    _python_names(text, token, imports_only=referrer in _ROUTING_TABLES)
+                    if referrer.endswith(".py") else None
+                )
+                if named is False or (named is None and not _names(text, token)):
+                    continue
+            if referrer.startswith(".github/actions/") and referrer.endswith(("/action.yml", "/action.yaml")):
+                # An action runs in whatever job uses it; its directory is
+                # the token those jobs name.
+                tokens.append(str(Path(referrer).parent))
+                continue
+            if referrer.startswith("tests/"):
+                if is_guard_only_test(referrer, test_references):
+                    continue
+                return every_area(f"{referrer} names {token} and runs outside the Linux guards")
+            if referrer.startswith("scripts/"):
+                tokens.append(Path(referrer).stem)
+                continue
+            return every_area(f"{referrer} names {token}")
+    return selected if referenced else every_area(f"nothing names {Path(path).stem}")
 
 
 def macos_job_test_references(
@@ -584,10 +821,10 @@ SHARED_WEB_WORKFLOW_PREFIXES = (
 )
 
 
-# Everything cli-pipe-regressions.yml runs besides the cmux-cli target's own
+# Everything the CLI lane (compile admission's CLI product and its early CLI
+# smoke checks, then cli-product-tests) runs besides the cmux-cli target's own
 # compile inputs, which cli_target_inputs() reads from the Xcode project.
 CLI_LANE_EXACT_INPUTS = frozenset({
-    CLI_WORKFLOW_PATH,
     # Checked-out submodules: bonsplit is a local package of the project the
     # lane resolves, and ghostty supplies the GhosttyKit.xcframework binary
     # target that CmuxTerminalCore (in the cmux-cli closure) re-vends.
@@ -607,7 +844,8 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     "scripts/ci/r2-cache.sh",
     "scripts/ci/cache_restore_receipt.py",
     "scripts/ci/sanitize-xcode-source-packages-cache.py",
-    # The regression scripts the lane runs, and what they import or read.
+    # The regression scripts admission's CLI smoke step runs, and what they
+    # import or read.
     "tests/test_cli_broken_pipe_writes.py",
     "tests/test_cli_socket_operation_deadline.py",
     "tests/test_cli_config_doctor.py",
@@ -630,7 +868,7 @@ CLI_LANE_EXACT_INPUTS = frozenset({
     # What restore-app-host-test-product.sh itself runs.
     "scripts/ci/app_host_test_products.py",
     "scripts/ci/canonical-build-root.sh",
-    # Seeds the checkout of both CLI lanes and initializes cli-pipe's submodules.
+    # Seeds the checkout of compile admission and cli-product-tests.
     "scripts/ci/git-seed.sh",
 })
 
@@ -638,14 +876,12 @@ CLI_LANE_INPUT_PREFIXES = (
     "CLI/",
     "cmuxCLITests/",
     "cmuxCLITestSupport/",
-    # The lane builds the cmux-cli scheme of this project and keys its package
+    # The lane builds the cmux-cli target of this project and keys its package
     # cache on the project's Package.resolved.
     "cmux.xcodeproj/",
     ".github/actions/cache-restore/",
     # cli-product-tests' canonical fallback download of the compiled product.
     ".github/actions/download-test-product/",
-    # The lane runs `swift test` in this package directly.
-    "Packages/macOS/CmuxFoundation/",
 )
 
 # ---------------------------------------------------------------------------
@@ -797,8 +1033,8 @@ def is_cli_change(
         return is_macos_change(path, macos_ios_packages)
     for directory in cli_inputs.package_directories:
         if path == directory or path.startswith(f"{directory}/"):
-            # A package's test sources never reach the cmux-cli binary.
-            # CmuxFoundation's tests, which the lane runs, matched above.
+            # A package's test sources never reach the cmux-cli binary; the
+            # swift-package-tests lane runs them (swift_package_test_selection).
             return not path.startswith(f"{directory}/Tests/")
     return path.rsplit("/", 1)[-1] in cli_inputs.source_file_names
 
@@ -1642,11 +1878,20 @@ def classify_files(paths: Iterable[str], *,
         # Packages/iOS package outside the desktop closure) or test-only.
         if is_swift_package_input(path):
             swift_package_candidates.append(path)
-        if is_unowned_ci_helper(path) and not ci_helper_reaches_routed_lane(
-            path, helper_root, test_references, base_root=Path("."),
-        ):
-            print(f"{path} runs in no workflow ci.yml routes; no product area.")
-            continue
+        if is_unowned_ci_helper(path):
+            helper_areas = ci_helper_areas(path, helper_root, test_references, base_root=Path("."))
+            if helper_areas == NO_AREAS:
+                print(f"{path} runs in no routed job an area gates; no product area.")
+                continue
+            if helper_areas is not None:
+                # Only the lanes whose jobs run it, not every area.
+                print(f"{path} runs only in routed jobs gated by: {helper_areas}")
+                macos = macos or helper_areas.macos
+                web = web or helper_areas.web
+                agent_session_web = agent_session_web or helper_areas.agent_session_web
+                cli = cli or helper_areas.cli
+                release_build = release_build or helper_areas.release_build
+                continue
         if forces_all_areas(path):
             macos = True
             web = True
