@@ -12014,6 +12014,8 @@
 				E30760060000000000000001 /* TmuxWorkspacePaneOverlayModelTests.swift */,
 				BEE83F8394D90ACACD8E19DD /* WindowAndDragTests.swift */,
 				781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */,
+				4A74B34B232D4D76037A67D5 /* FileDropOverlayDragCompletionTests.swift */,
+				7EB37A3E26005F130A2E0F04 /* FileDropOverlayViewLifecycleTests.swift */,
 				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */,
 				56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */,
@@ -12546,8 +12548,6 @@
 				511EAB11A81C099E4F5A8ECF /* DeferredAgentResumeAdmissionOwnerTests.swift */,
 				C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */,
 				0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */,
-				7EB37A3E26005F130A2E0F04 /* FileDropOverlayViewLifecycleTests.swift */,
-				4A74B34B232D4D76037A67D5 /* FileDropOverlayDragCompletionTests.swift */,
 				25DB476025F922037411EA98 /* CommandPaletteAuthCommandTests.swift */,
 				F0677DB157F30F725FECA0EC /* CMUXCLICodexUnavailableAdmissionTests.swift */,
 			);
