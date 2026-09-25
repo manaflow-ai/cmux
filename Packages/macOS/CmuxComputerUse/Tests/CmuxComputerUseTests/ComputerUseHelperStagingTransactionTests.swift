@@ -12,6 +12,8 @@ struct ComputerUseHelperStagingTransactionTests {
         let staging = ComputerUseHelperStaging()
         try fixture.makeReadOnly(fixture.bundle)
         #expect(try staging.installVerified(nested: fixture.bundle, destination: installed, directory: directory) == installed)
+        // The old installed generation predates mode normalization.
+        try fixture.makeReadOnly(installed)
         try Data("updated executable".utf8).write(to: fixture.executable)
 
         #expect(try staging.installVerified(nested: fixture.bundle, destination: installed, directory: directory) == installed)
@@ -21,6 +23,7 @@ struct ComputerUseHelperStagingTransactionTests {
             $0.hasSuffix(".app")
         } == ["cmux Computer Use.app"])
         #expect(try FileManager.default.attributesOfItem(atPath: fixture.bundle.path)[.posixPermissions] as? Int == 0o555)
+        #expect(try FileManager.default.attributesOfItem(atPath: installed.path)[.posixPermissions] as? Int == 0o755)
     }
 
     @Test(arguments: [HelperCopyFailureFileManager.Failure.copiedThenThrows, .copiedThenCancelled])
