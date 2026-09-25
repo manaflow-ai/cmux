@@ -4254,6 +4254,8 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
 
     func testFiveTabRendererFootprintReturnsToOneRendererTargetAcrossHideRevealCycles() throws {
 #if DEBUG
+        // Skips outside its dedicated CI step, which sets the variable. A pull
+        // request that edits this test runs that step too (choose_ci_suite.py).
         guard ProcessInfo.processInfo.environment["CMUX_RENDERER_MEMORY_REGRESSION"] == "1" else {
             throw XCTSkip("Runs in the isolated renderer-memory CI invocation")
         }
@@ -5689,6 +5691,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         // background coordinator, and a shell still writing output would keep
         // the io threads (and the tee callback) running into the next test.
         for surface in trackedSurfaces.reversed() {
+            killShellProcesses(of: surface)
             surface.releaseSurfaceForTesting()
         }
         trackedSurfaces.removeAll()
