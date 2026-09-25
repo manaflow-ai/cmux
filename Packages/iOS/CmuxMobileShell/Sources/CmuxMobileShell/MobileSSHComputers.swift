@@ -213,7 +213,15 @@ public final class MobileSSHComputers {
     /// automatic connects for that host, persistently, so reopening the app
     /// or its list does not ask again. Only an explicit connect
     /// (``open(hostID:)``) resumes them.
+    ///
+    /// An answer for a question that is no longer pending (already answered,
+    /// or replaced by a question about another key) is ignored: the prompt
+    /// sheet's binding writes a Cancel for the prompt it last rendered as it
+    /// dismisses after a Trust, and that must not pause the host.
     public func answer(_ prompt: MobileSSHPrompt, with answer: MobileSSHPromptAnswer) {
+        guard let pending = prompts.first(where: { $0.id == prompt.id }), pending.asksSameQuestion(as: prompt) else {
+            return
+        }
         prompts.removeAll { $0.id == prompt.id }
         if answer != .trust, let hostID = prompt.identityHostID {
             setAutoConnectPaused(true, hostID: hostID)
