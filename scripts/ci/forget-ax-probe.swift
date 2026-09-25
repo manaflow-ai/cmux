@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct FilesFixture: View {
+    var lazyRows = true
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Project fixture")
@@ -17,9 +18,18 @@ struct FilesFixture: View {
             }
             Divider()
             ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    Text("Group")
-                    Text("Context.swift")
+                Group {
+                    if lazyRows {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            Text("Group")
+                            Text("Context.swift")
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text("Group")
+                            Text("Context.swift")
+                        }
+                    }
                 }
                 .padding(.vertical, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -62,6 +72,10 @@ func dumpTree(_ root: NSObject, includeContents: Bool) {
         }
         if let scroll = node as? NSScrollView {
             print("SCROLL viewport=\(scroll.contentView.bounds) documentFrame=\(String(describing: scroll.documentView?.frame)) documentType=\(String(describing: scroll.documentView.map { String(describing: type(of: $0)) }))")
+            print("SCROLL navigation=\(String(describing: modern(node, "accessibilityChildrenInNavigationOrder"))) visible=\(String(describing: modern(node, "accessibilityVisibleChildren"))) attributes=\(String(describing: modern(node, "accessibilityAttributeNames")))")
+            if let document = scroll.documentView {
+                print("DOCUMENT modernChildren=\(String(describing: modern(document, "accessibilityChildren"))) legacyChildren=\(String(describing: legacy(document, "AXChildren"))) attributes=\(String(describing: modern(document, "accessibilityAttributeNames")))")
+            }
         }
         let extra = includeContents ? (contents ?? oldContents ?? []) : []
         for child in NSAccessibility.unignoredChildren(from: (children ?? oldChildren ?? []) + extra) {
@@ -90,16 +104,31 @@ Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in
         print("PASSIVE active=\(app.isActive) visible=\(window.isVisible)")
         dumpTree(host, includeContents: false)
         dumpTree(host, includeContents: true)
-        app.activate(ignoringOtherApps: true)
-        window.orderFrontRegardless()
+        host.rootView = FilesFixture(lazyRows: false).environment(\.accessibilityEnabled, true)
         Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in
             MainActor.assumeIsolated {
                 host.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
-                print("ACTIVE active=\(app.isActive) visible=\(window.isVisible)")
+                print("EAGER active=\(app.isActive) visible=\(window.isVisible)")
                 dumpTree(host, includeContents: true)
-                window.close()
-                app.terminate(nil)
+                host.rootView = FilesFixture().environment(\.accessibilityEnabled, true)
+                print("APP attributes=\(app.accessibilityAttributeNames())")
+                for name in ["AXEnhancedUserInterface", "AXManualAccessibility"] {
+                    let attribute = NSAccessibility.Attribute(rawValue: name)
+                    let settable = app.accessibilityIsAttributeSettable(attribute)
+                    print("APP attribute=\(name) settable=\(settable)")
+                    if settable { app.accessibilitySetValue(true, forAttribute: attribute) }
+                }
+                Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { _ in
+                    MainActor.assumeIsolated {
+                        host.layoutSubtreeIfNeeded()
+                        window.displayIfNeeded()
+                        print("ASSISTIVE active=\(app.isActive) visible=\(window.isVisible)")
+                        dumpTree(host, includeContents: true)
+                        window.close()
+                        app.terminate(nil)
+                    }
+                }
             }
         }
     }
