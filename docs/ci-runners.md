@@ -235,8 +235,9 @@ re-routes a queued job: one queued there waits for that pool however long it
 stays busy. An offline mini still counts as a slot, and the snapshot can be
 minutes old. When the picker chooses a persistent pool, `changes`
 uploads a `macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>` marker (the
-janitor reads the run's peak and pool from its name), and
-`ci-owned-pool-rescue.yml` (from `main`, with Actions write) watches that run.
+janitor reads the run's peak and pool from its name), and the
+`owned-pool-watch` job dispatches `ci-owned-pool-rescue.yml` (from `main`, with
+Actions write) to watch that run. A run on an ephemeral pool starts no watcher.
 If one of its jobs waits for a persistent runner longer than
 `CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600), the watcher confirms the
 pull request head has not moved, cancels the run, and re-runs it. A retry

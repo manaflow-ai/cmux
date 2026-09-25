@@ -5,8 +5,10 @@ pr_runner_pool.py picks one pool per run. When that pool is owned (a
 `glaeda-<class>-xcode-<version>` label, pr_runner_pool.persistent), the jobs
 it names in `owned_jobs` take it and the rest take retry_runner (Blacksmith).
 GitHub never re-routes a queued job: one on the owned pool waits for it
-however long the pool stays busy. ci-owned-pool-rescue.yml starts this script when a CI run is
-requested, from the default branch, with Actions write.
+however long the pool stays busy. ci-owned-pool-rescue.yml runs this script
+from the default branch, with Actions write, when the picker's job dispatches
+it with the run's id (WATCH_RUN_ID) after placing jobs on an owned pool. The
+script reads that run and checks it as it would a workflow_run event's run.
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
 picker chose a persistent pool, that job uploads a marker artifact
@@ -546,12 +548,24 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
                       "nothing to watch")
     repository = env.get("GITHUB_REPOSITORY") or ""
-    with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
-        event = json.load(handle)
+    client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
+    run_id = (env.get("WATCH_RUN_ID") or "").strip()
+    if run_id:
+        # Dispatched by the picker's job: read the run it names and check it
+        # exactly as a workflow_run event's run would be.
+        if not run_id.isdigit():
+            return finish(f"not watched: run id {run_id!r} is not a number")
+        try:
+            event = {"workflow_run": read(lambda: client.run(int(run_id)), sleep, log)}
+        except READ_ERRORS as error:
+            finish(f"gave up: could not read run {run_id}: {error}")
+            return 1
+    else:
+        with open(env["GITHUB_EVENT_PATH"], encoding="utf-8") as handle:
+            event = json.load(handle)
     target = target_from_event(event, repository)
     if isinstance(target, str):
         return finish(f"not watched: {target}")
-    client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
     subject = "an E2E dispatch" if target.e2e else f"pull request #{target.pr_number}"
     log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")
     # One watch deadline for every attempt this job watches. A rescue may run
