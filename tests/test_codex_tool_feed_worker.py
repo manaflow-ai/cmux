@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise the real session forwarder against a protocol-faithful local socket."""
+import base64
 import json
 import os
 from pathlib import Path
@@ -113,7 +114,9 @@ sys.stdin.read()
                                    'request_id': str(i), 'tool_input': {'file_path': '/tmp/日本語'}})
             events = self.await_feed(i + 1)
             self.assertEqual(events[-1]['hook_event_name'], 'PreToolUse' if i % 2 == 0 else 'PostToolUse')
-            self.assertEqual(events[-1]['session_id'], 'codex:worker-test')
+            self.assertEqual(events[-1]['session_id'], 'cmux-feed-v1:' +
+                             base64.b64encode(b'codex').decode() + ':' +
+                             base64.b64encode(b'worker-test').decode())
         self.assertEqual(self.connections, 1, 'all tool events must share one socket')
         self.assertEqual(len({e['_ppid'] for e in events}), 1)
         self.assertEqual(events[0]['_ppid'], self.owner.pid)
@@ -133,6 +136,11 @@ sys.stdin.read()
             self.assertEqual(result.stdout, '{}\n')
             self.await_feed(index + 1)
         self.assertEqual(self.connections, 1)
+
+    def test_completion_without_request_identity_needs_only_one_way_telemetry(self):
+        self.publish(0, 'post-tool-use', {'session_id': 'worker-test', 'tool_name': 'Read'})
+        self.await_feed(1)
+        self.assertEqual([f['method'] for f in self.frames], ['feed.push'])
 
     def test_spool_event_cannot_dispatch_an_approval_or_lifecycle_hook(self):
         self.publish(0, 'pre-tool-use', {'session_id': 'worker-test',

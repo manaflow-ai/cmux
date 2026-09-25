@@ -39210,8 +39210,13 @@ export default CMUXSessionRestore;
         env: [String: String],
         client: SocketClient?,
         socketPath: String?,
-        socketPassword: String?
+        socketPassword: String?,
+        allowReconnect: Bool = true
     ) {
+        let evidence = Self.semanticAttentionContext(eventDict)
+        // A tool completion without a request identity cannot resolve attention.
+        // Avoid a main-thread route lookup for this ordinary telemetry case.
+        if classification.clearsNativeApprovalPrompt, evidence.requestIdentity == nil { return }
         let ambientWorkspaceId = (eventDict["workspace_id"] as? String) ?? env["CMUX_WORKSPACE_ID"]
         let ambientSurfaceId = (eventDict["surface_id"] as? String) ?? env["CMUX_SURFACE_ID"]
         let deadline = Date().addingTimeInterval(Self.feedAttentionAcknowledgeTimeoutSeconds)
@@ -39251,6 +39256,9 @@ export default CMUXSessionRestore;
             client: activeClient,
             deadline: deadline
         )
+        // Persistent workers own reconnect/backoff; a failed routing probe
+        // must not implicitly reconnect inside the attention send below.
+        if !allowReconnect, activeClient.socketFD < 0 { return }
         guard let attentionLine = FeedEventClassifier.nativeApprovalPromptAttentionCommand(
             classification: classification,
             displayName: Self.agentDef(named: source)?.displayName ?? source,
@@ -39260,7 +39268,6 @@ export default CMUXSessionRestore;
             agentID: source,
             includeAgentContext: true
         ) else { return }
-        let evidence = Self.semanticAttentionContext(eventDict)
         if classification.clearsNativeApprovalPrompt {
             guard evidence.requestIdentity != nil,
                   let workspaceID = liveTarget?.workspaceId ?? ambientWorkspaceId,
@@ -39790,7 +39797,8 @@ export default CMUXSessionRestore;
                     env: env,
                     client: client,
                     socketPath: socketPath,
-                    socketPassword: socketPassword
+                    socketPassword: socketPassword,
+                    allowReconnect: inputData == nil
                 )
                 let telemetrySocketPath = socketPath ?? client?.socketPath
                 if inputData != nil, let client, !client.isRelayBacked {

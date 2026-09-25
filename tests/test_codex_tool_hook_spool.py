@@ -2,6 +2,8 @@
 """Execute the production hook emitter without compiling the app/CLI target."""
 import concurrent.futures
 import os
+import select
+import sys
 from pathlib import Path
 import subprocess
 import tempfile
@@ -38,6 +40,29 @@ disableEnvironmentVariable: "CMUX_CODEX_HOOKS_DISABLED", identityMarker: "cmux-c
         (root / 'main.swift').write_text(harness)
         cls.emitter = root / 'emitter'
         subprocess.run(['swiftc', str(root / 'main.swift'), '-o', str(cls.emitter)], check=True, timeout=120)
+        worker_source = root / 'WorkerMain.swift'
+        worker_source.write_text('''import Foundation
+import Darwin
+@main struct WorkerMain {
+    static func main() async {
+        let spool = CodexToolFeedSpool(directory: URL(fileURLWithPath: CommandLine.arguments[1]))
+        let changes = await spool.changes(parentPID: Int32(CommandLine.arguments[2])!)
+        print("ready"); fflush(stdout)
+        for await _ in changes {
+            for record in await spool.drain() {
+                print(String(data: record.payload, encoding: .utf8)!); fflush(stdout)
+            }
+        }
+        await spool.close()
+    }
+}
+''')
+        cls.worker = root / 'worker'
+        spool_source = ROOT / 'Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/CodexToolFeedSpool.swift'
+        if spool_source.exists():
+            subprocess.run(['swiftc', str(spool_source), str(worker_source), '-o', str(cls.worker)],
+                           check=True, timeout=120)
+
 
     @classmethod
     def tearDownClass(cls):
@@ -109,6 +134,30 @@ disableEnvironmentVariable: "CMUX_CODEX_HOOKS_DISABLED", identityMarker: "cmux-c
         self.run_hook(self.command(), '{}', env)
         self.assertEqual([p for p in self.spool.iterdir() if not p.name.endswith(".ready")], [])
         self.assertFalse(self.log.exists())
+
+    def test_consumer_wakes_on_publication_and_cleans_up_after_parent_exit(self):
+        owner_source = """import os,subprocess,sys
+subprocess.Popen([sys.argv[1],sys.argv[2],str(os.getpid())],stdin=subprocess.DEVNULL)
+sys.stdin.read()
+"""
+        owner = subprocess.Popen([sys.executable, '-c', owner_source, str(self.worker), str(self.spool)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.addCleanup(owner.stderr.close)
+        self.addCleanup(owner.stdout.close)
+        def stop_owner():
+            if owner.poll() is None:
+                owner.stdin.close()
+                owner.wait(timeout=10)
+        self.addCleanup(stop_owner)
+        def read_line():
+            self.assertTrue(select.select([owner.stdout], [], [], 15)[0], 'consumer did not signal')
+            return owner.stdout.readline()
+        self.assertEqual(read_line(), b'ready\n')
+        self.run_hook(self.command(), '{"tool_name":"Read"}')
+        self.assertEqual(read_line(), b'{"tool_name":"Read"}\n')
+        stop_owner()
+        self.assertEqual(read_line(), b'', 'consumer must exit when its parent exits')
+        self.assertFalse(self.spool.exists(), 'consumer must remove its private spool')
 
     def test_missing_spool_does_not_fall_back_to_process_storm(self):
         self.spool.rmdir()
