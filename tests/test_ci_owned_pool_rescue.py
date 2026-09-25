@@ -1085,6 +1085,66 @@ class MainDispatch(unittest.TestCase):
         self.assertIn("rerun-failed", api.calls)
 
 
+class Tokens(unittest.TestCase):
+    """Reads may use the App's token; writes always use GITHUB_TOKEN."""
+
+    def open_with(self, fail_first_read=False):
+        seen = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def urlopen(request, timeout):
+            seen.append((request.get_method(), request.headers["Authorization"]))
+            if fail_first_read and len(seen) == 1:
+                raise rescue.urllib.error.HTTPError(request.full_url, 401, "expired", {}, None)
+            return Response(b"{}")
+        return seen, unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen)
+
+    def test_reads_use_the_app_token_and_writes_keep_github_token(self):
+        seen, patch = self.open_with()
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.run(1)
+            api.rerun_failed(1)
+            api.cancel(1)
+        # A re-run started by the App would not be github-actions[bot], which
+        # ci-macos.yml's attempt-2 routing requires.
+        self.assertEqual(seen, [("GET", "Bearer app-token"), ("POST", "Bearer repo-token"),
+                                ("POST", "Bearer repo-token")])
+
+    def test_an_expired_app_token_falls_back_for_the_rest_of_the_watch(self):
+        seen, patch = self.open_with(fail_first_read=True)
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r", read_token="app-token")
+            api.run(1)
+            api.run(1)
+        self.assertEqual(seen, [("GET", "Bearer app-token"), ("GET", "Bearer repo-token"),
+                                ("GET", "Bearer repo-token")])
+
+    def test_without_an_app_token_everything_uses_github_token(self):
+        seen, patch = self.open_with()
+        with patch:
+            rescue.GitHub("repo-token", "o/r").run(1)
+        self.assertEqual(seen, [("GET", "Bearer repo-token")])
+
+    def test_the_workflow_mints_a_read_only_token_and_passes_it(self):
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(
+            encoding="utf-8"))["jobs"]["rescue"]["steps"]
+        mint = next(step for step in steps if step.get("id") == "read-token")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual({key: value for key, value in mint["with"].items() if key.startswith("permission-")},
+                         {"permission-actions": "read", "permission-contents": "read",
+                          "permission-pull-requests": "read"})
+        watch = next(step for step in steps if step.get("name") == "Watch the run's persistent pool jobs")
+        self.assertEqual(watch["env"]["READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        self.assertEqual(watch["env"]["GH_TOKEN"], "${{ github.token }}")
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")
