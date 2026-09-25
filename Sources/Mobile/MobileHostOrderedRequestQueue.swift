@@ -135,19 +135,18 @@ final class MobileTerminalInputOrdering {
         if let previous = tokenByIdentity[identity], previous != token {
             invalidate(previous)
         }
-        if let previousIdentity = identityByToken[token], previousIdentity != identity {
-            tokenByIdentity[previousIdentity] = nil
-        }
+        // Keep the original transport identity mapped as well. Iroh binds a
+        // token to its peer and an authorized RPC may later add the phone's
+        // client id; a reconnect can arrive with either identity first.
         tokenByIdentity[identity] = token
         identityByToken[token] = identity
     }
 
     func invalidate(_ token: MobileTerminalInputOrderingToken) {
         guard activeTokens.remove(token) != nil else { return }
-        if let identity = identityByToken.removeValue(forKey: token),
-           tokenByIdentity[identity] == token {
-            tokenByIdentity[identity] = nil
-        }
+        lastSequenceBySurfaceAndToken.removeAll { $0.key.token == token }
+        identityByToken.removeValue(forKey: token)
+        tokenByIdentity.removeAll { $0.value == token }
     }
 
     func reserve(
