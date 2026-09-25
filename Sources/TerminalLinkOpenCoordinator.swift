@@ -234,6 +234,7 @@ struct TerminalLinkOpenCoordinator {
                     fallback: externalFallback
                 ) else {
                     externalFallback()
+                    return
                 }
                 return
             }
