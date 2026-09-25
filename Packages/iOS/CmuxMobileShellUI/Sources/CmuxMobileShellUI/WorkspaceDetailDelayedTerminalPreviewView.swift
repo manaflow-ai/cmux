@@ -203,13 +203,16 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         let unreadCount = Int(
             ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD_COUNT"] ?? "1"
         ) ?? 1
-        return [workspace, MobileWorkspacePreview(
-            id: "workspace-unread",
-            name: "Unread workspace",
-            hasUnread: true,
-            unreadCount: unreadCount,
-            terminals: []
-        )]
+        let unreadWorkspaces = (0..<unreadCount).map { index in
+            MobileWorkspacePreview(
+                id: "workspace-unread-\(index)",
+                name: "Unread workspace \(index + 1)",
+                hasUnread: true,
+                unreadCount: 1,
+                terminals: []
+            )
+        }
+        return [workspace] + unreadWorkspaces
     }
 
     private static func refreshingWorkspace(generation: Int) -> MobileWorkspacePreview {

@@ -7542,6 +7542,11 @@ final class cmuxUITests: XCTestCase {
                 assertNativeWorkspaceToolbarFits(in: app, includesChanges: true,
                                                  includesAlternateScreen: scenario == "alternate-screen")
                 assertWorkspaceToolbarTitlePresentation(in: app)
+                if scenario == "large-unread" {
+                    let backButton = app.buttons["MobileWorkspaceBackButton"]
+                    XCTAssertTrue(backButton.label.contains("123 unread workspaces"),
+                                  "VoiceOver must retain the full unread count")
+                }
             }
             tap(surface, in: app)
             XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4))

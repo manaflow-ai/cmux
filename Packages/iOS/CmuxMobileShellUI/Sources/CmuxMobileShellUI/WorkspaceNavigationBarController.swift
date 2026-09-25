@@ -123,8 +123,9 @@ final class WorkspaceNavigationBarController: UIViewController {
         if !item.leadingItemGroups.elementsEqual(desiredLeadingGroups, by: { $0 === $1 }) {
             item.leadingItemGroups = desiredLeadingGroups
         }
-        if !item.trailingItemGroups.isEmpty {
-            item.trailingItemGroups = []
+        let desiredTrailingGroups = Array(trailingGroups.dropFirst())
+        if !item.trailingItemGroups.elementsEqual(desiredTrailingGroups, by: { $0 === $1 }) {
+            item.trailingItemGroups = desiredTrailingGroups
         }
         if #available(iOS 16.0, *) { item.additionalOverflowItems = nil }
         let desiredPinnedGroup = trailingGroups.first
@@ -136,13 +137,24 @@ final class WorkspaceNavigationBarController: UIViewController {
     private func makeTrailingGroups(
         for ids: [WorkspaceNavigationBar.Item.ID]
     ) -> [UIBarButtonItemGroup] {
-        let items = ids
-            .compactMap { id in id == .terminals ? terminalPicker?.button : controls[id]?.button }
-        guard !items.isEmpty else { return [] }
-        // This group is pinned to the trailing edge. UIKit compresses the
-        // title view before laying out these essential workspace actions,
-        // instead of replacing them with a More item.
-        return [UIBarButtonItemGroup(barButtonItems: items, representativeItem: nil)]
+        let groupedIDs: [[WorkspaceNavigationBar.Item.ID]]
+        if ids.first == .alternateScreen {
+            // A lone warning action gets UIKit's circular single-item glass.
+            // Keep the count chip and terminal picker in their shared group,
+            // matching the base toolbar's trailing action island.
+            groupedIDs = [[.alternateScreen], Array(ids.dropFirst())]
+        } else {
+            groupedIDs = [ids]
+        }
+        return groupedIDs.compactMap { groupIDs in
+            let items = groupIDs.compactMap { id in
+                id == .terminals ? terminalPicker?.button : controls[id]?.button
+            }
+            guard !items.isEmpty else { return nil }
+            // UIKit compresses the title view before laying out these
+            // essential actions, instead of replacing them with More.
+            return UIBarButtonItemGroup(barButtonItems: items, representativeItem: nil)
+        }
     }
 
     func restoreConfiguration() {
@@ -156,7 +168,8 @@ final class WorkspaceNavigationBarController: UIViewController {
         if item.leadingItemGroups.elementsEqual([leadingGroup], by: { $0 === $1 }) {
             item.leadingItemGroups = originalItem.leadingGroups
         }
-        if item.trailingItemGroups.isEmpty {
+        let appliedTrailingGroups = Array(trailingGroups.dropFirst())
+        if item.trailingItemGroups.elementsEqual(appliedTrailingGroups, by: { $0 === $1 }) {
             item.trailingItemGroups = originalItem.trailingGroups
             item.additionalOverflowItems = originalItem.additionalOverflowItems
         }
