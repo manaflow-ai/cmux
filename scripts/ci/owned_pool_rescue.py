@@ -72,9 +72,10 @@ runners carry, and every later attempt takes the job's Blacksmith default. So
 the first job on an owned label marks the run as on a persistent pool (a job
 behind a Linux gate appears once the gate ends), and the watch stops once
 every owned job has been accepted, which a side lane's few short jobs reach in
-minutes. A stuck or refused side-lane job gets the run's failed and cancelled
-jobs re-run, keeping what passed; that re-run is on Blacksmith, so it is not
-followed. A stuck run that finished some other way (a newer push cancelled
+minutes. A refused side-lane job gets the run's failed jobs re-run; a stuck
+one gets the run cancelled and its failed and cancelled jobs re-run, keeping
+the jobs that had already finished. That re-run is on Blacksmith, so it is
+not followed. A stuck run that finished some other way (a newer push cancelled
 it) is not re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS.
 
 A job's wait is measured from the later of its `created_at` and the first
@@ -147,8 +148,10 @@ IDLE_POLL_SECONDS = 120
 WATCH_LIMIT_SECONDS = 60 * 60
 # An E2E test job queues after a sibling wait (up to 35 min) and a build.
 E2E_WATCH_LIMIT_SECONDS = 150 * 60
-# A side lane's one macOS job is created at once, or after a short Linux gate.
-SIDE_WATCH_LIMIT_SECONDS = 30 * 60
+# A side lane's macOS job is created at once, or after a Linux gate
+# (cloud-machine-tests), which can wait in a busy Linux queue; a watch that
+# ended before the job existed would leave it on the fleet unwatched.
+SIDE_WATCH_LIMIT_SECONDS = WATCH_LIMIT_SECONDS
 READ_ATTEMPTS = 3
 READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"

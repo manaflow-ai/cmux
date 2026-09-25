@@ -559,6 +559,9 @@ def _slots(raw: str | None, pr_xcode_app: str | None = None) -> tuple[dict[str, 
         label = str(label)
         if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
             problems.append(f"{SLOTS_VARIABLE} entry {label!r} has {count!r} machines, not a positive whole number")
+        elif label.startswith(("side-", SIDE_PREFIX)):
+            # No picker routes to side runners (vars.CI_SIDE_LANE_RUNNER does), so a count is a mistake.
+            problems.append(f"{SLOTS_VARIABLE} entry {label!r} names side runners, which take no picked run")
         elif persistent(label):
             counted[label] = count
         elif OWNED_LABEL.fullmatch(f"glaeda-{label}-xcode-0"):
