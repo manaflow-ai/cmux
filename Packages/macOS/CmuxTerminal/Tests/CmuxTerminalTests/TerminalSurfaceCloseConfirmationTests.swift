@@ -135,7 +135,7 @@ private func ghosttyTTYNameCallCount() -> UInt32
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero),
                 runtimeFilesystem: TerminalSurfaceRuntimeFilesystem(
-                    agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+                    agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
                     installAgentCommandShims: { _, _, _ in nil },
                     isExecutableFile: { _ in false }
                 ),

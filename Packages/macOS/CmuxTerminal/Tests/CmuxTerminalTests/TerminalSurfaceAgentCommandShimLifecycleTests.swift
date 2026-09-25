@@ -27,7 +27,7 @@ struct TerminalSurfaceAgentCommandShimLifecycleTests {
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let probe = AgentCommandShimInstallProbe()
         let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: URL(
+            agentCommandShimRootDirectory: URL(
                 fileURLWithPath: "/tmp/cmux-agent-shim-lifecycle-tests",
                 isDirectory: true
             ),
@@ -82,7 +82,7 @@ struct TerminalSurfaceAgentCommandShimLifecycleTests {
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let probe = AgentCommandShimSelectionProbe()
         let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: URL(
+            agentCommandShimRootDirectory: URL(
                 fileURLWithPath: "/tmp/cmux-agent-shim-policy-tests",
                 isDirectory: true
             ),
@@ -145,7 +145,7 @@ struct TerminalSurfaceAgentCommandShimLifecycleTests {
         )
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-unused-manual-shims"),
+            agentCommandShimRootDirectory: URL(fileURLWithPath: "/tmp/cmux-unused-manual-shims"),
             installAgentCommandShims: { _, _, _ in
                 Issue.record("A manual surface has no local child process and must not install command shims")
                 return nil

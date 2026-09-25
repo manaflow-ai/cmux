@@ -2567,7 +2567,7 @@ struct ComputerUseUXTests {
         let shimSet = try #require(TerminalSurface.installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: binDirectory,
             surfaceId: UUID(),
-            temporaryDirectory: shimRoot,
+            rootDirectory: shimRoot,
             computerUseSettingFileURL: settingURL
         ))
         let shim = try #require(shimSet.shims.first { $0.commandName == "claude" })

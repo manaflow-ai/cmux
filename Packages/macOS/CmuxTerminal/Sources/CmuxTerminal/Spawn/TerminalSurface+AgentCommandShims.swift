@@ -11,7 +11,8 @@ extension TerminalSurface {
     /// - Parameters:
     ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
     ///   - surfaceId: The terminal surface that owns the generated shim directory.
-    ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - rootDirectory: The root under which the isolated shim directory is created. The
+    ///     live app supplies a durable per-user cmux state directory; tests may use a temporary root.
     ///   - enabledCommands: Bundled agent commands that should receive a shim.
     ///   - hermesProfileAliasDirectoryURL: The Hermes-owned wrapper directory to inspect for profile aliases.
     ///   - fileManager: The filesystem implementation used for discovery and installation.
@@ -19,7 +20,7 @@ extension TerminalSurface {
     public static func installAgentCommandShimsIfPossible(
         wrapperDirectoryURL: URL?,
         surfaceId: UUID,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        rootDirectory: URL,
         enabledCommands: Set<TerminalSurfaceAgentCommand> = Set(TerminalSurfaceAgentCommand.allCases),
         hermesProfileAliasDirectoryURL: URL? = nil,
         computerUseSettingFileURL: URL? = nil,
@@ -35,7 +36,7 @@ extension TerminalSurface {
         return installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: wrapperDirectoryURL,
             surfaceId: surfaceId,
-            temporaryDirectory: temporaryDirectory,
+            rootDirectory: rootDirectory,
             enabledCommands: enabledCommands,
             hermesProfileAliases: aliases,
             computerUseSettingFileURL: computerUseSettingFileURL,
@@ -51,7 +52,8 @@ extension TerminalSurface {
     /// - Parameters:
     ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
     ///   - surfaceId: The terminal surface that owns the generated shim directory.
-    ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - rootDirectory: The root under which the isolated shim directory is created. The
+    ///     live app supplies a durable per-user cmux state directory; tests may use a temporary root.
     ///   - enabledCommands: Bundled agent commands that should receive a shim.
     ///   - hermesProfileAliasCatalog: The process-owned Hermes alias discovery cache.
     ///   - fileManager: The filesystem implementation used for shim installation.
@@ -59,7 +61,7 @@ extension TerminalSurface {
     public static func installAgentCommandShimsIfPossible(
         wrapperDirectoryURL: URL?,
         surfaceId: UUID,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        rootDirectory: URL,
         enabledCommands: Set<TerminalSurfaceAgentCommand> = Set(TerminalSurfaceAgentCommand.allCases),
         hermesProfileAliasCatalog: HermesProfileAliasCatalog,
         computerUseSettingFileURL: URL? = nil,
@@ -72,7 +74,7 @@ extension TerminalSurface {
         return installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: wrapperDirectoryURL,
             surfaceId: surfaceId,
-            temporaryDirectory: temporaryDirectory,
+            rootDirectory: rootDirectory,
             enabledCommands: enabledCommands,
             hermesProfileAliases: aliases,
             computerUseSettingFileURL: computerUseSettingFileURL,
@@ -87,7 +89,7 @@ extension TerminalSurface {
     private static func installAgentCommandShimsIfPossible(
         wrapperDirectoryURL: URL,
         surfaceId: UUID,
-        temporaryDirectory: URL,
+        rootDirectory: URL,
         enabledCommands: Set<TerminalSurfaceAgentCommand>,
         hermesProfileAliases: [HermesProfileAliasResolver.Alias],
         computerUseSettingFileURL: URL? = nil,
@@ -107,7 +109,7 @@ extension TerminalSurface {
         }
         guard !availableDefinitions.isEmpty else { return nil }
 
-        let shimParentDirectory = temporaryDirectory
+        let shimParentDirectory = rootDirectory
             .appendingPathComponent("cmux-cli-shims", isDirectory: true)
             .standardizedFileURL
         let shimDirectory = shimParentDirectory
