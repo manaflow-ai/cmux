@@ -116,19 +116,24 @@ extension TerminalSurface {
     @MainActor
     func sendTextAfterExplicitInput(
         _ data: Data,
-        recordsExplicitInput: Bool = true
+        recordsExplicitInput: Bool = true,
+        treatsAsPaste: Bool = true
     ) -> TextSendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: data.count,
             replay: { [weak self] in
-                _ = self?.sendTextAfterExplicitInput(data, recordsExplicitInput: recordsExplicitInput)
+                _ = self?.sendTextAfterExplicitInput(
+                    data,
+                    recordsExplicitInput: recordsExplicitInput,
+                    treatsAsPaste: treatsAsPaste
+                )
             }
         ) {
             return .queued
         }
         guard surface != nil else {
             guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
-            let queued = enqueuePendingSocketInput(.pasteText(data))
+            let queued = enqueuePendingSocketInput(treatsAsPaste ? .pasteText(data) : .inputText(data))
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
                 if recordsExplicitInput { didAcceptExplicitInput() }
@@ -139,7 +144,11 @@ extension TerminalSurface {
             return .surfaceUnavailable
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
-        writeTextData(data, to: liveSurface)
+        if treatsAsPaste {
+            writeTextData(data, to: liveSurface)
+        } else {
+            writeInputTextData(data, to: liveSurface)
+        }
         if recordsExplicitInput { didAcceptExplicitInput() }
         return .sent
     }

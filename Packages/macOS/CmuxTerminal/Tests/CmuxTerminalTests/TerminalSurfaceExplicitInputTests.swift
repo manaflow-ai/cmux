@@ -98,7 +98,8 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(fixture.paneHost.explicitInputCount == 1)
     }
 
-    @Test func startupPasteDoesNotRecordUserInputAfterClipboardDeferral() {
+    @Test(arguments: [true, false])
+    func startupPasteDoesNotRecordUserInputAfterClipboardDeferral(treatsAsPaste: Bool) {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
         var acceptedInputCount = 0
@@ -107,7 +108,8 @@ struct TerminalSurfaceExplicitInputTests {
 
         #expect(fixture.surface.sendTextAfterExplicitInput(
             Data(" cmux restore --surface".utf8),
-            recordsExplicitInput: false
+            recordsExplicitInput: false,
+            treatsAsPaste: treatsAsPaste
         ) == .queued)
         #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
         fixture.nativeView.shouldDeferRuntimeInput = false
