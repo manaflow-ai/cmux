@@ -391,9 +391,10 @@ def _release_jobs(jobs: dict[str, str]) -> frozenset[str]:
 MACOS_CLI_LANE_JOBS = frozenset({"cli-product-tests", "macos-compile-admission"})
 
 
-_FULL_LINE_COMMENT_RE = re.compile(r"(?m)^[ \t]*#.*\n?")
+_FULL_LINE_COMMENT_RE = re.compile(r"(?m)^[ \t]*#(?![!{]).*\n?")
 _INPUTS_BLOCK_RE = re.compile(r"(?ms)^  workflow_call:\n    inputs:\n(.*?)(?=^ {0,4}\S)")
-_INPUT_ENTRY_RE = re.compile(r"(?m)^      ([A-Za-z0-9_-]+):[ \t]*\n")
+_INPUT_ENTRY_RE = re.compile(r"(?m)^      ([A-Za-z0-9_-]+):[ \t]*(?:#.*)?\n")
+_INPUT_LEVEL_RE = re.compile(r"(?m)^      \S.*$")
 
 
 def _significant_lines(text: str) -> list[str]:
@@ -411,6 +412,10 @@ def _workflow_call_inputs(preamble: str) -> Optional[tuple[str, dict[str, str]]]
     if match is None:
         return (None, {}) if "inputs:" not in preamble else None
     block = match.group(1)
+    # Every line at an input's indent must open a block-style input; a flow
+    # style or unfamiliar one would pin its edit on the input before it.
+    if any(not _INPUT_ENTRY_RE.fullmatch(line + "\n") for line in _INPUT_LEVEL_RE.findall(block)):
+        return None
     names = _INPUT_ENTRY_RE.findall(block)
     pieces = _INPUT_ENTRY_RE.split(block)
     if pieces[0].strip() or len(names) != len(set(names)):
@@ -488,17 +493,29 @@ def macos_workflow_change_areas(base: str, head: str) -> Optional[ChangeAreas]:
 
 _AREA_NAMES = ("macos", "web", "agent_session_web", "cli", "swift_packages", "release_build")
 _AREA_OUTPUT_RE = re.compile(r"needs\.changes\.outputs\.([A-Za-z0-9_]+)")
+# `changes` outputs the areas do not decide: the Linux guards route by path.
+_SELF_ROUTED_OUTPUTS = frozenset({
+    "linux_guard_tests", "linux_guard_test_groups", "linux_guard_history",
+    "linux_guard_cli", "linux_guard_source",
+})
+# `changes` outputs derived from the macOS area (detect_linux_guard_changes.py
+# sets ghosttykit_release from it; the suite and pool outputs serve macOS).
+_MACOS_DERIVED_OUTPUTS = frozenset({
+    "ghosttykit_release", "full_suite", "unit_suite", "unit_selectors", "unit_strict_steps",
+    "unit_in_admission", "coverage_gap", "compile_admitted", "source_parent1",
+    "macos_pr_runner", "macos_pr_xcode_app", "macos_pr_retry_runner",
+})
 
 
-# Scripts that name CI helpers only as paths to classify, never to run them.
-# A walk that followed them would reach the `changes` job, and so every area,
-# from any helper they list.
+# Scripts that name CI helpers as paths to classify them. Only their imports
+# run a helper; following their path lists would reach the `changes` job, and
+# so every area, from any helper they list.
 _ROUTING_TABLES = frozenset({
     "scripts/ci/detect_ci_change_areas.py",
     "scripts/ci/detect_linux_guard_changes.py",
     "scripts/ci/workflow_guard_groups.py",
 })
-_COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#.*$|[ \t]+#(?![{!]).*$)")
+_COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
 
 
 def _without_comments(text: str) -> str:
@@ -515,9 +532,10 @@ def _names(text: str, token: str) -> bool:
     return bool(re.search(rf"(?<![A-Za-z0-9_-]){re.escape(token)}(?![A-Za-z0-9_-])", _without_comments(text)))
 
 
-def _python_names(text: str, token: str) -> Optional[bool]:
+def _python_names(text: str, token: str, *, imports_only: bool = False) -> Optional[bool]:
     """Whether Python source imports `token` or names it in a string that is not
-    a docstring (a path it runs), or None when it does not parse."""
+    a docstring (a path it runs), or None when it does not parse. A routing
+    table's strings are paths it classifies, so there only imports count."""
     try:
         tree = ast.parse(text)
     except (SyntaxError, ValueError):
@@ -534,7 +552,7 @@ def _python_names(text: str, token: str) -> Optional[bool]:
             return True
         if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[-1] == token:
             return True
-        if (isinstance(node, ast.Constant) and isinstance(node.value, str)
+        if (not imports_only and isinstance(node, ast.Constant) and isinstance(node.value, str)
                 and id(node) not in docstrings and whole_name.search(node.value)):
             return True
     return False
@@ -566,6 +584,9 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
     if not naming:
         return NO_AREAS
     if workflow == MACOS_WORKFLOW_PATH:
+        if "swift-package-tests" in naming:
+            # That lane is chosen by package path, which a helper is not.
+            return None
         return ChangeAreas(
             macos=True, web=False, agent_session_web=False,
             cli=bool(naming & MACOS_CLI_LANE_JOBS), swift_packages=False,
@@ -578,9 +599,23 @@ def _routed_job_areas(workflow: str, text: str, token: str) -> Optional[ChangeAr
         block = jobs[name]
         if (workflow == CI_WORKFLOW_PATH and name in _ROUTING_JOBS) or not job_is_plainly_linux(block):
             return None
-        condition = re.search(r"(?m)^    if:[ \t]*(.*)$", block)
-        read = set(_AREA_OUTPUT_RE.findall(condition.group(1) if condition else ""))
-        selected = selected | ChangeAreas(**{area: area in read for area in _AREA_NAMES})
+        # Gated only by `changes` outputs this can read, anywhere in the job
+        # (its condition, folded or not, and its steps'): a job that waits
+        # on another job may be skipped by more than it says, so it runs
+        # every area.
+        needs = re.search(r"(?m)^    needs:[ \t]*(.*)$", block)
+        needed = set(re.findall(r"[A-Za-z0-9_-]+", needs.group(1))) if needs else set()
+        if needs and not needed:
+            needed = set(re.findall(r"(?m)^      - ([A-Za-z0-9_-]+)[ \t]*$", block))
+        if needed - {"changes", "static-preflight"}:
+            return None
+        read = set(_AREA_OUTPUT_RE.findall(block))
+        areas = {output for output in read if output in _AREA_NAMES}
+        for output in read - areas - _SELF_ROUTED_OUTPUTS:
+            if output not in _MACOS_DERIVED_OUTPUTS:
+                return None
+            areas.add("macos")
+        selected = selected | ChangeAreas(**{area: area in areas for area in _AREA_NAMES})
     return selected
 
 
@@ -595,14 +630,15 @@ def ci_helper_areas(
     for every area.
 
     Walks back from the helper through every tracked file that runs it: a
-    script or composite action is followed in turn, a workflow outside ci.yml's
-    call tree, a Linux-only guard test, documentation, and the routing tables
-    that only list it are dead ends. Comments and Python docstrings do not
+    script or composite action is followed in turn; a workflow outside ci.yml's
+    call tree, a Linux-only guard test and documentation are dead ends.
+    Comments, Python docstrings and the routing tables' path lists do not
     count as running it. A routed workflow that names the helper (or a script
     or action that runs it) selects only the areas gating the jobs that name
-    it, per _routed_job_areas(). A helper no routed job reaches selects none. Anything the walk cannot place (app
-    sources, a test that runs on a Mac, a read failure, a helper nothing
-    names) answers None, as before, and appends the reason to `why`.
+    it, per _routed_job_areas(). A helper no routed job reaches selects none.
+    Anything the walk cannot place (app sources, a test that runs on a Mac, a
+    read failure, a helper nothing names) answers None, as before, and appends
+    the reason to `why`.
     """
     def every_area(reason: str) -> None:
         if why is not None:
@@ -648,14 +684,17 @@ def ci_helper_areas(
             referenced = True
             if referrer.endswith(_DOCUMENTATION_SUFFIXES) or referrer.startswith(".github/workflows/"):
                 continue
-            if referrer in _ROUTING_TABLES or referrer == ".gitattributes":
+            if referrer == ".gitattributes":
                 continue
             if referrer.startswith(("scripts/", ".github/actions/")):
                 try:
                     text = (root / referrer).read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     return every_area(f"could not read {referrer}")
-                named = _python_names(text, token) if referrer.endswith(".py") else None
+                named = (
+                    _python_names(text, token, imports_only=referrer in _ROUTING_TABLES)
+                    if referrer.endswith(".py") else None
+                )
                 if named is False or (named is None and not _names(text, token)):
                     continue
             if referrer.startswith(".github/actions/") and referrer.endswith(("/action.yml", "/action.yaml")):
@@ -1853,8 +1892,6 @@ def classify_files(paths: Iterable[str], *,
                 agent_session_web = agent_session_web or helper_areas.agent_session_web
                 cli = cli or helper_areas.cli
                 release_build = release_build or helper_areas.release_build
-                if helper_areas.swift_packages:
-                    swift_package_candidates.append(path)
                 continue
         if forces_all_areas(path):
             macos = True

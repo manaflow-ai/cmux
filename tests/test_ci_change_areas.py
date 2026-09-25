@@ -1707,6 +1707,25 @@ def test_macos_workflow_input_edits_reach_only_the_jobs_that_read_them() -> None
     assert change_areas(real, real.replace("permissions:\n  contents: read", "permissions:\n  contents: write", 1)) is None
 
 
+def test_macos_workflow_input_parsing_refuses_what_it_cannot_split() -> None:
+    real = MACOS_WORKFLOW.read_text(encoding="utf-8")
+    change_areas = module.macos_workflow_change_areas
+    entry = "      unit_in_admission:\n        required: false\n        default: \"\"\n        type: string\n"
+    assert entry in real
+    # A trailing comment still names the input it opens.
+    commented = real.replace(entry, entry.replace("unit_in_admission:", "unit_in_admission: # set by choose_ci_suite.py"), 1)
+    edited = commented.replace(
+        "unit_in_admission: # set by choose_ci_suite.py\n        required: false\n        default: \"\"",
+        "unit_in_admission: # set by choose_ci_suite.py\n        required: false\n        default: \"true\"", 1,
+    )
+    assert commented != edited
+    assert change_areas(commented, edited) == change_areas(real, real.replace(entry, entry.replace('default: ""', 'default: "true"'), 1))
+    assert change_areas(commented, edited).cli
+    # A flow-style input cannot be split, so every job runs.
+    flow = real.replace(entry, entry + '      release_flavor: {type: string, required: false, default: "a"}\n', 1)
+    assert change_areas(flow, flow.replace('default: "a"}', 'default: "b"}')) is None
+
+
 def test_macos_workflow_release_feeders_are_derived_from_outputs() -> None:
     base = (
         "name: M\non: workflow_call\njobs:\n"
@@ -2591,6 +2610,47 @@ def test_helper_named_only_in_comments_docstrings_or_routing_tables_is_not_run()
         ".github/workflows/ci.yml": table,
         "scripts/ci/detect_ci_change_areas.py": 'OWNED = {"scripts/ci/helper.py"}\n',
     }) == areas()
+
+
+def test_helper_in_a_linux_job_gated_beyond_its_if_fails_open() -> None:
+    ci = ROUTED_TREE[".github/workflows/ci.yml"]
+    step = "    steps:\n      - run: python3 scripts/ci/helper.py\n"
+    # Waits on another job, which an area may skip.
+    assert helper_areas({".github/workflows/ci.yml": ci + "  late:\n    needs: [changes, linux-preflight]\n    runs-on: ubuntu-latest\n" + step}) is None
+    assert helper_areas({".github/workflows/ci.yml": ci + "  late:\n    needs:\n      - changes\n      - linux-preflight\n    runs-on: ubuntu-latest\n" + step}) is None
+    # A folded condition is read whole.
+    folded = "  lint:\n    if: >-\n      needs.changes.outputs.web == 'true'\n    runs-on: ubuntu-latest\n" + step
+    assert helper_areas({".github/workflows/ci.yml": ci + folded}) == areas(web=True)
+    # A step condition counts, and so does an output derived from macOS.
+    stepped = "  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - if: ${{ needs.changes.outputs.web == 'true' }}\n        run: python3 scripts/ci/helper.py\n"
+    assert helper_areas({".github/workflows/ci.yml": ci + stepped}) == areas(web=True)
+    derived = "  pin:\n    if: ${{ needs.changes.outputs.ghosttykit_release == 'true' }}\n    runs-on: ubuntu-latest\n" + step
+    assert helper_areas({".github/workflows/ci.yml": ci + derived}) == areas(macos=True)
+    # An output this cannot place runs every area.
+    unknown = "  other:\n    if: ${{ needs.changes.outputs.browser == 'true' }}\n    runs-on: ubuntu-latest\n" + step
+    assert helper_areas({".github/workflows/ci.yml": ci + unknown}) is None
+
+
+def test_helper_the_swift_package_lane_runs_fails_open() -> None:
+    macos = {
+        ".github/workflows/ci.yml": ROUTED_TREE[".github/workflows/ci.yml"] + "  macos:\n    uses: ./.github/workflows/ci-macos.yml\n",
+        ".github/workflows/ci-macos.yml": "on: workflow_call\njobs:\n  swift-package-tests:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/helper.py\n",
+    }
+    assert helper_areas(macos) is None
+
+
+def test_routing_tables_still_run_what_they_import() -> None:
+    table = ROUTED_TREE[".github/workflows/ci.yml"] + "  mac:\n    runs-on: macos-15\n    steps:\n      - run: python3 scripts/ci/workflow_guard_groups.py\n"
+    listed = {".github/workflows/ci.yml": table, "scripts/ci/workflow_guard_groups.py": 'GROUPS = {"scripts/ci/helper.py": "ci"}\n'}
+    assert helper_areas(listed) == areas()
+    imported = {".github/workflows/ci.yml": table, "scripts/ci/workflow_guard_groups.py": "import helper\n"}
+    assert helper_areas(imported) is None
+
+
+def test_a_shebang_in_a_script_is_not_a_comment() -> None:
+    assert module._names("#!/usr/bin/env helper\n", "helper")
+    assert not module._names("# helper later\n", "helper")
+    assert module._FULL_LINE_COMMENT_RE.sub("", "#!/bin/sh\n# note\n") == "#!/bin/sh\n"
 
 
 def test_a_pull_request_cannot_unroute_a_workflow_by_editing_ci_yml() -> None:
