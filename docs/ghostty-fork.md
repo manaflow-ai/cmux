@@ -20,9 +20,11 @@ When we change the fork, update this document and the parent submodule SHA.
   size a primary face without an ideograph metric against its full two-cell
   terminal span. This prevents Hangul glyphs selected through CoreText fallback
   from leaving a gap before the next terminal cell.
-- Verification: the Ghostty `Collection` regression test
-  `ideograph fallback sizing fills two primary cells` fails before
-  `0068ece73` and passes after it.
+- Coverage: the Ghostty `Collection` regression test
+  `ideograph fallback sizing fills two primary cells` asserts that an
+  8-pixel fallback ideograph fills two 7-pixel primary cells. Hosted execution
+  of this regression is pending; the published GhosttyKit build only ran
+  the separate OS opener regression.
 - Conflict note: preserve the distinction between `icWidth()` for a face's
   measured or conservative fallback metric and `fallbackIcWidth()` for the
   primary terminal grid's missing-ideograph target.
