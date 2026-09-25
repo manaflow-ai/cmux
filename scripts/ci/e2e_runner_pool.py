@@ -133,13 +133,15 @@ def enabled(value: str | None) -> bool:
 
 
 def settings(order: str | None, max_queued: str | None, owned: str | None = None,
-             pr_xcode_app: str | None = None) -> pr_runner_pool.Settings | None:
+             pr_xcode_app: str | None = None, queue_rounds: str | None = None) -> pr_runner_pool.Settings | None:
     """Pull request CI's order and threshold; None when either is invalid.
 
     Owned pools stay in the order only when `owned` is "1", and only for the
-    lane's Xcode pin, exactly as for pull requests.
+    lane's Xcode pin, exactly as for pull requests. `queue_rounds` is
+    CI_PR_POOL_QUEUE_ROUNDS for a caller that reads it (ios_runner_pool.py);
+    None, as E2E passes, means no rounds (pr_runner_pool.settings()).
     """
-    return pr_runner_pool.settings(None, order, max_queued, owned, pr_xcode_app)
+    return pr_runner_pool.settings(None, order, max_queued, owned, pr_xcode_app, queue_rounds)
 
 
 def e2e_pool(label: str) -> bool:
