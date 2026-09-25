@@ -233,12 +233,12 @@ jobs:
             # fails outright on it, which under set -o pipefail ended this
             # step with no output at all. The bytes are identical, and the
             # link below still resolves against the framework.
+            # nm exits non-zero when any archive member carries no symbols,
+            # which is normal here, so its status says nothing about whether
+            # the read worked. The extracted symbol count below is the real
+            # check.
             local symbols
-            if ! symbols="$(nm -g "$archive" 2>&1)"; then
-              echo "::error::nm could not read $archive:" >&2
-              printf '%s\n' "$symbols" | head -5 >&2
-              exit 1
-            fi
+            symbols="$(nm -g "$archive" 2>/dev/null || true)"
             {
               echo '#include <CmuxTerminalClientFFI/cmux_terminal_client.h>'
               echo '#include <stdio.h>'
@@ -254,7 +254,7 @@ jobs:
             echo "$slice: $count exported symbols referenced"
             if [[ "$count" -lt 1 ]]; then
               echo "::error::$slice exports no _cmux_ text symbols to reference; nm reported:" >&2
-              printf '%s\n' "$symbols" | head -5 >&2
+              head -5 <<<"$symbols" >&2
               exit 1
             fi
             xcrun --sdk "$sdk" clang -target "$triple" \
