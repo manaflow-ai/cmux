@@ -372,6 +372,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_receipt.py
 
+      - name: Validate main full-suite failure reruns and bisects
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_main_regression_bisect.py
+
       - name: Validate CI queue janitor policy
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
