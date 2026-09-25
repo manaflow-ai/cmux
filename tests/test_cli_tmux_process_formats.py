@@ -83,12 +83,14 @@ def wait_for_sleep(master: int, shell_pid: int) -> int:
             os.read(master, 8192)
         pid = os.tcgetpgrp(master)
         if pid != shell_pid:
-            command = subprocess.run(
-                ["/bin/ps", "-p", str(pid), "-o", "comm="],
+            processes = subprocess.run(
+                ["/bin/ps", "-g", str(pid), "-o", "pid=,comm="],
                 capture_output=True, text=True, timeout=5,
             ).stdout.strip()
-            if Path(command).name == "sleep":
-                return pid
+            for row in processes.splitlines():
+                process_id, command = row.strip().split(None, 1)
+                if Path(command).name == "sleep":
+                    return int(process_id)
         time.sleep(0.01)
     raise AssertionError("shell did not exec the foreground sleep job")
 
@@ -137,6 +139,11 @@ def main() -> None:
                     os.write(master, b"printf 'PROCESS_RETURNED\\n'\n")
                     read_until(master, rb"\r\nPROCESS_RETURNED\r\n")
                     check("display-message", "zsh")
+                    os.write(master, b"true | sleep 30\n")
+                    pipeline_pid = wait_for_sleep(master, pid)
+                    check("display-message", "sleep")
+                    check("list-panes", "sleep")
+                    os.kill(pipeline_pid, signal.SIGTERM)
                 finally:
                     server.shutdown()
                     thread.join(timeout=5)

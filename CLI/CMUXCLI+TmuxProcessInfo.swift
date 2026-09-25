@@ -23,12 +23,12 @@ extension CMUXCLI {
     func tmuxEnrichContextWithProcessInfo(_ context: inout [String: String], surface: [String: Any]) {
         guard let tty = surface["tty"] as? String, tty.hasPrefix("/dev/") else { return }
         context["pane_tty"] = tty
-        guard let foregroundPID = intFromAny(surface["foreground_pid"]),
-              let foreground = tmuxProcessInfo(pid: foregroundPID) else { return }
-
         var device = stat()
         guard stat(tty, &device) == 0,
-              foreground.e_tdev == UInt32(bitPattern: device.st_rdev) else { return }
+              let groupID = intFromAny(surface["foreground_pid"]),
+              let foreground = tmuxForegroundProcessInfo(
+                groupID: groupID, device: UInt32(bitPattern: device.st_rdev)
+              ) else { return }
 
         // tmux's pane_pid is the initial process, not the foreground job. Walk
         // only this PTY's ancestry so a nested shell or pipeline cannot change it.
@@ -45,13 +45,31 @@ extension CMUXCLI {
         context["pane_dead"] = "0"
 
         var name = [CChar](repeating: 0, count: 1024)
-        let length = proc_name(Int32(foregroundPID), &name, UInt32(name.count))
+        let length = proc_name(Int32(foreground.pbi_pid), &name, UInt32(name.count))
         if length > 0 {
             let command = String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
             if !command.isEmpty {
                 context["pane_current_command"] = (command as NSString).lastPathComponent
             }
         }
+    }
+
+    /// A pipeline can outlive its process-group leader (for example `true | sleep 30`).
+    private func tmuxForegroundProcessInfo(groupID: Int, device: UInt32) -> proc_bsdinfo? {
+        guard let group = UInt32(exactly: groupID), group > 0 else { return nil }
+        if let leader = tmuxProcessInfo(pid: groupID),
+           leader.e_tdev == device, leader.pbi_status != UInt32(SZOMB) {
+            return leader
+        }
+        let size = proc_listpids(UInt32(PROC_PGRP_ONLY), group, nil, 0)
+        guard size > 0 else { return nil }
+        var pids = [Int32](repeating: 0, count: Int(size) / MemoryLayout<Int32>.size + 16)
+        let capacity = Int32(pids.count * MemoryLayout<Int32>.size)
+        let bytes = proc_listpids(UInt32(PROC_PGRP_ONLY), group, &pids, capacity)
+        guard bytes > 0 else { return nil }
+        return pids.prefix(Int(bytes) / MemoryLayout<Int32>.size).lazy
+            .compactMap { tmuxProcessInfo(pid: Int($0)) }
+            .first { $0.pbi_pgid == group && $0.e_tdev == device && $0.pbi_status != UInt32(SZOMB) }
     }
 
     private func tmuxProcessInfo(pid: Int) -> proc_bsdinfo? {
