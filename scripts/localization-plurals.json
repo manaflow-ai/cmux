@@ -703,5 +703,29 @@
     "arguments": [
       1
     ]
+  },
+  "projectBuildSettings.settingsCount": {
+    "source": "%d settings",
+    "arguments": [
+      1
+    ]
+  },
+  "projectTargets.detail.configurations": {
+    "source": "%d configurations",
+    "arguments": [
+      1
+    ]
+  },
+  "projectTargets.detail.targetOverrides": {
+    "source": "%d target overrides",
+    "arguments": [
+      1
+    ]
+  },
+  "projectTargets.metadata.dependencies": {
+    "source": "deps: %d",
+    "arguments": [
+      1
+    ]
   }
 }

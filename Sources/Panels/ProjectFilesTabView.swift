@@ -44,7 +44,10 @@ struct ProjectFilesTabView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("Filter files (e.g. AppDelegate)", text: $panel.filesSearchText)
+            TextField(
+                String(localized: "projectFiles.filter.placeholder", defaultValue: "Filter files (e.g. AppDelegate)"),
+                text: $panel.filesSearchText
+            )
                 .textFieldStyle(.plain)
                 .cmuxFont(size: 12)
             if !panel.filesSearchText.isEmpty {
@@ -204,12 +207,12 @@ struct ProjectFilesTabView: View {
         if let path = panel.selectedFilePath,
            let file = findFile(byPath: path),
            let module = findModule(forFilePath: path) {
-            ProjectFilesDetailStrip(file: file, module: module)
+            ProjectFilesDetailStrip(file: file, module: module, panel: panel)
         } else {
             ProjectEmptyDetailView(
                 systemImage: "doc.text.magnifyingglass",
-                title: "Select a file",
-                hint: "Pick any file in the tree to see its target memberships and on-disk path."
+                title: String(localized: "projectFiles.empty.title", defaultValue: "Select a file"),
+                hint: String(localized: "projectFiles.empty.hint", defaultValue: "Pick any file in the tree to see its target memberships and on-disk path.")
             )
         }
     }
@@ -375,6 +378,7 @@ private struct ProjectFilesFileRow: View {
 private struct ProjectFilesDetailStrip: View {
     let file: ProjectFileNode
     let module: ProjectModule
+    let panel: ProjectPanel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -385,15 +389,20 @@ private struct ProjectFilesDetailStrip: View {
                 Spacer()
             }
             if let path = file.resolvedPath?.path {
-                row(label: "Path", value: path)
+                row(label: String(localized: "projectFiles.detail.path", defaultValue: "Path"), value: path)
             }
             if let type = file.fileType {
-                row(label: "Type", value: type)
+                row(label: String(localized: "projectFiles.detail.type", defaultValue: "Type"), value: type)
             }
-            row(label: "On disk", value: file.existsOnDisk ? "Yes" : "Missing")
+            row(
+                label: String(localized: "projectFiles.detail.onDisk", defaultValue: "On disk"),
+                value: file.existsOnDisk
+                    ? String(localized: "projectFiles.detail.yes", defaultValue: "Yes")
+                    : String(localized: "projectFiles.detail.missing", defaultValue: "Missing")
+            )
             if !file.memberships.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Targets")
+                    Text(String(localized: "projectFiles.detail.targets", defaultValue: "Targets"))
                         .cmuxFont(size: 11, weight: .semibold)
                         .foregroundStyle(.secondary)
                     ForEach(file.memberships, id: \.targetID) { membership in
@@ -428,11 +437,17 @@ private struct ProjectFilesDetailStrip: View {
                 .foregroundStyle(Color.accentColor)
             Text(target?.displayName ?? String(membership.targetID.rawValue.prefix(8)))
                 .cmuxFont(size: 12)
-            Text("· \(membership.role.rawValue)")
+            Text(String.localizedStringWithFormat(
+                String(localized: "projectFiles.membership.roleFormat", defaultValue: "· %@"),
+                panel.membershipRoleLabel(membership.role)
+            ))
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
             if !membership.compilerFlags.isEmpty {
-                Text("flags: \(membership.compilerFlags.joined(separator: " "))")
+                Text(String.localizedStringWithFormat(
+                    String(localized: "projectFiles.membership.flags", defaultValue: "flags: %@"),
+                    membership.compilerFlags.joined(separator: " ")
+                ))
                     .cmuxFont(size: 10, design: .monospaced)
                     .foregroundStyle(.secondary)
             }

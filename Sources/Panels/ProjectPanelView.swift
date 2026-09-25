@@ -44,13 +44,16 @@ struct ProjectPanelView: View {
                         .cmuxFont(size: 11, weight: .semibold)
                 }
                 .buttonStyle(.plain)
-                .help("Reload project")
+                .help(String(localized: "projectPanel.button.reloadProject", defaultValue: "Reload project"))
             }
             if let error = panel.lastLoadError, case .loaded = panel.loadState {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .cmuxFont(size: 10)
-                    Text("Reload returned errors: \(error)")
+                    Text(String.localizedStringWithFormat(
+                        String(localized: "projectPanel.status.reloadError", defaultValue: "Reload returned errors: %@"),
+                        error
+                    ))
                         .cmuxFont(size: 10)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -105,7 +108,7 @@ struct ProjectPanelView: View {
         let schemes = allSchemes
         if !schemes.isEmpty {
             Picker(
-                "Scheme",
+                String(localized: "projectPanel.picker.scheme", defaultValue: "Scheme"),
                 selection: Binding(
                     get: { panel.selectedSchemeName ?? schemes.first?.name ?? "" },
                     set: { panel.selectedSchemeName = $0 }
@@ -125,7 +128,7 @@ struct ProjectPanelView: View {
         let names = allConfigurationNames
         if !names.isEmpty {
             Picker(
-                "Configuration",
+                String(localized: "projectPanel.picker.configuration", defaultValue: "Configuration"),
                 selection: Binding(
                     get: { panel.selectedConfigurationName ?? names.first ?? "" },
                     set: { panel.selectedConfigurationName = $0 }
@@ -172,9 +175,15 @@ struct ProjectPanelView: View {
     private var content: some View {
         switch panel.loadState {
         case .idle, .loading:
-            ProjectPanelStatusView(message: "Loading \(panel.displayTitle)")
+            ProjectPanelStatusView(message: String.localizedStringWithFormat(
+                String(localized: "projectPanel.status.loading", defaultValue: "Loading %@"),
+                panel.displayTitle
+            ))
         case let .failed(reason):
-            ProjectPanelStatusView(message: "Failed: \(reason)")
+            ProjectPanelStatusView(message: String.localizedStringWithFormat(
+                String(localized: "projectPanel.status.failed", defaultValue: "Failed: %@"),
+                reason
+            ))
         case let .loaded(model):
             tabContent(for: model)
         }

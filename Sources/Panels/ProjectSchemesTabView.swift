@@ -133,7 +133,11 @@ struct ProjectSchemesTabView: View {
                                 .cmuxFont(size: 11, weight: .semibold)
                                 .foregroundStyle(.secondary)
                             ForEach(selected.scheme.environmentVariables.sorted(by: { $0.key < $1.key }), id: \.key) { entry in
-                                Text("\(entry.key) = \(entry.value)")
+                                Text(String.localizedStringWithFormat(
+                                    String(localized: "projectSchemes.detail.environmentEntry", defaultValue: "%@ = %@"),
+                                    entry.key,
+                                    entry.value
+                                ))
                                     .cmuxFont(size: 11, design: .monospaced)
                                     .textSelection(.enabled)
                             }
