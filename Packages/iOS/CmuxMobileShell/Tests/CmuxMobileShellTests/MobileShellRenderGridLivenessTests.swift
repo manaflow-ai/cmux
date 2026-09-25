@@ -212,6 +212,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing primary render-grid delivery"
     )
@@ -235,6 +236,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing alternate render-grid delivery"
     )
@@ -277,6 +279,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing stale alternate suppression"
     )
@@ -313,6 +316,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing alternate-to-primary restore"
     )
@@ -348,6 +352,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing primary-delta recovery"
     )
@@ -411,6 +416,7 @@ import Testing
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing empty primary-delta recovery"
     )
@@ -498,6 +504,7 @@ import Testing
     #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing healthy idle liveness"
     )
@@ -780,6 +787,7 @@ import Testing
     #expect(sawMountReplay, "mounting a sink arms exactly one cold-attach replay")
     try await waitForReplayResponsesServed(
         1,
+        store: store,
         router: router,
         "the cold replay response must settle before testing repaired subscription replay"
     )
