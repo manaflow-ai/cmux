@@ -39,7 +39,6 @@ extension Backport where Content: View {
 private struct BackportPointerStyleModifier: ViewModifier {
     let style: BackportPointerStyle?
     @Environment(\.isEnabled) private var isEnabled
-    @State private var ownsFallbackCursor = false
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -51,22 +50,9 @@ private struct BackportPointerStyleModifier: ViewModifier {
         if #available(macOS 15, *) {
             content.pointerStyle(effectiveStyle?.official)
         } else {
-            content.onHover { isHovering in
-                if effectiveStyle == .link, isHovering {
-                    guard !ownsFallbackCursor else { return }
-                    NSCursor.pointingHand.push()
-                    ownsFallbackCursor = true
-                } else if ownsFallbackCursor {
-                    NSCursor.pop()
-                    ownsFallbackCursor = false
-                } else if isHovering {
-                    NSCursor.arrow.set()
-                }
-            }
-            .onDisappear {
-                guard ownsFallbackCursor else { return }
-                NSCursor.pop()
-                ownsFallbackCursor = false
+            content.overlay {
+                BackportCursorRectView(style: effectiveStyle)
+                    .allowsHitTesting(false)
             }
         }
         #else
@@ -74,6 +60,56 @@ private struct BackportPointerStyleModifier: ViewModifier {
         #endif
     }
 }
+
+#if canImport(AppKit)
+private struct BackportCursorRectView: NSViewRepresentable {
+    let style: BackportPointerStyle?
+
+    func makeNSView(context: Context) -> BackportCursorRectNSView {
+        BackportCursorRectNSView(style: style)
+    }
+
+    func updateNSView(_ nsView: BackportCursorRectNSView, context: Context) {
+        nsView.style = style
+        nsView.window?.invalidateCursorRects(for: nsView)
+    }
+}
+
+private final class BackportCursorRectNSView: NSView {
+    var style: BackportPointerStyle? {
+        didSet {
+            guard oldValue != style else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    init(style: BackportPointerStyle?) {
+        self.style = style
+        super.init(frame: .zero)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        switch style {
+        case .link:
+            addCursorRect(bounds, cursor: .pointingHand)
+        case .default:
+            addCursorRect(bounds, cursor: .arrow)
+        default:
+            break
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+#endif
 
 extension Backport where Content: View {
     /// Backported onKeyPress that works on macOS 14+ and is a no-op on macOS 13.

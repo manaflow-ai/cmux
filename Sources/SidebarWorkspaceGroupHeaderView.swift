@@ -147,6 +147,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
                 .onTapGesture { actions.onToggleCollapsed() }
+                .backport.pointerStyle(.link)
                 .accessibilityAddTraits(.isButton)
                 .accessibilityLabel(
                     Text(
@@ -188,6 +189,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             .onTapGesture {
                 actions.onFocusAnchor(NSApp.currentEvent?.modifierFlags ?? [])
             }
+            .backport.pointerStyle(.link)
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(Text(name))
             .accessibilityHint(Text(String(

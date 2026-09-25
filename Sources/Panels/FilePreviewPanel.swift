@@ -2043,6 +2043,7 @@ private struct FilePreviewPDFSidebarChromeView: View {
             }
             .frame(width: 58, height: 36)
             .contentShape(Capsule())
+            .backport.pointerStyle(.link)
         }
     }
 
@@ -2150,6 +2151,7 @@ private struct FilePreviewChromeSidebarMenuLabel: View {
         .onHover { hovering in
             isHovered = hovering
         }
+        .backport.pointerStyle(.link)
     }
 }
 

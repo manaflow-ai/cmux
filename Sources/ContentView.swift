@@ -17010,6 +17010,7 @@ private struct SidebarMetadataEntryRow: View {
                 rowContent(underlined: false)
                     .contentShape(Rectangle())
                     .onTapGesture { onFocus() }
+                    .backport.pointerStyle(.link)
             }
         }
     }
@@ -17180,6 +17181,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
         .onTapGesture { onFocus() }
+        .backport.pointerStyle(.link)
     }
 
     private var foregroundColor: Color {

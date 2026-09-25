@@ -236,6 +236,7 @@ private struct BrowserDownloadRow: View {
                 onOpen(record)
             }
         }
+        .backport.pointerStyle(record.state == .saved ? .link : .default)
         .modifier(BrowserDownloadDragModifier(record: record))
     }
 
