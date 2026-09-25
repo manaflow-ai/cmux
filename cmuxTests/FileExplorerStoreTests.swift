@@ -187,6 +187,39 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testDirectoryNavigationTracksRelativePathsAndHistory() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/project"] = .success([
+            FileExplorerEntry(name: "src", path: "/home/user/project/src", isDirectory: true),
+        ])
+        provider.listings["/home/user/project/src"] = .success([
+            FileExplorerEntry(name: "main.swift", path: "/home/user/project/src/main.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        try await waitFor("project root loaded") { store.rootPath == "/home/user/project" && !store.isRootLoading }
+
+        store.navigate(to: "src")
+        try await waitFor("src loaded") { store.rootPath == "/home/user/project/src" && !store.isRootLoading }
+        #expect(store.canNavigateBack)
+        #expect(!store.canNavigateForward)
+
+        store.navigateBack()
+        try await waitFor("project root restored") { store.rootPath == "/home/user/project" && !store.isRootLoading }
+        #expect(!store.canNavigateBack)
+        #expect(store.canNavigateForward)
+
+        store.navigateForward()
+        try await waitFor("src restored") { store.rootPath == "/home/user/project/src" && !store.isRootLoading }
+        #expect(store.rootPath == "/home/user/project/src")
+
+        store.navigateToParent()
+        try await waitFor("parent directory restored") { store.rootPath == "/home/user/project" && !store.isRootLoading }
+    }
+
+    @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()
