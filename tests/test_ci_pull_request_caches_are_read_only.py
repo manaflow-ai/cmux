@@ -63,6 +63,7 @@ def main() -> int:
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
         if path.name == "nightly.yml":
             continue
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, step in cache_steps(path.name):
             key, cache_path = step["with"]["key"], step["with"]["path"]
             if not (key.startswith("spm-") and cache_path == ".ci-source-packages"):
@@ -71,8 +72,13 @@ def main() -> int:
                 failures.append(f"{path.name} {job_name}: '{step.get('name')}' saves '{cache_path}' under an `spm-` key; restore only and let nightly.yml seed it")
             elif (key, cache_path) not in seeded:
                 failures.append(f"{path.name} {job_name}: no nightly.yml job saves key '{key}' with path '{cache_path}', so this restore can never hit")
-            elif not step["uses"].startswith("./.github/actions/cache-restore"):
-                failures.append(f"{path.name} {job_name}: '{step.get('name')}' reads the GitHub store, which nightly.yml does not seed; use ./.github/actions/cache-restore")
+            elif not step["uses"].startswith("./.github/actions/cache-restore") or not (step["with"].get("backend") == "r2" or str(step["with"].get("backend", "")).endswith("|| 'r2' }}")):
+                failures.append(f"{path.name} {job_name}: '{step.get('name')}' must read the R2 store nightly.yml seeds: ./.github/actions/cache-restore with an r2 backend")
+            else:
+                # r2-cache.sh treats a missing public URL as a miss, silently.
+                scopes = (step.get("env"), workflow["jobs"][job_name].get("env"), workflow.get("env"))
+                if not any("CI_CACHE_R2_PUBLIC_URL" in (scope or {}) for scope in scopes):
+                    failures.append(f"{path.name} {job_name}: '{step.get('name')}' has no CI_CACHE_R2_PUBLIC_URL, so its R2 restore always misses")
 
     # The wrappers pick one store per call. Exactly one branch may run, the
     # provider branch only on its own runners, and upstream actions stay pinned.

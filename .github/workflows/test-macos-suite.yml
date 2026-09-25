@@ -217,6 +217,8 @@ jobs:
 
       - name: Restore Swift packages
         continue-on-error: true
+        env:
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
