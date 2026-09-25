@@ -3,8 +3,12 @@ import CmuxTerminalCore
 import GhosttyKit
 
 extension GhosttyNSView {
-    /// Adds "Reveal in Finder" when the selection, the hovered link, or the
+    /// Adds "Reveal in Finder" when the hovered link, the selection, or the
     /// word under the pointer names an existing local file.
+    ///
+    /// The hovered link goes first: Ghostty's right-click press has already
+    /// replaced the selection with the text under the pointer, and for an
+    /// OSC 8 hyperlink that visible text can differ from the link target.
     ///
     /// Candidates resolve through ``TerminalPathResolver`` against the
     /// surface's working directory, the same way cmd-click resolves paths.
@@ -56,7 +60,7 @@ extension GhosttyNSView {
             ? nil
             : terminalSurface.hostedView.linkHoverIndicatorView.url
         if let path = TerminalPathResolver().resolveRevealPath(
-            candidates: [selection, hoveredLink],
+            candidates: [hoveredLink, selection],
             cwd: cwd
         ) {
             return path

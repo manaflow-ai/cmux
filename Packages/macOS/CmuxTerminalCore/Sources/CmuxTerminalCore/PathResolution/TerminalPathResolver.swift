@@ -163,8 +163,8 @@ public struct TerminalPathResolver: Sendable {
     /// Resolves the first candidate text that names an existing local file.
     ///
     /// Backs the terminal context menu's "Reveal in Finder" item. Callers pass
-    /// candidates in priority order (for example the selection, then the
-    /// hovered link, then the word under the pointer); `nil` and blank
+    /// candidates in priority order (for example the hovered link, then the
+    /// selection); `nil` and blank
     /// entries are skipped. Each candidate goes through
     /// ``resolveOpenURLFileReference(_:cwd:)``, so absolute, `~`, relative,
     /// `file://`, and `path:line[:column]` spellings all resolve the same way
