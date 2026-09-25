@@ -1349,19 +1349,21 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      # Global search owns a seventh consumer because its serialized container
-      # takes about eight minutes; it skips the broad batches entirely. The
-      # remaining strict groups share workers with broad batches, so reserve
-      # their measured wall time when packing those six workers.
+      # Strict groups share workers with the broad batches, so each worker
+      # that runs one reserves that group's measured wall time (median step
+      # time over 24 hours of green runs) when the batches are packed. Global
+      # search once took about eight minutes and had worker 7 to itself; it
+      # now takes about 90 seconds, so worker 7 runs broad batches too.
       CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"
       CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
       CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
-      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=235 5=213 6=235"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=226 5=110 6=210 7=90"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
-      # selectors. Six-way packing keeps each broad shard near 13 minutes of
-      # measured work; allow focused gates and one app-host restart headroom.
+      # selectors. Seven workers of two batches each keep a batch near three
+      # minutes of measured work; allow focused gates and one app-host restart
+      # headroom.
       CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
       # The broad shard can spend several minutes in XCTest's post-suite
       # teardown while native UI processes drain. Allow that quiet period
@@ -2064,7 +2066,6 @@ jobs:
           done
 
       - name: Run unit tests
-        if: ${{ matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
         run: scripts/ci/run-app-host-unit-batches.sh
 
       - name: Run bundled Ghostty theme picker helper regression
