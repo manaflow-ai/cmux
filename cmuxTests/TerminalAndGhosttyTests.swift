@@ -3052,7 +3052,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         override var acceptsFirstResponder: Bool { true }
     }
 
-    private func makeWindow() -> NSWindow {
+    func makeWindow() -> NSWindow {
         let window = KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable],
@@ -3107,7 +3107,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             .first
     }
 
-    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
+    func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while ProcessInfo.processInfo.systemUptime < deadline {
             if condition() {
@@ -3118,7 +3118,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         return condition()
     }
 
-    private func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
+    func drainMainQueue(timeout: TimeInterval = 1.0, file: StaticString = #filePath, line: UInt = #line) {
         var drained = false
         DispatchQueue.main.async {
             drained = true
@@ -3126,7 +3126,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: timeout) { drained }, "Expected main queue to drain", file: file, line: line)
     }
 
-    private func waitForRuntimeSurface(
+    func waitForRuntimeSurface(
         _ surface: TerminalSurface,
         timeout: TimeInterval = 5.0,
         file: StaticString = #filePath,
@@ -3676,96 +3676,6 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         throw XCTSkip("Debug-only regression test")
 #endif
     }
-
-    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
-#if DEBUG
-        try assertInactiveVisibilityRestoreRefreshCount(
-            presentedFrameBeforeReveal: false,
-            expected: 1,
-            "Restoring a portal whose renderer never presented a frame should force a redraw even when focus recovery is inactive"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
-    }
-
-    func testWarmVisibilityRestoreSkipsRefreshWhileTerminalIsInactive() throws {
-#if DEBUG
-        try assertInactiveVisibilityRestoreRefreshCount(
-            presentedFrameBeforeReveal: true,
-            expected: 0,
-            "A renderer that already presented a frame keeps it across the hide; revealing it must not force a blocking redraw"
-        )
-#else
-        throw XCTSkip("Debug-only regression test")
-#endif
-    }
-
-#if DEBUG
-    /// Whether a reveal forces a redraw depends on whether the renderer has
-    /// presented a frame (#14044). The test pins that state while the portal
-    /// is hidden instead of inheriting whatever the GPU presented during setup.
-    private func assertInactiveVisibilityRestoreRefreshCount(
-        presentedFrameBeforeReveal: Bool,
-        expected: Int,
-        _ message: String,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) throws {
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        let livePortalWorkspace = try makeAuthorizedPortalTabId()
-        defer { livePortalWorkspace.tearDown() }
-
-        let surface = TerminalSurface(
-            tabId: livePortalWorkspace.id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
-        hostedView.frame = contentView.bounds
-        hostedView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostedView)
-        hostedView.setVisibleInUI(true)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        XCTAssertNotNil(
-            surface.surface,
-            "Expected runtime surface before measuring visibility-restore redraws"
-        )
-
-        hostedView.setActive(false)
-        hostedView.setVisibleInUI(false)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-
-        surface.setRendererPresentedFrameForTesting(presentedFrameBeforeReveal)
-        surface.resetDebugForceRefreshCount()
-        hostedView.setVisibleInUI(true)
-        drainMainQueue()
-        if expected > 0 {
-            // The reveal redraw runs on a later main-queue turn; wait for it.
-            _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= expected }
-        } else {
-            // Give a wrongly scheduled deferred redraw the same turns to land.
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
-            drainMainQueue()
-        }
-
-        XCTAssertEqual(surface.debugForceRefreshCount(), expected, message, file: file, line: line)
-    }
-#endif
 
     func testDirectFirstResponderFocusRefreshesCursorStateAfterForeignResponder() throws {
 #if DEBUG
