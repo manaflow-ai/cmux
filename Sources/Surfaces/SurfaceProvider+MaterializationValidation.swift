@@ -22,6 +22,7 @@ extension SurfaceProvider {
             try await materialize(resource, remoteView: remoteView, at: destination, focus: focus, adopting: reservation)
         }
         let expectedWorkspace = reservation?.remoteWorkspaceID ?? remoteView?.workspace.id
+            ?? loadingReservation?.expectedRemoteWorkspaceID
             ?? (reservation == nil ? nil : resource.remoteWorkspace?.id)
         if projection.remoteWorkspaceID == nil,
            let expectedWorkspace,
@@ -42,10 +43,11 @@ extension SurfaceProvider {
                 reservation.inputRelay.discard()
             } else if let loadingReservation, projection.panelID == loadingReservation.panelID {
                 projectionDidEnd(projection)
-                guard let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID),
-                      workspace.restoreCloudMachineLoadingPanel(panelID: loadingReservation.panelID, machineID: loadingReservation.machineID) else {
+                if let workspace = Workspace.liveWorkspace(id: loadingReservation.workspaceID),
+                   workspace.restoreCloudMachineLoadingPanel(panelID: loadingReservation.panelID, machineID: loadingReservation.machineID) {
+                    // The card remains in place for an explicit retry.
+                } else {
                     discardMaterialization(projection)
-                    throw CloudDiagnosticFailure.placement
                 }
             } else {
                 discardMaterialization(projection)

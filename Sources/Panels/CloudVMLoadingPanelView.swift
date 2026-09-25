@@ -1,6 +1,7 @@
 import SwiftUI
 import CmuxAppKitSupportUI
 import CmuxFeedback
+import CmuxSettings
 
 struct CloudVMLoadingPanelView: View {
     @ObservedObject var panel: CloudVMLoadingPanel
@@ -8,7 +9,8 @@ struct CloudVMLoadingPanelView: View {
     var body: some View {
         TimelineView(.periodic(from: panel.startedAt, by: 1)) { context in
             let elapsedSeconds = max(0, Int(context.date.timeIntervalSince(panel.startedAt).rounded(.down)))
-            if let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.reservedWorkspaceID == panel.workspaceId }) {
+            if !panel.hasFailed,
+               let operation = MachineCreateCoordinator.shared.operations.first(where: { $0.request.presentationWorkspaceID == panel.workspaceId }) {
                 MachineCreateLoadingContent(
                     operation: operation,
                     actions: .bound(coordinator: .shared),
@@ -67,9 +69,7 @@ struct CloudVMLoadingPanelView: View {
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 460)
                         HStack(spacing: 8) {
-                            Button {
-                                _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
-                            } label: {
+                            Button { retryCloudMachine() } label: {
                                 Label(
                                     String(localized: "panel.cloudVM.loading.failed.retry", defaultValue: "Retry"),
                                     systemImage: "arrow.clockwise"
@@ -103,6 +103,55 @@ struct CloudVMLoadingPanelView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(nsColor: backgroundColor))
             .environment(\.colorScheme, readableScheme)
+    }
+
+    @MainActor
+    private func retryCloudMachine() {
+        guard panel.hasFailed else { return }
+        let workspace = Workspace.liveWorkspace(id: panel.workspaceId)
+        let boundMachineID = workspace?.cloudVMBinding?.vmID
+        if let operation = MachineCreateCoordinator.shared.operations.first(where: { operation in
+            guard operation.request.presentationWorkspaceID == panel.workspaceId else { return false }
+            guard let boundMachineID else { return true }
+            return (operation.createdMachineID ?? operation.reconcilingMachineID) == boundMachineID
+        }) {
+            if MachineCreateCoordinator.shared.retry(operation.id) {
+                panel.resetLoading()
+            }
+            return
+        }
+        guard let workspace else {
+            _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
+            return
+        }
+        guard let machineID = workspace.cloudVMBinding?.vmID else {
+            _ = AppDelegate.shared?.performCloudVMAction(
+                tabManager: workspace.owningTabManager,
+                debugSource: "panel.cloudVM.retry"
+            )
+            return
+        }
+        panel.resetLoading()
+        let socketPath = TerminalController.shared.activeSocketPath(preferredPath: SocketControlSettings.socketPath())
+        let arguments: [String] = if workspace.cloudVMBinding?.isBase == true {
+            ["vm", "base", "open", "--workspace", workspace.id.uuidString, "--focus", "false"]
+        } else {
+            ["vm", "open", machineID, "--workspace", workspace.id.uuidString, "--focus", "false"]
+        }
+        let didStart = CloudVMActionLauncher.shared.start(
+            socketPath: socketPath,
+            preferredWindow: nil,
+            arguments: arguments,
+            presentsFailureAlert: false,
+            onCompletion: { completion in
+                if !completion.succeeded {
+                    panel.showFailure(completion.output)
+                }
+            }
+        )
+        if !didStart {
+            panel.showFailure(String(localized: "panel.cloudVM.loading.failed.launch", defaultValue: "Cloud VM command could not be launched."))
+        }
     }
 }
 

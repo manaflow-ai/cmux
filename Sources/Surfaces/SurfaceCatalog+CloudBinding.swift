@@ -9,7 +9,8 @@ extension SurfaceCatalog {
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
         isBase: Bool? = nil,
-        generatedTitle: String? = nil
+        generatedTitle: String? = nil,
+        requestProjection: Bool = true
     ) {
         let workspaceBeforeBind = cloudWorkspaceRenameService.environment.workspace(localWorkspaceID)
         let wasUnbound = workspaceBeforeBind?.cloudVMBinding?.remoteWorkspaceID?.isEmpty != false
@@ -55,7 +56,9 @@ extension SurfaceCatalog {
             )
         }
         reconcileDeviceNames(on: machine)
-        requestCloudWorkspaceProjection(localWorkspaceID)
+        if requestProjection {
+            requestCloudWorkspaceProjection(localWorkspaceID)
+        }
         cloudWorkspaceRenameService.updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: self)
 }
 

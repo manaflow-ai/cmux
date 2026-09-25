@@ -5,11 +5,15 @@ struct VMRemoteWorkspaceResolver: Sendable {
     /// A machine open reattaches its active workspace's terminal. Only an
     /// authoritative empty graph permits creation; a missing or ambiguous graph
     /// must not turn a reconnect into another workspace or terminal.
-    func resolveVMMachineTerminal(machine: String, catalog: [String: Any]) -> VMMachineTerminalResolution {
+    func resolveVMMachineTerminal(machine: String, catalog: [String: Any], workspaceID requestedWorkspaceID: String? = nil) -> VMMachineTerminalResolution {
         guard let machinePayload = vmMachinePayload(machine, from: catalog),
               let workspaces = machinePayload["remote_workspaces"] as? [[String: Any]],
               let resources = catalog["resources"] as? [[String: Any]],
               machinePayload["link_state"] as? String == "connected" else { return .unavailable }
+        if let requestedWorkspaceID {
+            guard workspaces.filter({ ($0["id"] as? String) == requestedWorkspaceID }).count == 1 else { return .unavailable }
+            return machineTerminal(resources, machine: machine, workspaceID: requestedWorkspaceID)
+        }
         guard !workspaces.isEmpty else { return .empty(workspaceID: nil) }
         let focused = workspaces.filter { ($0["focused"] as? Bool) == true }
         guard focused.count <= 1 else { return .unavailable }
@@ -18,6 +22,10 @@ struct VMRemoteWorkspaceResolver: Sendable {
         // closed instead of selecting by wire-array order.
         guard let workspace = focused.first ?? (workspaces.count == 1 ? workspaces[0] : nil),
               let workspaceID = workspace["id"] as? String, !workspaceID.isEmpty else { return .unavailable }
+        return machineTerminal(resources, machine: machine, workspaceID: workspaceID)
+    }
+
+    private func machineTerminal(_ resources: [[String: Any]], machine: String, workspaceID: String) -> VMMachineTerminalResolution {
         switch resolveVMRemoteWorkspaceTerminal(resources, machine: machine, workspaceID: workspaceID) {
         case .resolved(let terminalID, let tabID):
             return .resolved(workspaceID: workspaceID, terminalID: terminalID, tabID: tabID)

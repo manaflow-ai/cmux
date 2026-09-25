@@ -12,6 +12,38 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct MachineCreateOptimisticProjectionTests {
+    @Test("Failure dismissal and cancellation close only their own reservation exactly once", arguments: [false, true])
+    func reservationCleanupIsScoped(cancel: Bool) throws {
+        let launches = MachineCreateCoordinatorTests.LaunchRecorder()
+        var closed: [UUID] = []
+        var destroyed: [String] = []
+        let coordinator = MachineCreateCoordinator(notifier: { _ in }, notificationCenter: NotificationCenter(),
+            cancelCreatedMachine: { destroyed.append($0) },
+            cancelOperation: { if let id = $0.request.presentationWorkspaceID { closed.append(id) } })
+        let first = UUID(), second = UUID()
+        coordinator.start(MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(first),
+            cancellableLaunch: launches.cancellableLaunch)
+        coordinator.start(MachineCreateCoordinatorTests.newMachineRequest().targetingReservedWorkspace(second),
+            cancellableLaunch: launches.cancellableLaunch)
+        let id = try #require(coordinator.operations.first?.id)
+        let late = launches.completions[0]
+        if cancel {
+            coordinator.cancel(id)
+            coordinator.cancel(id)
+            late(.init(terminationStatus: 0, output: "OK machine=abandoned", workspaceId: first, machineId: "abandoned"))
+            #expect(destroyed == ["abandoned"])
+        } else {
+            launches.complete(status: 1, output: "Error: provider unavailable")
+            #expect(coordinator.operation(id: id)?.failureOutput != nil)
+            #expect(closed.isEmpty, "failure remains recoverable until dismissed")
+            coordinator.dismiss(id)
+            coordinator.dismiss(id)
+        }
+        #expect(closed == [first])
+        #expect(coordinator.operations.map { $0.request.presentationWorkspaceID } == [second])
+        coordinator.cancelAllForAuthTransition()
+    }
+
     private func makeCoordinator() -> (MachineCreateCoordinator, MachineCreateCoordinatorTests.LaunchRecorder) {
         let launches = MachineCreateCoordinatorTests.LaunchRecorder()
         let coordinator = MachineCreateCoordinator(

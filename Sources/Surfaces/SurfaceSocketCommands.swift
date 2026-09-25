@@ -76,7 +76,7 @@ extension TerminalController {
                     resource,
                     into: destination,
                     focus: focus,
-                    reuseExisting: reuse,
+                    reuseExisting: reuse, reuseInWorkspace: Self.surfaceBool(params["reuse_in_workspace"]) == true ? workspaceID : nil,
                     remoteView: remoteView
                 )
                 return Self.surfaceProjectPayload(opened.projection, reused: opened.reused)

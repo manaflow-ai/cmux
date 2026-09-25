@@ -282,6 +282,11 @@ extension TerminalController {
         }
         let previousBinding = workspace.cloudVMBinding
         let sameMachine = previousBinding?.vmID == vmID
+        if !sameMachine, previousBinding != nil,
+           workspace.panels.values.contains(where: { $0 is CloudVMLoadingPanel }) {
+            let message = String(localized: "socket.workspace.cloudBinding.busy", defaultValue: "A Cloud machine is already being attached to this workspace.")
+            return .err(code: "workspace_busy", message: message, data: ["workspace_id": workspaceId.uuidString])
+        }
         let isBase = v2Bool(params, "base") ?? (sameMachine ? (previousBinding?.isBase ?? false) : false)
         // Optional: which cmux-tui workspace on the machine this local workspace stands
         // for. A rebind that omits it keeps the recorded one (Base re-opens rebind).
@@ -290,12 +295,14 @@ extension TerminalController {
             ? remoteRaw
             : (sameMachine ? previousBinding?.remoteWorkspaceID : nil)
         let generatedTitle = v2RawString(params, "generated_title")
+        let deferProjection = v2Bool(params, "defer_projection") ?? false
         SurfaceCatalog.shared.bindCloudWorkspace(
             localWorkspaceID: workspaceId,
             machine: .cloud(vmID),
             remoteWorkspaceID: remoteWorkspaceID,
             isBase: isBase,
-            generatedTitle: generatedTitle
+            generatedTitle: generatedTitle,
+            requestProjection: !deferProjection
         )
         return .ok([
             "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),

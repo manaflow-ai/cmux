@@ -357,6 +357,16 @@ extension CMUXCLI {
             return values.isEmpty ? nil : values
         }()
 
+        // The vm.create socket receipt registers the provider before this shared
+        // open path runs. Join its first graph read before mutating the local
+        // workspace so the authoritative remote workspace/terminal receipt can
+        // bind the pending projection without a second discovery pass.
+        let catalog = options.fullClient ? nil : try client.sendV2(
+            method: "surface.catalog",
+            params: ["machine": vmId, "ensure_linked": true],
+            responseTimeout: 180
+        )
+
         let initialCommand: String
         if options.fullClient, let clientPath {
             let stateDir = Self.vmTuiClientStateDir()
@@ -385,36 +395,23 @@ extension CMUXCLI {
         let windowId: String?
         let terminalSurfaceId: String?
         let didCreateWorkspace: Bool
-        // Focus inside the workspace the person is already looking at is not
-        // stealing; focus that would switch them to another workspace is. A
-        // freshly created workspace is never the one on screen, so only a
-        // pre-existing target can earn pane focus on a background open. The
-        // same value drives the placeholder replacement AND the real terminal
-        // (`surface.new_terminal`) that takes its place.
+        var targetBinding: [String: Any]?
+        // Preserve the reserved tab if the user visits it during provisioning.
         let requestedTarget = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let paneFocus = options.focus || requestedTarget.map {
+        let paneFocus = options.focus || (requestedTarget.map {
             !$0.isEmpty && isWorkspaceCurrentlySelected($0, windowRaw: windowRaw, client: client)
-        } ?? false
+        } ?? false)
         let workspaceTitle = options.workspaceTitle
         if let target = requestedTarget, !target.isEmpty {
-            // Plain attachment retains the loading pane until the remote terminal
-            // exists. Only the full TUI replaces it with a local client process.
-            let ready: [String: Any]
-            do {
-                ready = try client.sendV2(
-                    method: "workspace.cloud_vm_terminal_ready",
-                    params: ["workspace_id": target, "initial_command": initialCommand,
-                             "defer_terminal": !options.fullClient, "focus": paneFocus]
-                )
-            } catch let error as CLIError where error.message.contains("loading surface not found") {
-                // An ordinary workspace (`--workspace workspace:3` from a person or an agent),
-                // not one the app pre-created with a loading pane: nothing to replace, the
-                // shell opens into it as a new pane — the sidebar's "Open Shell".
-                ready = ["workspace_id": target]
-            }
+            let ready = try prepareVMTuiTargetWorkspace(
+                target, fullClient: options.fullClient, initialCommand: initialCommand, focus: paneFocus,
+                machineID: vmId, isBase: options.pinAsBase,
+                generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil, client: client
+            )
+            if !options.fullClient { targetBinding = ready }
             workspaceId = (ready["workspace_id"] as? String) ?? target
             workspaceRef = ready["workspace_ref"] as? String
-            windowId = (ready["window_id"] as? String) ?? windowRaw
+            windowId = (ready["window_id"] as? String) ?? (options.fullClient ? windowRaw : nil)
             terminalSurfaceId = ready["surface_id"] as? String
             didCreateWorkspace = false
         } else {
@@ -433,13 +430,15 @@ extension CMUXCLI {
             terminalSurfaceId = created["surface_id"] as? String
             didCreateWorkspace = true
         }
+        var boundRemoteWorkspaceID: String?
         do {
             // The binding is how the app finds this machine's workspace again (Machines
             // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
-            _ = try client.sendV2(
+            let binding = try targetBinding ?? client.sendV2(
                 method: "workspace.cloud_vm_bind",
                 params: Self.cloudWorkspaceBindingParameters(workspaceID: workspaceId, vmID: vmId, base: options.pinAsBase, generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil)
             )
+            boundRemoteWorkspaceID = binding["remote_workspace_id"] as? String
             if options.pinAsBase {
                 try pinWorkspaceToTop(workspaceId: workspaceId, windowId: windowId, client: client)
             }
@@ -457,24 +456,15 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                // The snapshot contract creates the first remote workspace and
-                // terminal before the daemon accepts clients, so one link plus
-                // one graph read is all New Machine needs to find it.
-                //
-                // `ensure_linked` is that minimum, and it is required: a machine
-                // created a moment ago has no provider and no link in this app,
-                // so a plain cached read returns no graph and the resolver
-                // reports `.unavailable` ("The machine's sessions are
-                // unavailable"). That regression shipped once when the flag was
-                // dropped to "save work". Do not remove it, and do not upgrade it
-                // to `refresh: true`: a forced pass waits behind the fleet poll's
-                // in-flight connect and rescans ports for nothing. A reopen of a
-                // machine that is already linked costs no network at all.
-                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "ensure_linked": true], responseTimeout: 180)
                 let opened: [String: Any]
-                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
+                switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog ?? [:], workspaceID: boundRemoteWorkspaceID) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
-                    var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
+                    let reusesTarget = requestedTarget?.isEmpty == false
+                    if reusesTarget, boundRemoteWorkspaceID == nil {
+                        try bindVMTuiInitialWorkspace(workspaceId, machine: vmId, remoteWorkspaceID: remoteWorkspaceID, base: options.pinAsBase, client: client)
+                    }
+                    var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": reusesTarget, "reuse_in_workspace": reusesTarget]
+                    if reusesTarget { params["placement"] = "tab" }
                     if let tabID { params["remote_tab_id"] = tabID }
                     var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
                     projected["terminal_id"] = terminalID
@@ -482,6 +472,7 @@ extension CMUXCLI {
                     opened = projected
                 case .empty(let remoteWorkspaceID):
                     var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus]
+                    if requestedTarget?.isEmpty == false { params["placement"] = "tab" }
                     if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
                     opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
                 case .unavailable:

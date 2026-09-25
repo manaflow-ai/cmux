@@ -229,7 +229,6 @@ final class MachineCreateCoordinator {
             return Finished(operation: operation, outcome: result.outcome)
         }
         let cancelledHandles = transition.cancelOperationIDs.compactMap { handles.removeValue(forKey: $0) }
-        var didSelectCreatedWorkspace = false
         if let finished {
             lastFinished = finished
             let id = finished.operation.id
@@ -246,7 +245,7 @@ final class MachineCreateCoordinator {
             if case .created(_, let workspaceID) = finished.outcome {
                 resumeWaiter(id, workspaceID: workspaceID)
                 if let workspaceID {
-                    didSelectCreatedWorkspace = selectWorkspace(workspaceID, finished.operation.request)
+                    _ = selectWorkspace(workspaceID, finished.operation.request)
                 }
             } else {
                 resumeWaiter(id, workspaceID: nil)
@@ -256,19 +255,16 @@ final class MachineCreateCoordinator {
         for handle in cancelledHandles { handle.cancel() }
         for machineID in transition.cleanupMachineIDs { cancelCreatedMachine(machineID) }
         for operation in closed { cancelOperation(operation) }
-        // A successful Cloud create already opens/selects its workspace. A
-        // second notification is redundant; retain notifications for failures,
-        // where they remain actionable.
+        // A successful Cloud create already has its workspace projection. Keep
+        // success silent; failures remain actionable through the notifier.
         if let finished {
             switch finished.outcome {
-            case .created(_, let workspaceID):
-                let alreadyPresented = finished.operation.request.reservedWorkspaceID != nil
-                    && workspaceID != nil
-                if !didSelectCreatedWorkspace, !alreadyPresented {
-                    notifier(MachineCreateNotice(finished: finished))
-                }
+            case .created:
+                break
             case .createdButOpenFailed, .failed:
-                notifier(MachineCreateNotice(finished: finished))
+                if let notice = MachineCreateNotice(finished: finished) {
+                    notifier(notice)
+                }
             }
         }
         if transition.changed { postDidChange(finished: finished) }

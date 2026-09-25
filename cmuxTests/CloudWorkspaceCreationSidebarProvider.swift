@@ -23,6 +23,8 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var terminalError: Error?
     var terminalCreates = 0
     var terminalRequests: [UUID] = []
+    var defaultWorkspaceName: String?
+    var requestedWorkspaceNames: [String?] = []
     var refreshes = 0
     var createdWorkspaces: [SurfaceRemoteWorkspace] = []
     var adoptedPanels: [UUID] = []
@@ -45,8 +47,9 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     }
 
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
+        requestedWorkspaceNames.append(name)
         try await beforeCreate?()
-        let workspace = SurfaceRemoteWorkspace(id: "ws_\(createdWorkspaces.count)", name: name ?? "Project \(createdWorkspaces.count)",
+        let workspace = SurfaceRemoteWorkspace(id: "ws_\(createdWorkspaces.count)", name: name ?? defaultWorkspaceName ?? "Project \(createdWorkspaces.count)",
                                                index: createdWorkspaces.count, focused: true)
         createdWorkspaces.append(workspace)
         info.remoteWorkspaces = createdWorkspaces

@@ -19,6 +19,44 @@ extension CMUXCLI.VMTuiOpenOptions {
 }
 
 extension CMUXCLI {
+    /// Retain the exact first workspace before attachment can fail. The next
+    /// open reuses this binding even when another workspace gained daemon focus.
+    func bindVMTuiInitialWorkspace(
+        _ workspaceID: String, machine: String, remoteWorkspaceID: String,
+        base: Bool, client: SocketClient
+    ) throws {
+        var params = Self.cloudWorkspaceBindingParameters(
+            workspaceID: workspaceID, vmID: machine, base: base,
+            remoteWorkspaceID: remoteWorkspaceID, generatedTitle: nil
+        )
+        // Keep the first remote identity pinned for retry, but let the following
+        // surface.project adopt the reserved pane before graph reconciliation runs.
+        params["defer_projection"] = true
+        _ = try client.sendV2(method: "workspace.cloud_vm_bind", params: params)
+    }
+
+    /// Plain Cloud opens leave a creating card intact until its real terminal
+    /// adopts it. The app's bind acknowledgement owns handle/window resolution;
+    /// the CLI never reconstructs that identity from a second list snapshot.
+    func prepareVMTuiTargetWorkspace(
+        _ target: String, fullClient: Bool, initialCommand: String, focus: Bool,
+        machineID: String, isBase: Bool, generatedTitle: String?, client: SocketClient
+    ) throws -> [String: Any] {
+        guard fullClient else {
+            return try client.sendV2(method: "workspace.cloud_vm_bind", params: Self.cloudWorkspaceBindingParameters(
+                workspaceID: target, vmID: machineID, base: isBase, generatedTitle: generatedTitle
+            ))
+        }
+        do {
+            return try client.sendV2(
+                method: "workspace.cloud_vm_terminal_ready",
+                params: ["workspace_id": target, "initial_command": initialCommand, "focus": focus]
+            )
+        } catch let error as CLIError where error.message.contains("loading surface not found") {
+            return ["workspace_id": target]
+        }
+    }
+
     /// Parameters shared by both Cloud bind calls. The generated title is
     /// metadata about the local placeholder, never an identity or a remote
     /// workspace name; explicit titles intentionally omit it.

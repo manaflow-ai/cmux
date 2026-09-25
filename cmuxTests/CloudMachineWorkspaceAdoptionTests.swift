@@ -93,17 +93,19 @@ struct CloudMachineWorkspaceAdoptionTests {
             #expect(app.manager.tabs.contains { $0.id == pending.id })
             #expect(pending.panels[command.id] === command)
             #expect(command.surface.initialCommand?.contains("first-command") == true)
+
         }
     }
 
-    @Test("A create adopts the reserved workspace and tab once without selecting it")
-    func adoptionAndReconnect() async throws {
+    @Test("A create adopts the authoritative name and reserved tab without selecting it",
+          arguments: ["workspace-1", "Cloud", "Existing project"])
+    func adoptionAndReconnect(remoteName: String) async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let app = try VaultPaneAppFixture()
             defer { for workspace in app.manager.tabs { workspace.teardownAllPanels() }; app.tearDown() }
             let manager = app.manager
             let catalog = makeCatalog(manager)
-            let provider = CloudMachineWorkspaceTestProvider()
+            let provider = CloudMachineWorkspaceTestProvider(workspaceName: remoteName)
             catalog.register(provider)
             defer { catalog.unregister(machine: provider.machine) }
             let pending = manager.addWorkspace(title: "New Machine", titleSource: .auto,
@@ -129,7 +131,7 @@ struct CloudMachineWorkspaceAdoptionTests {
             #expect(pending.panels[first.panelID]?.stableSurfaceId == loading.stableSurfaceId)
             #expect(pending.terminalPanel(for: first.panelID)?.surface.initialCommand == nil)
             #expect(pending.cloudVMBinding?.remoteWorkspaceID == "ws-first")
-            #expect(pending.title == "workspace-1")
+            #expect(pending.title == remoteName)
             #expect(manager.selectedTabId == selection)
             NewMachineSheetPresenter.closeReservedWorkspace(pending.id)
             #expect(manager.tabs.contains { $0.id == pending.id }, "an adopted projection is no longer disposable")
@@ -148,7 +150,7 @@ struct CloudMachineWorkspaceAdoptionTests {
             defer { restored.teardownAllPanels() }
             restored.restoreSessionSnapshot(saved)
             #expect(restored.cloudVMBinding == pending.cloudVMBinding)
-            #expect(restored.title == "workspace-1")
+            #expect(restored.title == remoteName)
         }
     }
 

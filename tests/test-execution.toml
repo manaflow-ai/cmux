@@ -848,6 +848,11 @@ path = "tests/test_cli_vm_create_name.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cli_vm_workspace_adoption.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_cloud_display_catalog.py"
 lane = "legacy"
 

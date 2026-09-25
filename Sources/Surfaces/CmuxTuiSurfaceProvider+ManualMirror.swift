@@ -14,6 +14,7 @@ extension CmuxTuiSurfaceProvider {
     /// attach stream.
     func materializeManualMirrorTerminal(
         _ resource: SurfaceResource,
+        remoteView: SurfaceRemoteView? = nil,
         remoteTabID: String? = nil,
         at destination: SurfaceDestination,
         focus: Bool,
@@ -55,11 +56,30 @@ extension CmuxTuiSurfaceProvider {
             resource.remoteViews?.first(where: { $0.tabID == tabID })
                 .map { SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID) }
         }
+        let resolvedPlacement = resolved.placement ?? remoteView.map {
+            SurfaceRemotePlacement(workspaceID: $0.workspace.id, tabID: $0.tabID)
+        }
         let confirmedPlacement = try reservation?.validatedAttachmentPlacement(
             resourceID: resource.id, remoteTabID: remoteTabID,
-            materializedPlacement: resolved.placement, catalog: catalog
-        ) ?? resolved.placement ?? knownPlacement
-        try CloudMachineLoadingReservation.current?.validate(materializedPlacement: confirmedPlacement)
+            materializedPlacement: resolvedPlacement ?? knownPlacement, catalog: catalog
+        ) ?? resolvedPlacement ?? knownPlacement
+        do {
+            let workspaceOnlyCreationID = resource.creationAttachment == nil ? nil : resource.remoteWorkspace?.id
+            try CloudMachineLoadingReservation.current?.validate(
+                materializedPlacement: confirmedPlacement,
+                materializedWorkspaceID: workspaceOnlyCreationID
+            )
+        } catch {
+            if let reservation = CloudMachineLoadingReservation.current,
+               let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+                _ = workspace.failCloudMachineLoadingPanel(
+                    panelID: reservation.panelID,
+                    machineID: reservation.machineID,
+                    message: String(localized: "panel.cloudVM.loading.failed.generic", defaultValue: "Cloud VM could not be opened.")
+                )
+            }
+            throw error
+        }
         let session = CloudTuiManualMirrorSession(
             machineID: machineID,
             terminalID: resource.id.key,

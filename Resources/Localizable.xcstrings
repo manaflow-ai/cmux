@@ -7023,6 +7023,20 @@
         }
       }
     },
+    "socket.workspace.cloudBinding.busy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "A Cloud machine is already being attached to this workspace."}},
+        "de": {"stringUnit": {"state": "translated", "value": "An diesen Arbeitsbereich wird bereits eine Cloud-Maschine angehängt."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Une machine Cloud est déjà en cours d’association à cet espace de travail."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "يتم إرفاق جهاز سحابي بمساحة العمل هذه بالفعل."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Ya se está conectando una máquina Cloud a este espacio de trabajo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "已有 Cloud 機器正在連結至此工作區。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "已有 Cloud 机器正在连接到此工作区。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 작업 공간에는 이미 Cloud 머신이 연결 중입니다."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このワークスペースにはすでに Cloud マシンを接続中です。"}}
+      }
+    },
     "socket.surfaceSelection.workspaceNotFound": {
       "extractionState": "manual",
       "localizations": {

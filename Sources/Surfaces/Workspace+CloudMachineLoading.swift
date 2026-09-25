@@ -7,11 +7,18 @@ extension Workspace {
     /// Only a machine-bound loading card in this destination can be adopted.
     /// Ordinary terminal panes, including a user's first command, are never placeholders.
     func cloudMachineLoadingPanel(at destination: SurfaceDestination, machineID: String?) -> CloudVMLoadingPanel? {
-        guard case .workspace(let workspaceID, _) = destination,
-              workspaceID == id, let machineID,
+        guard destination.workspaceID == id, let machineID,
               cloudVMBinding?.vmID == machineID else { return nil }
         let candidates = panels.values.compactMap { $0 as? CloudVMLoadingPanel }
-        return candidates.count == 1 ? candidates[0] : nil
+        guard candidates.count == 1, let loading = candidates.first else { return nil }
+        switch destination {
+        case .workspace:
+            return loading
+        case .tab(_, let paneID, _):
+            return paneId(forPanelId: loading.id)?.id.uuidString == paneID ? loading : nil
+        case .split:
+            return nil
+        }
     }
 
     /// Replaces a creating card with its attached terminal in the same native tab.
@@ -86,6 +93,14 @@ extension Workspace {
         withClosedPanelHistorySuppressed {
             _ = closePanel(panelID, force: true)
         }
+        return true
+    }
+
+    @discardableResult
+    func failCloudMachineLoadingPanel(panelID: UUID, machineID: String, message: String) -> Bool {
+        guard cloudVMBinding?.vmID == machineID,
+              let loading = panels[panelID] as? CloudVMLoadingPanel else { return false }
+        loading.showFailure(message)
         return true
     }
 }
