@@ -118,15 +118,18 @@ than the consumer's, so a drift fails closed instead of crashing in dlopen.
 With the split off, a run takes an owned pool only when all its
 owned-eligible jobs fit.
 
-Root jobs: glaeda gives compile admission, the app-host shards,
-tests-build-and-lag and cli-product-tests (and any job it does not know) the
-mini's one canonical-root token, and refuses such a job on a mini whose token
-is taken. GitHub hands a pool-label job to any free runner, so a root job on
-the pool label could land on a mini whose root was busy and cost a rescue
-re-run. glaeda also labels one runner per mini
-`glaeda-root-<class>-xcode-<version>` (root_label()), and a root job on that
-label waits for a free root instead. CI_OWNED_POOL_SLOTS gives the root
-runners' count beside the pool's (`{"std": 40, "root-std": 10}`). A pool with
+Root jobs: compile admission, the app-host shards, tests-build-and-lag and
+cli-product-tests (and any job glaeda does not know) each hold one of a
+mini's canonical roots. A class has `canonicalRoots` of them per mini (two on
+a std mini, root-1 and root-2), and a compile takes any free root. The first
+`canonicalRoots` runners of each mini are its root runners and carry
+`glaeda-root-<class>-xcode-<version>` (root_label()); the others are its side
+runners. GitHub hands a pool-label job to any free runner, so a root job on
+the pool label could land on a mini whose roots were all taken and cost a
+rescue re-run; on the root label it waits for a free root runner instead.
+Two compiles can still share one mini's roots (see "Spread-first admission"
+below). CI_OWNED_POOL_SLOTS gives the root runners' count beside the pool's
+(`{"std": 40, "root-std": 20}`). A pool with
 a root count sends its placed root jobs (ROOT_JOBS) to the `root_runner`
 output, and place() puts no more of them there than its root runners have
 room for, by the same expected wait; a
@@ -161,16 +164,17 @@ rank runners by commit distance. A warm runner taken between the pick and
 the queue leaves admission waiting on its label, and
 ci-owned-pool-rescue.yml moves it to Blacksmith.
 
-Spread-first admission: a compile wants 8 to 10 of a mini's 14 cores, and
-GitHub hands a root job to any idle root runner, so two compiles could share
-a mini while another mini's root runners sat idle. Unless
-`vars.CI_OWNED_SPREAD == '0'`, admission placed on a pool with a root count,
-with the runners read live, is pinned the same way to an idle root runner on
-a mini none of whose root runners is busy (spread_admission_runner()),
-preferring a warm one there. With no such mini, warm affinity above decides,
-then the root label. A pinned runner taken first has the warm path's
-exposure: the rescue re-runs the run, and attempt 2 never takes the pinned
-label.
+Spread-first admission (`vars.CI_OWNED_SPREAD == '1'`, off by default): a
+std mini has two root runners and a compile takes either free root, so two
+compiles (8 to 10 of the mini's 14 cores each) can share a mini while another
+mini's root runners sit idle. This picker only names the warm runners
+(`admission_warm`); ci-macos.yml's admission-placement job, which admission
+waits for, re-reads the runners just before admission queues and pins it to
+an idle root runner on a mini none of whose root runners is busy
+(spread_admission_runner(), admission_placement.py), preferring a warm one.
+With no such mini it takes an idle warm runner, then the root label. Picking
+there instead of here keeps other runs' late placement from taking the pinned
+runner between the pick and the queue.
 
 GUI jobs (app-host shards, tests-build-and-lag) take an owned pool unless
 `vars.CI_PR_POOL_OWNED_GUI == '0'`: the minis' runners are LaunchAgents in
@@ -254,7 +258,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Any
 
 DEFAULT_RUNNER = "blacksmith-6vcpu-macos-26"
@@ -272,8 +276,9 @@ DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 # once CI_PR_POOL_OWNED is 1. Their label embeds the lane's Xcode version, and
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
 RUN_CLASSES = ("std", "light")
-# `glaeda-root-...` is the one runner per mini that may take a root job (ROOT_JOBS).
-# `glaeda-side-...` are the other runners: the light side-lane workflows take it
+# `glaeda-root-...` are each mini's root runners, the `canonicalRoots` runners
+# (two on a std mini) that may take a root job (ROOT_JOBS).
+# `glaeda-side-...` are its side runners, the other runners: the light side-lane workflows take it
 # (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS), and so do
 # this picker's side lanes (side_runner()). Its jobs hold its pool's machines.
 OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
@@ -989,14 +994,13 @@ def runner_labels(runner: Mapping[str, Any]) -> set[str]:
     return {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
 
 
-def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
-                          warm: Any) -> str:
-    """Admission's runs-on labels as JSON when an idle `root` runner is warm for `merged_onto`, else "".
+def pinned_admission(root: str, name: str) -> str:
+    """Admission's runs-on labels as JSON: `root` and the static label only runner `name` carries."""
+    return json.dumps([root, runner_label(name)], separators=(",", ":"))
 
-    `warm` is the snapshot's `warm` (owned_warm_state.py). The runner must
-    carry its own runner_label(), or a job naming it would wait forever.
-    """
-    hot = warm_runners(merged_onto, warm)
+
+def idle_warm_runner(runners: Sequence[Mapping[str, Any]], root: str, hot: Collection[str]) -> str:
+    """The first online, idle `root` runner named in `hot` that carries its own runner_label(), or ""."""
     if not hot or not root.startswith(ROOT_PREFIX):
         return ""
     for runner in runners:
@@ -1005,8 +1009,19 @@ def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merge
         name = str(runner.get("name") or "")
         names = runner_labels(runner)
         if name in hot and root in names and runner_label(name) in names:
-            return json.dumps([root, runner_label(name)], separators=(",", ":"))
+            return name
     return ""
+
+
+def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
+                          warm: Any) -> str:
+    """Admission's runs-on labels as JSON when an idle `root` runner is warm for `merged_onto`, else "".
+
+    `warm` is the snapshot's `warm` (owned_warm_state.py). The runner must
+    carry its own runner_label(), or a job naming it would wait forever.
+    """
+    name = idle_warm_runner(runners, root, warm_runners(merged_onto, warm))
+    return pinned_admission(root, name) if name else ""
 
 
 def runner_member(name: str) -> str:
@@ -1015,23 +1030,24 @@ def runner_member(name: str) -> str:
     return match.group("member") if match else ""
 
 
-def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
-                            warm: Any, *, seed: str = "") -> tuple[str, bool]:
+def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, hot: Collection[str] = (),
+                            *, seed: str = "") -> tuple[str, bool]:
     """Admission's runs-on labels as JSON for an idle `root` runner on a mini running no `root` job.
 
-    A compile wants 8 to 10 of a mini's 14 cores, and GitHub hands a root
-    job to any idle root runner, so two compiles can share one mini while
-    another's root runners sit idle. This pins admission to a mini none of
-    whose online `root` runners is busy. Among those runners it prefers one
-    the snapshot's `warm` calls warm for `merged_onto`, then picks by `seed`
-    (the run ID), so runs picking at once spread instead of all naming the
-    first. The runner must carry its own runner_label(). Returns the labels
-    ("" when no mini is empty) and whether the runner is warm.
+    A std mini has two root runners, and a compile takes either free root, so
+    two compiles (8 to 10 of the mini's 14 cores each) can share a mini while
+    another mini's root runners sit idle. This picks an empty mini, one none
+    of whose online `root` runners is busy, then an idle root runner on it
+    that carries its own runner_label(). Minis with a runner in `hot` (warm
+    for the run's merge base) come first. Among the candidate minis `seed`
+    (the run ID) picks, so runs picking at once land on different minis and
+    a mini with more root runners is not favored. Returns the labels ("" when
+    no mini is empty) and whether the runner is warm.
     """
     if not root.startswith(ROOT_PREFIX):
         return "", False
     busy: set[str] = set()
-    idle: list[str] = []
+    idle: dict[str, list[str]] = {}
     for runner in runners:
         name = str(runner.get("name") or "")
         member = runner_member(name)
@@ -1041,15 +1057,14 @@ def spread_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, mer
         if runner.get("busy"):
             busy.add(member)
         elif runner_label(name) in names:
-            idle.append(name)
-    free = sorted(name for name in idle if runner_member(name) not in busy)
-    hot = warm_runners(merged_onto, warm)
-    candidates = [name for name in free if name in hot] or free
-    if not candidates:
+            idle.setdefault(member, []).append(name)
+    empty = {member: sorted(names) for member, names in idle.items() if member not in busy}
+    if not empty:
         return "", False
-    index = int(hashlib.sha256(seed.encode()).hexdigest(), 16) % len(candidates) if seed else 0
-    name = candidates[index]
-    return json.dumps([root, runner_label(name)], separators=(",", ":")), name in hot
+    members = sorted(member for member, names in empty.items() if set(names) & set(hot)) or sorted(empty)
+    member = members[int(hashlib.sha256(seed.encode()).hexdigest(), 16) % len(members) if seed else 0]
+    name = next((name for name in empty[member] if name in hot), empty[member][0])
+    return pinned_admission(root, name), name in hot
 
 
 def live_online(runners: Sequence[Mapping[str, Any]], labels: Sequence[str]) -> dict[str, int]:
@@ -1780,8 +1795,7 @@ class GitHub:
 
 def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datetime,
             owned_slots: Mapping[str, int] | None = None, problems: Sequence[str] = (),
-            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "",
-            admission_placement: str = "") -> str:
+            owned_jobs: Sequence[str] = (), admission_runner: str = "", side: str = "") -> str:
     runner = choice.runner or "each job's default (MACOS_RUNNER_PR or its fallback)"
     lines = ["### macOS pool for this run", "", f"- Pool: `{runner}`", f"- Why: {choice.reason}"]
     if choice.xcode_app:
@@ -1795,13 +1809,7 @@ def summary(choice: Choice, snapshot: Mapping[str, Any] | None, *, now: dt.datet
         lines.append(f"- Side lanes among them ({', '.join(SIDE_LANE_JOBS)}) take `{side}`")
     if admission_runner:
         labels = " + ".join(f"`{label}`" for label in json.loads(admission_runner))
-        why = {
-            "spread": "an idle root runner on a mini with no root job running",
-            "spread-warm": "an idle root runner on a mini with no root job running, which kept a build "
-                           "of this run's merge base",
-            "warm": "an idle root runner kept a build of this run's merge base (every mini runs a root job)",
-        }.get(admission_placement, "an idle root runner kept a build of this run's merge base")
-        lines.append(f"- Compile admission takes {labels}: {why}")
+        lines.append(f"- Compile admission takes {labels}: an idle root runner kept a build of this run's merge base")
     for problem in problems:
         lines.append(f"- **Error:** {problem}; that pool gets no machines")
     if isinstance(snapshot, Mapping) and isinstance(snapshot.get("pools"), Mapping):
@@ -1923,26 +1931,24 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     # run takes retry_runner. The marker's jobs are the owned machines held.
     owned_jobs, held = (place(plan, choice.owned_budget, gui, choice.root_budget if choice.root_runner else None)
                         if persistent(choice.runner) else ((), plan.peak))
-    # Admission pinned to one root runner (see "Spread-first admission" and
-    # "Warm affinity" above); attempt 1 only, since only it is placed.
-    admission_runner = admission_placement = ""
-    if choice.root_runner and ADMISSION_JOB in owned_jobs and live_runners is not None:
-        # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
-        # turns affinity off.
-        warm = snapshot.get("warm") if env.get("OWNED_WARM") == "1" and snapshot else None
-        if (env.get("OWNED_SPREAD") or "").strip() != "0":
-            admission_runner, hit = spread_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
-                                                            warm, seed=run_id)
-            admission_placement = ("spread-warm" if hit else "spread") if admission_runner else ""
-        if not admission_runner and warm is not None:
-            # Every mini runs a root job: double up only for a kept build.
-            admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"), warm)
-            admission_placement = "warm" if admission_runner else ""
+    # Admission on a root runner whose kept build is of this run's merge base
+    # (see "Warm affinity" above). Attempt 1 only: only it is placed, and
+    # ci-macos.yml reads both outputs on attempt 1 only.
+    admission_runner, admission_warm = "", []
+    # CI_OWNED_WARM off ignores the snapshot's `warm`, so the switch alone
+    # turns affinity off.
+    if (attempt in ("", "1") and env.get("OWNED_WARM") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
+            and snapshot):
+        # The warm runners' names, for ci-macos.yml's admission-placement,
+        # which re-reads the runners just before admission queues.
+        admission_warm = sorted(warm_runners(env.get("MERGED_ONTO"), snapshot.get("warm")))
+        if live_runners is not None:
+            admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
+                                                     snapshot.get("warm"))
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
-                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side,
-                   admission_placement=admission_placement)
+                   owned_jobs=owned_jobs, admission_runner=admission_runner, side=side)
     print(text)
     if env.get("GITHUB_STEP_SUMMARY"):
         with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
@@ -1963,11 +1969,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                          # the pool label, on attempt 1 and on that attempt 2.
                          f"side_runner={side}\n"
                          # JSON labels for admission's attempt 1: the root label
-                         # and the static label of the runner it is pinned to
-                         # (spread-first or warm), or "".
+                         # and the static label of the runner warm for this
+                         # run's merge base, or "".
                          f"admission_runner={admission_runner}\n"
-                         # Why: spread, spread-warm, warm, or "".
-                         f"admission_placement={admission_placement}\n"
+                         # JSON names of the root runners warm for this run's
+                         # merge base, or "" (admission_placement.py).
+                         f"admission_warm={json.dumps(admission_warm, separators=(',', ':')) if admission_warm else ''}\n"
                          # Space-delimited with a space at each end, so each job's
                          # contains(' <key> ') test matches whole keys only.
                          f"owned_jobs={' ' + ' '.join(owned_jobs) + ' ' if owned_jobs else ''}\n")

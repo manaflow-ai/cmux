@@ -247,18 +247,21 @@ class. While owned pools are on, the `changes` job raises a workflow error
 annotation and a summary line for each such entry,
 so a typo shows up on every run instead of quietly leaving a pool unused.
 
-Root runners: glaeda gives compile admission, the app-host shards,
-tests-build-and-lag, cli-product-tests and E2E jobs a mini's one canonical-root
-token and refuses such a job on a mini whose token is taken. It also labels
-one runner per mini `glaeda-root-<class>-xcode-<version>`. A root count in
+Root runners: compile admission, the app-host shards, tests-build-and-lag,
+cli-product-tests and E2E jobs each hold one of a mini's canonical roots.
+A class has `canonicalRoots` roots per mini (two on a std mini, root-1 and
+root-2), and a compile takes any free one. The first `canonicalRoots`
+runners of each mini are its root runners and carry
+`glaeda-root-<class>-xcode-<version>`; the others are its side runners and
+carry `glaeda-side-<class>-xcode-<version>`. A root count in
 `CI_OWNED_POOL_SLOTS` (`"root-std": 10`, or the full root label) sends those
 jobs to the root label, where they wait for a free root instead of being
 refused, and the picker places no more of them than the root runners free.
 The janitor counts a root job toward the root label and its pool. Without a
 root count every job keeps the pool label. The CLI pipe, remote daemon and
 Claude wrapper lanes always do. A root count above its pool's is an error.
-With 8 std minis and 2 light ones:
-`{"std": 32, "light": 4, "root-std": 8, "root-light": 2}`.
+With 8 std minis (two root runners each) and 2 light ones (one each):
+`{"std": 32, "light": 4, "root-std": 16, "root-light": 2}`.
 
 Warm affinity (`CI_OWNED_WARM=1`, off by default): an owned Mac keeps
 compile admission's DerivedData, and admission uploads the main commits that
@@ -277,20 +280,26 @@ exactly; it does not rank runners by commit distance. A warm runner taken
 between the pick and the queue leaves admission waiting, and the rescue moves
 it to Blacksmith like any other stuck owned job.
 
-Spread-first admission (on unless `CI_OWNED_SPREAD=0`): a compile wants 8 to
-10 of a mini's 14 cores, and GitHub hands a root job to any idle root runner,
-so two compiles could share a mini while another mini's root runners sat
-idle. With live runners and a root count, the picker groups the pool's online
-root runners by mini (the runner name less `-glaeda` or `-glaeda-<K>`) and
-pins admission to an idle root runner, carrying its `glaeda-runner-` label, on
-a mini none of whose root runners is busy. It prefers a warm one there
-(`CI_OWNED_WARM=1`) and otherwise picks by run ID, so runs picking at once
-land on different minis. With no such mini it falls back to warm affinity,
-then to the root label, so two compiles share a mini only under pressure.
-The `admission_placement` output says which (`spread`, `spread-warm`, `warm`,
-or empty). A pinned root runner taken before admission queues has the same
-exposure as a warm one: the rescue re-runs the run, and attempt 2 never takes
-the pinned label.
+Spread-first admission (`CI_OWNED_SPREAD=1`, off by default): two compiles
+(8 to 10 of a mini's 14 cores each) could take both roots of one mini while
+another mini's root runners sat idle. When admission is placed on a pool with
+a root count, `ci-macos.yml`'s `admission-placement` job, which admission
+waits for on attempt 1, lists the runners with the routing App just before
+admission queues (`scripts/ci/admission_placement.py`). It groups the pool's
+online root runners by mini (the runner name less `-glaeda` or
+`-glaeda-<K>`), picks a mini none of whose root runners is busy (a mini with a
+root runner warm for the merge base first, else by run ID, so concurrent runs
+land on different minis and a mini with more root runners is not favored),
+and pins admission to an idle root runner there that carries its
+`glaeda-runner-` label. With no such mini it takes an idle warm runner, then
+the root label, so two compiles share a mini only under pressure. The picker
+in `changes` only names the warm runners (`admission_warm`): picking there
+would leave the gap until admission queues for other runs' late placement to
+take the pinned runner.
+A pinned runner taken in the seconds before admission queues leaves it
+waiting until the rescue re-runs the run, and attempt 2 never takes a pinned
+label. The job adds its own runtime (a Linux runner, a token and one runner
+listing) to admission's start.
 
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it
