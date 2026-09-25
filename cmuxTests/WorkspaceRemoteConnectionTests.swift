@@ -186,6 +186,26 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     private func runRelayZshHistfile(
         configureUserHome: (URL) throws -> URL
     ) throws -> String {
+        var effectiveUserZdotdir: URL?
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                let zdotdir = try configureUserHome(home)
+                effectiveUserZdotdir = zdotdir
+                return zdotdir
+            },
+            command: "print -r -- \"$HISTFILE\""
+        )
+        let histfile = output.last
+        XCTAssertEqual(histfile, effectiveUserZdotdir?.appendingPathComponent(".zsh_history").path)
+        return histfile ?? ""
+    }
+
+    /// Runs a login interactive zsh through the generated relay startup files
+    /// and returns its non-empty stdout lines.
+    private func runRelayZsh(
+        configureUserHome: (URL) throws -> URL,
+        command: String
+    ) throws -> [String] {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-zsh-\(UUID().uuidString)")
         let relayDir = home.appendingPathComponent(".cmux/relay/64011.shell")
@@ -193,7 +213,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         try fileManager.createDirectory(at: relayDir, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: home) }
 
-        let effectiveUserZdotdir = try configureUserHome(home)
+        _ = try configureUserHome(home)
         let bootstrap = RemoteRelayZshBootstrap(shellStateDir: relayDir.path)
 
         try writeShellFile(at: relayDir.appendingPathComponent(".zshenv"), lines: bootstrap.zshEnvLines)
@@ -212,7 +232,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 "ZDOTDIR=\(relayDir.path)",
                 "/bin/zsh",
                 "-ilc",
-                "print -r -- \"$HISTFILE\"",
+                command,
             ],
             timeout: 5
         )
@@ -220,12 +240,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        let histfile = result.stdout
+        return result.stdout
             .split(separator: "\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .last(where: { !$0.isEmpty })
-        XCTAssertEqual(histfile, effectiveUserZdotdir.appendingPathComponent(".zsh_history").path)
-        return histfile ?? ""
+            .filter { !$0.isEmpty }
     }
 
     private func runGeneratedBashBootstrapMarkers(startupFiles: [String: String]) throws -> [String] {
@@ -498,6 +516,32 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         }
 
         XCTAssertTrue(histfile.contains("/dotfiles/.zsh_history"))
+    }
+
+    func testRelayZshBootstrapShowsUserZdotdirToUserStartupFilesAndSession() throws {
+        var homePath = ""
+        let output = try runRelayZsh(
+            configureUserHome: { home in
+                homePath = home.path
+                for file in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
+                    try "print -r -- \"\(file)=${ZDOTDIR:-$HOME}\"\n".write(
+                        to: home.appendingPathComponent(file),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                }
+                return home
+            },
+            command: "print -r -- \"session=$ZDOTDIR\""
+        )
+
+        XCTAssertEqual(output, [
+            ".zshenv=\(homePath)",
+            ".zprofile=\(homePath)",
+            ".zshrc=\(homePath)",
+            ".zlogin=\(homePath)",
+            "session=\(homePath)",
+        ])
     }
 
     func testRemoteUTF8LocaleSetupLinesSeedUTF8LocaleWhenMissing() {
