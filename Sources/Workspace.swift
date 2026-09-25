@@ -639,11 +639,6 @@ extension Workspace {
                     )
                 }
                 guard let effectiveRestorableAgent else { return nil }
-                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                    for: effectiveRestorableAgent,
-                    panelId: panelId,
-                    currentProcessIdentity: currentAgentProcessIdentity
-                )
                 let matchingObservation = restorableAgentObservation?.matchingAgentSession(
                     kind: effectiveRestorableAgent.kind.rawValue,
                     sessionId: effectiveRestorableAgent.sessionId
@@ -655,17 +650,29 @@ extension Workspace {
                 ) {
                     return true
                 }
-                // No hook observation for this agent, or one whose liveness and
-                // shell state are both unknown, is not evidence the agent exited:
-                // fall back to shell activity and keep nil (legacy auto-resume).
-                return (matchingObservation?.processLiveness ?? .unknown)
-                    .wasRunning(
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
+                guard let matchingObservation else { return false }
+                if let resumeBinding {
+                    return matchingObservation.wasRunningForSnapshot(
+                        effectiveRestorableAgent,
+                        binding: resumeBinding,
                         fallingBackTo: panelShellActivityStates[panelId],
-                        recordedProcessIdentities: matchingObservation?.agentProcessIdentities ?? [:],
                         confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
                         currentProcessIdentity: currentAgentProcessIdentity,
                         processPresence: agentProcessPresence
                     )
+                }
+                return matchingObservation.processLiveness.wasRunning(
+                    fallingBackTo: panelShellActivityStates[panelId],
+                    recordedProcessIdentities: matchingObservation.agentProcessIdentities,
+                    confirmedRuntimeProcessIdentities: confirmedRuntimeProcessIdentities,
+                    currentProcessIdentity: currentAgentProcessIdentity,
+                    processPresence: agentProcessPresence
+                ) ?? false
             }()
             let resumeStartupInput = localTmuxStartCommand == nil
                 ? sessionRestorePolicy.surfaceResumeStartupInput(
