@@ -48,14 +48,25 @@ rerouted.
 Owned Macs (glaeda-<class>-xcode-<version>, pr_runner_pool.persistent) join
 the choice exactly as they do for pull requests: only when
 `vars.CI_PR_POOL_OWNED == '1'`, only the labels for the lane's Xcode pin
-(vars.CMUX_CI_XCODE_APP_PR), ahead of Blacksmith, and only while
-vars.CI_OWNED_POOL_SLOTS leaves a machine free on a snapshot younger than
-pr_runner_pool.MAX_SNAPSHOT_MINUTES. An E2E run holds one machine at a time
+(vars.CMUX_CI_XCODE_APP_PR), ahead of Blacksmith, on a snapshot younger than
+pr_runner_pool.MAX_SNAPSHOT_MINUTES, and by pull request CI's queue rule
+(vars.CI_PR_POOL_QUEUE_ROUNDS, `--queue-rounds`): an owned pool takes the run
+while its job starts there within that many job lengths and no later than on
+the best Blacksmith pool, and the queue stays within machines x (1 + rounds)
+(pr_runner_pool.owned_room()). Without the rounds the picker used the kill
+switch rule, which counts every in-flight run's whole future peak (the
+janitor's `committed`) as taken now: on 2026-09-25 that read 43 of 32 std
+machines taken while 8 ran (run 36136190497, an iOS run on this rule).
+`--queue-rounds 0` restores it; a caller that omits the flag gets it too.
+The rounds decide only whether an owned pool takes the run: when none does,
+the Blacksmith pool is chosen by the headroom rule above, as before.
+ci-owned-pool-rescue.yml gives a test-e2e.yml run's owned jobs the same
+queue allowance as a CI run's before it moves them. An E2E run holds one machine at a time
 (build, then test), so it needs one free machine. glaeda gives both jobs the
 mini's canonical-root token, so when CI_OWNED_POOL_SLOTS gives the pool a root
 count (pr_runner_pool.root_label()) the run takes the root label and needs a
 free root runner as well. An owned pool is never the
-fewest-queued fallback: with no free machine the run takes Blacksmith. A job
+fewest-queued fallback: with no room within the rounds the run takes Blacksmith. A job
 that waits on, or is refused by, an owned Mac is re-run on Blacksmith by
 ci-owned-pool-rescue.yml; every re-run attempt takes retry_runner(). That
 holds for an explicit owned runner too: it is the one pick that is moved.
@@ -98,6 +109,7 @@ E2E_JOBS = 1
 OVERFLOW_VARIABLE = "CI_E2E_LARGE_POOL_OVERFLOW"
 ORDER_VARIABLE = pr_runner_pool.ORDER_VARIABLE
 MAX_QUEUED_VARIABLE = pr_runner_pool.MAX_QUEUED_VARIABLE
+QUEUE_ROUNDS_VARIABLE = pr_runner_pool.QUEUE_ROUNDS_VARIABLE
 OWNED_VARIABLE = pr_runner_pool.OWNED_VARIABLE
 SLOTS_VARIABLE = pr_runner_pool.SLOTS_VARIABLE
 PR_XCODE_VARIABLE = pr_runner_pool.PR_XCODE_VARIABLE
@@ -138,8 +150,8 @@ def settings(order: str | None, max_queued: str | None, owned: str | None = None
 
     Owned pools stay in the order only when `owned` is "1", and only for the
     lane's Xcode pin, exactly as for pull requests. `queue_rounds` is
-    CI_PR_POOL_QUEUE_ROUNDS for a caller that reads it (ios_runner_pool.py);
-    None, as E2E passes, means no rounds (pr_runner_pool.settings()).
+    CI_PR_POOL_QUEUE_ROUNDS ("" when unset, the default); None, from a caller
+    that never reads it, means no rounds (pr_runner_pool.settings()).
     """
     return pr_runner_pool.settings(None, order, max_queued, owned, pr_xcode_app, queue_rounds)
 
@@ -221,12 +233,25 @@ def decide(load: PoolLoad | None, limits: pr_runner_pool.Settings, *, now: dt.da
         # Pull request runs are not being routed, so each stays on its lane.
         placed[lane] = placed.get(lane, 0) + routed
         routed = 0
-    return pr_runner_pool.decide(
-        load.snapshot, limits, now=now, xcode_pins={},
-        routed_since=routed, auto_xcode=True,
-        placed=placed, choose_from=pools,
-        owned_slots=owned_slots or {}, jobs=jobs, root_jobs=jobs,
-    )
+    def rule(settings: pr_runner_pool.Settings, choose_from: list[str]) -> pr_runner_pool.Choice:
+        return pr_runner_pool.decide(
+            load.snapshot, settings, now=now, xcode_pins={},
+            routed_since=routed, auto_xcode=True,
+            placed=placed, choose_from=choose_from,
+            owned_slots=owned_slots or {}, jobs=jobs, root_jobs=jobs,
+        )
+
+    choice = rule(limits, pools)
+    blacksmith = [label for label in pools if not pr_runner_pool.persistent(label)]
+    if limits.queue_rounds and blacksmith and choice.runner and not pr_runner_pool.persistent(choice.runner):
+        # The rounds decide only whether an owned pool takes the run; the
+        # Blacksmith pool is the headroom rule's, as without them (the first
+        # pool with a free machine, then the shorter queue in rounds).
+        choice = rule(dataclasses.replace(limits, queue_rounds=0), blacksmith)
+        if len(blacksmith) < len(pools):
+            choice = dataclasses.replace(choice, reason=f"no owned pool within {limits.queue_rounds} queue "
+                                                        f"round(s); {choice.reason}")
+    return choice
 
 
 def pr_routing_off(snapshot: Mapping[str, Any]) -> str | None:
@@ -268,7 +293,7 @@ def auto_runner(
         log(f"{OVERFLOW_VARIABLE}=0; staying on {SMALL_RUNNER}")
         return default
     if limits is None:
-        log(f"invalid {ORDER_VARIABLE} or {MAX_QUEUED_VARIABLE}; staying on {SMALL_RUNNER}")
+        log(f"invalid {ORDER_VARIABLE}, {MAX_QUEUED_VARIABLE} or {QUEUE_ROUNDS_VARIABLE}; staying on {SMALL_RUNNER}")
         return default
     if not any(e2e_pool(label) for label in limits.order):
         log(f"{ORDER_VARIABLE} names no macOS 26 pool; staying on {SMALL_RUNNER}")
@@ -306,6 +331,7 @@ def resolve(
     pr_xcode_app: str | None = None,
     test_filter: str | None = None,
     owned_ui: str | None = None,
+    queue_rounds: str | None = None,
 ) -> str:
     """The runner label for a workflow run, from its inputs and variables."""
     requested = (requested or "").strip()
@@ -318,7 +344,7 @@ def resolve(
     return auto_runner(
         default,
         enabled=enabled(overflow),
-        limits=settings(order, max_queued, owned, pr_xcode_app),
+        limits=settings(order, max_queued, owned, pr_xcode_app, queue_rounds),
         measure=measure,
         now=now,
         log=log,
@@ -334,6 +360,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--overflow", default="", help=f"vars.{OVERFLOW_VARIABLE}")
     parser.add_argument("--order", default="", help=f"vars.{ORDER_VARIABLE}")
     parser.add_argument("--max-queued", default="", help=f"vars.{MAX_QUEUED_VARIABLE}")
+    parser.add_argument("--queue-rounds", default=None,
+                        help=f"vars.{QUEUE_ROUNDS_VARIABLE} (\"\" is its default; omitted is 0)")
     parser.add_argument("--owned", default="", help=f"vars.{OWNED_VARIABLE}")
     parser.add_argument("--owned-slots", default="", help=f"vars.{SLOTS_VARIABLE}")
     parser.add_argument("--pr-xcode-app", default="", help=f"vars.{PR_XCODE_VARIABLE}")
@@ -360,7 +388,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         args.requested, args.variable,
         overflow=args.overflow, order=args.order, max_queued=args.max_queued,
         owned=args.owned, owned_slots=args.owned_slots, pr_xcode_app=args.pr_xcode_app,
-        test_filter=args.test_filter, owned_ui=args.owned_ui,
+        test_filter=args.test_filter, owned_ui=args.owned_ui, queue_rounds=args.queue_rounds,
         measure=measure, now=now,
         log=lambda message: print(message, file=sys.stderr),
     ))
