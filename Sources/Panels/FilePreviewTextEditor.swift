@@ -41,10 +41,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     @LiveSetting(\.fileEditor.indentGuides) private var indentGuides
     @LiveSetting(\.fileEditor.currentLineHighlight) private var currentLineHighlight
     @LiveSetting(\.fileEditor.tabWidth) private var tabWidth
-    // Editability must reflect the persisted mode on the first render, including
-    // standalone AppKit hosts without a SettingsRuntime environment.
-    @AppStorage(AppCatalogSection().filePreviewVimKeys.userDefaultsKey)
-    private var filePreviewVimKeys = AppCatalogSection().filePreviewVimKeys.defaultValue
+    @LiveSetting(\.app.filePreviewVimKeys) private var filePreviewVimKeys
 
     func makeCoordinator() -> Coordinator {
         Coordinator(

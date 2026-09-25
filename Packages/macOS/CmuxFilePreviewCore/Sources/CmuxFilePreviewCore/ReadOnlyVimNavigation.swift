@@ -115,7 +115,7 @@ public struct ReadOnlyVimNavigation {
             else { anchor = cursor; linewise = key == "V" }
         case "/", "?": searchInput = ""; searchBackwards = key == "?"
         case "n", "N":
-            for _ in 0..<repetitions { search(backwards: key == "n" ? searchBackwards : !searchBackwards) }
+            search(backwards: key == "n" ? searchBackwards : !searchBackwards, count: repetitions)
         case "ctrl+o": jump(backwards: true, count: repetitions)
         case "ctrl+i": jump(backwards: false, count: repetitions)
         case "ctrl+d": viewportAction = .page(0.5 * Double(repetitions))
@@ -254,32 +254,29 @@ public struct ReadOnlyVimNavigation {
         cursor = till ? (backwards ? buffer.next(position) : buffer.previous(position)) : position
         desiredColumn = nil
     }
-    private mutating func search(backwards: Bool) {
+    private mutating func search(backwards: Bool, count: Int = 1) {
         guard !searchPattern.isEmpty,
               let expression = try? NSRegularExpression(pattern: searchPattern, options: .anchorsMatchLines) else { return }
         let source = buffer.text as String
         let whole = NSRange(location: 0, length: buffer.length)
-        let target: Int?
-        if backwards {
-            // Retain two offsets, not one result object for every match in a large file.
-            let current = cursor
-            var previous: Int?
-            var last: Int?
-            expression.enumerateMatches(in: source, range: whole) { result, _, _ in
-                guard let offset = result?.range.location else { return }
-                last = offset
-                if offset < current { previous = offset }
-            }
-            target = previous ?? last
-        } else {
-            let start = buffer.next(cursor)
-            let remainder = NSRange(location: start, length: buffer.length - start)
-            target = expression.firstMatch(in: source, options: .withoutAnchoringBounds, range: remainder)?.range.location
-                ?? expression.firstMatch(in: source, range: whole)?.range.location
+        // Enumerate once per command, even for the maximum four-digit count.
+        var offsets: [Int] = []
+        let document = buffer
+        expression.enumerateMatches(in: source, range: whole) { result, _, _ in
+            if let offset = result?.range.location { offsets.append(document.clamp(offset)) }
         }
-        guard let target else { return }
-        recordJump()
-        cursor = buffer.clamp(target)
+        guard !offsets.isEmpty else { return }
+        var index: Int
+        if backwards {
+            index = offsets.lastIndex(where: { $0 < cursor }) ?? offsets.count - 1
+        } else {
+            index = offsets.firstIndex(where: { $0 > cursor }) ?? 0
+        }
+        for _ in 0..<count {
+            recordJump()
+            cursor = offsets[index]
+            index = (index + (backwards ? offsets.count - 1 : 1)) % offsets.count
+        }
         desiredColumn = nil
     }
 }

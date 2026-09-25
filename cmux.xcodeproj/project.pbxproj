@@ -1907,6 +1907,7 @@
 		0EA7EC478B6600AD4BDDB053 /* FilePreviewTextSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7E1431CCC54BD49EA9BBBF /* FilePreviewTextSaver.swift */; };
 		DDB55536A403FB051DA28DFC /* FilePreviewTextSaveResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEE3A9C376EE11475D83C4D5 /* FilePreviewTextSaveResult.swift */; };
 		C0DE86520000000000000113 /* FilePreviewViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000114 /* FilePreviewViewport.swift */; };
+		A1344301A1B2C3D4E5F60001 /* FilePreviewVimController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1344302A1B2C3D4E5F60001 /* FilePreviewVimController.swift */; };
 		BADB4AF68BF0C72B5DABB4E0 /* FilePreviewVimNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2313DD6C237089BE0784B87 /* FilePreviewVimNavigationTests.swift */; };
 		F12748000000000000000007 /* FilePreviewWordWrapMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = F12748000000000000000008 /* FilePreviewWordWrapMenu.swift */; };
 		F11E52270000000000005227 /* FilePreviewWordWrapSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */; };
@@ -5909,6 +5910,7 @@
 		BC7E1431CCC54BD49EA9BBBF /* FilePreviewTextSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewTextSaver.swift"; sourceTree = "<group>"; };
 		AEE3A9C376EE11475D83C4D5 /* FilePreviewTextSaveResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewTextSaveResult.swift"; sourceTree = "<group>"; };
 		C0DE86520000000000000114 /* FilePreviewViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewViewport.swift; sourceTree = "<group>"; };
+		A1344302A1B2C3D4E5F60001 /* FilePreviewVimController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewVimController.swift; sourceTree = "<group>"; };
 		F2313DD6C237089BE0784B87 /* FilePreviewVimNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FilePreviewVimNavigationTests.swift"; sourceTree = "<group>"; };
 		F12748000000000000000008 /* FilePreviewWordWrapMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/FilePreviewWordWrapMenu.swift"; sourceTree = "<group>"; };
 		F11E52270000000000005228 /* FilePreviewWordWrapSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWordWrapSettings.swift; sourceTree = "<group>"; };
@@ -10390,6 +10392,7 @@
 				C0DE64020000000000001001 /* FilePreviewQuickLookContainerView.swift */,
 				0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */,
 				D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */,
+				A1344302A1B2C3D4E5F60001 /* FilePreviewVimController.swift */,
 				F12748000000000000000006 /* NSTextView+FilePreviewLayout.swift */,
 				F12748000000000000000008 /* FilePreviewWordWrapMenu.swift */,
 				F12748000000000000000004 /* SavingTextView+WordWrapShortcut.swift */,
@@ -13910,6 +13913,7 @@
 				C0DE97470000000000000001 /* FilePreviewTabMetadata.swift in Sources */,
 				C0DE97470000000000000003 /* FilePreviewTabMetadataHost.swift in Sources */,
 				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
+				A1344301A1B2C3D4E5F60001 /* FilePreviewVimController.swift in Sources */,
 				0EA7EC478B6600AD4BDDB053 /* FilePreviewTextSaver.swift in Sources */,
 				DDB55536A403FB051DA28DFC /* FilePreviewTextSaveResult.swift in Sources */,
 				C0DE86520000000000000113 /* FilePreviewViewport.swift in Sources */,
