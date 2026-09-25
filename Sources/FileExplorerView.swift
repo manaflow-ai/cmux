@@ -967,6 +967,23 @@ final class FileExplorerContainerView: NSView {
         updateShortcutPlacement(coordinator.placement)
         configureSearchDebounce()
 
+        headerView.onNavigate = { [weak coordinator] path in
+            coordinator?.store.navigate(to: path)
+        }
+        headerView.onNavigateBack = { [weak coordinator] in
+            coordinator?.store.navigateBack()
+        }
+        headerView.onNavigateForward = { [weak coordinator] in
+            coordinator?.store.navigateForward()
+        }
+        headerView.onNavigateToParent = { [weak coordinator] in
+            coordinator?.store.navigateToParent()
+        }
+        headerView.onPathFieldFocus = { [weak self] in
+            guard let self else { return }
+            self.coordinator.noteKeyboardFocus(mode: self.representedRightSidebarMode(), in: self.window)
+        }
+
         // Header
         headerView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(headerView)
@@ -1236,7 +1253,13 @@ final class FileExplorerContainerView: NSView {
         currentRootPath = nextRootPath; currentSearchScope = nextSearchScope
         currentResourceContextID = store.resourceContextID
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
-        headerView.update(displayPath: store.displayRootPath,
+        headerView.update(
+            displayPath: store.displayRootPath,
+            directoryPath: store.rootPath,
+            canNavigateBack: store.canNavigateBack,
+            canNavigateForward: store.canNavigateForward,
+            canNavigateToParent: store.canNavigateToParent,
+            isAvailable: store.provider?.isAvailable == true,
             retry: store.provider is CloudVMFileExplorerProvider ? { [weak store] in store?.retryRemoteRoot() } : nil)
         if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
         if searchScopeChanged {

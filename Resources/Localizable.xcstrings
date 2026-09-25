@@ -225456,6 +225456,76 @@
         }
       }
     },
+    "fileExplorer.navigation.back": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Back" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "戻る" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "뒤로" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "后退" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Zurück" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Retour" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "رجوع" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Atrás" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "返回" } }
+      }
+    },
+    "fileExplorer.navigation.forward": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Forward" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "進む" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "앞으로" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "前进" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Weiter" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Avancer" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إلى الأمام" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Adelante" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "前進" } }
+      }
+    },
+    "fileExplorer.navigation.parent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open parent directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "親ディレクトリを開く" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "상위 디렉터리 열기" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "打开父目录" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Übergeordneten Ordner öffnen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ouvrir le dossier parent" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "فتح المجلد الأصل" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Abrir el directorio principal" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "開啟上層目錄" } }
+      }
+    },
+    "fileExplorer.navigation.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Change directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ディレクトリを変更" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "디렉터리 변경" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "更改目录" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verzeichnis ändern" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Changer de dossier" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تغيير المجلد" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Cambiar directorio" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "更改目錄" } }
+      }
+    },
+    "fileExplorer.navigation.directory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ディレクトリ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "디렉터리" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "目录" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verzeichnis" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Dossier" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "الدليل" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Directorio" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "目錄" } }
+      }
+    },
     "fileExplorer.contextMenu.copyPath": {
       "extractionState": "manual",
       "localizations": {

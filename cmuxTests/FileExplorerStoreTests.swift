@@ -236,6 +236,51 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testDirectoryNavigationNormalizesHomeParentAndRoot() async throws {
+        let provider = MockFileExplorerProvider()
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        store.navigate(to: "~/other folder/../project/./src")
+        #expect(store.rootPath == "/home/user/project/src")
+        store.navigate(to: "/")
+        #expect(!store.canNavigateToParent)
+        store.navigateToParent()
+        #expect(store.rootPath == "/")
+        store.navigate(to: "../../")
+        #expect(store.rootPath == "/")
+        store.navigateBack()
+        #expect(store.rootPath == "/home/user/project/src")
+        store.navigate(to: "../new")
+        #expect(store.rootPath == "/home/user/project/new")
+        #expect(!store.canNavigateForward)
+        try await waitFor("navigation finished") { !store.isRootLoading }
+    }
+
+    @Test
+    func testDirectoryNavigationFailureCanGoBackAndDoesNotCrossWorkspaces() async throws {
+        let provider = MockFileExplorerProvider()
+        provider.listings["/home/user/missing"] = .failure(FileExplorerError.sshCommandFailed("missing"))
+        let store = FileExplorerStore()
+        store.setWorkspaceRootIdentity(UUID())
+        store.setProviderForTesting(provider)
+        store.setRootPath("/home/user/project")
+        store.navigate(to: "../missing")
+        try await waitFor("missing directory error") { store.rootStatusMessage != nil && !store.isRootLoading }
+        #expect(store.canNavigateBack)
+        store.navigateBack()
+        try await waitFor("original directory restored") { store.rootStatusMessage == nil && !store.isRootLoading }
+        #expect(store.rootPath == "/home/user/project")
+        #expect(store.canNavigateForward)
+        store.setRootPath("/home/user/project")
+        #expect(store.canNavigateForward)
+        store.setWorkspaceRootIdentity(UUID())
+        store.setRootPath("/home/user/project")
+        #expect(!store.canNavigateBack)
+        #expect(!store.canNavigateForward)
+    }
+
+    @Test
     func testDisplayRootPathUsesTilde() {
         let provider = MockFileExplorerProvider(homePath: "/home/user")
         let store = FileExplorerStore()

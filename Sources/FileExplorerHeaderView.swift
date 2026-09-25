@@ -2,15 +2,24 @@ import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
 
-/// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
-final class FileExplorerHeaderView: NSView {
-    private let iconView = CmuxResolvedIconImageView()
+/// Directory navigation and the temporary type-to-select query share the header.
+final class FileExplorerHeaderView: NSView, NSTextFieldDelegate {
+    private let navigationBar = NSStackView()
+    private let backButton = NSButton()
+    private let forwardButton = NSButton()
+    private let parentButton = NSButton()
     private let retryButton = NSButton()
-    private var retry: (() -> Void)?
-    private let pathLabel = NSTextField(labelWithString: "")
+    private let pathField = NSTextField()
+    private let queryLabel = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
-    private var displayPath = ""
+    private var directoryPath = ""
     private var quickSearchQuery: String?
+    private var retry: (() -> Void)?
+    var onNavigate: ((String) -> Void)?
+    var onNavigateBack: (() -> Void)?
+    var onNavigateForward: (() -> Void)?
+    var onNavigateToParent: (() -> Void)?
+    var onPathFieldFocus: (() -> Void)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -22,89 +31,145 @@ final class FileExplorerHeaderView: NSView {
     }
 
     private func setupViews() {
-        iconView.translatesAutoresizingMaskIntoConstraints = false
+        configureButton(backButton, symbol: "chevron.backward", identifier: "FileExplorerBackButton",
+            label: String(localized: "fileExplorer.navigation.back", defaultValue: "Back"),
+            action: #selector(navigateBack))
+        configureButton(forwardButton, symbol: "chevron.forward", identifier: "FileExplorerForwardButton",
+            label: String(localized: "fileExplorer.navigation.forward", defaultValue: "Forward"),
+            action: #selector(navigateForward))
+        configureButton(parentButton, symbol: "arrow.up", identifier: "FileExplorerParentButton",
+            label: String(localized: "fileExplorer.navigation.parent", defaultValue: "Open parent directory"),
+            action: #selector(navigateToParent))
+        configureButton(retryButton, symbol: "arrow.clockwise", identifier: "FileExplorerRetryButton",
+            label: String(localized: "common.retry", defaultValue: "Retry"),
+            action: #selector(retryFiles))
+        retryButton.isHidden = true
 
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        applyFonts()
-        pathLabel.textColor = .secondaryLabelColor
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.maximumNumberOfLines = 1
-        pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        pathField.delegate = self
+        pathField.lineBreakMode = .byTruncatingMiddle
+        pathField.maximumNumberOfLines = 1
+        pathField.placeholderString = String(localized: "fileExplorer.navigation.placeholder", defaultValue: "Change directory")
+        pathField.setAccessibilityIdentifier("FileExplorerDirectoryField")
+        pathField.setAccessibilityLabel(String(localized: "fileExplorer.navigation.directory", defaultValue: "Directory"))
+        pathField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        pathField.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        addSubview(iconView)
-        addSubview(pathLabel)
-        retryButton.translatesAutoresizingMaskIntoConstraints = false
-        retryButton.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: nil)
-        retryButton.bezelStyle = .inline
-        retryButton.isBordered = false
-        retryButton.target = self
-        retryButton.action = #selector(retryFiles)
-        retryButton.toolTip = String(localized: "common.retry", defaultValue: "Retry")
-        retryButton.setAccessibilityLabel(retryButton.toolTip)
-        addSubview(retryButton)
+        navigationBar.orientation = .horizontal
+        navigationBar.alignment = .centerY
+        navigationBar.spacing = 2
+        navigationBar.translatesAutoresizingMaskIntoConstraints = false
+        for view in [backButton, forwardButton, parentButton, pathField, retryButton] {
+            navigationBar.addArrangedSubview(view)
+        }
+        addSubview(navigationBar)
+
+        queryLabel.translatesAutoresizingMaskIntoConstraints = false
+        queryLabel.textColor = .secondaryLabelColor
+        queryLabel.lineBreakMode = .byTruncatingMiddle
+        queryLabel.maximumNumberOfLines = 1
+        queryLabel.isHidden = true
+        addSubview(queryLabel)
 
         let heightConstraint = heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight)
         self.heightConstraint = heightConstraint
-
         NSLayoutConstraint.activate([
             heightConstraint,
-
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: RightSidebarChromeMetrics.contentIconLeadingPadding),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.contentIconFrameSize),
-            iconView.heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.contentIconFrameSize),
-
-            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: RightSidebarChromeMetrics.contentIconTextSpacing),
-            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: retryButton.leadingAnchor, constant: -8),
-            retryButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            retryButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            retryButton.widthAnchor.constraint(equalToConstant: 18),
+            navigationBar.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            navigationBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            navigationBar.centerYAnchor.constraint(equalTo: centerYAnchor),
+            queryLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            queryLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            queryLabel.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
-        applyHeaderState()
+        applyFonts()
+    }
+
+    private func configureButton(_ button: NSButton, symbol: String, identifier: String, label: String, action: Selector) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        button.imagePosition = .imageOnly
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.target = self
+        button.action = action
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+        button.setAccessibilityIdentifier(identifier)
+        button.widthAnchor.constraint(equalToConstant: 18).isActive = true
     }
 
     func applyFonts() {
-        pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+        pathField.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+        queryLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
         heightConstraint?.constant = RightSidebarChromeMetrics.secondaryBarHeight
     }
 
     @objc private func retryFiles() { retry?() }
+    @objc private func navigateBack() { endEditing(); onNavigateBack?() }
+    @objc private func navigateForward() { endEditing(); onNavigateForward?() }
+    @objc private func navigateToParent() { endEditing(); onNavigateToParent?() }
 
-    func update(displayPath: String, retry: (() -> Void)? = nil) {
+    private func endEditing() {
+        window?.makeFirstResponder(nil)
+    }
+
+    func controlTextDidBeginEditing(_ notification: Notification) {
+        onPathFieldFocus?()
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) {
+        // Clicking elsewhere cancels the draft; only Return changes the root.
+        if pathField.stringValue != directoryPath { pathField.stringValue = directoryPath }
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        switch commandSelector {
+        case #selector(NSResponder.insertNewline(_:)):
+            guard !textView.hasMarkedText() else { return false }
+            let path = pathField.stringValue
+            endEditing()
+            onNavigate?(path)
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            endEditing()
+            return true
+        default:
+            return false
+        }
+    }
+
+    func update(
+        displayPath: String,
+        directoryPath: String,
+        canNavigateBack: Bool,
+        canNavigateForward: Bool,
+        canNavigateToParent: Bool,
+        isAvailable: Bool,
+        retry: (() -> Void)? = nil
+    ) {
         self.retry = retry
-        retryButton.isHidden = retry == nil
-        guard self.displayPath != displayPath else { return }
-        self.displayPath = displayPath
-        applyHeaderState()
+        self.directoryPath = directoryPath
+        // These updates run within NSViewRepresentable. Redundant AppKit KVO
+        // writes can trigger another SwiftUI pass, so every setter is guarded.
+        if retryButton.isHidden != (retry == nil) { retryButton.isHidden = retry == nil }
+        if backButton.isEnabled != canNavigateBack { backButton.isEnabled = canNavigateBack }
+        if forwardButton.isEnabled != canNavigateForward { forwardButton.isEnabled = canNavigateForward }
+        if parentButton.isEnabled != canNavigateToParent { parentButton.isEnabled = canNavigateToParent }
+        if pathField.isEnabled != isAvailable { pathField.isEnabled = isAvailable }
+        if pathField.toolTip != displayPath { pathField.toolTip = displayPath }
+        if pathField.currentEditor() == nil, pathField.stringValue != directoryPath {
+            pathField.stringValue = directoryPath
+        }
     }
 
     func updateQuickSearch(query: String?) {
         guard quickSearchQuery != query else { return }
         quickSearchQuery = query
-        applyHeaderState()
-    }
-
-    private func applyHeaderState() {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        if let quickSearchQuery {
-            iconView.apply(CmuxResolvedIconRequest(
-                source: .systemSymbol(name: "magnifyingglass", accessibilityDescription: nil),
-                size: NSSize(width: 14, height: 14),
-                tintColor: .secondaryLabelColor,
-                symbolWeight: .regular
-            ))
-            pathLabel.stringValue = "/" + quickSearchQuery
-            pathLabel.toolTip = pathLabel.stringValue
-        } else {
-            iconView.apply(CmuxResolvedIconRequest(
-                source: .systemSymbol(name: "folder.fill", accessibilityDescription: nil),
-                size: NSSize(width: 14, height: 14),
-                tintColor: .secondaryLabelColor,
-                symbolWeight: .regular
-            ))
-            pathLabel.stringValue = displayPath
-            pathLabel.toolTip = displayPath
+        let searching = query != nil
+        if navigationBar.isHidden != searching { navigationBar.isHidden = searching }
+        if queryLabel.isHidden == searching { queryLabel.isHidden = !searching }
+        if let query {
+            queryLabel.stringValue = "/" + query
+            queryLabel.toolTip = queryLabel.stringValue
         }
     }
 }
