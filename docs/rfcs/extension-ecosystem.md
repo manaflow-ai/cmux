@@ -127,6 +127,7 @@ current packs do not need a rewrite.
   "description": "Review actions and a diff renderer for this repository.",
   "requires": { "cmux": ">=0.20.0 <1.0.0" },
   "capabilities": ["readWorkspace", "gitDiff", "runCommand"],
+  "files": ["providers/diff-render.json"],
   "providers": {
     "com.example.provider.diff": {
       "kind": "cmux.provider.diff-render",
@@ -167,6 +168,25 @@ of the provider list, the pack ceiling, and the intent's allowed set. A provider
 with no declaration has no capabilities and cannot be activated. Actions that
 do not invoke a provider may declare their own capability requirements in their
 typed action definition.
+
+`files` is an optional list of pack-relative provider assets. Paths use `/`,
+must be normalized UTF-8 relative paths without `.` or `..` components, and
+must name regular files. Absolute paths, duplicate paths, symlinks, hard links,
+device files, and files below `.git` are rejected. Every filesystem or webview
+asset named by a provider's driver-specific `config` must appear in `files`;
+an undeclared asset is never opened even when it exists in the pack. A pack
+with no such assets may omit `files`. Legacy packs remain valid, but they have
+no provider assets until a versioned manifest declares them.
+
+For installed packs, the declared tree is the manifest plus the files in
+`files`. The content fingerprint is deterministic: sort normalized path bytes
+lexicographically, then hash length-prefixed records containing each path,
+the file type `regular`, the byte length, and the SHA-256 of its bytes. The
+manifest record is always included. A checkout's `.git` directory and
+unlisted files are outside the declared tree and cannot be used as provider
+assets. Before every provider read or launch, cmux revalidates the path set
+and recomputes these records; a changed, missing, newly added, or replaced
+file fails closed and revokes the associated trust decision.
 
 Routes use either the legacy string form (provider ID only) or this object
 form:
@@ -259,17 +279,33 @@ Drivers are introduced in this order:
    only driver that can participate in the first notes and Markdown migration.
 2. **filesystem** — a confined path under the project or pack root. It can
    read/write only the declared subpath and cannot execute a command.
-3. **webview** — a URL with an explicit origin allowlist. It receives a
-   capability-scoped `window.cmux` bridge and no ambient app or filesystem API.
+3. **webview** — a URL with an explicit origin allowlist. Navigation, redirects,
+   subresources, frames, and `window.open` are restricted to that allowlist;
+   `file:`, `data:`, `javascript:`, and other non-HTTP(S) schemes are rejected.
+   The bridge is installed only while the top-level and frame origin matches
+   the approved origin, is removed before a disallowed navigation commits, and
+   every bridge call is checked against the current origin and capability grant.
+   It receives a capability-scoped `window.cmux` bridge and no ambient app or
+   filesystem API.
 4. **stdio** — a child process launched with an argument array, a bounded
    handshake, a private environment, request deadlines, output limits, and an
    explicit termination policy. It remains unavailable for a provider kind
-   until that kind's protocol schema has landed.
+   until that kind's protocol schema and an OS-enforced sandbox contract have
+   landed.
 
 No driver accepts shell fragments in a route. The `command` field for `stdio`
 is an executable name or absolute path; arguments are a separate array. PATH
 lookup, if enabled for a user-approved provider, is resolved once and recorded
 in diagnostics.
+
+The stdio process is untrusted code. `runCommand` authorizes starting the
+declared executable; it does not grant ambient filesystem or network access.
+The process must run in an OS-enforced sandbox that denies access by default,
+binds filesystem reads and writes to the declared project or pack subpaths,
+and sends network traffic through a cmux broker that enforces the declared
+origin allowlist. The child receives no raw socket, app object, or unrestricted
+environment. If the host cannot enforce those boundaries, the provider is
+rejected rather than treating a manifest declaration as an advisory grant.
 
 ## Resolution and precedence
 
@@ -337,8 +373,12 @@ previous grant by keeping the same command string.
 The prompt names the provider, intent, capability, path/origin, executable
 identity when applicable, and action. A denied or unavailable capability is a
 typed failure visible to the caller; it does not fall back to a more privileged
-provider. The existing action trust store remains the persistence mechanism for
-command-backed actions until the provider registry has its own storage boundary.
+provider. `readGlobalConfig` and `writeGlobalConfig` are never silently reused:
+each request presents a fresh prompt and records an ephemeral receipt tied to
+the current registry revision and trust key, without adding a reusable grant to
+the trust store. The existing action trust store remains the persistence
+mechanism for other command-backed actions until the provider registry has its
+own storage boundary.
 
 Every provider request carries the approved registry revision and fingerprint.
 When a pack is disabled, removed, updated, or replaced, cmux publishes a new
