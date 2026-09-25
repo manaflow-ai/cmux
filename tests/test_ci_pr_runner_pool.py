@@ -79,33 +79,47 @@ class PreferenceOrder(unittest.TestCase):
         self.assertEqual((choice.runner, choice.xcode_app), (SMALL, ""))
 
     def test_macos_15_last_with_its_own_xcode(self):
-        # The measured 2026-09-24 10:08Z backlog, with 12vcpu also full: five
-        # queued minutes on 12vcpu beat a cold compile on macOS 15.
-        self.assertEqual(choose(backlog(small=21, large=5, old=2)).runner, LARGE)
-        choice = choose(backlog(small=21, large=15, old=2))
+        # Every pool full: under one round queued on 12vcpu beats a cold
+        # compile on macOS 15, more than its extra round does not.
+        self.assertEqual(choose(backlog(small=21, large=2, old=2)).runner, LARGE)
+        choice = choose(backlog(small=21, large=5, old=2))
         self.assertEqual((choice.runner, choice.xcode_app), (OLD, XCODE_15))
 
-    def test_the_unseeded_pool_is_never_taken_for_headroom(self):
-        # 2026-09-24 17:25Z to 18:10Z: every PR admission overflowed to macOS 15
-        # at 3 queued and compiled cold for 17 to 25 minutes.
-        self.assertEqual(choose(backlog(small=3, large=3, old=0)).runner, LARGE)
+    def test_a_full_pool_rolls_over(self):
+        # 2026-09-24 23:16Z: 12vcpu ran 3 with 18 queued, 6vcpu 26 ran 10 with
+        # 3 queued, macOS 15 ran 1 of 10. A free machine anywhere in the order
+        # beats a queue, the cold pool's included.
+        snap = backlog(small=3, large=18, old=0)
+        snap["pools"][LARGE]["running"] = 3
+        snap["pools"][OLD]["running"] = 1
+        choice = choose(snap)
+        self.assertEqual((choice.runner, choice.xcode_app), (OLD, XCODE_15))
+        self.assertIn("free machine", choice.reason)
+        # 12vcpu is full at 4 running, not 10.
+        snap = backlog(small=0, large=0)
+        snap["pools"][SMALL]["running"] = 9
+        snap["pools"][LARGE]["running"] = 3
+        self.assertEqual(choose(snap).runner, LARGE)
+        snap["pools"][LARGE]["running"] = 4
+        self.assertEqual(choose(snap).runner, SMALL)
+        self.assertEqual(pool.pool(snap, LARGE)["capacity"], 4)
         self.assertTrue(pool.cold(OLD))
         self.assertFalse(pool.cold(LARGE) or pool.cold(SMALL) or pool.cold("glaeda-std-xcode-26.6"))
 
-    def test_fewest_queued_when_nothing_has_headroom(self):
-        # The macOS 15 pool has no seed, so it counts COLD_QUEUE_PENALTY more.
-        self.assertEqual(choose(backlog(small=21, large=6, old=4)).runner, LARGE)
-        self.assertEqual(choose(backlog(small=21, large=20, old=4)).runner, OLD)
-        self.assertIn("counting 12 more", choose(backlog(small=21, large=20, old=4)).reason)
-        self.assertIn("counting 12 more", choose(backlog(small=21, large=6, old=4)).reason)
-        self.assertNotIn("counting", choose(backlog(small=21, large=6, old=9)).reason)
-        # A threshold above the penalty still gives the cold pool no headroom.
-        self.assertEqual(choose(backlog(small=20, large=20, old=0), max_queued="30").runner, LARGE)
+    def test_shortest_queue_in_rounds_when_every_pool_is_full(self):
+        # Queued jobs over capacity; the macOS 15 pool has no seed, so it
+        # counts COLD_ROUNDS more.
+        self.assertEqual(choose(backlog(small=21, large=2, old=4)).runner, LARGE)
+        self.assertIn("counting 1 more", choose(backlog(small=21, large=2, old=4)).reason)
+        self.assertEqual(choose(backlog(small=21, large=6, old=4)).runner, OLD)
+        self.assertIn("counting 1 more", choose(backlog(small=21, large=6, old=4)).reason)
+        self.assertEqual(choose(backlog(small=5, large=6, old=9)).runner, SMALL)
+        self.assertNotIn("counting", choose(backlog(small=5, large=6, old=9)).reason)
+        self.assertIn("every pool is full", choose(backlog(small=5, large=6, old=9)).reason)
         self.assertEqual(choose(backlog(small=0, large=0), order=OLD).reason.split(" (")[0],
                          "the only pool this run may take")
-        self.assertEqual(choose(backlog(small=5, large=6, old=9)).runner, SMALL)
-        # A tie goes to the earlier pool in the order.
-        self.assertEqual(choose(backlog(small=7, large=7, old=7)).runner, LARGE)
+        # A tie goes to the earlier pool in the order: 10 of 10 against 4 of 4.
+        self.assertEqual(choose(backlog(small=9, large=3, old=20)).runner, LARGE)
 
     def test_a_queued_release_or_nightly_job_reserves_its_pool(self):
         self.assertEqual(choose(backlog(small=0, large=0, large_reserved=1)).runner, SMALL)
@@ -114,27 +128,31 @@ class PreferenceOrder(unittest.TestCase):
     def test_order_and_threshold_come_from_variables(self):
         order = f"{SMALL},{OLD}"
         self.assertEqual(choose(backlog(small=2, old=0), order=order).runner, SMALL)
-        self.assertEqual(choose(backlog(small=2, old=0), order=order, max_queued="2").runner, SMALL)
+        # CI_PR_POOL_MAX_QUEUED lets a pool take a run with that many queued.
+        self.assertEqual(choose(backlog(small=2, old=5), order=order, max_queued="3").runner, SMALL)
         self.assertEqual(choose(backlog(small=13, old=0), order=order, max_queued="2").runner, OLD)
         self.assertEqual(choose(backlog(small=0, large=0), order=OLD).runner, OLD)
 
     def test_runs_since_the_snapshot_spread_a_burst(self):
-        # 12vcpu has 9 of its 10 slots idle (1 running), 6vcpu 26 has 6
+        # 12vcpu has 3 of its 4 machines free (1 running), 6vcpu 26 has 6
         # queued, macOS 15 is full with nothing queued: pushes after a sweep
-        # fill 12vcpu's idle slots and queue there until it is as deep as
-        # 6vcpu 26, then alternate; macOS 15 waits for both to reach 12.
+        # take 12vcpu's free machines, then every pool is full and each run
+        # takes the shortest queue in rounds; macOS 15 joins once the others
+        # are about a round deeper than it.
         snap = backlog(small=6, large=0, old=0)
-        snap["pools"][OLD]["running"] = pool.POOL_CAPACITY
-        picks = [choose(snap, routed=n).runner for n in range(30)]
-        self.assertEqual(picks, [LARGE] * 16 + [SMALL, LARGE] * 6 + [SMALL, OLD])
+        snap["pools"][OLD]["running"] = pool.POOL_CAPACITIES[OLD]
+        picks = "".join({LARGE: "L", SMALL: "S", OLD: "O"}[choose(snap, routed=n).runner] for n in range(30))
+        self.assertEqual(picks, "LLLLLSLSSLSSOSOLSOSOLSOSOSOLSO")
         self.assertIn("replaying 4", choose(backlog(small=6), routed=4).reason)
 
     def test_idle_slots_absorb_recent_runs(self):
-        # The 11:45Z proof run: 12vcpu 0 queued and 2 running, four runs
-        # created in the minute since the sweep. They fit its idle slots.
+        # 12vcpu 0 queued and 2 running: one run since the sweep takes one of
+        # its two free machines, and this run the other. After two, it is full.
         snap = backlog(small=2, large=0, old=1)
         snap["pools"][LARGE]["running"] = 2
-        self.assertEqual(choose(snap, routed=4).runner, LARGE)
+        self.assertEqual(choose(snap, routed=1).runner, LARGE)
+        self.assertIn("free machine", choose(snap, routed=1).reason)
+        self.assertIn("every pool is full", choose(snap, routed=2).reason)
         self.assertEqual(pool.effective_queue({"queued": 0, "running": 2}, 8), 0)
         self.assertEqual(pool.effective_queue({"queued": 0, "running": 2}, 10), 2)
         self.assertEqual(pool.effective_queue({"queued": 1, "running": 3}, 2), 3)
@@ -149,11 +167,11 @@ class PreferenceOrder(unittest.TestCase):
         # where they are, and the final pick may be limited to some pools
         # while the replay still spreads over the whole order.
         snap = backlog(small=0, large=0, old=0)
-        snap["pools"][LARGE]["running"] = 8
+        snap["pools"][LARGE]["running"] = 0
         args = dict(now=NOW, xcode_pins=PINS)
-        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 4}, **args).runner, LARGE)
-        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).runner, SMALL)
-        self.assertIn("replaying 5", pool.decide(snap, pool.Settings(), placed={LARGE: 5}, **args).reason)
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 3}, **args).runner, LARGE)
+        self.assertEqual(pool.decide(snap, pool.Settings(), placed={LARGE: 4}, **args).runner, SMALL)
+        self.assertIn("replaying 4", pool.decide(snap, pool.Settings(), placed={LARGE: 4}, **args).reason)
         # A pool outside the order is ignored rather than trusted.
         self.assertEqual(pool.decide(snap, pool.Settings(), placed={"tart-small": 9}, **args).runner, LARGE)
         busy = backlog(small=13, large=14, old=0)
@@ -170,7 +188,7 @@ class PreferenceOrder(unittest.TestCase):
 
     def test_macos_15_needs_an_xcode_pin(self):
         choice = choose(backlog(small=21, large=5, old=0), pins={})
-        self.assertEqual(choice.runner, LARGE)  # fewest queued among the usable pools
+        self.assertEqual(choice.runner, LARGE)  # shortest queue in rounds among the usable pools
         self.assertIn("no Xcode pin", choice.reason)
         self.assertEqual(choose(backlog(), order=OLD, pins={}).runner, "")
 
@@ -229,7 +247,7 @@ class FailSafe(unittest.TestCase):
     def test_kill_switch_and_invalid_settings(self):
         self.assert_default(choose(backlog(), overflow="0"))
         for bad in ({"order": "warp-macos-26-arm64-12x"}, {"order": f"{LARGE},{LARGE}"},
-                    {"max_queued": "0"}, {"max_queued": "many"}):
+                    {"max_queued": "-1"}, {"max_queued": "many"}):
             self.assert_default(choose(backlog(), **bad))
 
     def test_unknown_or_stale_snapshot(self):
@@ -321,8 +339,9 @@ class JanitorSnapshot(unittest.TestCase):
         self.assertNotIn(OLD, snap["pools"])
         self.assertNotIn("blacksmith-4vcpu-ubuntu-2404", snap["pools"])
         # The picker reads what the janitor writes.
-        # 12vcpu is reserved by the queued nightly job; 6vcpu 26 has headroom.
-        self.assertEqual(choose(snap).runner, SMALL)
+        # 12vcpu is reserved by the queued nightly job and 6vcpu 26 has jobs
+        # queued, so the run rolls over to the idle macOS 15 pool.
+        self.assertEqual(choose(snap).runner, OLD)
 
     def test_owned_jobs_are_macos_jobs_to_the_janitor(self):
         mini = {"labels": ["glaeda-std-xcode-26.6"], "status": "queued"}
@@ -529,7 +548,8 @@ class OwnedPools(unittest.TestCase):
                                       routed=pool.Routed(unknown=1, owned={MINI: 1})).runner, LARGE)
 
     def test_runs_off_the_owned_pools_still_queue_on_blacksmith(self):
-        snap = backlog(small=0, large=2)
+        snap = backlog(small=0, large=0)
+        snap["pools"][LARGE]["running"] = 3
         self.assertEqual(choose(snap).runner, LARGE)
         self.assertEqual(choose(snap, routed=pool.Routed(ephemeral=1)).runner, SMALL)
 

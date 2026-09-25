@@ -61,8 +61,12 @@ class FakeAPI:
     """Jobs come from a function of elapsed seconds; every call is recorded."""
 
     def __init__(self, clock, jobs, *, marker=False, head=HEAD, state="open", settles_after=10,
-                 attempt_after_cancel=1, finished=lambda seconds: False):
+                 attempt_after_cancel=1, finished=lambda seconds: False, rerun_jobs=None):
         self.clock, self.jobs_at, self.marker = clock, jobs, marker
+        # Jobs of attempt 2 onwards, as a function of seconds since that attempt began.
+        self.rerun_jobs = rerun_jobs or (lambda seconds: [job("macos / tests", status="completed",
+                                                              labels=[BLACKSMITH])])
+        self.attempt, self.rerun_at = 1, 0.0
         self.head, self.state = head, state
         self.settles_after, self.attempt_after_cancel = settles_after, attempt_after_cancel
         self.finished = finished
@@ -73,12 +77,19 @@ class FakeAPI:
         self.calls.append("run")
         if self.cancelled_at is not None:
             done = self.clock.seconds - self.cancelled_at >= self.settles_after
+            # attempt_after_cancel above 1: someone else re-ran it meanwhile.
             return {"status": "completed" if done else "in_progress",
-                    "run_attempt": self.attempt_after_cancel if done else 1}
+                    "run_attempt": max(self.attempt, self.attempt_after_cancel) if done else self.attempt}
+        if self.attempt > 1:
+            jobs = self.rerun_jobs(self.clock.seconds - self.rerun_at)
+            done = bool(jobs) and all(found.get("status") == "completed" for found in jobs)
+            return {"status": "completed" if done else "in_progress", "run_attempt": self.attempt}
         return {"status": "completed" if self.finished(self.clock.seconds) else "in_progress", "run_attempt": 1}
 
     def jobs(self, run_id, attempt):
-        self.calls.append("jobs")
+        self.calls.append("jobs" if attempt == 1 else f"jobs:{attempt}")
+        if attempt > 1:
+            return self.rerun_jobs(self.clock.seconds - self.rerun_at)
         return self.jobs_at(self.clock.seconds)
 
     def has_artifact(self, run_id, name):
@@ -101,6 +112,8 @@ class FakeAPI:
 
     def rerun_failed(self, run_id):
         self.calls.append("rerun-failed")
+        self.attempt += 1
+        self.cancelled_at, self.rerun_at = None, self.clock.seconds
 
 
 def event(**overrides):
@@ -188,18 +201,100 @@ class Refusal(unittest.TestCase):
         api = FakeAPI(clock, refusing_run(), marker=True)
         code, summary = run_main(api, clock)
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun-failed"])
+        rerun = api.calls.index("rerun-failed")
+        self.assertEqual(api.calls[rerun - 3:rerun + 1], ["cancel", "run", "pull", "rerun-failed"])
+        # Then it follows attempt 2, which here took no owned job.
+        self.assertEqual(api.calls[rerun + 1:], ["jobs:2"])
+        self.assertIn("no job of this attempt asked for a persistent pool", summary)
         self.assertNotIn("rerun", api.calls)
         self.assertIn(f"refused by {MINI} at job start", summary)
-        self.assertIn("attempt 2 takes retry_runner", summary)
+        self.assertIn("attempt 2 takes the owned pool once more", summary)
 
     def test_a_finished_run_with_a_refusal_needs_no_cancel(self):
         clock = Clock()
         api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60)
         _, summary = run_main(api, clock)
         self.assertNotIn("cancel", api.calls)
-        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])
         self.assertIn("re-ran the failed jobs", summary)
+
+    def test_a_refused_retry_on_the_fleet_goes_to_blacksmith_next(self):
+        # Attempt 2 takes the owned pool once more and is refused again: its
+        # failed jobs are re-run, and attempt 3 is never watched or owned.
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
+                      rerun_jobs=lambda seconds: [refused_job()] if seconds >= 30 else
+                      [job("macos / macOS compile admission", labels=[MINI], created=0)])
+        _, summary = run_main(api, clock)
+        self.assertEqual(api.calls.count("rerun-failed"), 2)
+        self.assertNotIn("jobs:3", api.calls)
+        self.assertIn("attempt 2 takes the owned pool once more", summary)
+        self.assertIn("attempt 3 takes retry_runner on Blacksmith", summary)
+
+    def test_a_retry_the_fleet_accepts_ends_the_watch(self):
+        clock = Clock()
+        running = job("macos / macOS compile admission", labels=[MINI], created=0, status="in_progress",
+                      runner="mini-2")
+        running["started_at"] = stamp(0)
+        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
+                      rerun_jobs=lambda seconds: [running])
+        _, summary = run_main(api, clock)
+        self.assertEqual(api.calls.count("rerun-failed"), 1)
+        # It stops once the job outlives the refusal window, not at the end of the run.
+        self.assertIn("stopped watching attempt 2: the fleet accepted the retry", summary)
+        self.assertLess(api.calls.count("jobs:2"), 20)
+
+    def test_a_retry_stuck_on_a_busy_fleet_moves_to_blacksmith_keeping_what_passed(self):
+        clock = Clock()
+        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
+                      rerun_jobs=lambda seconds: [job("macos / macOS compile admission", labels=[MINI], created=0)])
+        _, summary = run_main(api, clock)
+        self.assertEqual(api.calls.count("rerun-failed"), 2)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn("queued on", summary)
+
+    def test_an_attempt_2_with_no_owned_job_ends_the_watch_at_its_first_look(self):
+        # Before routing sends retries to the fleet, attempt 2 runs on
+        # Blacksmith; the watch must not poll it until it finishes.
+        clock = Clock()
+        still_running = [job("macos / tests", status="in_progress", labels=[BLACKSMITH], runner="bs-1")]
+        api = FakeAPI(clock, refusing_run(), marker=True, finished=lambda seconds: seconds >= 60,
+                      rerun_jobs=lambda seconds: still_running)
+        _, summary = run_main(api, clock)
+        self.assertEqual(api.calls.count("jobs:2"), 1)
+        self.assertIn("no job of this attempt asked for a persistent pool", summary)
+
+    def test_a_late_refusal_is_rescued_and_attempt_2_inherits_the_watch(self):
+        # A refusal found near the end of the watch is still rescued: the job
+        # keeps time past the watch, under its own timeout, for the cancel to
+        # settle and the re-run.
+        late = rescue.WATCH_LIMIT_SECONDS - 150
+
+        def jobs(seconds):
+            found = [changes()(seconds)]
+            if seconds >= late:
+                # A later job of the run, refused at start near the deadline.
+                found.append(refused_job("macos / cli-product-tests"))
+            if seconds >= 40:
+                found.append(job("macos / macOS compile admission", labels=[MINI], created=40,
+                                 status="in_progress", runner="mini-1"))
+            return found
+
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        _, summary = run_main(api, clock)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("too little of the job left", summary)
+        self.assertLess(clock.seconds, rescue.WATCH_LIMIT_SECONDS + rescue.RESCUE_GRACE_SECONDS)
+        # And attempt 2 inherits what is left, not a fresh hour.
+        clock = Clock()
+        waiting = [job("macos / macOS compile admission", labels=[MINI], created=0, status="in_progress",
+                       runner="mini-1")]
+        api = FakeAPI(clock, refusing_run(refused_at=600), marker=True, finished=lambda seconds: seconds >= 610,
+                      rerun_jobs=lambda seconds: waiting)
+        run_main(api, clock)
+        self.assertLessEqual(clock.seconds, rescue.WATCH_LIMIT_SECONDS + rescue.IDLE_POLL_SECONDS + 60)
 
     def test_a_refusal_on_a_moved_head_is_left_alone(self):
         clock = Clock()
@@ -373,14 +468,129 @@ class Rescuing(unittest.TestCase):
         run_main(api, clock)
         self.assertGreaterEqual(api.cancelled_at, 300 + 90)
 
-    def test_force_cancel_then_give_up_without_rerun(self):
+    def test_a_slow_cancel_is_waited_out_and_re_run(self):
+        # Run 36074561333: a Mac mid-compile took over 5 minutes to settle
+        # after a force-cancel, and a 180 s wait left the run cancelled for good.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, settles_after=330)
+        code, _ = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(api.calls.count("force-cancel"), 1)
+        self.assertIn("rerun", api.calls)
+
+    def test_no_cancel_starts_without_time_to_settle_and_re_run(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        target = rescue.Target(run_id=555, attempt=1, head_sha=HEAD, pr_number=7)
+        deadline = clock.now() + rescue.dt.timedelta(
+            seconds=rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS - 1)
+        result = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda _: None,
+                               deadline=deadline)
+        self.assertEqual(result, "not rescued: too little of the job left to cancel and re-run")
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_refused_force_cancel_keeps_waiting(self):
+        # The run can settle between the read and the POST, and GitHub then
+        # refuses the force-cancel; the next read sees it finished.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, settles_after=400)
+
+        def refuse(run_id):
+            api.calls.append("force-cancel")
+            raise rescue.urllib.error.HTTPError("url", 409, "Conflict", {}, None)
+        api.force_cancel = refuse
+        code, _ = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(api.calls.count("force-cancel"), 2)
+        self.assertIn("rerun", api.calls)
+
+    def test_force_cancel_again_then_give_up_only_at_the_wait_limit(self):
         clock = Clock()
         api = FakeAPI(clock, persistent_run(), marker=True, settles_after=10_000)
         code, summary = run_main(api, clock)
         self.assertEqual(code, 1)
-        self.assertEqual(api.calls.count("force-cancel"), 1)
+        self.assertGreater(api.calls.count("force-cancel"), 1)
+        self.assertGreaterEqual(clock.seconds - api.cancelled_at, rescue.CANCEL_WAIT_SECONDS)
         self.assertNotIn("rerun", api.calls)
         self.assertIn("did not finish", summary)
+
+
+def e2e_event(**overrides):
+    return event(**{"path": ".github/workflows/test-e2e.yml", "event": "workflow_dispatch",
+                     "pull_requests": [], **overrides})
+
+
+def e2e_runner(done_at=30):
+    return lambda seconds: job("runner", status="completed" if seconds >= done_at else "in_progress")
+
+
+class E2E(unittest.TestCase):
+    def test_only_attempt_1_of_a_same_repository_dispatch(self):
+        cases = {
+            "not a dispatch": e2e_event(event="push"),
+            "fork head": e2e_event(head_repository={"full_name": "someone/cmux"}),
+            "attempt 2": e2e_event(run_attempt=2),
+        }
+        for why, payload in cases.items():
+            self.assertIsInstance(rescue.target_from_event(payload, "manaflow-ai/cmux"), str, why)
+        target = rescue.target_from_event(e2e_event(), "manaflow-ai/cmux")
+        self.assertEqual((target.run_id, target.pr_number, target.e2e, target.picker_job),
+                         (RUN_ID, 0, True, "runner"))
+        self.assertEqual(target.watch_limit, rescue.E2E_WATCH_LIMIT_SECONDS)
+
+    def test_ephemeral_e2e_run_stops_after_the_marker_check(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls, ["jobs", f"artifact:macos-pool-persistent-{RUN_ID}-1-"])
+        self.assertIn("an E2E dispatch", summary)
+
+    def test_a_stuck_e2e_job_reruns_only_what_failed_without_a_pull_request(self):
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("build", labels=[MINI], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertNotIn("pull", api.calls)
+        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])  # attempt 2 is on Blacksmith
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun", api.calls)
+
+    def test_a_refused_e2e_job_is_rerun(self):
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 60:
+                found.append(refused_job("build"))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True, finished=lambda s: s >= 60)
+        code, summary = run_main(api, clock, payload=e2e_event())
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])  # attempt 2 is on Blacksmith
+        self.assertIn("refused", summary)
+
+
+    def test_a_stuck_e2e_run_that_finished_otherwise_is_not_rerun(self):
+        # A newer dispatch of the same group cancelled it; re-running it
+        # would cancel that newer run in turn.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("build", labels=[MINI], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        target = rescue.target_from_event(e2e_event(), "manaflow-ai/cmux")
+        api.finished = lambda seconds: True
+        outcome = rescue.rescue(api, target, now=clock.now, sleep=clock.sleep, log=lambda text: None,
+                                failed_only=True, refused=False)
+        self.assertEqual(outcome, "not rescued: the run already finished")
+        self.assertNotIn("rerun-failed", api.calls)
 
 
 class Workflow(unittest.TestCase):
@@ -396,10 +606,13 @@ class Workflow(unittest.TestCase):
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
     def test_runs_whenever_owned_pools_are_on(self):
-        self.assertEqual(self.doc[True]["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
+        self.assertEqual(self.doc[True]["workflow_run"],
+                         {"workflows": ["CI", "E2E test with video recording"], "types": ["requested"]})
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
-                     "github.event.workflow_run.event == 'pull_request'",
+                     "(github.event.workflow_run.event == 'pull_request' || "
+                     "github.event.workflow_run.path == '.github/workflows/test-e2e.yml' && "
+                     "github.event.workflow_run.event == 'workflow_dispatch')",
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event.workflow_run.run_attempt == 1"):
             self.assertIn(part, condition)
@@ -420,8 +633,12 @@ class Workflow(unittest.TestCase):
             self.assertIs(step.get("continue-on-error"), True, name)
 
     def test_job_timeout_covers_the_watch_and_the_cancel_wait(self):
-        limit = (rescue.WATCH_LIMIT_SECONDS + rescue.CANCEL_WAIT_SECONDS + rescue.FIRST_LOOK_SECONDS) / 60
-        self.assertGreater(self.doc["jobs"]["rescue"]["timeout-minutes"], limit)
+        self.assertEqual(self.doc["jobs"]["rescue"]["timeout-minutes"] * 60, rescue.JOB_TIMEOUT_SECONDS)
+        watch = max(rescue.WATCH_LIMIT_SECONDS, rescue.E2E_WATCH_LIMIT_SECONDS)
+        # A cancel starts only with CANCEL_WAIT + RERUN_MARGIN left of the grace.
+        self.assertGreater(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS)
+        self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS,
+                             rescue.JOB_TIMEOUT_SECONDS - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
 
 
 if __name__ == "__main__":

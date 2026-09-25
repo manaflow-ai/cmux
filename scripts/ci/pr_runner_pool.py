@@ -15,14 +15,17 @@ The run takes the first pool in preference order that has headroom:
       blacksmith-6vcpu-macos-15    macOS 15 Xcode (vars.CMUX_CI_XCODE_APP_MACOS_15),
                                    the pool and Xcode main's own CI runs on
 
-    headroom = fewer than vars.CI_PR_POOL_MAX_QUEUED jobs queued (default 3)
-               and no queued release or nightly job on the pool
+    headroom = a machine free for this run (POOL_CAPACITIES less what is
+               running and queued there), or at most
+               vars.CI_PR_POOL_MAX_QUEUED jobs queued once it arrives
+               (default 0), and no queued release or nightly job on the pool
 
-When no pool has headroom, the run takes the one with the fewest queued jobs
-(the earlier pool on a tie). The macOS 15 pool has no DerivedData seed for
-its Xcode, so it counts COLD_QUEUE_PENALTY more queued jobs than it has: it
-never has headroom, and is the fallback only when the macOS 26 pools are
-queued that much deeper. A pool holding a queued release or nightly job
+So a full pool rolls over to the next one in the order, every time, the
+macOS 15 pool included. When every pool is full, the run takes the one whose
+queue is shortest in rounds (queued jobs over capacity; the earlier pool on
+a tie). The macOS 15 pool has no DerivedData seed for its Xcode, so its
+queue counts COLD_ROUNDS more there, for the compile it runs cold. A pool
+holding a queued release or nightly job
 is never chosen: pull requests must not delay those. Every Blacksmith pool
 is sponsored, so cost is not a reason to prefer one.
 
@@ -60,7 +63,7 @@ jobs each sweep and publishes what it saw as the `macos-pool-load` artifact.
 Only a copy uploaded by a run on main of this repository counts, so no other
 branch can steer the choice. The janitor sweeps every 10 to 30 minutes, so
 every pull request run created since the snapshot is replayed through the
-same rule first, one job each, filling a pool's idle slots (POOL_CAPACITY
+same rule first, one job each, filling a pool's idle slots (its capacity
 less what is running) before they count as queued, so a burst of pushes
 spreads across the pools instead of all taking the one that looked idle. That costs three
 API requests (the artifact listing, its download redirect, and one page of
@@ -151,17 +154,28 @@ EPHEMERAL_PREFIX = "blacksmith-"
 OVERFLOW_VARIABLE = "CI_PR_POOL_OVERFLOW"
 ORDER_VARIABLE = "CI_PR_POOL_ORDER"
 MAX_QUEUED_VARIABLE = "CI_PR_POOL_MAX_QUEUED"
-DEFAULT_MAX_QUEUED = 3
+# A full pool rolls over: a run queues behind a busy pool only when every
+# pool in the order is full.
+DEFAULT_MAX_QUEUED = 0
 # A pool on another Xcode than the lane's pin (the macOS 15 pool, 26.3) has no
 # DerivedData seed: seed-derived-data.yml seeds the lane's Xcode only. Its
 # compile admission runs cold, 10 to 20 minutes longer than a seeded one
-# (1,034 s and 1,537 s against a 321 s median on 2026-09-24). A queued job on
-# a 10-machine pool of about 10-minute admissions waits about a minute, so
-# the cold pool counts this many extra queued jobs: it is taken only when
-# every seeded pool is queued that much deeper.
-COLD_QUEUE_PENALTY = 12
-# Concurrent jobs one Blacksmith macOS pool ran at most, measured 2026-09-24:
-# 10 or 11 on each 6vcpu pool while jobs queued behind them.
+# (1,034 s and 1,537 s against a 321 s median on 2026-09-24), about one more
+# job's length. When every pool is full it counts one more round of queue.
+# A free machine there still beats queueing on a full macOS 26 pool: on
+# 2026-09-24 the 6vcpu macOS 26 pool queued 45 jobs and 12vcpu 18 while
+# macOS 15 ran 1 to 5 of its 10.
+COLD_ROUNDS = 1
+# Concurrent jobs each Blacksmith macOS pool ran at most while jobs queued
+# behind it, from the janitor's snapshots of 2026-09-24: 10 or 11 on each
+# 6vcpu pool, 3 to 5 on 12vcpu (it once showed 7) with 8 to 18 queued.
+# 12vcpu is counted at 4 so it fills first and rolls over when full, not
+# after 10 jobs that queue behind it.
+POOL_CAPACITIES = {
+    "blacksmith-12vcpu-macos-26": 4,
+    "blacksmith-6vcpu-macos-26": 10,
+    "blacksmith-6vcpu-macos-15": 10,
+}
 POOL_CAPACITY = 10
 
 ARTIFACT_NAME = "macos-pool-load"
@@ -283,7 +297,7 @@ def settings(overflow: str | None, order: str | None, max_queued: str | None,
         limit = int(max_queued) if (max_queued or "").strip() else DEFAULT_MAX_QUEUED
     except ValueError:
         return None
-    if limit < 1:
+    if limit < 0:
         return None
     return Settings(labels, limit, stale)
 
@@ -342,7 +356,7 @@ def _slots(raw: str | None) -> tuple[dict[str, int], list[str]]:
 def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int] | None = None) -> Mapping[str, int]:
     """One pool's counts; a pool the janitor saw no job on is empty, not unknown.
 
-    `capacity` is POOL_CAPACITY for a Blacksmith pool and the slot count for
+    `capacity` is POOL_CAPACITIES' entry for a Blacksmith pool and the slot count for
     an owned pool (0 when CI_OWNED_POOL_SLOTS gives it none). `committed` is
     what the janitor counted the runs holding an owned pool to need at their
     peak, including jobs they have not created yet.
@@ -350,7 +364,8 @@ def pool(snapshot: Mapping[str, Any], label: str, owned_slots: Mapping[str, int]
     entry = (snapshot.get("pools") or {}).get(label) or {}
     counts = {key: int(entry.get(key) or 0)
               for key in ("queued", "running", "reserved_queued", "oldest_queued_minutes", "committed")}
-    counts["capacity"] = int((owned_slots or {}).get(label) or 0) if persistent(label) else POOL_CAPACITY
+    counts["capacity"] = int((owned_slots or {}).get(label) or 0) if persistent(label) else POOL_CAPACITIES.get(label, POOL_CAPACITY)
+    counts["cold"] = int(cold(label))
     return counts
 
 
@@ -398,25 +413,31 @@ def owned_free(counts: Mapping[str, int], added_runs: int, taken_since: int = 0)
 def pick(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
          max_queued: int, jobs: int = MAX_RUN_JOBS,
          taken: Mapping[str, int] | None = None) -> tuple[str, bool]:
-    """The rule itself: first usable pool with headroom, else the fewest queued.
+    """The rule itself: first usable pool with headroom, else the shortest queue.
 
     An owned pool has headroom only while every job of this run gets a machine
     at once (`jobs` of them, its peak): a job queued there waits for that pool
-    alone. It is never the fewest-queued fallback. A cold pool (cold()) never
-    has headroom, whatever max_queued is, and counts COLD_QUEUE_PENALTY more
-    queued jobs than it has in the fallback, for the compile it runs without a
-    seed.
+    alone. It is never the fallback.
+
+    A Blacksmith pool has headroom while this run's job still finds a free
+    machine there (or at most max_queued queue once it arrives), so a full
+    pool rolls over to the next. When all are full, the fallback is the
+    shortest queue in rounds, a cold pool (cold()) counting COLD_ROUNDS more.
     """
-    queued = {label: effective_queue(load[label], added[label]) + (COLD_QUEUE_PENALTY if cold(label) else 0)
-              for label in usable}
+    queued = {label: effective_queue(load[label], added[label] + 1) for label in usable}
     for label in usable:
         if persistent(label):
             if owned_free(load[label], added[label], (taken or {}).get(label, 0)) >= max(1, jobs):
                 return label, True
-        elif not cold(label) and queued[label] < max_queued:
+        elif queued[label] <= max_queued:
             return label, True
     fallback = [label for label in usable if not persistent(label)] or list(usable)
-    return min(fallback, key=lambda label: queued[label]), False
+    return min(fallback, key=lambda label: rounds(load[label], queued[label])), False
+
+
+def rounds(counts: Mapping[str, int], queued: int) -> float:
+    """How many job lengths a job queued there waits, a cold pool one more."""
+    return queued / max(1, counts.get("capacity", POOL_CAPACITY)) + (COLD_ROUNDS if counts.get("cold") else 0)
 
 
 def decide(
@@ -504,16 +525,18 @@ def decide(
         why = (f"first pool in order with headroom ({free} of {load[label]['capacity']} owned machines free, "
                f"this run needs {max(1, jobs)}){replay}")
     elif headroom:
-        why = f"first pool in order with headroom (< {limits.max_queued} queued){replay}"
+        why = f"first pool in order with a free machine{replay}" if not limits.max_queued else \
+              f"first pool in order with headroom (<= {limits.max_queued} queued){replay}"
     elif len(candidates) == 1:
         why = f"the only pool this run may take{replay}"
     else:
-        why = f"no pool has headroom{replay}; fewest queued"
-        raw = {pool_label: effective_queue(load[pool_label], added[pool_label]) for pool_label in candidates}
-        # Name the penalty only where it counted: the winner is cold, or a cold
-        # pool had fewer queued than the winner and lost for its missing seed.
-        if cold(label) or any(cold(pool_label) and raw[pool_label] < raw[label] for pool_label in candidates):
-            why += f", counting {COLD_QUEUE_PENALTY} more for a pool with no seed for its Xcode"
+        why = f"every pool is full{replay}; shortest queue in rounds"
+        waits = {pool_label: effective_queue(load[pool_label], added[pool_label] + 1) / max(1, load[pool_label]["capacity"])
+                 for pool_label in candidates}
+        # Name the extra round only where it counted: the winner is cold, or
+        # a cold pool had a shorter queue than the winner and lost for it.
+        if cold(label) or any(cold(pool_label) and waits[pool_label] < waits[label] for pool_label in candidates):
+            why += f", counting {COLD_ROUNDS} more for a pool with no seed for its Xcode"
     if limits.stale:
         note += f"; dropped {', '.join(limits.stale)} (not the lane's Xcode pin)"
     retry = ""
