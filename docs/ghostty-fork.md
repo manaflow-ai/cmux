@@ -39,7 +39,9 @@ When we change the fork, update this document and the parent submodule SHA.
   zero-initializes and size-checks the Darwin process record before reading its
   signal mask.
 - Artifact:
-  pending the universal GhosttyKit build for `2decb9c145273b11d7d92c468c98405f73991f0f`.
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-2decb9c145273b11d7d92c468c98405f73991f0f-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `ce1a74a4867a3884c7213ad151b14f7d6c4ac7f58de0f96af81a3c4356c91d1a`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: preserve the per-process-group phase and do not collapse the
   launcher and foreground groups back into one shared deadline. Doing so
   reintroduces the startup close stall or cuts off shell shutdown hooks.
