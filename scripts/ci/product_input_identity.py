@@ -161,6 +161,7 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     # An owned Mac's kept DerivedData and packages decide how much is rebuilt
     # and fetched, like the seed above, never what the product is.
     "Reuse this owned Mac's build state",
+    "Prefer a near seed over this owned Mac's DerivedData",
     "Adopt this owned Mac's DerivedData",
     "Record this owned Mac's build inputs",
     "Keep this owned Mac's DerivedData",

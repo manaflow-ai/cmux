@@ -628,6 +628,41 @@ class E2E(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
 
 
+IOS_SIM = "glaeda-ios-sim"
+
+
+class IOSDispatch(unittest.TestCase):
+    """test-ios.yml and ios-screenshots.yml dispatches are watched like an E2E run."""
+
+    def test_ios_dispatches_are_targets(self):
+        for path in (".github/workflows/test-ios.yml", ".github/workflows/ios-screenshots.yml"):
+            target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
+            self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path),
+                             (0, True, "runner", path))
+            self.assertIsInstance(rescue.target_from_event(e2e_event(path=path, run_attempt=2),
+                                                           "manaflow-ai/cmux"), str)
+        # Signing and streamed validation never take an owned Mac, so they are never watched.
+        for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
+            self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
+
+    def test_a_job_waiting_for_the_simulator_label_moves_to_blacksmith(self):
+        # No idle mini carries glaeda-ios-sim yet: the job queues on the owned
+        # labels and is re-run on retry_runs_on after the budget.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("ios-simulator-build", labels=[MINI, IOS_SIM], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=e2e_event(path=".github/workflows/test-ios.yml"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("pull", api.calls)
+        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])
+        self.assertIn("a dispatch of .github/workflows/test-ios.yml", summary)
+        self.assertIn(f"queued on {MINI}", summary)
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")
@@ -640,15 +675,26 @@ class Workflow(unittest.TestCase):
         checkout = job["steps"][0]
         self.assertEqual(checkout["with"], {"ref": "main", "persist-credentials": False})
 
-    def test_runs_only_when_dispatched_with_a_run_id(self):
-        self.assertEqual(list(self.doc[True]), ["workflow_dispatch"])
-        inputs = self.doc[True]["workflow_dispatch"]["inputs"]
-        self.assertIs(inputs["run_id"]["required"], True)
-        self.assertEqual(self.doc["jobs"]["rescue"]["if"],
-                         "${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}")
+    def test_runs_when_dispatched_or_for_a_screenshots_dispatch(self):
+        triggers = self.doc[True]
+        self.assertEqual(sorted(triggers), ["workflow_dispatch", "workflow_run"])
+        self.assertIs(triggers["workflow_dispatch"]["inputs"]["run_id"]["required"], True)
+        # release.yml calls ios-screenshots.yml with contents: read only, so
+        # it cannot hold an owned-pool-watch job; its rare dispatches keep
+        # the event trigger.
+        self.assertEqual(triggers["workflow_run"],
+                         {"workflows": ["iOS App Store screenshots"], "types": ["requested"]})
+        condition = self.doc["jobs"]["rescue"]["if"]
+        for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
+                     "(github.event_name == 'workflow_dispatch' || "
+                     "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && "
+                     "github.event.workflow_run.event == 'workflow_dispatch' && "
+                     "github.event.workflow_run.head_repository.full_name == github.repository && "
+                     "github.event.workflow_run.run_attempt == 1)"):
+            self.assertIn(part, condition)
         step = self.doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
-        self.assertIn("inputs.run_id", self.doc["concurrency"]["group"])
+        self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])
 
     def test_runs_the_rescue_script(self):
         step = self.doc["jobs"]["rescue"]["steps"][-1]
@@ -669,7 +715,8 @@ class Workflow(unittest.TestCase):
         for path, picker, owned in (
                 (".github/workflows/ci.yml", "changes", "needs.changes.outputs.macos_pr_owned_jobs != ''"),
                 (".github/workflows/test-e2e.yml", "runner",
-                 "startsWith(needs.runner.outputs.label, 'glaeda-')")):
+                 "startsWith(needs.runner.outputs.label, 'glaeda-')"),
+                (".github/workflows/test-ios.yml", "runner", "needs.runner.outputs.owned_marker == 'true'")):
             job = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))["jobs"]["owned-pool-watch"]
             self.assertEqual(job["needs"], picker, path)
             for part in (owned, "github.run_attempt == 1", "vars.CI_PR_POOL_OWNED == '1'",
@@ -680,11 +727,15 @@ class Workflow(unittest.TestCase):
             self.assertEqual(job["permissions"], {"actions": "write"}, path)
             self.assertEqual([step.get("uses") for step in job["steps"]], [None], path)
             # Fail-safe: ci.yml at job level (macos-admission-gate skips a job
-            # that cannot fail); test-e2e.yml allows only step level.
+            # that cannot fail); the dispatch workflows at step level.
             self.assertIs(job.get("continue-on-error", job["steps"][0].get("continue-on-error")), True, path)
             self.assertEqual(job["steps"][0]["run"],
                              'gh workflow run ci-owned-pool-rescue.yml --ref main '
                              '-f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"', path)
+        ios = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text(encoding="utf-8"))["jobs"]
+        self.assertEqual(ios["runner"]["outputs"]["owned_marker"], "${{ steps.marker.outputs.path != '' }}")
+        screenshots = yaml.safe_load((ROOT / ".github/workflows/ios-screenshots.yml").read_text(encoding="utf-8"))
+        self.assertNotIn("owned-pool-watch", screenshots["jobs"])
         ci = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository",
                       ci["owned-pool-watch"]["if"])

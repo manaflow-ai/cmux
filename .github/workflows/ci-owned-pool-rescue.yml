@@ -1,5 +1,5 @@
 name: CI persistent pool rescue
-run-name: owned-pool-rescue-${{ inputs.run_id }}-${{ inputs.run_attempt }}
+run-name: owned-pool-rescue-${{ inputs.run_id || github.event.workflow_run.id }}-${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
 
 # pr_runner_pool.py may put a pull request run's macOS jobs on a persistent
 # pool (owned Macs). GitHub never re-routes a queued job, so when that pool is
@@ -11,18 +11,22 @@ run-name: owned-pool-rescue-${{ inputs.run_id }}-${{ inputs.run_attempt }}
 # instead, which moves them to the picker's retry_runner on Blacksmith.
 # scripts/ci/owned_pool_rescue.py has the rules.
 #
-# A dispatch starts it: ci.yml's and test-e2e.yml's owned-pool-watch job
-# dispatches it on main with the run's id, only when the picker placed jobs on
-# an owned pool. A run on an ephemeral pool, a fork, a push or a retry attempt
-# starts no watcher, so there is no rescue workflow run for it at all. Until
-# 2026-09-25 this was a workflow_run `requested` consumer of CI and E2E and
-# started for every run: 578 runs from 2026-09-24 to 09-25 05:00 UTC, 361 of
-# which were skipped (fork pull requests) or found no owned pool. The script
-# reads the run from the API and applies the checks the event filter did
-# (ci.yml or test-e2e.yml, a same-repository pull request run or an E2E
-# dispatch, attempt 1), so a dispatch naming any other run does nothing. Only
-# attempt 1 is watched, so the re-run this workflow starts is never watched
-# twice.
+# A dispatch starts it: the owned-pool-watch job of ci.yml, test-e2e.yml and
+# test-ios.yml dispatches it on main with the run's id, only when the picker
+# placed jobs on an owned pool. A run on an ephemeral pool, a fork, a push or
+# a retry attempt starts no watcher, so there is no rescue workflow run for it
+# at all. Until 2026-09-25 this was a workflow_run `requested` consumer of
+# every source and started for every run: 578 runs from 2026-09-24 to 09-25
+# 05:00 UTC, 361 of which were skipped (fork pull requests) or found no owned
+# pool. The script reads the run from the API and applies the checks the
+# event filter did (ci.yml, a same-repository pull request run, or a
+# dispatch of a DISPATCH_WORKFLOW_PATHS workflow; attempt 1), so a dispatch
+# naming any other run does nothing. Only attempt 1 is watched, so the re-run
+# this workflow starts is never watched twice.
+# ios-screenshots.yml keeps the workflow_run trigger: release.yml calls it
+# with only `contents: read`, so a job there asking for Actions write would
+# fail the release at parse time (#12149). Its direct dispatches are rare (no
+# run from 2026-09-23 to 09-25), so this costs almost nothing.
 # It needs actions: write, and its code comes from main. It runs whenever
 # owned pools are on (CI_PR_POOL_OWNED is 1), because a run on an owned pool
 # has no other way off it; CI_OWNED_POOL_RESCUE=0 turns it off. The switch
@@ -30,10 +34,13 @@ run-name: owned-pool-rescue-${{ inputs.run_id }}-${{ inputs.run_attempt }}
 # null == '0' in an expression. It only polls, so it runs on a GitHub-hosted
 # runner rather than holding a slot in CI's Linux pool.
 on:
+  workflow_run:
+    workflows: [iOS App Store screenshots]
+    types: [requested]
   workflow_dispatch:
     inputs:
       run_id:
-        description: The CI or E2E run to watch
+        description: The CI, E2E or iOS run to watch
         required: true
         type: string
       run_attempt:
@@ -44,14 +51,20 @@ on:
 
 permissions: {}
 
+env:
+  # Renaming the source workflow silently stops every `workflow_run` consumer
+  # of it; tests/test_ci_workflow_run_sources.py derives the expected name from
+  # this path. The script confirms the run's own `path` again before acting.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ios-screenshots.yml
+
 concurrency:
-  group: owned-pool-rescue-${{ inputs.run_id }}-${{ inputs.run_attempt }}
+  group: owned-pool-rescue-${{ inputs.run_id || github.event.workflow_run.id }}-${{ inputs.run_attempt || github.event.workflow_run.run_attempt }}
   cancel-in-progress: true
 
 jobs:
   rescue:
     name: Rescue a run stuck on a persistent pool
-    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
+    if: ${{ vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml' && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1) }}
     runs-on: ubuntu-24.04 # github-hosted-required: polls the Actions API; keeps CI's Linux pool free
     # The watch limit is 60 minutes (150 for an E2E run), reads may retry, and
     # a rescue may run 25 more for a cancel to settle and the re-run

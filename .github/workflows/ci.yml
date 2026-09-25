@@ -924,7 +924,7 @@ jobs:
           # A file, not a pipe into grep -q: an early grep exit would SIGPIPE
           # git on a large diff and pipefail would read that as no match.
           git diff --no-renames --name-only "$base" HEAD > "$out/names" || true
-          if ! grep -qE '^(Sources/|Packages/(macOS|Shared)/[^/]+/Sources/)' "$out/names"; then
+          if ! grep -qE '^(Sources/|CLI/|Packages/(macOS|Shared)/[^/]+/Sources/)' "$out/names"; then
             echo "No app source changes; nothing to report."
             exit 0
           fi
@@ -940,7 +940,7 @@ jobs:
           fi
           trusted="$out/trusted"
           diff_args=(--diff-from "$out/app.diff")
-          if ! git diff --no-renames -U0 "$base" HEAD -- Sources Packages/macOS Packages/Shared > "$out/app.diff"; then
+          if ! git diff --no-renames -U0 "$base" HEAD -- Sources Packages/macOS Packages/Shared CLI > "$out/app.diff"; then
             # The selector records "diff unavailable" rather than guessing.
             diff_args=()
           fi
