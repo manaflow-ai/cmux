@@ -1,0 +1,105 @@
+name: iOS empty state reproduction proof
+on:
+  push:
+    branches: [feat-ios-empty-state-proof]
+    paths:
+      - ios/verification/empty-state/**
+      - .github/workflows/ios-empty-state-proof.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  proof:
+    runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: before
+            source: 244f58853eb805e55f0ee523f4e8798693de71fd
+          - variant: after
+            source: d02da42b5153771558009ced3eea8a91050663d1
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Prepare exact production sources
+        env:
+          SOURCE_SHA: ${{ matrix.source }}
+        run: |
+          set -euo pipefail
+          mkdir -p ios/verification/empty-state/Production evidence
+          for name in MobileWorkspaceListEmptyRow MobilePairingCopy; do
+            git show "$SOURCE_SHA:Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/$name.swift" > "ios/verification/empty-state/Production/$name.swift"
+          done
+          printf '%s\n' "$SOURCE_SHA" > evidence/source-sha.txt
+          shasum -a 256 ios/verification/empty-state/Production/*.swift > evidence/source-digests.txt
+          cp ios/verification/empty-state/Production/*.swift evidence/
+          command -v xcodegen >/dev/null || brew install xcodegen
+          xcodegen generate --spec ios/verification/empty-state/project.yml
+      - name: Create isolated iPhone
+        run: |
+          set -euo pipefail
+          xcrun simctl list runtimes -j > evidence/runtimes.json
+          xcrun simctl list devicetypes -j > evidence/device-types.json
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json, subprocess
+          runtimes = json.load(open('evidence/runtimes.json'))['runtimes']
+          runtime = next(r for r in reversed(runtimes) if r.get('isAvailable') and 'iOS' in r['identifier'])
+          devices = json.load(open('evidence/device-types.json'))['devicetypes']
+          device = next(d for d in devices if d['name'] == 'iPhone 17 Pro')
+          udid = subprocess.check_output(['xcrun','simctl','create','cmux-empty-state-proof',device['identifier'],runtime['identifier']],text=True).strip()
+          print('PROOF_SIMULATOR='+udid)
+          json.dump({'udid':udid,'device':device,'runtime':runtime},open('evidence/device.json','w'),indent=2)
+          PY
+      - name: Compile focused UI test app
+        run: |
+          set -euo pipefail
+          xcodebuild -project ios/verification/empty-state/EmptyStateProof.xcodeproj \
+            -scheme EmptyStateProof -destination "platform=iOS Simulator,id=$PROOF_SIMULATOR" \
+            -derivedDataPath "$RUNNER_TEMP/empty-state-proof" build-for-testing \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee evidence/build.log
+      - name: Record and execute the same regression
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "$PROOF_SIMULATOR"
+          xcrun simctl bootstatus "$PROOF_SIMULATOR" -b
+          xcrun simctl ui "$PROOF_SIMULATOR" appearance dark
+          xcrun simctl io "$PROOF_SIMULATOR" recordVideo --codec=h264 --force evidence/recording.mp4 > evidence/recording.log 2>&1 &
+          recorder=$!
+          trap 'kill -INT "$recorder" 2>/dev/null || true; wait "$recorder" || true' EXIT
+          set +e
+          xcodebuild -project ios/verification/empty-state/EmptyStateProof.xcodeproj \
+            -scheme EmptyStateProof -destination "platform=iOS Simulator,id=$PROOF_SIMULATOR" \
+            -derivedDataPath "$RUNNER_TEMP/empty-state-proof" -resultBundlePath evidence/result.xcresult \
+            -only-testing:EmptyStateProofUITests/EmptyStateProofUITests/testEmptyStateButtons \
+            test-without-building CODE_SIGNING_ALLOWED=NO 2>&1 | tee evidence/test.log
+          result=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$result" > evidence/xcodebuild-exit-code.txt
+          xcrun xcresulttool export attachments --path evidence/result.xcresult --output-path evidence/attachments
+          xcrun xcresulttool get test-results summary --path evidence/result.xcresult > evidence/summary.json
+          if [[ "$VARIANT" == before ]]; then
+            test "$result" -ne 0
+            grep -q 'Action must not stretch into a vertical capsule\|Default-size action must remain compact' evidence/test.log
+          else
+            test "$result" -eq 0
+            grep -Eq 'Executed 1 test, with 0 failures' evidence/test.log
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: empty-state-${{ matrix.variant }}
+          path: evidence
+          retention-days: 14
+      - name: Remove isolated iPhone
+        if: ${{ always() && env.PROOF_SIMULATOR != '' }}
+        run: |
+          xcrun simctl shutdown "$PROOF_SIMULATOR" || true
+          xcrun simctl delete "$PROOF_SIMULATOR"

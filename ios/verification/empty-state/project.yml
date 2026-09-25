@@ -1,0 +1,44 @@
+name: EmptyStateProof
+options:
+  bundleIdPrefix: dev.cmux.proof
+  deploymentTarget:
+    iOS: "17.0"
+packages:
+  CmuxMobileSupport:
+    path: ../../../Packages/iOS/CmuxMobileSupport
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGNING_ALLOWED: NO
+targets:
+  EmptyStateProof:
+    type: application
+    platform: iOS
+    sources: [App, Production]
+    dependencies:
+      - package: CmuxMobileSupport
+    info:
+      path: GeneratedInfo.plist
+      properties:
+        CFBundleDisplayName: Empty State Proof
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.proof.empty-state
+  EmptyStateProofUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: EmptyStateProof
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+schemes:
+  EmptyStateProof:
+    build:
+      targets:
+        EmptyStateProof: all
+        EmptyStateProofUITests: [test]
+    test:
+      targets: [EmptyStateProofUITests]
