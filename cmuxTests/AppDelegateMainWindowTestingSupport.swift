@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 import Foundation
 import XCTest
 
@@ -300,7 +301,9 @@ final class KeyStatusTestWindow: NSWindow {
 /// tests build a throwaway delegate without restoring the host's. Whichever
 /// test ran next in the same host inherited the leftover, and which tests
 /// share a host depends on the timing-based shard layout, so the resulting
-/// failures moved from run to run. Swift Testing tests are not observed here.
+/// failures moved from run to run. `AppDelegate.init` also points the surface
+/// registry's weak route retirer at itself, so that is put back too. Swift
+/// Testing tests are not observed here; their suites restore `shared` themselves.
 @objc(CmuxTestsPrincipal)
 final class CmuxTestsPrincipal: NSObject, XCTestObservation {
     private var sharedAtStart: AppDelegate?
@@ -317,6 +320,9 @@ final class CmuxTestsPrincipal: NSObject, XCTestObservation {
     func testCaseDidFinish(_ testCase: XCTestCase) {
         if AppDelegate.shared !== sharedAtStart {
             AppDelegate.shared = sharedAtStart
+            if let sharedAtStart {
+                GhosttyApp.terminalSurfaceRegistry.attachRouteRetirer(sharedAtStart)
+            }
         }
         sharedAtStart = nil
     }
