@@ -35,6 +35,7 @@ const unusedProvider: VmProviderGatewayShape = {
   openAttach: () => Effect.die(new Error("provider unused in env-layer tests")),
   openSSH: () => Effect.die(new Error("provider unused in env-layer tests")),
   revokeSSHIdentity: () => Effect.die(new Error("provider unused in env-layer tests")),
+  deleteSnapshotById: () => Effect.void,
 };
 
 const layers = Layer.mergeAll(
@@ -218,7 +219,7 @@ describe("env layer cache", () => {
     expect(sameTeam?.snapshotId).toBe(snapshotId);
   });
 
-  dbTest("re-registering the same chain hash upserts instead of failing", async () => {
+  dbTest("re-registering the same chain hash preserves the existing snapshot", async () => {
     const scope = { userId: "user-envlayer-3", billingTeamId: "team-envlayer-upsert" };
     for (const snapshotId of ["snap-envlayer-upsert-a", "snap-envlayer-upsert-b"]) {
       await grantSnapshotOwnership({ ...scope, snapshotId });
@@ -239,7 +240,7 @@ describe("env layer cache", () => {
     }));
     const matching = listed.filter((layer) => layer.chainHash === "hash-envlayer-upsert");
     expect(matching.length).toBe(1);
-    expect(matching[0]?.snapshotId).toBe("snap-envlayer-upsert-b");
+    expect(matching[0]?.snapshotId).toBe("snap-envlayer-upsert-a");
   });
 
   dbTest("registering a snapshot the team does not own is rejected", async () => {
