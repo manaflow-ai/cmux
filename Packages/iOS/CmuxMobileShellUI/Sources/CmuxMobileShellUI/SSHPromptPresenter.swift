@@ -163,7 +163,7 @@ struct SSHPromptSheet: View {
             content
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(SSHCopy.cancel) { answer(.cancel) }
+                        Button(SSHCopy().cancel) { answer(.cancel) }
                             .accessibilityIdentifier("ssh.prompt.cancel")
                     }
                 }
@@ -306,7 +306,7 @@ private struct SSHHostKeyChangedContent: View {
                 Button {
                     answer(.cancel)
                 } label: {
-                    Text(SSHCopy.cancel)
+                    Text(SSHCopy().cancel)
                         .frame(maxWidth: .infinity)
                 }
                 .accessibilityIdentifier("ssh.prompt.changed.cancel")
@@ -350,7 +350,7 @@ private struct SSHFingerprintRow: View {
             Button {
                 UIPasteboard.general.string = fingerprint
             } label: {
-                Label(SSHCopy.copy, systemImage: "doc.on.doc")
+                Label(SSHCopy().copy, systemImage: "doc.on.doc")
             }
         }
     }

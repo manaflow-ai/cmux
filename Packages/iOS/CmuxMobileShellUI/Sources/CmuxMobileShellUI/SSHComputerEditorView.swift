@@ -166,7 +166,7 @@ struct SSHComputerEditorView: View {
             }
         }
         .navigationTitle(existing == nil
-            ? SSHCopy.addComputer
+            ? SSHCopy().addComputer
             : L10n.string("mobile.ssh.form.editTitle", defaultValue: "Edit SSH Computer"))
         .navigationBarTitleDisplayMode(.inline)
         .interactiveDismissDisabled(showsCancel && isDirty)
@@ -174,7 +174,7 @@ struct SSHComputerEditorView: View {
         .toolbar {
             if showsCancel {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(SSHCopy.cancel) { onFinish(nil) }
+                    Button(SSHCopy().cancel) { onFinish(nil) }
                         .accessibilityIdentifier("ssh.form.cancel")
                 }
             }
@@ -206,7 +206,7 @@ struct SSHComputerEditorView: View {
                 Task { await install(password: secret) }
             }
             .accessibilityIdentifier("ssh.install.password.submit")
-            Button(SSHCopy.cancel, role: .cancel) { password = "" }
+            Button(SSHCopy().cancel, role: .cancel) { password = "" }
         } message: {
             Text(String(
                 format: L10n.string(
@@ -216,14 +216,14 @@ struct SSHComputerEditorView: View {
                 "\(draft.trimmedUsername)@\(draft.trimmedHost)"
             ))
         }
-        .alert(SSHCopy.deleteHostTitle, isPresented: $isConfirmingDelete) {
-            Button(SSHCopy.delete, role: .destructive) {
+        .alert(SSHCopy().deleteHostTitle, isPresented: $isConfirmingDelete) {
+            Button(SSHCopy().delete, role: .destructive) {
                 Task { await delete() }
             }
             .accessibilityIdentifier("ssh.form.delete.confirm")
-            Button(SSHCopy.cancel, role: .cancel) {}
+            Button(SSHCopy().cancel, role: .cancel) {}
         } message: {
-            Text(SSHCopy.deleteHostMessage)
+            Text(SSHCopy().deleteHostMessage)
         }
     }
 
@@ -337,7 +337,7 @@ struct SSHComputerEditorView: View {
                 Button {
                     UIPasteboard.general.string = key.publicKeyLine
                 } label: {
-                    Label(SSHCopy.copy, systemImage: "doc.on.doc")
+                    Label(SSHCopy().copy, systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.borderless)
                 .accessibilityIdentifier("ssh.form.publicKey.copy")

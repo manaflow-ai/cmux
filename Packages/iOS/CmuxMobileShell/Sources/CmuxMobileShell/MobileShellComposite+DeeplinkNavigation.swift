@@ -144,7 +144,7 @@ extension CMUXMobileShellStore {
         // Surface ids are unique by construction (cmux-demo- prefixed), so
         // the sibling-build ambiguity this scoping defends against cannot
         // involve a demo surface.
-        if MobileSSHIdentifiers.owns(terminalID) {
+        if MobileSSHIdentifier(terminalID).isSSH {
             return sshWorkspaceID(forTerminalID: terminalID)
         }
         if MobileDemoContentCatalog.ownsIdentifier(terminalID) {

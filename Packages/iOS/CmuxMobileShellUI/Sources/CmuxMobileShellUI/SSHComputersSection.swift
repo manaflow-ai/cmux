@@ -25,11 +25,11 @@ struct SSHComputersSection: View {
                 SSHComputerRow(computer: computer, actions: actions)
             }
             Button(action: actions.add) {
-                Label(SSHCopy.addComputer, systemImage: "plus")
+                Label(SSHCopy().addComputer, systemImage: "plus")
             }
             .accessibilityIdentifier("ssh.addComputer")
         } header: {
-            Text(SSHCopy.sectionTitle)
+            Text(SSHCopy().sectionTitle)
         } footer: {
             Text(L10n.string(
                 "mobile.ssh.section.footer",
@@ -82,12 +82,12 @@ struct SSHComputerRow: View {
             Button(role: .destructive) {
                 actions.requestDelete(computer.id)
             } label: {
-                Label(SSHCopy.delete, systemImage: "trash")
+                Label(SSHCopy().delete, systemImage: "trash")
             }
             Button {
                 actions.edit(computer.id)
             } label: {
-                Label(SSHCopy.edit, systemImage: "pencil")
+                Label(SSHCopy().edit, systemImage: "pencil")
             }
             .tint(.blue)
         }
@@ -96,7 +96,7 @@ struct SSHComputerRow: View {
                 Button {
                     actions.disconnect(computer.id)
                 } label: {
-                    Label(SSHCopy.disconnect, systemImage: "bolt.horizontal.circle")
+                    Label(SSHCopy().disconnect, systemImage: "bolt.horizontal.circle")
                 }
                 .tint(.orange)
             }
@@ -105,20 +105,20 @@ struct SSHComputerRow: View {
             Button {
                 actions.edit(computer.id)
             } label: {
-                Label(SSHCopy.edit, systemImage: "pencil")
+                Label(SSHCopy().edit, systemImage: "pencil")
             }
             if computer.status != .idle {
                 Button {
                     actions.disconnect(computer.id)
                 } label: {
-                    Label(SSHCopy.disconnect, systemImage: "bolt.horizontal.circle")
+                    Label(SSHCopy().disconnect, systemImage: "bolt.horizontal.circle")
                 }
             }
             Divider()
             Button(role: .destructive) {
                 actions.requestDelete(computer.id)
             } label: {
-                Label(SSHCopy.delete, systemImage: "trash")
+                Label(SSHCopy().delete, systemImage: "trash")
             }
         }
     }

@@ -40,22 +40,22 @@ extension MobileShellComposite: MobileSSHComputersSink {
     // MARK: Ownership
 
     func sshOwnsSurface(_ surfaceID: String) -> Bool {
-        MobileSSHIdentifiers.owns(surfaceID)
+        MobileSSHIdentifier(surfaceID).isSSH
     }
 
     func sshOwnsMac(deviceID: String?) -> Bool {
-        deviceID.map(MobileSSHIdentifiers.owns) ?? false
+        deviceID.map { MobileSSHIdentifier($0).isSSH } ?? false
     }
 
     /// Whether a per-computer store key belongs to an SSH computer. Mac
     /// lifecycle passes (secondary reconciliation, team switches, outage
     /// downgrades) must leave these entries to the SSH runtime.
     func sshOwnsPairingKey(_ key: MacPairingKey) -> Bool {
-        MobileSSHIdentifiers.owns(key.canonicalMacDeviceID)
+        MobileSSHIdentifier(key.canonicalMacDeviceID).isSSH
     }
 
     func sshOwnsWorkspaceRow(_ id: MobileWorkspacePreview.ID) -> Bool {
-        if MobileSSHIdentifiers.owns(id.rawValue) { return true }
+        if MobileSSHIdentifier(id.rawValue).isSSH { return true }
         guard let row = workspaces.first(where: { $0.id == id }) else { return false }
         return sshOwnsMac(deviceID: row.macDeviceID)
     }
@@ -129,12 +129,12 @@ extension MobileShellComposite: MobileSSHComputersSink {
 
     /// The SSH computer's device id for the workspace list's computer filter.
     public func sshComputerDeviceID(hostID: UUID) -> String {
-        MobileSSHIdentifiers.computerID(host: hostID)
+        MobileSSHIdentifier(computerOf: hostID).rawValue
     }
 
     /// The SSH host behind a computer device id, if any.
     public func sshHostID(computerDeviceID: String) -> UUID? {
-        MobileSSHIdentifiers.hostID(of: computerDeviceID)
+        MobileSSHIdentifier(computerDeviceID).hostID
     }
 }
 
@@ -156,7 +156,7 @@ extension MobileShellComposite {
     /// Decided per surface by its kind. `nil` for surfaces a Mac or the demo
     /// serves.
     public func sshServerAnswersTerminalQueries(surfaceID: String) -> Bool? {
-        guard MobileSSHIdentifiers.hostID(of: surfaceID) != nil else { return nil }
+        guard MobileSSHIdentifier(surfaceID).hostID != nil else { return nil }
         guard let kind = sshComputers.kind(ofScopedID: surfaceID) else { return false }
         return kind != .shell
     }

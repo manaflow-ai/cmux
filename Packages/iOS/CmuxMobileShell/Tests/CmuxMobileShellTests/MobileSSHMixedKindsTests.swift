@@ -30,8 +30,8 @@ import Testing
 
         // Through a scoped id, including a tmux session name with `~`.
         let host = UUID()
-        let scoped = MobileSSHIdentifiers.scopedID(host: host, local: MobileSSHLocalID.tmux("x~y/%4").rawValue)
-        #expect(MobileSSHIdentifiers.hostID(of: scoped) == host)
+        let scoped = MobileSSHIdentifier(host: host, local: MobileSSHLocalID.tmux("x~y/%4").rawValue).rawValue
+        #expect(MobileSSHIdentifier(scoped).hostID == host)
         #expect(MobileSSHLocalID(scopedID: scoped) == .tmux("x~y/%4"))
         #expect(MobileSSHLocalID.tmux("a").sibling("a/%9") == .tmux("a/%9"))
         #expect(MobileSSHLocalID.cmuxTUI(session: "s", id: "k").sibling("term_1") == .cmuxTUI(session: "s", id: "term_1"))
@@ -55,11 +55,11 @@ import Testing
     // MARK: Row subtitle
 
     @Test func rowSubtitleNamesTheKind() {
-        #expect(L10nSSH.kindLabel(.tmux) == "tmux session")
-        #expect(L10nSSH.kindLabel(.shell) == "Shell")
-        #expect(L10nSSH.kindLabel(.cmuxTUI, cmuxTUISession: MobileSSHCmuxTUIProvider.sessionName) == "cmux-tui")
+        #expect(L10nSSH().kindLabel(.tmux) == "tmux session")
+        #expect(L10nSSH().kindLabel(.shell) == "Shell")
+        #expect(L10nSSH().kindLabel(.cmuxTUI, cmuxTUISession: MobileSSHCmuxTUIProvider.sessionName) == "cmux-tui")
         // Another cmux-tui session's workspace names that session.
-        #expect(L10nSSH.kindLabel(.cmuxTUI, cmuxTUISession: "main") == "cmux-tui · main")
+        #expect(L10nSSH().kindLabel(.cmuxTUI, cmuxTUISession: "main") == "cmux-tui · main")
     }
 
     // MARK: Grouped tab switcher
@@ -99,7 +99,7 @@ import Testing
         #expect(dev.rows.map(\.title) == ["zsh", "server", "logs"])
         #expect(dev.rows.map(\.paneLabel) == ["Pane 1", "Pane 2", "Pane 2"])
         #expect(dev.rows.map(\.startsPane) == [false, true, false])
-        #expect(dev.rows.first?.id == MobileSSHIdentifiers.scopedID(host: host, local: "tui:main/term_a"))
+        #expect(dev.rows.first?.id == MobileSSHIdentifier(host: host, local: "tui:main/term_a").rawValue)
         let second = try #require(layout.sections.last)
         #expect(second.rows.map(\.title) == ["vim"])
         #expect(second.rows.first?.paneLabel == nil)
@@ -157,9 +157,9 @@ import Testing
         await computers.refreshWorkspaces(hostID: host.id)
 
         let rows = try #require(sink.states.last?.workspaces)
-        #expect(rows.map { MobileSSHIdentifiers.localID(of: $0.id.rawValue) } == ["tmux:work", "shell:1"])
+        #expect(rows.map { MobileSSHIdentifier($0.id.rawValue).localID } == ["tmux:work", "shell:1"])
         #expect(rows.map(\.previewText) == ["tmux session", "Shell"])
-        #expect(rows[0].terminals.first?.id.rawValue == MobileSSHIdentifiers.scopedID(host: host.id, local: "tmux:work/%1"))
+        #expect(rows[0].terminals.first?.id.rawValue == MobileSSHIdentifier(host: host.id, local: "tmux:work/%1").rawValue)
         #expect(computers.supportsTerminalTabs(workspaceID: rows[0].id.rawValue))
         #expect(!computers.supportsTerminalTabs(workspaceID: rows[1].id.rawValue))
 
@@ -184,7 +184,7 @@ import Testing
         )
         let host = UUID()
         func surface(_ local: MobileSSHLocalID) -> String {
-            MobileSSHIdentifiers.scopedID(host: host, local: local.rawValue)
+            MobileSSHIdentifier(host: host, local: local.rawValue).rawValue
         }
         #expect(store.sshServerAnswersTerminalQueries(surfaceID: surface(.cmuxTUI(session: "main", id: "term_a"))) == true)
         #expect(store.sshServerAnswersTerminalQueries(surfaceID: surface(.tmux("work/%1"))) == true)

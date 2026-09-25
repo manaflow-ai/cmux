@@ -8,7 +8,7 @@ struct SSHKeyInstallerLabTests {
     let lab = ProcessInfo.processInfo.environment["CMUX_SSH_LAB"] ?? ""
 
     @Test func appendIsIdempotentAndHandlesQuotes() async throws {
-        let key = try SSHPrivateKeyParser.parse(try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)).key
+        let key = try SSHParsedPrivateKey(openSSH: try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)).key
         let connection = try await SSHConnection.connect(
             to: SSHEndpoint(host: "127.0.0.1", port: 2222, username: NSUserName()),
             credentials: [.privateKey(key)],
@@ -16,8 +16,8 @@ struct SSHKeyInstallerLabTests {
         )
         let dir = "/tmp/cmux-install-\(UUID().uuidString)/.ssh"
         let line = "ssh-ed25519 AAAATEST it's-a-comment"
-        try await SSHKeyInstaller.append(publicKeyLine: line, over: connection, sshDirectory: dir)
-        try await SSHKeyInstaller.append(publicKeyLine: line, over: connection, sshDirectory: dir)
+        try await SSHKeyInstaller(sshDirectory: dir).append(publicKeyLine: line, over: connection)
+        try await SSHKeyInstaller(sshDirectory: dir).append(publicKeyLine: line, over: connection)
         let contents = try String(contentsOfFile: "\(dir)/authorized_keys", encoding: .utf8)
         #expect(contents == line + "\n")
         let mode = try FileManager.default.attributesOfItem(atPath: "\(dir)/authorized_keys")[.posixPermissions] as? Int
@@ -49,9 +49,9 @@ struct SSHStoreTests {
     @Test func hostKeyVerdicts() {
         let a = SSHHostKey(openSSHString: "ssh-ed25519 AAAA")
         let b = SSHHostKey(openSSHString: "ssh-ed25519 BBBB")
-        #expect(SSHHostKeyPolicy.verdict(presented: a, pinned: nil) == .unknown(presented: a))
-        #expect(SSHHostKeyPolicy.verdict(presented: a, pinned: a) == .trusted)
-        #expect(SSHHostKeyPolicy.verdict(presented: b, pinned: a) == .changed(pinned: a, presented: b))
+        #expect(SSHHostKeyVerdict(presented: a, pinned: nil) == .unknown(presented: a))
+        #expect(SSHHostKeyVerdict(presented: a, pinned: a) == .trusted)
+        #expect(SSHHostKeyVerdict(presented: b, pinned: a) == .changed(pinned: a, presented: b))
     }
 
     @Test func keyStoreImportsAndLoadsFromKeychain() async throws {

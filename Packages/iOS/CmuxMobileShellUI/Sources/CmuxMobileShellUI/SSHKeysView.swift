@@ -59,7 +59,7 @@ struct SSHKeysView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(SSHCopy.keysTitle)
+        .navigationTitle(SSHCopy().keysTitle)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("ssh.keys")
         .alert(
@@ -70,7 +70,7 @@ struct SSHKeysView: View {
             ),
             presenting: pendingDeleteKeyID
         ) { keyID in
-            Button(SSHCopy.delete, role: .destructive) {
+            Button(SSHCopy().delete, role: .destructive) {
                 Task {
                     do {
                         try await computers.deleteKey(id: keyID)
@@ -80,7 +80,7 @@ struct SSHKeysView: View {
                 }
             }
             .accessibilityIdentifier("ssh.keys.delete.confirm")
-            Button(SSHCopy.cancel, role: .cancel) {}
+            Button(SSHCopy().cancel, role: .cancel) {}
         } message: { _ in
             Text(L10n.string(
                 "mobile.ssh.keys.delete.message",
@@ -123,14 +123,14 @@ struct SSHKeyRow: View {
         .accessibilityIdentifier("ssh.key.\(key.label)")
         .swipeActions(edge: .trailing) {
             Button(role: .destructive, action: requestDelete) {
-                Label(SSHCopy.delete, systemImage: "trash")
+                Label(SSHCopy().delete, systemImage: "trash")
             }
         }
         .swipeActions(edge: .leading) {
             Button {
                 UIPasteboard.general.string = key.publicKeyLine
             } label: {
-                Label(SSHCopy.copy, systemImage: "doc.on.doc")
+                Label(SSHCopy().copy, systemImage: "doc.on.doc")
             }
             .tint(.blue)
         }
@@ -151,7 +151,7 @@ struct SSHKeyRow: View {
             }
             Divider()
             Button(role: .destructive, action: requestDelete) {
-                Label(SSHCopy.delete, systemImage: "trash")
+                Label(SSHCopy().delete, systemImage: "trash")
             }
         }
     }
@@ -266,7 +266,7 @@ struct SSHGenerateKeyView: View {
                 onCreated(record)
                 dismiss()
             } catch {
-                errorMessage = SSHKeyErrorCopy.message(for: error)
+                errorMessage = SSHKeyErrorCopy().message(for: error)
             }
         }
     }
@@ -374,7 +374,7 @@ struct SSHImportKeyView: View {
         // cannot load a large file into a text view.
         guard let data = try? Data(contentsOf: url), data.count < 64 * 1_024,
               let text = String(data: data, encoding: .utf8) else {
-            errorMessage = SSHKeyErrorCopy.notAKey
+            errorMessage = SSHKeyErrorCopy().notAKey
             return
         }
         keyText = text
@@ -404,23 +404,23 @@ struct SSHImportKeyView: View {
                 onImported(record)
                 dismiss()
             } catch {
-                errorMessage = SSHKeyErrorCopy.message(for: error)
+                errorMessage = SSHKeyErrorCopy().message(for: error)
             }
         }
     }
 }
 
 /// Plain-language explanations for key parse and storage errors.
-enum SSHKeyErrorCopy {
-    static var notAKey: String {
+struct SSHKeyErrorCopy {
+    var notAKey: String {
         L10n.string(
             "mobile.ssh.keys.error.notOpenSSH",
             defaultValue: "This isn't an OpenSSH private key. Choose the private key file (not the .pub file), which starts with -----BEGIN OPENSSH PRIVATE KEY-----."
         )
     }
 
-    static func message(for error: any Error) -> String {
-        if let faceID = MobileSSHBiometryErrorCopy.message(for: error) {
+    func message(for error: any Error) -> String {
+        if let faceID = MobileSSHBiometryErrorCopy().message(for: error) {
             return faceID
         }
         switch error {

@@ -62,7 +62,7 @@ import Testing
             ],
             foregroundMacDeviceID: "mac-a"
         )
-        let computerID = MobileSSHIdentifiers.computerID(host: host.id)
+        let computerID = MobileSSHIdentifier(computerOf: host.id).rawValue
         let locals = [
             "tmux:laptop-work": "laptop-work",
             "tui:main/k1": "api",
@@ -73,7 +73,7 @@ import Testing
             displayName: host.name,
             workspaces: locals.keys.sorted().map { local in
                 MobileWorkspacePreview(
-                    id: .init(rawValue: MobileSSHIdentifiers.scopedID(host: host.id, local: local)),
+                    id: .init(rawValue: MobileSSHIdentifier(host: host.id, local: local).rawValue),
                     macDeviceID: computerID,
                     name: locals[local] ?? local,
                     terminals: []
@@ -86,7 +86,7 @@ import Testing
         ))
 
         func row(_ local: String) throws -> MobileWorkspacePreview.ID {
-            let scoped = MobileSSHIdentifiers.scopedID(host: host.id, local: local)
+            let scoped = MobileSSHIdentifier(host: host.id, local: local).rawValue
             return try #require(store.workspaces.first { $0.rpcWorkspaceID.rawValue == scoped }).id
         }
 

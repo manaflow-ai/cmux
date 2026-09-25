@@ -30,18 +30,18 @@ import Testing
     /// One SSH computer's rows as its runtime publishes them (local ids are
     /// kind-encoded: `tmux:<session>`, `shell:<n>`).
     private func sshState(host: SSHHostRecord, sessions: [String]) -> MacWorkspaceState {
-        let computerID = MobileSSHIdentifiers.computerID(host: host.id)
+        let computerID = MobileSSHIdentifier(computerOf: host.id).rawValue
         return MacWorkspaceState(
             macDeviceID: computerID,
             displayName: host.name,
             workspaces: sessions.map { session in
                 MobileWorkspacePreview(
-                    id: .init(rawValue: MobileSSHIdentifiers.scopedID(host: host.id, local: session)),
+                    id: .init(rawValue: MobileSSHIdentifier(host: host.id, local: session).rawValue),
                     macDeviceID: computerID,
                     name: session,
                     terminals: [
                         MobileTerminalPreview(
-                            id: .init(rawValue: MobileSSHIdentifiers.scopedID(host: host.id, local: "\(session)/%1")),
+                            id: .init(rawValue: MobileSSHIdentifier(host: host.id, local: "\(session)/%1").rawValue),
                             name: "0:zsh"
                         ),
                     ]
@@ -76,12 +76,12 @@ import Testing
         store.sshPublishWorkspaceState(sshState(host: host, sessions: ["tmux:vt-main"]))
         store.sshPublishWorkspaceState(sshState(host: other, sessions: ["tmux:cmux-1"]))
 
-        let scoped = MobileSSHIdentifiers.scopedID(host: host.id, local: "tmux:vt-main")
+        let scoped = MobileSSHIdentifier(host: host.id, local: "tmux:vt-main").rawValue
         let row = try #require(store.workspaces.first { $0.rpcWorkspaceID.rawValue == scoped })
         // Aggregation is live: the row id is re-keyed and does not parse.
         #expect(row.id.rawValue != scoped)
-        #expect(MobileSSHIdentifiers.owns(row.id.rawValue))
-        #expect(MobileSSHIdentifiers.hostID(of: row.id.rawValue) == nil)
+        #expect(MobileSSHIdentifier(row.id.rawValue).isSSH)
+        #expect(MobileSSHIdentifier(row.id.rawValue).hostID == nil)
 
         #expect(store.sshOwnsWorkspaceRow(row.id))
         #expect(store.sshScopedWorkspaceID(row.id) == scoped)
@@ -99,11 +99,11 @@ import Testing
         store.setWorkspaceStatesForTesting(["mac-a": macState()], foregroundMacDeviceID: "mac-a")
         store.sshPublishWorkspaceState(sshState(host: host, sessions: ["shell:1", "tmux:work"]))
         let tmuxRow = try #require(store.workspaces.first {
-            $0.rpcWorkspaceID.rawValue == MobileSSHIdentifiers.scopedID(host: host.id, local: "tmux:work")
+            $0.rpcWorkspaceID.rawValue == MobileSSHIdentifier(host: host.id, local: "tmux:work").rawValue
         })
         #expect(store.sshSupportsTerminalTabs(workspaceID: tmuxRow.id))
         #expect(store.sshWorkspaceKind(workspaceID: tmuxRow.id) == .tmux)
-        let scoped = MobileSSHIdentifiers.scopedID(host: host.id, local: "shell:1")
+        let scoped = MobileSSHIdentifier(host: host.id, local: "shell:1").rawValue
         let row = try #require(store.workspaces.first { $0.rpcWorkspaceID.rawValue == scoped })
         #expect(store.sshScopedWorkspaceID(row.id) == scoped)
         #expect(!store.sshSupportsTerminalTabs(workspaceID: row.id))
@@ -112,10 +112,10 @@ import Testing
 
     @Test func scopedIDsParseAndAggregatedIDsDoNot() {
         let host = UUID()
-        let scoped = MobileSSHIdentifiers.scopedID(host: host, local: "vt-main")
-        #expect(MobileSSHIdentifiers.isScopedID(scoped))
-        #expect(!MobileSSHIdentifiers.isScopedID(MobileSSHIdentifiers.computerID(host: host)))
-        #expect(!MobileSSHIdentifiers.isScopedID(MobileSSHIdentifiers.computerID(host: host) + "\u{1F}" + scoped))
+        let scoped = MobileSSHIdentifier(host: host, local: "vt-main").rawValue
+        #expect(MobileSSHIdentifier(scoped).isScoped)
+        #expect(!MobileSSHIdentifier(computerOf: host).isScoped)
+        #expect(!MobileSSHIdentifier(MobileSSHIdentifier(computerOf: host).rawValue + "\u{1F}" + scoped).isScoped)
     }
 
     /// A full secondary-Mac reconcile (foreground, Computers sheet, presence
@@ -125,7 +125,7 @@ import Testing
     @Test func secondaryReconcileKeepsSSHRows() async throws {
         let (store, host) = try await makeStore()
         store.sshPublishWorkspaceState(sshState(host: host, sessions: ["cmux-1", "vt-main"]))
-        let computerID = MobileSSHIdentifiers.computerID(host: host.id)
+        let computerID = MobileSSHIdentifier(computerOf: host.id).rawValue
         #expect(store.workspaces.filter { $0.macDeviceID == computerID }.count == 2)
 
         await store.refreshSecondaryMacWorkspaces()
@@ -139,8 +139,8 @@ import Testing
         let (store, host) = try await makeStore()
         store.setWorkspaceStatesForTesting(["mac-a": macState()], foregroundMacDeviceID: "mac-a")
         store.sshPublishWorkspaceState(sshState(host: host, sessions: ["vt-main"]))
-        store.markSecondaryMacUnavailableForTesting(MobileSSHIdentifiers.computerID(host: host.id))
-        let computerID = MobileSSHIdentifiers.computerID(host: host.id)
+        store.markSecondaryMacUnavailableForTesting(MobileSSHIdentifier(computerOf: host.id).rawValue)
+        let computerID = MobileSSHIdentifier(computerOf: host.id).rawValue
         #expect(store.workspaces.first { $0.macDeviceID == computerID }?.macConnectionStatus == .connected)
     }
 }
@@ -206,7 +206,7 @@ import Testing
     @Test func successfulRefreshAfterAFailureReportsConnected() async throws {
         let (computers, sink, host, provider) = try await makeRuntime()
         computers.failForTesting(hostID: host.id, MobileSSHRuntimeError.tmuxMissing)
-        #expect(computers.statusByHost[host.id] == .failed(L10nSSH.tmuxMissing))
+        #expect(computers.statusByHost[host.id] == .failed(L10nSSH().tmuxMissing))
         #expect(sink.states.last?.status == .unavailable)
 
         let open = Task { await computers.open(hostID: host.id) }

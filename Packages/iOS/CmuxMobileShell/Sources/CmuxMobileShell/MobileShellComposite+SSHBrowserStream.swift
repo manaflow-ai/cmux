@@ -43,7 +43,7 @@ extension MobileShellComposite {
     func sshBrowserStreamEnded(panelID: String, retry: Bool) {
         browserStreamEvents?.setBrowserStreamConnectionStatus(retry ? .reconnecting : .disconnected, panelID: panelID)
         recordAppEvent(.browserStreamStopped, correlationID: panelID, failure: .connectionClosed)
-        guard retry, let hostID = MobileSSHIdentifiers.hostID(of: panelID) else { return }
+        guard retry, let hostID = MobileSSHIdentifier(panelID).hostID else { return }
         Task { [weak self] in
             guard let self else { return }
             await self.sshComputers.refreshWorkspaces(hostID: hostID)
@@ -74,7 +74,7 @@ extension MobileShellComposite {
     }
 
     func refreshSSHBrowserPanels(workspaceID: String) async {
-        if let hostID = MobileSSHIdentifiers.hostID(of: workspaceID) {
+        if let hostID = MobileSSHIdentifier(workspaceID).hostID {
             await sshComputers.refreshWorkspaces(hostID: hostID)
         }
         browserStreamEvents?.replaceBrowserPanels(

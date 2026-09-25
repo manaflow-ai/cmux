@@ -11,7 +11,7 @@ struct SSHLabIntegrationTests {
 
     func credential() throws -> SSHCredential {
         let text = try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)
-        return .privateKey(try SSHPrivateKeyParser.parse(text).key)
+        return .privateKey(try SSHParsedPrivateKey(openSSH: text).key)
     }
 
     @Test func execRunsAndReportsStatus() async throws {
@@ -95,7 +95,7 @@ struct SSHLabIntegrationTests {
     }
 
     @Test func wrongKeyFailsAuthentication() async throws {
-        let stranger = try SSHPrivateKeyParser.parse(try shell("rm -f /tmp/cmux-ssh-stranger*; ssh-keygen -q -t ed25519 -N '' -f /tmp/cmux-ssh-stranger && cat /tmp/cmux-ssh-stranger", trim: false))
+        let stranger = try SSHParsedPrivateKey(openSSH: try shell("rm -f /tmp/cmux-ssh-stranger*; ssh-keygen -q -t ed25519 -N '' -f /tmp/cmux-ssh-stranger && cat /tmp/cmux-ssh-stranger", trim: false))
         await #expect(throws: (any Error).self) {
             _ = try await SSHConnection.connect(
                 to: endpoint,

@@ -2,19 +2,6 @@ internal import CMUXMobileCore
 internal import CmuxMobileSSH
 import Foundation
 
-/// Quotes a remote path so a POSIX shell reads it as one literal word.
-///
-/// Paths made only of characters no shell treats specially pass through
-/// unchanged, so the common case stays readable in the terminal.
-public enum MobileSSHShellQuoting {
-    private static let safe = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-+,:@%=")
-
-    public static func quote(_ path: String) -> String {
-        if !path.isEmpty, path.allSatisfy(safe.contains) { return path }
-        return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-}
-
 /// Image paste into an SSH terminal (PRD D21). A paired Mac receives the
 /// bytes over `terminal.paste_image` and types a temp-file path; an SSH host
 /// has no cmux service, so the phone uploads the image itself over SFTP to
@@ -41,7 +28,7 @@ extension MobileShellComposite {
                 throw error
             }
             await sftp.close()
-            sshComputers.input(Data(MobileSSHShellQuoting.quote(remotePath).utf8), surfaceID: surfaceID)
+            sshComputers.input(Data(remotePath.remotePathShellWord.utf8), surfaceID: surfaceID)
             recordAppEvent(.terminalImagePasteSucceeded, correlationID: surfaceID, count: data.count)
             return true
         } catch {

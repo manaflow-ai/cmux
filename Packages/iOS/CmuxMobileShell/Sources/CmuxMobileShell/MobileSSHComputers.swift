@@ -80,7 +80,7 @@ protocol MobileSSHComputersSink: AnyObject {
 ///
 /// SSH computers render through the shell's ordinary per-computer stores,
 /// like the demonstration computer: each host publishes one
-/// ``MacWorkspaceState`` keyed by ``MobileSSHIdentifiers/computerID(host:)``,
+/// ``MacWorkspaceState`` keyed by ``MobileSSHIdentifier/init(computerOf:)``,
 /// and surface output enters the same per-surface output stream a Mac's
 /// bytes use. Works without a cmux account (PRD D5).
 @MainActor
@@ -159,7 +159,7 @@ public final class MobileSSHComputers {
     public func deleteHost(id: UUID) async throws {
         await disconnect(hostID: id)
         try await hostStore.delete(id: id)
-        sink?.sshRemoveWorkspaceState(computerID: MobileSSHIdentifiers.computerID(host: id))
+        sink?.sshRemoveWorkspaceState(computerID: MobileSSHIdentifier(computerOf: id).rawValue)
         await reload()
     }
 
@@ -188,7 +188,7 @@ public final class MobileSSHComputers {
         }
         let key = try await keyStore.privateKey(for: keyID)
         let jump = try await jumpConnection(for: host)
-        _ = try await SSHKeyInstaller.install(
+        _ = try await SSHKeyInstaller().install(
             publicKeyLine: record.publicKeyLine,
             endpoint: host.endpoint,
             password: password,
@@ -407,7 +407,7 @@ public final class MobileSSHComputers {
                 workspacesByHost[hostID, default: []].append(workspace)
                 if let host = hosts.first(where: { $0.id == hostID }) { publish(host: host) }
             }
-            return MobileSSHIdentifiers.scopedID(host: hostID, local: workspace.id)
+            return MobileSSHIdentifier(host: hostID, local: workspace.id).rawValue
         } catch {
             fail(hostID: hostID, error)
             return nil
@@ -415,11 +415,11 @@ public final class MobileSSHComputers {
     }
 
     public func closeWorkspace(scopedID: String) async {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID),
+        guard let hostID = MobileSSHIdentifier(scopedID).hostID,
               let local = MobileSSHLocalID(scopedID: scopedID),
               let registry = providers[hostID] else { return }
         for terminal in workspacesByHost[hostID]?.first(where: { $0.id == local.rawValue })?.terminals ?? [] {
-            await detach(surfaceID: MobileSSHIdentifiers.scopedID(host: hostID, local: terminal.id))
+            await detach(surfaceID: MobileSSHIdentifier(host: hostID, local: terminal.id).rawValue)
         }
         if let provider = try? await registry.provider(for: local) {
             try? await provider.closeWorkspace(id: local.providerID)
@@ -432,10 +432,10 @@ public final class MobileSSHComputers {
     public func disconnect(hostID: UUID) async {
         autoConnectSuppressed.insert(hostID)
         autoConnectTasks.removeValue(forKey: hostID)?.cancel()
-        for surfaceID in attachments.keys where MobileSSHIdentifiers.hostID(of: surfaceID) == hostID {
+        for surfaceID in attachments.keys where MobileSSHIdentifier(surfaceID).hostID == hostID {
             await detach(surfaceID: surfaceID)
         }
-        for panelID in browserSessions.keys where MobileSSHIdentifiers.hostID(of: panelID) == hostID {
+        for panelID in browserSessions.keys where MobileSSHIdentifier(panelID).hostID == hostID {
             await stopBrowser(panelID: panelID)
         }
         providers[hostID] = nil
@@ -515,7 +515,7 @@ public final class MobileSSHComputers {
     /// shells) or the host is not connected; the file browser then starts in
     /// the remote home folder, where a plain shell starts.
     public func currentDirectory(surfaceID: String) async -> String? {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: surfaceID),
+        guard let hostID = MobileSSHIdentifier(surfaceID).hostID,
               let local = MobileSSHLocalID(scopedID: surfaceID),
               let provider = try? await providers[hostID]?.provider(for: local) else { return nil }
         return await provider.reportedCurrentDirectory(terminalID: local.providerID)
@@ -528,7 +528,7 @@ public final class MobileSSHComputers {
 
     /// The host behind an SSH computer, workspace row, or surface id.
     public nonisolated func hostID(forIdentifier identifier: String) -> UUID? {
-        MobileSSHIdentifiers.hostID(of: identifier)
+        MobileSSHIdentifier(identifier).hostID
     }
 
     public func host(id: UUID) -> SSHHostRecord? {
@@ -612,7 +612,7 @@ public final class MobileSSHComputers {
     }
 
     private func attach(surfaceID: String) {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: surfaceID),
+        guard let hostID = MobileSSHIdentifier(surfaceID).hostID,
               let local = MobileSSHLocalID(scopedID: surfaceID),
               attachTasks[surfaceID] == nil else { return }
         let grid = gridBySurface[surfaceID] ?? (80, 24)
@@ -673,9 +673,9 @@ public final class MobileSSHComputers {
             sink?.sshApplyViewport(surfaceID: surfaceID)
         case .ended:
             attachments[surfaceID] = nil
-            let notice = L10nSSH.sessionEnded
+            let notice = L10nSSH().sessionEnded
             sink?.sshDeliver(Data("\r\n\u{1B}[2m[\(notice)]\u{1B}[0m\r\n".utf8), surfaceID: surfaceID)
-            if let hostID = MobileSSHIdentifiers.hostID(of: surfaceID) {
+            if let hostID = MobileSSHIdentifier(surfaceID).hostID {
                 Task { await self.refreshWorkspaces(hostID: hostID) }
             }
         }
@@ -749,7 +749,7 @@ public final class MobileSSHComputers {
         guard connections[hostID] === connection else { return }
         connections[hostID] = nil
         providers[hostID] = nil
-        attachments = attachments.filter { MobileSSHIdentifiers.hostID(of: $0.key) != hostID }
+        attachments = attachments.filter { MobileSSHIdentifier($0.key).hostID != hostID }
         // Browser pumps see the transport close and report `.ended` themselves.
         stopAllPortForwards(hostID: hostID)
         statusByHost[hostID] = .idle
@@ -797,15 +797,15 @@ public final class MobileSSHComputers {
     }
 
     static func describe(_ error: any Error) -> String {
-        if let faceID = MobileSSHBiometryErrorCopy.message(for: error) { return faceID }
+        if let faceID = MobileSSHBiometryErrorCopy().message(for: error) { return faceID }
         return switch error {
-        case SSHConnectionError.authenticationFailed: L10nSSH.authFailed
-        case SSHConnectionError.hostKeyRejected: L10nSSH.hostKeyRejected
-        case MobileSSHRuntimeError.noKey: L10nSSH.noKey
-        case MobileSSHRuntimeError.tmuxMissing: L10nSSH.tmuxMissing
-        case MobileSSHRuntimeError.cmuxTUIMissing: L10nSSH.cmuxTUIMissing
-        case MobileSSHRuntimeError.cmuxTUISessionGone: L10nSSH.cmuxTUISessionGone
-        case MobileSSHCmuxTUIInstaller.InstallError.unsupportedPlatform(let os, let arch): L10nSSH.cmuxTUIUnsupported(os: os, arch: arch)
+        case SSHConnectionError.authenticationFailed: L10nSSH().authFailed
+        case SSHConnectionError.hostKeyRejected: L10nSSH().hostKeyRejected
+        case MobileSSHRuntimeError.noKey: L10nSSH().noKey
+        case MobileSSHRuntimeError.tmuxMissing: L10nSSH().tmuxMissing
+        case MobileSSHRuntimeError.cmuxTUIMissing: L10nSSH().cmuxTUIMissing
+        case MobileSSHRuntimeError.cmuxTUISessionGone: L10nSSH().cmuxTUISessionGone
+        case MobileSSHCmuxTUIInstaller.InstallError.unsupportedPlatform(let os, let arch): L10nSSH().cmuxTUIUnsupported(os: os, arch: arch)
         case let network as NWError: describe(network)
         case let posix as POSIXError: describe(posix.code)
         default: String(describing: error)
@@ -817,39 +817,39 @@ public final class MobileSSHComputers {
     private static func describe(_ error: NWError) -> String {
         switch error {
         case .posix(let code): describe(code)
-        case .dns: L10nSSH.hostNotFound
-        default: L10nSSH.unreachable
+        case .dns: L10nSSH().hostNotFound
+        default: L10nSSH().unreachable
         }
     }
 
     private static func describe(_ code: POSIXErrorCode) -> String {
         switch code {
-        case .ECONNREFUSED: L10nSSH.connectionRefused
-        case .ETIMEDOUT: L10nSSH.connectTimedOut
-        default: L10nSSH.unreachable
+        case .ECONNREFUSED: L10nSSH().connectionRefused
+        case .ETIMEDOUT: L10nSSH().connectTimedOut
+        default: L10nSSH().unreachable
         }
     }
 
     private func publish(host: SSHHostRecord) {
-        let computerID = MobileSSHIdentifiers.computerID(host: host.id)
+        let computerID = MobileSSHIdentifier(computerOf: host.id).rawValue
         let rows = (workspacesByHost[host.id] ?? []).map { workspace in
             MobileWorkspacePreview(
-                id: MobileWorkspacePreview.ID(rawValue: MobileSSHIdentifiers.scopedID(host: host.id, local: workspace.id)),
+                id: MobileWorkspacePreview.ID(rawValue: MobileSSHIdentifier(host: host.id, local: workspace.id).rawValue),
                 macDeviceID: computerID,
                 macDisplayName: host.name,
                 name: workspace.name,
                 // Where a Mac row shows its latest activity, an SSH row
                 // names its kind (PRD D31).
-                previewText: L10nSSH.kindLabel(workspace.kind, cmuxTUISession: workspace.cmuxTUISession),
+                previewText: L10nSSH().kindLabel(workspace.kind, cmuxTUISession: workspace.cmuxTUISession),
                 terminals: workspace.terminals.map {
                     MobileTerminalPreview(
-                        id: MobileTerminalPreview.ID(rawValue: MobileSSHIdentifiers.scopedID(host: host.id, local: $0.id)),
+                        id: MobileTerminalPreview.ID(rawValue: MobileSSHIdentifier(host: host.id, local: $0.id).rawValue),
                         name: $0.name
                     )
                 },
                 surfaces: workspace.browsers.map {
                     MobileSurfacePreview(
-                        id: MobileSurfacePreview.ID(rawValue: MobileSSHIdentifiers.scopedID(host: host.id, local: $0.id)),
+                        id: MobileSurfacePreview.ID(rawValue: MobileSSHIdentifier(host: host.id, local: $0.id).rawValue),
                         kind: .browser,
                         title: Self.browserTitle($0)
                     )
@@ -885,19 +885,19 @@ extension MobileSSHComputers {
     static func browserTitle(_ browser: MobileSSHBrowser) -> String {
         if !browser.title.isEmpty { return browser.title }
         if let url = browser.url, !url.isEmpty { return url }
-        return L10nSSH.browserUntitled
+        return L10nSSH().browserUntitled
     }
 
     /// Streamable browser panels of an SSH workspace row.
     func browserPanels(inWorkspace workspaceID: String) -> [MobileBrowserPanelDescriptor] {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: workspaceID),
-              let local = MobileSSHIdentifiers.localID(of: workspaceID),
+        guard let hostID = MobileSSHIdentifier(workspaceID).hostID,
+              let local = MobileSSHIdentifier(workspaceID).localID,
               let workspace = workspacesByHost[hostID]?.first(where: { $0.id == local }) else { return [] }
         return workspace.browsers.map { descriptor(for: $0, hostID: hostID, workspaceID: workspaceID) }
     }
 
     private func descriptor(for browser: MobileSSHBrowser, hostID: UUID, workspaceID: String) -> MobileBrowserPanelDescriptor {
-        let panelID = MobileSSHIdentifiers.scopedID(host: hostID, local: browser.id)
+        let panelID = MobileSSHIdentifier(host: hostID, local: browser.id).rawValue
         let metadata = browserMetadata[panelID]
         // Before the first frame, estimate the page from the server grid at
         // a typical terminal cell (9x16); the first frame replaces it.
@@ -918,7 +918,7 @@ extension MobileSSHComputers {
 
     private func publishBrowserPanels(host: SSHHostRecord) {
         for workspace in workspacesByHost[host.id] ?? [] {
-            let workspaceID = MobileSSHIdentifiers.scopedID(host: host.id, local: workspace.id)
+            let workspaceID = MobileSSHIdentifier(host: host.id, local: workspace.id).rawValue
             let panels = browserPanels(inWorkspace: workspaceID)
             // Metadata-only churn must not bump the store's discovery revision.
             let identity = panels.map(\.panelID)
@@ -938,8 +938,8 @@ extension MobileSSHComputers {
 
     /// Attaches a browser tab (idempotent) and returns its descriptor.
     func startBrowser(panelID: String, viewport: MobileBrowserViewport?) async throws -> MobileBrowserPanelDescriptor {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: panelID),
-              let local = MobileSSHIdentifiers.localID(of: panelID),
+        guard let hostID = MobileSSHIdentifier(panelID).hostID,
+              let local = MobileSSHIdentifier(panelID).localID,
               let parsed = MobileSSHLocalID(rawValue: local) else { throw MobileSSHRuntimeError.browserUnavailable }
         guard let (workspaceID, browser) = locateBrowser(hostID: hostID, local: local) else {
             throw MobileSSHRuntimeError.browserUnavailable
@@ -974,7 +974,7 @@ extension MobileSSHComputers {
     private func locateBrowser(hostID: UUID, local: String) -> (workspaceID: String, browser: MobileSSHBrowser)? {
         for workspace in workspacesByHost[hostID] ?? [] {
             if let browser = workspace.browsers.first(where: { $0.id == local }) {
-                return (MobileSSHIdentifiers.scopedID(host: hostID, local: workspace.id), browser)
+                return (MobileSSHIdentifier(host: hostID, local: workspace.id).rawValue, browser)
             }
         }
         return nil
@@ -986,7 +986,7 @@ extension MobileSSHComputers {
             let state = MobileBrowserStateEvent(
                 panelID: panelID,
                 url: url,
-                title: failure.map { $0.isEmpty ? L10nSSH.browserFailed : L10nSSH.browserFailed + ": " + $0 } ?? title,
+                title: failure.map { $0.isEmpty ? L10nSSH().browserFailed : L10nSSH().browserFailed + ": " + $0 } ?? title,
                 // cmux-tui does not report history availability; keep both
                 // buttons enabled (the server no-ops at either end).
                 canGoBack: true,
@@ -1043,7 +1043,7 @@ struct MobileSSHHostKeyVerifier: SSHHostKeyVerifier {
 
     func verify(_ key: SSHHostKey, for endpoint: SSHEndpoint) async -> Bool {
         let identity = endpoint.hostKeyIdentity
-        switch SSHHostKeyPolicy.verdict(presented: key, pinned: await store.pinnedKey(for: identity)) {
+        switch SSHHostKeyVerdict(presented: key, pinned: await store.pinnedKey(for: identity)) {
         case .trusted:
             return true
         case .unknown:
@@ -1058,10 +1058,13 @@ struct MobileSSHHostKeyVerifier: SSHHostKeyVerifier {
 
 /// Plain-language copy for a Secure Enclave key that needs Face ID and
 /// could not get it (CryptoKit reports this as "Authentication failure.").
-public enum MobileSSHBiometryErrorCopy {
+public struct MobileSSHBiometryErrorCopy {
+    /// Creates the copy provider.
+    public init() {}
+
     /// A friendly message when `error` is a Face ID / key-authentication
     /// failure; `nil` for any other error.
-    public static func message(for error: any Error) -> String? {
+    public func message(for error: any Error) -> String? {
         if let laError = error as? LAError {
             return message(for: laError.code)
         }
@@ -1075,7 +1078,7 @@ public enum MobileSSHBiometryErrorCopy {
         return nil
     }
 
-    private static func message(for code: LAError.Code) -> String {
+    private func message(for code: LAError.Code) -> String {
         switch code {
         case .biometryNotEnrolled, .biometryNotAvailable, .passcodeNotSet:
             notSetUp
@@ -1089,18 +1092,18 @@ public enum MobileSSHBiometryErrorCopy {
         }
     }
 
-    private static var biometryIsSetUp: Bool {
+    private var biometryIsSetUp: Bool {
         LAContext().canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
     }
 
-    static var notSetUp: String {
+    var notSetUp: String {
         L10n.string(
             "mobile.ssh.faceID.notSetUp",
             defaultValue: "Face ID isn't set up on this device. Set it up in Settings, or turn off Require Face ID for this key."
         )
     }
 
-    static var couldNotUse: String {
+    var couldNotUse: String {
         L10n.string(
             "mobile.ssh.faceID.failed",
             defaultValue: "Couldn't use Face ID. Try again."

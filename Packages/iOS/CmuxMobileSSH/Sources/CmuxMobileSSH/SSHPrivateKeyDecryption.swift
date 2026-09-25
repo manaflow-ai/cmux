@@ -11,46 +11,69 @@ import CommonCrypto
 ///
 /// `aes256-gcm@openssh.com` is not supported: its 16-byte tag follows the
 /// private blob in the file and the parser only hands over the blob itself.
-enum SSHPrivateKeyDecryption {
+struct SSHPrivateKeyDecryption {
     private struct CipherSpec {
         var keyLength: Int
         var ivLength: Int
         var blockSize: Int
         var isCTR: Bool
-    }
 
-    private static func spec(for cipher: String) -> CipherSpec? {
-        switch cipher {
-        case "aes256-ctr": CipherSpec(keyLength: 32, ivLength: 16, blockSize: 16, isCTR: true)
-        case "aes192-ctr": CipherSpec(keyLength: 24, ivLength: 16, blockSize: 16, isCTR: true)
-        case "aes128-ctr": CipherSpec(keyLength: 16, ivLength: 16, blockSize: 16, isCTR: true)
-        case "aes256-cbc": CipherSpec(keyLength: 32, ivLength: 16, blockSize: 16, isCTR: false)
-        case "aes192-cbc": CipherSpec(keyLength: 24, ivLength: 16, blockSize: 16, isCTR: false)
-        case "aes128-cbc": CipherSpec(keyLength: 16, ivLength: 16, blockSize: 16, isCTR: false)
-        default: nil
+        init?(cipher: String) {
+            switch cipher {
+            case "aes256-ctr": self.init(keyLength: 32, ivLength: 16, blockSize: 16, isCTR: true)
+            case "aes192-ctr": self.init(keyLength: 24, ivLength: 16, blockSize: 16, isCTR: true)
+            case "aes128-ctr": self.init(keyLength: 16, ivLength: 16, blockSize: 16, isCTR: true)
+            case "aes256-cbc": self.init(keyLength: 32, ivLength: 16, blockSize: 16, isCTR: false)
+            case "aes192-cbc": self.init(keyLength: 24, ivLength: 16, blockSize: 16, isCTR: false)
+            case "aes128-cbc": self.init(keyLength: 16, ivLength: 16, blockSize: 16, isCTR: false)
+            default: return nil
+            }
+        }
+
+        init(keyLength: Int, ivLength: Int, blockSize: Int, isCTR: Bool) {
+            self.keyLength = keyLength
+            self.ivLength = ivLength
+            self.blockSize = blockSize
+            self.isCTR = isCTR
         }
     }
 
-    static func decrypt(_ blob: [UInt8], cipher: String, kdfOptions: [UInt8], passphrase: String) throws -> [UInt8] {
-        guard let spec = spec(for: cipher) else { throw SSHPrivateKeyParseError.unsupportedCipher(cipher) }
+    private let cipherName: String
+    private let spec: CipherSpec
+    private let salt: [UInt8]
+    private let kdf: BcryptPBKDF
+
+    /// Reads the cipher and the bcrypt KDF options from the key file header.
+    ///
+    /// - Throws: ``SSHPrivateKeyParseError/unsupportedCipher(_:)`` for an
+    ///   unsupported cipher, ``SSHPrivateKeyParseError/malformed`` for bad options.
+    init(cipher: String, kdfOptions: [UInt8]) throws {
+        guard let spec = CipherSpec(cipher: cipher) else { throw SSHPrivateKeyParseError.unsupportedCipher(cipher) }
         var options = SSHWireReader(kdfOptions)
         let salt = try options.readBytes()
         let rounds = try options.readUInt32()
         guard rounds >= 1, rounds <= 1 << 20, !salt.isEmpty else { throw SSHPrivateKeyParseError.malformed }
+        self.cipherName = cipher
+        self.spec = spec
+        self.salt = salt
+        self.kdf = BcryptPBKDF(rounds: Int(rounds))
+    }
+
+    func decrypt(_ blob: [UInt8], passphrase: String) throws -> [UInt8] {
         guard !blob.isEmpty, blob.count % spec.blockSize == 0 else { throw SSHPrivateKeyParseError.malformed }
 
-        let derived = BcryptPBKDF.derive(
+        let derived = kdf.derive(
             password: Array(passphrase.utf8),
             salt: salt,
-            keyLength: spec.keyLength + spec.ivLength,
-            rounds: Int(rounds)
+            keyLength: spec.keyLength + spec.ivLength
         )
         let key = Array(derived[0..<spec.keyLength])
         let iv = Array(derived[spec.keyLength...])
-        return try aesDecrypt(blob, key: key, iv: iv, ctr: spec.isCTR, cipherName: cipher)
+        return try aesDecrypt(blob, key: key, iv: iv)
     }
 
-    private static func aesDecrypt(_ input: [UInt8], key: [UInt8], iv: [UInt8], ctr: Bool, cipherName: String) throws -> [UInt8] {
+    private func aesDecrypt(_ input: [UInt8], key: [UInt8], iv: [UInt8]) throws -> [UInt8] {
+        let ctr = spec.isCTR
         #if canImport(CommonCrypto)
         var cryptor: CCCryptorRef?
         let createStatus = key.withUnsafeBufferPointer { keyPtr in

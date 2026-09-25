@@ -16,7 +16,7 @@ struct CmuxTUILabTests {
         let text = try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)
         return try await SSHConnection.connect(
             to: endpoint,
-            credentials: [.privateKey(try SSHPrivateKeyParser.parse(text).key)],
+            credentials: [.privateKey(try SSHParsedPrivateKey(openSSH: text).key)],
             hostKeyVerifier: RecordingVerifier(accept: true)
         )
     }
@@ -209,8 +209,8 @@ struct CmuxTUILabTests {
 
     /// Stops the owner and removes the session's durable state and terminal hosts.
     private func cleanUp(session: String) {
-        let quoted = CmuxTUIShell.quote(session)
-        let bin = CmuxTUIShell.quote(binary)
+        let quoted = session.posixShellSingleQuoted
+        let bin = binary.posixShellSingleQuoted
         _ = try? shell("""
         \(bin) server stop --session \(quoted) --json >/dev/null 2>&1
         token=$(\(bin) session \(quoted) reset-state --json 2>/dev/null | sed -n 's/.*"confirm_reset":"\\([^"]*\\)".*/\\1/p')

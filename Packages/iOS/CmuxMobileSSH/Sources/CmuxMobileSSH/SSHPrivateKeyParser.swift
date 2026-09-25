@@ -25,10 +25,16 @@ public enum SSHPrivateKeyParseError: Error, Equatable, Sendable {
 
 /// Parses `-----BEGIN OPENSSH PRIVATE KEY-----` files (the `ssh-keygen` default
 /// since OpenSSH 7.8) for Ed25519 and ECDSA P-256/384/521 keys.
-public enum SSHPrivateKeyParser {
+extension SSHParsedPrivateKey {
     private static let magic = Array("openssh-key-v1\0".utf8)
 
-    public static func parse(_ text: String, passphrase: String? = nil) throws -> SSHParsedPrivateKey {
+    /// Parses an OpenSSH private key file.
+    ///
+    /// - Parameters:
+    ///   - text: The armored `-----BEGIN OPENSSH PRIVATE KEY-----` file text.
+    ///   - passphrase: The passphrase for an encrypted key, `nil` otherwise.
+    /// - Throws: ``SSHPrivateKeyParseError``.
+    public init(openSSH text: String, passphrase: String? = nil) throws {
         // iOS text input turns `--` into dashes ("smart punctuation"); undo it
         // so a hand-typed or keyboard-mangled armor line still parses.
         let text = text
@@ -43,7 +49,7 @@ public enum SSHPrivateKeyParser {
             throw SSHPrivateKeyParseError.notOpenSSHFormat
         }
         var reader = SSHWireReader(Array(data))
-        guard try reader.readRaw(magic.count) == magic else { throw SSHPrivateKeyParseError.notOpenSSHFormat }
+        guard try reader.readRaw(Self.magic.count) == Self.magic else { throw SSHPrivateKeyParseError.notOpenSSHFormat }
         let cipher = try reader.readString()
         let kdf = try reader.readString()
         let kdfOptions = try reader.readBytes()
@@ -54,12 +60,8 @@ public enum SSHPrivateKeyParser {
         if cipher != "none" {
             guard let passphrase, !passphrase.isEmpty else { throw SSHPrivateKeyParseError.passphraseRequired }
             guard kdf == "bcrypt" else { throw SSHPrivateKeyParseError.unsupportedCipher(kdf) }
-            privateBlob = try SSHPrivateKeyDecryption.decrypt(
-                privateBlob,
-                cipher: cipher,
-                kdfOptions: kdfOptions,
-                passphrase: passphrase
-            )
+            privateBlob = try SSHPrivateKeyDecryption(cipher: cipher, kdfOptions: kdfOptions)
+                .decrypt(privateBlob, passphrase: passphrase)
         }
 
         var inner = SSHWireReader(privateBlob)
@@ -79,35 +81,40 @@ public enum SSHPrivateKeyParser {
         case "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521":
             _ = try inner.readString() // curve name
             _ = try inner.readBytes() // public point
-            let scalar = stripLeadingZero(try inner.readBytes())
+            let scalar = try inner.readBytes().strippingLeadingZeros
             switch keyType {
             case "ecdsa-sha2-nistp256":
-                key = NIOSSHPrivateKey(p256Key: try P256.Signing.PrivateKey(rawRepresentation: leftPad(scalar, to: 32)))
+                key = NIOSSHPrivateKey(p256Key: try P256.Signing.PrivateKey(rawRepresentation: scalar.leftPadded(to: 32)))
             case "ecdsa-sha2-nistp384":
-                key = NIOSSHPrivateKey(p384Key: try P384.Signing.PrivateKey(rawRepresentation: leftPad(scalar, to: 48)))
+                key = NIOSSHPrivateKey(p384Key: try P384.Signing.PrivateKey(rawRepresentation: scalar.leftPadded(to: 48)))
             default:
-                key = NIOSSHPrivateKey(p521Key: try P521.Signing.PrivateKey(rawRepresentation: leftPad(scalar, to: 66)))
+                key = NIOSSHPrivateKey(p521Key: try P521.Signing.PrivateKey(rawRepresentation: scalar.leftPadded(to: 66)))
             }
         default:
             throw SSHPrivateKeyParseError.unsupportedKeyType(keyType)
         }
         let comment = (try? inner.readString()) ?? ""
-        return SSHParsedPrivateKey(
+        self.init(
             key: key,
             algorithm: keyType,
             comment: comment,
             publicKeyLine: String(openSSHPublicKey: key.publicKey)
         )
     }
+}
 
-    private static func stripLeadingZero(_ bytes: [UInt8]) -> [UInt8] {
-        var bytes = bytes
+extension [UInt8] {
+    /// An SSH `mpint` magnitude without its sign-padding zero bytes.
+    fileprivate var strippingLeadingZeros: [UInt8] {
+        var bytes = self
         while bytes.count > 1, bytes.first == 0 { bytes.removeFirst() }
         return bytes
     }
 
-    private static func leftPad(_ bytes: [UInt8], to length: Int) -> [UInt8] {
-        bytes.count >= length ? Array(bytes.suffix(length)) : Array(repeating: 0, count: length - bytes.count) + bytes
+    /// Exactly `length` big-endian bytes: zero-padded on the left, or the
+    /// low-order suffix when longer.
+    fileprivate func leftPadded(to length: Int) -> [UInt8] {
+        count >= length ? Array(suffix(length)) : Array(repeating: 0, count: length - count) + self
     }
 }
 

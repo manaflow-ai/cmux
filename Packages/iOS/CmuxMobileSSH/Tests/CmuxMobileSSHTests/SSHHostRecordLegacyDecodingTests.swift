@@ -67,7 +67,7 @@ struct CmuxTUITreeScreensTests {
             {"id":6,"name":"logs","active_tab":1,"tabs":[{"surface":7,"kind":"pty","title":"b"},{"surface":8,"kind":"pty","title":"c"}]}]},
           {"id":9,"name":null,"panes":[{"id":10,"tabs":[{"surface":11,"kind":"pty","title":"d"}]}]}]}]}
         """#
-        let workspace = try #require(try CmuxTUIWire.decode(CmuxTUITreeWire.self, from: Data(json.utf8)).model.first)
+        let workspace = try #require(try CmuxTUITreeWire(cmuxTUILine: Data(json.utf8)).model.first)
         #expect(workspace.screens.map(\.id) == [3, 9])
         #expect(workspace.screens.map(\.name) == ["dev", nil])
         #expect(workspace.screens.first?.activePane == 6)

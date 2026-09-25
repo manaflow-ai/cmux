@@ -14,7 +14,7 @@ struct CmuxTUIWorkingDirectoryLabTests {
     @Test(.timeLimit(.minutes(1))) func workingDirectoryFollowsCd() async throws {
         let session = "cmux-lab-\(UUID().uuidString.lowercased())"
         defer { cleanUp(session: session) }
-        let key = try SSHPrivateKeyParser.parse(try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)).key
+        let key = try SSHParsedPrivateKey(openSSH: try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)).key
         let ssh = try await SSHConnection.connect(
             to: SSHEndpoint(host: "127.0.0.1", port: 2222, username: NSUserName()),
             credentials: [.privateKey(key)],
@@ -28,7 +28,7 @@ struct CmuxTUIWorkingDirectoryLabTests {
             appropriateFor: FileManager.default.temporaryDirectory, create: true
         ).resolvingSymlinksInPath().path
 
-        try await control.send(Data("cd \(CmuxTUIShell.quote(target))\r".utf8), to: surface)
+        try await control.send(Data("cd \(target.posixShellSingleQuoted)\r".utf8), to: surface)
         var directory: String?
         for _ in 0..<100 {
             directory = try await control.workingDirectory(surface: surface)
@@ -41,8 +41,8 @@ struct CmuxTUIWorkingDirectoryLabTests {
     }
 
     private func cleanUp(session: String) {
-        let quoted = CmuxTUIShell.quote(session)
-        let bin = CmuxTUIShell.quote(binary)
+        let quoted = session.posixShellSingleQuoted
+        let bin = binary.posixShellSingleQuoted
         _ = try? shell("""
         \(bin) server stop --session \(quoted) --json >/dev/null 2>&1
         token=$(\(bin) session \(quoted) reset-state --json 2>/dev/null | sed -n 's/.*"confirm_reset":"\\([^"]*\\)".*/\\1/p')

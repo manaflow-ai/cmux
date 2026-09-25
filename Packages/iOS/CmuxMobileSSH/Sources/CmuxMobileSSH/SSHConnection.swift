@@ -54,7 +54,6 @@ public actor SSHConnection {
         connectTimeout: TimeAmount = .seconds(15)
     ) async throws -> SSHConnection {
         let authDelegate = SSHCredentialAuthDelegate(username: endpoint.username, credentials: credentials)
-        let hostKeyDelegate = SSHHostKeyAuthDelegate(endpoint: endpoint, verifier: hostKeyVerifier)
 
         // The SSH handler must be in the pipeline before the first inbound
         // byte: servers send their version line the moment they accept, and
@@ -66,7 +65,7 @@ public actor SSHConnection {
         // Network phases spend this budget; host key verification, which can
         // wait on a trust prompt, pauses it (see SSHHostKeyAuthDelegate).
         let deadline = SSHHandshakeDeadline(timeout: connectTimeout, eventLoop: eventLoop)
-        hostKeyDelegate.pauseDuringVerification(deadline)
+        let hostKeyDelegate = SSHHostKeyAuthDelegate(endpoint: endpoint, verifier: hostKeyVerifier, deadline: deadline)
         deadline.complete(with: handshake.futureResult)
         let installSSH: @Sendable (any Channel) -> EventLoopFuture<Void> = { channel in
             channel.eventLoop.makeCompletedFuture {
@@ -109,12 +108,12 @@ public actor SSHConnection {
             try? await channel.close()
             // The verifier's decision wins over however the transport
             // reported the aborted handshake (error, close, or timeout).
-            if hostKeyDelegate.rejectedPresentedKey, let key = hostKeyDelegate.presentedKey {
+            if await hostKeyDelegate.rejectedPresentedKey, let key = await hostKeyDelegate.presentedKey {
                 throw SSHConnectionError.hostKeyRejected(.unknown(presented: key))
             }
             throw error
         }
-        guard let hostKey = hostKeyDelegate.presentedKey else {
+        guard let hostKey = await hostKeyDelegate.presentedKey else {
             try? await channel.close()
             throw SSHConnectionError.closed
         }

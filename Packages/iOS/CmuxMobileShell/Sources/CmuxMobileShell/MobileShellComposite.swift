@@ -2323,7 +2323,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // after sign-in until the Mac connected.
         // SSH computers are device-local, not account-scoped (PRD D5): keep
         // their rows across the account boundary.
-        workspacesByMac = workspacesByMac.filter { MobileSSHIdentifiers.owns($0.key.canonicalMacDeviceID) }
+        workspacesByMac = workspacesByMac.filter { MobileSSHIdentifier($0.key.canonicalMacDeviceID).isSSH }
         resetStableMacColorSlotsForSignOut()
         selectedWorkspaceID = nil
         selectedTerminalID = nil
@@ -4425,7 +4425,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // seeded workspaces are already live, so a "switch" (opening one of
         // its rows) succeeds immediately without touching the foreground
         // connection a real Mac may hold.
-        if let sshHostID = MobileSSHIdentifiers.hostID(of: macDeviceID) {
+        if let sshHostID = MobileSSHIdentifier(macDeviceID).hostID {
             // SSH computers connect on their own transport; the foreground
             // Mac connection is untouched.
             recordAppEvent(.computerSelected, correlationID: macDeviceID)

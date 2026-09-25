@@ -1,43 +1,51 @@
 import NIOCore
 import NIOSSH
-import os
 
 /// Offers each credential once, in order, for methods the server accepts.
-final class SSHCredentialAuthDelegate: NIOSSHClientUserAuthenticationDelegate, @unchecked Sendable {
+///
+/// NIO asks for the next offer through a promise it waits on, so the actor
+/// hop between the callback and the answer costs nothing: NIO does not ask
+/// again until the previous offer's promise has completed.
+actor SSHCredentialAuthDelegate: NIOSSHClientUserAuthenticationDelegate {
     private let username: String
-    private let lock = OSAllocatedUnfairLock<[SSHCredential]>(initialState: [])
+    private var remaining: [SSHCredential]
 
     init(username: String, credentials: [SSHCredential]) {
         self.username = username
-        lock.withLock { $0 = credentials }
+        self.remaining = credentials
     }
 
-    func nextAuthenticationType(
+    nonisolated func nextAuthenticationType(
         availableMethods: NIOSSHAvailableUserAuthenticationMethods,
         nextChallengePromise: EventLoopPromise<NIOSSHUserAuthenticationOffer?>
     ) {
-        let next: SSHCredential? = lock.withLock { remaining in
-            while !remaining.isEmpty {
-                let candidate = remaining.removeFirst()
-                switch candidate {
-                case .privateKey where availableMethods.contains(.publicKey):
-                    return candidate
-                case .password where availableMethods.contains(.password):
-                    return candidate
-                default:
-                    continue
-                }
+        Task {
+            switch await takeNext(accepting: availableMethods) {
+            case .privateKey(let key):
+                nextChallengePromise.succeed(.init(username: username, serviceName: "", offer: .privateKey(.init(privateKey: key))))
+            case .password(let password):
+                nextChallengePromise.succeed(.init(username: username, serviceName: "", offer: .password(.init(password: password))))
+            case nil:
+                nextChallengePromise.fail(SSHConnectionError.authenticationFailed)
             }
-            return nil
         }
-        switch next {
-        case .privateKey(let key):
-            nextChallengePromise.succeed(.init(username: username, serviceName: "", offer: .privateKey(.init(privateKey: key))))
-        case .password(let password):
-            nextChallengePromise.succeed(.init(username: username, serviceName: "", offer: .password(.init(password: password))))
-        case nil:
-            nextChallengePromise.fail(SSHConnectionError.authenticationFailed)
+    }
+
+    /// Removes and returns the first remaining credential whose method the
+    /// server accepts, dropping any skipped along the way.
+    private func takeNext(accepting availableMethods: NIOSSHAvailableUserAuthenticationMethods) -> SSHCredential? {
+        while !remaining.isEmpty {
+            let candidate = remaining.removeFirst()
+            switch candidate {
+            case .privateKey where availableMethods.contains(.publicKey):
+                return candidate
+            case .password where availableMethods.contains(.password):
+                return candidate
+            default:
+                continue
+            }
         }
+        return nil
     }
 }
 
@@ -45,53 +53,46 @@ final class SSHCredentialAuthDelegate: NIOSSHClientUserAuthenticationDelegate, @
 ///
 /// The verifier may wait on the user (a trust prompt), so the handshake
 /// deadline is paused for exactly as long as verification is pending.
-final class SSHHostKeyAuthDelegate: NIOSSHClientServerAuthenticationDelegate, Sendable {
-    private struct State {
-        var presented: SSHHostKey?
-        var rejected = false
-        var deadline: SSHHandshakeDeadline?
-    }
-
+actor SSHHostKeyAuthDelegate: NIOSSHClientServerAuthenticationDelegate {
     private let endpoint: SSHEndpoint
     private let verifier: any SSHHostKeyVerifier
-    private let state = OSAllocatedUnfairLock(initialState: State())
-
-    init(endpoint: SSHEndpoint, verifier: any SSHHostKeyVerifier) {
-        self.endpoint = endpoint
-        self.verifier = verifier
-    }
+    /// The handshake budget paused while the verifier is pending.
+    private let deadline: SSHHandshakeDeadline
 
     /// The key the server presented, available once the handshake reached host key validation.
-    var presentedKey: SSHHostKey? { state.withLock { $0.presented } }
+    private(set) var presentedKey: SSHHostKey?
 
     /// Whether the verifier declined the presented key. Authoritative over
     /// whatever error the transport surfaces afterwards (NIO may report the
     /// failed validation as a closed channel).
-    var rejectedPresentedKey: Bool { state.withLock { $0.rejected } }
+    private(set) var rejectedPresentedKey = false
 
-    /// The handshake budget to pause while the verifier is pending.
-    func pauseDuringVerification(_ deadline: SSHHandshakeDeadline) {
-        state.withLock { $0.deadline = deadline }
+    init(endpoint: SSHEndpoint, verifier: any SSHHostKeyVerifier, deadline: SSHHandshakeDeadline) {
+        self.endpoint = endpoint
+        self.verifier = verifier
+        self.deadline = deadline
     }
 
-    func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
+    nonisolated func validateHostKey(hostKey: NIOSSHPublicKey, validationCompletePromise: EventLoopPromise<Void>) {
         let key = SSHHostKey(hostKey)
-        let deadline = state.withLock { state -> SSHHandshakeDeadline? in
-            state.presented = key
-            return state.deadline
-        }
-        deadline?.pause()
-        let endpoint = endpoint
-        let verifier = verifier
+        // Paused synchronously on the event loop, before the budget can lapse.
+        deadline.pause()
         Task {
-            let accepted = await verifier.verify(key, for: endpoint)
-            if !accepted { state.withLock { $0.rejected = true } }
-            deadline?.resume()
+            let accepted = await verify(key)
+            deadline.resume()
             if accepted {
                 validationCompletePromise.succeed(())
             } else {
                 validationCompletePromise.fail(SSHConnectionError.hostKeyRejected(.unknown(presented: key)))
             }
         }
+    }
+
+    /// Records `key` as presented, asks the verifier, and records a refusal.
+    private func verify(_ key: SSHHostKey) async -> Bool {
+        presentedKey = key
+        let accepted = await verifier.verify(key, for: endpoint)
+        if !accepted { rejectedPresentedKey = true }
+        return accepted
     }
 }

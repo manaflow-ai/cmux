@@ -108,11 +108,11 @@ final class MobileSSHHostProviders {
                 guard let probe = cmuxTUIProbe, probe.npmPlatformPackage != nil else {
                     let os = cmuxTUIProbe?.os ?? "?"
                     let arch = cmuxTUIProbe?.arch ?? "?"
-                    return MobileSSHKindAvailability(kind: kind, unavailableReason: L10nSSH.cmuxTUIUnsupported(os: os, arch: arch))
+                    return MobileSSHKindAvailability(kind: kind, unavailableReason: L10nSSH().cmuxTUIUnsupported(os: os, arch: arch))
                 }
                 return MobileSSHKindAvailability(kind: kind, needsInstall: true)
             case .tmux:
-                return MobileSSHKindAvailability(kind: kind, unavailableReason: tmux == nil ? L10nSSH.tmuxMissing : nil)
+                return MobileSSHKindAvailability(kind: kind, unavailableReason: tmux == nil ? L10nSSH().tmuxMissing : nil)
             case .shell:
                 return MobileSSHKindAvailability(kind: kind)
             }
@@ -275,7 +275,7 @@ final class MobileSSHHostProviders {
         guard let probe else { throw MobileSSHRuntimeError.cmuxTUIMissing }
         installing(true)
         defer { installing(false) }
-        try await MobileSSHCmuxTUIInstaller.install(probe: probe, on: connection) { _ in }
+        try await MobileSSHCmuxTUIInstaller().install(probe: probe, on: connection) { _ in }
         cmuxTUIBinary = CmuxTUIRemote.defaultBinaryPath
     }
 

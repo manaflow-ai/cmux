@@ -1,6 +1,6 @@
 import Foundation
 
-/// Identifier namespace for SSH computers.
+/// An identifier string read as an SSH computer's id.
 ///
 /// SSH hosts ride the shell's ordinary per-computer stores (like the
 /// demonstration computer), so every id they mint must be distinguishable
@@ -11,42 +11,52 @@ import Foundation
 ///
 /// The `~` separator never appears in a UUID, so the host id parses back
 /// unambiguously.
-enum MobileSSHIdentifiers {
+struct MobileSSHIdentifier: Hashable, Sendable {
     static let prefix = "cmux-ssh-"
     private static let separator: Character = "~"
 
-    static func computerID(host: UUID) -> String {
-        prefix + host.uuidString.lowercased()
+    /// The identifier string as the shell's stores carry it.
+    let rawValue: String
+
+    /// Reads any identifier; the accessors report whether it is an SSH one.
+    init(_ rawValue: String) {
+        self.rawValue = rawValue
     }
 
-    static func scopedID(host: UUID, local: String) -> String {
-        computerID(host: host) + String(separator) + local
+    /// The computer (`macDeviceID`) id for an SSH host.
+    init(computerOf host: UUID) {
+        self.init(Self.prefix + host.uuidString.lowercased())
     }
 
-    /// Whether `identifier` belongs to any SSH computer.
-    static func owns(_ identifier: String) -> Bool {
-        identifier.hasPrefix(prefix)
+    /// A workspace, terminal, or browser id scoped to an SSH host.
+    init(host: UUID, local: String) {
+        self.init(MobileSSHIdentifier(computerOf: host).rawValue + String(Self.separator) + local)
     }
 
-    /// Whether `identifier` is a well-formed workspace or surface id
+    /// Whether this identifier belongs to any SSH computer.
+    var isSSH: Bool {
+        rawValue.hasPrefix(Self.prefix)
+    }
+
+    /// Whether this is a well-formed workspace or surface id
     /// (`cmux-ssh-<host uuid>~<local id>`). Aggregated row ids that merely
     /// start with the prefix are not.
-    static func isScopedID(_ identifier: String) -> Bool {
-        hostID(of: identifier) != nil && localID(of: identifier) != nil
+    var isScoped: Bool {
+        hostID != nil && localID != nil
     }
 
-    /// The host that owns a computer, workspace, or surface id.
-    static func hostID(of identifier: String) -> UUID? {
-        guard owns(identifier) else { return nil }
-        let rest = identifier.dropFirst(prefix.count)
-        let hostPart = rest.split(separator: separator, maxSplits: 1).first.map(String.init) ?? String(rest)
+    /// The host that owns this computer, workspace, or surface id.
+    var hostID: UUID? {
+        guard isSSH else { return nil }
+        let rest = rawValue.dropFirst(Self.prefix.count)
+        let hostPart = rest.split(separator: Self.separator, maxSplits: 1).first.map(String.init) ?? String(rest)
         return UUID(uuidString: hostPart)
     }
 
     /// The host-local part of a scoped workspace or surface id.
-    static func localID(of identifier: String) -> String? {
-        guard owns(identifier), let index = identifier.firstIndex(of: separator) else { return nil }
-        return String(identifier[identifier.index(after: index)...])
+    var localID: String? {
+        guard isSSH, let index = rawValue.firstIndex(of: Self.separator) else { return nil }
+        return String(rawValue[rawValue.index(after: index)...])
     }
 }
 
@@ -72,7 +82,7 @@ public enum MobileSSHWorkspaceKind: String, CaseIterable, Sendable, Hashable {
 /// - tmux: `tmux:<id>` (session name, or `<session>/%<pane>`).
 /// - shell: `shell:<n>` (the workspace and its one terminal share it).
 ///
-/// Scoped ids stay `cmux-ssh-<host>~<local>` (``MobileSSHIdentifiers``).
+/// Scoped ids stay `cmux-ssh-<host>~<local>` (``MobileSSHIdentifier``).
 enum MobileSSHLocalID: Hashable, Sendable {
     case cmuxTUI(session: String, id: String)
     case tmux(String)
@@ -119,7 +129,7 @@ enum MobileSSHLocalID: Hashable, Sendable {
 
     /// Parses the local part of a scoped workspace or surface id.
     init?(scopedID: String) {
-        guard let local = MobileSSHIdentifiers.localID(of: scopedID) else { return nil }
+        guard let local = MobileSSHIdentifier(scopedID).localID else { return nil }
         self.init(rawValue: local)
     }
 }

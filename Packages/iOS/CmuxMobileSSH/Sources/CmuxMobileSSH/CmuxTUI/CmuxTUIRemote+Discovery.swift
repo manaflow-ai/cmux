@@ -29,7 +29,7 @@ extension CmuxTUIRemote {
         done
         exit 0
         """#
-        let result = try await connection.exec(CmuxTUIShell.sh(script))
+        let result = try await connection.exec(script.bourneShellCommand)
         return Self.parseSessionSockets(result.stdoutString)
     }
 
@@ -44,7 +44,7 @@ extension CmuxTUIRemote {
         done
         exit 1
         """#
-        guard let result = try? await connection.exec(CmuxTUIShell.sh(script)), result.exitStatus == 0 else { return nil }
+        guard let result = try? await connection.exec(script.bourneShellCommand), result.exitStatus == 0 else { return nil }
         let path = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
         return path.isEmpty ? nil : path
     }
@@ -75,11 +75,11 @@ extension CmuxTUIRemote {
     ) async throws -> CmuxTUIControl {
         try Self.validate(session: socket.name)
         let script = """
-        B=\(CmuxTUIShell.path(binaryPath))
+        B=\(binaryPath.remoteShellPath)
         [ -x "$B" ] || { echo "cmux-tui not found at $B" >&2; exit 127; }
-        exec "$B" relay --socket \(CmuxTUIShell.quote(socket.path))
+        exec "$B" relay --socket \(socket.path.posixShellSingleQuoted)
         """
-        let channel = try await connection.openSession(start: .exec(CmuxTUIShell.sh(script)))
+        let channel = try await connection.openSession(start: .exec(script.bourneShellCommand))
         return try await CmuxTUIControl.open(
             channel: channel,
             session: socket.name,

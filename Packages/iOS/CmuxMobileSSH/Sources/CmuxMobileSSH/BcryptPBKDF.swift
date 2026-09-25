@@ -5,7 +5,14 @@ import Foundation
 /// protect `openssh-key-v1` private keys (`kdfname = "bcrypt"`).
 ///
 /// Reference: OpenBSD `lib/libutil/bcrypt_pbkdf.c` and `lib/libc/crypt/blowfish.c`.
-enum BcryptPBKDF {
+struct BcryptPBKDF {
+    /// The iteration count, at least 1.
+    let rounds: Int
+
+    init(rounds: Int) {
+        self.rounds = rounds
+    }
+
     private static let hashWords = 8
     private static let hashSize = hashWords * 4
     /// "OxychromaticBlowfishSwatDynamite", the bcrypt_hash plaintext.
@@ -18,16 +25,16 @@ enum BcryptPBKDF {
         return words
     }()
 
-    /// Derives `keyLength` bytes from `password` and `salt` using `rounds` iterations.
-    static func derive(password: [UInt8], salt: [UInt8], keyLength: Int, rounds: Int) -> [UInt8] {
-        precondition(rounds >= 1 && keyLength >= 1 && keyLength <= hashSize * hashSize)
-        let stride = (keyLength + hashSize - 1) / hashSize
+    /// Derives `keyLength` bytes from `password` and `salt` using ``rounds`` iterations.
+    func derive(password: [UInt8], salt: [UInt8], keyLength: Int) -> [UInt8] {
+        precondition(rounds >= 1 && keyLength >= 1 && keyLength <= Self.hashSize * Self.hashSize)
+        let stride = (keyLength + Self.hashSize - 1) / Self.hashSize
         var amount = (keyLength + stride - 1) / stride
         var key = [UInt8](repeating: 0, count: keyLength)
         let sha2pass = Array(SHA512.hash(data: password))
         let blowfish = Blowfish()
-        var tmpout = [UInt8](repeating: 0, count: hashSize)
-        var out = [UInt8](repeating: 0, count: hashSize)
+        var tmpout = [UInt8](repeating: 0, count: Self.hashSize)
+        var out = [UInt8](repeating: 0, count: Self.hashSize)
         var remaining = keyLength
         var count: UInt32 = 1
 
@@ -44,7 +51,7 @@ enum BcryptPBKDF {
                 for _ in 1..<rounds {
                     sha2salt = Array(SHA512.hash(data: tmpout))
                     blowfish.bcryptHash(sha2pass: sha2pass, sha2salt: sha2salt, into: &tmpout)
-                    for j in 0..<hashSize { out[j] ^= tmpout[j] }
+                    for j in 0..<Self.hashSize { out[j] ^= tmpout[j] }
                 }
             }
             amount = min(amount, remaining)

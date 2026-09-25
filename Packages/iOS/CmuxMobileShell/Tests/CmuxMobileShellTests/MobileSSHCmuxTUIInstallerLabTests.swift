@@ -10,7 +10,7 @@ import Testing
 struct MobileSSHCmuxTUIInstallerLabTests {
     @Test func downloadVerifyUploadAndRun() async throws {
         let lab = ProcessInfo.processInfo.environment["CMUX_SSH_LAB"] ?? ""
-        let key = try SSHPrivateKeyParser.parse(try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)).key
+        let key = try SSHParsedPrivateKey(openSSH: try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)).key
         let connection = try await SSHConnection.connect(
             to: SSHEndpoint(host: "127.0.0.1", port: 2222, username: NSUserName()),
             credentials: [.privateKey(key)],
@@ -20,7 +20,7 @@ struct MobileSSHCmuxTUIInstallerLabTests {
         let probe = try await CmuxTUIRemote(binaryPath: "\(dir)/cmux-tui").probe(on: connection)
         #expect(probe.installed == nil)
         var messages: [String] = []
-        try await MobileSSHCmuxTUIInstaller.install(probe: probe, on: connection, binDirectory: dir) { messages.append($0) }
+        try await MobileSSHCmuxTUIInstaller(binDirectory: dir).install(probe: probe, on: connection) { messages.append($0) }
         #expect(messages.count == 1)
         let installed = try await CmuxTUIRemote(binaryPath: "\(dir)/cmux-tui").probe(on: connection)
         #expect(installed.installed != nil)
@@ -31,7 +31,7 @@ struct MobileSSHCmuxTUIInstallerLabTests {
     }
 
     @Test func tamperedTarballIsRejected() {
-        #expect(MobileSSHCmuxTUIInstaller.sha512Base64(Data("x".utf8)) != MobileSSHCmuxTUIInstaller.sha512Base64(Data("y".utf8)))
+        #expect(Data("x".utf8).sha512Base64 != Data("y".utf8).sha512Base64)
     }
 }
 

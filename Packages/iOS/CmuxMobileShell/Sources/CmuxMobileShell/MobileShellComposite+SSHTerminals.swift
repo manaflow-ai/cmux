@@ -72,9 +72,9 @@ extension MobileShellComposite {
     public func sshScopedWorkspaceID(_ id: MobileWorkspacePreview.ID) -> String? {
         if let row = workspaces.first(where: { $0.id == id }) {
             let rpcID = row.rpcWorkspaceID.rawValue
-            return MobileSSHIdentifiers.isScopedID(rpcID) ? rpcID : nil
+            return MobileSSHIdentifier(rpcID).isScoped ? rpcID : nil
         }
-        return MobileSSHIdentifiers.isScopedID(id.rawValue) ? id.rawValue : nil
+        return MobileSSHIdentifier(id.rawValue).isScoped ? id.rawValue : nil
     }
 
     // MARK: Pane geometry
@@ -163,8 +163,8 @@ extension MobileSSHComputers {
     /// The grouped tab switcher for an SSH workspace row; `nil` for shells
     /// and unknown rows.
     public func tabLayout(workspaceID scopedID: String) -> MobileSSHTabLayout? {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID),
-              let local = MobileSSHIdentifiers.localID(of: scopedID),
+        guard let hostID = MobileSSHIdentifier(scopedID).hostID,
+              let local = MobileSSHIdentifier(scopedID).localID,
               let workspace = workspacesByHostSnapshot(hostID)?.first(where: { $0.id == local }),
               workspace.kind != .shell else { return nil }
         return Self.tabLayout(workspace, hostID: hostID)
@@ -186,7 +186,7 @@ extension MobileSSHComputers {
             let starts = lastPane[placement.sectionID].map { $0 != placement.paneID } ?? false
             lastPane[placement.sectionID] = placement.paneID
             sections[index].rows.append(MobileSSHTabRow(
-                id: MobileSSHIdentifiers.scopedID(host: hostID, local: terminal.id),
+                id: MobileSSHIdentifier(host: hostID, local: terminal.id).rawValue,
                 title: placement.title,
                 paneLabel: placement.paneLabel,
                 startsPane: starts
@@ -198,12 +198,12 @@ extension MobileSSHComputers {
     /// "New Window" (tmux) / "New Screen" (cmux-tui): returns the new
     /// terminal's scoped surface id after the host's rows are refreshed.
     func createTerminal(inWorkspace scopedID: String) async -> String? {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID),
+        guard let hostID = MobileSSHIdentifier(scopedID).hostID,
               let local = MobileSSHLocalID(scopedID: scopedID) else { return nil }
         do {
             guard let created = try await provider(for: hostID).createTerminal(inWorkspace: local) else { return nil }
             await refreshWorkspaces(hostID: hostID)
-            return MobileSSHIdentifiers.scopedID(host: hostID, local: created.rawValue)
+            return MobileSSHIdentifier(host: hostID, local: created.rawValue).rawValue
         } catch {
             return nil
         }
@@ -212,7 +212,7 @@ extension MobileSSHComputers {
     /// The section action: "Split Pane" (tmux window) or "New Tab"
     /// (cmux-tui screen). Returns the new terminal's scoped surface id.
     func createTab(inWorkspace scopedID: String, section sectionID: String) async -> String? {
-        guard let hostID = MobileSSHIdentifiers.hostID(of: scopedID),
+        guard let hostID = MobileSSHIdentifier(scopedID).hostID,
               let local = MobileSSHLocalID(scopedID: scopedID) else { return nil }
         let pane = workspacesByHostSnapshot(hostID)?
             .first { $0.id == local.rawValue }?
@@ -223,7 +223,7 @@ extension MobileSSHComputers {
                 return nil
             }
             await refreshWorkspaces(hostID: hostID)
-            return MobileSSHIdentifiers.scopedID(host: hostID, local: created.rawValue)
+            return MobileSSHIdentifier(host: hostID, local: created.rawValue).rawValue
         } catch {
             return nil
         }

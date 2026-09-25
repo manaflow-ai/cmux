@@ -27,7 +27,7 @@ struct MobileSSHComputersLabTests {
         let tmuxSession = kind == .tmux ? MobileSSHLocalID(scopedID: scoped)?.providerID : nil
         defer { if let tmuxSession { Self.killSessionAndPhoneGroups(tmuxSession) } }
         // The row names its kind where a Mac row shows activity.
-        #expect(sink.states.last?.workspaces.first { $0.id.rawValue == scoped }?.previewText == L10nSSH.kindLabel(kind))
+        #expect(sink.states.last?.workspaces.first { $0.id.rawValue == scoped }?.previewText == L10nSSH().kindLabel(kind))
         let state = try #require(sink.states.last)
         let row = try #require(state.workspaces.first { $0.id.rawValue == scoped })
         let surface = try #require(row.terminals.first).id.rawValue
@@ -159,8 +159,8 @@ struct MobileSSHComputersLabTests {
         }
         defer { answering.cancel() }
         await computers.open(hostID: target.id)
-        #expect(computers.statusByHost[target.id] == .failed(L10nSSH.hostKeyRejected))
-        #expect(computers.statusByHost[jump.id] == .failed(L10nSSH.hostKeyRejected))
+        #expect(computers.statusByHost[target.id] == .failed(L10nSSH().hostKeyRejected))
+        #expect(computers.statusByHost[jump.id] == .failed(L10nSSH().hostKeyRejected))
         try? await computers.deleteHost(id: target.id)
     }
 
@@ -186,11 +186,11 @@ struct MobileSSHComputersLabTests {
         let answering = autoAnswer(computers)
         defer { answering.cancel() }
         await computers.open(hostID: host.id)
-        let row = try #require(sink.states.last?.workspaces.first { MobileSSHIdentifiers.localID(of: $0.id.rawValue) == "tmux:" + session })
+        let row = try #require(sink.states.last?.workspaces.first { MobileSSHIdentifier($0.id.rawValue).localID == "tmux:" + session })
         #expect(row.terminals.count == 2)
         let left = try #require(row.terminals.first).id.rawValue
         let right = try #require(row.terminals.last).id.rawValue
-        #expect(MobileSSHIdentifiers.localID(of: right) == "tmux:\(session)/\(panes[1])")
+        #expect(MobileSSHIdentifier(right).localID == "tmux:\(session)/\(panes[1])")
         // One window section holding both panes.
         let layout = try #require(computers.tabLayout(workspaceID: row.id.rawValue))
         #expect(layout.kind == .tmux)
@@ -279,7 +279,7 @@ struct MobileSSHComputersLabTests {
         let answering = autoAnswer(computers)
         defer { answering.cancel() }
         await computers.open(hostID: host.id)
-        let row = try #require(sink.states.last?.workspaces.first { MobileSSHIdentifiers.localID(of: $0.id.rawValue) == "tmux:" + session })
+        let row = try #require(sink.states.last?.workspaces.first { MobileSSHIdentifier($0.id.rawValue).localID == "tmux:" + session })
         try #require(row.terminals.count == 2)
         let second = row.terminals[1].id.rawValue
         for terminal in row.terminals {

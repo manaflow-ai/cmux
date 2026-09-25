@@ -29,26 +29,37 @@ enum CmuxTUIWireValue: Encodable, Sendable {
     }
 }
 
-enum CmuxTUIWire {
-    static func line(_ object: [String: CmuxTUIWireValue]) throws -> Data {
+extension Dictionary where Key == String, Value == CmuxTUIWireValue {
+    /// This request object as one newline-terminated JSON line.
+    func cmuxTUILine() throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]
-        var data = try encoder.encode(object)
+        var data = try encoder.encode(self)
         data.append(0x0A)
         return data
     }
+}
 
-    static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
+extension Decodable {
+    /// Decodes one cmux-tui JSON line, reporting failures as
+    /// ``CmuxTUIError/malformedResponse(_:)``.
+    init(cmuxTUILine data: Data) throws {
         do {
-            return try JSONDecoder().decode(type, from: data)
+            self = try JSONDecoder().decode(Self.self, from: data)
         } catch {
-            throw CmuxTUIError.malformedResponse("\(T.self): \(error)")
+            throw CmuxTUIError.malformedResponse("\(Self.self): \(error)")
         }
     }
+}
 
-    static func base64(_ string: String?) -> Data {
-        guard let string else { return Data() }
-        return Data(base64Encoded: string) ?? Data()
+extension Data {
+    /// Decodes a base64 wire field; a missing or malformed field is empty.
+    init(cmuxTUIBase64 string: String?) {
+        guard let string else {
+            self.init()
+            return
+        }
+        self = Data(base64Encoded: string) ?? Data()
     }
 }
 
@@ -303,24 +314,5 @@ struct CmuxTUILineBuffer {
         }
         scanned = buffer.count
         return lines
-    }
-}
-
-/// POSIX shell quoting for commands sent over `exec`.
-enum CmuxTUIShell {
-    static func quote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
-    }
-
-    /// Quotes a path, expanding a leading `~` through `$HOME` on the remote.
-    static func path(_ value: String) -> String {
-        if value == "~" { return "\"$HOME\"" }
-        if value.hasPrefix("~/") { return "\"$HOME\"/" + quote(String(value.dropFirst(2))) }
-        return quote(value)
-    }
-
-    /// Runs `script` under `/bin/sh` regardless of the user's login shell.
-    static func sh(_ script: String) -> String {
-        "/bin/sh -c " + quote(script)
     }
 }

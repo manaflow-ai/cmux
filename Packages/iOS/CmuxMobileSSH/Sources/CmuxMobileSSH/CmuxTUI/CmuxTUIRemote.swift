@@ -21,11 +21,11 @@ public actor CmuxTUIRemote {
     public func probe(on connection: SSHConnection) async throws -> CmuxTUIProbe {
         let script = """
         uname -s; uname -m
-        B=\(CmuxTUIShell.path(binaryPath))
+        B=\(binaryPath.remoteShellPath)
         printf '%s\\n' "$B"
         if [ -x "$B" ]; then "$B" remote-probe --json 2>/dev/null || "$B" --version 2>/dev/null || echo; else echo missing; fi
         """
-        let result = try await connection.exec(CmuxTUIShell.sh(script))
+        let result = try await connection.exec(script.bourneShellCommand)
         let lines = result.stdoutString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard lines.count >= 4 else {
             throw CmuxTUIError.malformedResponse("probe: \(result.stdoutString)\(result.stderrString)")
@@ -54,12 +54,12 @@ public actor CmuxTUIRemote {
     ) async throws -> CmuxTUIControl {
         try Self.validate(session: session)
         let script = """
-        B=\(CmuxTUIShell.path(binaryPath)); S=\(CmuxTUIShell.quote(session))
+        B=\(binaryPath.remoteShellPath); S=\(session.posixShellSingleQuoted)
         [ -x "$B" ] || { echo "cmux-tui not found at $B" >&2; exit 127; }
         "$B" server ensure --session "$S" --json >&2 || exit $?
         exec "$B" relay --session "$S"
         """
-        let channel = try await connection.openSession(start: .exec(CmuxTUIShell.sh(script)))
+        let channel = try await connection.openSession(start: .exec(script.bourneShellCommand))
         return try await CmuxTUIControl.open(
             channel: channel,
             session: session,
@@ -73,8 +73,8 @@ public actor CmuxTUIRemote {
     @discardableResult
     public func stopServer(on connection: SSHConnection, session: String) async throws -> SSHExecResult {
         try Self.validate(session: session)
-        let script = "\(CmuxTUIShell.path(binaryPath)) server stop --session \(CmuxTUIShell.quote(session)) --json"
-        return try await connection.exec(CmuxTUIShell.sh(script))
+        let script = "\(binaryPath.remoteShellPath) server stop --session \(session.posixShellSingleQuoted) --json"
+        return try await connection.exec(script.bourneShellCommand)
     }
 
     /// Mirrors the server's session-name rule (single path component, no

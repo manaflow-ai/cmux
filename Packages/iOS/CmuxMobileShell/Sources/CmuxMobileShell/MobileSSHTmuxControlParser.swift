@@ -160,7 +160,7 @@ struct MobileSSHTmuxControlParser {
 
 /// Pane geometry from a tmux layout string (`csum,WxH,x,y{...}` / `[...]`).
 /// Leaves are `WxH,x,y,<pane>`; containers are followed by `{` or `[`.
-enum MobileSSHTmuxLayout {
+struct MobileSSHTmuxLayout {
     struct Leaf: Equatable, Sendable {
         var pane: Int
         var columns: Int
@@ -169,7 +169,10 @@ enum MobileSSHTmuxLayout {
         var y: Int
     }
 
-    static func leaves(_ layout: String) -> [Leaf] {
+    /// The panes, in layout order.
+    let leaves: [Leaf]
+
+    init(_ layout: String) {
         // Skip the 4-hex checksum and its comma.
         let parts = layout.split(separator: ",", maxSplits: 1)
         let chars = Array((parts.count == 2 ? parts[1] : Substring(layout)).utf8)
@@ -196,7 +199,7 @@ enum MobileSSHTmuxLayout {
             }
             index = max(index, start + 1)
         }
-        return leaves
+        self.leaves = leaves
     }
 }
 

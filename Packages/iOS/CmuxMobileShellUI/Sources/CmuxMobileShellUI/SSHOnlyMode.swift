@@ -83,7 +83,7 @@ struct SSHOnlyWelcomeView: View {
                 ))
             } actions: {
                 Button(action: addComputer) {
-                    Text(SSHCopy.addComputer)
+                    Text(SSHCopy().addComputer)
                         .fontWeight(.semibold)
                 }
                 .buttonStyle(.borderedProminent)
@@ -91,7 +91,7 @@ struct SSHOnlyWelcomeView: View {
                 NavigationLink {
                     SSHKeysView(computers: computers)
                 } label: {
-                    Text(SSHCopy.keysTitle)
+                    Text(SSHCopy().keysTitle)
                 }
                 .accessibilityIdentifier("ssh.welcome.keys")
             }
@@ -109,7 +109,7 @@ struct SSHOnlyWelcomeView: View {
                     Button(action: addComputer) {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel(SSHCopy.addComputer)
+                    .accessibilityLabel(SSHCopy().addComputer)
                     .accessibilityIdentifier("ssh.welcome.add")
                 }
             }

@@ -4,7 +4,7 @@ import Testing
 
 struct TerminalOutboundReplyFilterTests {
     private func filtered(_ text: String) -> String {
-        String(decoding: TerminalOutboundReplyFilter.removingQueryReplies(Data(text.utf8)), as: UTF8.self)
+        String(decoding: Data(text.utf8).removingTerminalQueryReplies, as: UTF8.self)
     }
 
     @Test(arguments: [

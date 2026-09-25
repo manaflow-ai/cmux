@@ -8,11 +8,11 @@ import Testing
 @MainActor
 @Suite struct MobileSSHErrorCopyTests {
     @Test func networkFailuresReadAsSentences() {
-        #expect(MobileSSHComputers.describe(NWError.posix(.ECONNREFUSED)) == L10nSSH.connectionRefused)
-        #expect(MobileSSHComputers.describe(NWError.posix(.ETIMEDOUT)) == L10nSSH.connectTimedOut)
-        #expect(MobileSSHComputers.describe(NWError.posix(.EHOSTUNREACH)) == L10nSSH.unreachable)
-        #expect(MobileSSHComputers.describe(NWError.dns(-65554)) == L10nSSH.hostNotFound)
-        #expect(MobileSSHComputers.describe(POSIXError(.ECONNREFUSED)) == L10nSSH.connectionRefused)
+        #expect(MobileSSHComputers.describe(NWError.posix(.ECONNREFUSED)) == L10nSSH().connectionRefused)
+        #expect(MobileSSHComputers.describe(NWError.posix(.ETIMEDOUT)) == L10nSSH().connectTimedOut)
+        #expect(MobileSSHComputers.describe(NWError.posix(.EHOSTUNREACH)) == L10nSSH().unreachable)
+        #expect(MobileSSHComputers.describe(NWError.dns(-65554)) == L10nSSH().hostNotFound)
+        #expect(MobileSSHComputers.describe(POSIXError(.ECONNREFUSED)) == L10nSSH().connectionRefused)
     }
 
     @Test func noNetworkMessageLeaksARawCode() {

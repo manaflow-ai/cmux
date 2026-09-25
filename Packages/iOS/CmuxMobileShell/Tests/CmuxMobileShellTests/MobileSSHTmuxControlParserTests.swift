@@ -84,11 +84,11 @@ struct MobileSSHTmuxControlParserTests {
     }
 
     @Test func layoutLeaves() {
-        let nested = MobileSSHTmuxLayout.leaves("b25f,160x40,0,0[160x20,0,0{80x20,0,0,1,79x20,81,0,2},160x19,0,21,3]")
+        let nested = MobileSSHTmuxLayout("b25f,160x40,0,0[160x20,0,0{80x20,0,0,1,79x20,81,0,2},160x19,0,21,3]").leaves
         #expect(nested.map(\.pane) == [1, 2, 3])
         #expect(nested.map(\.columns) == [80, 79, 160])
         #expect(nested.map(\.rows) == [20, 20, 19])
-        #expect(MobileSSHTmuxLayout.leaves("a25f,80x20,0,0,12") == [.init(pane: 12, columns: 80, rows: 20, x: 0, y: 0)])
+        #expect(MobileSSHTmuxLayout("a25f,80x20,0,0,12").leaves == [.init(pane: 12, columns: 80, rows: 20, x: 0, y: 0)])
     }
 
     @Test func stateSequencePlacesCursorLastAndRestoresRegion() {

@@ -110,7 +110,7 @@ struct MobileSSHMixedKindsLabTests {
     static func cmuxTUIShell(_ script: String) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "B=\(MobileSSHShell.quote(cmuxTUI)); " + script]
+        process.arguments = ["-c", "B=\(cmuxTUI.posixShellSingleQuoted); " + script]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
@@ -127,7 +127,7 @@ struct MobileSSHMixedKindsLabTests {
     /// saved state (the same teardown the cmux-tui lab tests use).
     static func stopCmuxTUISession(_ session: String) {
         _ = try? cmuxTUIShell("""
-        S=\(MobileSSHShell.quote(session))
+        S=\(session.posixShellSingleQuoted)
         for t in $("$B" --session "$S" terminal list --json 2>/dev/null | grep -o '"id":"term_[0-9a-f]*"' | cut -d'"' -f4); do
           "$B" --session "$S" terminal "$t" close --json >/dev/null 2>&1
         done

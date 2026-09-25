@@ -5574,7 +5574,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         case .inputOnly:
             // The server's emulator already answered every query; forwarding
             // our replies too would hand the program duplicates.
-            let input = TerminalOutboundReplyFilter.removingQueryReplies(bytes)
+            let input = bytes.removingTerminalQueryReplies
             if !input.isEmpty {
                 delegate?.ghosttySurfaceView(self, didProduceInput: input)
             }

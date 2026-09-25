@@ -139,20 +139,20 @@ struct DeviceTreeView: View {
                 )
             }
             .alert(
-                SSHCopy.deleteHostTitle,
+                SSHCopy().deleteHostTitle,
                 isPresented: Binding(
                     get: { pendingSSHDeleteID != nil },
                     set: { if !$0 { pendingSSHDeleteID = nil } }
                 ),
                 presenting: pendingSSHDeleteID
             ) { hostID in
-                Button(SSHCopy.delete, role: .destructive) {
+                Button(SSHCopy().delete, role: .destructive) {
                     deleteSSHComputer(hostID)
                 }
                 .accessibilityIdentifier("ssh.delete.confirm")
-                Button(SSHCopy.cancel, role: .cancel) {}
+                Button(SSHCopy().cancel, role: .cancel) {}
             } message: { _ in
-                Text(SSHCopy.deleteHostMessage)
+                Text(SSHCopy().deleteHostMessage)
             }
             .navigationDestination(for: MacConnectionRef.self) { ref in
                 if let computer = computers.first(where: { $0.id == ref.pairingID }) {
@@ -173,11 +173,11 @@ struct DeviceTreeView: View {
                         // computer, so the + offers both (HIG Menus).
                         Menu {
                             Button(action: addComputer) {
-                                Label(SSHCopy.pairMacEllipsis, systemImage: "macbook.and.iphone")
+                                Label(SSHCopy().pairMacEllipsis, systemImage: "macbook.and.iphone")
                             }
                             .accessibilityIdentifier("ssh.addMenu.pairMac")
                             Button(action: addSSHComputer) {
-                                Label(SSHCopy.addComputerEllipsis, systemImage: "terminal")
+                                Label(SSHCopy().addComputerEllipsis, systemImage: "terminal")
                             }
                             .accessibilityIdentifier("ssh.addMenu.ssh")
                         } label: {
@@ -189,7 +189,7 @@ struct DeviceTreeView: View {
                         Button(action: addSSHComputer) {
                             Image(systemName: "plus")
                         }
-                        .accessibilityLabel(SSHCopy.addComputer)
+                        .accessibilityLabel(SSHCopy().addComputer)
                         .accessibilityIdentifier("MobileComputersAddButton")
                     }
                 }

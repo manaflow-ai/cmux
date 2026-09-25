@@ -121,7 +121,7 @@ private struct SSHInstallingNotice: View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text(SSHCopy.installingCmuxTUI)
+            Text(SSHCopy().installingCmuxTUI)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

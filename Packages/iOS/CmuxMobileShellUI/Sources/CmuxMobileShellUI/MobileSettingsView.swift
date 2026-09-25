@@ -237,11 +237,11 @@ struct MobileSettingsView: View {
                         NavigationLink {
                             SSHKeysView(computers: store.sshComputers)
                         } label: {
-                            Label(SSHCopy.keysTitle, systemImage: "key")
+                            Label(SSHCopy().keysTitle, systemImage: "key")
                         }
                         .accessibilityIdentifier("ssh.settings.keys")
                     } header: {
-                        Text(SSHCopy.sectionTitle)
+                        Text(SSHCopy().sectionTitle)
                     } footer: {
                         Text(L10n.string(
                             "mobile.ssh.settings.keys.footer",

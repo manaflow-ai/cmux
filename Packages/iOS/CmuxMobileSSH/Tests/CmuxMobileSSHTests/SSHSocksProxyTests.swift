@@ -109,7 +109,7 @@ struct SSHSocksProxyLabTests {
     // MARK: Helpers
 
     private func connect() async throws -> SSHConnection {
-        let key = try SSHPrivateKeyParser.parse(try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)).key
+        let key = try SSHParsedPrivateKey(openSSH: try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)).key
         return try await SSHConnection.connect(
             to: SSHEndpoint(host: "127.0.0.1", port: 2222, username: NSUserName()),
             credentials: [.privateKey(key)],

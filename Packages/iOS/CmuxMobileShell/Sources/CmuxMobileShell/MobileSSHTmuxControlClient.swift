@@ -88,9 +88,9 @@ final class MobileSSHTmuxControlClient {
     /// session and attach to it in one step, then make sure tmux never
     /// destroys it on its own (see the type comment).
     nonisolated static func startCommand(tmux: String, session: String, grouped: String) -> String {
-        "\(tmux) -C new-session -t \(MobileSSHShell.quote("=" + session)) -s \(MobileSSHShell.quote(grouped))"
+        "\(tmux) -C new-session -t \(("=" + session).posixShellSingleQuoted) -s \(grouped.posixShellSingleQuoted)"
             // `set-option -t` takes a pane target: `=name:` selects the session exactly.
-            + " \\; set-option -t \(MobileSSHShell.quote("=" + grouped + ":")) destroy-unattached off"
+            + " \\; set-option -t \(("=" + grouped + ":").posixShellSingleQuoted) destroy-unattached off"
     }
 
     /// Starts `tmux -C` in a new grouped session of `session`. `tmux` is the
@@ -306,10 +306,10 @@ final class MobileSSHTmuxControlClient {
             guard flags & 1 == 1, !pendingReplies.isEmpty else { return }
             pendingReplies.removeFirst()((lines, isError))
         case .layoutChange(let window, let layout, let visible):
-            var leaves = MobileSSHTmuxLayout.leaves(layout)
+            var leaves = MobileSSHTmuxLayout(layout).leaves
             // A zoomed window shows one pane at full size.
             if let visible {
-                for leaf in MobileSSHTmuxLayout.leaves(visible) {
+                for leaf in MobileSSHTmuxLayout(visible).leaves {
                     if let index = leaves.firstIndex(where: { $0.pane == leaf.pane }) { leaves[index] = leaf }
                 }
             }

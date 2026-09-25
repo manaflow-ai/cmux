@@ -25,11 +25,16 @@ enum SFTPPacketType: UInt8 {
     case attrs = 105
 }
 
-enum SFTPStatusCode {
-    static let ok: UInt32 = 0
-    static let eof: UInt32 = 1
-    static let noSuchFile: UInt32 = 2
-    static let permissionDenied: UInt32 = 3
+/// An `SSH_FX_*` status code. Servers may send codes beyond the named ones,
+/// so this wraps the raw wire value rather than enumerating it.
+struct SFTPStatusCode: RawRepresentable, Hashable, Sendable, CustomStringConvertible {
+    let rawValue: UInt32
+    static let ok = SFTPStatusCode(rawValue: 0)
+    static let eof = SFTPStatusCode(rawValue: 1)
+    static let noSuchFile = SFTPStatusCode(rawValue: 2)
+    static let permissionDenied = SFTPStatusCode(rawValue: 3)
+
+    var description: String { String(rawValue) }
 }
 
 struct SFTPOpenFlags: OptionSet {
@@ -40,17 +45,18 @@ struct SFTPOpenFlags: OptionSet {
     static let truncate = SFTPOpenFlags(rawValue: 0x10)
 }
 
-private enum SFTPAttributeFlags {
-    static let size: UInt32 = 0x0000_0001
-    static let uidgid: UInt32 = 0x0000_0002
-    static let permissions: UInt32 = 0x0000_0004
-    static let acmodtime: UInt32 = 0x0000_0008
-    static let extended: UInt32 = 0x8000_0000
+private struct SFTPAttributeFlags: OptionSet {
+    let rawValue: UInt32
+    static let size = SFTPAttributeFlags(rawValue: 0x0000_0001)
+    static let uidgid = SFTPAttributeFlags(rawValue: 0x0000_0002)
+    static let permissions = SFTPAttributeFlags(rawValue: 0x0000_0004)
+    static let acmodtime = SFTPAttributeFlags(rawValue: 0x0000_0008)
+    static let extended = SFTPAttributeFlags(rawValue: 0x8000_0000)
 }
 
 /// A decoded server reply to one request.
 enum SFTPResponse: Sendable {
-    case status(code: UInt32, message: String)
+    case status(code: SFTPStatusCode, message: String)
     case handle(Data)
     case data(Data)
     case name([SFTPEntry])
@@ -79,12 +85,12 @@ struct SFTPWriter {
     mutating func string(_ value: String) { string(Data(value.utf8)) }
 
     mutating func attributes(_ attributes: SFTPAttributes) {
-        var flags: UInt32 = 0
-        if attributes.size != nil { flags |= SFTPAttributeFlags.size }
-        if attributes.uid != nil, attributes.gid != nil { flags |= SFTPAttributeFlags.uidgid }
-        if attributes.permissions != nil { flags |= SFTPAttributeFlags.permissions }
-        if attributes.accessTime != nil, attributes.modificationTime != nil { flags |= SFTPAttributeFlags.acmodtime }
-        uint32(flags)
+        var flags: SFTPAttributeFlags = []
+        if attributes.size != nil { flags.insert(.size) }
+        if attributes.uid != nil, attributes.gid != nil { flags.insert(.uidgid) }
+        if attributes.permissions != nil { flags.insert(.permissions) }
+        if attributes.accessTime != nil, attributes.modificationTime != nil { flags.insert(.acmodtime) }
+        uint32(flags.rawValue)
         if let size = attributes.size { uint64(size) }
         if let uid = attributes.uid, let gid = attributes.gid { uint32(uid); uint32(gid) }
         if let permissions = attributes.permissions { uint32(permissions) }
@@ -142,19 +148,19 @@ struct SFTPReader {
     }
 
     mutating func attributes() throws -> SFTPAttributes {
-        let flags = try uint32()
+        let flags = SFTPAttributeFlags(rawValue: try uint32())
         var result = SFTPAttributes()
-        if flags & SFTPAttributeFlags.size != 0 { result.size = try uint64() }
-        if flags & SFTPAttributeFlags.uidgid != 0 {
+        if flags.contains(.size) { result.size = try uint64() }
+        if flags.contains(.uidgid) {
             result.uid = try uint32()
             result.gid = try uint32()
         }
-        if flags & SFTPAttributeFlags.permissions != 0 { result.permissions = try uint32() }
-        if flags & SFTPAttributeFlags.acmodtime != 0 {
+        if flags.contains(.permissions) { result.permissions = try uint32() }
+        if flags.contains(.acmodtime) {
             result.accessTime = Date(timeIntervalSince1970: TimeInterval(try uint32()))
             result.modificationTime = Date(timeIntervalSince1970: TimeInterval(try uint32()))
         }
-        if flags & SFTPAttributeFlags.extended != 0 {
+        if flags.contains(.extended) {
             for _ in 0..<(try uint32()) {
                 _ = try string()
                 _ = try string()
@@ -167,7 +173,7 @@ struct SFTPReader {
     mutating func response(type: UInt8) throws -> SFTPResponse {
         switch SFTPPacketType(rawValue: type) {
         case .status:
-            let code = try uint32()
+            let code = SFTPStatusCode(rawValue: try uint32())
             // Some v3 servers omit the message and language fields.
             let message = (try? utf8()) ?? ""
             return .status(code: code, message: message)

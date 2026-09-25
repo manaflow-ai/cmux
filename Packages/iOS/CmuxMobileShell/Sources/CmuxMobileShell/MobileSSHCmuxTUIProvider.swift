@@ -521,9 +521,17 @@ final class MobileSSHCmuxTUITerminal: MobileSSHAttachedTerminal {
 /// internet or Node (PRD D10): the phone downloads the npm platform tarball,
 /// checks its registry integrity hash, streams it over SSH, and the server
 /// unpacks it with `tar` into `~/.local/bin/cmux-tui`.
-enum MobileSSHCmuxTUIInstaller {
+struct MobileSSHCmuxTUIInstaller {
     /// The cmux-tui release this app build speaks to.
     static let pinnedVersion = "0.13.4"
+
+    /// The remote directory the binary lands in, as a shell word that may
+    /// reference `$HOME`.
+    let binDirectory: String
+
+    init(binDirectory: String = "$HOME/.local/bin") {
+        self.binDirectory = binDirectory
+    }
 
     enum InstallError: Error, Equatable {
         case unsupportedPlatform(os: String, arch: String)
@@ -532,33 +540,32 @@ enum MobileSSHCmuxTUIInstaller {
         case remoteInstallFailed(String)
     }
 
-    static func install(
+    func install(
         probe: CmuxTUIProbe,
         on connection: SSHConnection,
-        binDirectory: String = "$HOME/.local/bin",
         progress: @escaping @MainActor (String) -> Void
     ) async throws {
         guard let package = probe.npmPlatformPackage else {
             throw InstallError.unsupportedPlatform(os: probe.os, arch: probe.arch)
         }
-        await progress(L10nSSH.installingCmuxTUI)
-        let tarball = try await download(package: package, version: pinnedVersion)
+        await progress(L10nSSH().installingCmuxTUI)
+        let tarball = try await download(package: package, version: Self.pinnedVersion)
         let remoteTar = "/tmp/cmux-tui-\(UUID().uuidString).tgz"
-        let upload = try await connection.exec("umask 077; cat > \(MobileSSHShell.quote(remoteTar))", stdin: tarball)
+        let upload = try await connection.exec("umask 077; cat > \(remoteTar.posixShellSingleQuoted)", stdin: tarball)
         guard upload.exitStatus == 0 else { throw InstallError.remoteInstallFailed(upload.stderrString) }
         let script = """
-        set -e; t=\(MobileSSHShell.quote(remoteTar)); d=$(mktemp -d); trap 'rm -rf "$d" "$t"' EXIT
+        set -e; t=\(remoteTar.posixShellSingleQuoted); d=$(mktemp -d); trap 'rm -rf "$d" "$t"' EXIT
         b="\(binDirectory)"; tar -xzf "$t" -C "$d"; mkdir -p "$b"
         cp "$d/package/bin/cmux-tui" "$b/cmux-tui.new"; chmod 755 "$b/cmux-tui.new"
         mv -f "$b/cmux-tui.new" "$b/cmux-tui"
         """
-        let result = try await connection.exec("sh -c " + MobileSSHShell.quote(script))
+        let result = try await connection.exec("sh -c " + script.posixShellSingleQuoted)
         guard result.exitStatus == 0 else { throw InstallError.remoteInstallFailed(result.stderrString) }
     }
 
     /// Downloads the tarball (cached per version) and verifies npm's
     /// `dist.integrity` SHA-512.
-    static func download(package: String, version: String) async throws -> Data {
+    func download(package: String, version: String) async throws -> Data {
         let cache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("cmux-tui/\(package)-\(version).tgz")
         let metadataURL = URL(string: "https://registry.npmjs.org/\(package)/\(version)")!
@@ -570,17 +577,21 @@ enum MobileSSHCmuxTUIInstaller {
             throw InstallError.registry("missing dist metadata for \(package)@\(version)")
         }
         let expected = String(integrity.dropFirst("sha512-".count))
-        if let cached = try? Data(contentsOf: cache), sha512Base64(cached) == expected {
+        if let cached = try? Data(contentsOf: cache), cached.sha512Base64 == expected {
             return cached
         }
         let (data, _) = try await URLSession.shared.data(from: tarballURL)
-        guard sha512Base64(data) == expected else { throw InstallError.integrityMismatch }
+        guard data.sha512Base64 == expected else { throw InstallError.integrityMismatch }
         try? FileManager.default.createDirectory(at: cache.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: cache, options: .atomic)
         return data
     }
 
-    static func sha512Base64(_ data: Data) -> String {
-        Data(SHA512.hash(data: data)).base64EncodedString()
+}
+
+extension Data {
+    /// The base64 SHA-512 digest, as npm's `dist.integrity` spells it after `sha512-`.
+    var sha512Base64: String {
+        Data(SHA512.hash(data: self)).base64EncodedString()
     }
 }

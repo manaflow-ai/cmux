@@ -84,7 +84,7 @@ public actor SSHKeyStore {
     /// Imports an OpenSSH private key (optionally passphrase-protected).
     /// The decrypted key text is stored so later connects need no passphrase.
     public func importKey(label: String, privateKeyText: String, passphrase: String? = nil) throws -> SSHKeyRecord {
-        let parsed = try SSHPrivateKeyParser.parse(privateKeyText, passphrase: passphrase)
+        let parsed = try SSHParsedPrivateKey(openSSH: privateKeyText, passphrase: passphrase)
         let record = SSHKeyRecord(
             id: UUID(),
             label: label,
@@ -112,7 +112,7 @@ public actor SSHKeyStore {
             return NIOSSHPrivateKey(secureEnclaveP256Key: key)
         case .imported:
             let stored = try JSONDecoder().decode(SSHImportedKeySecret.self, from: secret)
-            return try SSHPrivateKeyParser.parse(stored.text, passphrase: stored.passphrase).key
+            return try SSHParsedPrivateKey(openSSH: stored.text, passphrase: stored.passphrase).key
         }
     }
 

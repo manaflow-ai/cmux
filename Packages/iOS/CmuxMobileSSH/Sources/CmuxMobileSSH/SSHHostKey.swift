@@ -54,10 +54,18 @@ public protocol SSHKnownHostsStore: Sendable {
     func pin(_ key: SSHHostKey, for identity: String) async
 }
 
-/// Pure verdict computation, shared by every verifier.
-public enum SSHHostKeyPolicy {
-    public static func verdict(presented: SSHHostKey, pinned: SSHHostKey?) -> SSHHostKeyVerdict {
-        guard let pinned else { return .unknown(presented: presented) }
-        return pinned == presented ? .trusted : .changed(pinned: pinned, presented: presented)
+extension SSHHostKeyVerdict {
+    /// The verdict on a presented key given the key pinned for the host, if
+    /// any. Pure, and shared by every verifier.
+    ///
+    /// - Parameters:
+    ///   - presented: The key the server presented.
+    ///   - pinned: The key previously trusted for this host, `nil` when none.
+    public init(presented: SSHHostKey, pinned: SSHHostKey?) {
+        guard let pinned else {
+            self = .unknown(presented: presented)
+            return
+        }
+        self = pinned == presented ? .trusted : .changed(pinned: pinned, presented: presented)
     }
 }

@@ -250,16 +250,24 @@ struct CmuxTUIBrowserEventWire: Decodable {
     var data: String?
 }
 
-enum CmuxTUIBrowserWire {
-    /// Decodes a `browser-state` or `frame` line.
-    static func event(from line: Data) -> (surface: Int, event: CmuxTUIBrowserEvent)? {
-        guard let wire = try? JSONDecoder().decode(CmuxTUIBrowserEventWire.self, from: line),
-              let surface = wire.surface else { return nil }
+extension CmuxTUIBrowserEventWire {
+    /// Decodes a `browser-state` or `frame` line; `nil` when the line is not
+    /// JSON of this shape.
+    init?(line: Data) {
+        guard let wire = try? JSONDecoder().decode(CmuxTUIBrowserEventWire.self, from: line) else { return nil }
+        self = wire
+    }
+
+    /// The surface and browser event this line carries, or `nil` for any
+    /// other event or an incomplete one.
+    var surfaceEvent: (surface: Int, event: CmuxTUIBrowserEvent)? {
+        let wire = self
+        guard let surface = wire.surface else { return nil }
         switch wire.event {
         case "browser-state":
             let status = wire.status.flatMap(CmuxTUIBrowserStatus.init(rawValue:)) ?? .starting
             let frame = wire.frame.map { nested in
-                makeFrame(
+                CmuxTUIBrowserFrame(
                     seq: nested.seq,
                     width: nested.width,
                     height: nested.height,
@@ -286,7 +294,7 @@ enum CmuxTUIBrowserWire {
             )))
         case "frame":
             guard let seq = wire.seq, let data = wire.data else { return nil }
-            return (surface, .frame(makeFrame(
+            return (surface, .frame(CmuxTUIBrowserFrame(
                 seq: seq,
                 width: wire.width,
                 height: wire.height,
@@ -302,8 +310,10 @@ enum CmuxTUIBrowserWire {
             return nil
         }
     }
+}
 
-    private static func makeFrame(
+extension CmuxTUIBrowserFrame {
+    fileprivate init(
         seq: UInt64,
         width: Int?,
         height: Int?,
@@ -314,10 +324,10 @@ enum CmuxTUIBrowserWire {
         error: String?,
         floor: UInt64?,
         latest: UInt64?
-    ) -> CmuxTUIBrowserFrame {
+    ) {
         let width = width ?? 0
         let height = height ?? 0
-        return CmuxTUIBrowserFrame(
+        self.init(
             seq: seq,
             width: width,
             height: height,

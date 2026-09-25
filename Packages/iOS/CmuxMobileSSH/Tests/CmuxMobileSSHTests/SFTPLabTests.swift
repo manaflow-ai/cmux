@@ -15,7 +15,7 @@ struct SFTPLabTests {
         let text = try String(contentsOfFile: "\(lab)/client_ed25519", encoding: .utf8)
         let connection = try await SSHConnection.connect(
             to: SSHEndpoint(host: "127.0.0.1", port: 2222, username: NSUserName()),
-            credentials: [.privateKey(try SSHPrivateKeyParser.parse(text).key)],
+            credentials: [.privateKey(try SSHParsedPrivateKey(openSSH: text).key)],
             hostKeyVerifier: RecordingVerifier(accept: true)
         )
         let sftp = try await SFTPClient.open(on: connection)

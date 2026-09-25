@@ -382,7 +382,7 @@ public actor CmuxTUIControl {
         var object = params
         object["cmd"] = .string(command)
         let line = try await roundTrip(object)
-        let response = try CmuxTUIWire.decode(CmuxTUIRawResponse<T>.self, from: line)
+        let response = try CmuxTUIRawResponse<T>(cmuxTUILine: line)
         guard response.ok else {
             throw CmuxTUIError.commandFailed(command: command, message: response.error ?? "unknown error", code: response.error_code)
         }
@@ -405,7 +405,7 @@ public actor CmuxTUIControl {
         ]
         if let idempotencyKey { object["idempotency_key"] = .string(idempotencyKey) }
         let line = try await roundTrip(object)
-        let response = try CmuxTUIWire.decode(CmuxTUIV2Response<T>.self, from: line)
+        let response = try CmuxTUIV2Response<T>(cmuxTUILine: line)
         guard response.ok, let result = response.result else {
             throw CmuxTUIError.commandFailed(
                 command: operation,
@@ -423,7 +423,7 @@ public actor CmuxTUIControl {
         let id = "r\(nextRequest)"
         var object = object
         object["id"] = .string(id)
-        let line = try CmuxTUIWire.line(object)
+        let line = try object.cmuxTUILine()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 // Registered and enqueued synchronously, so writes keep call order.
@@ -510,7 +510,7 @@ public actor CmuxTUIControl {
             pending.removeValue(forKey: id)?.resume(returning: line)
         } else if envelope.event == "browser-state" || envelope.event == "frame" {
             // Browser lines carry large base64 PNGs; decode them once.
-            guard let decoded = CmuxTUIBrowserWire.event(from: line) else { return }
+            guard let decoded = CmuxTUIBrowserEventWire(line: line)?.surfaceEvent else { return }
             browserAttachments[decoded.surface]?.yield(decoded.event)
         } else if envelope.event != nil, let event = try? JSONDecoder().decode(CmuxTUIEventWire.self, from: line) {
             dispatch(event, line: line)
@@ -522,16 +522,16 @@ public actor CmuxTUIControl {
         switch event.event {
         case "vt-state":
             guard let surface = event.surface, let attachment = attachments[surface] else { return }
-            attachment.yield(.vtState(CmuxTUIWire.base64(event.data), cols: event.cols ?? 0, rows: event.rows ?? 0))
+            attachment.yield(.vtState(Data(cmuxTUIBase64: event.data), cols: event.cols ?? 0, rows: event.rows ?? 0))
             if let colors = event.colors { attachment.yield(.colors(colors.model)) }
         case "output":
             guard let surface = event.surface, let attachment = attachments[surface] else { return }
-            attachment.yield(.output(CmuxTUIWire.base64(event.data)))
+            attachment.yield(.output(Data(cmuxTUIBase64: event.data)))
             if let colors = event.colors { attachment.yield(.colors(colors.model)) }
         case "resized":
             guard let surface = event.surface, let attachment = attachments[surface] else { return }
             // Protocol 7+ uses `replay`; v6 used `data`.
-            let replay = CmuxTUIWire.base64(event.replay ?? event.data)
+            let replay = Data(cmuxTUIBase64: event.replay ?? event.data)
             attachment.yield(.resized(cols: event.cols ?? 0, rows: event.rows ?? 0, replay: replay))
             if let colors = event.colors { attachment.yield(.colors(colors.model)) }
         case "colors-changed":

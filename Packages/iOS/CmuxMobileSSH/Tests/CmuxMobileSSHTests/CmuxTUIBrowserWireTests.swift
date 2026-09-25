@@ -28,7 +28,7 @@ import Testing
     """#
 
     @Test func listWorkspacesSeparatesBrowserTabs() throws {
-        let response = try CmuxTUIWire.decode(CmuxTUIRawResponse<CmuxTUITreeWire>.self, from: Data(Self.listWorkspaces.utf8))
+        let response = try CmuxTUIRawResponse<CmuxTUITreeWire>(cmuxTUILine: Data(Self.listWorkspaces.utf8))
         let workspace = try #require(response.data?.model.first)
         #expect(workspace.terminals.map(\.surface) == [1])
         #expect(workspace.browsers.count == 1)
@@ -45,7 +45,7 @@ import Testing
     }
 
     @Test func initialStateCarriesFrameAndPointerRange() throws {
-        let decoded = try #require(CmuxTUIBrowserWire.event(from: Data(Self.initialState.utf8)))
+        let decoded = try #require(CmuxTUIBrowserEventWire(line: Data(Self.initialState.utf8))?.surfaceEvent)
         #expect(decoded.surface == 7)
         guard case .state(let state) = decoded.event else { Issue.record("expected state"); return }
         #expect(state.url == "https://example.com/")
@@ -62,7 +62,7 @@ import Testing
     }
 
     @Test func frameEventCouplesPixelsWithAuthority() throws {
-        let decoded = try #require(CmuxTUIBrowserWire.event(from: Data(Self.frameEvent.utf8)))
+        let decoded = try #require(CmuxTUIBrowserEventWire(line: Data(Self.frameEvent.utf8))?.surfaceEvent)
         guard case .frame(let frame) = decoded.event else { Issue.record("expected frame"); return }
         #expect(frame.seq == 43)
         #expect(frame.status == .live)
@@ -72,38 +72,38 @@ import Testing
 
     @Test func frameWithoutImageSizeFallsBackToCSSSize() throws {
         let line = #"{"event":"frame","surface":7,"seq":1,"width":300,"height":200,"data":"AA==","status":"live","pointer_frame_seq":1}"#
-        let decoded = try #require(CmuxTUIBrowserWire.event(from: Data(line.utf8)))
+        let decoded = try #require(CmuxTUIBrowserEventWire(line: Data(line.utf8))?.surfaceEvent)
         guard case .frame(let frame) = decoded.event else { Issue.record("expected frame"); return }
         #expect(frame.imageWidth == 300 && frame.imageHeight == 200)
         #expect(frame.pointerFrameFloorSeq == nil && frame.pointerFrameSeq == 1)
     }
 
     @Test func failedAndStartingStatesDecode() throws {
-        let failed = try #require(CmuxTUIBrowserWire.event(from: Data(Self.failedState.utf8)))
+        let failed = try #require(CmuxTUIBrowserEventWire(line: Data(Self.failedState.utf8))?.surfaceEvent)
         guard case .state(let state) = failed.event else { Issue.record("expected state"); return }
         #expect(state.status == .failed)
         #expect(state.error == "browser is not responding")
         #expect(state.framesStalled)
         #expect(state.frame == nil)
 
-        let starting = try #require(CmuxTUIBrowserWire.event(from: Data(Self.navigatingState.utf8)))
+        let starting = try #require(CmuxTUIBrowserEventWire(line: Data(Self.navigatingState.utf8))?.surfaceEvent)
         guard case .state(let navigating) = starting.event else { Issue.record("expected state"); return }
         #expect(navigating.status == .starting)
         #expect(navigating.pointerFrameSeq == nil)
     }
 
     @Test func nonBrowserEventsAreIgnored() {
-        #expect(CmuxTUIBrowserWire.event(from: Data(#"{"event":"output","surface":1,"data":"aGk="}"#.utf8)) == nil)
-        #expect(CmuxTUIBrowserWire.event(from: Data(#"{"event":"frame","surface":1}"#.utf8)) == nil)
+        #expect(CmuxTUIBrowserEventWire(line: Data(#"{"event":"output","surface":1,"data":"aGk="}"#.utf8))?.surfaceEvent == nil)
+        #expect(CmuxTUIBrowserEventWire(line: Data(#"{"event":"frame","surface":1}"#.utf8))?.surfaceEvent == nil)
     }
 
     // Mirrors `browser_state_cannot_grant_new_authority_to_cached_pixels` and
     // the pointer-range tests in crates/cmux-tui/src/session/remote.rs.
     @Test func pointerGuardRequiresPresentedTokenInRange() throws {
         var guardState = CmuxTUIBrowserPointerGuard()
-        guard case .state(let initial) = try #require(CmuxTUIBrowserWire.event(from: Data(Self.initialState.utf8))).event,
-              case .frame(let frame) = try #require(CmuxTUIBrowserWire.event(from: Data(Self.frameEvent.utf8))).event,
-              case .state(let navigating) = try #require(CmuxTUIBrowserWire.event(from: Data(Self.navigatingState.utf8))).event
+        guard case .state(let initial) = try #require(CmuxTUIBrowserEventWire(line: Data(Self.initialState.utf8))?.surfaceEvent).event,
+              case .frame(let frame) = try #require(CmuxTUIBrowserEventWire(line: Data(Self.frameEvent.utf8))?.surfaceEvent).event,
+              case .state(let navigating) = try #require(CmuxTUIBrowserEventWire(line: Data(Self.navigatingState.utf8))?.surfaceEvent).event
         else { Issue.record("decode"); return }
 
         guardState.apply(initial)
@@ -178,14 +178,15 @@ import Testing
     }
 
     @Test func guardedMouseRequestEncodesNumbers() throws {
-        let line = try CmuxTUIWire.line([
+        let request: [String: CmuxTUIWireValue] = [
             "cmd": .string("browser-mouse-guarded"),
             "surface": .int(7),
             "kind": .string("down"),
             "x_px": .double(12.5),
             "y_px": .double(40),
             "frame_seq": .uint(10),
-        ])
+        ]
+        let line = try request.cmuxTUILine()
         let object = try #require(try JSONSerialization.jsonObject(with: line.dropLast()) as? [String: Any])
         #expect(object["cmd"] as? String == "browser-mouse-guarded")
         #expect(object["x_px"] as? Double == 12.5)

@@ -227,10 +227,3 @@ final class MobileSSHPlainProvider: MobileSSHWorkspaceProvider {
         }
     }
 }
-
-enum MobileSSHShell {
-    /// POSIX single-quote escaping.
-    static func quote(_ text: String) -> String {
-        "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
-    }
-}

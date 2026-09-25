@@ -105,7 +105,7 @@ public actor SFTPClient {
         do {
             while true {
                 let reply = try await call(.readdir, { $0.string(handle) })
-                if case .status(SFTPStatusCode.eof, _) = reply { break }
+                if case .status(.eof, _) = reply { break }
                 guard case .name(let batch) = reply else { try checkStatus(reply); throw SFTPError.unexpectedPacket("readdir reply") }
                 entries += batch.filter { $0.name != "." && $0.name != ".." }
             }
@@ -226,7 +226,7 @@ public actor SFTPClient {
                     let length = current.length - UInt32(count)
                     inFlight.append((try await sendRead(handle, offset: offset, length: length), offset, length))
                 }
-            case .data, .status(SFTPStatusCode.eof, _):
+            case .data, .status(.eof, _):
                 reachedEOF = true
             default:
                 try checkStatus(reply)
@@ -472,10 +472,10 @@ public actor SFTPClient {
             throw SFTPError.unexpectedPacket("expected status")
         }
         switch code {
-        case SFTPStatusCode.ok: return
-        case SFTPStatusCode.noSuchFile: throw SFTPError.noSuchFile
-        case SFTPStatusCode.permissionDenied: throw SFTPError.permissionDenied
-        case SFTPStatusCode.eof: throw SFTPError.failure("unexpected end of file")
+        case .ok: return
+        case .noSuchFile: throw SFTPError.noSuchFile
+        case .permissionDenied: throw SFTPError.permissionDenied
+        case .eof: throw SFTPError.failure("unexpected end of file")
         default: throw SFTPError.failure(message.isEmpty ? "status \(code)" : message)
         }
     }

@@ -36,7 +36,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     /// non-interactive PATH can miss.
     static func probe(on connection: SSHConnection) async -> String? {
         let script = #"for p in "$(command -v tmux 2>/dev/null)" /opt/homebrew/bin/tmux /usr/local/bin/tmux /usr/bin/tmux; do [ -n "$p" ] && [ -x "$p" ] && { echo "$p"; exit 0; }; done; exit 1"#
-        guard let result = try? await connection.exec("sh -c " + MobileSSHShell.quote(script)),
+        guard let result = try? await connection.exec("sh -c " + script.posixShellSingleQuoted),
               result.exitStatus == 0 else { return nil }
         let path = result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines)
         return path.isEmpty ? nil : path
@@ -44,9 +44,9 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
 
     /// The shell-quoted tmux command, with the server socket when private.
     var tmux: String {
-        let path = MobileSSHShell.quote(tmuxPath)
+        let path = tmuxPath.posixShellSingleQuoted
         guard let socketName else { return path }
-        return path + " -L " + MobileSSHShell.quote(socketName)
+        return path + " -L " + socketName.posixShellSingleQuoted
     }
 
     // MARK: Grouped sessions
@@ -62,7 +62,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     func collectStaleGroupedSessions() async {
         if let collection { return await collection.value }
         let task = Task { @MainActor [connection, tmux] in
-            let format = MobileSSHShell.quote("#{session_attached}:#{session_name}")
+            let format = "#{session_attached}:#{session_name}".posixShellSingleQuoted
             guard let result = try? await connection.exec("\(tmux) list-sessions -F \(format) 2>/dev/null"),
                   result.exitStatus == 0 else { return } // no server running
             let stale = Self.staleGroupedSessions(result.stdoutString)
@@ -70,7 +70,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
             // One tmux invocation: `kill-session` detaches any client before
             // freeing the session, so a client that attached meanwhile is
             // sent `%exit`, never left on a freed session.
-            let kills = stale.map { "kill-session -t " + MobileSSHShell.quote("=" + $0) }
+            let kills = stale.map { "kill-session -t " + ("=" + $0).posixShellSingleQuoted }
             _ = try? await connection.exec("\(tmux) " + kills.joined(separator: " \\; ") + " 2>/dev/null")
         }
         collection = task
@@ -174,7 +174,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
 
     func listWorkspaces() async throws -> [MobileSSHWorkspace] {
         await collectStaleGroupedSessions()
-        let result = try await connection.exec("\(tmux) list-panes -a -F \(MobileSSHShell.quote(Self.listFormat)) 2>/dev/null")
+        let result = try await connection.exec("\(tmux) list-panes -a -F \(Self.listFormat.posixShellSingleQuoted) 2>/dev/null")
         guard result.exitStatus == 0 else { return [] } // no server running = no sessions
         return Self.workspaces(from: Self.parsePaneRows(result.stdoutString))
     }
@@ -184,20 +184,20 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
         var index = 1
         while existing.contains("cmux-\(index)") { index += 1 }
         let name = "cmux-\(index)"
-        try await runStartingShell("new-session", "-s \(MobileSSHShell.quote(name))")
+        try await runStartingShell("new-session", "-s \(name.posixShellSingleQuoted)")
         return try await listWorkspaces().first { $0.id == name }
             ?? MobileSSHWorkspace(id: name, name: name, terminals: [], kind: .tmux)
     }
 
     func closeWorkspace(id: String) async throws {
         if let control = controls.removeValue(forKey: id) { await control.close() }
-        _ = try await connection.exec("\(tmux) kill-session -t \(MobileSSHShell.quote("=" + id))")
+        _ = try await connection.exec("\(tmux) kill-session -t \(("=" + id).posixShellSingleQuoted)")
     }
 
     /// Opens a tmux window (without switching the session's current window,
     /// so a laptop looking at the session stays where it is).
     func createTerminal(inWorkspace workspaceID: String) async throws -> MobileSSHTerminal {
-        let output = try await runStartingShell("new-window", "-t \(MobileSSHShell.quote("=" + workspaceID + ":")) -P -F '#{pane_id}'")
+        let output = try await runStartingShell("new-window", "-t \(("=" + workspaceID + ":").posixShellSingleQuoted) -P -F '#{pane_id}'")
         guard let pane = MobileSSHTmuxControlParser.id(output.trimmingCharacters(in: .whitespacesAndNewlines), "%") else {
             throw SSHConnectionError.channelRequestRejected("tmux new-window: \(output)")
         }
@@ -210,7 +210,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     /// (detached, so no client's current pane moves) and returns the new
     /// pane's terminal.
     func splitWindow(inWorkspace workspaceID: String, window: String) async throws -> MobileSSHTerminal {
-        let target = MobileSSHShell.quote("=" + workspaceID + ":" + window)
+        let target = ("=" + workspaceID + ":" + window).posixShellSingleQuoted
         let output = try await runStartingShell("split-window", "-t \(target) -P -F '#{pane_id}'")
         guard let pane = MobileSSHTmuxControlParser.id(output.trimmingCharacters(in: .whitespacesAndNewlines), "%") else {
             throw SSHConnectionError.channelRequestRejected("tmux split-window: \(output)")

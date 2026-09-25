@@ -94,7 +94,7 @@ struct SSHFileBrowserSheet: View {
             done: { dismiss() },
             insertPath: insertPath.map { insert in
                 { remotePath in
-                    insert(MobileSSHShellQuoting.quote(remotePath))
+                    insert(remotePath.remotePathShellWord)
                     dismiss()
                 }
             }

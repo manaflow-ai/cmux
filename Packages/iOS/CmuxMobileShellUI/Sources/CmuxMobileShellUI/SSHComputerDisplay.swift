@@ -87,44 +87,44 @@ extension SSHIdleClosePolicy {
     }
 }
 
-enum SSHCopy {
-    static var sectionTitle: String {
+struct SSHCopy {
+    var sectionTitle: String {
         L10n.string("mobile.ssh.section.title", defaultValue: "SSH")
     }
-    static var addComputer: String {
+    var addComputer: String {
         L10n.string("mobile.ssh.addComputer", defaultValue: "Add SSH Computer")
     }
-    static var addComputerEllipsis: String {
+    var addComputerEllipsis: String {
         L10n.string("mobile.ssh.addComputer.menu", defaultValue: "Add SSH Computer…")
     }
-    static var pairMacEllipsis: String {
+    var pairMacEllipsis: String {
         L10n.string("mobile.ssh.pairMac.menu", defaultValue: "Pair a Mac…")
     }
-    static var edit: String {
+    var edit: String {
         L10n.string("mobile.ssh.action.edit", defaultValue: "Edit")
     }
-    static var disconnect: String {
+    var disconnect: String {
         L10n.string("mobile.ssh.action.disconnect", defaultValue: "Disconnect")
     }
-    static var delete: String {
+    var delete: String {
         L10n.string("mobile.ssh.action.delete", defaultValue: "Delete")
     }
-    static var cancel: String {
+    var cancel: String {
         L10n.string("mobile.ssh.action.cancel", defaultValue: "Cancel")
     }
-    static var copy: String {
+    var copy: String {
         L10n.string("mobile.ssh.action.copy", defaultValue: "Copy")
     }
-    static var installingCmuxTUI: String {
+    var installingCmuxTUI: String {
         L10n.string("mobile.ssh.cmuxtui.installing", defaultValue: "Installing cmux-tui on this computer…")
     }
-    static var keysTitle: String {
+    var keysTitle: String {
         L10n.string("mobile.ssh.keys.title", defaultValue: "SSH Keys")
     }
-    static var deleteHostTitle: String {
+    var deleteHostTitle: String {
         L10n.string("mobile.ssh.delete.title", defaultValue: "Delete this SSH computer?")
     }
-    static var deleteHostMessage: String {
+    var deleteHostMessage: String {
         L10n.string(
             "mobile.ssh.delete.message",
             defaultValue: "Its settings are removed from this iPhone. Sessions already running on the computer keep running."
