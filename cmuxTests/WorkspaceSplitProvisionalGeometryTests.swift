@@ -54,6 +54,27 @@ struct WorkspaceSplitProvisionalGeometryTests {
     }
 
     @Test(arguments: [SplitDirection.right, .down])
+    func consecutiveRootSplitsPreserveEarlierCompression(direction: SplitDirection) throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: direction, focus: false))
+        let afterFirst = fixture.sourceFrameInWindow()
+
+        // No run-loop turn: the first split's anchor still has its old frame.
+        let nextDirection: SplitDirection = direction == .right ? .down : .right
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: nextDirection, focus: false))
+        let afterSecond = fixture.sourceFrameInWindow()
+
+        if direction == .right {
+            #expect(abs(afterSecond.width - afterFirst.width) < 1)
+            #expect(afterSecond.height < afterFirst.height * 0.7)
+        } else {
+            #expect(abs(afterSecond.height - afterFirst.height) < 1)
+            #expect(afterSecond.width < afterFirst.width * 0.7)
+        }
+    }
+
+    @Test(arguments: [SplitDirection.right, .down])
     func rootSplitProjectsEveryExistingTerminalIntoTheShrunkenTree(direction: SplitDirection) throws {
         let fixture = try Fixture()
         defer { fixture.close() }
