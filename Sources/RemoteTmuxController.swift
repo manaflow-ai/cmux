@@ -151,7 +151,7 @@ final class RemoteTmuxController {
         return nil
     }
 
-    private func configuredHost(_ host: RemoteTmuxHost) -> RemoteTmuxHost {
+    func configuredHost(_ host: RemoteTmuxHost) -> RemoteTmuxHost {
         host.withSSHKeepaliveSettings(AppDelegate.shared?.remoteSSHKeepaliveSettings)
     }
 
