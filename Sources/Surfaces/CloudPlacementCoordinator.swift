@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
@@ -81,6 +82,22 @@ final class CloudPlacementCoordinator {
             forLocalWorkspace: projection.workspaceID, on: projection.resource.machine
         )
         return updated
+    }
+
+    /// A record without remote provenance (a pane that bound its Cloud resource
+    /// while its provider configured it, a duplicate, or an old session) is a
+    /// preview of whatever workspace its local workspace mirrors. Persisted
+    /// provenance is kept as recorded.
+    func resolvingLocalPreviewMembership(_ projection: SurfaceProjection) -> SurfaceProjection {
+        guard projection.remoteWorkspaceID == nil, projection.isLocalWorkspaceView else { return projection }
+        return projectionInCurrentWorkspace(projection)
+    }
+
+    func restoredProjection(_ record: SurfaceProjectionRecord, workspaceID: UUID) -> SurfaceProjection {
+        resolvingLocalPreviewMembership(SurfaceProjection(
+            resource: record.resource, workspaceID: workspaceID, panelID: record.panelID,
+            remoteWorkspaceID: record.remoteWorkspaceID, remoteTabID: record.remoteTabID
+        ))
     }
 
     private func placement(of projection: SurfaceProjection, resource: SurfaceResource, catalog: SurfaceCatalog) -> SurfaceRemotePlacement? {
