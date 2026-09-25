@@ -81,6 +81,70 @@ struct RemoteSessionParkedReconnectTests {
         workspace.teardownAllPanels()
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func aDeliberateDisconnectStopsWaitingAttachAndKeepsDisconnectedPresentation() async throws {
+        let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panel = try #require(workspace.focusedTerminalPanel)
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(nil) }
+        let configuration = Self.configuration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .connected,
+            detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:64012",
+            target: "cmux-macmini"
+        )
+        #expect(
+            workspace.markRemoteTerminalSessionConnected(
+                surfaceId: panel.id,
+                relayPort: 64_012
+            )
+        )
+
+        workspace.disconnectRemoteConnection(clearConfiguration: false)
+        await workspace.remoteSessionTransitionTask?.value
+
+        #expect(workspace.remoteSessionController == nil)
+        #expect(workspace.remoteConnectionState == .disconnected)
+        #expect(
+            workspace.markRemoteTerminalSessionLaunching(
+                surfaceId: panel.id,
+                terminalLifecycleID: panel.surface.terminalLifecycleId,
+                attemptID: UUID()
+            )
+        )
+        #expect(workspace.remoteConnectionState == .disconnected)
+
+        let request: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": UUID().uuidString,
+            "method": "workspace.remote.pty_bridge",
+            "params": [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panel.id.uuidString,
+                "session_id": "ssh-\(workspace.id.uuidString)-\(panel.id.uuidString)",
+                "attachment_id": panel.id.uuidString,
+                "require_existing": true,
+                "wait_for_ready": true,
+            ],
+        ]
+        let line = try #require(
+            String(data: JSONSerialization.data(withJSONObject: request), encoding: .utf8)
+        )
+        let response = await Task.detached {
+            TerminalController.shared.handleSocketLine(line)
+        }.value
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any]
+        )
+        let error = try #require(payload["error"] as? [String: Any])
+
+        #expect(error["code"] as? String == "remote_session_parked")
+        #expect((error["message"] as? String)?.isEmpty == false)
+    }
+
     @Test
     func aParkedAttachExitKeepsPersistentPanesAndTheirSessionsForReconnect() async throws {
         let manager = TabManager()
