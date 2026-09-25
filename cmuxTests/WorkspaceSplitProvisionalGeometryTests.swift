@@ -18,6 +18,36 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSplitProvisionalGeometryTests {
+    @Test func rootSplitAddsAFullHeightSiblingToTheExistingTree() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let firstSplit = try #require(fixture.workspace.newTerminalSplit(
+            from: fixture.sourcePanelId,
+            orientation: .vertical,
+            focus: false
+        ))
+        _ = try #require(fixture.workspace.newTerminalSplit(
+            from: firstSplit.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        let rootSplit = try #require(fixture.workspace.newTerminalRootSplit(
+            direction: .right,
+            focus: false
+        ))
+
+        guard case .split(let root) = fixture.workspace.bonsplitController.treeSnapshot() else {
+            return Issue.record("Expected a root split")
+        }
+        guard case .split = root.first,
+              case .pane(let newPane) = root.second else {
+            return Issue.record("Expected the existing tree to remain the first root child")
+        }
+        #expect(root.orientation == SplitOrientation.horizontal.rawValue)
+        #expect(newPane.tabs.contains { $0.id == rootSplit.id.uuidString })
+    }
+
     @Test(arguments: [SplitDirection.down, .up, .right, .left])
     func splitMovesSourceTerminalOutOfTheNewPaneInTheSameTransaction(direction: SplitDirection) throws {
         let fixture = try Fixture()
