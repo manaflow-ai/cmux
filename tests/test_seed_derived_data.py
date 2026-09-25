@@ -232,6 +232,28 @@ class SeedDerivedData(unittest.TestCase):
         self.assertEqual([p.name for p in (store / "seeds").iterdir()], [key])
         self.assertEqual(os.environ["CI_CACHE_R2_PUBLIC_URL"], "https://cache.test")
 
+    def test_prefetch_never_replaces_a_copy_a_job_kept_meanwhile(self):
+        store = self.prefetch_store()
+        key = "admission-derived-data-v1-macOS-ARM64-fp-j6-head"
+
+        def racing_fetch(derived, exact, prefix):
+            # While the prefetch downloads, a job stashes the same seed and may clone it.
+            job_copy = store / "seeds" / key
+            (job_copy / "Build").mkdir(parents=True)
+            (job_copy / seed.MANIFEST).write_text("{}")
+            (job_copy / "Build/job").write_text("the job's copy")
+            staging = derived.with_name(derived.name + ".seed")
+            staging.mkdir(parents=True)
+            (staging / seed.MANIFEST).write_text("{}")
+            return exact
+
+        with mock.patch.object(seed, "lineage", return_value=["head"]), \
+                mock.patch.object(seed, "seed_exists", return_value=True), \
+                mock.patch.object(seed, "fetch", side_effect=racing_fetch):
+            seed.prefetch(store, "head")
+        self.assertEqual((store / "seeds" / key / "Build/job").read_text(), "the job's copy")
+        self.assertEqual([p.name for p in (store / "seeds").iterdir()], [key])
+
     def test_prefetch_keeps_nothing_from_an_incomplete_download(self):
         store = self.prefetch_store()
         key = "admission-derived-data-v1-macOS-ARM64-fp-j6-head"

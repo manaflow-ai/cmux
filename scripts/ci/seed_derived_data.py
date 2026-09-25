@@ -71,6 +71,7 @@ but never replace it.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -300,18 +301,35 @@ def clone_tree(source: Path, destination: Path) -> None:
         shutil.copytree(source, destination, symlinks=True)
 
 
+def age(path: Path) -> float:
+    """Seconds since PATH was touched; 0 when another process just moved it away."""
+    try:
+        return time.time() - path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def keep_local(cache: Path, incoming: Path, key: str) -> None:
-    """Rename INCOMING into the cache as KEY, then keep only the newest LOCAL_KEEP."""
-    shutil.rmtree(cache / key, ignore_errors=True)
-    incoming.rename(cache / key)
-    os.utime(cache / key)
+    """Rename INCOMING into the cache as KEY, then keep only the newest LOCAL_KEEP.
+
+    A complete copy of KEY that appeared meanwhile (a job stashed it during a
+    prefetch) stays: a job may be cloning it, so INCOMING goes instead.
+    """
+    if cached(key):
+        shutil.rmtree(incoming, ignore_errors=True)
+        with contextlib.suppress(OSError):
+            os.utime(cache / key)
+    else:
+        shutil.rmtree(cache / key, ignore_errors=True)
+        incoming.rename(cache / key)
+        os.utime(cache / key)
     for stale in cache.glob(".*.incoming-*"):
-        if stale != incoming and time.time() - stale.stat().st_mtime > PRUNE_GRACE_SECONDS:
+        if stale != incoming and age(stale) > PRUNE_GRACE_SECONDS:
             shutil.rmtree(stale, ignore_errors=True)
-    kept = sorted((entry for entry in cache.iterdir() if entry.is_dir() and not entry.name.startswith(".")),
-                  key=lambda entry: entry.stat().st_mtime, reverse=True)
+    entries = [entry for entry in cache.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
+    kept = sorted(entries, key=age)
     for old in kept[LOCAL_KEEP:]:
-        if time.time() - old.stat().st_mtime > PRUNE_GRACE_SECONDS:
+        if age(old) > PRUNE_GRACE_SECONDS:
             shutil.rmtree(old, ignore_errors=True)
 
 
