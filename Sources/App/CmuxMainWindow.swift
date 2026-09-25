@@ -296,10 +296,21 @@ final class CmuxMainWindow: NSWindow {
         return frame
     }
 
-    /// Creates a main window with explicit fullscreen capability (#5933).
-    /// Programmatic windows cannot inherit it from a nib, and AppKit's implicit
-    /// grant is unreliable on macOS 26. Disallow Full Screen Tile so managed
-    /// tile Spaces cannot trap Mission Control or horizontal Space navigation.
+    /// cmux creates its main window programmatically (never from a nib), so it
+    /// cannot inherit fullscreen capability from Interface Builder and instead
+    /// relied on AppKit *implicitly* granting `.fullScreenPrimary` to a
+    /// resizable, titled window. That implicit grant is not reliable across
+    /// macOS versions / display arrangements: on macOS 26 (Tahoe) a
+    /// freshly-created window reports an empty collection behavior
+    /// (`rawValue == 0`) and AppKit does not treat it as fullscreen-capable, so
+    /// Toggle Full Screen / ⌃⌘F / the green traffic-light button all fail to
+    /// enter a native fullscreen Space — the green button only zooms (#5933).
+    ///
+    /// Declaring `.fullScreenPrimary` here makes native fullscreen reachable
+    /// regardless of the OS's implicit default. It is idempotent where AppKit
+    /// would have granted it anyway. `.fullScreenDisallowsTiling` is also set
+    /// permanently so macOS Full Screen Tile does not trap cmux in a managed
+    /// tile Space that breaks Mission Control and horizontal Space swipes.
     override init(
         contentRect: NSRect,
         styleMask: NSWindow.StyleMask,
