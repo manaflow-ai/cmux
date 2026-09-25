@@ -587,9 +587,12 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     ) async throws {
         try await Self.runSSHMutationCommand(
             connection: connection,
-            // `mv -n` refuses to replace an existing destination. Verify that
-            // the source disappeared so a no-op is reported as a failure.
-            command: "mv -n -- \(Self.shellSingleQuote(path)) \(Self.shellSingleQuote(destinationPath)) && "
+            // Reject any existing destination before `mv`; otherwise a
+            // destination directory would receive the source as a child.
+            // `mv -n` also keeps a concurrent destination from being replaced.
+            command: "[ ! -e \(Self.shellSingleQuote(destinationPath)) ] && "
+                + "[ ! -L \(Self.shellSingleQuote(destinationPath)) ] && "
+                + "mv -n -- \(Self.shellSingleQuote(path)) \(Self.shellSingleQuote(destinationPath)) && "
                 + "[ ! -e \(Self.shellSingleQuote(path)) ] && [ ! -L \(Self.shellSingleQuote(path)) ]"
         )
     }
