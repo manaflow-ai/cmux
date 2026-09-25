@@ -312,6 +312,19 @@ struct PullRequestProbeServiceFetchTests {
         #expect(requestURLStrings().count == 2)
     }
 
+    @Test(arguments: [0, 1, 2, 3, 4, 5])
+    func ambiguousQueuedAttemptNeverBecomesPassing(permutation: Int) async throws {
+        var queued = checkNode(id: "queued")
+        queued["status"] = "QUEUED"
+        queued["startedAt"] = NSNull()
+        queued["conclusion"] = NSNull()
+        let nodes = [queued, checkNode(id: "one"), checkNode(id: "two", started: "2026-09-16T02:00:00Z")]
+        let orders = [[0,1,2], [0,2,1], [1,0,2], [1,2,0], [2,0,1], [2,1,0]]
+        PullRequestProbeStubURLProtocol.reset(stubs: [try checksStub(nodes: orders[permutation].map { nodes[$0] })])
+        let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
+        #expect(summary?.status == .unavailable)
+    }
+
     @Test func partialGraphQLErrorsCannotBecomeSuccess() async throws {
         PullRequestProbeStubURLProtocol.reset(stubs: [.init(statusCode: 200, data: Data("{\"errors\":[{\"message\":\"unavailable\"}]}".utf8))])
         let summary = await makeService().fetchPullRequestChecks(repoSlug: repoSlug, pullRequestNumber: 1, headSHA: "abc123")
