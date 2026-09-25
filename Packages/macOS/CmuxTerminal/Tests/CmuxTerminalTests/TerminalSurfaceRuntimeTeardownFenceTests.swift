@@ -47,6 +47,7 @@ struct TerminalSurfaceRuntimeTeardownFenceTests {
             workspaceId: UUID(),
             reason: "test.asyncFence",
             surface: surface,
+            runtimeSurfaceGeneration: 0,
             callbackContext: nil,
             beforeFree: {
                 fenceStarted.continuation.yield()
