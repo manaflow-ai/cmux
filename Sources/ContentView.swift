@@ -12775,7 +12775,7 @@ struct VerticalTabsSidebar: View, Equatable {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
             .sidebarCloudBindingObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.cloudBindingState)) { refreshExtensionSidebarSnapshot() }
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
-            .onReceive(tabManager.workspaceGroupsPublisher) { _ in
+            .onChange(of: renderContext.workspaceGroups) { _, _ in
                 refreshExtensionSidebarSnapshot()
             }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
@@ -13372,11 +13372,12 @@ struct VerticalTabsSidebar: View, Equatable {
         groups: [WorkspaceGroup],
         unreadSnapshot: SidebarUnreadSnapshot
     ) -> CmuxSidebarProviderSnapshot {
-        let groupIdentities = extensionWorkspaceGroupIdentities(
+        let groupIdentities = ExtensionSidebarGroupIdentity.byWorkspaceId(
             workspaces: workspaces,
-            groups: groups
+            groups: groups,
+            resolveConfig: cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd:)
         )
-        CmuxSidebarProviderSnapshot(
+        return CmuxSidebarProviderSnapshot(
             sequence: UInt64(max(0, CmuxEventBus.shared.latestSequence)),
             selectedWorkspaceId: tabManager.selectedTabId,
             workspaces: workspaces.map {
@@ -13393,7 +13394,7 @@ struct VerticalTabsSidebar: View, Equatable {
     private func extensionWorkspaceSnapshot(
         for workspace: Workspace,
         unreadSnapshot: SidebarUnreadSnapshot,
-        groupIdentity: ExtensionWorkspaceGroupIdentity?
+        groupIdentity: ExtensionSidebarGroupIdentity?
     ) -> CmuxSidebarProviderWorkspace {
         let rootPath = extensionSidebarRootPath(for: workspace)
         return CmuxSidebarProviderWorkspace(
@@ -13419,51 +13420,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 CmuxSidebarProviderGitBranch(branch: $0.branch, isDirty: $0.isDirty)
             }
         )
-    }
-
-    private typealias ExtensionWorkspaceGroupIdentity = (iconSymbol: String, colorHex: String?)
-
-    /// Resolves each group's effective identity once so snapshot projection
-    /// stays linear in the number of workspaces.
-    private func extensionWorkspaceGroupIdentities(
-        workspaces: [Workspace],
-        groups: [WorkspaceGroup]
-    ) -> [UUID: ExtensionWorkspaceGroupIdentity] {
-        let workspacesById = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
-        let groupsById = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
-        let groupsByAnchorId = Dictionary(
-            groups.compactMap { group -> (UUID, WorkspaceGroup)? in
-                guard let anchorId = group.liveAnchorWorkspaceId else { return nil }
-                return (anchorId, group)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-        var identityByGroupId: [UUID: ExtensionWorkspaceGroupIdentity] = [:]
-        for group in groups where group.liveAnchorWorkspaceId != nil {
-            let anchorCwd = group.liveAnchorWorkspaceId.flatMap { workspacesById[$0]?.currentDirectory }
-            let resolvedConfig = cmuxConfigStore.resolveWorkspaceGroupConfig(forCwd: anchorCwd)
-            let colorHex = group.customColor ?? resolvedConfig?.color
-            guard group.iconSymbol != nil || resolvedConfig?.iconSymbol != nil || colorHex != nil else {
-                continue
-            }
-            identityByGroupId[group.id] = ExtensionWorkspaceGroupIdentity(
-                iconSymbol: RenderableSystemSymbol.resolvedWorkspaceGroupIcon(
-                    explicit: group.iconSymbol,
-                    configured: resolvedConfig?.iconSymbol
-                ),
-                colorHex: colorHex
-            )
-        }
-
-        var result: [UUID: ExtensionWorkspaceGroupIdentity] = [:]
-        result.reserveCapacity(workspaces.count)
-        for workspace in workspaces {
-            let group = workspace.groupId.flatMap { groupsById[$0] }
-                ?? groupsByAnchorId[workspace.id]
-            guard let group, let identity = identityByGroupId[group.id] else { continue }
-            result[workspace.id] = identity
-        }
-        return result
     }
 
     private func extensionSidebarRootPath(for workspace: Workspace) -> String? {
@@ -13993,10 +13949,9 @@ struct VerticalTabsSidebar: View, Equatable {
         return extensionWorkspaceSnapshot(
             for: workspace,
             unreadSnapshot: sidebarUnread.snapshot,
-            groupIdentity: extensionWorkspaceGroupIdentities(
-                workspaces: tabManager.tabs,
-                groups: tabManager.workspaceGroups
-            )[workspace.id]
+            // Row icons are resolved in the full provider snapshot above; this
+            // per-row projection supplies inspector content only.
+            groupIdentity: nil
         )
     }
 

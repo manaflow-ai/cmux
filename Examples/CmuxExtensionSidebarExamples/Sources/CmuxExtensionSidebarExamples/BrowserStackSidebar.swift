@@ -49,7 +49,12 @@ public struct BrowserStackSidebar: CmuxMutableSidebarProvider {
             .render(
                 accessory: nil,
                 trailingText: recentActivityText,
-                leadingIcon: browserIcon
+                leadingIcon: browserIcon,
+                fallbackIcon: CmuxSidebarProviderIcon(
+                    systemImageName: "bubble.left.fill",
+                    foregroundColorHex: "#D0D0D0",
+                    backgroundColorHex: "#5A5A5A"
+                )
             )
         }
 
@@ -115,11 +120,7 @@ public struct BrowserStackSidebar: CmuxMutableSidebarProvider {
                 backgroundColorHex: "#000000"
             )
         }
-        return CmuxSidebarProviderIcon(
-            systemImageName: "bubble.left.fill",
-            foregroundColorHex: "#D0D0D0",
-            backgroundColorHex: "#5A5A5A"
-        )
+        return nil
     }
 }
 

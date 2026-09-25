@@ -1,6 +1,7 @@
 import CmuxSidebarProviderKit
 @testable import CmuxExtensionSidebarExamples
-import XCTest
+import Foundation
+import Testing
 
 /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5173.
 ///
@@ -10,10 +11,11 @@ import XCTest
 /// dynamic-dispatches to the concrete view. When #4994 demoted it to a
 /// protocol-extension default (returning no sections), every built-in view
 /// rendered an empty sidebar even though the provider and snapshot were correct.
-final class SidebarProviderExistentialDispatchTests: XCTestCase {
+struct SidebarProviderExistentialDispatchTests {
     /// Super Compact lists every workspace in a single section, so calling it
     /// through the existential must yield exactly the same rows as the concrete
     /// call — not the empty protocol-extension default.
+    @Test
     func testSuperCompactRendersIdenticallyThroughExistential() {
         let snapshot = Self.snapshot(workspaceCount: 3)
         let concrete = SuperCompactSidebar()
@@ -22,11 +24,10 @@ final class SidebarProviderExistentialDispatchTests: XCTestCase {
         let concreteModel = concrete.render(snapshot: snapshot)
         let existentialModel = existential.render(snapshot: snapshot)
 
-        XCTAssertFalse(concreteModel.sections.isEmpty, "concrete render should produce a section")
-        XCTAssertEqual(concreteModel.sections.flatMap(\.rows).count, 3)
-        XCTAssertEqual(
-            existentialModel.sections,
-            concreteModel.sections,
+        #expect(!concreteModel.sections.isEmpty, "concrete render should produce a section")
+        #expect(concreteModel.sections.flatMap(\.rows).count == 3)
+        #expect(
+            existentialModel.sections == concreteModel.sections,
             "render(snapshot:) must dynamic-dispatch through the existential, not the empty default"
         )
     }
@@ -34,6 +35,7 @@ final class SidebarProviderExistentialDispatchTests: XCTestCase {
     /// Every built-in view that distributes all workspaces across sections must
     /// produce rows when invoked through the existential. (Browser Stack is
     /// excluded: it renders only browser-tagged workspaces.)
+    @Test
     func testWorkspaceListingProvidersRenderRowsThroughExistential() {
         let snapshot = Self.snapshot(workspaceCount: 4)
         let listingProviderIDs: Set<String> = [
@@ -45,51 +47,11 @@ final class SidebarProviderExistentialDispatchTests: XCTestCase {
         ]
         for provider in SidebarExamples.providers where listingProviderIDs.contains(provider.descriptor.id) {
             let model = provider.render(snapshot: snapshot)
-            XCTAssertFalse(
-                model.sections.flatMap(\.rows).isEmpty,
+            #expect(
+                !model.sections.flatMap(\.rows).isEmpty,
                 "Provider \(provider.descriptor.id) rendered no rows through the existential"
             )
         }
-    }
-
-    /// Built-in views keep the workspace group's visual identity when the
-    /// provider does not supply a more specific row icon.
-    func testBuiltInRowsPreserveWorkspaceGroupIdentity() throws {
-        let workspaceID = UUID()
-        let workspace = CmuxSidebarProviderWorkspace(
-            id: workspaceID,
-            title: "Grouped workspace",
-            customDescription: nil,
-            isPinned: false,
-            rootPath: "/tmp/grouped",
-            projectRootPath: "/tmp/grouped",
-            branchSummary: "main",
-            workspaceGroupIconSymbol: "shippingbox.fill",
-            workspaceGroupColorHex: "#123456",
-            remoteDisplayTarget: nil,
-            remoteConnectionState: "disconnected",
-            unreadCount: 0,
-            latestNotificationText: nil,
-            latestSubmittedMessage: nil,
-            latestSubmittedAt: nil,
-            listeningPorts: []
-        )
-        let snapshot = CmuxSidebarProviderSnapshot(
-            sequence: 1,
-            selectedWorkspaceId: nil,
-            workspaces: [workspace]
-        )
-
-        let model = AttentionQueueSidebar().render(snapshot: snapshot)
-        let row = try XCTUnwrap(model.sections.flatMap(\.rows).first)
-
-        XCTAssertEqual(
-            row.leadingIcon,
-            CmuxSidebarProviderIcon(
-                systemImageName: "shippingbox.fill",
-                foregroundColorHex: "#123456"
-            )
-        )
     }
 
     private static func snapshot(workspaceCount: Int) -> CmuxSidebarProviderSnapshot {

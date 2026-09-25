@@ -49,7 +49,7 @@ public struct CmuxSidebarProviderWorkspace: Identifiable, Codable, Equatable, Se
             return nil
         }
         return CmuxSidebarProviderIcon(
-            systemImageName: workspaceGroupIconSymbol,
+            systemImageName: workspaceGroupIconSymbol ?? "folder.fill",
             foregroundColorHex: workspaceGroupColorHex
         )
     }

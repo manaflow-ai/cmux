@@ -35,7 +35,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     var body: some View {
         let primarySize: CGFloat = isSuperCompact ? 10.5 : 12.5
         let secondarySize: CGFloat = isSuperCompact ? 9 : 10
-        let leadingIcon = row.leadingIcon ?? workspace?.workspaceGroupIcon
+        let leadingIcon = row.leadingIcon
         HStack(spacing: isSuperCompact ? 5 : 7) {
             if let leadingIcon {
                 extensionSidebarLeadingIcon(leadingIcon, size: isSuperCompact ? 16 : 18)
@@ -154,13 +154,14 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                     weight: .semibold,
                     tint: foreground
                 )
-            } else {
-                Text(icon.text ?? ".")
+            } else if let text = icon.text {
+                Text(text)
                     .cmuxFont(size: size * 0.58, weight: .bold)
                     .foregroundColor(foreground)
             }
         }
         .frame(width: size, height: size)
+        .accessibilityHidden(true)
     }
 }
 
