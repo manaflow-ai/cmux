@@ -6,24 +6,24 @@ import Foundation
 /// snapshot taken after that step succeeded. The web backend stores the
 /// mapping; this client resolves the deepest cached layer and records new ones.
 
-struct VMEnvLayer {
-    let provider: String?
-    let chainHash: String
-    let stepIndex: Int
-    let stepName: String?
-    let snapshotID: String
-    let specDigest: String
-    let baseImageID: String
+public struct VMEnvLayer {
+    public let provider: String?
+    public let chainHash: String
+    public let stepIndex: Int
+    public let stepName: String?
+    public let snapshotID: String
+    public let specDigest: String
+    public let baseImageID: String
 }
 
-struct VMEnvResolveResult {
-    let provider: String
-    let baseImageID: String
-    let layer: VMEnvLayer?
+public struct VMEnvResolveResult {
+    public let provider: String
+    public let baseImageID: String
+    public let layer: VMEnvLayer?
 }
 
 extension VMClient {
-    func envResolveLayers(provider: String? = nil, chainHashes: [String]) async throws -> VMEnvResolveResult {
+    public func envResolveLayers(provider: String? = nil, chainHashes: [String]) async throws -> VMEnvResolveResult {
         var body: [String: Any] = ["chainHashes": chainHashes]
         if let provider { body["provider"] = provider }
         let (data, http) = try await request("POST", path: "/api/vm/env/layers/resolve", jsonBody: body)
@@ -38,7 +38,7 @@ extension VMClient {
         return VMEnvResolveResult(provider: providerValue, baseImageID: baseImageID, layer: layer)
     }
 
-    func envRecordLayer(
+    public func envRecordLayer(
         provider: String? = nil,
         baseImageID: String,
         chainHash: String,
@@ -67,7 +67,7 @@ extension VMClient {
         return layer
     }
 
-    func envListLayers(provider: String? = nil, specDigest: String? = nil) async throws -> [VMEnvLayer] {
+    public func envListLayers(provider: String? = nil, specDigest: String? = nil) async throws -> [VMEnvLayer] {
         var query: [URLQueryItem] = []
         if let provider { query.append(URLQueryItem(name: "provider", value: provider)) }
         if let specDigest, !specDigest.isEmpty { query.append(URLQueryItem(name: "specDigest", value: specDigest)) }
