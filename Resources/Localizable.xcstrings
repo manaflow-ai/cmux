@@ -61250,7 +61250,8 @@
           }
         }
       }
-    },    "browser.import.error.title": {
+    },
+    "browser.import.error.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -557570,6 +557571,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "切換到上一個焦點"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equalize Splits on Create"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسوية التقسيمات عند الإنشاء"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilungen beim Erstellen angleichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igualar divisiones al crear"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Égaliser les divisions à la création"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成時に分割を均等にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성 시 분할 균등화"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建时均分面板"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "建立時均等分割"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New splits take half of the pane they were created from."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغل التقسيمات الجديدة نصف الجزء الذي أُنشئت منه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Teilungen nehmen die Hälfte des Bereichs ein, aus dem sie erstellt wurden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las divisiones nuevas ocupan la mitad del panel desde el que se crearon."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouvelles divisions occupent la moitié du volet à partir duquel elles ont été créées."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい分割は、作成元のペインの半分を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 분할은 생성된 원래 창의 절반을 차지합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建的分屏会占用其来源面板的一半。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增的分割會佔用其來源窗格的一半。"
+          }
+        }
+      }
+    },
+    "settings.app.equalizeSplitsOnCreate.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New splits resize the panes in that direction to equal sizes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعيد التقسيمات الجديدة تحجيم الأجزاء في ذلك الاتجاه إلى أحجام متساوية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Teilungen gleichen die Bereiche in dieser Richtung auf dieselbe Größe an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las divisiones nuevas ajustan los paneles en esa dirección a tamaños iguales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les nouvelles divisions redimensionnent les volets dans cette direction à des tailles égales."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい分割を作成すると、その方向のペインが同じサイズに調整されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 분할을 만들면 해당 방향의 창 크기가 같아지도록 조정됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建分屏时，会将该方向上的面板调整为相同大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增分割時，會將該方向上的窗格調整為相同大小。"
           }
         }
       }
