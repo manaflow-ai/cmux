@@ -99,7 +99,8 @@ import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
     /// Verifies that a socket policy rejection explains the external SSH workflow.
-    @Test func testV2SocketAccessDeniedExplainsExternalSSHWorkflow() throws {
+    @Test(arguments: [["ping"], ["capabilities"], ["ssh", "--no-focus", "example.invalid"]])
+    func testSocketAccessDeniedExplainsExternalSSHWorkflow(arguments: [String]) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-v2-access-denied-\(UUID().uuidString).sock"
         let responder = try UnixSocketResponder(
@@ -110,7 +111,7 @@ extension CMUXCLIErrorOutputRegressionTests {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["ping"],
+            arguments: arguments,
             environment: [
                 "PATH": "/usr/bin:/bin",
                 "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
@@ -121,12 +122,12 @@ extension CMUXCLIErrorOutputRegressionTests {
             timeout: 5
         )
 
-        let expectedMessage = "cmux blocked this command before it ran. Run it from a cmux terminal, choose Automation mode in Settings > Automation > Socket Control Mode, or use an SSH link such as open ssh://host from an external terminal."
+        let expectedMessage = "cmux blocked this command before it ran. Run it from a cmux terminal, choose Automation mode in Settings > Automation > Socket Control Mode, or use an SSH link such as open -a cmux ssh://host from an external terminal."
         #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
         #expect(result.status == 1, Comment(rawValue: result.diagnostics))
         #expect(result.stdout.isEmpty, Comment(rawValue: result.diagnostics))
         #expect(result.stderr == "Error: \(expectedMessage)\n", Comment(rawValue: result.diagnostics))
         #expect(!result.stderr.contains("only processes started inside cmux can connect"), Comment(rawValue: result.diagnostics))
-        #expect(responder.receivedRequests.contains { $0.contains(#"\"method\":\"ping\""#) }, Comment(rawValue: result.diagnostics))
+        #expect(!responder.receivedRequests.isEmpty, Comment(rawValue: result.diagnostics))
     }
 }
