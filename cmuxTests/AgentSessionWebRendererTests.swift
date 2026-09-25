@@ -79,6 +79,7 @@ struct AgentSessionWebRendererTests {
     }
 
     @Test
+    @MainActor
     func testAgentSessionSchemeHandlerContainsAndTypesBundledResources() throws {
         let fileManager = FileManager.default
         let rootURL = fileManager.temporaryDirectory

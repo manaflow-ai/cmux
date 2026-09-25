@@ -3,9 +3,10 @@ import CmuxAgentChat
 import WebKit
 
 /// Serves the bundled React AgentSession application from a non-file origin.
+@MainActor
 final class AgentSessionWebRendererURLSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let scheme = "cmux-agent-session"
-    static let host = "shell"
+    nonisolated static let scheme = "cmux-agent-session"
+    nonisolated static let host = "shell"
 
     private static let textualExtensions: Set<String> = ["html", "mjs", "js", "css", "json", "svg", "map"]
 
@@ -30,7 +31,7 @@ final class AgentSessionWebRendererURLSchemeHandler: NSObject, WKURLSchemeHandle
         super.init()
     }
 
-    static func shellURL() -> URL {
+    nonisolated static func shellURL() -> URL {
         URL(string: "\(scheme)://\(host)/agent-session.html")!
     }
 
