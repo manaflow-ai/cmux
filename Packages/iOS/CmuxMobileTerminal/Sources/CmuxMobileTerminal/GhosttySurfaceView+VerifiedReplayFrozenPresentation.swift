@@ -101,14 +101,12 @@ extension GhosttySurfaceView {
             image: image,
             container: frozenLayer
         )
-        let cursorLayer = makeVerifiedReplayFrozenCursorLayer(container: frozenLayer)
         let viewportRect = terminalViewportRect
         backgroundLayer.frame = contentLayer.map { viewportRect.union($0.frame) } ?? viewportRect
         return VerifiedReplayFrozenPresentation(
             layer: frozenLayer,
             backgroundLayer: backgroundLayer,
             contentLayer: contentLayer,
-            cursorLayer: cursorLayer,
             image: image,
             viewportRect: viewportRect
         )
@@ -158,28 +156,6 @@ extension GhosttySurfaceView {
         copy.opacity = renderer.opacity
         copy.actions = Self.verifiedReplayDisabledLayerActions
         copy.zPosition = 1
-        container.addSublayer(copy)
-        return copy
-    }
-
-    private func makeVerifiedReplayFrozenCursorLayer(container: CALayer) -> CALayer? {
-        guard let liveCursor = cursorOverlayLayer,
-              !liveCursor.isHidden else {
-            return nil
-        }
-        let cursor = liveCursor.presentation() ?? liveCursor
-        let copy = CALayer()
-        copy.name = "cmux.verifiedReplay.cursor"
-        copy.anchorPoint = cursor.anchorPoint
-        copy.bounds = cursor.bounds
-        copy.position = cursor.position
-        copy.transform = cursor.transform
-        copy.opacity = cursor.opacity
-        copy.backgroundColor = cursor.backgroundColor
-        copy.cornerRadius = cursor.cornerRadius
-        copy.contentsScale = cursor.contentsScale
-        copy.actions = Self.verifiedReplayDisabledLayerActions
-        copy.zPosition = 2
         container.addSublayer(copy)
         return copy
     }

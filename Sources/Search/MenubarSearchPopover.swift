@@ -60,13 +60,12 @@ private struct GlobalSearchPaletteView: View {
     @State private var selectedIndex = 0
     @State private var isSearching = false
     @State private var searchGeneration = 0
-    @State private var searchDebounceTimer: DispatchSourceTimer?
-    @State private var searchTask: Task<Void, Never>?
-    @State private var refreshTask: Task<Void, Never>?
+    @State private var searchDebounceScheduler = MainActorDeferredActionScheduler()
+    @State private var tasks = MainActorTaskStore<String>()
     @State private var keyMonitor: Any?
     @FocusState private var searchFieldFocused: Bool
 
-    private let searchDebounceMilliseconds = 80
+    private let searchDebounceDelay: Duration = .milliseconds(80)
     private let browseResultLimit = 20
 
     var body: some View {
@@ -127,8 +126,7 @@ private struct GlobalSearchPaletteView: View {
             searchFieldFocused = true
             installKeyMonitorIfNeeded()
             resetResultsForPopoverOpen()
-            refreshTask?.cancel()
-            refreshTask = Task { @MainActor in
+            tasks.replaceOnMainActor("refresh") {
                 await coordinator.refreshLiveIndex()
                 guard !Task.isCancelled else { return }
                 scheduleSearch(query)
@@ -136,8 +134,7 @@ private struct GlobalSearchPaletteView: View {
         }
         .onDisappear {
             removeKeyMonitor()
-            refreshTask?.cancel()
-            refreshTask = nil
+            tasks.cancel("refresh")
             cancelSearchWork()
         }
         .onChange(of: query) { _, newValue in
@@ -158,41 +155,24 @@ private struct GlobalSearchPaletteView: View {
 
         isSearching = true
 
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(searchDebounceMilliseconds), leeway: .milliseconds(15))
-        timer.setEventHandler {
-            Task { @MainActor in
-                guard searchGeneration == generation else { return }
-                searchDebounceTimer?.cancel()
-                searchDebounceTimer = nil
-
-                searchTask = Task { @MainActor in
-                    defer {
-                        if searchGeneration == generation {
-                            searchTask = nil
-                        }
-                    }
-
-                    guard searchGeneration == generation, !Task.isCancelled else { return }
-                    let hits = await coordinator.search(query: trimmed)
-                    guard searchGeneration == generation, !Task.isCancelled else { return }
-                    results = hits.enumerated().map { offset, hit in
-                        GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
-                    }
-                    selectedIndex = min(selectedIndex, max(results.count - 1, 0))
-                    isSearching = false
+        searchDebounceScheduler.schedule(after: searchDebounceDelay) {
+            guard searchGeneration == generation else { return }
+            tasks.replaceOnMainActor("search") {
+                guard searchGeneration == generation, !Task.isCancelled else { return }
+                let hits = await coordinator.search(query: trimmed)
+                guard searchGeneration == generation, !Task.isCancelled else { return }
+                results = hits.enumerated().map { offset, hit in
+                    GlobalSearchResultRow(hit: hit, query: trimmed, index: offset)
                 }
+                selectedIndex = min(selectedIndex, max(results.count - 1, 0))
+                isSearching = false
             }
         }
-        searchDebounceTimer = timer
-        timer.resume()
     }
 
     private func cancelSearchWork() {
-        searchDebounceTimer?.cancel()
-        searchDebounceTimer = nil
-        searchTask?.cancel()
-        searchTask = nil
+        searchDebounceScheduler.cancel()
+        tasks.cancel("search")
     }
 
     private func resetResultsForPopoverOpen() {
@@ -219,10 +199,22 @@ private struct GlobalSearchPaletteView: View {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let keyEvent = GlobalSearchKeyEvent(event)
-            let consumed = MainActor.assumeIsolated {
-                handleKeyEvent(keyEvent)
+            let route = MainActor.assumeIsolated {
+                AppDelegate.shared?
+                    .routeVisibleGlobalSearchShortcutFromLocalMonitor(event)
+                    ?? .notApplicable
             }
-            return consumed ? nil : event
+            switch route {
+            case .handled:
+                return nil
+            case .queryOwnsEvent:
+                return event
+            case .notApplicable:
+                let consumed = MainActor.assumeIsolated {
+                    handleKeyEvent(keyEvent)
+                }
+                return consumed ? nil : event
+            }
         }
     }
 
@@ -251,10 +243,10 @@ private struct GlobalSearchPaletteView: View {
         case 53:
             coordinator.dismissPalette()
             return true
-        case 126:
+        case 126 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
             selectedIndex = max(0, selectedIndex - 1)
             return true
-        case 125:
+        case 125 where flags.isDisjoint(with: [.command, .shift, .option, .control]):
             selectedIndex = min(max(results.count - 1, 0), selectedIndex + 1)
             return true
         case 36, 76:
@@ -264,22 +256,8 @@ private struct GlobalSearchPaletteView: View {
             if flags.contains(.command),
                !flags.contains(.option),
                !flags.contains(.control) {
-                return !isTextEditingCommand(event) && !isSystemCommand(event)
+                return !event.queryOwnsEditingShortcut && !isSystemCommand(event)
             }
-            return false
-        }
-    }
-
-    private func isTextEditingCommand(_ event: GlobalSearchKeyEvent) -> Bool {
-        if let characters = event.charactersIgnoringModifiers?.lowercased(),
-           ["a", "c", "v", "x", "z"].contains(characters) {
-            return true
-        }
-
-        switch event.keyCode {
-        case 51, 117, 123, 124:
-            return true
-        default:
             return false
         }
     }
@@ -300,13 +278,15 @@ private struct GlobalSearchPaletteView: View {
     }
 }
 
-private struct GlobalSearchKeyEvent: Sendable {
+struct GlobalSearchKeyEvent: Sendable {
     let keyCode: UInt16
+    let characters: String?
     let charactersIgnoringModifiers: String?
     private let modifierFlagsRawValue: UInt
 
     init(_ event: NSEvent) {
         keyCode = event.keyCode
+        characters = event.characters
         charactersIgnoringModifiers = event.charactersIgnoringModifiers
         modifierFlagsRawValue = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)

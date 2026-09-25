@@ -32,6 +32,7 @@ struct RemoteDaemonRPCClientCapabilityTests {
         #expect(RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability == "pty.session.persistent_daemon")
         #expect(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability == "pty.write.notification")
         #expect(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability == "pty.resize.notification")
+        #expect(RemoteDaemonRPCClient.requiredPTYAttachCancelCapability == "pty.attach.cancel")
         #expect(RemoteDaemonRPCClient.optionalPTYInputSeqAckCapability == "pty.input.seq_ack")
         #expect(RemoteDaemonRPCClient.ptyInputSeqGapErrorCode == "pty_input_seq_gap")
     }
@@ -55,6 +56,7 @@ struct RemoteDaemonRPCClientCapabilityTests {
                 "pty.session.token",
                 "pty.write.notification",
                 "pty.resize.notification",
+                "pty.attach.cancel",
             ]
         )
     }
@@ -73,6 +75,7 @@ struct RemoteDaemonRPCClientCapabilityTests {
                 "pty.session.token",
                 "pty.write.notification",
                 "pty.resize.notification",
+                "pty.attach.cancel",
                 "pty.session.persistent_daemon",
             ]
         )

@@ -1,8 +1,17 @@
+import CmuxMobileShellModel
 import CMUXMobileCore
 import CmuxMobilePairedMac
 import Foundation
 
 actor WorkspaceMacSelectionPairedMacStore: MobilePairedMacStoring {
+    func authorizeUserTailscaleRoutes(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?,
+        routes: [CmxAttachRoute]
+    ) async throws {}
+
     private var records: [MobilePairedMac]
 
     init(_ records: [MobilePairedMac]) {

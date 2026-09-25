@@ -7,7 +7,8 @@ import QuartzCore
 @MainActor
 extension GhosttySurfaceView {
     func submitVerifiedReplayRenderAndWait(
-        read: VerifiedReplaySurfaceRead?
+        read: VerifiedReplaySurfaceRead?,
+        rearmReadyFenceOnPresent: Bool = false
     ) async -> VerifiedReplayPresentedSubmission? {
         guard let surface,
               !isDismantled,
@@ -45,47 +46,45 @@ extension GhosttySurfaceView {
                     read: read,
                     fence: fence,
                     observedFrame: nil,
+                    rearmReadyFenceOnPresent: rearmReadyFenceOnPresent,
                     continuation: continuation
                 )
             )
             ensureSurfaceOperationDeadlinePump()
-            enqueueVerifiedReplaySubmission(
+            let accepted = enqueueVerifiedReplaySubmission(
                 read: read,
                 submission: submission,
                 generation: generation
             )
+            if !accepted {
+                completePendingVerifiedReplayPresentation(
+                    id: submission.token,
+                    returning: nil
+                )
+                clearVerifiedReplayPresentation()
+            }
         }
     }
 
+    @discardableResult
     func enqueueVerifiedReplaySubmission(
         read: VerifiedReplaySurfaceRead?,
         submission: VerifiedReplayRenderSubmission,
         generation: UInt64
-    ) {
-        guard let read else {
-            outputQueue.async {
-                ghostty_surface_render_now_with_token(submission.surface, submission.token)
-            }
-            return
-        }
-        outputQueue.async { [weak self] in
-            let observed = verifiedReplayExportThenSubmit(
-                export: { exportVerifiedReplayGridSynchronously(read) },
-                submit: {
-                    ghostty_surface_render_now_with_token(
-                        submission.surface,
-                        submission.token
-                    )
-                }
+    ) -> Bool {
+        let outputPresentation = read == nil ? nil : onOutputPresentation
+        onOutputPresentation = nil
+        return enqueueRenderSubmission(
+            GhosttySurfaceView.RenderSubmission(
+                token: submission.token,
+                generation: generation,
+                kind: .verifiedReplay,
+                surface: submission.surface,
+                verifiedReplayRead: read,
+                presentationRetryCount: 0,
+                outputPresentation: outputPresentation
             )
-            Task { @MainActor [weak self] in
-                self?.acceptVerifiedReplayObservedFrame(
-                    observed,
-                    submission: submission,
-                    generation: generation
-                )
-            }
-        }
+        )
     }
 
     @discardableResult
@@ -131,11 +130,19 @@ private extension GhosttySurfaceView {
         pendingVerifiedReplayPresentation = pending
     }
 
+}
+
+extension GhosttySurfaceView {
+    /// Accepts the read-back result after the unified render submission has
+    /// been serialized on the surface gate. The submission driver lives in
+    /// `GhosttySurfaceView.swift`, so this entry point is module-visible while
+    /// the fence-building helpers above remain private to this file.
+    @discardableResult
     func acceptVerifiedReplayObservedFrame(
         _ observed: MobileTerminalRenderGridFrame?,
         submission: VerifiedReplayRenderSubmission,
         generation: UInt64
-    ) {
+    ) -> Bool {
         guard surface == submission.surface,
               surfaceGeneration == generation,
               var pending = pendingVerifiedReplayPresentation,
@@ -145,7 +152,7 @@ private extension GhosttySurfaceView {
                 id: submission.token,
                 returning: nil
             )
-            return
+            return false
         }
         pending.observedFrame = normalizedVerifiedReplayObservedFrameForSubmission(
             observed,
@@ -154,6 +161,7 @@ private extension GhosttySurfaceView {
         pending.fence.markObservedFrameReady()
         pendingVerifiedReplayPresentation = pending
         completePendingVerifiedReplayPresentationIfPresented()
+        return true
     }
 }
 
@@ -186,24 +194,4 @@ extension MobileTerminalRenderGridFrame {
     }
 }
 
-private func exportVerifiedReplayGridSynchronously(
-    _ read: VerifiedReplaySurfaceRead
-) -> MobileTerminalRenderGridFrame? {
-    let exported = read.surfaceID.withCString { pointer in
-        ghostty_surface_render_grid_json(
-            read.surface,
-            pointer,
-            UInt(read.surfaceID.utf8.count),
-            read.stateSeq,
-            0
-        )
-    }
-    defer { ghostty_string_free(exported) }
-    guard let pointer = exported.ptr, exported.len > 0 else { return nil }
-    let data = Data(bytes: pointer, count: Int(exported.len))
-    guard var frame = try? MobileTerminalRenderGridFrame.decode(data) else { return nil }
-    frame.renderEpoch = read.renderEpoch
-    frame.renderRevision = read.renderRevision
-    return frame
-}
 #endif

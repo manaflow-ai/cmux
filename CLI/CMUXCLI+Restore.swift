@@ -1,0 +1,441 @@
+import CMUXAgentLaunch
+import Darwin
+import Foundation
+
+extension CMUXCLI {
+    var restoreCommandUsageLine: String {
+        String(
+            localized: "cli.help.restore",
+            defaultValue: "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
+        )
+    }
+
+    func runRestoreCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) async throws {
+        let selector = try restoreSelector(commandArgs)
+        let workingDirectoryBeforeRestore = FileManager.default.currentDirectoryPath
+        let surfaceID = try continuationSurfaceID(
+            for: selector,
+            client: client,
+            processEnvironment: processEnvironment,
+            verb: .restore
+        )
+        let params: [String: Any] = ["surface_id": surfaceID]
+        let payload = try continuationSurfaceResumePayload(
+            surfaceID: surfaceID,
+            client: client,
+            verb: .restore
+        )
+        guard let rawRecord = payload["restore_record"] as? [String: Any] else {
+            throw loggedRestoreError(
+                stage: "record.missing",
+                message: String(
+                    localized: "cli.restore.error.noRecord",
+                    defaultValue: "restore: this session has nothing to restore. Start the agent again in this terminal."
+                )
+            )
+        }
+        var record = try restoreRecord(from: rawRecord)
+        let surfaceRecordCheckpointID = record.checkpointID
+        if let expectedKind = selector.kind, expectedKind != record.kind {
+            throw loggedRestoreError(
+                stage: "record.kind-mismatch",
+                detail: "expected=\(expectedKind) actual=\(record.kind)",
+                message: String(
+                    localized: "cli.restore.error.kindMismatch",
+                    defaultValue: "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
+                )
+            )
+        }
+        if let expectedCheckpointID = selector.checkpointID,
+           expectedCheckpointID != record.checkpointID {
+            throw loggedRestoreError(
+                stage: "record.checkpoint-mismatch",
+                detail: "expected=\(expectedCheckpointID) actual=\(record.checkpointID ?? "none")",
+                message: String(
+                    localized: "cli.restore.error.checkpointMismatch",
+                    defaultValue: "restore: this command no longer matches the session. Run 'cmux restore --surface' to use the current record."
+                )
+            )
+        }
+
+        record = try await recoveredHermesContinuationRecord(
+            record,
+            surfaceID: surfaceID,
+            processEnvironment: processEnvironment,
+            verb: .restore
+        )
+
+        let bindingPayload = payload["resume_binding"] as? [String: Any]
+        if let codexValidation = codexRestoreValidation(
+            record: record,
+            bindingPayload: bindingPayload,
+            processEnvironment: processEnvironment
+        ) {
+            let shouldContinue: Bool
+            switch codexValidation {
+            case .allowed:
+                shouldContinue = true
+            case .unavailable:
+                // The standalone verifier is deliberately conservative: a
+                // transient SQLite/read failure is not proof that the
+                // conversation is missing. Same-build apps expose the shared
+                // admission boundary, which can combine the provider lock,
+                // hook identity, PID generation, and live-owner evidence and
+                // wait for that evidence to settle. Keep this restore intent
+                // alive instead of turning an unknown result into a shell
+                // error. Older apps have no admission RPC, so retain their
+                // conservative compatibility behavior.
+                shouldContinue = payload["agent_restore_admission_supported"] as? Bool == true
+            case .missing, .rejectedChild, .bindingChanged:
+                shouldContinue = false
+            }
+            if !shouldContinue {
+                try handleRejectedCodexRestore(
+                    codexValidation,
+                    record: record,
+                    bindingPayload: bindingPayload,
+                    surfaceID: params["surface_id"] as? String,
+                    workspaceID: payload["workspace_id"] as? String
+                        ?? processEnvironment["CMUX_WORKSPACE_ID"],
+                    client: client,
+                    workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+                )
+                return
+            }
+        }
+
+        let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
+        let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
+            requestedWorkingDirectory
+        )
+        let effectiveWorkingDirectory: String? =
+            if requestedWorkingDirectory?.isEmpty == false {
+                appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
+            } else {
+                nil
+            }
+        let legacyOnly = record.launchCommand == nil && record.preparedArguments == nil && record.legacyCommand != nil
+        let invocation: AgentRestoreInvocation?
+        if legacyOnly {
+            invocation = nil
+        } else {
+            guard let mode = AgentRestoreRequestMode(rawValue: record.mode) else {
+                throw loggedRestoreError(
+                    stage: "record.mode",
+                    detail: record.mode,
+                    message: String(
+                        localized: "cli.restore.error.unsupportedMode",
+                        defaultValue: "restore: this session's saved restore data is not compatible. Start the agent again in this terminal."
+                    )
+                )
+            }
+            let request = AgentRestoreRequest(
+                mode: mode,
+                kind: record.kind,
+                checkpointID: record.checkpointID,
+                source: record.source,
+                workingDirectory: effectiveWorkingDirectory,
+                environment: record.environment,
+                launchCommand: record.launchCommand,
+                preparedArguments: record.preparedArguments,
+                preparedArgumentsWorkingDirectory: normalizedRestoreWorkingDirectory(
+                    record.preparedArgumentsWorkingDirectory
+                ),
+                observedPermissionMode: record.permissionMode
+            )
+            invocation = AgentRestorePlanner(
+                executableFileResolver: AgentRestoreExecutableFileResolver()
+            ).invocation(for: request, ambientEnvironment: processEnvironment)
+        }
+        let execution: RestoreExecution
+        if let invocation {
+            execution = .invocation(invocation)
+        } else {
+            execution = try legacyRestoreExecution(
+                record: record, processEnvironment: processEnvironment,
+                workingDirectory: effectiveWorkingDirectory
+            )
+        }
+        try runAdmittedRestore(
+            execution: execution, record: record, recordSessionID: surfaceRecordCheckpointID,
+            payload: payload, bindingPayload: bindingPayload, client: client,
+            surfaceID: surfaceID, workspaceID: payload["workspace_id"] as? String ?? processEnvironment["CMUX_WORKSPACE_ID"],
+            effectiveWorkingDirectory: effectiveWorkingDirectory,
+            workingDirectoryBeforeRestore: workingDirectoryBeforeRestore
+        )
+    }
+
+    func currentRestoreSurfaceID(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> String? {
+        // The remote relay and the local CLI do not share a PID namespace.
+        if client.isRelayBacked {
+            return try relayRestoreSurfaceID(
+                client: client,
+                processEnvironment: processEnvironment
+            )
+        }
+
+        do {
+            let payload = try implicitCallerIdentifyResponse(
+                client: client,
+                processEnvironment: processEnvironment
+            )
+            guard let surfaceID = identifiedCallerSurfaceID(in: payload) else {
+                throw currentRestoreSurfaceUnknownError()
+            }
+            return surfaceID
+        } catch let error as CLIError {
+            switch error.v2Code {
+            case "not_found":
+                client.close()
+                throw currentRestoreSurfaceUnknownError()
+            case "method_not_found", "unrecognized_method":
+                // These protocol replies were consumed in full, so the socket
+                // remains synchronized for the legacy discovery request.
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: nil
+                )
+            default:
+                client.close()
+                throw error
+            }
+        } catch {
+            client.close()
+            throw error
+        }
+    }
+
+    private func relayRestoreSurfaceID(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> String? {
+        let ttyName = resolveCallerDescriptorTTYName()
+            ?? resolveCallerTTYName(includeAmbientTTY: false)
+        guard let ttyName else { return nil }
+
+        let resolution = AgentTTYBindingResolution.reportedTTY.rawValue
+        let workspaceID = normalizedHandleValue(processEnvironment["CMUX_WORKSPACE_ID"])
+        var params: [String: Any] = [
+            "tty_name": ttyName,
+            "tty_resolution": resolution,
+        ]
+        if let workspaceID {
+            // Lets an older app identify this probe as an unsupported
+            // workspace-only resolution. The authenticated relay rewrites
+            // aliases and separately stamps its authoritative owner id.
+            params["workspace_id"] = workspaceID
+        }
+
+        do {
+            let payload = try client.sendV2(
+                method: "agent.resolve_delivery_target",
+                params: params
+            )
+            if payload["source"] as? String == "workspace",
+               payload["surface_id"] == nil || payload["surface_id"] is NSNull,
+               let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+               isUUID(resolvedWorkspaceID) {
+                // Previous app versions ignore the TTY probe and resolve
+                // only workspace_id. Use their alias-rewritten result to
+                // scope the legacy terminal list, not the stale remote
+                // shell environment value that produced the request.
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: resolvedWorkspaceID
+                )
+            }
+            guard payload["source"] as? String == "tty",
+                  payload["tty_resolution"] as? String == resolution,
+                  let resolvedWorkspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
+                  isUUID(resolvedWorkspaceID),
+                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
+                  isUUID(surfaceID) else {
+                throw currentRestoreSurfaceUnknownError()
+            }
+            return surfaceID
+        } catch let error as CLIError {
+            switch error.v2Code {
+            case "not_found":
+                client.close()
+                throw currentRestoreSurfaceUnknownError()
+            case "method_not_found", "unrecognized_method":
+                guard let workspaceID, isUUID(workspaceID) else { return nil }
+                return legacyRestoreSurfaceID(
+                    client: client,
+                    workspaceID: workspaceID
+                )
+            default:
+                client.close()
+                throw error
+            }
+        } catch {
+            client.close()
+            throw error
+        }
+    }
+
+    private func legacyRestoreSurfaceID(
+        client: SocketClient,
+        workspaceID: String?
+    ) -> String? {
+        // Prefer the live descriptors. Generic TTY variables can be inherited
+        // across nested shells, so only dedicated cmux hints are a fallback.
+        let ttyName = resolveCallerDescriptorTTYName()
+            ?? resolveCallerTTYName(includeAmbientTTY: false)
+        guard let ttyName,
+              let binding = uniqueCallerTerminalBindingByTTY(
+                  ttyName: ttyName,
+                  client: client,
+                  workspaceId: workspaceID
+              ) else {
+            return nil
+        }
+        return binding.surfaceId
+    }
+
+    private func currentRestoreSurfaceUnknownError() -> CLIError {
+        CLIError(
+            message: String(
+                localized: "cli.restore.error.currentSurfaceUnknown",
+                defaultValue: "restore: the current cmux surface could not be identified. Retry from this terminal or pass --surface <id|ref>."
+            )
+        )
+    }
+
+    private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {
+        try continuationSelector(arguments, verb: .restore)
+    }
+
+    func restoreRecord(
+        from object: [String: Any],
+        verb: CMUXCLIContinuationVerb = .restore
+    ) throws -> RestoreRecord {
+        guard let mode = object["mode"] as? String,
+              let kind = object["kind"] as? String else {
+            throw loggedContinuationError(
+                .malformedRecord,
+                verb: verb,
+                stage: "record.decode",
+                detail: "keys=\(object.keys.sorted().joined(separator: ","))"
+            )
+        }
+        let legacyCommand = object["legacy_command"] as? String
+        let legacyForkCommand = [object["fork_command"], object["legacy_fork_command"]]
+            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let launchCommand: AgentLaunchCommand?
+        do {
+            launchCommand = try restoreLaunchCommand(
+                from: object["launch_command"],
+                verb: verb
+            )
+        } catch {
+            let hasLegacyForkFallback = legacyForkCommand != nil
+                || legacyCommand.map {
+                    AgentLaunchTemplateRenderer().containsForkOption(in: $0)
+                } == true
+            let hasStructuredForkData = object["fork_arguments"].map { !($0 is NSNull) } == true
+                || object["prepared_fork_arguments"].map { !($0 is NSNull) } == true
+            let canUseLegacyFallback: Bool
+            if verb == .fork {
+                canUseLegacyFallback = mode == AgentRestoreRequestMode.forkAgent.rawValue
+                    ? (legacyCommand != nil || hasLegacyForkFallback || hasStructuredForkData)
+                    : (hasLegacyForkFallback || hasStructuredForkData)
+            } else {
+                canUseLegacyFallback = legacyCommand != nil
+            }
+            guard canUseLegacyFallback else {
+                throw loggedContinuationError(
+                    .malformedArguments,
+                    verb: verb,
+                    stage: "record.launch-command",
+                    detail: String(reflecting: type(of: error))
+                )
+            }
+            launchCommand = nil
+        }
+        let forkArguments: [String]?
+        if verb == .fork {
+            let forkArgumentValue: Any?
+            if let primary = object["fork_arguments"], !(primary is NSNull) {
+                forkArgumentValue = primary
+            } else {
+                forkArgumentValue = object["prepared_fork_arguments"]
+            }
+            forkArguments = try optionalStringArray(
+                forkArgumentValue,
+                verb: verb
+            )
+        } else {
+            // Restore predates fork fields; malformed optional fork metadata
+            // must not make an otherwise valid restore record unusable.
+            forkArguments = object["fork_arguments"] as? [String]
+                ?? object["prepared_fork_arguments"] as? [String]
+        }
+        return RestoreRecord(
+            mode: mode,
+            kind: kind,
+            checkpointID: object["checkpoint_id"] as? String,
+            source: object["source"] as? String,
+            workingDirectory: object["working_directory"] as? String,
+            environment: object["environment"] as? [String: String] ?? [:],
+            launchCommand: launchCommand,
+            preparedArguments: object["prepared_arguments"] as? [String],
+            preparedArgumentsWorkingDirectory:
+                object["prepared_arguments_working_directory"] as? String,
+            forkArguments: forkArguments,
+            forkArgumentsWorkingDirectory:
+                (object["fork_arguments_working_directory"] as? String)
+                ?? (object["prepared_fork_arguments_working_directory"] as? String),
+            permissionMode: object["permission_mode"] as? String,
+            legacyCommand: legacyCommand,
+            legacyForkCommand: legacyForkCommand
+        )
+    }
+
+    private func optionalStringArray(
+        _ value: Any?,
+        verb: CMUXCLIContinuationVerb
+    ) throws -> [String]? {
+        guard let value,
+              !(value is NSNull) else {
+            return nil
+        }
+        guard let values = value as? [String], !values.isEmpty else {
+            throw loggedContinuationError(
+                .malformedArguments,
+                verb: verb,
+                stage: "record.fork-arguments"
+            )
+        }
+        return values
+    }
+
+    func restoreLaunchCommand(
+        from value: Any?,
+        verb: CMUXCLIContinuationVerb = .restore
+    ) throws -> AgentLaunchCommand? {
+        guard let object = value as? [String: Any] else { return nil }
+        guard let arguments = object["arguments"] as? [String], !arguments.isEmpty else {
+            throw continuationUsageError(.malformedArguments, verb: verb)
+        }
+        return AgentLaunchCommand(
+            launcher: object["launcher"] as? String,
+            executablePath: object["executable_path"] as? String,
+            arguments: arguments,
+            workingDirectory: object["working_directory"] as? String,
+            environment: object["environment"] as? [String: String],
+            verificationHome: object["verification_home"] as? String,
+            capturedAt: (object["captured_at"] as? NSNumber)?.doubleValue,
+            source: object["source"] as? String
+        )
+    }
+
+}

@@ -24,4 +24,11 @@ struct SessionIndexTableView: NSViewRepresentable {
             )
         )
     }
+
+    static func dismantleNSView(
+        _ nsView: SessionIndexTableContainerView,
+        coordinator: SessionIndexTableController
+    ) {
+        coordinator.dismantle()
+    }
 }

@@ -44,8 +44,15 @@ struct WindowKeyDownReplayGuardTests {
 
     private final class TerminalCommandEquivalentProbeView: GhosttyNSView {
         private(set) var afterMenuMissEvents: [NSEvent] = []
+        private(set) var unavailableCopyMenuEvents: [NSEvent] = []
         private(set) var keyDownEvents: [NSEvent] = []
         var performAfterMenuMissResult = true
+        var consumeUnavailableCopyResult = false
+
+        override func consumeUnavailableCopyMenuAction(_ event: NSEvent) -> Bool {
+            unavailableCopyMenuEvents.append(event)
+            return consumeUnavailableCopyResult
+        }
 
         override func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
             afterMenuMissEvents.append(event)
@@ -59,6 +66,10 @@ struct WindowKeyDownReplayGuardTests {
 
     private final class EditableUndoProbeTextView: NSTextView {
         private(set) var undoCallCount = 0
+
+        override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+            item.action == #selector(undo(_:)) || super.validateUserInterfaceItem(item)
+        }
 
         @objc func undo(_ sender: Any?) {
             undoCallCount += 1
@@ -111,14 +122,13 @@ struct WindowKeyDownReplayGuardTests {
         return (window, terminal)
     }
 
-    private func makeWindowWithTerminalHostedEditableResponder()
-        -> (NSWindow, TerminalCommandEquivalentProbeView, EditableUndoProbeTextView) {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
+    private func makeWindowWithTerminalHostedEditableResponder(
+        reportsKeyStatus: Bool = false
+    ) -> (NSWindow, TerminalCommandEquivalentProbeView, EditableUndoProbeTextView) {
+        let frame = NSRect(x: 0, y: 0, width: 640, height: 420)
+        let window: NSWindow = reportsKeyStatus
+            ? KeyStatusTestWindow(contentRect: frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            : NSWindow(contentRect: frame, styleMask: [.titled, .closable], backing: .buffered, defer: false)
         // AppKit defaults to isReleasedWhenClosed, so the callers' close() would release a
         // window ARC still owns and the over-release lands in a later autorelease pool drain.
         window.isReleasedWhenClosed = false
@@ -153,6 +163,30 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
+    private func makeCommandCKeyDownEvent(windowNumber: Int) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_C)
+        )
+    }
+
+    private func installMenuWithoutCopy() -> NSMenu? {
+        let previousMenu = NSApp.mainMenu
+        // A disabled synthetic key equivalent is still reported as handled by
+        // NSMenu in the headless test host. An absent item reliably models the
+        // menu miss that this window-routing branch receives in production.
+        NSApp.mainMenu = NSMenu(title: "Main")
+        return previousMenu
+    }
+
     private func installUndoMenu(probe: MenuActionProbe) -> NSMenu? {
         let previousMenu = NSApp.mainMenu
         let menu = NSMenu(title: "Main")
@@ -178,7 +212,10 @@ struct WindowKeyDownReplayGuardTests {
         return previousMenu
     }
 
-    private func installResponderChainUndoMenu() -> NSMenu? {
+    /// Installs a Cmd+Z menu item. A nil target exercises AppKit responder-chain
+    /// resolution; tests whose contract is cmux routing can pass an explicit
+    /// editable responder so headless app activation does not decide the result.
+    private func installResponderChainUndoMenu(target: AnyObject? = nil) -> NSMenu? {
         let previousMenu = NSApp.mainMenu
         let menu = NSMenu(title: "Main")
         let undoItem = NSMenuItem(
@@ -186,6 +223,7 @@ struct WindowKeyDownReplayGuardTests {
             action: #selector(EditableUndoProbeTextView.undo(_:)),
             keyEquivalent: "z"
         )
+        undoItem.target = target
         undoItem.keyEquivalentModifierMask = [.command]
         menu.addItem(undoItem)
         NSApp.mainMenu = menu
@@ -284,6 +322,74 @@ struct WindowKeyDownReplayGuardTests {
     }
 
     @Test
+    func terminalUnavailableCopyDoesNotReplayIntoGhostty() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        terminal.consumeUnavailableCopyResult = true
+        let previousMenu = installMenuWithoutCopy()
+        defer {
+            NSApp.mainMenu = previousMenu
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandCKeyDownEvent(windowNumber: window.windowNumber) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(terminal.unavailableCopyMenuEvents.count == 1)
+        #expect(
+            terminal.afterMenuMissEvents.isEmpty,
+            Comment(rawValue: "Unavailable terminal Copy must remain a native no-op instead of replaying Cmd+C into Ghostty's terminal-input path")
+        )
+        #expect(terminal.keyDownEvents.isEmpty)
+    }
+
+    @Test
+    func terminalConfiguredCopyBindingFlowsThroughGhosttyAfterMenuMiss() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let (window, terminal) = makeWindowWithTerminalResponder()
+        let previousMenu = installMenuWithoutCopy()
+        defer {
+            NSApp.mainMenu = previousMenu
+            window.orderOut(nil)
+            window.close()
+        }
+
+        guard let event = makeCommandCKeyDownEvent(windowNumber: window.windowNumber) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(window.performKeyEquivalent(with: event))
+        #expect(terminal.unavailableCopyMenuEvents.count == 1)
+        #expect(
+            terminal.afterMenuMissEvents.count == 1,
+            Comment(rawValue: "A configured Cmd+C binding rejected by Ghostty's menu transaction must continue through normal binding processing")
+        )
+    }
+
+    @Test
+    func unavailableCopyWithoutSurfaceDoesNotAssumeMenuOwnership() {
+        let terminal = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 64, height: 32))
+        guard let event = makeCommandCKeyDownEvent(windowNumber: 0) else {
+            Issue.record("Failed to construct Copy key event")
+            return
+        }
+
+        #expect(
+            !terminal.consumeUnavailableCopyMenuAction(event),
+            Comment(rawValue: "A transient missing surface must fall through so Ghostty can recover it and resolve the live binding")
+        )
+    }
+
+    @Test
     func terminalUndoRedoCommandEquivalentsBypassAppKitUndoMenu() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
@@ -322,14 +428,22 @@ struct WindowKeyDownReplayGuardTests {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
-        let previousMenu = installResponderChainUndoMenu()
+        // This assertion is about cmux routing ownership. AppKit only runs a
+        // window's menu key equivalents while it is key, and the app host is
+        // never active on Blacksmith runners, so a plain window cannot reach
+        // the menu there (it can on Warp). AppKit's nil-target lookup depends
+        // on NSApp.keyWindow too, hence the explicit menu target below.
+        let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder(reportsKeyStatus: true)
+        let previousMenu = installResponderChainUndoMenu(target: textView)
         defer { NSApp.mainMenu = previousMenu }
 
-        let (window, terminal, textView) = makeWindowWithTerminalHostedEditableResponder()
         defer {
             window.orderOut(nil)
             window.close()
         }
+
+        window.makeKeyAndOrderFront(nil)
+        #expect(window.makeFirstResponder(textView))
 
         guard let event = makeCommandZKeyDownEvent(modifiers: [.command], windowNumber: window.windowNumber) else {
             Issue.record("Failed to construct Undo key event")

@@ -26,6 +26,14 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationPaneFlashEnabled"
     )
 
+    /// Stroke color of the attention ring and pane flash, as a `#RRGGBB` hex.
+    /// Empty (the default) keeps the built-in `systemBlue`.
+    public let paneFlashColorHex = DefaultsKey<String>(
+        id: "notifications.paneFlashColor",
+        defaultValue: "",
+        userDefaultsKey: "notificationPaneFlashColorHex"
+    )
+
     public let sound = DefaultsKey<String>(
         id: "notifications.sound",
         defaultValue: "default",
@@ -36,6 +44,15 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         id: "notifications.customSoundFilePath",
         defaultValue: "",
         userDefaultsKey: "notificationSoundCustomFilePath"
+    )
+
+    /// Canonical JSON for the sparse agent × alert-type sound matrix. The
+    /// string backing keeps cmux.json's nested object declarative while using
+    /// the existing managed UserDefaults import/backup machinery.
+    public let soundOverrides = DefaultsKey<String>(
+        id: "notifications.soundOverrides",
+        defaultValue: "{}",
+        userDefaultsKey: "notificationSoundOverrides"
     )
 
     public let command = DefaultsKey<String>(

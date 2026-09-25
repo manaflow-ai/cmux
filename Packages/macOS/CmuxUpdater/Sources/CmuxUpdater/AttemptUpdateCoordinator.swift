@@ -100,7 +100,13 @@ struct AttemptUpdateCoordinator {
             case .updateAvailable:
                 phase = .startingDownload
                 return .confirmInstall
-            case .idle, .notFound:
+            case .notFound:
+                // Being already up to date is the expected outcome of this fresh check, not a
+                // failure (issue #9262). End the attempt quietly and let the model's `.notFound`
+                // state render as the normal up-to-date result.
+                phase = .inactive
+                return .none
+            case .idle:
                 phase = .inactive
                 return .installFailed
             case .error:

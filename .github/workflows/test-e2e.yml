@@ -1,31 +1,35 @@
 name: E2E test with video recording
-run-name: ${{ inputs.test_filter }} on ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }} @ ${{ inputs.ref || github.ref_name }}
+run-name: ${{ inputs.test_filter }} on ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }} @ ${{ inputs.ref || github.ref_name }}${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}
 
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Branch or SHA to test
+        description: Branch, tag, full SHA, or short SHA to test
         required: false
         default: ""
       test_filter:
-        description: "Test class or class/method; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
+        description: "Test class or class/method, or a comma-separated list sharing one target; optionally target-qualified as cmuxUITests/Class or cmuxTests/Class"
         required: true
+      dispatch_id:
+        description: "Optional caller-generated id echoed into the run name so dispatchers can resolve their exact run"
+        required: false
+        default: ""
       test_timeout:
         description: "Per-test timeout in seconds"
         required: false
         default: "120"
       job_timeout:
-        description: "Job timeout in minutes (cold builds on 6-vcpu runners can exceed the 20-minute default)"
+        description: "Job timeout in minutes, applied to the build and test jobs separately"
         required: false
-        default: "20"
+        default: "45"
       record_video:
         description: Record the virtual display during UI tests
         required: false
         default: true
         type: boolean
       runner:
-        description: "Runner OS (auto follows MACOS_RUNNER_15; tart-* choices use isolated VMs)"
+        description: "Runner OS (auto follows MACOS_RUNNER_TESTS; on the 6vcpu macOS 26 default it takes the pool pull request CI would: an owned Mac with a free slot when CI_PR_POOL_OWNED is 1, else 12vcpu while it has headroom, else 6vcpu; glaeda-* are the owned Macs and record no video)"
         required: false
         default: "auto"
         type: choice
@@ -33,62 +37,383 @@ on:
           - auto
           - blacksmith-6vcpu-macos-15
           - blacksmith-6vcpu-macos-26
+          - blacksmith-12vcpu-macos-26
           - blacksmith-6vcpu-macos-latest
-          - warp-macos-15-arm64-6x
-          - depot-macos-latest
-          - depot-macos-14
-          - tart-canary
-          - tart-dual
-          - tart-small
+          - glaeda-std-xcode-26.6
 
+# run-name and the concurrency group cannot read job outputs, so they spell
+# `auto` as the 6vcpu default even when the runner job routes the run to
+# the 12vcpu pool. Every auto dispatch of one ref and filter still shares a
+# group, so a newer one still cancels the older wherever it landed. run-e2e.sh
+# names the pool it chose explicitly, so its titles are exact.
 concurrency:
-  group: e2e-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
+  group: e2e-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}-${{ inputs.ref || github.ref_name }}-${{ inputs.test_filter }}
   cancel-in-progress: true
 
+# This lane checks out and compiles a dispatcher-chosen ref, so it should hold
+# the narrowest token that still works. It reads the repository, downloads a
+# public GhosttyKit release over plain curl, and uploads its own artifacts;
+# none of that needs a writable token.
+permissions:
+  contents: read
+
 jobs:
-  e2e:
-    runs-on: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
-    timeout-minutes: ${{ fromJSON(inputs.job_timeout || '20') }}
-    env:
-      TEST_REF: ${{ inputs.ref || github.ref }}
+  resolve-ref:
+    uses: ./.github/workflows/resolve-dispatch-ref.yml
+    with:
+      ref: ${{ inputs.ref }}
+
+  runner:
+    # The macOS pool build and test run on. `auto` follows MACOS_RUNNER_TESTS.
+    # On the 6vcpu macOS 26 default an E2E run takes a macOS 26 pool by pull
+    # request CI's rule (pr_runner_pool.py): the first pool in CI_PR_POOL_ORDER
+    # (12vcpu, then 6vcpu) with a machine free and no release or nightly job
+    # queued on it, else the shorter queue in rounds. Every Blacksmith
+    # pool is sponsored; only a queued release or nightly job holds 12vcpu
+    # back. Any error reading the queue stays on 6vcpu, and
+    # CI_E2E_LARGE_POOL_OVERFLOW=0 turns the choice off. run-e2e.sh applies the
+    # same rule from the same script. With CI_PR_POOL_OWNED=1 an owned Mac
+    # (glaeda-*) with a free slot in CI_OWNED_POOL_SLOTS comes first, as for
+    # pull requests. A job an owned Mac leaves queued or refuses is re-run by
+    # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
+    # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    # Reads the queue janitor's pool snapshot and the runs created since it
+    # (four API calls at most; see e2e_runner_pool.py for the budget).
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      # e2e_runner_pool.py only knows the manaflow-ai pools, so a fork takes
+      # the GitHub-hosted image here, as in run-name and the concurrency group.
+      label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.label }}
+      # What build and test take from attempt 2 on: the label, except that an
+      # owned Mac becomes the 6vcpu macOS 26 pool (same Xcode build).
+      retry_label: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || steps.pool.outputs.retry_label }}
     steps:
-      - name: Validate Depot runner identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'depot-macos-') }}
+      # The helper comes from this workflow's revision, not the tested one,
+      # which may predate it.
+      - name: Checkout pool helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Pick the macOS pool
+        id: pool
         env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REQUESTED_RUNNER: ${{ inputs.runner }}
+          RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS }}
+          LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          OWNED_UI: ${{ vars.CI_E2E_OWNED_UI }}
         run: |
           set -euo pipefail
-          echo "Requested runner: $REQUESTED_RUNNER"
-          case "$RUNNER_CONTEXT_NAME" in
-            depot-*)
-              echo "Resolved runner matches depot-*? yes"
-              ;;
-            *)
-              echo "Resolved runner matches depot-*? no"
-              echo "::error::$REQUESTED_RUNNER resolved outside Depot. Remove $REQUESTED_RUNNER from non-Depot self-hosted runners or choose an explicit runner."
+          label="$(python3 scripts/ci/e2e_runner_pool.py \
+            --requested "$REQUESTED_RUNNER" \
+            --variable "$RUNNER_VARIABLE" \
+            --overflow "$LARGE_POOL_OVERFLOW" \
+            --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" \
+            --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" \
+            --pr-xcode-app "$PR_XCODE_APP" \
+            --test-filter "$TEST_FILTER" \
+            --owned-ui "$OWNED_UI")"
+          retry_label="$(python3 scripts/ci/e2e_runner_pool.py --retry-of "$label")"
+          {
+            echo "label=$label"
+            echo "retry_label=$retry_label"
+          } >> "$GITHUB_OUTPUT"
+          echo "Runner: $label (requested ${REQUESTED_RUNNER:-auto}; a re-run takes $retry_label)"
+
+      # ci-owned-pool-rescue.yml, started by owned-pool-watch, watches a run
+      # with this marker and re-runs a job an owned Mac leaves queued or
+      # refuses. Fail-safe: without it the run is only not watched.
+      - name: Mark a run on a persistent macOS pool
+        id: marker
+        if: ${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt == 1 }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the persistent pool marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
+  owned-pool-watch:
+    # Starts ci-owned-pool-rescue.yml (from main) for a run whose `runner`
+    # job put it on an owned Mac; any other run creates no rescue workflow
+    # run. The only job here with actions: write; it runs no repository code.
+    # Fail-safe: if the dispatch fails the run is only not watched.
+    name: Watch owned pool jobs
+    needs: runner
+    if: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the persistent pool rescue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
+
+  filter:
+    # Seconds on Linux, and it rejects a malformed selector before either
+    # macOS job is scheduled. After the build/test split a bad filter would
+    # otherwise surface only once a full compile had already been paid for.
+    # It reads the pool only to turn video off on owned Macs.
+    needs: [runner]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    outputs:
+      target: ${{ steps.filter.outputs.target }}
+      filter: ${{ steps.filter.outputs.filter }}
+      selector: ${{ steps.filter.outputs.selector }}
+      selectors: ${{ steps.filter.outputs.selectors }}
+      count: ${{ steps.filter.outputs.count }}
+      record_video: ${{ steps.filter.outputs.record_video }}
+    steps:
+      - name: Normalize test filter
+        id: filter
+        env:
+          TEST_FILTER_INPUT: ${{ inputs.test_filter }}
+          RECORD_VIDEO_INPUT: ${{ inputs.record_video }}
+          RUNNER_LABEL: ${{ needs.runner.outputs.label }}
+        run: |
+          set -euo pipefail
+          raw_filter="$TEST_FILTER_INPUT"
+          if [ -z "$raw_filter" ]; then
+            echo "::error::test_filter must not be empty"
+            exit 1
+          fi
+
+          # A comma-separated list runs several selectors against one compile.
+          # Dispatchers chasing one flake routinely fire several filters at the
+          # same commit seconds apart, and each of those runs paid its own cold
+          # build of identical source.
+          # A trailing field is never visited by the split loop below, so
+          # "cmuxTests/AlphaTests," would otherwise pass as a single selector
+          # instead of failing the empty-entry check.
+          case "$raw_filter" in
+            ,*|*,)
+              echo "::error::test_filter '$raw_filter' has a leading or trailing comma"
               exit 1
               ;;
           esac
 
-      - name: Validate Tart canary identity
-        if: ${{ startsWith((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner, 'tart-') }}
-        env:
-          REQUESTED_RUNNER: ${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}
-          RUNNER_CONTEXT_NAME: ${{ runner.name }}
-        run: |
-          set -euo pipefail
-          case "$RUNNER_CONTEXT_NAME" in
-            tart-cmux-*) ;;
-            *)
-              echo "::error::$REQUESTED_RUNNER resolved to unexpected runner $RUNNER_CONTEXT_NAME"
+          selectors=""
+          filters=""
+          test_target=""
+          count=0
+          rest="$raw_filter"
+          while [ -n "$rest" ]; do
+            case "$rest" in
+              *,*) entry="${rest%%,*}"; rest="${rest#*,}" ;;
+              *) entry="$rest"; rest="" ;;
+            esac
+            # Tolerate spaces after commas without accepting interior spaces.
+            entry="${entry# }"
+            entry="${entry% }"
+            if [ -z "$entry" ]; then
+              echo "::error::test_filter '$raw_filter' has an empty entry"
               exit 1
+            fi
+
+            case "$entry" in
+              cmuxTests/*)
+                entry_target="cmuxTests"
+                entry_filter="${entry#cmuxTests/}"
+                ;;
+              cmuxUITests/*)
+                entry_target="cmuxUITests"
+                entry_filter="${entry#cmuxUITests/}"
+                ;;
+              *)
+                # Back-compat: bare Class or Class/method continues to target UI tests.
+                entry_target="cmuxUITests"
+                entry_filter="$entry"
+                ;;
+            esac
+
+            if [ -z "$entry_filter" ]; then
+              echo "::error::test_filter entry '$entry' is missing a class or class/method after '$entry_target/'"
+              exit 1
+            fi
+
+            case "$entry_filter" in
+              /*|*//*|*\ *)
+                echo "::error::test_filter entry '$entry' is not a valid class or class/method selector"
+                exit 1
+                ;;
+            esac
+
+            if [ -z "$test_target" ]; then
+              test_target="$entry_target"
+            elif [ "$test_target" != "$entry_target" ]; then
+              # One xcodebuild invocation runs one scheme. Mixing targets would
+              # need two, which is a larger change than batching one burst.
+              echo "::error::test_filter may not mix cmuxTests and cmuxUITests entries: '$raw_filter'"
+              exit 1
+            fi
+
+            case ",$selectors," in
+              *",$entry_target/$entry_filter,"*)
+                echo "::error::test_filter repeats '$entry_target/$entry_filter'"
+                exit 1
+                ;;
+            esac
+
+            selectors="${selectors:+$selectors,}$entry_target/$entry_filter"
+            filters="${filters:+$filters,}$entry_filter"
+            count=$((count + 1))
+          done
+
+          # The first entry keeps the single-selector outputs meaningful for
+          # steps that still reason about one filter.
+          normalized_filter="${filters%%,*}"
+          test_selector="${selectors%%,*}"
+          record_video_effective="false"
+          if [ "$test_target" = "cmuxUITests" ] && [ "$RECORD_VIDEO_INPUT" = "true" ]; then
+            record_video_effective="true"
+          fi
+          # Owned Macs (glaeda-*) keep SIP on, so the workflow cannot grant
+          # screen capture through the TCC database the way it does on
+          # Blacksmith. Their tests run without video rather than fail on it.
+          case "$RUNNER_LABEL" in
+            glaeda-*)
+              if [ "$record_video_effective" = "true" ]; then
+                echo "::notice::No video on owned Mac $RUNNER_LABEL; the tests still run."
+              fi
+              record_video_effective="false"
               ;;
           esac
-          test -f /etc/cmux-tart-ci || {
-            echo "::error::$REQUESTED_RUNNER runner is missing the immutable VM identity marker"
-            exit 1
-          }
+
+          {
+            echo "target=$test_target"
+            echo "filter=$normalized_filter"
+            echo "selector=$test_selector"
+            echo "selectors=$selectors"
+            echo "count=$count"
+            echo "record_video=$record_video_effective"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Requested filter: $raw_filter"
+          echo "Resolved target: $test_target"
+          echo "Resolved selectors ($count): $selectors"
+
+  sibling:
+    # Dispatches of one commit with other selectors run in other concurrency
+    # groups, so each compiled the same product. When an earlier dispatch is
+    # already compiling this revision on the same macOS, wait for it here, on
+    # Linux, so this run holds no macOS runner meanwhile; the build job then
+    # adopts that product through its reuse step. See e2e_sibling_build.py.
+    needs: [resolve-ref, runner]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # The helper comes from this workflow's revision, not the tested one,
+      # which may predate it.
+      - name: Checkout sibling helper
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: scripts/ci/e2e_sibling_build.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      # A seed dispatch exists to compile, and never adopts a product.
+      - name: Wait for an earlier compile of this revision
+        if: ${{ !startsWith(inputs.dispatch_id, 'e2e-derived-data-seed-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
+          CMUX_PRODUCT_RUNNER: ${{ needs.runner.outputs.label }}
+          CMUX_E2E_SIBLING_WAIT_SECONDS: "1800"
+        # Waiting is an economy, never a gate: every outcome compiles or adopts.
+        run: python3 scripts/ci/e2e_sibling_build.py wait || true
+
+  build:
+    needs: [resolve-ref, filter, runner, sibling]
+    # The sibling wait never gates the build.
+    if: ${{ !cancelled() && needs.resolve-ref.result == 'success' && needs.filter.result == 'success' && needs.runner.result == 'success' }}
+    runs-on: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
+    # Reuse lists this contract's artifacts and downloads one from an earlier
+    # run. Nothing else in this lane reads the Actions API, and nothing writes.
+    permissions:
+      contents: read
+      actions: read
+    timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
+    outputs:
+      artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+      product_contract: ${{ steps.product-key.outputs.key }}
+      xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
+    env:
+      TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      # The DerivedData seed key hashes `xcodebuild -version`, and
+      # seed-derived-data.yml builds seeds on the macOS 26 pull-request pool
+      # with CMUX_CI_XCODE_APP_PR. On a macOS 26 runner take that pin so a seed
+      # can match; elsewhere keep select-ci-xcode.sh's pool default, which is
+      # the only Xcode the macOS 15 image carries (as pr_runner_pool.py pairs
+      # them).
+      # An owned Mac's label (glaeda-<class>-xcode-<version>) names that same
+      # pin, and a re-run of it takes a macOS 26 pool.
+      CMUX_CI_XCODE_APP: ${{ (contains(needs.runner.outputs.label, 'macos-26') || startsWith(needs.runner.outputs.label, 'glaeda-')) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      # Match the compile-admission contract so an E2E dispatch can adopt the
+      # product a pull request already compiled for the same revision.
+      # contract() hashes the Xcode and SDK that were selected, not the
+      # CMUX_CI_XCODE_APP selector, so this lane need not pin Xcode the way
+      # ci.yml does, nor run on the same runner size: it has to land on the
+      # same Xcode build and macOS major. The intra-run handoff uses the
+      # artifact id, not the name, so nothing here depends on it.
+      CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_PRODUCT_RUNNER: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
+    steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
 
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -105,120 +430,430 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve-ref.outputs.sha }}
           submodules: recursive
 
       - name: Capture SHA
         id: sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Normalize test filter
-        id: filter
-        env:
-          TEST_FILTER_INPUT: ${{ inputs.test_filter }}
-          RECORD_VIDEO_INPUT: ${{ inputs.record_video }}
+      - name: Select Xcode
         run: |
           set -euo pipefail
-          raw_filter="$TEST_FILTER_INPUT"
-          if [ -z "$raw_filter" ]; then
-            echo "::error::test_filter must not be empty"
+          ./scripts/select-ci-xcode.sh
+
+      - name: Prepare isolated DerivedData
+        id: compilation-cache-key
+        run: |
+          set -euo pipefail
+          # Cache entries include absolute compiler paths. Keep these stable
+          # within a runner pool, but never reuse old assembled test products.
+          # The build runs at the canonical root under the name compile
+          # admission uses, so it can adopt the DerivedData seeds main
+          # publishes for admission (see "Adopt the DerivedData seed").
+          workspace_path="$(cd "$GITHUB_WORKSPACE" && pwd -P)"
+          # The CAS path is a compiler argument, so it must match admission's
+          # too: any other value invalidates every compile the seed carries.
+          DERIVED_DATA_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission"
+          CACHE_PATH="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"
+          rm -rf -- "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          mkdir -p "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+          echo "CMUX_E2E_COMPILATION_CACHE=$CACHE_PATH" >> "$GITHUB_ENV"
+          fingerprint="$({
+            echo e2e-compilation-v1
+            xcodebuild -version
+            printf 'workspace=%s\nderived-data=%s\ncas=%s\n' "$workspace_path" "$DERIVED_DATA_PATH" "$CACHE_PATH"
+          } | shasum -a 256 | awk '{print $1}')"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      # No Bun or zig here. The build never runs either: CMUX_SKIP_ZIG_BUILD
+      # stubs the zig helper and no Xcode build phase calls Bun. But
+      # `contract()` fingerprints both, and compile admission installs
+      # neither, so installing them gave every product this job built a name
+      # no pull request product could match. The test job still installs Bun.
+      #
+      # Every tool `contract()` fingerprints is installed by now. Computing the
+      # key earlier recorded some of them as absent, which made the published
+      # artifact's name disagree with the receipt sealed inside it, so nothing
+      # could ever adopt it.
+      - name: Identify the compiled product this revision needs
+        id: product-key
+        run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_DERIVED_DATA_PATH"
+
+      - name: Reuse a compiled product instead of building one
+        id: reuse
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
+
+      # Only an input to compiling, and not part of the product contract, so an
+      # adopted product never needs it.
+      - name: Download pre-built GhosttyKit.xcframework
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Restore E2E compilation cache
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        id: compilation-cache-restore
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
+          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+          restore-keys: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-
+
+      - name: Discard incomplete E2E compilation cache
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.compilation-cache-restore.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          if [ "$CMUX_E2E_COMPILATION_CACHE" != "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" ]; then
+            echo "::error::refusing to clear an unowned compilation cache"
             exit 1
           fi
+          rm -rf -- "$CMUX_E2E_COMPILATION_CACHE"
+          mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
+          echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
-          case "$raw_filter" in
-            cmuxTests/*)
-              test_target="cmuxTests"
-              normalized_filter="${raw_filter#cmuxTests/}"
+      - name: Cache Swift packages
+        id: swift-package-cache
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
+          restore-keys: spm-
+
+      - name: Sanitize Swift package cache
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+
+      # The key names only the Xcode version and the canonical paths, the same
+      # key compile admission computes, so it is known before the source tree
+      # is copied there.
+      - name: Compute the DerivedData seed key
+        id: seed-key
+        if: ${{ steps.reuse.outputs.hit != 'true' && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (vars.CI_CACHE_BACKEND || 'r2') == 'r2' }}
+        run: |
+          set -euo pipefail
+          fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_DERIVED_DATA_PATH")"
+          echo "prefix=admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-$fingerprint-" >> "$GITHUB_OUTPUT"
+
+      # Same as compile admission: the download needs only the key, so it runs
+      # while packages resolve. "Adopt the DerivedData seed" reuses this pick
+      # and waits for it; if this step fails, adopt picks and downloads itself.
+      - name: Start the DerivedData seed download
+        if: ${{ steps.seed-key.outputs.prefix != '' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SEED_PREFIX: ${{ steps.seed-key.outputs.prefix }}
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py start \
+            "$CMUX_DERIVED_DATA_PATH" "$SEED_PREFIX" "$TEST_REF"
+
+      # Copies the checkout to the canonical root and resolves there. See
+      # scripts/ci/canonical-build-root.sh and compile-app-host-test-product.sh.
+      - name: Resolve Swift packages
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        env:
+          CMUX_CI_SWIFTPM_CACHE_EXACT_HIT: ${{ steps.swift-package-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          scripts/ci/compile-app-host-test-product.sh canonical-resolve \
+            "$CMUX_DERIVED_DATA_PATH" "$PWD/.ci-source-packages"
+
+      # A fresh checkout makes every file newer than any earlier build, so
+      # without this even a one-line test change recompiles the app host.
+      # Adopt the DerivedData seed seed-derived-data.yml built for TEST_REF,
+      # or for its nearest ancestor with one, the same seeds compile
+      # admission adopts. Main seeds every push that changes the build, so
+      # the seed is usually a few commits from the tested revision, which is
+      # the only distance where adoption pays (#14098). The swap happens only
+      # after a complete restore, and every miss or failure is a cold build.
+      # Seeds are written only by main-branch jobs in the ci-cache-writer
+      # environment and read here without credentials.
+      - name: Adopt the DerivedData seed
+        id: seed
+        if: ${{ steps.seed-key.outputs.prefix != '' }}
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          SEED_PREFIX: ${{ steps.seed-key.outputs.prefix }}
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/seed_derived_data.py adopt \
+            "$CMUX_CI_CANONICAL_SRC" "$CMUX_DERIVED_DATA_PATH" \
+            "$SEED_PREFIX" "$TEST_REF"
+
+      - name: Build the app-host and UI test product
+        id: compile
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        run: |
+          set -euo pipefail
+          # Builds cmux, cmux-unit and cmux-numeric-locale, so one product
+          # serves both cmuxTests and cmuxUITests dispatches.
+          started="$(python3 -c 'import time; print(time.monotonic())')"
+          scripts/ci/compile-app-host-test-product.sh canonical-build \
+            "$CMUX_DERIVED_DATA_PATH" \
+            "$PWD/.ci-source-packages" \
+            "$CMUX_E2E_COMPILATION_CACHE" \
+            "$RUNNER_TEMP/cmux-e2e-compile.txt"
+          finished="$(python3 -c 'import time; print(time.monotonic())')"
+          python3 -c 'import sys; print(f"seconds={round(float(sys.argv[2])-float(sys.argv[1]), 3)}")' \
+            "$started" "$finished" >> "$GITHUB_OUTPUT"
+
+      # Adoption sets a per-user Xcode default. Only a build whose inputs were
+      # just replayed should ignore inode changes, so a reused runner does not
+      # carry it into an unrelated job.
+      - name: Forget the adopted-build inode override
+        if: ${{ always() && steps.seed.outcome != 'skipped' }}
+        continue-on-error: true
+        run: defaults delete com.apple.dt.XCBuild IgnoreFileSystemDeviceInodeChanges || true
+
+      - name: Package the compiled test product
+        id: package
+        run: |
+          set -euo pipefail
+          # A fresh build's manifests embed the canonical checkout, as in
+          # ci-macos.yml compile admission. Stamp that producer before
+          # relocating into this job's workspace for consumers.
+          if [ "${{ steps.reuse.outputs.hit }}" != true ]; then
+            (cd "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src" && python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH")
+            python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
+          fi
+          python3 scripts/ci/app_host_test_products.py stamp "$CMUX_DERIVED_DATA_PATH"
+          python3 scripts/ci/reuse_app_host_products.py seal "$CMUX_DERIVED_DATA_PATH"
+          archive="$RUNNER_TEMP/app-host-products.tar.gz"
+          # Still a gzip stream, so every consumer reads it unchanged. The
+          # default level spends about a minute squeezing Mach-O binaries that
+          # travel between two jobs on the same fleet and are deleted after.
+          # COPYFILE_DISABLE stops macOS tar adding AppleDouble entries
+          # (Build/._Products) for Xcode's xattrs. macOS tar folds them back
+          # in on extract, so the test job never noticed, but cross-run reuse
+          # extracts with Python and rejects them as unscoped paths.
+          COPYFILE_DISABLE=1 tar -chf - -C "$CMUX_DERIVED_DATA_PATH" Build/Products | gzip -1 > "$archive"
+          echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+          echo "bytes=$(wc -c < "$archive" | tr -d ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the compiled test product
+        id: upload-product
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/app-host-products.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Report what this build cost
+        if: always()
+        env:
+          COMPILE_SECONDS: ${{ steps.compile.outputs.seconds }}
+          ARCHIVE_BYTES: ${{ steps.package.outputs.bytes }}
+          REUSE_HIT: ${{ steps.reuse.outputs.hit }}
+          REUSE_MISSES: ${{ steps.reuse.outputs.miss_reasons }}
+          REUSE_PRODUCER: ${{ steps.reuse.outputs.producer_run_id }}
+          REUSE_SAVED: ${{ steps.reuse.outputs.macos_runner_minutes_saved }}
+          REUSE_TRANSFER: ${{ steps.reuse.outputs.transfer_seconds }}
+          SEED_HIT: ${{ steps.seed.outputs.hit }}
+          SEED_KEY: ${{ steps.seed.outputs.key }}
+          SEED_DISTANCE: ${{ steps.seed.outputs.seed_distance }}
+          SEED_CHANGED: ${{ steps.seed.outputs.changed_inputs }}
+          SEED_SECONDS: ${{ steps.seed.outputs.seconds }}
+          SEED_REASON: ${{ steps.seed.outputs.reason }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Compiled test product"
+            echo
+            if [ "$REUSE_HIT" = "true" ]; then
+              echo "Adopted the product run $REUSE_PRODUCER compiled; transferred in ${REUSE_TRANSFER:-unknown} s."
+              echo "Avoided ${REUSE_SAVED:-unknown} macOS runner-minutes of compilation."
+            else
+              echo "Compiled from source in ${COMPILE_SECONDS:-unknown} s."
+              echo "No product to adopt (${REUSE_MISSES:-none})."
+              if [ "$SEED_HIT" = "true" ]; then
+                echo "Started from DerivedData seed \`$SEED_KEY\` (${SEED_DISTANCE:-unknown} commits back), adopted in ${SEED_SECONDS:-unknown} s; ${SEED_CHANGED:-unknown} inputs differed."
+              else
+                echo "Started from empty DerivedData (${SEED_REASON:-not attempted})."
+              fi
+            fi
+            echo "Archive: ${ARCHIVE_BYTES:-unknown} bytes."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check the selected revision against main
+        id: revision-on-main
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          contained="$(python3 scripts/ci/revision_on_main.py)"
+          echo "contained=$contained" >> "$GITHUB_OUTPUT"
+          echo "Selected revision contained in main: $contained"
+
+      - name: Bound E2E compilation cache
+        id: compilation-cache-bound
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-key.outcome == 'success' }}
+        env:
+          WORKFLOW_REF: ${{ github.ref }}
+          # This job compiles; the tests it feeds run in `test`. A product that
+          # built cleanly is what makes the cache worth seeding.
+          TEST_OUTCOME: ${{ steps.compile.outcome }}
+          REVISION_ON_MAIN: ${{ steps.revision-on-main.outputs.contained }}
+        run: |
+          set -euo pipefail
+          echo "save=false" >> "$GITHUB_OUTPUT"
+          # A dispatch can execute any selected revision, so only code main
+          # already contains may seed caches that later selected refs restore.
+          # Requiring the selected revision to equal the workflow SHA also
+          # expressed that, but no dispatcher passes main's tip, so the cache
+          # never gained an entry.
+          if [ "$WORKFLOW_REF" != refs/heads/main ] \
+            || [[ ! "$TEST_REF" =~ ^[0-9a-f]{40}$ ]] \
+            || [ "${REVISION_ON_MAIN:-false}" != true ] \
+            || [ "$TEST_OUTCOME" != success ]; then
+            echo "E2E compilation cache is read-only for this selected revision/result"
+            exit 0
+          fi
+          cache_path="$CMUX_E2E_COMPILATION_CACHE"
+          if [ ! -d "$cache_path" ] || [ -z "$(find "$cache_path" -type f -print -quit)" ]; then
+            echo "E2E compilation cache is empty; skipping save"
+            exit 0
+          fi
+          cache_kib="$(du -sk "$cache_path" | awk '{print $1}')"
+          echo "E2E compilation cache size: $cache_kib KiB"
+          if [ "$cache_kib" -gt $((5 * 1024 * 1024)) ]; then
+            echo "::warning::E2E compilation cache exceeds 5 GiB; skipping save"
+            exit 0
+          fi
+          echo "save=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save E2E compilation cache
+        continue-on-error: true
+        if: ${{ always() && !cancelled() && steps.compilation-cache-bound.outputs.save == 'true' && steps.compilation-cache-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ env.CMUX_E2E_COMPILATION_CACHE }}
+          key: e2e-compilation-v1-${{ runner.os }}-${{ runner.arch }}-all-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ env.TEST_REF }}
+
+      - name: Clean owned DerivedData
+        if: always()
+        run: |
+          set -euo pipefail
+          derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
+          cache_path="${CMUX_E2E_COMPILATION_CACHE:-}"
+          case "$cache_path" in
+            "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas"|"") ;;
+            *) echo "::error::refusing to remove unowned compilation cache: $cache_path"; exit 1 ;;
+          esac
+          case "$derived_data_path" in
+            "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission")
+              rm -rf -- "$derived_data_path"
+              if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
               ;;
-            cmuxUITests/*)
-              test_target="cmuxUITests"
-              normalized_filter="${raw_filter#cmuxUITests/}"
+            "")
+              echo "DerivedData was not prepared; nothing to clean"
               ;;
             *)
-              # Back-compat: bare Class or Class/method continues to target UI tests.
-              test_target="cmuxUITests"
-              normalized_filter="$raw_filter"
-              ;;
-          esac
-
-          if [ -z "$normalized_filter" ]; then
-            echo "::error::test_filter '$raw_filter' is missing a class or class/method after '$test_target/'"
-            exit 1
-          fi
-
-          case "$normalized_filter" in
-            /*|*//*)
-              echo "::error::test_filter '$raw_filter' is not a valid class or class/method selector"
+              echo "::error::refusing to remove unowned DerivedData path: $derived_data_path"
               exit 1
               ;;
           esac
 
-          test_selector="$test_target/$normalized_filter"
-          record_video_effective="false"
-          if [ "$test_target" = "cmuxUITests" ] && [ "$RECORD_VIDEO_INPUT" = "true" ]; then
-            record_video_effective="true"
+  test:
+    needs: [resolve-ref, filter, runner, build]
+    # Like build: a failed sibling wait must not skip tests a build succeeded
+    # for, and the implicit success() reads every upstream job.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    # scripts/ci/parallel_artifact_download.py reads this run's artifact
+    # metadata through the Actions API; the workflow-level token is
+    # contents-only. Narrow and additive, mirroring ci-macos.yml's admission
+    # job rather than widening the whole workflow.
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ${{ github.run_attempt > 1 && needs.runner.outputs.retry_label || needs.runner.outputs.label }}
+    timeout-minutes: ${{ fromJSON(inputs.job_timeout || '45') }}
+    env:
+      CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
+      # The build job's pin, so this job selects the Xcode that linked the
+      # product it runs.
+      CMUX_CI_XCODE_APP: ${{ needs.build.outputs.xcode_app }}
+      # The product is compiled with CMUX_CI_APP_HOST_ISOLATION_REQUIRED, so
+      # the app host demands the prepared home and refuses to start without
+      # it. ci-macos.yml feeds the shard from its test matrix; this lane runs
+      # a single test job, so it names the only shard there is.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: "1"
+      # test-without-building takes no -derivedDataPath, so its result bundle
+      # would land under ~/Library/Developer/Xcode and never be uploaded. This
+      # makes the app-host wrapper write it to $RUNNER_TEMP/cmux-app-host-xcresults
+      # instead, which is where the upload step reads from.
+      CMUX_APP_HOST_CAPTURE_XCRESULTS: "1"
+    steps:
+      - name: Verify GitHub-hosted route
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          REQUESTED_RUNNER: ${{ needs.runner.outputs.label }}
+          RUNNER_CONTEXT_NAME: ${{ runner.name }}
+        run: |
+          # The self-hosted fleet also carries a macos-26 label, so a macos-*
+          # request must prove it landed on GitHub-hosted capacity before any
+          # checkout.
+          case "$REQUESTED_RUNNER" in
+            macos-*)
+              if [ "$RUNNER_ENVIRONMENT" != "github-hosted" ]; then
+                echo "::error::$REQUESTED_RUNNER resolved outside GitHub-hosted capacity: $RUNNER_CONTEXT_NAME"
+                exit 1
+              fi
+              ;;
+          esac
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
           fi
 
-          {
-            echo "target=$test_target"
-            echo "filter=$normalized_filter"
-            echo "selector=$test_selector"
-            echo "record_video=$record_video_effective"
-          } >> "$GITHUB_OUTPUT"
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-ref.outputs.sha }}
+          submodules: recursive
 
-          echo "Requested filter: $raw_filter"
-          echo "Resolved target: $test_target"
-          echo "Resolved selector: $test_selector"
+      - name: Capture SHA
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Select Xcode
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
-      - name: Download pre-built GhosttyKit.xcframework
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          GHOSTTY_SHA=$(git -C ghostty rev-parse HEAD)
-          BUILD_FLAVOR="crashsubdir-cmux-crash-v1"
-          TAG="xcframework-$GHOSTTY_SHA-$BUILD_FLAVOR"
-          URL="https://github.com/manaflow-ai/ghostty/releases/download/$TAG/GhosttyKit.xcframework.tar.gz"
-          echo "Downloading xcframework for ghostty $GHOSTTY_SHA"
-          MAX_RETRIES=30
-          RETRY_DELAY=20
-          for i in $(seq 1 $MAX_RETRIES); do
-            if curl -fSL -o GhosttyKit.xcframework.tar.gz "$URL"; then
-              echo "Download succeeded on attempt $i"
-              break
-            fi
-            if [ "$i" -eq "$MAX_RETRIES" ]; then
-              echo "Failed to download xcframework after $MAX_RETRIES attempts" >&2
-              exit 1
-            fi
-            echo "Attempt $i/$MAX_RETRIES failed, retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
-          tar xzf GhosttyKit.xcframework.tar.gz
-          rm GhosttyKit.xcframework.tar.gz
-          test -d GhosttyKit.xcframework
-
-      - name: Install zig
-        run: |
-          ./scripts/install-zig-ci.sh
-
-      - name: Install Rust
-        run: |
-          ./scripts/install-rust-ci.sh
-
-      - name: Install Bun for Feed sidebar tests
-        if: ${{ steps.filter.outputs.target == 'cmuxUITests' && (steps.filter.outputs.filter == 'FeedSidebarUITests' || startsWith(steps.filter.outputs.filter, 'FeedSidebarUITests/')) }}
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
-
       - name: Create virtual display
-        if: ${{ steps.filter.outputs.target == 'cmuxUITests' && steps.filter.outputs.filter != 'DisplayResolutionRegressionUITests' }}
+        if: ${{ needs.filter.outputs.target == 'cmuxUITests' && needs.filter.outputs.filter != 'DisplayResolutionRegressionUITests' }}
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -259,15 +894,8 @@ jobs:
           echo "=== Display after ==="
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(none)"
 
-      - name: Install tmux
-        run: |
-          if ! command -v tmux >/dev/null 2>&1; then
-            brew install --quiet tmux
-          fi
-          tmux -V
-
       - name: Install ffmpeg
-        if: ${{ steps.filter.outputs.record_video == 'true' }}
+        if: ${{ needs.filter.outputs.record_video == 'true' }}
         run: |
           brew install --quiet ffmpeg
           FFMPEG_PATH=$(which ffmpeg)
@@ -276,7 +904,7 @@ jobs:
           echo "FFMPEG_PATH=$FFMPEG_PATH" >> "$GITHUB_ENV"
 
       - name: Grant TCC screen recording permission
-        if: ${{ steps.filter.outputs.record_video == 'true' }}
+        if: ${{ needs.filter.outputs.record_video == 'true' }}
         run: |
           FFMPEG_BIN="${FFMPEG_PATH:-/opt/homebrew/bin/ffmpeg}"
 
@@ -308,70 +936,154 @@ jobs:
             defaults write "$APPROVALS_PLIST" "$FFMPEG_BIN" -date "3000-01-01T00:00:00Z" 2>&1 || echo "  (failed)"
           fi
 
+      # The display-churn regression establishes its own display later.
+      # Keep its existing recorder startup check at that point.
+
+      - name: Verify screen capture before dependency setup
+        if: ${{ needs.filter.outputs.record_video == 'true' && needs.filter.outputs.filter != 'DisplayResolutionRegressionUITests' }}
+        run: python3 scripts/ci/preflight-e2e-screen-capture.py
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Install tmux
+        run: |
+          if ! command -v tmux >/dev/null 2>&1; then
+            brew install --quiet tmux
+          fi
+          tmux -V
+
       - name: Prepare isolated DerivedData
         run: |
           set -euo pipefail
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/cmux-derived-data-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf "$DERIVED_DATA_PATH"
+          # Only a destination for the restored product: this job runs
+          # test-without-building and compiles nothing, so there is no
+          # compilation cache here to key, seed or discard.
+          #
+          # It sits under RUNNER_TEMP because app-host cleanup refuses to
+          # inspect a host whose DerivedData lives anywhere else, which is
+          # also where ci-macos.yml puts its test shards.
+          DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-e2e-products-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf -- "$DERIVED_DATA_PATH"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
 
-      - name: Cache Swift packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      - name: Read the compiled test product over parallel range requests
+        id: parallel-product
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+        run: python3 scripts/ci/parallel_artifact_download.py
+
+      # actions/download-artifact reads the provider blob over one connection,
+      # which sustains about 2 MB/s on the Blacksmith macOS fleet. It stays as
+      # the fallback so a transport miss costs minutes, not the whole run.
+
+      - name: Download the compiled test product
+        if: ${{ steps.parallel-product.outputs.hit != 'true' }}
+        uses: ./.github/actions/download-test-product
         with:
-          path: .ci-source-packages
-          key: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-${{ (!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner }}-
+          artifact-id: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/app-host-products
 
-      - name: Sanitize Swift package cache
-        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
+      - name: Restore the compiled test product
+        env:
+          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+          ARTIFACT_PROVIDER_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+          EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
+          CMUX_PRODUCT_CONTRACT: ${{ needs.build.outputs.product_contract }}
+          CMUX_PRODUCT_SOURCE_REVISION: ${{ needs.resolve-ref.outputs.sha }}
+          CMUX_PRODUCT_PRODUCER_RUN_ID: ${{ github.run_id }}
+          CMUX_PRODUCT_PRODUCER_RUN_ATTEMPT: ${{ github.run_attempt }}
+          CMUX_PARALLEL_PRODUCT_HIT: ${{ steps.parallel-product.outputs.hit }}
+          CMUX_PARALLEL_PRODUCT_TRANSFER_SECONDS: ${{ steps.parallel-product.outputs.transfer_seconds }}
+        run: scripts/ci/restore-app-host-test-product.sh
 
-      - name: Resolve Swift packages
+      - name: Prepare isolated app-host home
+        id: prepare-app-host-home
+        if: ${{ needs.filter.outputs.target == 'cmuxTests' }}
+        run: scripts/ci/prepare-app-host-home.sh
+
+      - name: Resolve selectors against the built tests
+        id: resolve-selectors
+        if: ${{ needs.filter.outputs.target == 'cmuxTests' }}
+        env:
+          TEST_SELECTORS: ${{ needs.filter.outputs.selectors }}
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          mkdir -p "$SOURCE_PACKAGES_DIR"
-          for attempt in 1 2 3; do
-            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -resolvePackageDependencies; then
-              # Guard against a stale/poisoned Swift-package cache: resolve can
-              # report success without binary artifacts materialized.
-              if [ -d "$SOURCE_PACKAGES_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework" ] && [ -d "$SOURCE_PACKAGES_DIR/artifacts/sentry-cocoa/Sentry/Sentry.xcframework" ]; then
-                exit 0
-              fi
-              echo "Resolve succeeded but binary artifacts are missing (stale cache); clearing and retrying" >&2
-              rm -rf "$SOURCE_PACKAGES_DIR"
-            fi
-            if [ "$attempt" -eq 3 ]; then
-              echo "Failed to resolve Swift packages after 3 attempts" >&2
-              exit 1
-            fi
-            echo "Package resolution failed on attempt $attempt, retrying..."
-            sleep $((attempt * 5))
-          done
+          # A Swift Testing method selector without its call suffix, such as
+          # cmuxTests/Suite/method instead of cmuxTests/Suite/method(), matches
+          # nothing, and xcodebuild reports zero executed tests as success.
+          # Enumerate what the restored product contains, the same way the
+          # app-host shards do, and give each selector the name the inventory
+          # records before anything runs.
+          #
+          # This job runs the tested revision's scripts. A revision older than
+          # the resolver keeps its selectors as given; the executed-count
+          # guards in the next step still apply.
+          if [ ! -f scripts/ci/focused_test_selectors.py ]; then
+            echo "::notice::This revision predates selector resolution; running selectors as given."
+            exit 0
+          fi
+          enumeration_json="$RUNNER_TEMP/cmux-app-host-test-enumeration.json"
+          inventory_json="$RUNNER_TEMP/cmux-app-host-test-inventory.json"
+          enumeration_log="$RUNNER_TEMP/cmux-app-host-test-enumeration.log"
+          rm -f -- "$enumeration_json" "$inventory_json" "$enumeration_log"
+          if ! bash scripts/ci/run-and-capture.sh "$enumeration_log" \
+            scripts/ci/run-in-console-session.sh \
+            xcodebuild test-without-building \
+            -enumerate-tests \
+            -xctestrun "$CMUX_APP_HOST_XCTESTRUN" \
+            -destination "platform=macOS" \
+            -test-enumeration-style hierarchical \
+            -test-enumeration-format json \
+            -test-enumeration-output-path "$enumeration_json" \
+            || [ ! -s "$enumeration_json" ] \
+            || ! python3 scripts/ci/app_host_result_accounting.py inventory \
+              "$enumeration_json" --output "$inventory_json"; then
+            echo "::warning::Could not enumerate the built tests; running selectors as given."
+            exit 0
+          fi
+          resolved="$(python3 scripts/ci/focused_test_selectors.py resolve \
+            --inventory "$inventory_json" --selectors "$TEST_SELECTORS")"
+          echo "Resolved selectors: $resolved"
+          echo "selectors=$resolved" >> "$GITHUB_OUTPUT"
 
       - name: Run selected tests
         id: tests
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
-          TEST_TARGET: ${{ steps.filter.outputs.target }}
-          TEST_SELECTOR: ${{ steps.filter.outputs.selector }}
-          NORMALIZED_FILTER: ${{ steps.filter.outputs.filter }}
+          TEST_TARGET: ${{ needs.filter.outputs.target }}
+          TEST_SELECTOR: ${{ needs.filter.outputs.selector }}
+          TEST_SELECTORS: ${{ steps.resolve-selectors.outputs.selectors || needs.filter.outputs.selectors }}
+          TEST_SELECTOR_COUNT: ${{ needs.filter.outputs.count }}
+          NORMALIZED_FILTER: ${{ needs.filter.outputs.filter }}
           TEST_TIMEOUT: ${{ inputs.test_timeout || '120' }}
-          RECORD_VIDEO: ${{ steps.filter.outputs.record_video }}
+          RECORD_VIDEO: ${{ needs.filter.outputs.record_video }}
           # App-host crash recovery must not stall on interactive backtraces
           # (mirrors ci.yml's tests job hardening).
           SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
           CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS: "45"
         run: |
           set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          ONLY_TESTING="-only-testing:$TEST_SELECTOR"
+          # One -only-testing: per selector. xcodebuild unions repeated flags,
+          # so a batch of filters runs against a single compile.
+          ONLY_TESTING=()
+          rest="$TEST_SELECTORS"
+          while [ -n "$rest" ]; do
+            case "$rest" in
+              *,*) entry="${rest%%,*}"; rest="${rest#*,}" ;;
+              *) entry="$rest"; rest="" ;;
+            esac
+            ONLY_TESTING+=("-only-testing:$entry")
+          done
           DISPLAY_ENV_PREFIX=()
 
-          if [ "$TEST_TARGET" = "cmuxUITests" ] && [ "$NORMALIZED_FILTER" = "DisplayResolutionRegressionUITests" ]; then
+          if [ "$TEST_SELECTOR_COUNT" = "1" ] && [ "$TEST_TARGET" = "cmuxUITests" ] && [ "$NORMALIZED_FILTER" = "DisplayResolutionRegressionUITests" ]; then
             HELPER_PATH="/tmp/create-virtual-display"
             MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
 
@@ -389,8 +1101,8 @@ jobs:
           # so recording must start after that harness is ready.
           if [ "$RECORD_VIDEO" = "true" ]; then
             # A persistent AVFoundation capture session prevents
-            # XCUIApplication from foregrounding a macOS app on both Warp and
-            # Tart. Capture independent JPEG frames instead, then assemble
+            # XCUIApplication from foregrounding a macOS app on self-hosted
+            # VMs. Capture independent JPEG frames instead, then assemble
             # them after XCTest exits. No recorder owns the display while the
             # app is activating.
             GUI_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
@@ -466,39 +1178,45 @@ jobs:
             fi
           fi
 
+          # The product was compiled once by the `build` job and restored
+          # above, so this runs the tests and nothing else. `-only-testing:`
+          # narrows execution; it never narrowed compilation, which is why a
+          # one-class dispatch used to pay a full cold build.
           if [ "$TEST_TARGET" = "cmuxTests" ]; then
+            XCTESTRUN_PATH="$CMUX_APP_HOST_XCTESTRUN"
             XCODEBUILD_CMD=(
               scripts/ci/run-in-console-session.sh
               scripts/ci/run-app-host-xcodebuild.sh
-              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH"
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
-              -disableAutomaticPackageResolution
+              -xctestrun "$XCTESTRUN_PATH"
               -destination "platform=macOS"
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-              "$ONLY_TESTING"
-              CMUX_SKIP_ZIG_BUILD=1
-              test
+              "${ONLY_TESTING[@]}"
+              test-without-building
             )
           else
+            XCTESTRUN_PATH="$CMUX_UI_XCTESTRUN"
+            mkdir -p "$RUNNER_TEMP/cmux-app-host-xcresults"
             XCODEBUILD_CMD=(
-              xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH"
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR"
-              -disableAutomaticPackageResolution
+              xcodebuild
+              -xctestrun "$XCTESTRUN_PATH"
+              -resultBundlePath "$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
               -destination "platform=macOS"
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
-              "$ONLY_TESTING"
-              test
+              "${ONLY_TESTING[@]}"
+              test-without-building
             )
           fi
-
+          if [ ! -f "$XCTESTRUN_PATH" ]; then
+            echo "::error::restored product has no $TEST_TARGET test manifest"
+            exit 1
+          fi
           set +e
-          # Stream xcodebuild output into the live job log (and a file for the
-          # summary parsing below). The previous buffered capture lost all
-          # build/test output whenever the job hit its timeout mid-run.
-          "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}" 2>&1 | tee /tmp/xcodebuild-e2e.log
-          EXIT_CODE=${PIPESTATUS[0]}
+          # Keep the tested command on a regular file descriptor. The capture
+          # helper owns the live log tail, so a detached test descendant cannot
+          # keep this job alive after xcodebuild exits.
+          bash scripts/ci/run-and-capture.sh /tmp/xcodebuild-e2e.log \
+            "${RUN_XCODEBUILD[@]}" "${XCODEBUILD_CMD[@]}"
+          EXIT_CODE=$?
           set -e
           OUTPUT=$(cat /tmp/xcodebuild-e2e.log)
 
@@ -510,31 +1228,10 @@ jobs:
             echo "EOFSUM"
           } >> "$GITHUB_OUTPUT"
 
-          EXECUTED_TESTS=$(python3 - /tmp/xcodebuild-e2e.log <<'PY'
-          import re
-          import sys
-
-          log_path = sys.argv[1]
-          with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
-              text = handle.read()
-
-          # XCTest summaries ("Executed N tests") and Swift Testing run summaries
-          # ("Test run with N tests ...") are independent per-framework counts in
-          # one xcodebuild invocation; a filter can select a suite living in either.
-          xctest = [int(value) for value in re.findall(r"Executed\s+(\d+)\s+tests?\b", text)]
-          swift_testing = [int(value) for value in re.findall(r"Test run with\s+(\d+)\s+tests?\b", text)]
-          counts = []
-          if xctest:
-              counts.append(xctest[-1])
-          if swift_testing:
-              counts.append(swift_testing[-1])
-          if counts:
-              print(max(counts))
-          PY
-          )
-
-          if [ -z "$EXECUTED_TESTS" ]; then
-            echo "::error::Could not determine executed test count for $TEST_SELECTOR from xcodebuild output"
+          if ! EXECUTED_TESTS=$(./scripts/ci/require_selected_test_execution.sh \
+            /tmp/xcodebuild-e2e.log \
+            "$TEST_SELECTOR"); then
+            echo "::error::Selected test execution guard rejected $TEST_SELECTOR"
             echo "test_result=failed" >> "$GITHUB_OUTPUT"
             {
               echo "test_output<<EOFOUT"
@@ -542,19 +1239,74 @@ jobs:
               echo "EOFOUT"
             } >> "$GITHUB_OUTPUT"
             exit 1
+          fi
+
+          # That guard proves some tests ran, never which ones. In a batch, a
+          # selector that matched nothing hides behind one that ran, so hold
+          # every selector to its own typed results: each must account for at
+          # least one executed Test Case.
+          if [ -f scripts/ci/focused_test_selectors.py ]; then
+            if [ "$TEST_TARGET" = "cmuxUITests" ]; then
+              ui_bundle="$RUNNER_TEMP/cmux-app-host-xcresults/cmuxUITests.xcresult"
+              if [ -d "$ui_bundle" ]; then
+                xcrun xcresulttool get test-results tests --path "$ui_bundle" --compact \
+                  > "${ui_bundle%.xcresult}.tests.json" 2>/dev/null || true
+              fi
+            fi
+            shopt -s nullglob
+            typed_results=("$RUNNER_TEMP"/cmux-app-host-xcresults/*.tests.json)
+            shopt -u nullglob
+            if [ "${#typed_results[@]}" -eq 0 ]; then
+              echo "::warning::No typed test results; only the aggregate executed-count guard applied."
+            else
+              set +e
+              python3 scripts/ci/focused_test_selectors.py check-executed \
+                --selectors "$TEST_SELECTORS" --tests-json "${typed_results[@]}"
+              selector_status=$?
+              set -e
+              if [ "$selector_status" -ne 0 ] && [ "$selector_status" -ne 3 ]; then
+                echo "test_result=failed" >> "$GITHUB_OUTPUT"
+                {
+                  echo "test_output<<EOFOUT"
+                  echo "$OUTPUT" | tail -200
+                  echo "EOFOUT"
+                } >> "$GITHUB_OUTPUT"
+                exit 1
+              fi
+            fi
+          fi
+
+          # Name each
+          # requested suite in the log as well. This is advisory on purpose.
+          #
+          # Three output shapes reach this log and only two are matchable:
+          #   XCTest              Test Suite 'Name' started
+          #   swift-testing bare  Suite Name started.
+          #   swift-testing named Suite "A Display Name" started.
+          # A @Suite("...") display name is not the identifier that
+          # -only-testing: takes, and 293 of the 821 suites in cmuxTests carry
+          # one. Failing on an unmatched name would turn those green runs red,
+          # so report and let require_selected_test_execution.sh above own the
+          # pass/fail decision.
+          missing_suites=""
+          rest="$TEST_SELECTORS"
+          while [ -n "$rest" ]; do
+            case "$rest" in
+              *,*) entry="${rest%%,*}"; rest="${rest#*,}" ;;
+              *) entry="$rest"; rest="" ;;
+            esac
+            suite="${entry#*/}"
+            suite="${suite%%/*}"
+            if ! grep -Eq "(Test Suite '${suite}')|(Suite \"${suite}\")|(^[^A-Za-z0-9_]*Suite ${suite}[ .])" \
+              /tmp/xcodebuild-e2e.log; then
+              missing_suites="${missing_suites:+$missing_suites, }$entry"
+            fi
+          done
+          if [ -n "$missing_suites" ]; then
+            echo "::warning::Not named in the log (a @Suite display name never is): $missing_suites"
           fi
 
           echo "Executed tests for $TEST_SELECTOR: $EXECUTED_TESTS"
-          if [ "$EXECUTED_TESTS" -eq 0 ]; then
-            echo "::error::test_filter '$TEST_FILTER' resolved to target '$TEST_TARGET' selector '$TEST_SELECTOR' but xcodebuild executed 0 tests"
-            echo "test_result=failed" >> "$GITHUB_OUTPUT"
-            {
-              echo "test_output<<EOFOUT"
-              echo "$OUTPUT" | tail -200
-              echo "EOFOUT"
-            } >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
 
           if [ "$EXIT_CODE" -eq 0 ]; then
             echo "test_result=passed" >> "$GITHUB_OUTPUT"
@@ -570,7 +1322,7 @@ jobs:
           fi
 
       - name: Stop recording and trim
-        if: ${{ always() && steps.filter.outputs.record_video == 'true' && env.RECORD_PID != '' }}
+        if: ${{ always() && needs.filter.outputs.record_video == 'true' && env.RECORD_PID != '' }}
         run: |
           # Stop frame capture, then assemble the independent images into a
           # video. This avoids holding an AVFoundation display session while
@@ -625,28 +1377,38 @@ jobs:
             | xargs -I{} echo "Duration: {}s"
 
       - name: Upload recording artifact
-        if: ${{ always() && steps.filter.outputs.record_video == 'true' }}
+        id: recording
+        if: ${{ always() && needs.filter.outputs.record_video == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-recording
           path: /tmp/test-recording.mp4
           if-no-files-found: warn
+          retention-days: 30
 
-      - name: Post results to cmux-dev-artifacts
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-results
+          path: ${{ runner.temp }}/cmux-app-host-xcresults/**/*.xcresult
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish test summary
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.DEV_ARTIFACTS_TOKEN }}
           TEST_RESULT: ${{ steps.tests.outputs.test_result || 'failed' }}
           TEST_SUMMARY: ${{ steps.tests.outputs.test_summary }}
           TEST_OUTPUT: ${{ steps.tests.outputs.test_output }}
           TEST_FILTER: ${{ inputs.test_filter }}
           COMMIT_SHA: ${{ steps.sha.outputs.sha }}
           RUN_ID: ${{ github.run_id }}
-          RECORD_VIDEO: ${{ steps.filter.outputs.record_video }}
+          RECORD_VIDEO: ${{ needs.filter.outputs.record_video }}
+          RECORDING_URL: ${{ steps.recording.outputs.artifact-url }}
         run: |
           set -euo pipefail
 
-          LABEL="$TEST_RESULT"
           if [ "$TEST_RESULT" = "passed" ]; then
             STATUS_EMOJI="PASSED"
           else
@@ -655,47 +1417,45 @@ jobs:
 
           REF_DISPLAY="${{ inputs.ref || github.ref_name }}"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/$RUN_ID"
-          ARTIFACT_URL="$RUN_URL#artifacts"
+          {
+            echo "## E2E test result"
+            echo
+            echo "**Status:** $STATUS_EMOJI"
+            echo "**Ref:** \`$REF_DISPLAY\`"
+            echo "**SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)"
+            echo "**Test:** \`$TEST_FILTER\`"
+            echo "**Workflow run:** $RUN_URL"
 
-          BODY="**Status:** $STATUS_EMOJI
-          **Ref:** \`$REF_DISPLAY\`
-          **SHA:** [\`${COMMIT_SHA:0:12}\`](https://github.com/${{ github.repository }}/commit/$COMMIT_SHA)
-          **Test:** \`$TEST_FILTER\`
-          **Workflow run:** $RUN_URL"
+            if [ "$RECORD_VIDEO" = "true" ]; then
+              if [ -n "$RECORDING_URL" ]; then
+                echo "**Recording:** [Download artifact]($RECORDING_URL) (retained for 30 days)"
+              else
+                echo "**Recording:** unavailable"
+              fi
+            fi
 
-          if [ "$RECORD_VIDEO" = "true" ]; then
-            BODY="$BODY
-          **Recording:** [Download from artifacts]($ARTIFACT_URL)"
-          fi
+            if [ -n "$TEST_OUTPUT" ]; then
+              echo
+              echo "<details><summary>Test output (last 200 lines)</summary>"
+              echo
+              echo '```'
+              printf '%s\n' "$TEST_OUTPUT"
+              echo '```'
+              echo
+              echo "</details>"
+            fi
 
-          if [ -n "$TEST_OUTPUT" ]; then
-            BODY="$BODY
+            if [ -n "$TEST_SUMMARY" ]; then
+              echo
+              echo '```'
+              printf '%s\n' "$TEST_SUMMARY"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          <details><summary>Test output (last 200 lines)</summary>
-
-          \`\`\`
-          $TEST_OUTPUT
-          \`\`\`
-
-          </details>"
-          fi
-
-          if [ -n "$TEST_SUMMARY" ]; then
-            BODY="$BODY
-
-          \`\`\`
-          $TEST_SUMMARY
-          \`\`\`"
-          fi
-
-          ISSUE_URL=$(gh issue create \
-            --repo manaflow-ai/cmux-dev-artifacts \
-            --title "[$STATUS_EMOJI] $TEST_FILTER @ ${COMMIT_SHA:0:7} ($REF_DISPLAY)" \
-            --body "$BODY" \
-            --label "$LABEL")
-
-          echo "Issue posted: $ISSUE_URL"
-          echo "::notice title=Test Result Issue::$ISSUE_URL"
+      - name: Clean owned app-host home
+        if: always() && steps.prepare-app-host-home.outcome == 'success'
+        run: scripts/ci/cleanup-app-host-home.sh
 
       - name: Clean owned DerivedData
         if: always()
@@ -703,7 +1463,7 @@ jobs:
           set -euo pipefail
           derived_data_path="${CMUX_DERIVED_DATA_PATH:-}"
           case "$derived_data_path" in
-            "$RUNNER_TEMP"/cmux-derived-data-e2e-*)
+            "$RUNNER_TEMP/cmux-e2e-products-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}")
               rm -rf -- "$derived_data_path"
               ;;
             "")

@@ -420,4 +420,26 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
         }
     }
 }
+
+/// Privacy-safe terminal-toolbar interactions surfaced to the shell's
+/// diagnostic recorder. Associated values are fixed enums, never terminal or
+/// clipboard content.
+public enum TerminalToolbarDiagnosticAction: Sendable {
+    case accessory(TerminalInputAccessoryAction)
+    case keyboardToggle
+    case hideChrome
+    case customize
+    case zoomResetToDefault
+    case zoomSaveAsDefault
+    case zoomRestoreBuiltIn
+}
+
+/// Privacy-safe reason the terminal's effective user zoom changed.
+public enum TerminalZoomDiagnosticAction: Int, Sendable {
+    case stepDecrease = 1
+    case stepIncrease = 2
+    case resetToDefault = 3
+    case restoreBuiltIn = 4
+    case hostSet = 5
+}
 #endif

@@ -537,6 +537,7 @@ struct DockPortalReconcileTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
@@ -544,7 +545,7 @@ struct DockPortalReconcileTests {
             let workspace = try #require(manager.tabs.first)
             let sourcePanel = try #require(workspace.panels.values.first)
             let sourceTabId = try #require(workspace.surfaceIdFromPanelId(sourcePanel.id))
-            let dock = workspace.dockSplit
+            let dock = workspace.requiredDockSplitForTesting
             let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
             dock.setVisibleInUI(true)
             dock.clearDockPortalReconcile()
@@ -558,6 +559,47 @@ struct DockPortalReconcileTests {
 
             #expect(moved)
             #expect(dock.dockPortalReconcileState.scheduledRequestCount > 0)
+        }
+    }
+
+    @Test("Simulator surface stays with workspace owner")
+    @MainActor
+    func simulatorSurfaceCannotMoveIntoDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let previousAppDelegate = AppDelegate.shared
+            let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            let appDelegate = AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            TerminalController.shared.setActiveTabManager(manager)
+            let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+            defer {
+                TerminalController.shared.setActiveTabManager(previousManager)
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.tabs.forEach { $0.teardownAllPanels() }
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            let workspace = try #require(manager.tabs.first)
+            let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+            let simulator = try #require(workspace.newSimulatorSurface(inPane: pane, focus: false))
+            let sourceTabId = try #require(workspace.surfaceIdFromPanelId(simulator.id))
+            let dock = workspace.requiredDockSplitForTesting
+            let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
+
+            #expect(!appDelegate.canMoveSurfaceIntoDock(
+                sourceTabId: sourceTabId.uuid,
+                destinationDock: dock
+            ))
+            #expect(!appDelegate.moveSurfaceIntoDock(
+                sourceTabId: sourceTabId.uuid,
+                destinationDock: dock,
+                destination: .insert(targetPane: rootPane, targetIndex: nil)
+            ))
+            #expect(workspace.panels[simulator.id] === simulator)
+            #expect(dock.panel(for: sourceTabId) == nil)
         }
     }
 
@@ -576,13 +618,14 @@ struct DockPortalReconcileTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 AppDelegate.shared = previousAppDelegate
             }
 
             let sourceWorkspace = try #require(manager.tabs.first)
             let destinationWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
-            let dock = sourceWorkspace.dockSplit
+            let dock = sourceWorkspace.requiredDockSplitForTesting
             let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
             dock.setVisibleInUI(true)
             let dockPanelId = try #require(dock.newSurface(kind: .terminal, inPane: rootPane, focus: true))
@@ -613,6 +656,7 @@ struct DockPortalReconcileTests {
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
+            sessionRestoreSourceWorkspaceId: nil,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
@@ -636,6 +680,7 @@ struct DockPortalReconcileTests {
             shellActivityState: nil,
             restoredResumeSessionWorkingDirectory: nil,
             resumeBinding: nil,
+            managedAgentResumeBinding: nil,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,

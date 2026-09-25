@@ -418,6 +418,18 @@ import Testing
             lines: ["@1 f92f,80x24,0,0,0 f92f,80x24,0,0,0 [] one"],
             isError: false
         ))
+        // Staging @1 for the first time subscribes its pane-border-status
+        // (refresh-client -B) before the rects fetch goes out, and tmux answers
+        // every command with its own result block. Ack the subscription so the
+        // rects reply below pops the rects slot of the command FIFO.
+        while let kind = connection.pendingCommandKindsForTesting.first {
+            if case .paneRects = kind { break }
+            connection.handleMessageForTesting(.commandResult(commandNumber: 0, lines: [], isError: false))
+        }
+        #expect(connection.pendingCommandKindsForTesting.first.map {
+            if case .paneRects = $0 { return true }
+            return false
+        } == true)
         connection.handleMessageForTesting(.commandResult(
             commandNumber: 0,
             lines: ["%0 0 0 80 23 1 bottom :0 \"ejc3-mac\""],
