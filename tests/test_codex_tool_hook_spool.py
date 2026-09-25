@@ -57,6 +57,29 @@ import Darwin
     }
 }
 ''')
+        controller = (ROOT / 'Sources/TerminalController.swift').read_text()
+        start = controller.index('ControlClientWorkerPool(', controller.index('let socketClientWorkerPool'))
+        end = controller.index(')', start) + 1
+        pool_source = root / 'PoolMain.swift'
+        pool_source.write_text('''import Foundation
+@main struct PoolMain {
+    static func main() async {
+        let pool = ''' + controller[start:end] + '''
+        let (idle, finish) = AsyncStream<Void>.makeStream()
+        var started = 0
+        for _ in 0..<101 {
+            let result = await pool.submit { for await _ in idle {} }
+            if result == .started { started += 1 }
+        }
+        print(started)
+        await pool.stop()
+        finish.finish()
+    }
+}
+''')
+        cls.pool_probe = root / 'pool-probe'
+        subprocess.run(['swiftc', str(ROOT / 'Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Server/ControlClientWorkerPool.swift'),
+                        str(pool_source), '-o', str(cls.pool_probe)], check=True, timeout=120)
         cls.worker = root / 'worker'
         spool_source = ROOT / 'Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/CodexToolFeedSpool.swift'
         if spool_source.exists():
@@ -134,6 +157,10 @@ import Darwin
         self.run_hook(self.command(), '{}', env)
         self.assertEqual([p for p in self.spool.iterdir() if not p.name.endswith(".ready")], [])
         self.assertFalse(self.log.exists())
+
+    def test_hundred_persistent_feeds_leave_room_for_an_interactive_client(self):
+        admitted = int(subprocess.check_output([str(self.pool_probe)], timeout=15))
+        self.assertEqual(admitted, 101, 'idle feed connections must not starve an interactive client')
 
     def test_consumer_wakes_on_publication_and_cleans_up_after_parent_exit(self):
         owner_source = """import os,subprocess,sys
