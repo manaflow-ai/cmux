@@ -552999,6 +552999,18 @@
             "value": "Change these options in the ⋯ menu next to My Devices."
           }
         },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
+          }
+        },
         "ar": {
           "stringUnit": {
             "state": "translated",
@@ -553023,6 +553035,12 @@
             "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
           }
         },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
@@ -553033,6 +553051,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
           }
         },
         "zh-Hans": {

@@ -49,6 +49,10 @@ protocol SurfaceProvider: AnyObject {
     /// End a terminal on this machine (the process and its remote tab). Providers that
     /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
     func closeTerminal(_ id: SurfaceResourceID) async throws
+    /// End a terminal when the caller already knows its remote workspace. The
+    /// workspace identity avoids a provider-wide ownership scan during batch
+    /// workspace deletion; the default keeps legacy providers unchanged.
+    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String?) async throws
     /// Create a new, empty workspace on this machine, directly (not as a side effect of
     /// creating a terminal). Providers without remote workspaces refuse.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
@@ -110,6 +114,9 @@ extension SurfaceProvider {
 
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
+    }
+    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String?) async throws {
+        try await closeTerminal(id)
     }
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")

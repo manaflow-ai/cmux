@@ -106,11 +106,26 @@ extension DeviceSurfaceProvider {
     }
 
     func closeTerminal(_ id: SurfaceResourceID) async throws {
+        try await closeTerminal(id, remoteWorkspaceID: nil)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String? = nil) async throws {
         guard id.machine == machine, link.isConnected else { throw DeviceLinkError.notConnected }
-        let owners = link.mirror.workspaces.orderedRecords.filter { workspace in
-            workspace.terminals.contains { $0.id.caseInsensitiveCompare(id.key) == .orderedSame }
+        let workspaceID: String
+        if let remoteWorkspaceID, !remoteWorkspaceID.isEmpty {
+            guard let workspace = link.mirror.workspaces.orderedRecords.first(where: {
+                $0.id.caseInsensitiveCompare(remoteWorkspaceID) == .orderedSame
+            }), workspace.terminals.contains(where: { $0.id.caseInsensitiveCompare(id.key) == .orderedSame }) else {
+                throw SurfaceCatalogError.unknownResource(id)
+            }
+            workspaceID = workspace.id
+        } else {
+            let owners = link.mirror.workspaces.orderedRecords.filter { workspace in
+                workspace.terminals.contains { $0.id.caseInsensitiveCompare(id.key) == .orderedSame }
+            }
+            guard owners.count == 1, let owner = owners.first else { throw SurfaceCatalogError.unknownResource(id) }
+            workspaceID = owner.id
         }
-        guard owners.count == 1, let workspaceID = owners.first?.id else { throw SurfaceCatalogError.unknownResource(id) }
         try await layoutSync.closeTerminal(surfaceID: id.key, remoteWorkspaceID: workspaceID)
         for (panelID, session) in sessions where session.remoteSurfaceID.uuidString.lowercased() == id.key.lowercased() {
             session.stop()

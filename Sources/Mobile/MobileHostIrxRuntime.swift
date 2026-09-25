@@ -142,6 +142,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         return result
     }
 
+    /// Selects the independent admission policy after the peer has been
+    /// authenticated by the IROH grant and TLS endpoint identity.
+    nonisolated static func allowsInboundPeer(
+        isMac: Bool,
+        pairingEnabled: Bool,
+        incomingAccessEnabled: Bool
+    ) -> Bool {
+        isMac ? incomingAccessEnabled : pairingEnabled
+    }
+
     private var deviceCapabilities: [String] {
         Self.macDeviceCapabilities(
             discoveryEnabled: DevicesFeature.isEnabled,
@@ -870,10 +880,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         token: UUID
     ) async {
         let journal = Self.journal
-        guard pairingEnabled() else {
-            await irx.close(code: .hostShutdown, origin: .local)
-            return
-        }
         guard
             let (peer, control, sessionID) = await IrxAdmission().performServer(
                 connection: irx,
@@ -882,8 +888,16 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             )
         else { return }
         let isMac = cachedState?.directory?.inboundPeers?.first {
-            $0.device.descriptor.endpointID == peer.endpointIDHex
+            $0.device.descriptor.endpointID.caseInsensitiveCompare(peer.endpointIDHex) == .orderedSame
         }?.device.descriptor.metadata.platform == .mac
+        guard Self.allowsInboundPeer(
+            isMac: isMac,
+            pairingEnabled: pairingEnabled(),
+            incomingAccessEnabled: MobileRemoteControlPolicy.allowsIncomingAccess()
+        ) else {
+            await irx.close(code: .revoked, origin: .local)
+            return
+        }
         let stillAuthorized: @Sendable (String) -> Bool = { endpoint in
             guard isMac ? MobileRemoteControlPolicy.allowsIncomingAccess()
                 : MobileHostService.isListeningEnabled else { return false }
