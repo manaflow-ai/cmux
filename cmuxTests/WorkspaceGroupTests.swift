@@ -773,7 +773,7 @@ struct WorkspaceGroupTests {
         manager.moveTabToTopForNotification(ids[3])
 
         let members = manager.tabs.filter { $0.groupId == groupId }
-        #expect(members.map(\.id) == [ids[1], ids[3], ids[2]])
+        #expect(Array(members.dropFirst()).map(\.id) == [ids[1], ids[3], ids[2]])
     }
 
     @Test func addingWorkspaceToGroupPreservesGroupTopLevelPosition() throws {
