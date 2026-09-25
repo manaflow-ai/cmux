@@ -18,7 +18,8 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WorkspaceSplitProvisionalGeometryTests {
-    @Test func rootSplitAddsAFullHeightSiblingToTheExistingTree() throws {
+    @Test(arguments: [SplitDirection.right, .down])
+    func rootSplitAddsASiblingToTheExistingTree(direction: SplitDirection) throws {
         let fixture = try Fixture()
         defer { fixture.close() }
         let firstSplit = try #require(fixture.workspace.newTerminalSplit(
@@ -33,7 +34,7 @@ struct WorkspaceSplitProvisionalGeometryTests {
         ))
 
         let rootSplit = try #require(fixture.workspace.newTerminalRootSplit(
-            direction: .right,
+            direction: direction,
             focus: false
         ))
 
@@ -46,11 +47,13 @@ struct WorkspaceSplitProvisionalGeometryTests {
             Issue.record("Expected the existing tree to remain the first root child")
             return
         }
-        #expect(root.orientation == SplitOrientation.horizontal.rawValue)
-        #expect(newPane.tabs.contains { $0.id == rootSplit.id.uuidString })
+        #expect(root.orientation == direction.orientation.rawValue)
+        let rootSurfaceID = try #require(fixture.workspace.surfaceIdFromPanelId(rootSplit.id))
+        #expect(newPane.tabs.contains { $0.id == rootSurfaceID.id.uuidString })
     }
 
-    @Test func rootSplitProjectsEveryExistingTerminalIntoTheShrunkenTree() throws {
+    @Test(arguments: [SplitDirection.right, .down])
+    func rootSplitProjectsEveryExistingTerminalIntoTheShrunkenTree(direction: SplitDirection) throws {
         let fixture = try Fixture()
         defer { fixture.close() }
         let firstSplit = try #require(fixture.workspace.newTerminalSplit(
@@ -72,14 +75,18 @@ struct WorkspaceSplitProvisionalGeometryTests {
         let beforeSource = fixture.sourceFrameInWindow()
         let beforeSibling = sibling.hostedView.convert(sibling.hostedView.bounds, to: nil)
         let oldTreeFrame = beforeSource.union(beforeSibling)
-        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: .right, focus: false))
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: direction, focus: false))
 
-        let newPaneRegion = Fixture.newPaneRegion(of: oldTreeFrame, direction: .right)
+        let newPaneRegion = Fixture.newPaneRegion(of: oldTreeFrame, direction: direction)
         let afterSource = fixture.sourceFrameInWindow()
         let afterSibling = sibling.hostedView.convert(sibling.hostedView.bounds, to: nil)
         #expect(!afterSource.intersects(newPaneRegion))
         #expect(!afterSibling.intersects(newPaneRegion))
-        #expect(afterSibling.width < beforeSibling.width * 0.7)
+        if direction == .right {
+            #expect(afterSibling.width < beforeSibling.width * 0.7)
+        } else {
+            #expect(afterSibling.height < beforeSibling.height * 0.7)
+        }
     }
 
     @Test(arguments: [SplitDirection.down, .up, .right, .left])
