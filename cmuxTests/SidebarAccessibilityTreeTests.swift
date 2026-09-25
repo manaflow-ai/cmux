@@ -89,6 +89,30 @@ struct SidebarAccessibilityTreeTests {
             "A row text field must expose only its own link elements, never AppKit cell aliases."
         )
 
+        // PROBE (temporary): which strategy makes SwiftUI publish its AX tree?
+        func probe(_ label: String) {
+            var w = SidebarAccessibilityTreeWalk()
+            w.visit(window)
+            var direct = SidebarAccessibilityTreeWalk()
+            direct.visit(projectView)
+            let rawChildren = projectView.accessibilityChildren() ?? []
+            print("AXPROBE \(label): windowTexts=\(w.textValues.sorted()) projectTexts=\(direct.textValues.sorted()) hostIsElement=\(projectView.isAccessibilityElement()) hostIgnored=\(projectView.accessibilityRole() == nil) rawChildren=\(rawChildren.count) rootChildren=\((root.accessibilityChildren() ?? []).map { String(describing: type(of: $0)) })")
+        }
+        probe("baseline")
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(2)) { false }
+        probe("after-2s")
+        let setter = NSSelectorFromString("accessibilitySetValue:forAttribute:")
+        if NSApp.responds(to: setter) {
+            NSApp.perform(setter, with: NSNumber(value: true), with: "AXManualAccessibility")
+        }
+        _ = await AppKitTestEventPump().waitUntil(timeout: .milliseconds(500)) { false }
+        probe("manual-accessibility")
+        if NSApp.responds(to: setter) {
+            NSApp.perform(setter, with: NSNumber(value: true), with: "AXEnhancedUserInterface")
+        }
+        _ = await AppKitTestEventPump().waitUntil(timeout: .milliseconds(500)) { false }
+        probe("enhanced-ui")
+
         var walk = SidebarAccessibilityTreeWalk()
         walk.visit(window)
         #expect(walk.cycle == nil, "Accessibility children must not point back to an ancestor: \(walk.cycle ?? [])")
