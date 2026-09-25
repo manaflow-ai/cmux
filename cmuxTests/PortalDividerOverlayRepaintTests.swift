@@ -26,13 +26,13 @@ extension TerminalWindowPortalLifecycleTests {
 
         settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
 
-        let before = RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount
+        let before = fixture.overlay.repaintRequestCount
         fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
         fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
         fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
 
         XCTAssertEqual(
-            RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount - before,
+            fixture.overlay.repaintRequestCount - before,
             0,
             "Syncing an unmoved hosted view must not invalidate the divider overlay"
         )
@@ -51,13 +51,13 @@ extension TerminalWindowPortalLifecycleTests {
 
         settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
 
-        let before = RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount
+        let before = fixture.overlay.repaintRequestCount
         fixture.anchor.setFrameSize(NSSize(width: 200, height: 140))
         fixture.contentView.layoutSubtreeIfNeeded()
         fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
 
         XCTAssertGreaterThan(
-            RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount - before,
+            fixture.overlay.repaintRequestCount - before,
             0,
             "Resizing a hosted view must still invalidate the divider overlay"
         )
@@ -77,7 +77,7 @@ extension TerminalWindowPortalLifecycleTests {
         settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
         let frameBeforeHide = fixture.hostedView.frame
 
-        let before = RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount
+        let before = fixture.overlay.repaintRequestCount
         _ = fixture.portal.updateEntryVisibility(
             forHostedId: ObjectIdentifier(fixture.hostedView),
             visibleInUI: false
@@ -94,16 +94,56 @@ extension TerminalWindowPortalLifecycleTests {
             "Hiding must not move the frame, or this test would pass for the wrong reason"
         )
         XCTAssertGreaterThan(
-            RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount - before,
+            fixture.overlay.repaintRequestCount - before,
             0,
             "Hiding a hosted view must invalidate the divider overlay even with an unchanged frame"
         )
+    }
+
+    @MainActor
+    func testDetachedAnchorRepaintsDividerOverlayOnEarlyReturn() throws {
+        let fixture = try makeDividerOverlayFixture()
+        defer { fixture.tearDown() }
+        settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
+        XCTAssertFalse(fixture.hostedView.isHidden)
+        let frame = fixture.hostedView.frame
+        let before = fixture.overlay.repaintRequestCount
+        fixture.anchor.removeFromSuperview()
+        fixture.portal.synchronizeHostedViewForAnchor(fixture.anchor, syncLayout: false)
+        XCTAssertTrue(fixture.hostedView.isHidden)
+        XCTAssertEqual(fixture.hostedView.frame, frame)
+        XCTAssertGreaterThan(fixture.overlay.repaintRequestCount, before)
+    }
+
+    @MainActor
+    func testRemovingHostedViewInvalidatesDividerOverlayImmediately() throws {
+        let fixture = try makeDividerOverlayFixture()
+        defer { fixture.tearDown() }
+        settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
+        XCTAssertFalse(fixture.hostedView.isHidden)
+        let before = fixture.overlay.repaintRequestCount
+        fixture.portal.detachHostedView(withId: ObjectIdentifier(fixture.hostedView))
+        XCTAssertNil(fixture.hostedView.superview)
+        XCTAssertGreaterThan(fixture.overlay.repaintRequestCount, before)
+    }
+
+    @MainActor
+    func testUnmountingHostedViewInvalidatesDividerOverlayImmediately() throws {
+        let fixture = try makeDividerOverlayFixture()
+        defer { fixture.tearDown() }
+        settleDividerOverlay(portal: fixture.portal, anchor: fixture.anchor)
+        XCTAssertFalse(fixture.hostedView.isHidden)
+        let before = fixture.overlay.repaintRequestCount
+        fixture.portal.hideEntry(forHostedId: ObjectIdentifier(fixture.hostedView))
+        XCTAssertNil(fixture.hostedView.superview)
+        XCTAssertGreaterThan(fixture.overlay.repaintRequestCount, before)
     }
 
     // MARK: - Fixture
 
     struct DividerOverlayFixture {
         let portal: WindowTerminalPortal
+        let overlay: SplitDividerOverlayView
         let anchor: NSView
         let contentView: NSView
         let hostedView: GhosttySurfaceScrollView
@@ -133,6 +173,7 @@ extension TerminalWindowPortalLifecycleTests {
 
         return DividerOverlayFixture(
             portal: portal,
+            overlay: try XCTUnwrap(portal.hostView.subviews.compactMap { $0 as? SplitDividerOverlayView }.first),
             anchor: anchor,
             contentView: contentView,
             hostedView: surface.hostedView,
@@ -143,13 +184,7 @@ extension TerminalWindowPortalLifecycleTests {
         )
     }
 
-    /// Deadline-bounded poll for a quiet portal.
-    ///
-    /// `realizeWindowLayout` ends in a fixed 50ms run-loop spin, which a loaded
-    /// CI worker can outrun: layout that settles after it would repaint inside
-    /// the window a test is measuring and fail it for the wrong reason. Sync
-    /// until a sync stops producing repaints, which is the real predicate the
-    /// assertions below depend on, rather than trusting a duration.
+    /// Wait for a sync with no invalidations instead of assuming a fixed settling delay.
     @MainActor
     func settleDividerOverlay(
         portal: WindowTerminalPortal,
@@ -157,11 +192,14 @@ extension TerminalWindowPortalLifecycleTests {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
+        guard let overlay = portal.hostView.subviews.compactMap({ $0 as? SplitDividerOverlayView }).first else {
+            return XCTFail("Expected divider overlay", file: file, line: line)
+        }
         for _ in 0..<50 {
-            let before = RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount
+            let before = overlay.repaintRequestCount
             portal.synchronizeHostedViewForAnchor(anchor, syncLayout: false)
             drainMainQueue()
-            if RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount == before { return }
+            if overlay.repaintRequestCount == before { return }
         }
         XCTFail("Divider overlay never stopped repainting on an idle portal", file: file, line: line)
     }

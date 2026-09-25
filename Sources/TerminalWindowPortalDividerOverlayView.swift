@@ -125,32 +125,55 @@ final class SplitDividerOverlayView: NSView {
         return false
     }
 
-    /// Everything `draw` reads to decide which divider pixels it paints.
-    ///
-    /// Deliberately sourced from the same helper the draw path uses, so the
-    /// repaint gate cannot drift from the drawing. Gating on the portal's
-    /// hosted-frame signature instead was wrong for exactly that reason: that
-    /// signature records frames, while this filters on visibility as well, so
-    /// hiding a surface without moving it compared equal and left stale
-    /// divider pixels. A hidden entry keeps its frame by design, which makes
-    /// that the ordinary case rather than a corner one.
-    struct RenderInputs: Equatable {
+    /// Geometry used to decide whether portal surfaces occlude a divider.
+    /// Hidden surfaces deliberately do not participate, even if their frame is unchanged.
+    private struct RenderInputs: Equatable {
         let bounds: NSRect
         let occludingHostedFrames: [NSRect]
     }
 
-    func renderInputs() -> RenderInputs {
-        RenderInputs(
+    private var lastRenderInputs: RenderInputs?
+#if DEBUG
+    /// Window-scoped invalidation count for checking idle rendering work.
+    private(set) var repaintRequestCount = 0
+#endif
+
+    /// Repair stacking only when necessary; pane-swap remains above the divider.
+    func ensurePlacement(in hostView: NSView, below topOverlay: NSView) {
+        let siblings = hostView.subviews
+        let dividerIsAboveHostedViews = siblings.last === self ||
+            (siblings.last === topOverlay && siblings.dropLast().last === self)
+        if self.superview !== hostView || !dividerIsAboveHostedViews {
+            hostView.addSubview(self, positioned: .above, relativeTo: nil)
+            invalidateRendering()
+        }
+        if !NSEqualRects(frame, hostView.bounds) {
+            self.frame = hostView.bounds
+            invalidateRendering()
+        }
+    }
+
+    /// Compare at the end of a sync, once per batch, without traversing the window tree.
+    func refreshIfGeometryChanged() {
+        let inputs = RenderInputs(
             bounds: bounds,
             occludingHostedFrames: hostedFramesLikelyToOccludeDividers()
         )
+        guard lastRenderInputs != inputs else { return }
+        lastRenderInputs = inputs
+        invalidateRendering()
     }
 
-    /// `overlayDividerColor` resolves each split view's `dividerColor` against
-    /// the current appearance, which no geometry comparison can see.
+    func invalidateRendering() {
+#if DEBUG
+        repaintRequestCount += 1
+#endif
+        needsDisplay = true
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        invalidateRendering()
     }
 
     private func overlayDividerColor(for splitView: NSSplitView) -> NSColor {

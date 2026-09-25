@@ -1393,79 +1393,8 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    /// Re-places the divider overlay, and repaints it only when what it draws
-    /// could have moved.
-    ///
-    /// The repaint is not cheap: `SplitDividerOverlayView.draw` walks the whole
-    /// window view tree from `contentView` looking for split views before it
-    /// consults `dirtyRect`, so a one-pixel dirty region costs a full-hierarchy
-    /// traversal. This runs from `synchronizeHostedView`, once per hosted view
-    /// per geometry tick, and it used to invalidate unconditionally — the same
-    /// shape as the window-move echo storm, work scheduled off a pass that had
-    /// nothing to do. In a 20-second sample of an idle app that walk was the
-    /// heaviest cmux frame on the main thread.
-    ///
-    /// Dividers move when the panes around them resize, which reaches the
-    /// portal as a changed hosted frame, and splits appearing or disappearing
-    /// change the entry set. Both are in `ExternalGeometrySignature`, which
-    /// already fingerprints exactly the geometry a sync pass reads and
-    /// deliberately excludes the window's origin, so dragging a window by its
-    /// titlebar does not repaint every tick.
-    /// Keeps the overlay above the hosted views, repainting only if that
-    /// re-placement actually moved something.
-    ///
-    /// Placement only, and deliberately cheap: this runs twice per
-    /// `synchronizeHostedView` (once through `ensureInstalled`, once at the
-    /// end), and `synchronizeAllHostedViews` runs that per entry. Anything
-    /// O(entries) in here is O(entries squared) for the batch, and a session
-    /// of mirrored tmux windows carries dozens of surfaces. The geometry
-    /// comparison lives in `refreshDividerOverlayIfGeometryChanged`, which the
-    /// batch calls once at its boundary.
     private func ensureDividerOverlayOnTop() {
-        var placementChanged = false
-
-        if dividerOverlayView.superview !== hostView {
-            dividerOverlayView.frame = hostView.bounds
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-            placementChanged = true
-        } else if hostView.subviews.last !== dividerOverlayView {
-            hostView.addSubview(dividerOverlayView, positioned: .above, relativeTo: nil)
-            placementChanged = true
-        }
-
-        if !Self.rectApproximatelyEqual(dividerOverlayView.frame, hostView.bounds) {
-            dividerOverlayView.frame = hostView.bounds
-            placementChanged = true
-        }
-
-        guard placementChanged else { return }
-        markDividerOverlayNeedingDisplay()
-    }
-
-    /// Repaints the overlay when what it would paint has changed.
-    ///
-    /// `SplitDividerOverlayView.draw` walks the whole window view tree from
-    /// `contentView` before it consults `dirtyRect`, so an invalidation that
-    /// changes nothing still costs a full traversal. The comparison asks the
-    /// overlay for its own render inputs rather than reusing the portal's
-    /// geometry signature, because the two are not the same set: the overlay
-    /// paints a segment only where a hosted surface crosses the divider
-    /// centerline, and it drops hidden and windowless surfaces when deciding
-    /// that. Dragging a divider resizes the surfaces beside it, and both
-    /// bounds and those frames are window-relative, so moving the window by
-    /// its titlebar still costs nothing.
-    private func refreshDividerOverlayIfGeometryChanged() {
-        let inputs = dividerOverlayView.renderInputs()
-        guard lastDividerOverlayRenderInputs != inputs else { return }
-        lastDividerOverlayRenderInputs = inputs
-        markDividerOverlayNeedingDisplay()
-    }
-
-    private func markDividerOverlayNeedingDisplay() {
-#if DEBUG
-        RemoteTmuxSizingDiagnostics.dividerOverlayRepaintCount += 1
-#endif
-        dividerOverlayView.needsDisplay = true
+        dividerOverlayView.ensurePlacement(in: hostView, below: paneSwapOverlayView)
 
         if paneSwapOverlayView.superview !== hostView {
             paneSwapOverlayView.frame = hostView.bounds
@@ -1479,17 +1408,6 @@ final class WindowTerminalPortal: NSObject {
         }
         paneSwapOverlayView.needsDisplay = true
     }
-
-    /// Render inputs the divider overlay was last painted for. Deliberately
-    /// not `ExternalGeometrySignature`: that one answers a different question
-    /// for the layout-sync path, and its contents are tuned for terminating
-    /// the sync echo chain.
-    private var lastDividerOverlayRenderInputs: SplitDividerOverlayView.RenderInputs?
-
-    /// Set while `synchronizeAllHostedViews` is walking its entries, so the
-    /// per-entry syncs skip the geometry comparison and the batch pays for it
-    /// once.
-    private var isBatchSynchronizingHostedViews = false
 
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
@@ -1747,6 +1665,7 @@ final class WindowTerminalPortal: NSObject {
                 hostedView.autoresizingMask = restoredMask
             }
             if hostedView.superview === hostView {
+                if !hostedView.isHidden { dividerOverlayView.invalidateRendering() }
                 hostedView.removeFromSuperview()
             }
         } else {
@@ -1767,6 +1686,7 @@ final class WindowTerminalPortal: NSObject {
         entry.provisionalGeometry = nil
         entriesByHostedId[hostedId] = entry
         clearPresentationNotificationState(for: hostedId)
+        if entry.hostedView?.isHidden == false { dividerOverlayView.invalidateRendering() }
         entry.hostedView?.isHidden = true
         if let hostedView = entry.hostedView, hostedView.superview === hostView {
             hostedView.removeFromSuperview()
@@ -2144,13 +2064,6 @@ final class WindowTerminalPortal: NSObject {
         }
         pruneDeadEntries()
         let hostedIds = Array(entriesByHostedId.keys)
-        // One geometry comparison for the whole batch. Per entry it would be
-        // O(entries) work inside an O(entries) loop.
-        isBatchSynchronizingHostedViews = true
-        defer {
-            isBatchSynchronizingHostedViews = false
-            refreshDividerOverlayIfGeometryChanged()
-        }
         for hostedId in hostedIds {
             if hostedId == hostedIdToSkip { continue }
             // Hidden entries retain their last frame until they become visible.
@@ -2166,6 +2079,7 @@ final class WindowTerminalPortal: NSObject {
             )
         }
         ensureDividerOverlayOnTop()
+        dividerOverlayView.refreshIfGeometryChanged()
     }
 
     private func resetTransientRecoveryRetryIfNeeded(forHostedId hostedId: ObjectIdentifier, entry: inout Entry) {
@@ -2217,6 +2131,13 @@ final class WindowTerminalPortal: NSObject {
         deferDividerOverlay: Bool = false
     ) {
         guard portalIsPrepared || ensureInstalled(syncLayout: syncLayout) else { return }
+        // Compare once after a batch, or after every direct-sync exit (including hides).
+        defer {
+            if !deferDividerOverlay {
+                ensureDividerOverlayOnTop()
+                dividerOverlayView.refreshIfGeometryChanged()
+            }
+        }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -2596,13 +2517,6 @@ final class WindowTerminalPortal: NSObject {
             )
         }
 #endif
-
-        if !deferDividerOverlay {
-            ensureDividerOverlayOnTop()
-            if !isBatchSynchronizingHostedViews {
-                refreshDividerOverlayIfGeometryChanged()
-            }
-        }
     }
 
     private func updatePresentationState(
