@@ -1,9 +1,43 @@
 import Foundation
 
+/// The title Grok already resolved for a session.  Grok persists the manual
+/// `/rename` value as `display_name` and its generated `/resume` title as
+/// `generated_title`; both are more authoritative than a second LLM pass over
+/// the transcript.
+struct GrokSessionSummary {
+    static func preferredTitle(from data: Data) -> String? {
+        guard data.count <= 128 * 1024,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return preferredTitle(from: object)
+    }
+
+    static func preferredTitle(from object: [String: Any]) -> String? {
+        for key in ["display_name", "generated_title"] {
+            guard let raw = object[key] as? String else { continue }
+            let title = raw
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty {
+                return String(title.prefix(200))
+            }
+        }
+        return nil
+    }
+
+    static func preferredTitle(at sessionURL: URL) -> String? {
+        let summaryURL = sessionURL.appendingPathComponent("summary.json", isDirectory: false)
+        guard let data = try? Data(contentsOf: summaryURL, options: [.mappedIfSafe]) else {
+            return nil
+        }
+        return preferredTitle(from: data)
+    }
+}
+
 extension CMUXCLI {
     enum AgentAutoNamingSource: Equatable {
         case codexRollout
-        case grokHistory
         case hookMessageCache
     }
 
@@ -11,8 +45,6 @@ extension CMUXCLI {
         switch def.name {
         case "codex":
             return .codexRollout
-        case "grok":
-            return .grokHistory
         case "opencode", "pi", "omp":
             return .hookMessageCache
         default:
@@ -22,6 +54,114 @@ extension CMUXCLI {
 
     func usesHookMessageCacheForAutoNaming(_ def: AgentHookDef) -> Bool {
         autoNamingSource(for: def) == .hookMessageCache
+    }
+
+    func grokSessionTitle(
+        cwd: String?,
+        sessionId: String?,
+        env: [String: String]
+    ) -> String? {
+        guard let sessionURL = grokSessionDirectory(cwd: cwd, sessionId: sessionId, env: env) else {
+            return nil
+        }
+        return GrokSessionSummary.preferredTitle(at: sessionURL)
+    }
+
+    /// Sends Grok's already-resolved summary title to the app.  This path is
+    /// independent of Workspace Auto-Naming because it mirrors Grok state; it
+    /// never invokes a summarizer or overwrites a user-owned panel title.
+    func runGrokNativeTitleSyncHook(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        env: [String: String]
+    ) {
+        guard let sessionId = optionValue(commandArgs, name: "--session"),
+              let workspaceId = optionValue(commandArgs, name: "--workspace"),
+              let surfaceId = optionValue(commandArgs, name: "--surface"),
+              !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else {
+            telemetry.breadcrumb("grok-hook.native-title-sync.invalid-target")
+            return
+        }
+        let sessionStore = ClaudeHookSessionStore(processEnv: env)
+        guard (try? sessionStore.isCurrent(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId)) ?? false else {
+            telemetry.breadcrumb("grok-hook.native-title-sync.stale")
+            return
+        }
+        let mapped = try? sessionStore.lookup(sessionId: sessionId)
+        guard let title = grokSessionTitle(
+            cwd: normalizedHookValue(optionValue(commandArgs, name: "--cwd")) ?? mapped?.cwd,
+            sessionId: sessionId,
+            env: env
+        ) else {
+            telemetry.breadcrumb("grok-hook.native-title-sync.no-title")
+            return
+        }
+        let probe = try? client.sendV2(method: "surface.sync_grok_native_title", params: [
+            "probe": true,
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId
+        ])
+        do {
+            let result = try client.sendV2(method: "surface.sync_grok_native_title", params: [
+                "workspace_id": workspaceId,
+                "panel_id": surfaceId,
+                "title": title,
+                "cloud_name_context": probe?["cloud_name_context"] ?? NSNull()
+            ])
+            if result["applied"] as? Bool == true {
+                telemetry.breadcrumb("grok-hook.native-title-sync.sent")
+            } else {
+                telemetry.breadcrumb("grok-hook.native-title-sync.rejected")
+            }
+        } catch {
+            telemetry.breadcrumb("grok-hook.native-title-sync.send-failed")
+        }
+    }
+
+    /// Starts the native title lookup after the synchronous Grok Stop hook
+    /// returns.  Summary I/O stays outside the short hook timeout.
+    func spawnDetachedGrokNativeTitleSync(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        environment: [String: String],
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else { return }
+        let selfPath: String = {
+            if let first = ProcessInfo.processInfo.arguments.first,
+               first.hasPrefix("/"),
+               FileManager.default.isExecutableFile(atPath: first) {
+                return first
+            }
+            if let bundled = normalizedHookValue(environment["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            return "cmux"
+        }()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "nohup \"$0\" hooks grok sync-native-title --session \"$1\" --workspace \"$2\" --surface \"$3\" --cwd \"$4\" </dev/null >/dev/null 2>&1 &",
+            selfPath,
+            sessionId,
+            workspaceId,
+            surfaceId,
+            cwd ?? ""
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            telemetry.breadcrumb("grok-hook.native-title-sync.spawn-failed")
+        }
     }
 
     func autoNamingMessages(
@@ -84,18 +224,6 @@ extension CMUXCLI {
             switch source {
             case .codexRollout:
                 return nil
-            case .grokHistory:
-                let cwd = normalizedHookValue(optionValue(commandArgs, name: "--cwd")) ?? mapped?.cwd
-                guard let sessionURL = grokSessionDirectory(cwd: cwd, sessionId: sessionId, env: env) else {
-                    return nil
-                }
-                let historyURL = sessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false)
-                guard let lines = readRecentTextFileLines(path: historyURL.path, maxBytes: 512 * 1024),
-                      !lines.isEmpty else {
-                    return nil
-                }
-                let lineCount = textFileGrowthMetric(path: historyURL.path, fallbackLineCount: lines.count)
-                return (engine.extractGrokMessages(fromChatHistoryLines: lines), lineCount)
             case .hookMessageCache:
                 guard let snapshot = try? sessionStore.autoNamingRecentMessagesSnapshot(sessionId: sessionId),
                       !snapshot.messages.isEmpty else {

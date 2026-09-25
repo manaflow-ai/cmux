@@ -1239,7 +1239,8 @@ class TerminalController {
             if let workspaceParamError = v2UnsupportedWorkspaceAliasError(method: request.method, params: request.params) {
                 return v2Result(id: request.id, workspaceParamError)
             }
-            if request.method == "surface.sync_codex_native_title" {
+            if request.method == "surface.sync_codex_native_title"
+                || request.method == "surface.sync_grok_native_title" {
                 return v2Error(
                     id: request.id,
                     code: "invalid_dispatch",
@@ -3021,6 +3022,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
         case "surface.sync_codex_native_title":
             return v2Result(id: id, self.v2SurfaceSyncCodexNativeTitle(params: params))
+        case "surface.sync_grok_native_title":
+            return v2Result(id: id, self.v2SurfaceSyncGrokNativeTitle(params: params))
 
         // Settings/session/feedback: session.restore_previous, settings.open, and
         // feedback.open handled by ControlCommandCoordinator.

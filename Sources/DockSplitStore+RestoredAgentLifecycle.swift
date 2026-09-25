@@ -20,6 +20,7 @@ extension DockSplitStore {
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
         agentRuntimeByPanelId.removeValue(forKey: panelId)
         syncAgentNeedsInputAttention(panelId: panelId, runtime: nil)
+        syncTerminalTabAgentLoading(forPanelId: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
 
@@ -178,6 +179,7 @@ extension DockSplitStore {
             panelId: detached.panelId,
             runtime: detached.agentRuntime
         )
+        syncTerminalTabAgentLoading(forPanelId: detached.panelId)
     }
 
     func configureAgentHibernationResume(for terminal: TerminalPanel) {
@@ -388,6 +390,7 @@ extension DockSplitStore {
                 runtime: shouldKeep ? runtime : nil
             )
         }
+        syncTerminalTabAgentLoading(forPanelId: panelId)
     }
 
     private func syncAgentNeedsInputAttention(

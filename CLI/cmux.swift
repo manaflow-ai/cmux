@@ -33834,6 +33834,17 @@ export default CMUXSessionRestore;
             return
         }
 
+        if def.name == "grok", subcommand == "sync-native-title" {
+            runGrokNativeTitleSyncHook(
+                commandArgs: hookArgs,
+                client: client,
+                telemetry: telemetry,
+                env: env
+            )
+            print("OK")
+            return
+        }
+
         if subcommand == "auto-name", autoNamingSource(for: def) != nil {
             // Detached re-invocation spawned from the codex Stop hook (see
             // spawnDetachedAgentAutoName): runs the full naming pass without
@@ -36337,6 +36348,17 @@ export default CMUXSessionRestore;
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
+                    environment: env,
+                    telemetry: telemetry
+                )
+            }
+
+            if def.name == "grok", !relayOrigin, !suppressVisibleMutations, !sessionId.isEmpty {
+                spawnDetachedGrokNativeTitleSync(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: cwd,
                     environment: env,
                     telemetry: telemetry
                 )

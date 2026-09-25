@@ -4,13 +4,13 @@ import Foundation
 
 /// Agent callbacks name stable projections through the Cloud authority boundary.
 extension TerminalController {
-    /// `surface.sync_codex_native_title`: applies Codex's already-resolved
-    /// native thread title to the panel's raw title tier, the same tier used
-    /// by OSC terminal-title updates. The detached CLI hook owns the database
-    /// read; this app-side handler only resolves the panel and mutates
+    /// `surface.sync_*_native_title`: applies an agent's already-resolved
+    /// native session title to the panel's raw title tier, the same tier used
+    /// by OSC terminal-title updates. The detached CLI hook owns the provider
+    /// state read; this app-side handler only resolves the panel and mutates
     /// in-memory workspace state.
     /// Applies the title on the main actor for the asynchronous socket bridge.
-    func v2SurfaceSyncCodexNativeTitle(params: [String: Any]) -> V2CallResult {
+    func v2SurfaceSyncNativeTitle(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(
                 code: "unavailable",
@@ -85,6 +85,23 @@ extension TerminalController {
             )
         }
         return .ok(["applied": applied])
+    }
+
+    /// `surface.sync_codex_native_title`: applies Codex's already-resolved
+    /// native thread title to the panel's raw title tier, the same tier used
+    /// by OSC terminal-title updates. The detached CLI hook owns the database
+    /// read; this app-side handler only resolves the panel and mutates
+    /// in-memory workspace state.
+    /// Applies the title on the main actor for the asynchronous socket bridge.
+    func v2SurfaceSyncCodexNativeTitle(params: [String: Any]) -> V2CallResult {
+        v2SurfaceSyncNativeTitle(params: params)
+    }
+
+    /// `surface.sync_grok_native_title` is the Grok counterpart to the
+    /// historical Codex method. Keep both names so older Codex hooks remain
+    /// wire-compatible while new providers use an honest method name.
+    func v2SurfaceSyncGrokNativeTitle(params: [String: Any]) -> V2CallResult {
+        v2SurfaceSyncNativeTitle(params: params)
     }
 
     // MARK: - V2 Workspace Methods

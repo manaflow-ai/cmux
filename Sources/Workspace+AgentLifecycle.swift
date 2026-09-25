@@ -497,6 +497,7 @@ extension Workspace {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
+        syncTerminalTabAgentLoading(forPanelId: targetPanelId)
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
@@ -513,6 +514,7 @@ extension Workspace {
             if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
             }
+            syncTerminalTabAgentLoading(forPanelId: panelId)
             didClear = true
             if recordsHibernationActivity {
                 recordAgentLifecycleChange(panelId: panelId)
@@ -543,8 +545,10 @@ extension Workspace {
                 for (key, lifecycle) in manualStates {
                     agentLifecycleStatesByPanelId[host, default: [:]][key] = lifecycle
                 }
+                syncTerminalTabAgentLoading(forPanelId: host)
             }
         }
+        syncTerminalTabAgentLoading(forPanelId: panelId)
         recordAgentLifecycleChange(panelId: panelId)
     }
 
@@ -553,6 +557,7 @@ extension Workspace {
         guard !panelIds.isEmpty else { return }
         agentLifecycleStatesByPanelId.removeAll()
         for panelId in panelIds {
+            syncTerminalTabAgentLoading(forPanelId: panelId)
             recordAgentLifecycleChange(panelId: panelId)
         }
     }
