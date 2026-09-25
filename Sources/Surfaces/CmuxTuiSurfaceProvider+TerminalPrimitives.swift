@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 @MainActor
@@ -15,7 +17,7 @@ extension CmuxTuiSurfaceProvider {
     func sendKeys(terminalID: String, keys: [String]) async throws {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.keysArguments(socketPath: connected.socketPath, terminalID: terminalID, keys: keys))
+        _ = try await link.run(arguments: CloudTuiRequests.keysArguments(socketPath: connected.socketPath, terminalID: terminalID, keys: keys))
     }
 
     /// The remote terminal's visible screen, as the daemon reports it
@@ -23,7 +25,7 @@ extension CmuxTuiSurfaceProvider {
     func readScreen(terminalID: String) async throws -> [String: Any] {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let data = try await link.run(arguments: CloudTuiCommandLine.screenReadArguments(socketPath: connected.socketPath, terminalID: terminalID))
+        let data = try await link.run(arguments: CloudTuiRequests.screenReadArguments(socketPath: connected.socketPath, terminalID: terminalID))
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
     }
 
@@ -38,7 +40,7 @@ extension CmuxTuiSurfaceProvider {
         let effectiveMs = Self.clampedWaitTimeoutMs(timeoutMs)
         let linkTimeout = Duration.milliseconds(effectiveMs + 5_000)
         let data = try await link.run(
-            arguments: CloudTuiCommandLine.screenWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, pattern: pattern, timeoutMs: effectiveMs),
+            arguments: CloudTuiRequests.screenWaitArguments(socketPath: connected.socketPath, terminalID: terminalID, pattern: pattern, timeoutMs: effectiveMs),
             timeout: linkTimeout
         )
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]

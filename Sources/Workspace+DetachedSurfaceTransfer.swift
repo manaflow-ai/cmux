@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCore
 import CmuxWorkspaces
@@ -27,6 +29,8 @@ extension Workspace {
         let sessionRestoreSourceWorkspaceId: UUID?
         let panelId: UUID
         let panel: any Panel
+        var surfaceMachine: SurfaceMachineID? = nil
+        var origin: SurfaceTransferOrigin? = nil
         let title: String
         let icon: String?
         let iconImageData: Data?
@@ -88,6 +92,8 @@ extension Workspace {
                 sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
                 panelId: panelId,
                 panel: panel,
+                surfaceMachine: surfaceMachine,
+                origin: origin,
                 title: title,
                 icon: icon,
                 iconImageData: iconImageData,

@@ -16,8 +16,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     // Chrome
     private let backgroundView = NSView()
     private let railView = NSView()
-    private let topDropIndicator = NSView()
-    private let bottomDropIndicator = NSView()
+    private let topDropIndicator = SidebarReorderIndicatorView()
+    private let bottomDropIndicator = SidebarReorderIndicatorView()
     private let hintPill = SidebarShortcutHintPillView()
     /// Hosts every content subview so the Done-status dim composites like the
     /// legacy row's `.opacity(0.6)` on the content VStack — the selection
@@ -413,7 +413,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         // Title line
         cloudImageView.configureSidebarWorkspaceAccessory(
-            symbol: "cloud", label: snapshot.cloudWorkspaceLabel,
+            symbol: snapshot.remoteWorkspaceBadgeSymbol, label: model.settings.visibleAuxiliaryDetails.showsBranchDirectory ? snapshot.remoteWorkspaceBadgeLabel : nil,
             pointSize: model.scaled(10), tint: palette.secondary(0.7), weight: .regular
         )
         pinImageView.configureSidebarWorkspaceAccessory(
@@ -514,13 +514,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         descriptionView.isHidden = description == nil
         if let description {
             let display = description.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
-            let descriptionColor = palette.secondary(0.84, inactiveOpacity: 0.95)
+            let customDescriptionColor = settings.workspaceDescriptionColorHex.flatMap(NSColor.init(hex:))
+            let descriptionColor = customDescriptionColor ?? palette.secondary(0.84, inactiveOpacity: 0.95)
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
                 descriptionView.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
                     color: descriptionColor,
-                    linkColor: palette.linkText
+                    linkColor: customDescriptionColor ?? palette.linkText
                 )
             } else {
                 descriptionView.configurePlainText(
@@ -1352,17 +1353,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             backgroundView.frame = NSRect(x: bgX, y: 0, width: max(0, width - outerPad - bgX), height: y)
             railView.frame = NSRect(x: bgX + 4 - 1, y: 5, width: 3, height: max(0, y - 10))
             railView.layer?.cornerRadius = 1.5
-            let indicatorLeading: CGFloat = 8 + (model.isGrouped ? 0 : 0)
-            topDropIndicator.frame = NSRect(
-                x: indicatorLeading,
-                y: model.isFirstRow ? 0 : -(model.rowSpacing / 2),
-                width: max(0, width - indicatorLeading - 8), height: 2
-            )
-            bottomDropIndicator.frame = NSRect(
-                x: indicatorLeading,
-                y: y - 2 + model.rowSpacing / 2,
-                width: max(0, width - indicatorLeading - 8), height: 2
-            )
+            let indicatorBounds = NSRect(x: 0, y: 0, width: width, height: y)
+            topDropIndicator.position(in: indicatorBounds, at: model.isFirstRow ? 0 : -(model.rowSpacing / 2))
+            bottomDropIndicator.position(in: indicatorBounds, at: y - SidebarReorderIndicatorView.thickness + model.rowSpacing / 2)
             let pillSize = hintPill.fittingPillSize()
             hintPill.frame = NSRect(
                 x: width - pillSize.width - 10 + ShortcutHintDebugSettings.clamped(model.settings.sidebarShortcutHintXOffset),

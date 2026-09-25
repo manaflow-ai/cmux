@@ -17,8 +17,9 @@ export const cloudPhases = [
 export const cloudFailures = [
   "authentication", "session_refresh", "permission", "plan", "rate_limit", "conflict",
   "network", "timeout", "server", "response", "unsupported", "process", "protocol",
-  "not_found", "resource_limit", "storage", "cancelled", "unknown",
+  "not_found", "placement", "resource_limit", "storage", "cancelled", "unknown",
 ] as const;
+export const cloudChannels = ["dev", "nightly", "production", "rc", "unknown"] as const;
 
 export type CloudTelemetrySpan = {
   readonly eventId: string;
@@ -40,7 +41,8 @@ export type CloudTelemetrySpan = {
   readonly sourceLine?: number;
 };
 export type CloudTelemetryClient = {
-  readonly channel: "dev" | "nightly" | "production" | "unknown";
+  readonly channel: typeof cloudChannels[number];
+  readonly tag?: string;
   readonly version: string;
   readonly build: string;
   readonly revision: string;
@@ -60,7 +62,7 @@ const spanKeys = new Set([
   "eventId", "operationId", "traceId", "spanId", "parentSpanId", "operation", "phase",
   "outcome", "startedAtMs", "endedAtMs", "attempt", "failure", "httpStatus", "errorNumber", "droppedCount", "sourceFile", "sourceLine",
 ]);
-const clientKeys = new Set(["channel", "version", "build", "revision", "osVersion", "architecture"]);
+const clientKeys = new Set(["channel", "tag", "version", "build", "revision", "osVersion", "architecture"]);
 
 export function parseCloudTelemetryBatch(value: unknown, now = Date.now()): CloudTelemetryBatch | null {
   if (!record(value) || !onlyKeys(value, new Set(["version", "client", "spans"])) || value.version !== 1) return null;
@@ -74,7 +76,8 @@ export function parseCloudTelemetryBatch(value: unknown, now = Date.now()): Clou
 
 function validClient(value: unknown): value is CloudTelemetryClient {
   if (!record(value) || !onlyKeys(value, clientKeys)) return false;
-  return member(value.channel, ["dev", "nightly", "production", "unknown"])
+  return member(value.channel, cloudChannels)
+    && (value.tag === undefined || textMatches(value.tag, /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/))
     && textMatches(value.version, /^[0-9][0-9A-Za-z.+-]{0,39}$/)
     && textMatches(value.build, /^[0-9]{1,20}$/)
     && textMatches(value.revision, /^(?:[0-9a-f]{7,64}|unknown)$/)

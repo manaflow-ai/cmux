@@ -15,68 +15,6 @@ import Darwin
 /// own panel registry (`panels`/`surfaceIdToPanelId`), so these methods manage
 /// that registry directly rather than going through the workspace pane tree.
 extension DockSplitStore {
-    /// Resolves the visible, automatic, and custom title metadata shared by
-    /// Dock transfers and session persistence. A live Bonsplit tab is the
-    /// ownership source of truth. Without a tab, the live panel owns automatic
-    /// titles while transfer metadata owns only explicit custom titles and an
-    /// active restore boundary.
-    func resolvedDockTitleMetadata(
-        panel: any Panel,
-        transfer: Workspace.DetachedSurfaceTransfer?,
-        tab: Bonsplit.Tab?
-    ) -> (
-        title: String,
-        cachedTitle: String,
-        customTitle: String?,
-        customTitleSource: Workspace.CustomTitleSource?
-    ) {
-        guard let tab else {
-            if let customTitle = transfer?.customTitle {
-                return (
-                    title: customTitle,
-                    cachedTitle: panel.displayTitle,
-                    customTitle: customTitle,
-                    customTitleSource: transfer?.customTitleSource
-                )
-            }
-            if transfer?.restoredPanelTitleBoundary != nil {
-                let restoredTitle = transfer?.title
-                    ?? transfer?.cachedTitle
-                    ?? panel.displayTitle
-                return (
-                    title: restoredTitle,
-                    cachedTitle: restoredTitle,
-                    customTitle: nil,
-                    customTitleSource: nil
-                )
-            }
-            // Outside a restore boundary, the live panel is newer than the
-            // immutable transfer snapshot even while no Bonsplit tab exists.
-            return (
-                title: panel.displayTitle,
-                cachedTitle: panel.displayTitle,
-                customTitle: nil,
-                customTitleSource: nil
-            )
-        }
-
-        let customTitle = tab.hasCustomTitle ? tab.title : nil
-        let customTitleSource: Workspace.CustomTitleSource? = if let customTitle {
-            customTitle == transfer?.customTitle
-                ? transfer?.customTitleSource
-                : .user
-        } else {
-            nil
-        }
-        let cachedTitle = tab.hasCustomTitle ? panel.displayTitle : tab.title
-        return (
-            title: tab.title,
-            cachedTitle: cachedTitle,
-            customTitle: customTitle,
-            customTitleSource: customTitleSource
-        )
-    }
-
     static func dockAgentPIDProbeIndicatesExited(result: Int32, errnoCode: Int32) -> Bool {
         result != 0 && errnoCode == ESRCH
     }
@@ -141,6 +79,7 @@ extension DockSplitStore {
                     dock: self
                 )
         }
+        let surfaceMachine = machineOwningSurface(panelId)
         let preservedTransfer = removeDetachedSurfaceTransfer(forPanelID: panelId)
         let deferredAgentResumeRestore = deferredAgentResumeRestoresByPanelId[panelId]
             ?? preservedTransfer?.deferredAgentResumeRestore
@@ -345,6 +284,8 @@ extension DockSplitStore {
             sessionRestoreSourceWorkspaceId: preservedTransfer?.sessionRestoreWorkspaceId,
             panelId: panelId,
             panel: panel,
+            surfaceMachine: surfaceMachine,
+            origin: .dock(workspaceId),
             title: titleMetadata.title,
             icon: icon,
             iconImageData: iconImageData,
@@ -436,9 +377,10 @@ extension DockSplitStore {
         atIndex index: Int? = nil,
         focus: Bool = true
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard !isRetired, acceptsDetachedSurface(detached) else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
+        panel.retainTransferredSurfaceMachine(detached.surfaceMachine)
         prepareDetachedPanelForDockAttachment(panel)
 
         panels[detached.panelId] = panel
@@ -529,7 +471,7 @@ extension DockSplitStore {
         insertFirst: Bool,
         focus: Bool = true
     ) -> UUID? {
-        guard !isRetired else { return nil }
+        guard !isRetired, acceptsDetachedSurface(detached) else { return nil }
         guard containsPane(paneId.id), panels[detached.panelId] == nil else {
             return nil
         }
@@ -633,8 +575,8 @@ extension DockSplitStore {
                     window: NSApp.keyWindow ?? NSApp.mainWindow
                 )
             }
+            scheduleDockPortalReconcile(reason: reconcileReason)
         }
-        scheduleDockPortalReconcile(reason: reconcileReason)
     }
 
     /// Returns the Bonsplit tab kind for a transferred Dock panel.

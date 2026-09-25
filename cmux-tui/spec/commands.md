@@ -3010,6 +3010,27 @@ Example:
 {"id":26,"ok":true,"data":{}}
 ```
 
+### move-tab-to-workspace
+
+| Field | Value |
+| --- | --- |
+| name | `move-tab-to-workspace` |
+| status | implemented |
+| since | protocol 12 |
+
+Move an existing tab without restarting its terminal or browser. `surface` is
+required. Optional `workspace` is a numeric workspace ID; omission creates a new
+workspace. Existing nonempty destinations use their active pane. Empty and new
+destinations create a screen and pane in the same durable transaction as the
+move. The destination becomes selected. Unknown source/destination IDs fail.
+Provider-owned workspace creation is rejected. The server advertises
+`tab-workspace-move-v1`; clients hide these UI actions for older owners.
+
+```json
+{"id":26,"cmd":"move-tab-to-workspace","surface":1}
+{"id":26,"ok":true,"data":{}}
+```
+
 ### move-workspace
 
 | Field | Value |
@@ -3188,6 +3209,15 @@ Protocol v7 adds `mode`. `mode:"bytes"`, including the default when the field is
 
 Servers advertising the `attach-initial-size` capability accept paired `cols` and `rows`. The pair records the attaching client's initial viewer-size claim before initial state is generated. Supplying only one dimension is an error. Clients must not send either field to a server that omits the capability, including an older protocol-v7 server.
 
+Servers advertising `attach-identity-v1` accept paired `expected_generation`
+and `expected_terminal_id`. Both must match before any stream or lease is
+created. With this pair, clients may omit `surface`: the daemon resolves the
+public terminal ID in the same attachment operation. The first `vt-state`
+identifies its numeric surface. Clients must wait for the successful attach
+response and lease before sending input. Creation receipts keep their existing
+shape; their generation and terminal ID provide the identity fence. Older
+servers require the existing separate surface-resolution path.
+
 When both peers negotiate `view-attachment-lease-v1` through `identify` and
 `set-client-info`, the response includes an opaque `lease`. The lease names
 this exact connection-local attach stream. Use it with
@@ -3201,7 +3231,9 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `surface` | `Id` | required | Must identify a live PTY or negotiated browser surface |
+| `surface` | `Id` | required unless identity pair supplied | Must identify a live PTY or negotiated browser surface |
+| `expected_generation` | `string` | default null | `attach-identity-v1`; paired with `expected_terminal_id` |
+| `expected_terminal_id` | `string` | default null | Public terminal ID, validated against the live surface |
 | `mode` | `string` | default `"bytes"` | Protocol 7: `"bytes"` or `"render"` |
 | `cols` | `uint16` | default null | `attach-initial-size` capability; paired with `rows`, clamped to at least 1 |
 | `rows` | `uint16` | default null | `attach-initial-size` capability; paired with `cols`, clamped to at least 1 |
@@ -3707,7 +3739,7 @@ object{
   agents: array<object{
     surface: Id,
     state: "working"|"blocked"|"idle"|"done"|"unknown",
-    source: "detected"|"socket"|"hook",
+    source: "plugin"|"detected"|"socket"|"hook",
     session: string|null,
     updated_at_ms: uint64
   }>
@@ -3754,9 +3786,11 @@ to `session.events`. The server generates an internal mutation identity for
 this raw command.
 
 Each live terminal has at most one current agent projection. Hook reports have
-authority over socket reports. A socket report received after a hook retains
-the hook value while still advancing the resource revision and publishing that
-retained value. Restart restores the current projection. Closing the terminal
+authority over socket reports. A socket report that does not change the
+effective projection is a replay-equivalent no-op at the current revision and
+does not publish another event. A socket report received after an unchanged
+hook therefore retains the hook value without advancing the resource
+revision. Restart restores the current projection. Closing the terminal
 deletes it, so historical reports cannot recreate an agent. Browser surfaces,
 surfaces without durable terminal identity, and terminal-less default reports
 are rejected.
@@ -3767,7 +3801,7 @@ Params:
 | --- | --- | --- | --- |
 | `surface` | `IdRef` | required | Surface associated with the agent |
 | `state` | `string` | required | `"working"`, `"blocked"`, `"idle"`, `"done"`, or `"unknown"` |
-| `source` | `string` | required | `"socket"` or `"hook"` |
+| `source` | `string` | required | `"socket"` or `"hook"` for `report-agent`; list responses can also contain `"detected"` or `"plugin"` |
 | `session` | `string` | default null | Optional upstream agent session id |
 
 Result:
@@ -3868,3 +3902,40 @@ restart cleanup with a twelve-minute expiry from creation and recurring bounded
 recovery sweeps. Receipts match a persistent random file ownership marker as well
 as inode identity; the filesystem must support extended attributes. See
 [Cloud image paste](../../docs/cloud-image-paste.md) for cleanup and compatibility.
+
+## Guest browser opening
+
+### url-open
+
+A private, Unix-classified control request with `terminal_id` and `url` strings.
+Only HTTP(S) URLs up to 16 KiB and a live terminal in this daemon are accepted.
+The result is `{opened:boolean}`. At most 16 requests remain pending; a missing
+frontend, disconnect, declined delivery, or five-second deadline returns false.
+This command never starts guest Chrome, creates a resource, or writes a journal
+entry. The guest OS opener prints the URL and exits successfully on false.
+Several frontend subscriptions for the same terminal also return false: the
+guest request cannot identify a physical Mac, so the daemon never guesses.
+
+### url-open-subscribe
+
+A private frontend connection registers up to 256 exact `terminal_ids`. It
+receives `{url_open_ready:true}`, then targeted `url-open` control events
+containing `request_id`, `terminal_id`, and the original `url`. It must keep the
+connection open (`raw command --stream`); disconnect rejects pending requests.
+Subscriptions and requests are transient and are never replayed.
+
+### url-open-claim
+
+The frontend sends the random `request_id` capability on the authenticated mux
+connection before opening anything. `{claimed:false}` means it expired, was
+already claimed, or no longer exists. A delayed event therefore cannot open a
+stale authentication page. The source terminal is mapped to a live Mac panel;
+no guest-supplied Mac workspace or surface selector is accepted.
+
+### url-open-result
+
+The frontend sends `request_id` and `opened` after actual delivery. The result
+is `{accepted:boolean}`. The URL follows terminal-link policy, including browser
+preferences and host allowlists, with focus disabled. Local Mac v2 socket methods
+and the SSH relay authorization allowlist are unchanged. These operations are
+exposed only in the SDKs' existing private `raw` namespace.

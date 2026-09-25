@@ -19,7 +19,7 @@ func privatePathMacLabelsExposeSiblingBuilds() {
 @Test @MainActor
 func customPrivatePathEditorValidationUsesSharedAddressLimit() {
     let addresses = (1 ... CmxIrohCustomPrivatePathDraft.maximumAddressCount)
-        .map { "10.0.0.\($0)" }
+        .map { "10.0.0.\($0):58470" }
     let valid = MobileIrohCustomPrivatePathEditor.validate(
         addressesText: addresses.joined(separator: "\n"),
         selectedMacDeviceID: "123e4567-e89b-42d3-a456-426614174004"
@@ -28,13 +28,13 @@ func customPrivatePathEditorValidationUsesSharedAddressLimit() {
     #expect(valid.addresses == addresses)
 
     let tooMany = MobileIrohCustomPrivatePathEditor.validate(
-        addressesText: (addresses + ["10.0.0.9"]).joined(separator: "\n"),
+        addressesText: (addresses + ["10.0.0.9:58470"]).joined(separator: "\n"),
         selectedMacDeviceID: "123e4567-e89b-42d3-a456-426614174004"
     )
     #expect(!tooMany.canSave)
 
     let noMac = MobileIrohCustomPrivatePathEditor.validate(
-        addressesText: "10.0.0.1",
+        addressesText: "10.0.0.1:58470",
         selectedMacDeviceID: ""
     )
     #expect(!noMac.canSave)
