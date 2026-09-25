@@ -8,7 +8,9 @@ import Foundation
 // viewer paths when the generated all-keys reference is unavailable.
 private enum SettingsJSONPathFallbackCatalog {
     static let viewerPaths = [
+        "app.openSupportedFilesInCmux",
         "app.openMarkdownInCmuxViewer",
+        "app.preferredEditor",
         "markdown.fontSize",
         "markdown.fontFamily",
         "markdown.maxWidth",
