@@ -75,7 +75,9 @@ class ExtractionTests(unittest.TestCase):
             MODULE.log_failures(XCODEBUILD_LOG, {"SidebarHiddenPresentationTests/visibility()"}),
             {"GlobalSearchLocalMonitorChainTests/visibleSearchCloses()", "LegacyTests/testOld()"},
         )
-        self.assertTrue(MODULE.shard_log_complete(MODULE.ANSI_RE.sub("", XCODEBUILD_LOG)))
+        # A dedicated lane's xcodebuild failure stops the shard before its
+        # graded batches, so it is not a verdict on the shard.
+        self.assertFalse(MODULE.shard_log_complete(MODULE.ANSI_RE.sub("", XCODEBUILD_LOG)))
 
     def test_catalog_ids_match_what_the_log_names(self):
         known = set(MODULE.json.loads(MODULE.CATALOG.read_text())["tests"])
@@ -120,8 +122,20 @@ class BaselineTests(unittest.TestCase):
 
     def test_new_failures_drop_what_failed_before(self):
         current = {"A/a()": ["j1"], "B/b()": ["j2"]}
-        self.assertEqual(MODULE.new_failures(current, {"A/a()"}), {"B/b()": ["j2"]})
-        self.assertEqual(MODULE.new_failures(current, set()), current)
+        shards = {"A/a()": {"1"}, "B/b()": {"2"}}
+        self.assertEqual(MODULE.new_failures(current, shards, {"A/a()"}, set()), ({"B/b()": ["j2"]}, []))
+        self.assertEqual(MODULE.new_failures(current, shards, set(), set()), (current, []))
+
+    def test_a_shard_the_baseline_did_not_grade_gives_no_verdict(self):
+        current = {"A/a()": ["j1"], "B/b()": ["j2"], "C/c()": ["j3", "j4"]}
+        shards = {"A/a()": {"1"}, "B/b()": {"2"}, "C/c()": {"2", "3"}}
+        self.assertEqual(
+            MODULE.new_failures(current, shards, set(), {"2"}),
+            ({"A/a()": ["j1"], "C/c()": ["j3", "j4"]}, ["B/b()"]),
+        )
+
+    def test_shard_of_reads_the_job_name(self):
+        self.assertEqual(MODULE.shard_of({"name": "macos / app-host unit tests (4/7)"}), "4")
 
 
 class MergedPullRequestTests(unittest.TestCase):
@@ -191,6 +205,13 @@ class ReportTests(unittest.TestCase):
         self.assertIn("`S/x()` | #1, #2 (changes code the suite names) | [job](https://job/1)", text)
         self.assertIn("`T/y()` | #2 (changes code the suite names)", text)
         self.assertIn("`U/z()` | unattributed", text)
+
+    def test_issue_section_lists_failures_without_a_baseline(self):
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures={}, attributions={}, prs=[], direct=[],
+            no_baseline=["B/b()"],
+        )
+        self.assertIn("Not compared, because that run's shard stopped before grading them: `B/b()`", text)
 
     def test_issue_section_without_new_failures_or_baseline(self):
         text = MODULE.issue_section(

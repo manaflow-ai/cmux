@@ -7,7 +7,9 @@ reads a red full-suite run and finds its new failures: app-host tests the
 shard ratchet reported as RATCHET_NEW_FAILURE, or xcodebuild listed under
 "Failing tests:" in a batch the ratchet does not grade, that are not in the
 known-failures catalog and did not fail in the previous full-suite run whose app-host
-shards all finished and graded every test.
+shards all finished. A failure in a shard that run did not fully grade (a
+dedicated lane failed first, or the batch stopped early) is listed as having
+no baseline instead.
 
 Each new failure is attributed to the commits between the two runs' head
 SHAs, mapped to the pull requests merged into main by those commits. One pull
@@ -42,7 +44,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import main_full_suite as suite_run  # noqa: E402
 
-APP_HOST_JOB_RE = re.compile(r"app-host unit tests \(\d+/\d+\)")
+APP_HOST_JOB_RE = re.compile(r"app-host unit tests \((\d+)/\d+\)")
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 TIMESTAMP_RE = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 # One ratchet verdict per line.
@@ -55,9 +57,11 @@ FAILING_TEST_RE = re.compile(r"^\t(?:cmuxTests\.)?([A-Za-z_][\w.]*)\.([A-Za-z_]\
 EXECUTION_FAILED_MARKERS = ("** TEST EXECUTE FAILED **", "** TEST FAILED **")
 RAN_CONCLUSIONS = frozenset({"success", "failure"})
 # app_host_result_accounting.py closes every graded batch with one of these.
+# Only the accounting's own lines count: a dedicated lane's xcodebuild failure
+# stops the shard before its graded batches run.
 VERDICT_MARKERS = (
     "RATCHET_NEW_FAILURE ", "typed app-host run passed", "known-main failures tolerated",
-    *EXECUTION_FAILED_MARKERS,
+    "recorded verdicts:",
 )
 # ...and prints one of these when a batch's tests did not all report, so a
 # test that already failed may be missing from its RATCHET_NEW_FAILURE lines.
@@ -155,9 +159,32 @@ def earlier_tested_runs(
     return earlier
 
 
-def new_failures(current: Mapping[str, list[str]], previous: set[str]) -> dict[str, list[str]]:
-    """Failing test -> job URLs, for tests that did not fail in the previous run."""
-    return {test: jobs for test, jobs in sorted(current.items()) if test not in previous}
+def shard_of(job: Mapping[str, object]) -> str:
+    match = APP_HOST_JOB_RE.search(str(job.get("name") or ""))
+    return match.group(1) if match else ""
+
+
+def new_failures(
+    current: Mapping[str, list[str]],
+    current_shards: Mapping[str, set[str]],
+    previous: set[str],
+    ungraded: set[str],
+) -> tuple[dict[str, list[str]], list[str]]:
+    """(new failure -> job URLs, failures with no baseline) against the previous run.
+
+    A test that failed only in shards the previous run did not grade has no
+    baseline: it may have been failing there unseen, so it is not called new.
+    """
+    new: dict[str, list[str]] = {}
+    unknown: list[str] = []
+    for test, jobs in sorted(current.items()):
+        if test in previous:
+            continue
+        if current_shards.get(test, set()) <= ungraded:
+            unknown.append(test)
+        else:
+            new[test] = jobs
+    return new, unknown
 
 
 def merged_prs(
@@ -260,6 +287,7 @@ def issue_section(
     attributions: Mapping[str, tuple[list[PullRequest], str]],
     prs: list[PullRequest],
     direct: list[str],
+    no_baseline: Iterable[str] = (),
 ) -> str:
     if previous is None:
         return "### New failures\n\nNo earlier full-suite run with every app-host shard finished to compare against."
@@ -273,6 +301,13 @@ def issue_section(
         f"https://github.com/{repo}/compare/{prev_sha}...{head_sha}",
         "",
     ]
+    no_baseline = list(no_baseline)
+    if no_baseline:
+        lines += [
+            "Not compared, because that run's shard stopped before grading them: "
+            + ", ".join(f"`{test}`" for test in no_baseline[:MAX_LISTED_TESTS]),
+            "",
+        ]
     if not failures:
         lines.append("No app-host test fails here that did not already fail in that run.")
         return "\n".join(lines)
@@ -372,20 +407,23 @@ def run_jobs(repo: str, run_id: object) -> list[dict]:
 
 def job_failures(
     repo: str, jobs: list[Mapping[str, object]], known: Iterable[str],
-) -> tuple[dict[str, list[str]], bool]:
-    """(failing test -> job URLs, whether every failed shard reported all its tests) for one run."""
+) -> tuple[dict[str, list[str]], dict[str, set[str]], set[str]]:
+    """(failing test -> job URLs, failing test -> shards, shards that did not grade every test) for one run."""
     from app_host_failure_census import _gh_api_escape_flag
 
     failures: dict[str, list[str]] = {}
-    complete = True
+    shards: dict[str, set[str]] = {}
+    ungraded: set[str] = set()
     for job in app_host_jobs(jobs):
         if job.get("conclusion") != "failure":
             continue
         log = gh(["api", *_gh_api_escape_flag(), f"repos/{repo}/actions/jobs/{job['id']}/logs"])
-        complete = complete and shard_log_complete(ANSI_RE.sub("", log))
+        if not shard_log_complete(ANSI_RE.sub("", log)):
+            ungraded.add(shard_of(job))
         for test in log_failures(log, known):
             failures.setdefault(test, []).append(str(job.get("html_url") or ""))
-    return failures, complete
+            shards.setdefault(test, set()).add(shard_of(job))
+    return failures, shards, ungraded
 
 
 def associated_prs(repo: str, shas: list[str]) -> dict[str, list[dict]]:
@@ -496,12 +534,14 @@ def command_report(args: argparse.Namespace) -> int:
         print(f"Run {run['id']} did not finish every app-host shard; nothing to compare.")
         return 0
     known = set(json.loads(CATALOG.read_text(encoding="utf-8")).get("tests") or {})
-    current, _ = job_failures(args.repo, jobs, known)
+    current, current_shards, _ = job_failures(args.repo, jobs, known)
 
-    # The baseline is the newest earlier run that graded every app-host test:
-    # a shard that stopped early cannot show a test was already failing.
+    # The baseline is the newest earlier run whose app-host shards all
+    # finished. A shard of it that stopped before grading every test cannot
+    # show a test was already failing, so failures in that shard get no verdict.
     previous = None
     previous_failures: set[str] = set()
+    previous_ungraded: set[str] = set()
     earlier = earlier_tested_runs(
         suite_run.list_runs(args.repo, args.branch, ["-f", "status=completed"]), run, args.branch,
     )
@@ -510,27 +550,28 @@ def command_report(args: argparse.Namespace) -> int:
         if not app_host_ran(candidate_jobs):
             continue
         if candidate.get("conclusion") == "failure":
-            failed, complete = job_failures(args.repo, candidate_jobs, known)
-            if not complete:
-                continue
+            failed, _, previous_ungraded = job_failures(args.repo, candidate_jobs, known)
             previous_failures = set(failed)
         previous = candidate
         break
 
-    failures = new_failures(current, previous_failures) if previous else {}
+    failures: dict[str, list[str]] = {}
+    no_baseline: list[str] = []
+    if previous:
+        failures, no_baseline = new_failures(current, current_shards, previous_failures, previous_ungraded)
     prs: list[PullRequest] = []
     direct: list[str] = []
     attributions: dict[str, tuple[list[PullRequest], str]] = {}
     if previous and failures:
         shas = git(args.root, "rev-list", f"{previous['head_sha']}..{run['head_sha']}").split()
         prs, direct = merged_prs(shas, associated_prs(args.repo, shas), args.branch)
-        if len(prs) > 1:
+        if len(prs) > 1 or (prs and direct):
             rank_inputs(args.root, prs)
         attributions = {test: suspects_for(test, prs, direct) for test in failures}
 
     section = issue_section(
         repo=args.repo, run=run, previous=previous, failures=failures,
-        attributions=attributions, prs=prs, direct=direct,
+        attributions=attributions, prs=prs, direct=direct, no_baseline=no_baseline,
     )
     print(section)
     if args.section_output:
