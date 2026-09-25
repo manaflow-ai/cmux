@@ -5,6 +5,8 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         "cmux.flags.override.cloud-machines-enabled-release",
         "cmux.flags.override.sidebar-account-button-enabled-release",
     ]
+    private let teamPickerShortcutKey = "shortcut.openTeamPicker"
+    private var savedTeamPickerShortcut: Any?
     private var savedFlags: [String: Any] = [:]
     private var fixtureDefaults: UserDefaults?
 
@@ -12,6 +14,8 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         try super.setUpWithError()
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "com.cmuxterm.app.debug"))
         fixtureDefaults = defaults
+        savedTeamPickerShortcut = defaults.object(forKey: teamPickerShortcutKey)
+        defaults.set(Self.defaultTeamPickerShortcutData, forKey: teamPickerShortcutKey)
         // The flag reader accepts typed Booleans. Launch arguments such as YES
         // are strings and do not force the effective flag on.
         for key in flagKeys {
@@ -21,9 +25,16 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
         defaults.synchronize()
     }
 
+
+    private static let defaultTeamPickerShortcutData = Data(#"{"key":"t","command":true,"shift":true,"option":true,"control":false}"#.utf8)
     override func tearDown() {
         for key in flagKeys {
             fixtureDefaults?.set(savedFlags[key], forKey: key)
+        }
+        if let savedTeamPickerShortcut {
+            fixtureDefaults?.set(savedTeamPickerShortcut, forKey: teamPickerShortcutKey)
+        } else {
+            fixtureDefaults?.removeObject(forKey: teamPickerShortcutKey)
         }
         fixtureDefaults?.synchronize()
         fixtureDefaults = nil
