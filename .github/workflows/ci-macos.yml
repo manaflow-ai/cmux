@@ -581,6 +581,24 @@ jobs:
       # built. The restore spent 13-43 s pulling 932 MB for that.
       # tests/test_ci_test_compilation_cache_seed.sh pins its absence.
 
+      # Stop before compiling when a fast Linux job already failed. The gate
+      # usually finishes during this job's setup; one read, no wait, and a
+      # gate still running compiles as before. A declined compile measured 0
+      # of 12 reused (2026-09-25) while holding a macOS runner, and the owned
+      # minis are the scarce ones. The consumer gate below still covers a gate
+      # that declines during the compile. canary/ branches compile anyway:
+      # the probe is the point.
+      - name: Stop before compiling after a declined fast Linux gate
+        id: compile-gate
+        if: ${{ steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && github.run_attempt == 1 && !startsWith(github.head_ref, 'canary/') }}
+        env:
+          API_URL: ${{ github.api_url }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          GATE_JOB: "macOS admission gate"
+        run: python3 scripts/ci/fast_linux_gate.py compile
+
       # The compilation cache cannot help the app target: Swift keys each job on
       # its whole module, and `cmux` is one module. Xcode's incremental build
       # tracks dependencies per file, but only against an existing DerivedData,
@@ -1148,44 +1166,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           GATE_JOB: "macOS admission gate"
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.request
-
-          gate = os.environ["GATE_JOB"]
-          url = (
-              f"{os.environ['API_URL'].rstrip('/')}/repos/{os.environ['REPOSITORY']}"
-              f"/actions/runs/{os.environ['RUN_ID']}/jobs?filter=latest&per_page=100"
-          )
-          request = urllib.request.Request(url, headers={
-              "Accept": "application/vnd.github+json",
-              "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-              "User-Agent": "cmux-ci-compile-admission",
-              "X-GitHub-Api-Version": "2022-11-28",
-          })
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  jobs = json.load(response).get("jobs", [])
-          except Exception as exc:  # An unreadable gate admits.
-              print(f"::warning::Could not read {gate} ({exc}); admitting macOS consumers.")
-              sys.exit(0)
-          found = [job for job in jobs if job.get("name") == gate]
-          if not found:
-              print(f"{gate} is not in this run; admitting macOS consumers.")
-              sys.exit(0)
-          status, conclusion = found[0].get("status"), found[0].get("conclusion")
-          if status == "completed" and conclusion == "failure":
-              print(
-                  f"::error title=Not admitting macOS consumers::{gate} declined: a fast Linux job "
-                  "failed. The product compiled and was uploaded; re-run failed jobs to collect "
-                  "macOS results anyway."
-              )
-              sys.exit(1)
-          print(f"{gate}: status={status} conclusion={conclusion}; admitting macOS consumers.")
-          PY
+        run: python3 scripts/ci/fast_linux_gate.py consumers
 
       - name: Report a changed-suites failure apart from the compile
         if: ${{ failure() && steps.run-changed-suites.outcome == 'failure' }}
