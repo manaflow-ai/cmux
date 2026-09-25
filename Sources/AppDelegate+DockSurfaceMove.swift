@@ -39,9 +39,9 @@ extension AppDelegate {
 
     /// Whether a live surface can leave its current owner and be driven from
     /// `destinationDock`.
-    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock _: DockSplitStore) -> Bool {
+    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock: DockSplitStore) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        return canMoveSurfaceIntoDock(source)
+        return destinationDock.surfaceOwnershipPolicy.rejection(for: machineOwningBonsplitTab(sourceTabId)) == nil && canMoveSurfaceIntoDock(source)
     }
 
     /// Whether the right sidebar (Files / Find / Dock) currently owns input
@@ -57,21 +57,10 @@ extension AppDelegate {
         return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
     }
 
-    /// Finds the Dock (any window's Dock or any workspace's local Dock) that
-    /// owns a pane. Used by the portal drop target to route a tab dropped on a
-    /// Dock pane to the Dock's own controller instead of the workspace's.
+    /// Finds the live Dock that owns a pane through the bounded Dock registry.
+    /// Used by portal drop targets to route into the Dock's own controller.
     func dockForPane(_ paneId: PaneID) -> DockSplitStore? {
-        if let windowDock = windowDockContainingPane(paneId.id) {
-            return windowDock
-        }
-        for context in mainWindowContexts.values {
-            for workspace in context.tabManager.tabs {
-                if let dock = workspace._dockSplit, dock.containsPane(paneId.id) {
-                    return dock
-                }
-            }
-        }
-        return nil
+        DockSplitStore.liveStore(containingPane: paneId.id)
     }
 
     /// Finds a Dock-hosted source for a Bonsplit tab (ignoring workspace panes).
@@ -104,7 +93,7 @@ extension AppDelegate {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        guard canMoveSurfaceIntoDock(source) else { return false }
+        guard canMoveSurfaceIntoDock(sourceTabId: sourceTabId, destinationDock: destinationDock) else { return false }
         let shouldPreserveSourceWorkspace = shouldPreserveSourceWorkspaceAfterDockMove(
             source,
             destinationDock: destinationDock
@@ -181,6 +170,7 @@ extension AppDelegate {
               let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
             return false
         }
+        guard destinationWorkspace.surfaceOwnershipPolicy.rejection(for: sourceDock.machineOwningSurface(panelId)) == nil else { return false }
         let resolvedPane = targetPane.flatMap { pane in
             destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
         } ?? destinationWorkspace.bonsplitController.focusedPaneId

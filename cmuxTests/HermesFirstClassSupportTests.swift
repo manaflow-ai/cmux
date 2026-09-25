@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CMUXAgentLaunch
 import Foundation
@@ -903,7 +904,7 @@ struct HermesFirstClassSupportTests {
     }
 
     @Test("Quit-time save revalidates a cached Hermes process against the current snapshot")
-    func quitTimeSaveRevalidatesCachedHermesProcess() throws {
+    func quitTimeSaveRevalidatesCachedHermesProcess() async throws {
         let fixture = try makeFixture { [StateRow("cached-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let processID = Int(Int32.max) - 9_530
@@ -930,7 +931,7 @@ struct HermesFirstClassSupportTests {
         )
         #expect(cached.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID)?.processLiveness == .running)
 
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+        let resumeIndexes = await ProcessDetectedResumeIndexes.loadOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default,
             cachedRestorableAgentIndex: cached
@@ -988,7 +989,7 @@ struct HermesFirstClassSupportTests {
     }
 
     @Test("Fresh synchronous lifecycle load discovers a Hermes hook session missing from the cache")
-    func freshSynchronousLifecycleLoadDiscoversNewHermesSession() throws {
+    func freshSynchronousLifecycleLoadDiscoversNewHermesSession() async throws {
         let fixture = try makeFixture { [StateRow("new-hook-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let processID = Int(Int32.max) - 9_531
@@ -1002,7 +1003,7 @@ struct HermesFirstClassSupportTests {
             arguments: [fixture.hermesExecutable, "--resume", "new-hook-session"]
         )
 
-        let staleResumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+        let staleResumeIndexes = await ProcessDetectedResumeIndexes.loadOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default,
             cachedRestorableAgentIndex: .empty
@@ -1014,7 +1015,7 @@ struct HermesFirstClassSupportTests {
             ) == nil
         )
 
-        let freshResumeIndexes = ProcessDetectedResumeIndexes.loadFreshSynchronously(
+        let freshResumeIndexes = await ProcessDetectedResumeIndexes.loadFreshOnWorker(
             homeDirectory: fixture.root.path,
             fileManager: .default
         )
@@ -1158,7 +1159,7 @@ struct HermesFirstClassSupportTests {
             posixCommand: "env HERMES_HOME=\(expectedHome) \(AgentResumeArgv.hermesWrapperShellExecutableToken) --profile default --resume indexed-session --model test-model"
         )
         #expect(
-            entry.resumeCommand
+            entry.copyResumeCommand
                 == "cd -- \(expectedCWD) 2>/dev/null || [ ! -d \(expectedCWD) ] && \(expectedResume)"
         )
     }
@@ -1205,7 +1206,7 @@ struct HermesFirstClassSupportTests {
             specifics: .hermesAgent(source: "tui", model: nil, hermesHome: nil)
         )
         let expectedHome = HermesAgentSessionResolver.hermesHome(env: ["HOME": NSHomeDirectory()])
-        let resumeCommand = try #require(entry.resumeCommand)
+        let resumeCommand = try #require(entry.copyResumeCommand)
         let result = try runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", resumeCommand],
@@ -1283,7 +1284,7 @@ struct HermesFirstClassSupportTests {
                 hermesHome: hermesHome.path
             )
         )
-        let resumeCommand = try #require(entry.resumeCommand)
+        let resumeCommand = try #require(entry.copyResumeCommand)
         return try runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", resumeCommand],
@@ -1316,7 +1317,7 @@ struct HermesFirstClassSupportTests {
         let expectedResume = AgentResumeArgv.portableHermesResumeShellCommand(
             posixCommand: "env HERMES_HOME=/tmp/hermes/profiles/coder \(AgentResumeArgv.hermesWrapperShellExecutableToken) --tui --resume indexed-session"
         )
-        #expect(entry.resumeCommand == expectedResume)
+        #expect(entry.copyResumeCommand == expectedResume)
     }
 
     @MainActor
@@ -1472,7 +1473,7 @@ struct HermesFirstClassSupportTests {
         let approvals = try #require(allowlist["approvals"] as? [[String: Any]])
         let commands = approvals.compactMap { $0["command"] as? String }
         let cmuxCommands = commands.filter {
-            $0.contains("cmux-hermes-agent-hook-v2") || $0.contains("hooks hermes-agent ")
+            $0.contains("cmux-hermes-agent-hook-v2") || $0.contains("hooks enqueue hermes-agent ") || $0.contains("hooks hermes-agent ")
         }
 
         #expect(commands.count == approvals.count)

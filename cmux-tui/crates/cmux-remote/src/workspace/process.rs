@@ -1391,6 +1391,10 @@ impl ProcessManager {
         command.cwd(&cwd);
         #[cfg(unix)]
         command.cwd_descriptor(cwd_directory.try_clone_file()?);
+        // Remote workspace children get the same truecolor guarantee as local
+        // surfaces (see Surface spawn in cmux-tui-core); explicit caller env
+        // below can override it.
+        command.env("COLORTERM", "truecolor");
         for (key, value) in env {
             command.env(key, value);
         }

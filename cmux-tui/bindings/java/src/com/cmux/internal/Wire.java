@@ -6,6 +6,7 @@ import com.cmux.Ids;
 import com.cmux.Secret;
 import com.cmux.Selector;
 import com.cmux.raw.Json;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -27,6 +28,7 @@ public final class Wire {
     public static final String BROWSER = "browser";
     public static final String CLIENT = "client";
     public static final String STREAM_ID = "stream_id";
+    public static final String ATTACHMENT_LEASE = "attachment_lease";
     public static final String IDEMPOTENCY_KEY = "idempotency_key";
     public static final String ARGV = "argv";
     public static final String SHELL = "shell";
@@ -40,6 +42,7 @@ public final class Wire {
     public static final String LAYOUT = "layout";
     public static final String DIRECTION = "direction";
     public static final String RATIO = "ratio";
+    public static final String VIEWPORT_WIDTH = "viewport_width";
     public static final String WIDTH = "width";
     public static final String HEIGHT = "height";
     public static final String COLS = "cols";
@@ -132,7 +135,7 @@ public final class Wire {
     public static Object encode(Object value) {
         if (value == null || value instanceof String || value instanceof Boolean ||
                 value instanceof Byte || value instanceof Short || value instanceof Integer ||
-                value instanceof Long || value instanceof BigInteger ||
+                value instanceof Long || value instanceof BigInteger || value instanceof BigDecimal ||
                 value instanceof Float || value instanceof Double) {
             return value;
         }

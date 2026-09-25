@@ -587,6 +587,9 @@ fn validate_operation_constraints(
     fields: &Map<String, Value>,
     supplied: &Map<String, Value>,
 ) -> Result<(), ResourceError> {
+    if operation == ResourceOperation::TabRename {
+        crate::resource_name::TabNameUpdate::parse(fields).map_err(resource_operation_error)?;
+    }
     if matches!(operation, ResourceOperation::PaneRun | ResourceOperation::WorkspaceRun)
         && let Some(argv) = fields.get("argv").and_then(Value::as_array)
         && argv.first().and_then(Value::as_str).is_none_or(str::is_empty)
@@ -643,6 +646,14 @@ fn validate_operation_constraints(
                     "complete",
                 ],
             )?;
+        }
+        ResourceOperation::SessionJournalSubscribe
+            if supplied.contains_key("cursor") && supplied.contains_key("start") =>
+        {
+            return Err(validation_error(
+                "journal cursor and start are mutually exclusive",
+                json!({"operation":operation_name(operation),"parameters":["cursor","start"]}),
+            ));
         }
         ResourceOperation::PaneSplitRatioSet | ResourceOperation::PaneSplit => {
             if let Some(ratio) = fields.get("ratio").and_then(Value::as_f64)
@@ -873,6 +884,8 @@ fn dispatch_resource_request(
                 ))
             }
             ResourceOperation::NotificationCreate => create_notification(mux, request),
+            ResourceOperation::NotificationAck => ack_notifications(mux, request),
+            ResourceOperation::NotificationClear => clear_notifications(mux, request),
             _ => unreachable!("operation_owner classifies snapshot operations exhaustively"),
         },
         OperationOwner::Connection => Err(ResourceError::operation_failed(
@@ -913,7 +926,9 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::BrowserList
         | ResourceOperation::BrowserGet
         | ResourceOperation::NotificationList
-        | ResourceOperation::NotificationCreate => OperationOwner::Snapshot,
+        | ResourceOperation::NotificationCreate
+        | ResourceOperation::NotificationAck
+        | ResourceOperation::NotificationClear => OperationOwner::Snapshot,
         ResourceOperation::WorkspaceList
         | ResourceOperation::WorkspaceGet
         | ResourceOperation::WorkspaceCreate
@@ -961,6 +976,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::TerminalStateRead
         | ResourceOperation::TerminalHistoryRead
         | ResourceOperation::TerminalHistoryClear
+        | ResourceOperation::TerminalOutputRead
         | ResourceOperation::TerminalWait
         | ResourceOperation::TerminalWaitExit
         | ResourceOperation::TerminalCopy
@@ -989,6 +1005,17 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
         ResourceOperation::SessionEvents
+        | ResourceOperation::SessionJournalSubscribe
+        | ResourceOperation::SessionJournalProducerList
+        | ResourceOperation::SessionJournalProducerPut
+        | ResourceOperation::SessionJournalAppend
+        | ResourceOperation::SessionJournalHookList
+        | ResourceOperation::SessionJournalHookPut
+        | ResourceOperation::SessionJournalCheckpointCreate
+        | ResourceOperation::SessionJournalCheckpointList
+        | ResourceOperation::SessionJournalRestorePreview
+        | ResourceOperation::SessionJournalSegmentList
+        | ResourceOperation::SessionJournalSegmentSeal
         | ResourceOperation::SessionShutdown
         | ResourceOperation::PairingRequestList
         | ResourceOperation::PairingRequestResolve
@@ -1200,6 +1227,7 @@ fn create_notification(mux: &Mux, request: ParsedResourceRequest) -> Result<Valu
     let intent = json!({
         "notification_id": notification_id,
         "title": required_string(&request.fields, "title")?,
+        "subtitle": request.fields.get("subtitle").and_then(Value::as_str),
         "body": required_string(&request.fields, "body")?,
         "level": required_string(&request.fields, "level")?,
         "terminal_id": terminal_id,
@@ -1326,29 +1354,31 @@ fn execute_notification_effect(
         )
     })?;
     let session_id = mux.local_resource_context().map_err(resource_operation_error)?.session_id;
+    let subtitle = intent.get("subtitle").and_then(Value::as_str).map(str::to_string);
     mux.post_resource_notification(
         notification_id.clone(),
         title.to_string(),
+        subtitle.clone(),
         body.to_string(),
         level,
         surface,
         terminal_id.clone(),
         created_at_ms,
     );
-    let mut value = json!({
-        "id":notification_id,
-        "session_id":session_id,
-        "title":title,
-        "body":body,
-        "level":level.as_str(),
-        "created_at_ms":created_at_ms.to_string(),
-        "unread":surface
-            .and_then(|surface| mux.surface_notification(surface))
-            .is_some_and(|notification| notification.unread),
-    });
-    if let Some(terminal_id) = terminal_id {
-        value["terminal_id"] = json!(terminal_id);
-    }
+    let value = mux.notification_snapshot_value(
+        &crate::ResourceNotification {
+            id: notification_id.clone(),
+            title: title.to_string(),
+            subtitle,
+            body: body.to_string(),
+            level,
+            terminal_id,
+            created_at_ms,
+            surface,
+        },
+        &session_id,
+        &[],
+    );
     let outcome = ResourceEffectOutcome::Success(value.clone());
     let deltas = json!([{
         "kind":"upsert",
@@ -1370,7 +1400,90 @@ fn execute_notification_effect(
             return Err(indeterminate_error(idempotency_key, "notification.create"));
         }
     };
+    mux.prune_evicted_notification_reads();
     mutation_result(mux, value, revision, false)
+}
+
+fn ack_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
+    ensure_session_route(mux, &request.selectors)?;
+    let client_id = required_string(&request.fields, "client_id")?.to_string();
+    crate::mux::validate_client_id(&client_id)
+        .map_err(|error| validation_error(&error.to_string(), json!({"client_id":client_id})))?;
+    let notifications = request
+        .fields
+        .get("notifications")
+        .and_then(Value::as_array)
+        .ok_or_else(|| validation_error("notifications must be an array", json!({})))?
+        .iter()
+        .map(|value| {
+            NotificationPublicId::parse(
+                value
+                    .as_str()
+                    .ok_or_else(|| validation_error("notification id must be a string", json!({})))?
+                    .to_string(),
+            )
+        })
+        .collect::<Result<Vec<_>, ResourceError>>()?;
+    let mutation = crate::workspace_registry::WorkspaceMutation::new(
+        request
+            .envelope
+            .idempotency_key
+            .clone()
+            .expect("catalog-validated mutations have an idempotency key"),
+        "resource-api",
+    )
+    .map_err(resource_operation_error)?;
+    let ack = mux
+        .ack_notifications(
+            &mutation,
+            expected_revision(&request.fields)?,
+            &client_id,
+            &notifications,
+        )
+        .map_err(resource_operation_error)?;
+    mutation_result(mux, ack.result, ack.revision, ack.replayed)
+}
+
+fn clear_notifications(mux: &Mux, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
+    ensure_session_route(mux, &request.selectors)?;
+    let terminal_id = request
+        .fields
+        .get("terminal_id")
+        .map(|value| {
+            TerminalPublicId::parse(
+                value.as_str().expect("catalog resource-id validation").to_string(),
+            )
+        })
+        .transpose()?;
+    let mutation = crate::workspace_registry::WorkspaceMutation::new(
+        request
+            .envelope
+            .idempotency_key
+            .clone()
+            .expect("catalog-validated mutations have an idempotency key"),
+        "resource-api",
+    )
+    .map_err(resource_operation_error)?;
+    let commit = mux
+        .clear_notifications(&mutation, expected_revision(&request.fields)?, terminal_id.as_ref())
+        .map_err(|error| {
+            // Revision conflicts keep their typed error; anything else is an
+            // internal failure whose raw cause stays in the daemon log.
+            let mapped = resource_operation_error(error);
+            if mapped.code == "revision.conflict" {
+                return mapped;
+            }
+            mux.report_internal_diagnostic(format!(
+                "notification.clear failed: {}",
+                mapped.message
+            ));
+            ResourceError::operation_failed(
+                "notification.clear",
+                "the machine could not clear notifications; retry after the next state refresh",
+                json!({}),
+            )
+        })?;
+    mutation_result(mux, commit.result, commit.revision, commit.replayed)
 }
 
 fn indeterminate_error(idempotency_key: &str, operation: &str) -> ResourceError {
@@ -1464,6 +1577,14 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
     if let Some(resource) = error.downcast_ref::<ResourceError>() {
         return resource.clone();
     }
+    if let Some(failure) = error.downcast_ref::<crate::terminal_host_protocol::HostLaunchFailure>()
+    {
+        return ResourceError::operation_failed(
+            "terminal.launch",
+            failure.message.clone(),
+            json!({"reason_code":failure.kind.reason_code()}),
+        );
+    }
     let message = error.to_string();
     if message.starts_with("idempotency.conflict:") {
         let fields = message.split_whitespace().collect::<Vec<_>>();
@@ -1483,11 +1604,7 @@ pub(super) fn resource_operation_error(error: anyhow::Error) -> ResourceError {
 }
 
 pub(super) fn operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operations serialize")
-        .as_str()
-        .expect("resource operations serialize as strings")
-        .to_string()
+    operation.wire_name().to_owned()
 }
 
 pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
@@ -1503,6 +1620,18 @@ pub(super) fn validation_error(message: &str, details: Value) -> ResourceError {
 mod tests {
     use super::*;
     use crate::SurfaceOptions;
+
+    #[test]
+    fn terminal_host_launch_failures_keep_their_machine_readable_reason() {
+        let failure = crate::terminal_host_protocol::HostLaunchFailure::bounded(
+            crate::terminal_host_protocol::HostLaunchFailureKind::PtyCapacityExhausted,
+            "terminal launch failed: PTY capacity exhausted".into(),
+        );
+        let error = resource_operation_error(anyhow::Error::new(failure));
+        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.details["operation"], "terminal.launch");
+        assert_eq!(error.details["extra"]["reason_code"], "pty_capacity_exhausted");
+    }
 
     fn catalog_fixture(descriptor: &Value, parameters: &HashMap<String, Value>) -> Value {
         match descriptor["kind"].as_str().expect("fixture descriptor kind") {
@@ -1594,7 +1723,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 113);
+        assert_eq!(operations.len(), 127);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1613,7 +1742,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 113);
+        assert_eq!(operations.len(), 127);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

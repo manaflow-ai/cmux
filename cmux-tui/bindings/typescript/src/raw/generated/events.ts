@@ -1,11 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 6c7f42663c8059b5e8c1cb0a1df201c1949665b925845653e46f5ef7f5742eb3. */
+/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
 
 
 import type * as T from "./types.js";
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
+  /** Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified. */
+  "agent"?: (string) | null;
   "session": (string) | null;
   "source": T.AgentSource;
   "state": T.AgentState;
@@ -63,6 +65,7 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (T.CursorStyle) | null;
   "fg": (T.ColorHex) | null;
+  "overrides"?: T.TerminalColorOverrides;
   "palette"?: Record<string, T.ColorHex>;
   "selection_bg": (T.ColorHex) | null;
   "selection_fg": (T.ColorHex) | null;
@@ -71,6 +74,10 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
@@ -116,6 +123,11 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "screen": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
+  "usage": (T.MachineUsage) | null;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-browser. */
@@ -322,6 +334,13 @@ export type TitleChangedEvent = { event: "title-changed" } & {
 export type TreeChangedEvent = { event: "tree-changed" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type UrlOpenEvent = { event: "url-open" } & {
+  "request_id": string;
+  "terminal_id": string;
+  "url": string;
+};
+
 /** Protocol v5; emission: emitted; streams: attach-byte. */
 export type VtStateEvent = { event: "vt-state" } & {
   "colors"?: T.TerminalColors;
@@ -391,7 +410,7 @@ export interface UnknownEvent {
   [key: string]: unknown;
 }
 
-/** Every event emitted by protocol v11. */
+/** Every event emitted by protocol v12. */
 export type KnownCmuxEvent =
   | AgentChangedEvent
   | BellEvent
@@ -401,12 +420,14 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
   | FrameEvent
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | LayoutChangedEvent
+  | MachineUsageChangedEvent
   | NotificationEvent
   | OutputEvent
   | OverflowEvent
@@ -432,6 +453,7 @@ export type KnownCmuxEvent =
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
   | TreeChangedEvent
+  | UrlOpenEvent
   | VtStateEvent
   | WindowTitleRequestedEvent
   | WorkspaceAddedEvent
@@ -455,6 +477,7 @@ export type KnownSubscribeEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | LayoutChangedEvent
+  | MachineUsageChangedEvent
   | NotificationEvent
   | OverflowEvent
   | PairingRequestedEvent

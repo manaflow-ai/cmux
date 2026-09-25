@@ -46,7 +46,7 @@ if test "$_cmux_integration_enabled" != 0
         CMUX_TAG \
         CMUX_TERMINAL_LIFECYCLE_ID \
         CMUX_WORKSPACE_ID
-    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_PANEL_ID CMUX_SURFACE_ID
+    set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_HISTORY_FILE CMUX_PANEL_ID CMUX_SURFACE_ID
 
     function _cmux_tmux_sync_key_is_managed --argument-names candidate
         contains -- "$candidate" $_CMUX_TMUX_SYNC_KEYS
@@ -308,14 +308,26 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_relay_rpc_bg surface.ports_kick "$params"
     end
 
-    function _cmux_path_prepend_unique_directory --argument-names directory
+    function _cmux_path_prepend_unique_directory --argument-names directory skipped_directory
         test -n "$directory"; or return 0
         set -l next_path "$directory"
         for entry in $PATH
             test "$entry" = "$directory"; and continue
+            test -n "$skipped_directory"; and test "$entry" = "$skipped_directory"; and continue
             set -a next_path "$entry"
         end
         set -gx PATH $next_path
+    end
+
+    function _cmux_fix_path
+        set -q CMUX_SHELL_INTEGRATION_DIR; and test -n "$CMUX_SHELL_INTEGRATION_DIR"; or return 0
+        set -l integration_dir (string trim -r -c / -- "$CMUX_SHELL_INTEGRATION_DIR")
+        string match -q '*/Resources/shell-integration' -- "$integration_dir"; or return 0
+        set -l resources_dir (string replace -r '/shell-integration$' '' -- "$integration_dir")
+        set -l gui_dir (string replace -r '/Resources$' '/MacOS' -- "$resources_dir")
+        set -l bin_dir "$resources_dir/bin"
+        test -d "$bin_dir"; or return 0
+        _cmux_path_prepend_unique_directory "$bin_dir" "$gui_dir"
     end
 
     function _cmux_install_cli_command_shim --argument-names command_name wrapper_path
@@ -389,6 +401,9 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_install_cli_wrapper --argument-names command_name wrapper_file
+        if test "$command_name" = claude; and set -q CMUX_CLAUDE_INTEGRATION_DISABLED; and test "$CMUX_CLAUDE_INTEGRATION_DISABLED" = 1
+            return 0
+        end
         test -n "$CMUX_SHELL_INTEGRATION_DIR"; or return 0
         set -l integration_dir (string replace -r '/$' '' -- "$CMUX_SHELL_INTEGRATION_DIR")
         set -l bundle_dir (string replace -r '/shell-integration$' '' -- "$integration_dir")
@@ -540,3 +555,9 @@ if not set -q CMUX_FISH_USER_CONFIG_ALREADY_LOADED; and test -n "$_cmux_user_con
         source "$_cmux_user_config"
     end
 end
+
+# Run after the user's config so cmux's bundled commands keep precedence even
+# when shell startup replaced PATH. Remote integrations do not use the bundled
+# `shell-integration` layout, so the helper leaves their PATH unchanged.
+functions -q _cmux_fix_path; and _cmux_fix_path
+functions -e _cmux_fix_path

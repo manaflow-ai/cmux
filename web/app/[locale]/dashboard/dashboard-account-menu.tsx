@@ -1,19 +1,34 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
-import { UserAvatar, useUser } from "@stackframe/stack";
+import { UserAvatar, useStackApp } from "@hexclave/next";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import { Link } from "@/i18n/navigation";
+import type { DashboardSessionUser } from "@/app/lib/dashboard-session";
+import { Link, useRouter } from "@/i18n/navigation";
+import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
+import { useThemeToggle } from "@/app/[locale]/theme";
+import { useDashboardTeamScope, type DashboardCatalogTeam } from "./dashboard-team-scope";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
 
-export function DashboardAccountMenu() {
+export function DashboardAccountMenuFallback() {
+  return <div aria-hidden="true" className="min-w-0 flex-1" />;
+}
+
+/**
+ * The identity row. The user arrives from the server session so the row
+ * paints with the shell instead of after a second client fetch to Stack.
+ */
+export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | null }) {
   const t = useTranslations("dashboard.accountMenu");
   const locale = useLocale();
-  const user = useUser({ or: "return-null" });
+  const router = useRouter();
+  const stackApp = useStackApp();
+  const teamScope = useDashboardTeamScope(user?.id ?? null);
+  const theme = useThemeToggle();
   const [signOutPending, setSignOutPending] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
   const signInHref = vaultSignInHref(localizedVaultPath(locale, "/dashboard"));
@@ -32,66 +47,190 @@ export function DashboardAccountMenu() {
   }
 
   return (
-    <Menu.Root>
-      <Menu.Trigger
-        className="flex min-w-0 flex-1 items-center gap-2.5 px-1.5 py-1 text-left outline-none hover:bg-code-bg focus-visible:bg-code-bg"
-        aria-label={t("label")}
-      >
-        <UserAvatar size={24} user={user} />
-        <span className="hidden min-w-0 flex-1 truncate font-medium sm:block">
-          {user.displayName || user.primaryEmail}
-        </span>
-        <ChevronsUpDown />
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner side="top" align="start" sideOffset={8} className="z-50">
-          <Menu.Popup className="w-52 border border-border bg-background p-1 text-foreground shadow-xl shadow-black/10 outline-none">
-            <div className="border-b border-border px-2.5 py-2">
-              <div className="truncate text-sm font-medium">
-                {user.displayName || user.primaryEmail}
+    <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <Menu.Root>
+        <Menu.Trigger
+          className="flex w-full min-w-0 items-center gap-2.5 px-1.5 py-1 text-left outline-none hover:bg-code-bg focus-visible:bg-code-bg"
+          aria-label={t("label")}
+        >
+          <UserAvatar size={24} user={user} />
+          <span className="hidden min-w-0 flex-1 sm:block">
+            <span className="block truncate font-medium">
+              {user.displayName || user.primaryEmail}
+            </span>
+            {teamScope.status === "ready" ? (
+              <span className="block truncate text-[11px] text-muted">
+                {teamScope.selected.name}
+              </span>
+            ) : null}
+          </span>
+          <ChevronsUpDown />
+        </Menu.Trigger>
+        <Menu.Portal>
+          <Menu.Positioner side="top" align="start" sideOffset={8} className="z-50">
+            <Menu.Popup className="w-52 border border-border bg-background p-1 text-foreground shadow-xl shadow-black/10 outline-none">
+              <div className="border-b border-border px-2.5 py-2">
+                <div className="truncate text-sm font-medium">
+                  {user.displayName || user.primaryEmail}
+                </div>
+                {user.displayName ? (
+                  <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
+                ) : null}
               </div>
-              {user.displayName ? (
-                <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
+              <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
+                <SettingsIcon />
+                <span>{t("settings")}</span>
+              </Menu.Item>
+              <Menu.Item
+                className={menuItemClass}
+                closeOnClick={false}
+                onClick={(event) => {
+                  event.preventDefault();
+                  theme.toggle();
+                }}
+              >
+                <ThemeIcon dark={theme.resolvedTheme === "dark"} />
+                <span>{theme.resolvedTheme === "dark" ? t("themeLight") : t("themeDark")}</span>
+              </Menu.Item>
+              <Menu.Item render={<Link href="/dashboard/billing" />} className={menuItemClass}>
+                <BillingIcon />
+                <span>{t("billing")}</span>
+              </Menu.Item>
+              {teamScope.status === "ready" ? (
+                <TeamSubmenu
+                  teams={teamScope.teams}
+                  selected={teamScope.selected}
+                  onSelect={teamScope.switchTeam}
+                />
               ) : null}
-            </div>
-            <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
-              <SettingsIcon />
-              <span>{t("settings")}</span>
-            </Menu.Item>
-            <Menu.Item render={<Link href="/dashboard/billing" />} className={menuItemClass}>
-              <BillingIcon />
-              <span>{t("billing")}</span>
-            </Menu.Item>
-            <Menu.Separator className="mx-1 my-1 h-px bg-border" />
-            <Menu.Item
-              className={`${menuItemClass} text-red-600 dark:text-red-400`}
-              disabled={signOutPending}
-              onClick={async (event) => {
-                event.preventDefault();
-                if (signOutPending) return;
-                setSignOutPending(true);
-                setSignOutError(false);
-                try {
-                  await user.signOut();
-                  window.location.assign(`/${locale}`);
-                } catch {
-                  setSignOutPending(false);
-                  setSignOutError(true);
-                }
+              <Menu.Separator className="mx-1 my-1 h-px bg-border" />
+              <Menu.Item
+                className={`${menuItemClass} text-red-600 dark:text-red-400`}
+                disabled={signOutPending}
+                onClick={async (event) => {
+                  event.preventDefault();
+                  if (signOutPending) return;
+                  setSignOutPending(true);
+                  setSignOutError(false);
+                  try {
+                    await stackApp.signOut();
+                    clearCoderouterOrganizationScope();
+                    router.replace("/");
+                    router.refresh();
+                  } catch {
+                    setSignOutPending(false);
+                    setSignOutError(true);
+                  }
+                }}
+              >
+                <SignOutIcon />
+                <span>{signOutPending ? t("signingOut") : t("signOut")}</span>
+              </Menu.Item>
+              {signOutError ? (
+                <p role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+                  {t("signOutError")}
+                </p>
+              ) : null}
+            </Menu.Popup>
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
+    </div>
+  );
+}
+
+/**
+ * The team scope lives inside the account menu so one control at the bottom
+ * left owns identity and team. Every permitted team is listed, the current
+ * one is checked, and picking another persists the dashboard-wide scope.
+ */
+function TeamSubmenu({
+  teams,
+  selected,
+  onSelect,
+}: {
+  readonly teams: readonly DashboardCatalogTeam[];
+  readonly selected: DashboardCatalogTeam;
+  readonly onSelect: (team: DashboardCatalogTeam) => void | Promise<void>;
+}) {
+  const t = useTranslations("dashboard.teamSwitcher");
+  return (
+    <Menu.SubmenuRoot>
+      <Menu.SubmenuTrigger className={`${menuItemClass} justify-between`} aria-label={t("label")}>
+        <span className="flex min-w-0 items-center gap-2">
+          <TeamIcon />
+          <span className="min-w-0">
+            <span className="block text-sm">{t("label")}</span>
+            <span className="block truncate text-xs text-muted">{selected.name}</span>
+          </span>
+        </span>
+        <ChevronRight />
+      </Menu.SubmenuTrigger>
+      <Menu.Portal>
+        <Menu.Positioner side="right" align="end" sideOffset={4} className="z-50">
+          <Menu.Popup className="w-56 border border-border bg-background p-1 text-foreground shadow-xl shadow-black/10 outline-none">
+            <Menu.RadioGroup
+              value={selected.id}
+              onValueChange={(value) => {
+                const team = teams.find((candidate) => candidate.id === value);
+                if (team) void Promise.resolve(onSelect(team)).catch(() => undefined);
               }}
             >
-              <SignOutIcon />
-              <span>{signOutPending ? t("signingOut") : t("signOut")}</span>
-            </Menu.Item>
-            {signOutError ? (
-              <p role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
-                {t("signOutError")}
-              </p>
-            ) : null}
+              {teams.map((team) => (
+                <Menu.RadioItem key={team.id} value={team.id} className={menuItemClass}>
+                  <span className="min-w-0 flex-1 truncate">{team.name}</span>
+                  {team.personal ? (
+                    <span className="shrink-0 text-[11px] text-muted">{t("personal")}</span>
+                  ) : null}
+                  <Menu.RadioItemIndicator className="flex size-4 shrink-0 items-center justify-center">
+                    <CheckIcon />
+                  </Menu.RadioItemIndicator>
+                </Menu.RadioItem>
+              ))}
+            </Menu.RadioGroup>
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>
-    </Menu.Root>
+    </Menu.SubmenuRoot>
+  );
+}
+
+function ThemeIcon({ dark }: { readonly dark: boolean }) {
+  return dark ? (
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round">
+      <circle cx="8" cy="8" r="3" />
+      <path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.05 1.05M11.55 11.55l1.05 1.05M12.6 3.4l-1.05 1.05M4.45 11.55 3.4 12.6" />
+    </svg>
+  ) : (
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round">
+      <path d="M13.5 9.75A5.75 5.75 0 0 1 6.25 2.5a5.75 5.75 0 1 0 7.25 7.25Z" />
+    </svg>
+  );
+}
+
+function TeamIcon() {
+  return (
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
+      <circle cx="5.5" cy="5.5" r="2" />
+      <circle cx="11" cy="6.5" r="1.75" />
+      <path d="M1.75 12.5c.5-2 1.9-3 3.75-3s3.25 1 3.75 3M9.5 12.5c.35-1.4 1.1-2.1 2.25-2.1 1.2 0 2.05.7 2.5 2.1" />
+    </svg>
+  );
+}
+
+function ChevronRight() {
+  return (
+    <svg aria-hidden="true" className="size-3.5 shrink-0 text-muted" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m6 4 4 4-4 4" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg aria-hidden="true" className="size-4 shrink-0" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m3 8.5 3 3 7-7" />
+    </svg>
   );
 }
 
@@ -113,11 +252,29 @@ function ChevronsUpDown() {
   );
 }
 
+/*!
+ * Settings icon from lucide-react 0.378.0.
+ * ISC License
+ *
+ * Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 function SettingsIcon() {
   return (
-    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
-      <circle cx="8" cy="8" r="2.25" />
-      <path d="M8 1.75v1.5M8 12.75v1.5M1.75 8h1.5M12.75 8h1.5M3.6 3.6l1.05 1.05M11.35 11.35l1.05 1.05M12.4 3.6l-1.05 1.05M4.65 11.35 3.6 12.4" />
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.875" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }

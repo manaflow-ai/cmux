@@ -2,10 +2,10 @@ import { Popover } from "@base-ui-components/react/popover";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { menuActionForKey } from "../keymap";
 import type { OptionValue, Provider, SessionOption } from "../session";
-import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
+import { BarsIcon, BoltIcon, Check, Chevron, EllipsisIcon, FolderIcon, PinwheelSpinner, PlanIcon, ProviderIcon, SearchIcon, ShieldIcon, SparkIcon, basename } from "./icons";
 import { CmdkMenu, type CmdkGroup } from "./CmdkMenu";
 import { HintTooltip } from "./Tooltips";
-import { currentChoice, cycleSelect, effortFill, isOffLikeValue, optionAction, optionTooltip, prettyValue, visibleChoices } from "./options";
+import { currentChoice, cycleSelect, effortFill, isOffLikeValue, optionAction, optionTooltip, optionsForSelectedModel, prettyValue, visibleChoices } from "./options";
 
 function CwdPopover({ cwd, onChange, onCommit }: { cwd: string; onChange: (v: string) => void; onCommit: (v: string) => void }) {
   return (
@@ -213,7 +213,32 @@ interface PickerModelItem {
   search: string;
 }
 
-function providerModelItems(p: Provider, currentProvider: string, options: SessionOption[]): PickerModelItem[] {
+const modelLoadingMessages = {
+  en: "Loading models",
+  ja: "モデルを読み込み中",
+} as const;
+const effortLoadingMessages = {
+  en: "Loading effort",
+  ja: "エフォートを読み込み中",
+} as const;
+const noLoadingProviderIds: ReadonlySet<string> = new Set();
+
+function localizedLoadingLabel(messages: typeof modelLoadingMessages | typeof effortLoadingMessages): string {
+  const browserNavigator = typeof navigator === "undefined" ? undefined : navigator;
+  const languages = browserNavigator?.languages?.length
+    ? browserNavigator.languages
+    : browserNavigator?.language ? [browserNavigator.language] : [];
+  const supportedLanguage = languages.find((language) => /^(en|ja)(-|$)/i.test(language));
+  return supportedLanguage?.toLowerCase().startsWith("ja")
+    ? messages.ja
+    : messages.en;
+}
+
+function modelLoadingLabel(): string { return localizedLoadingLabel(modelLoadingMessages); }
+function effortLoadingLabel(): string { return localizedLoadingLabel(effortLoadingMessages); }
+
+export function providerModelItemsForState(p: Provider, currentProvider: string, options: SessionOption[], isLoading: boolean): PickerModelItem[] {
+  if (isLoading) return [];
   const model = modelOption(options);
   const choices = model?.choices?.length ? model.choices : [];
   if (!choices.length) {
@@ -262,6 +287,7 @@ export function HarnessModelPicker({
   providers,
   options,
   allProviderOptions,
+  loadingProviderIds,
   open,
   onOpenChange,
   onSelect,
@@ -272,6 +298,7 @@ export function HarnessModelPicker({
   providers: Provider[];
   options: SessionOption[];
   allProviderOptions: Record<string, SessionOption[]>;
+  loadingProviderIds: ReadonlySet<string>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (provider: string, model: string) => void;
@@ -283,6 +310,8 @@ export function HarnessModelPicker({
   const currentProvider = providers.find((p) => p.id === provider) ?? { id: provider, label: provider };
   const currentModel = modelOption(options);
   const label = currentChoice(currentModel)?.label ?? String(currentModel?.value || currentProvider.label);
+  const loadingLabel = modelLoadingLabel();
+  const isCurrentProviderLoading = loadingProviderIds.has(provider);
   const [railProvider, setRailProvider] = useState(provider);
   const [query, setQuery] = useState(initialQuery);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -294,8 +323,8 @@ export function HarnessModelPicker({
   const activeProvider = installed.find((p) => p.id === railProvider) ?? installed.find((p) => p.id === provider) ?? installed[0];
   const providerItems = useMemo(() => new Map(installed.map((p) => {
     const opts = p.id === provider ? options : (allProviderOptions[p.id] ?? []);
-    return [p.id, providerModelItems(p, provider, opts)];
-  })), [allProviderOptions, installed, options, provider]);
+    return [p.id, providerModelItemsForState(p, provider, opts, loadingProviderIds.has(p.id))];
+  })), [allProviderOptions, installed, loadingProviderIds, options, provider]);
   const q = query.trim();
   const listItems = useMemo(() => {
     if (q) {
@@ -308,6 +337,9 @@ export function HarnessModelPicker({
     return activeProvider ? providerItems.get(activeProvider.id) ?? [] : [];
   }, [activeProvider, providerItems, q]);
   const [activeIndex, setActiveIndex] = useBoundedActiveIndex(open, `${q}:${activeProvider?.id ?? ""}:${listItems.map((i) => i.id).join("|")}`, listItems.length);
+  const isListLoading = q
+    ? installed.some((candidate) => loadingProviderIds.has(candidate.id))
+    : Boolean(activeProvider && loadingProviderIds.has(activeProvider.id));
   useLayoutEffect(() => {
     if (!open) return;
     const id = listItems[activeIndex]?.id;
@@ -360,6 +392,15 @@ export function HarnessModelPicker({
     <button ref={triggerRef} type="button" className={"row-control provider-model-trigger select-trigger" + (running ? " provider-running" : "")} aria-label="Switch harness or model">
       <ProviderIcon provider={currentProvider} />
       <span className="row-value">{label}</span>
+      <span
+        className="model-picker-trigger-loading"
+        data-visible={isCurrentProviderLoading}
+        role={isCurrentProviderLoading ? "status" : undefined}
+        aria-label={isCurrentProviderLoading ? loadingLabel : undefined}
+        aria-hidden={isCurrentProviderLoading ? undefined : true}
+      >
+        <PinwheelSpinner size={11} />
+      </span>
       <span className="chev"><Chevron /></span>
     </button>
   );
@@ -398,11 +439,16 @@ export function HarnessModelPicker({
                               type="button"
                               role="tab"
                               className={"rail-btn" + (p.id === activeProvider?.id ? " active" : "")}
-                              aria-label={p.label}
+                              aria-label={loadingProviderIds.has(p.id) ? `${p.label}: ${loadingLabel}` : p.label}
                               aria-selected={p.id === activeProvider?.id}
                               onClick={() => setRailProvider(p.id)}
                             >
                               <ProviderIcon provider={p} />
+                              {loadingProviderIds.has(p.id) ? (
+                                <span className="rail-loading-indicator" aria-hidden="true">
+                                  <PinwheelSpinner size={8} />
+                                </span>
+                              ) : null}
                             </button>
                           </HintTooltip>
                         ))}
@@ -443,7 +489,23 @@ export function HarnessModelPicker({
                         spellCheck={false}
                       />
                     </div>
-                    <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" ref={listRef}>
+                    {isListLoading && listItems.length ? (
+                      <div className="model-picker-loading" role="status" aria-live="polite">
+                        <PinwheelSpinner size={listItems.length ? 12 : 20} />
+                        <span>{loadingLabel}</span>
+                      </div>
+                    ) : null}
+                    <div
+                      className="model-picker-loading model-picker-loading-full"
+                      data-visible={isListLoading && !listItems.length}
+                      role={isListLoading && !listItems.length ? "status" : undefined}
+                      aria-live={isListLoading && !listItems.length ? "polite" : undefined}
+                      aria-hidden={isListLoading && !listItems.length ? undefined : true}
+                    >
+                      <PinwheelSpinner size={20} />
+                      <span>{loadingLabel}</span>
+                    </div>
+                    <div className="model-picker-list" id="model-picker-list" role="listbox" aria-label="Models" aria-busy={isListLoading} ref={listRef}>
                       {listItems.length ? listItems.map((item, i) => {
                         const row = (
                           <button
@@ -471,9 +533,9 @@ export function HarnessModelPicker({
                         return item.disabled && item.disabledReason
                           ? <HintTooltip key={item.id} label={item.disabledReason}><span className="model-row-tooltip-wrap">{row}</span></HintTooltip>
                           : row;
-                      }) : (
+                      }) : !isListLoading ? (
                         <div className="model-picker-empty">No models found</div>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -490,6 +552,7 @@ export function StatusRow({
   provider,
   providers,
   allProviderOptions,
+  loadingProviderIds,
   onProviderModelChange,
   cwd,
   onCwdChange,
@@ -504,6 +567,7 @@ export function StatusRow({
   provider: string;
   providers?: Provider[];
   allProviderOptions?: Record<string, SessionOption[]>;
+  loadingProviderIds?: ReadonlySet<string>;
   onProviderModelChange?: (provider: string, model: string) => void;
   cwd: string;
   onCwdChange?: (v: string) => void;
@@ -515,12 +579,13 @@ export function StatusRow({
   trailing?: ReactNode;
   running?: boolean;
 }) {
-  const effortLike = options.filter((o) => o.role === "effort" && o.kind === "select" && !isOffLikeValue(String(o.value)));
-  const context = options.find((o) => o.id === "context" && o.kind === "select");
-  const fast = options.find((o) => o.id === "fastMode" && o.kind === "toggle");
-  const approval = options.find((o) => o.role === "approval" && o.kind === "toggle");
-  const mode = options.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
-  const overflow = options.filter((o) => !isInlineOption(o));
+  const resolvedOptions = optionsForSelectedModel(options);
+  const effortLike = resolvedOptions.filter((o) => o.role === "effort" && o.kind === "select" && !isOffLikeValue(String(o.value)));
+  const context = resolvedOptions.find((o) => o.id === "context" && o.kind === "select");
+  const fast = resolvedOptions.find((o) => o.id === "fastMode" && o.kind === "toggle");
+  const approval = resolvedOptions.find((o) => o.role === "approval" && o.kind === "toggle");
+  const mode = resolvedOptions.find((o) => (o.id === "mode" || o.id === "permissionMode") && o.kind === "select");
+  const overflow = resolvedOptions.filter((o) => !isInlineOption(o));
   const modeLabel = mode && !["", "default", "build"].includes(String(mode.value)) ? prettyValue(mode) : "";
   const providerInfo = providers?.find((p) => p.id === provider) ?? { id: provider, label: provider };
   return (
@@ -530,8 +595,9 @@ export function StatusRow({
           <HarnessModelPicker
             provider={provider}
             providers={providers}
-            options={options}
+            options={resolvedOptions}
             allProviderOptions={allProviderOptions ?? {}}
+            loadingProviderIds={loadingProviderIds ?? noLoadingProviderIds}
             open={openOptionId === "modelPicker"}
             onOpenChange={(open) => setOpenOptionId(open ? "modelPicker" : null)}
             onSelect={onProviderModelChange}
@@ -539,6 +605,24 @@ export function StatusRow({
           />
         )
         : <StaticProvider provider={providerInfo} running={running} />}
+      {loadingProviderIds?.has(provider) ? (
+        <span className="effort-picker-loading" role="status" aria-label={effortLoadingLabel()}>
+          <PinwheelSpinner size={11} />
+          <span>{effortLoadingLabel()}</span>
+        </span>
+      ) : null}
+      {!loadingProviderIds?.has(provider) ? effortLike.map((option) => (
+        <InlineSelect
+          key={option.id}
+          option={option}
+          icon={<BarsIcon filled={effortFill(option)} />}
+          choiceIcon={(value) => <BarsIcon filled={effortFill(option, value)} />}
+          label={`${option.label}: ${prettyValue(option)}`}
+          onChange={onChange}
+          open={openOptionId === option.id}
+          onOpenChange={(open) => setOpenOptionId(open ? option.id : null)}
+        />
+      )) : null}
       {fast ? (
         <HintTooltip label={optionTooltip(fast)} action="toggle-fast">
           <button
@@ -552,18 +636,6 @@ export function StatusRow({
           </button>
         </HintTooltip>
       ) : null}
-      {effortLike.map((option) => (
-        <InlineSelect
-          key={option.id}
-          option={option}
-          icon={<BarsIcon filled={effortFill(option)} />}
-          choiceIcon={(value) => <BarsIcon filled={effortFill(option, value)} />}
-          label={prettyValue(option)}
-          onChange={onChange}
-          open={openOptionId === option.id}
-          onOpenChange={(open) => setOpenOptionId(open ? option.id : null)}
-        />
-      ))}
       {context ? (
         <InlineSelect
           option={context}

@@ -1,9 +1,11 @@
 #if os(iOS)
 import CmuxMobileShellModel
 
-/// Identity that restarts model discovery when provider or selected Mac changes.
+/// Stable owner of one provider/Mac model request.
 struct TaskComposerModelRefreshID: Hashable {
     let provider: MobileTaskAgentProvider?
     let macPairingID: String
+    let connectionIdentity: String?
+    let connectionState: MobileConnectionState
 }
 #endif

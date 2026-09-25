@@ -165,13 +165,28 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         )
         manager.selectWorkspace(harness.workspace)
         let panel = try #require(try harness.mirror().panel(forPane: 4))
+        // A manual-I/O mirror pane spawns eagerly inside its hidden bootstrap
+        // window, which `TerminalSurface.uiWindow` deliberately excludes. The
+        // main window's portal adopts the pane host only once AppKit and
+        // SwiftUI get run-loop time, so physical key delivery has to wait for
+        // that adoption instead of assuming the runtime-ready wait spun the loop.
+        let window = try #require(AppDelegate.shared?.windowForMainWindowId(harness.windowId))
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         panel.hostedView.setVisibleInUI(true)
         panel.hostedView.setActive(true)
         panel.hostedView.layoutSubtreeIfNeeded()
         await waitForLiveSurface(panel.surface)
-        #expect(
+        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+            panel.surface.uiWindow === window && panel.hostedView.surfaceView.window === window
+        }
+        try #require(
             panel.surface.hasLiveSurface,
             "Remote manual-I/O key coverage requires a live Ghostty surface"
+        )
+        try #require(
+            panel.surface.uiWindow === window,
+            "Physical key coverage requires the mirror pane in the main window; hosted=\(String(describing: panel.hostedView.window)), bootstrap=\(panel.surface.isHeadlessStartupWindow(panel.hostedView.window)), live=\(panel.surface.hasLiveSurface)"
         )
         return panel.surface
     }
@@ -209,23 +224,11 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             try? inputPipe.fileHandleForReading.close()
         }
 
-        try sendInput()
-        var lineData = Data()
-        var commands: [String] = []
-        for try await byte in inputPipe.fileHandleForReading.bytes {
-            guard byte == UInt8(ascii: "\n") else {
-                lineData.append(byte)
-                continue
-            }
-            let line = String(decoding: lineData, as: UTF8.self)
-            lineData.removeAll(keepingCapacity: true)
-            guard line.hasPrefix("send-keys -t %4 ") else { continue }
-            commands.append(line)
-            if commands.count == expectedCount { break }
-        }
-        inputWriter.close()
-        harness.connection.installStdinWriterForTesting(harness.writer)
-        return commands
+        return try await RemoteTmuxInputCommandCapture().capture(
+            from: inputPipe.fileHandleForReading,
+            expectedCount: expectedCount,
+            sendInput: sendInput
+        )
     }
 
     private func sendPhysicalKey(
@@ -234,8 +237,12 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         modifiers: NSEvent.ModifierFlags = [],
         to surface: TerminalSurface
     ) throws {
+        try #require(
+            surface.uiWindow != nil,
+            "Cannot send key \(keyCode): hosted=\(String(describing: surface.hostedView.window)), live=\(surface.hasLiveSurface)"
+        )
         let characters = String(try #require(UnicodeScalar(functionScalar)))
-        #expect(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+        try #require(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
             characters: characters,
             charactersIgnoringModifiers: characters,
             keyCode: UInt16(keyCode),
@@ -375,7 +382,7 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let surface = try await prepareSinglePaneInputSurface(in: harness)
 
         let commands = try await captureInputCommands(in: harness, expectedCount: 1) {
-            #expect(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            try #require(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
                 characters: "x",
                 charactersIgnoringModifiers: "x",
                 keyCode: UInt16(kVK_ANSI_X)
@@ -392,13 +399,13 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
         let surface = try await prepareSinglePaneInputSurface(in: harness)
 
         let commands = try await captureInputCommands(in: harness, expectedCount: 3) {
-            #expect(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            try #require(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
                 characters: "x",
                 charactersIgnoringModifiers: "x",
                 keyCode: UInt16(kVK_ANSI_X)
             ))
             try sendPhysicalKey(kVK_End, functionScalar: 0xF72B, to: surface)
-            #expect(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+            try #require(surface.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
                 characters: "y",
                 charactersIgnoringModifiers: "y",
                 keyCode: UInt16(kVK_ANSI_Y)
@@ -696,11 +703,19 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
             subtitle: "",
             body: "Body"
         )
-        #expect(notificationResult == .delivered(
-            workspaceID: harness.workspace.id,
-            surfaceID: expectedInputPanel.id,
-            windowID: harness.windowId
-        ))
+        guard case .delivered(
+            let workspaceID,
+            let surfaceID,
+            let windowID,
+            let notificationID
+        ) = notificationResult else {
+            Issue.record("Expected a delivered projected tmux notification, got \(notificationResult)")
+            return
+        }
+        #expect(workspaceID == harness.workspace.id)
+        #expect(surfaceID == expectedInputPanel.id)
+        #expect(windowID == harness.windowId)
+        #expect(notificationID != nil)
         TerminalNotificationStore.shared.clearNotifications(forTabId: harness.workspace.id, surfaceId: expectedInputPanel.id)
         #expect(TerminalController.shared.resolveTerminalPanel(
             from: containerPanelId.uuidString,

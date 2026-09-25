@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -26,7 +27,11 @@ extension WorkspaceListView {
     }
 
     @discardableResult
+    @MainActor
     func selectWorkspaceFromList(_ id: CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Task<Void, Never>? {
+        #if os(iOS) && DEBUG
+        releaseGateUIProbe?.record(.workspaceSelectionTapped)
+        #endif
         invalidateDeferredWorkspaceSelection()
         let selectionGeneration = deferredWorkspaceSelectionGeneration
         guard let cancelTask = prepareWorkspaceSelectionFromList() else {
@@ -67,7 +72,11 @@ extension WorkspaceListView {
 
     var requestWorkspaceCustomization: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
         guard customizeWorkspace != nil else { return nil }
-        return { workspacePendingCustomizationID = $0 }
+        return { workspaceID in
+            workspaceCustomizationPresentation.present {
+                workspacePendingCustomizationID = workspaceID
+            }
+        }
     }
 
     var requestWorkspaceGroupRename: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
@@ -104,14 +113,17 @@ extension WorkspaceListView {
         )
     }
 
-    var workspaceCustomizationIsPresented: Binding<Bool> {
-        Binding(
-            get: { workspacePendingCustomizationID != nil },
-            set: { isPresented in
-                if !isPresented {
-                    workspacePendingCustomizationID = nil
-                }
-            }
+    var workspaceCustomizationPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.customization),
+            fallback: $isWorkspaceCustomizationPresented
+        )
+    }
+
+    var workspaceChangesPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.changes),
+            fallback: $isWorkspaceChangesPresented
         )
     }
 
