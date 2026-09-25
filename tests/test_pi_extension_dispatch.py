@@ -215,11 +215,12 @@ const ctx = {
 };
 await Promise.resolve(handlers.get("session_start")({}, ctx));
 await Promise.resolve(handlers.get("before_agent_start")({ prompt: "hello" }, ctx));
-await Promise.resolve(handlers.get("tool_execution_end")({
-  toolCallId: "ui-lifecycle-tool",
-  toolName: "bash",
-  result: { content: [{ type: "text", text: "done" }] },
-  isError: false
+    await Promise.resolve(handlers.get("tool_execution_end")({
+      toolCallId: "ui-lifecycle-tool",
+      toolName: "bash",
+      args: { command: "gh pr create --title parity" },
+      result: { content: [{ type: "text", text: "done" }] },
+      isError: false
 }, ctx));
 await Promise.resolve(handlers.get("agent_end")({
   messages: [{ role: "assistant", content: "done" }],
@@ -266,23 +267,34 @@ while (performance.now() < deadline) {
     completed = [line for line in calls if line.startswith("end ")]
     expected = [
         "hooks pi session-start",
-        *(["report_pwd"] if "publishPiWorkspaceMetadata" in extension_path.read_text(encoding="utf-8") else []),
         "hooks pi prompt-submit",
         "hooks feed --source pi --event PostToolUse",
         "hooks pi notification",
         "hooks pi stop",
     ]
+    lifecycle_completed = [
+        line for line in completed
+        if " report_pwd " not in line and " report_pr_action " not in line
+    ]
     indexes = {
-        command: [index for index, line in enumerate(completed) if command in line]
+        command: [index for index, line in enumerate(lifecycle_completed) if command in line]
         for command in expected
     }
     orderedIndexes = [indexes[command][0] for command in expected if indexes[command]]
-    commandPhases = [line.split(" ", 1)[0] for line in calls if line.startswith(("start ", "end "))]
+    commandPhases = [
+        line.split(" ", 1)[0]
+        for line in calls
+        if line.startswith(("start ", "end "))
+        and " report_pwd " not in line
+        and " report_pr_action " not in line
+    ]
     if (
-        len(completed) != len(expected)
+        len(lifecycle_completed) != len(expected)
         or any(len(found) != 1 for found in indexes.values())
         or orderedIndexes != sorted(orderedIndexes)
         or commandPhases != [phase for _ in expected for phase in ("start", "end")]
+        or sum("report_pwd " in line for line in completed) < 2
+        or not any("report_pr_action create" in line for line in completed)
     ):
         print(f"FAIL: detached Pi lifecycle work lost command ordering: {calls!r}")
         return 1
