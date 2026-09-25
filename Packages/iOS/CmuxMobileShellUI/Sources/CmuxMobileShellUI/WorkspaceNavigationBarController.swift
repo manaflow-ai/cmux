@@ -65,7 +65,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             if let control = controls[value.id] {
                 control.view.update(content: content)
             } else {
-                let customView = WorkspaceNavigationControlView(content: content)
+                let customView = WorkspaceNavigationControlView(content: content, width: itemWidth)
                 controls[value.id] = HostedControl(
                     button: UIBarButtonItem(customView: customView), view: customView
                 )

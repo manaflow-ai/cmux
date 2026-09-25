@@ -9,11 +9,8 @@ import UIKit
 final class WorkspaceNavigationTitleView: UIView {
     private let contentView: UIView & UIContentView
     private let capsule: UIVisualEffectView
-    private static let horizontalInset: CGFloat = 10
-    private static let preferredContentWidth: CGFloat = 180
-    // Preserve the base toolbar's gap between the title island and actions.
-    // This does not estimate available space; UIKit allocates the whole view.
-    private static let trailingSpacing: CGFloat = 6
+    private static let horizontalInset: CGFloat = 0
+    private static let preferredContentWidth: CGFloat = 192
 
     init() {
         contentView = UIHostingConfiguration { AnyView(EmptyView()) }.margins(.all, 0).minSize(width: 0, height: 0).makeContentView()
@@ -54,7 +51,7 @@ final class WorkspaceNavigationTitleView: UIView {
         // preference, not an estimate of available space: the navigation bar
         // can reduce it further to fit its actual button groups.
         return CGSize(
-            width: min(Self.preferredContentWidth, max(0, content.width)) + 2 * Self.horizontalInset + Self.trailingSpacing,
+            width: min(Self.preferredContentWidth, max(0, content.width)) + 2 * Self.horizontalInset,
             height: 44
         )
     }
@@ -65,10 +62,7 @@ final class WorkspaceNavigationTitleView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        capsule.frame = CGRect(
-            origin: .zero,
-            size: CGSize(width: max(0, bounds.width - Self.trailingSpacing), height: bounds.height)
-        )
+        capsule.frame = bounds
         if #unavailable(iOS 26.0) {
             capsule.layer.cornerRadius = bounds.height / 2
         }

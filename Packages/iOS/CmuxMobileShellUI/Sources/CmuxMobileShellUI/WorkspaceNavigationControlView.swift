@@ -14,7 +14,7 @@ final class WorkspaceNavigationControlView: UIView {
     static func width(for id: WorkspaceNavigationBar.Item.ID) -> CGFloat {
         switch id {
         case .back, .sidebar:
-            37
+            52
         case .changes:
             55
         case .terminals, .overflow:
@@ -24,7 +24,7 @@ final class WorkspaceNavigationControlView: UIView {
         }
     }
 
-    init(content: AnyView) {
+    init(content: AnyView, width: CGFloat) {
         contentView = UIHostingConfiguration { content.ignoresSafeArea() }
             .margins(.all, 0)
             .minSize(width: 0, height: 0)
@@ -33,9 +33,8 @@ final class WorkspaceNavigationControlView: UIView {
         translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(contentView)
-        let contentSize = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        contentWidth = contentView.widthAnchor.constraint(equalToConstant: contentSize.width)
-        itemWidth = widthAnchor.constraint(equalToConstant: contentSize.width)
+        contentWidth = contentView.widthAnchor.constraint(equalToConstant: width)
+        itemWidth = widthAnchor.constraint(equalToConstant: width)
         NSLayoutConstraint.activate([
             contentView.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -65,9 +64,10 @@ final class WorkspaceNavigationControlView: UIView {
             .margins(.all, 0)
             .minSize(width: 0, height: 0)
         contentView.invalidateIntrinsicContentSize()
-        let size = contentView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
-        contentWidth.constant = size.width
-        itemWidth.constant = size.width
+        // The bar item width is part of the native toolbar contract. The
+        // hosted SwiftUI control may change its label, but it must not change
+        // the UIKit item geometry and push the title into the action group.
+        contentWidth.constant = itemWidth.constant
         invalidateIntrinsicContentSize()
     }
 }
