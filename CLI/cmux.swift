@@ -5201,6 +5201,10 @@ struct CMUXCLI {
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
+        if (command == "hooks" || command == "feed-hook"),
+           await admitLegacyCodexToolFeed(command: command, arguments: commandArgs) {
+            return
+        }
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
@@ -5210,6 +5214,13 @@ struct CMUXCLI {
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
                !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) {
                 print("{}")
+                return
+            }
+            if commandArgs == ["codex", "tool-feed-worker"] {
+                await runCodexToolFeedWorker(
+                    socketPath: resolvedSocketPath, socketPassword: socketPasswordArg,
+                    telemetry: cliTelemetry
+                )
                 return
             }
             if commandArgs.first?.lowercased() == "feed" {
@@ -39221,8 +39232,13 @@ export default CMUXSessionRestore;
         env: [String: String],
         client: SocketClient?,
         socketPath: String?,
-        socketPassword: String?
+        socketPassword: String?,
+        allowReconnect: Bool = true
     ) {
+        let evidence = Self.semanticAttentionContext(eventDict)
+        // A tool completion without a request identity cannot resolve attention.
+        // Avoid a main-thread route lookup for this ordinary telemetry case.
+        if classification.clearsNativeApprovalPrompt, evidence.requestIdentity == nil { return }
         let ambientWorkspaceId = (eventDict["workspace_id"] as? String) ?? env["CMUX_WORKSPACE_ID"]
         let ambientSurfaceId = (eventDict["surface_id"] as? String) ?? env["CMUX_SURFACE_ID"]
         let deadline = Date().addingTimeInterval(Self.feedAttentionAcknowledgeTimeoutSeconds)
@@ -39262,6 +39278,9 @@ export default CMUXSessionRestore;
             client: activeClient,
             deadline: deadline
         )
+        // Persistent workers own reconnect/backoff; a failed routing probe
+        // must not implicitly reconnect inside the attention send below.
+        if !allowReconnect, activeClient.socketFD < 0 { return }
         guard let attentionLine = FeedEventClassifier.nativeApprovalPromptAttentionCommand(
             classification: classification,
             displayName: Self.agentDef(named: source)?.displayName ?? source,
@@ -39271,7 +39290,6 @@ export default CMUXSessionRestore;
             agentID: source,
             includeAgentContext: true
         ) else { return }
-        let evidence = Self.semanticAttentionContext(eventDict)
         if classification.clearsNativeApprovalPrompt {
             guard evidence.requestIdentity != nil,
                   let workspaceID = liveTarget?.workspaceId ?? ambientWorkspaceId,
@@ -39363,12 +39381,13 @@ export default CMUXSessionRestore;
     /// chained separately. For Claude, `hooks claude pre-tool-use` is
     /// async status-only telemetry; blocking decisions come through
     /// PermissionRequest.
-    private func runFeedHook(
+    func runFeedHook(
         commandArgs: [String],
         client: SocketClient? = nil,
         socketPath: String? = nil,
         socketPassword: String? = nil,
-        telemetry: CLISocketSentryTelemetry
+        telemetry: CLISocketSentryTelemetry,
+        inputData: Data? = nil
     ) throws {
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
@@ -39410,7 +39429,9 @@ export default CMUXSessionRestore;
         case "pi": Self.piFeedHookMaxStdinBytes
         default: nil
         }
-        if let feedHookStdinLimit {
+        if let inputData {
+            stdinData = inputData
+        } else if let feedHookStdinLimit {
             guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
                 print("{}")
                 return
@@ -39428,10 +39449,12 @@ export default CMUXSessionRestore;
 
         // Derive the hook event name, mapped to our wire format. Claude
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
-        let rawEvent = (stdinObj["hook_event_name"] as? String)
-            ?? (stdinObj["event"] as? String)
-            ?? commandEvent
-            ?? ""
+        let rawEvent = inputData != nil ? (commandEvent ?? "") : (
+            (stdinObj["hook_event_name"] as? String)
+                ?? (stdinObj["event"] as? String)
+                ?? commandEvent
+                ?? ""
+        )
         let toolCall = stdinObj["toolCall"] as? [String: Any]
         let toolName = firstString(in: stdinObj, keys: ["tool_name", "toolName"])
             ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
@@ -39796,10 +39819,13 @@ export default CMUXSessionRestore;
                     env: env,
                     client: client,
                     socketPath: socketPath,
-                    socketPassword: socketPassword
+                    socketPassword: socketPassword,
+                    allowReconnect: inputData == nil
                 )
                 let telemetrySocketPath = socketPath ?? client?.socketPath
-                if let telemetrySocketPath {
+                if inputData != nil, let client, !client.isRelayBacked {
+                    _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
+                } else if let telemetrySocketPath {
                     sendBestEffortFeedTelemetry(
                         socketPath: telemetrySocketPath,
                         line: line,
@@ -39956,7 +39982,7 @@ export default CMUXSessionRestore;
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
     private static let piFeedHookMaxStdinBytes = 128 * 1024
 
-    private static func readBoundedFeedHookStdin(
+    static func readBoundedFeedHookStdin(
         maxBytes: Int,
         handle: FileHandle = .standardInput
     ) -> Data? {

@@ -189,11 +189,18 @@ class TerminalController {
     nonisolated let socketPathMarkerStore: SocketPathMarkerStore
     // Accepted-connection consumer; runs until process exit (singleton).
     private nonisolated let socketConnectionsTask: Task<Void, Never>
-    /// Bounded async connection admission. The pool owns task lifetimes; an
-    /// admitted connection owns its descriptor until its async handler exits.
+    /// Idle async readers retain descriptors, not executor threads. This
+    /// bounded connection budget accommodates 100 agent forwarders plus CLI,
+    /// event-stream, and mobile clients without occupying command capacity.
     private nonisolated let socketClientWorkerPool = ControlClientWorkerPool(
-        maximumConcurrentJobs: 32,
+        maximumConcurrentJobs: 256,
         maximumPendingJobs: 64
+    )
+    /// Keep the existing 32-operation execution bound independently of idle
+    /// connections. Each admitted connection can queue at most one command.
+    private nonisolated let socketCommandWorkerPool = ControlClientWorkerPool(
+        maximumConcurrentJobs: 32,
+        maximumPendingJobs: 256
     )
     /// Latest main-actor-published read results. Socket workers consult this
     /// mirror synchronously before falling back to a live command path.
@@ -2197,13 +2204,25 @@ class TerminalController {
                 return
             }
 
-            let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
-                await processSocketLineAsync(
-                    trimmed,
-                    passwordAuthorization: passwordAuthorization,
-                    rateLimiter: rateLimiter
-                )
-            }
+            let admittedPasswordAuthorization = passwordAuthorization
+            guard let result = await socketCommandWorkerPool.perform({ [self] in
+                var currentAuthorization = admittedPasswordAuthorization
+                guard socketAuthorizationIsCurrent(
+                    authorizationGeneration, passwordAuthorization: &currentAuthorization
+                ) else {
+                    return (
+                        response: Self.socketClientAccessDeniedResponse as String?,
+                        passwordAuthorization: currentAuthorization
+                    )
+                }
+                return await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
+                    await processSocketLineAsync(
+                        trimmed,
+                        passwordAuthorization: currentAuthorization,
+                        rateLimiter: rateLimiter
+                    )
+                }
+            }) else { return }
             passwordAuthorization = result.passwordAuthorization
             if let response = result.response {
                 guard await writer.writeAll(Data((response + "\n").utf8)) else { return }

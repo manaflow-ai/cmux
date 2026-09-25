@@ -53,7 +53,11 @@ extension CMUXCLI {
         if let identityMarker {
             commandParts.insert(": \(identityMarker)", at: 0)
         }
-        return commandParts.joined(separator: "; ")
+        let fallback = commandParts.joined(separator: "; ")
+        if agent == "codex" {
+            return CodexToolHookProducer().command(event: subcommand, fallback: fallback)
+        }
+        return fallback
     }
 
     static func agentHookCLIExecutableExpression(agent: String) -> String {

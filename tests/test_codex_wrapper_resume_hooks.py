@@ -114,6 +114,7 @@ exit 1
         env = os.environ.copy()
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
         env["HOME"] = str(tmp / "home")
+        env["TMPDIR"] = str(tmp)
         env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
         env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
         env["CMUX_SOCKET_PATH"] = str(socket_path)
