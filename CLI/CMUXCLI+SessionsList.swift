@@ -194,7 +194,7 @@ extension CMUXCLI {
                 } else if let client = goalClient {
                     goalLookup = sessionsListGoalLookup(
                         source: spec.name,
-                        sessionID: record.sessionId,
+                        sessionID: rawRecord.sessionId,
                         client: client
                     )
                     if case .unavailable = goalLookup {

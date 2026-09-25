@@ -40,7 +40,12 @@ extension CMUXCLI {
         }
         let normalizedAgent = agentInput.lowercased() == "claude-code" || agentInput.lowercased() == "claude_code"
             ? "claude" : agentInput.lowercased()
-        guard AgentJournalEventDraft.isValidSlug(normalizedAgent) else {
+        let resolvedAgent: String
+        if normalizedAgent == "claude" {
+            resolvedAgent = "claude"
+        } else if let definition = Self.agentDef(named: normalizedAgent) {
+            resolvedAgent = definition.name
+        } else {
             throw CLIError(message: String(localized: "cli.agent.goalState.error.unknownAgent", defaultValue: "Unknown agent."))
         }
         guard let state = AgentGoalLifecycleState(rawValue: stateRaw.lowercased()) else {
@@ -83,11 +88,11 @@ extension CMUXCLI {
         }
 
         let eventID = normalizedHookValue(eventIDRaw) ?? goalLifecycleEventID(
-            agent: normalizedAgent,
+            agent: resolvedAgent,
             sessionID: sessionID,
             lifecycle: lifecycle
         )
-        let source = normalizedAgent
+        let source = resolvedAgent
         let draft = AgentJournalEventDraft(
             eventId: eventID,
             kind: .goalStateChanged,
