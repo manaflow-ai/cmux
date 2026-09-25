@@ -18,10 +18,10 @@ let package = Package(
     swiftLanguageModes: [.v5]
 )
 SWIFT
-# CloudTuiTerminalProjectionTarget lives in the CmuxSurfaceCatalogModel package, not in Sources/Cloud.
+# CloudTuiTerminalProjectionTarget lives in the CmuxSurfaceCatalogModel package, not in CmuxCloud.
 cp "$ROOT/Packages/macOS/CmuxSurfaceCatalogModel/Sources/CmuxSurfaceCatalogModel/CloudTuiTerminalProjectionTarget.swift" \
     "$DEST/Sources/CloudCommandFixture/"
-cp "$ROOT/Sources/Cloud/CloudTuiPersistentResourceConnection.swift" "$DEST/Sources/CloudCommandFixture/"
+cp "$ROOT/Packages/macOS/CmuxCloud/Sources/CmuxCloud/Link/CloudTuiPersistentResourceConnection.swift" "$DEST/Sources/CloudCommandFixture/"
 # The rest of the transport lives in the CmuxCloudTui package.
 for name in CloudTuiPersistentRequestBuilder \
     CloudTuiManualIOConnection CloudTuiManualIODescriptorLease CloudTuiManualIOCommand \

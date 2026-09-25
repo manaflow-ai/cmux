@@ -1,3 +1,4 @@
+import CmuxSettings
 import CmuxCommandPalette
 import CmuxCore
 import CmuxFoundation

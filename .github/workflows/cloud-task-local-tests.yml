@@ -3,9 +3,9 @@ name: Cloud task-local lifecycle
 on:
   pull_request:
     paths:
-      - Sources/Cloud/CloudOperation*.swift
-      - Sources/Cloud/CloudTelemetry*.swift
-      - Sources/Cloud/CloudRemoteOperationStep.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Operations/CloudOperation*.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Telemetry/CloudTelemetry*.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Operations/CloudRemoteOperationStep.swift
       - scripts/select-ci-xcode.sh
       - scripts/ci/xcode-pins.txt
       - .xcode-version
