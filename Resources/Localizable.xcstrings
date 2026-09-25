@@ -30649,6 +30649,72 @@
             "state": "translated",
             "value": "所有者の候補: %1$@。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mogući vlasnici: %1$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mulige ejere: %1$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possibili proprietari: %1$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ចាស់ដែលអាចមាន៖ %1$@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mulige eiere: %1$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Możliwi właściciele: %1$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possíveis proprietários: %1$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возможные владельцы: %1$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เจ้าของที่เป็นไปได้: %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olası sahipler: %1$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Можливі власники: %1$@."
+          }
         }
       }
     },
@@ -30707,6 +30773,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "別のプロセスがこの会話を使用しています。そちらで続けるか、通常の手順で閉じてから、ここでの復元を再試行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor koristi drugi proces. Nastavite tamo ili ga zatvorite na uobičajen način, a zatim ponovo pokušajte vratiti razgovor ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtale bruges af en anden proces. Fortsæt dér, eller luk den på normal vis, og prøv derefter at gendanne den her igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa conversazione è in uso da un altro processo. Continua lì oppure chiudila normalmente, quindi riprova a ripristinarla qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសន្ទនានេះកំពុងត្រូវបានប្រើដោយដំណើរការមួយផ្សេងទៀត។ បន្តនៅទីនោះ ឬបិទវាតាមធម្មតា រួចព្យាយាមស្ដារវានៅទីនេះម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtalen brukes av en annen prosess. Fortsett der, eller lukk den på vanlig måte, og prøv deretter å gjenopprette den her igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta rozmowa jest używana przez inny proces. Kontynuuj tam lub zamknij ją w zwykły sposób, a następnie spróbuj ponownie ją tutaj przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conversa está em uso por outro processo. Continue lá ou feche-a normalmente e tente restaurá-la aqui novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот разговор используется другим процессом. Продолжите там или закройте его обычным способом, затем попробуйте восстановить его здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสนทนานี้กำลังใช้งานอยู่ในอีกกระบวนการหนึ่ง ให้ดำเนินการต่อที่นั่นหรือปิดตามปกติ แล้วลองกู้คืนการสนทนาที่นี่อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu konuşma başka bir işlem tarafından kullanılıyor. Orada devam edin veya normal şekilde kapatın, ardından burada geri yüklemeyi yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю розмову використовує інший процес. Продовжте там або закрийте її звичайним способом, а потім спробуйте відновити її тут."
           }
         }
       }
