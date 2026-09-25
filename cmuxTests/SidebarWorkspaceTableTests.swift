@@ -1310,7 +1310,9 @@ struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
     func workspaceRowKeepsRefreshingAfterColorMenuMutation() async throws {
-        let workspace = Workspace()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(tabManager.tabs.first)
+        var refreshCount = 0
         let initialModel = SidebarWorkspaceRowSuspensionTests.makeModel(
             customDescription: "before color",
             workspaceId: workspace.id
@@ -1328,7 +1330,9 @@ struct SidebarWorkspaceTableTests {
             workspaceRowModel: initialModel,
             actions: SidebarWorkspaceRowSuspensionTests.makeActions(
                 model: initialModel,
-                workspace: workspace
+                workspace: workspace,
+                tabManager: tabManager,
+                onRefreshSnapshot: { refreshCount += 1 }
             ),
             groupId: nil,
             isPinned: false,
@@ -1371,7 +1375,8 @@ struct SidebarWorkspaceTableTests {
         )
 
         currentModel = coloredModel
-        workspace.setCustomColor("#800080")
+        try #require(row.appKitWorkspaceRowActions).commands.applyTabColor("#800080")
+        #expect(refreshCount == 1, "The native context-menu color action must schedule the shared snapshot refresh.")
         await flushUntil { cell.currentModelForMeasurement?.snapshot.customDescription == "after color" }
         #expect(
             cell.currentModelForMeasurement?.snapshot.customDescription == "after color",
