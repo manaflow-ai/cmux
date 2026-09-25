@@ -151,7 +151,7 @@ struct FileDropOverlayViewLifecycleTests {
     }
 
     @Test
-    func displayDeadlineDismissesEvenIfAppKitKeepsUpdatingDrag() {
+    func displayDeadlineDismissesEvenIfAppKitKeepsUpdatingDrag() async {
         let (window, _) = makeOverlay()
         defer { close(window) }
         let presentation = FileDropHintPresentation(displayDuration: .zero)
@@ -159,10 +159,10 @@ struct FileDropOverlayViewLifecycleTests {
         presentation.begin(sequenceNumber: 10)
         let bounds = CGRect(x: 0, y: 0, width: 420, height: 280)
         presentation.show(sequenceNumber: 10, text: "hint", centeredIn: bounds, clippedTo: bounds)
-        // Drain the real zero-duration deadline; no wall-clock delay is needed to show the hint.
+        // Release MainActor so the real zero-duration timer can run on the main queue.
         let limit = Date().addingTimeInterval(1)
         while !presentation.badge.isHidden, Date() < limit {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.001))
+            await Task.yield()
         }
         #expect(presentation.badge.isHidden)
         presentation.show(sequenceNumber: 10, text: "stale", centeredIn: bounds, clippedTo: bounds)
