@@ -89,6 +89,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
     var onFocusInputRequestedForTesting: (() -> Void)?
+    var onDrawForWakeupForTesting: (() -> Void)?
     private var surfaceTitle: String?
     var displayLink: CADisplayLink?
     private var cursorRenderWakeState = TerminalCursorRenderWakeState()
@@ -6037,6 +6038,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // with the display-link's main-thread present. Just flag dirty; the
         // next display-link tick runs `render_now` on main (which itself does
         // drainMailbox + updateFrame), keeping a single present owner on main.
+        onDrawForWakeupForTesting?()
         needsDraw = true
     }
 
