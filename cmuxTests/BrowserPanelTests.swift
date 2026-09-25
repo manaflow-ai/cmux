@@ -55,12 +55,14 @@ struct BrowserLocalFileEncodingTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let fileURL = directory.appendingPathComponent("notes.txt")
+        let fileURL = directory.appendingPathComponent("notes.md")
         let expectedText = "# 산책의 즐거움"
         try XCTUnwrap(expectedText.data(using: .utf8)).write(to: fileURL)
 
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
+        let fallbackEncoding = panel.webView.configuration.preferences
+            .value(forKey: "_defaultTextEncodingName") as? String
 
         panel.navigate(to: fileURL)
         let initial = try await waitForDocument(at: fileURL, in: panel)
@@ -69,6 +71,10 @@ struct BrowserLocalFileEncodingTests {
 
         panel.navigate(to: URL(string: "about:blank")!)
         _ = try await waitForDocument(at: URL(string: "about:blank")!, in: panel)
+        #expect(
+            (panel.webView.configuration.preferences.value(forKey: "_defaultTextEncodingName") as? String)
+                == fallbackEncoding
+        )
 
         panel.goBack()
         let afterBack = try await waitForDocument(at: fileURL, in: panel)
@@ -81,7 +87,7 @@ struct BrowserLocalFileEncodingTests {
         #expect(afterReload.text.contains(expectedText))
     }
 
-    @Test func encodingPolicyLeavesNonUTF8AndNonFileNavigationOnWebKitFallback() throws {
+    @Test func encodingPolicyLeavesNonUTF8DeclaredAndNonFileNavigationOnWebKitFallback() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-encoding-policy-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -91,10 +97,16 @@ struct BrowserLocalFileEncodingTests {
         try XCTUnwrap("산책".data(using: .utf8)).write(to: utf8URL)
         let nonUTF8URL = directory.appendingPathComponent("legacy.txt")
         try Data([0xB0, 0xA1]).write(to: nonUTF8URL)
+        let declaredCharsetURL = directory.appendingPathComponent("declared.html")
+        try XCTUnwrap(
+            "<html><head><meta charset=\"windows-1252\"></head><body>산책</body></html>"
+                .data(using: .utf8)
+        ).write(to: declaredCharsetURL)
 
         let policy = BrowserLocalFileEncodingPolicy()
         #expect(policy.preferredEncodingName(for: utf8URL) == "UTF-8")
         #expect(policy.preferredEncodingName(for: nonUTF8URL) == nil)
+        #expect(policy.preferredEncodingName(for: declaredCharsetURL) == nil)
         #expect(policy.preferredEncodingName(for: URL(string: "about:blank")!) == nil)
     }
 
