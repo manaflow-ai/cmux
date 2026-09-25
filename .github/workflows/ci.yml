@@ -638,6 +638,7 @@ jobs:
           # 1 lets a run take the owned machines that are free and send its
           # other jobs to Blacksmith, instead of all or nothing (off unless 1).
           POOL_OWNED_SPLIT: ${{ vars.CI_PR_POOL_OWNED_SPLIT }}
+          OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
           # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
           POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
@@ -660,9 +661,9 @@ jobs:
         run: python3 scripts/ci/pr_runner_pool.py
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
-      # it stays busy. This marker tells ci-owned-pool-rescue.yml, running from
-      # main, to watch the run and re-run it on Blacksmith when a job waits past
-      # CI_OWNED_POOL_RESCUE_SECONDS. No persistent pool, no marker, no watching.
+      # it stays busy. The owned-pool-watch job starts ci-owned-pool-rescue.yml,
+      # running from main, and this marker tells it to watch the run and re-run
+      # it on Blacksmith when a job waits past CI_OWNED_POOL_RESCUE_SECONDS. No persistent pool, no marker, no watching.
       # Fail-safe like the picker: a missing marker only means the run is not
       # watched, which is how every run behaved before the rescue existed.
       - name: Mark a run on a persistent macOS pool
@@ -968,6 +969,33 @@ jobs:
           path: ${{ runner.temp }}/reverse-test-impact/report.json
           if-no-files-found: ignore
           retention-days: 14
+
+  owned-pool-watch:
+    # Starts ci-owned-pool-rescue.yml (from main) for a run whose `changes`
+    # job placed jobs on an owned pool, so a run on an ephemeral pool, a fork
+    # or a retry creates no rescue workflow run at all. It is the one job in
+    # this workflow with Actions write, and it runs no repository code:
+    # no checkout, one API call. The watcher re-checks the run it is given.
+    # Fail-safe: if the dispatch fails the run is only not watched, and
+    # ci-status does not wait for this job.
+    name: Watch owned pool jobs
+    needs: changes
+    if: ${{ needs.changes.outputs.macos_pr_owned_jobs != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
+    runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
+    timeout-minutes: 5
+    # Job level, like reverse-test-impact, so macos-admission-gate never
+    # waits on it.
+    continue-on-error: true
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch the persistent pool rescue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
 
   static-preflight:
     name: Fast static checks

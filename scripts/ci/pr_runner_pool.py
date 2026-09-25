@@ -146,7 +146,15 @@ A retry attempt (GITHUB_RUN_ATTEMPT above 1) never takes a persistent pool
 either. A job queued on a persistent pool waits for it however long it stays
 busy, so owned_pool_rescue.py cancels such a run and re-runs it, and the
 re-run has to land somewhere with capacity. A rerun after a job failed on an
-owned Mac lands on Blacksmith for the same reason. The `persistent` output
+owned Mac lands on Blacksmith for the same reason. One exception, off unless
+`vars.CI_OWNED_LIGHT_RETRY == '1'`: attempt 2 (LIGHT_RETRY_ATTEMPT) may take
+a `light` owned pool, the next fleet tier, when its whole owned peak is free
+there by the same rule as attempt 1, and only when github-actions[bot]
+started it (GITHUB_TRIGGERING_ACTOR, the same gate as ci.yml's runs-on for
+pr_refused_retry_runner). That attempt is the full re-run the
+rescue starts for a job stuck queued on `std`, which picks again; the rescue
+watches it, and a job stuck or refused there goes to Blacksmith on attempt
+3. The order is std, then light, then Blacksmith. The `persistent` output
 tells ci.yml to publish the marker the rescue watcher looks for.
 
 Anything uncertain keeps today's route: an event other than pull_request, a
@@ -209,6 +217,16 @@ OWNED_VARIABLE = "CI_PR_POOL_OWNED"
 SPLIT_VARIABLE = "CI_PR_POOL_OWNED_SPLIT"
 GUI_VARIABLE = "CI_PR_POOL_OWNED_GUI"
 SLOTS_VARIABLE = "CI_OWNED_POOL_SLOTS"
+LIGHT_RETRY_VARIABLE = "CI_OWNED_LIGHT_RETRY"
+# The one retry attempt that may take the light tier (owned_pool_rescue.py's
+# LAST_OWNED_ATTEMPT): later attempts always go to Blacksmith.
+LIGHT_RETRY_ATTEMPT = 2
+LIGHT_CLASS = "light"
+# ci.yml sends attempt 2's owned-eligible jobs to pr_refused_retry_runner (the
+# light label on a light pick) only when this actor started it: the rescue's
+# re-run. A human re-run sends them to pr_retry_runner, so the picker must not
+# take light (or publish its marker) for one.
+RESCUE_ACTOR = "github-actions[bot]"
 # A pull request run holds several macOS machines at once, each job on its
 # own. Beside compile admission run the Claude wrapper and remote daemon
 # lanes; once admission passes, a full suite adds APP_HOST_SHARDS
@@ -935,6 +953,8 @@ def choose(
     jobs: int = MAX_RUN_JOBS,
     split: str | None = None,
     root_jobs: int = 0,
+    light_retry: str | None = None,
+    triggering_actor: str | None = None,
     fetch: Callable[[], Mapping[str, Any] | None],
     count_routed: Callable[[str], "int | Routed"] = lambda since: 0,
     now: dt.datetime,
@@ -979,7 +999,11 @@ def choose(
             return Choice("", "", "fork head; no ephemeral pool in the order"), snapshot
     retry = run_attempt > 1
     if retry:
-        limits = dataclasses.replace(limits, order=tuple(label for label in limits.order if not persistent(label)))
+        light = (not fork and run_attempt == LIGHT_RETRY_ATTEMPT and (light_retry or "").strip() == "1"
+                 and (triggering_actor or "").strip() == RESCUE_ACTOR)
+        limits = dataclasses.replace(limits, order=tuple(
+            label for label in limits.order
+            if not persistent(label) or light and label.startswith(f"glaeda-{LIGHT_CLASS}-")))
         if not limits.order:
             return Choice("", "", f"retry attempt {run_attempt}; no ephemeral pool in the order"), snapshot
     if not isinstance(snapshot, Mapping) or not snapshot.get("generated_at"):
@@ -1026,13 +1050,17 @@ def choose(
     return choice, snapshot
 
 
-def may_hold_owned_pool(run: Mapping[str, Any]) -> bool:
-    """Only attempt 1 of a same-repository pull request run can take an owned pool.
+def may_hold_owned_pool(run: Mapping[str, Any], *, light_retry: bool = False) -> bool:
+    """Only attempt 1 of a same-repository pull request run can take an owned pool,
+    and attempt 2 too while CI_OWNED_LIGHT_RETRY is 1 (`light_retry`).
 
-    The same rule as queue_janitor.may_hold_owned_pool: a fork runs its own
-    ci.yml and could upload any marker, so its markers are never read.
+    Attempt 2 then may hold the light tier, or a refused job's retry
+    (pr_refused_retry_runner); with the variable off it is not looked up,
+    so no request is spent on it. The same rule as
+    queue_janitor.may_hold_owned_pool: a fork runs its own ci.yml and could
+    upload any marker, so its markers are never read.
     """
-    if int(run.get("run_attempt") or 1) != 1:
+    if int(run.get("run_attempt") or 1) > (LIGHT_RETRY_ATTEMPT if light_retry else 1):
         return False
     head, base = (run.get("head_repository") or {}).get("id"), (run.get("repository") or {}).get("id")
     return head is not None and head == base
@@ -1129,7 +1157,8 @@ class GitHub:
         runs = self.get(f"/actions/workflows/{workflow}/runs?{query}").get("workflow_runs") or []
         return [run for run in runs if isinstance(run, Mapping)]
 
-    def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None) -> Routed:
+    def pull_request_routes_since(self, since: str, *, exclude_run_id: int | None,
+                                  light_retry: bool = False) -> Routed:
         """Where the pull request runs since `since` went, so they are not all guessed.
 
         A fork run or a retry attempt never takes an owned pool, so it is off
@@ -1144,7 +1173,7 @@ class GitHub:
         owned: dict[str, int] = {}
         ephemeral = unknown = looked_up = 0
         for run in runs:
-            if not may_hold_owned_pool(run):
+            if not may_hold_owned_pool(run, light_retry=light_retry):
                 ephemeral += 1
                 continue
             if looked_up >= ROUTE_LOOKUPS:
@@ -1252,7 +1281,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     def count_routed(since: str) -> int:
         if args.snapshot:
             return 0
-        return client().pull_request_routes_since(since, exclude_run_id=int(run_id) if run_id.isdigit() else None)
+        return client().pull_request_routes_since(
+            since, exclude_run_id=int(run_id) if run_id.isdigit() else None,
+            light_retry=(env.get("OWNED_LIGHT_RETRY") or "").strip() == "1")
 
     # The changes job's routing, when the step runs after it; without it every
     # run is charged the most machines any run can hold.
@@ -1296,6 +1327,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         jobs=jobs,
         split=env.get("POOL_OWNED_SPLIT"),
         root_jobs=root_peak(plan, gui),
+        light_retry=env.get("OWNED_LIGHT_RETRY"),
+        triggering_actor=env.get("GITHUB_TRIGGERING_ACTOR"),
         xcode_pins={variable: env.get(variable) or ""
                     for variable in {*POOLS.values(), PR_XCODE_VARIABLE} if variable},
         fetch=fetch,
