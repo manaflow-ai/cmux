@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Main-actor owner for the per-surface agent footer lifecycle.
 ///
