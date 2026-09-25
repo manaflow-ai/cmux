@@ -2,8 +2,13 @@ import Foundation
 
 extension AppSessionSnapshot {
     func restoringPipSurfacesAsWorkspaceTabs() -> AppSessionSnapshot {
-        guard let pipSurfaces, !pipSurfaces.isEmpty else { return self }
         var copy = self
+        // Apply the restore window cap before merging detached surfaces. A PiP
+        // surface whose recorded home window was beyond the cap must fall back
+        // into a surviving workspace rather than being discarded with that
+        // window.
+        copy.windows = Array(copy.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot))
+        guard let pipSurfaces, !pipSurfaces.isEmpty else { return copy }
         if copy.windows.isEmpty {
             copy.windows = [Self.fallbackWindowSnapshot(for: pipSurfaces)]
         }

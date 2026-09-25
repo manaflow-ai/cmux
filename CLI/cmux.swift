@@ -9356,9 +9356,6 @@ struct CMUXCLI {
         // Let the socket's shared resolver choose the focused surface or the
         // routed PiP floater when no explicit surface context is supplied.
         let surfaceRaw = surfaceArg ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
-        guard surfaceRaw != nil else {
-            throw CLIError(message: "surface pip requires --surface or CMUX_SURFACE_ID")
-        }
         if surfaceArg != nil || surfaceRaw != nil {
             guard let surfaceID = try normalizeSurfaceHandle(
                 surfaceRaw,

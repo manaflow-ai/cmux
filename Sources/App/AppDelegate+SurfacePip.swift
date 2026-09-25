@@ -68,8 +68,8 @@ extension AppDelegate {
             return popSurfacePipAction(panelId: resolvedPanelId)
         case .return:
             let resolvedPanelId = panelId
-                ?? surfacePipController.panelId(for: NSApp.keyWindow)
                 ?? surfacePipController.mostRecentActivePanelId(for: routedTabManager)
+                ?? (routedTabManager == nil ? surfacePipController.panelId(for: NSApp.keyWindow) : nil)
                 ?? (routedTabManager == nil ? surfacePipController.mostRecentActivePanelId : nil)
             guard let resolvedPanelId else { return .failure(.surfaceNotFound) }
             return returnSurfacePipAction(panelId: resolvedPanelId)
@@ -80,7 +80,8 @@ extension AppDelegate {
                 }
                 return popSurfacePipAction(panelId: panelId)
             }
-            if let pipPanelId = surfacePipController.panelId(for: NSApp.keyWindow) {
+            if routedTabManager == nil,
+               let pipPanelId = surfacePipController.panelId(for: NSApp.keyWindow) {
                 return returnSurfacePipAction(panelId: pipPanelId)
             }
             if let focusedPanelId = focusedSurfacePipPanelId(tabManager: routedTabManager) {
