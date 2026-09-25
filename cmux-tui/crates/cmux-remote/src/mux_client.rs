@@ -20,7 +20,10 @@ use serde_json::Value;
 use tokio::sync::Mutex;
 
 use crate::bridge::{BridgeError, await_opened};
-use crate::mux_codec::{MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, MuxLineAssembler, encode_line, mux_line_payload_len};
+use crate::mux_codec::{
+    MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, MuxLineAssembler, encode_line,
+    mux_line_payload_len,
+};
 use crate::mux_lanes::classify_client_line;
 use crate::service::{ServiceMultiplexer, ServiceStream, StreamBudget, StreamChunk};
 
@@ -71,9 +74,10 @@ impl MuxLineClient {
     /// stream usable for the next request only if the reply never arrives
     /// out of band, so callers should close the client after a timeout.
     pub async fn request(&self, request: &Value) -> Result<Value, BridgeError> {
-        let id = request.get("id").cloned().ok_or_else(|| {
-            BridgeError::Rejected("mux request has no id".into())
-        })?;
+        let id = request
+            .get("id")
+            .cloned()
+            .ok_or_else(|| BridgeError::Rejected("mux request has no id".into()))?;
         let mut line = serde_json::to_vec(request)?;
         line.push(b'\n');
         if mux_line_payload_len(&line) > MAX_MUX_LINE_BYTES.saturating_sub(1) {
