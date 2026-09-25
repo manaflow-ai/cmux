@@ -4,7 +4,9 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
     func testAccountFooterDoesNotOfferTeamPickerAndCloudHeaderDoes() {
         let app = launchSignedInApp()
         defer { app.terminate() }
-        let accountButton = app.buttons["SidebarAccountMenuButton"]
+        let accountButton = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@", "SidebarAccountMenuButton", "Account"
+        )).firstMatch
         XCTAssertTrue(accountButton.waitForExistence(timeout: 10))
         accountButton.click()
         XCTAssertTrue(app.buttons["SidebarAccountSignOutButton"].waitForExistence(timeout: 5))
@@ -96,7 +98,7 @@ final class CloudTeamPickerPlacementUITests: XCTestCase {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
         }
         app.launchArguments += [
-            "-workspacePresentationMode", "minimal",
+            "-workspacePresentationMode", "standard",
             "-cloud.beta.machines.enabled", cloudEnabled ? "YES" : "NO",
             "-fileExplorer.isVisible", sidebarVisible ? "YES" : "NO",
             "-rightSidebar.mode", "files",
