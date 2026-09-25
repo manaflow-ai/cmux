@@ -10,7 +10,8 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat,
         windowOverride: String?,
-        honorJSONOutput: Bool
+        honorJSONOutput: Bool,
+        preserveStableIDsByDefault: Bool
     ) throws {
         let (commandOpt, rem0) = try parseTerminalCreationCommandOption(
             commandArgs,
@@ -89,7 +90,8 @@ extension CMUXCLI {
         let response = try client.sendV2(method: "workspace.create", params: params)
         let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
         if jsonOutput && honorJSONOutput {
-            print(jsonString(formatIDs(response, mode: idFormat)))
+            let outputIDFormat: CLIIDFormat = preserveStableIDsByDefault ? .both : idFormat
+            print(jsonString(formatIDs(response, mode: outputIDFormat)))
         } else {
             print("OK \(wsId)")
         }

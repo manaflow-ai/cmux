@@ -6859,7 +6859,8 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowId,
-                honorJSONOutput: false
+                honorJSONOutput: true,
+                preserveStableIDsByDefault: preservesStableIDsByDefault
             )
 
         case "new-split":
@@ -10841,7 +10842,8 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowOverride,
-                honorJSONOutput: true
+                honorJSONOutput: true,
+                preserveStableIDsByDefault: preservesStableIDsByDefault
             )
         case "env":
             try runWorkspaceEnvCommand(
@@ -18979,7 +18981,7 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--env KEY=VALUE]... [--env-file <path>]... [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--env KEY=VALUE]... [--env-file <path>]... [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>] [--json]
 
             Create a new workspace in the caller's window.
 
