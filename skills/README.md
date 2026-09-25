@@ -3,7 +3,7 @@
 Choose by the task: operating the installed app and changing its implementation
 use different instructions. Load the matching `SKILL.md`, then only the reference
 needed for the current operation. Installed CLI `--help` owns available commands
-and flags; repository instructions own build routing and shared-machine limits.
+and flags; repository instructions own build and test rules.
 
 ## Working on the repository
 
@@ -28,6 +28,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Shared actions across multiple entry points | [cmux-shared-behavior](cmux-shared-behavior/SKILL.md) |
 | Ghostty submodule or GhosttyKit | [cmux-ghostty](cmux-ghostty/SKILL.md) |
 | Versions, changelog and release artifacts | [cmux-release](cmux-release/SKILL.md) |
+| Adversarial review of agent-written changes | [cmux-review](cmux-review/SKILL.md) |
 
 ## Using the installed app
 
