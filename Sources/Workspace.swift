@@ -639,11 +639,6 @@ extension Workspace {
                     )
                 }
                 guard let effectiveRestorableAgent else { return nil }
-                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
-                    for: effectiveRestorableAgent,
-                    panelId: panelId,
-                    currentProcessIdentity: currentAgentProcessIdentity
-                )
                 let matchingObservation = restorableAgentObservation?.matchingAgentSession(
                     kind: effectiveRestorableAgent.kind.rawValue,
                     sessionId: effectiveRestorableAgent.sessionId
@@ -655,6 +650,11 @@ extension Workspace {
                 ) {
                     return true
                 }
+                let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
+                    for: effectiveRestorableAgent,
+                    panelId: panelId,
+                    currentProcessIdentity: currentAgentProcessIdentity
+                )
                 // Unknown liveness stays nil so the shell state and the caller's
                 // default (`agentWasRunning ?? true`) decide. The Computer Use
                 // merge (#13055) had turned it into false.

@@ -112,6 +112,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
+          TART_FLEET: ${{ vars.CI_TART_FLEET }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS }}
           LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
