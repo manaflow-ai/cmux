@@ -43,13 +43,15 @@ extension TerminalController {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
             setActiveTabManager(tabManager)
         }
-        if tabManager.selectedTabId != workspace.id {
-            tabManager.selectWorkspace(workspace)
-        }
-        // The wrapper is the mirror's real Bonsplit tab. Selecting it makes the
-        // projected TerminalPanelView visible; mirror.activePaneId drives which
-        // inner hosted view receives its `isFocused` responder state.
-        workspace.focusPanel(location.containerPanelID)
+        // Remember the container before workspace restoration runs. The remote
+        // pane was already selected above; focusing its container avoids issuing
+        // select-pane twice while preserving the projected surface identity.
+        tabManager.focusTab(
+            workspace.id,
+            surfaceId: location.pane.panel.id,
+            suppressFlash: true,
+            focusPanelIdOverride: location.containerPanelID
+        )
         return true
     }
 

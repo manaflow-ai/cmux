@@ -86,7 +86,10 @@ private struct WorkspacePanelContentHostView: View {
                       let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
                     return false
                 }
-                return workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+                // selectedTabId, not selectedTab: building a Tab reads every
+                // TabItem property, which subscribes this update to the tab's
+                // title. Portal ownership only needs identity.
+                return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
             },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
@@ -736,6 +739,35 @@ extension WorkspaceContentView {
     #endif
 }
 
+/// Keeps `isAvailable` in step with the browser availability gate for views
+/// that offer a browser affordance.
+///
+/// `BrowserAvailabilityMonitor` owns watching the gate's entrypoints, so this
+/// follows that one signal instead of subscribing to the underlying sources
+/// again.
+struct BrowserAffordanceAvailabilityTracking: ViewModifier {
+    @Binding var isAvailable: Bool
+
+    func body(content: Content) -> some View {
+        content.task { @MainActor in
+            isAvailable = BrowserAvailabilitySettings.isEnabled()
+            let changes = NotificationCenter.default.notifications(
+                named: BrowserAvailabilityMonitor.didChangeNotification
+            )
+            for await _ in changes {
+                isAvailable = BrowserAvailabilitySettings.isEnabled()
+            }
+        }
+    }
+}
+
+extension View {
+    /// Tracks browser availability for a view that offers a browser affordance.
+    func trackingBrowserAffordanceAvailability(_ isAvailable: Binding<Bool>) -> some View {
+        modifier(BrowserAffordanceAvailabilityTracking(isAvailable: isAvailable))
+    }
+}
+
 /// View shown for empty panes
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
@@ -834,7 +866,7 @@ struct EmptyPanelView: View {
                     action: createTerminal
                 )
 
-                if browserAvailable {
+                if BrowserAvailabilitySettings.offersBrowserAffordance(isEnabled: browserAvailable) {
                     emptyPaneActionButton(
                         title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
                         systemImage: "globe",
@@ -846,27 +878,7 @@ struct EmptyPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
-        .task {
-            browserAvailable = BrowserAvailabilitySettings.isEnabled()
-            // The gate is mutated from several entrypoints that signal
-            // differently: palette/policy post didChangeNotification, the
-            // Settings toggle writes defaults directly (defaults
-            // notification), and the CLI writes from another process
-            // (caught on app activation at the latest).
-            await withTaskGroup(of: Void.self) { group in
-                for name in [
-                    BrowserAvailabilitySettings.didChangeNotification,
-                    UserDefaults.didChangeNotification,
-                    NSApplication.didBecomeActiveNotification,
-                ] {
-                    group.addTask { @MainActor in
-                        for await _ in NotificationCenter.default.notifications(named: name) {
-                            browserAvailable = BrowserAvailabilitySettings.isEnabled()
-                        }
-                    }
-                }
-            }
-        }
+        .trackingBrowserAffordanceAvailability($browserAvailable)
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

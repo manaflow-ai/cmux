@@ -25,6 +25,7 @@ LARGE = "blacksmith-12vcpu-macos-26"
 
 
 OLD = "blacksmith-6vcpu-macos-15"
+MINI = "glaeda-std-xcode-26.6"
 
 
 def e2e_run(runner, run_id, *, status="in_progress"):
@@ -159,6 +160,8 @@ class FocusedLauncherTests(unittest.TestCase):
             "gh": FAKE_GH,
             "git": '#!/bin/sh\ncase "$*" in\n*status*) printf "%s" "${LAUNCHER_DIRTY:-}";;\n*) printf "%s\\n" "' + HEAD + '";;\nesac\n',
             "sleep": "#!/bin/sh\nexit 0\n",
+            # No shared waiter daemon unless a test says so: --wait falls back to gh.
+            "glaeda-gh": '#!/bin/sh\nprintf "%s\\n" "$*" >> "$LAUNCHER_TEST_DIR/glaeda.calls"\nexit "${LAUNCHER_GLAEDA_STATUS:-3}"\n',
         }.items():
             path = self.bin / name
             path.write_text(source)
@@ -238,11 +241,11 @@ class FocusedLauncherTests(unittest.TestCase):
 
     def test_e2e_follows_the_pull_request_headroom_rule(self):
         cases = [
-            (queue(large=2), LARGE),                       # under CI_PR_POOL_MAX_QUEUED (3)
-            (queue(large=3), SMALL),                       # 12vcpu backed up, 6vcpu has headroom
-            (queue(large=0, large_running=10), LARGE),     # full but nothing waits yet
-            (queue(large=5, small=4), SMALL),              # neither has headroom: fewest queued
-            (queue(large=4, small=9), LARGE),
+            (queue(large_running=4), LARGE),               # a machine free on 12vcpu (5)
+            (queue(large_running=5), SMALL),               # 12vcpu full: roll over
+            (queue(large=1, large_running=0), SMALL),      # anything queued is full: roll over
+            (queue(large=5, small=4, large_running=5), SMALL),  # both full: shorter queue in rounds
+            (queue(large=1, small=9, large_running=5), LARGE),
         ]
         for state, expected in cases:
             with self.subTest(pools=state["pools"]):
@@ -253,7 +256,7 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.routed(queue(large=1, large_reserved=1))[0], SMALL)
         # A release or nightly job merely running there is not waiting on E2E.
         self.setUp()
-        self.assertEqual(self.routed(queue(large_running=6))[0], LARGE)
+        self.assertEqual(self.routed(queue(large_running=3))[0], LARGE)
         # Both macOS 26 pools reserved: stay on the default rather than guess.
         self.setUp()
         runner, stderr = self.routed(queue(large=1, large_reserved=1, small=1, small_reserved=1))
@@ -267,19 +270,19 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertEqual(self.routed(state)[0], SMALL)
 
     def test_runs_since_the_snapshot_fill_the_12vcpu_pool_first(self):
-        # 8 running leaves 2 idle slots; 3 more queued reach the threshold.
-        base = dict(large_running=8)
-        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 4))[0], LARGE)
+        # 2 running leaves 3 of 12vcpu's 5 machines free; a fourth run rolls over.
+        base = dict(large_running=2)
+        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 2))[0], LARGE)
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 5))[0], SMALL)
+        self.assertEqual(self.routed(queue(**base, e2e_since=[LARGE] * 3))[0], SMALL)
         # E2E runs on another pool do not count against 12vcpu.
         self.setUp()
         self.assertEqual(self.routed(queue(**base, e2e_since=[SMALL] * 9))[0], LARGE)
         # Pull request runs replay through their own rule, 12vcpu first.
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, pr_since=5))[0], SMALL)
+        self.assertEqual(self.routed(queue(**base, pr_since=3))[0], SMALL)
         self.setUp()
-        self.assertEqual(self.routed(queue(**base, pr_since=4))[0], LARGE)
+        self.assertEqual(self.routed(queue(**base, pr_since=2))[0], LARGE)
 
     def test_an_unreadable_or_stale_queue_keeps_e2e_on_6vcpu(self):
         result = self.launch("cmuxTests/ExampleTests", LAUNCHER_QUEUE=IDLE, LAUNCHER_QUEUE_FAIL="1")
@@ -297,7 +300,7 @@ class FocusedLauncherTests(unittest.TestCase):
 
     def test_the_pull_request_order_and_threshold_are_repository_variables(self):
         variables = lambda **values: json.dumps([{"name": k, "value": v} for k, v in values.items()])
-        self.assertEqual(self.routed(queue(), LAUNCHER_VARIABLES=variables(
+        self.assertEqual(self.routed(queue(small_running=0), LAUNCHER_VARIABLES=variables(
             CI_PR_POOL_ORDER=f"{SMALL},{LARGE}"))[0], SMALL)
         self.setUp()
         self.assertEqual(self.routed(queue(large=4), LAUNCHER_VARIABLES=variables(
@@ -401,6 +404,18 @@ class FocusedLauncherTests(unittest.TestCase):
         watch = next(call for call in self.calls() if call[:2] == ["run", "watch"])
         self.assertIn("123", watch)
         self.assertNotIn("999", watch)
+
+    def test_wait_uses_the_shared_waiter_when_it_answers(self):
+        result = self.launch("cmuxTests/ExampleTests", "--wait", LAUNCHER_GLAEDA_STATUS="1")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("wait run manaflow-ai/cmux/123", (self.root / "glaeda.calls").read_text())
+        self.assertFalse([call for call in self.calls() if call[:2] == ["run", "watch"]], "gh must not poll")
+
+    def test_wait_falls_back_to_a_slow_poll_when_the_waiter_is_down(self):
+        result = self.launch("cmuxTests/ExampleTests", "--wait", LAUNCHER_WATCH_STATUS="0")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        polled = next(call for call in self.calls() if call[:2] == ["run", "watch"])
+        self.assertEqual(polled[-2:], ["--interval", "300"])
 
     def test_rejects_invalid_selectors_before_dispatch(self):
         for selector in ("", "cmuxTests/", "cmuxTests/Example/extra/method", "cmuxTests/A\ndispatch_id=bad", "cmuxTests/A;echo bad"):
@@ -624,7 +639,7 @@ class FocusedLauncherTests(unittest.TestCase):
             LAUNCHER_PRIOR_RUNS=self._live(), LAUNCHER_WATCH_STATUS="1",
         )
         self.assertEqual(result.returncode, 1)
-        self.assertIn(["run", "watch", "--repo", "manaflow-ai/cmux", "777", "--exit-status"],
+        self.assertIn(["run", "watch", "--repo", "manaflow-ai/cmux", "777", "--exit-status", "--interval", "300"],
                       self.calls())
         self.assertFalse((self.root / "dispatch.json").exists(), "must not dispatch")
 
@@ -677,7 +692,7 @@ class FocusedLauncherTests(unittest.TestCase):
         # who asked the default pool. Dispatch instead.
         result = self.launch(
             "cmuxTests/ExampleTests", "--wait",
-            LAUNCHER_PRIOR_RUNS=self._live(runner="tart-canary"),
+            LAUNCHER_PRIOR_RUNS=self._live(runner="blacksmith-6vcpu-macos-latest"),
             LAUNCHER_WATCH_STATUS="0",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -803,7 +818,7 @@ class FocusedLauncherTests(unittest.TestCase):
         self.assertNotIn(["variable", "list"], [call[:2] for call in self.calls()])
         self.setUp()
         result = self.launch(
-            "cmuxTests/ExampleTests", LAUNCHER_QUEUE=IDLE,
+            "cmuxTests/ExampleTests", LAUNCHER_QUEUE=json.dumps(queue(small_running=0)),
             LAUNCHER_VARIABLES="not json",
             CMUX_MACOS_RUNNER_TESTS="", CMUX_CI_PR_POOL_ORDER=f"{SMALL},{LARGE}",
         )
@@ -1067,12 +1082,11 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertEqual(set(self.pool.E2E_POOLS), {LARGE, SMALL})
         cases = [
             (queue(), LARGE),
-            (queue(large=2), LARGE),
-            (queue(large=3), SMALL),
-            (queue(large=3, small=3), LARGE),           # neither has headroom; a tie takes the earlier pool
-            (queue(large=6, small=4), SMALL),
+            (queue(large_running=4), LARGE),            # one of 12vcpu's 5 machines free
+            (queue(large_running=5), SMALL),            # full: roll over
+            (queue(large=4, small=9, large_running=5), LARGE),  # both full; a tie in rounds takes the earlier pool
+            (queue(large=6, small=4, large_running=5), SMALL),
             (queue(large=1, large_reserved=1), SMALL),
-            (queue(large_running=10), LARGE),
             (None, SMALL),                               # no snapshot
         ]
         for state, expected in cases:
@@ -1095,10 +1109,10 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
                     self.assertIn(ours, self.pool.E2E_POOLS)
 
     def test_settings_are_the_pull_request_variables_and_invalid_values_fail_safe(self):
-        self.assertEqual(self.decide(queue(), order=f"{SMALL},{LARGE}")[0], SMALL)
+        self.assertEqual(self.decide(queue(small_running=0), order=f"{SMALL},{LARGE}")[0], SMALL)
         self.assertEqual(self.decide(queue(large=4), max_queued="5")[0], LARGE)
         self.assertEqual(self.decide(queue(large=1), max_queued="1")[0], SMALL)
-        for order, max_queued in (("nope", ""), (f"{LARGE},{LARGE}", ""), ("", "0"), ("", "x"), (OLD, "")):
+        for order, max_queued in (("nope", ""), (f"{LARGE},{LARGE}", ""), ("", "-1"), ("", "x"), (OLD, "")):
             with self.subTest(order=order, max_queued=max_queued):
                 label, calls, _ = self.decide(queue(), order=order, max_queued=max_queued)
                 self.assertEqual(label, SMALL)
@@ -1122,7 +1136,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
                                                    measure=measure, now=NOW), SMALL)
 
     def test_an_explicit_choice_or_admin_variable_is_never_rerouted(self):
-        for requested in (SMALL, LARGE, "tart-canary"):
+        for requested in (SMALL, LARGE, OLD, MINI):
             with self.subTest(requested=requested):
                 label, calls, _ = self.decide(queue(), requested=requested)
                 self.assertEqual((label, calls), (requested, []))
@@ -1144,25 +1158,23 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
 
     def test_runs_since_the_snapshot_are_replayed(self):
         load = self.pool.measure_load(FakeActions(queue(
-            e2e_since=[LARGE, LARGE, SMALL, "tart-small"], pr_since=3)), now=NOW)
-        self.assertEqual(dict(load.e2e_since), {LARGE: 2, SMALL: 1, "tart-small": 1})
+            e2e_since=[LARGE, LARGE, SMALL, OLD], pr_since=3)), now=NOW)
+        self.assertEqual(dict(load.e2e_since), {LARGE: 2, SMALL: 1, OLD: 1})
         self.assertEqual(load.pull_requests_since, 3)
         # Finished runs hold no pool, and the deciding run is not its own demand.
         state = queue(e2e_since=[LARGE, LARGE])
         state["e2e_runs"][0]["status"] = "completed"
         load = self.pool.measure_load(FakeActions(state), now=NOW, exclude_run_id=501)
         self.assertEqual(dict(load.e2e_since), {})
-        # Replayed pull request runs stay on macOS 26 even beside an idle
-        # macOS 15 pool, whose missing seed costs more than a short queue
-        # (pr_runner_pool.COLD_QUEUE_PENALTY), as they would for real: they
-        # push 12vcpu to 5 queued against 6vcpu's 4, which sends E2E to 6vcpu.
-        crowded = queue(large=3, small=4, old=0, old_running=0, pr_since=2)
+        # Replayed pull request runs take 12vcpu's free machines first, as
+        # they would for real, which rolls E2E over to 6vcpu.
+        crowded = queue(large_running=3, pr_since=2)
         self.assertEqual(self.decide(crowded)[0], SMALL)
-        self.assertEqual(self.decide(queue(large=3, small=4, old=0, old_running=0))[0], LARGE)
+        self.assertEqual(self.decide(queue(large_running=3, pr_since=1))[0], LARGE)
 
     def test_pull_request_runs_stay_on_their_lane_when_routing_is_off(self):
         pr = self.pool.pr_runner_pool
-        snap = snapshot_of(queue(large_running=8))
+        snap = snapshot_of(queue(large_running=2))
         load = self.pool.PoolLoad(snap, {}, 5)
         self.assertEqual(self.pool.decide(load, pr.Settings(), now=NOW).runner, SMALL)
         for settings in ({"lane": SMALL, "overflow": "0"}, {"lane": OLD, "overflow": ""}):
@@ -1239,6 +1251,12 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             "${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}": overflow,
             "${{ vars.CI_PR_POOL_ORDER }}": order,
             "${{ vars.CI_PR_POOL_MAX_QUEUED }}": max_queued,
+            "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}": "",
+            "${{ vars.CI_PR_POOL_OWNED }}": "1",
+            "${{ vars.CI_OWNED_POOL_SLOTS }}": json.dumps({MINI: 8}),
+            "${{ vars.CMUX_CI_XCODE_APP_PR }}": "/Applications/Xcode_26.6.app",
+            "${{ inputs.test_filter }}": "cmuxTests/ExampleTests",
+            "${{ vars.CI_E2E_OWNED_UI }}": "",
         }
         for name, expression in step["env"].items():
             self.assertIn(expression, values, f"unexpected input {name}: {expression}")
@@ -1250,6 +1268,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=ROOT, env=env, check=True,
                                     capture_output=True, text=True)
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+        self.assertEqual(lines["retry_label"], self.pool.retry_runner(lines["label"]))
         return lines["label"], result.stderr
 
     def test_the_workflow_step_resolves_through_the_rule(self):
@@ -1258,8 +1277,9 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertIn("could not read the runner queue", stderr)
         self.assertEqual(self.run_pool_step(overflow="0")[0], SMALL)
         self.assertEqual(self.run_pool_step(order=OLD)[0], SMALL)
-        self.assertEqual(self.run_pool_step(requested="tart-small")[0], "tart-small")
+        self.assertEqual(self.run_pool_step(requested=OLD)[0], OLD)
         self.assertEqual(self.run_pool_step(requested=LARGE)[0], LARGE)
+        self.assertEqual(self.run_pool_step(requested=MINI)[0], MINI)
         self.assertEqual(self.run_pool_step(variable="blacksmith-6vcpu-macos-15")[0],
                          "blacksmith-6vcpu-macos-15")
 
@@ -1280,7 +1300,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         paths = checkout["with"]["sparse-checkout"].split()
         self.assertEqual(sorted(paths), ["scripts/ci/e2e_runner_pool.py", "scripts/ci/pr_runner_pool.py"])
         self.assertIs(checkout["with"]["persist-credentials"], False)
-        # No other job gained write access for this.
+        # No job gained write access for this: the rescue sweeper finds the run by its marker.
         for name, other in self.jobs.items():
             for scope, level in (other.get("permissions") or {}).items():
                 with self.subTest(job=name, scope=scope):
@@ -1296,21 +1316,86 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertNotIn("reserved first for release", comment)
 
     def test_macos_jobs_run_on_the_resolved_pool(self):
-        label = "${{ needs.runner.outputs.label }}"
+        # A re-run attempt takes retry_label, which moves an owned Mac to Blacksmith.
+        runs_on = ("${{ github.run_attempt > 1 && needs.runner.outputs.retry_label"
+                   " || needs.runner.outputs.label }}")
         for name in ("build", "test"):
             with self.subTest(job=name):
                 job = self.jobs[name]
                 self.assertIn("runner", job["needs"])
-                self.assertEqual(job["runs-on"], label)
-                tart = next(step for step in job["steps"]
-                            if step.get("name") == "Validate Tart canary identity")
-                self.assertEqual(tart["if"], "${{ startsWith(needs.runner.outputs.label, 'tart-') }}")
-                self.assertEqual(tart["env"]["REQUESTED_RUNNER"], label)
+                self.assertEqual(job["runs-on"], runs_on)
                 # Nothing in a macOS job may resolve the pool a second way.
                 text = yaml.safe_dump(job)
                 self.assertNotIn("inputs.runner", text)
                 self.assertNotIn("vars.MACOS_RUNNER_TESTS", text)
-        self.assertEqual(self.jobs["build"]["env"]["CMUX_PRODUCT_RUNNER"], label)
+        self.assertEqual(self.jobs["build"]["env"]["CMUX_PRODUCT_RUNNER"], runs_on)
+
+    # Owned Macs -----------------------------------------------------------
+
+    def owned(self, *, running=0, queued=0, committed=0, age=5, owned="1", slots=None,
+              pin="/Applications/Xcode_26.6.app", requested="auto",
+              test_filter="cmuxTests/ExampleTests", owned_ui=""):
+        state = queue(age=age)
+        state["pools"][MINI] = {"queued": queued, "running": running, "committed": committed}
+        client = FakeActions(state)
+        return self.pool.resolve(
+            requested, "", overflow="", order="", max_queued="",
+            owned=owned, owned_slots=json.dumps({MINI: 8} if slots is None else slots), pr_xcode_app=pin,
+            test_filter=test_filter, owned_ui=owned_ui,
+            measure=lambda: self.pool.measure_load(client, now=NOW), now=NOW,
+        )
+
+    def test_an_owned_mac_with_a_free_slot_comes_first(self):
+        self.assertEqual(self.owned(), MINI)
+        self.assertEqual(self.owned(running=7), MINI)
+        self.assertEqual(self.owned(running=5, committed=7), MINI)
+
+    def test_anything_uncertain_about_the_owned_pool_takes_blacksmith(self):
+        cases = {
+            "all slots taken": dict(running=8),
+            "committed to runs": dict(committed=8),
+            "a job queued": dict(running=7, queued=1),
+            "owned pools off": dict(owned="0"),
+            "owned variable unset": dict(owned=""),
+            "no slot count": dict(slots={}),
+            "malformed slots": dict(slots={MINI: "8"}),
+            "another Xcode pin": dict(pin="/Applications/Xcode_26.5.app"),
+            "no Xcode pin": dict(pin=""),
+            "snapshot too old for an owned pool": dict(age=self.pool.pr_runner_pool.MAX_SNAPSHOT_MINUTES + 1),
+            "a UI run": dict(test_filter="ExampleUITests"),
+            "a mixed filter": dict(test_filter="cmuxTests/A, cmuxUITests/B"),
+        }
+        for why, kwargs in cases.items():
+            with self.subTest(why=why):
+                self.assertIn(self.owned(**kwargs), self.pool.E2E_POOLS)
+
+    def test_ui_runs_take_an_owned_mac_only_once_enabled(self):
+        self.assertEqual(self.owned(test_filter="ExampleUITests", owned_ui="1"), MINI)
+        self.assertEqual(self.owned(test_filter="cmuxTests/A, cmuxTests/B"), MINI)
+        self.assertEqual(self.owned(requested=MINI, test_filter="ExampleUITests"), MINI)
+
+    def test_a_re_run_never_takes_an_owned_mac(self):
+        self.assertEqual(self.pool.retry_runner(MINI), SMALL)
+        for label in (SMALL, LARGE, OLD):
+            self.assertEqual(self.pool.retry_runner(label), label)
+        self.assertEqual(self.owned(requested=MINI, owned="0"), MINI)  # explicit is explicit
+
+    def test_owned_macs_record_no_video(self):
+        step = next(step for step in self.jobs["filter"]["steps"] if step.get("id") == "filter")
+        self.assertIn("runner", self.jobs["filter"]["needs"])
+        self.assertEqual(step["env"]["RUNNER_LABEL"], "${{ needs.runner.outputs.label }}")
+        self.assertIn('glaeda-*)', step["run"])
+        self.assertIn('record_video_effective="false"', step["run"].split("glaeda-*)", 1)[1])
+
+    def test_the_runner_job_marks_an_owned_run_for_the_rescue(self):
+        steps = {step.get("name"): step for step in self.jobs["runner"]["steps"]}
+        mark = steps["Mark a run on a persistent macOS pool"]
+        self.assertEqual(mark["if"], "${{ startsWith(steps.pool.outputs.label, 'glaeda-') && github.run_attempt == 1 }}")
+        upload = steps["Upload the persistent pool marker"]
+        self.assertEqual(upload["with"]["name"], "macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
+                                                 "-1-${{ steps.pool.outputs.label }}")
+        for step in (mark, upload):
+            self.assertIs(step["continue-on-error"], True)
 
 
 class SuiteWorkflowForwardsFocusedRuns(unittest.TestCase):
