@@ -63,7 +63,6 @@ final class WorkspaceNavigationBarController: UIViewController {
                 .buttonStyle(.plain)
                 .imageScale(.large)
                 .frame(width: itemWidth, height: 36)
-                .offset(x: value.id == .terminals ? 10 : 0)
                 .environment(\.self, environment)
             )
             if let control = controls[value.id] {

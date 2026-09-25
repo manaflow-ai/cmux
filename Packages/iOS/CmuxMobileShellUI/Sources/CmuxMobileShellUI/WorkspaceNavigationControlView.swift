@@ -32,6 +32,9 @@ final class WorkspaceNavigationControlView: UIView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         contentView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.preservesSuperviewLayoutMargins = false
+        contentView.insetsLayoutMarginsFromSafeArea = false
+        contentView.layoutMargins = .zero
         addSubview(contentView)
         contentWidth = contentView.widthAnchor.constraint(equalToConstant: width)
         itemWidth = widthAnchor.constraint(equalToConstant: width)
