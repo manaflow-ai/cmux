@@ -3588,16 +3588,13 @@ impl Terminal {
         let replay_rows = range.end - range.start + 1;
         let screen_rows = u64::from(self.rows().max(1));
         // A replay range can contain exactly one viewport of rows while still
-        // starting in scrollback. That happens when the formatter's scrollbar
-        // coordinates include a small sparse prefix before the active screen.
-        // Treat any range that starts before the physical viewport as
-        // history-bearing so its row breaks scroll that prefix out of the
-        // target viewport instead of leaving stale history above the TUI.
-        let viewport_start = self
-            .scrollbar()
-            .map(|scrollbar| scrollbar.total.saturating_sub(screen_rows))
-            .unwrap_or(0);
-        let history_bearing = range.start < viewport_start || replay_rows > screen_rows;
+        // starting in scrollback. Use Ghostty's history boundary rather than
+        // the formatter scrollbar total, whose sparse prefix can be offset
+        // from the screen coordinate space. Row breaks then scroll that
+        // prefix out of the target viewport instead of leaving stale history
+        // above the TUI.
+        let history_start = u64::from(self.history_rows());
+        let history_bearing = range.start < history_start || replay_rows > screen_rows;
         // A replay without image placement anchors can let the target terminal
         // recreate soft wraps naturally. Placement commands and history-bearing
         // ranges depend on physical row cursor positions, so retain the
