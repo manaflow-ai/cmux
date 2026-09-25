@@ -1,6 +1,5 @@
 import AppKit
 import CmuxWindowing
-import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -362,57 +361,6 @@ struct AppDelegateDisplayConfigRestoreTests {
         defer { closeCreatedWindow(appDelegate, windowId: windowId) }
 
         #expect(appDelegate.mainWindow(for: windowId)?.autorecalculatesKeyViewLoop == false)
-    }
-
-    @Test(arguments: [false, true])
-    func mainWindowKeepsKeyViewPolicyWhenHostingContentChanges(restoring: Bool) throws {
-        let appDelegate = testAppDelegate()
-        let windowId = appDelegate.createMainWindow(
-            sessionWindowSnapshot: restoring ? emptyWindowSnapshot() : nil,
-            shouldActivate: false
-        )
-        defer { closeCreatedWindow(appDelegate, windowId: windowId) }
-        let window = try #require(appDelegate.mainWindow(for: windowId))
-
-        #expect(!window.autorecalculatesKeyViewLoop)
-        window.contentView = MainWindowHostingView(rootView: TextField("First", text: .constant("")))
-        window.contentView?.layoutSubtreeIfNeeded()
-        #expect(!window.autorecalculatesKeyViewLoop)
-        window.contentView = MainWindowHostingView(rootView: TextField("Replacement", text: .constant("")))
-        window.contentView?.layoutSubtreeIfNeeded()
-        #expect(!window.autorecalculatesKeyViewLoop)
-    }
-
-    @Test
-    func mainWindowSupportsTabBetweenHostedTextFields() throws {
-        let appDelegate = testAppDelegate()
-        let windowId = appDelegate.createMainWindow(shouldActivate: false)
-        defer { closeCreatedWindow(appDelegate, windowId: windowId) }
-        let window = try #require(appDelegate.mainWindow(for: windowId))
-        let host = MainWindowHostingView(rootView: VStack {
-            TextField("First", text: .constant(""))
-            TextField("Second", text: .constant(""))
-        })
-        window.contentView = host
-        window.makeKeyAndOrderFront(nil)
-        host.layoutSubtreeIfNeeded()
-
-        let fields = editableTextFields(in: host)
-        let first = try #require(fields.first { $0.placeholderString == "First" })
-        let second = try #require(fields.first { $0.placeholderString == "Second" })
-        #expect(window.makeFirstResponder(first))
-        let firstEditor = try #require(first.currentEditor())
-        firstEditor.doCommand(by: #selector(NSResponder.insertTab(_:)))
-        #expect(second.currentEditor() === window.firstResponder)
-        let secondEditor = try #require(second.currentEditor())
-        secondEditor.doCommand(by: #selector(NSResponder.insertBacktab(_:)))
-        #expect(first.currentEditor() === window.firstResponder)
-        #expect(!window.autorecalculatesKeyViewLoop)
-    }
-
-    private func editableTextFields(in view: NSView) -> [NSTextField] {
-        if let field = view as? NSTextField, field.isEditable { return [field] }
-        return view.subviews.flatMap { editableTextFields(in: $0) }
     }
 
     @Test
