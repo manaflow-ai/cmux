@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 let mf: Miniflare;
 let stub: DurableObjectStub;
+let storageNamespace: DurableObjectNamespace;
 let migrationNamespace: DurableObjectNamespace;
 let workerRoot = "";
 let persistencePath = "";
@@ -12,6 +13,10 @@ const identity = { environment: "test", projectId: "iroh-v2-test", teamId: "team
 const descriptor = { identity, endpointId: "a".repeat(64), identityGeneration: 0, metadata: { platform: "mac", displayName: "Mac", appVersion: "1", pairingEnabled: true, capabilities: [], relayURLs: [] } };
 const post = async (path: string, body: unknown) => {
   const response = await stub.fetch(`https://storage.test${path}`, { method: "POST", body: JSON.stringify(body) });
+  return { status: response.status, body: await response.json() as any };
+};
+const postTo = async (target: DurableObjectStub, path: string, body: unknown) => {
+  const response = await target.fetch(`https://storage.test${path}`, { method: "POST", body: JSON.stringify(body) });
   return { status: response.status, body: await response.json() as any };
 };
 const deviceKey = (character: string) => character.repeat(64);
@@ -26,8 +31,8 @@ beforeAll(async () => {
   const build = Bun.spawnSync({ cmd: ["bun", "build", join(import.meta.dir, "storage-worker.ts"), "--outfile", bundle, "--target", "browser", "--external", "cloudflare:workers"], cwd: process.cwd(), stdout: "pipe", stderr: "pipe" });
   if (build.exitCode !== 0) throw new Error(new TextDecoder().decode(build.stderr));
   mf = new Miniflare({ ...convertV4MiniflareOptions({ rootPath: workerRoot, resourcePersistencePath: persistencePath, scriptPath: "worker.js", modules: true, durableObjects: { STORAGE: { className: "StorageTestDO", useSQLite: true }, MIGRATION: { className: "MigrationProbeDO", useSQLite: true } }, compatibilityDate: "2025-01-01" }), verbose: true });
-  const namespace = await mf.getDurableObjectNamespace("STORAGE");
-  stub = namespace.getByName("team-e2e");
+  storageNamespace = await mf.getDurableObjectNamespace("STORAGE");
+  stub = storageNamespace.getByName("team-e2e");
   migrationNamespace = await mf.getDurableObjectNamespace("MIGRATION");
 });
 
@@ -101,13 +106,24 @@ const migrationPost = async (name: string, path: string, body: unknown = {}) => 
 };
 
 test("runtime migration rejects history gaps, future versions, and hash changes", async () => {
-  for (const mode of ["gap", "future", "wrong-hash"]) {
+  for (const mode of ["gap", "future", "wrong-hash", "wrong-audit-hash"]) {
     expect((await migrationPost(`history-${mode}`, "/seed")).status).toBe(200);
     expect((await migrationPost(`history-${mode}`, "/corrupt", { mode })).status).toBe(200);
     const rejected = await migrationPost(`history-${mode}`, "/migrate");
     expect(rejected.status).toBe(500);
     expect(rejected.body.code).toMatch(/iroh_v2_(unsupported_schema_history|schema_migration_hash_mismatch)/);
   }
+});
+
+test("audit usage migration backfills a v6 storage history", async () => {
+  const name = "audit-usage-v6";
+  expect((await migrationPost(name, "/seed")).status).toBe(200);
+  expect((await migrationPost(name, "/downgrade-audit")).status).toBe(200);
+  const migrated = await migrationPost(name, "/migrate");
+  expect(migrated.status).toBe(200);
+  const inspected = await migrationPost(name, "/inspect");
+  expect(inspected.body.history.some((row: any) => row.version === 7)).toBe(true);
+  expect(inspected.body.auditUsage.row_count).toBe(2);
 });
 
 test("failed upgrade rolls back without version marker or partial table", async () => {
@@ -129,6 +145,35 @@ test("authority lease accepts newer verification and ignores stale updates", asy
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 2000, expiresAt: 5600, now: 2000 })).body.revision).toBe(6);
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6601, now: 3000 })).status).toBe(500);
   expect((await post("/authority/observe", { userId: "authority-user", verifiedAt: 3000, expiresAt: 6600, now: 6600 })).status).toBe(500);
+});
+
+test.each([6, 7])("schema %i: audit retention keeps revocation available at the bounded history limit", async (version) => {
+  // This test owns a fresh DO. It does not depend on the registration/revision
+  // state built by the other cases in this file.
+  const auditStub = storageNamespace.getByName("audit-retention-rollback-" + version);
+  const auditPost = (path: string, body: unknown = {}) => postTo(auditStub, path, body);
+  expect((await auditPost("/upgrade-schema", {version})).status).toBe(200);
+  const targetIdentity = { ...identity, userId: "audit-test", deviceId: "revocation-device" };
+  const targetDescriptor = { ...descriptor, identity: targetIdentity, endpointId: "f".repeat(64) };
+  const targetIssue = { challengeId: "audit-target", nonceHash: "audit-target-nonce", payloadHash: "audit-target-payload", expiresAt: 7000, issuedAt: 6000 };
+  expect((await auditPost("/issue", { identity: targetIdentity, issue: targetIssue })).status).toBe(200);
+  const registration = await auditPost("/register", { input: { descriptor: targetDescriptor, ...targetIssue, requestId: "audit-target-request", requestHash: "audit-target-hash", now: 6001 } });
+  expect(registration.status).toBe(200);
+  const targetRecordId = registration.body.device.deviceRecordId;
+  expect((await auditPost("/audit/fill")).status).toBe(200);
+  expect((await auditPost("/audit/count")).body.count).toBe(65536);
+  const oversized = Array.from({ length: 16 }, () => "x".repeat(2048));
+  // The oversized audit detail fails after appendAudit has pruned one row.
+  // The transaction must restore both the preference write and that row.
+  expect((await auditPost("/preferences", { relayURLs: oversized, expectedRevision: 0, now: 7000 })).status).toBe(500);
+  expect((await auditPost("/audit/count")).body.count).toBe(65536);
+  expect((await auditPost("/audit/usage")).body.count).toBe(65536);
+  expect((await auditPost("/audit/first")).body.targetId).toBe(targetRecordId);
+  const revoked = await auditPost("/revoke", { deviceRecordId: targetRecordId, now: 7000, actorUserId: "audit-test" });
+  expect(revoked.status).toBe(200);
+  expect((await auditPost("/device", { deviceRecordId: targetRecordId })).body.revoked).toBe(true);
+  expect((await auditPost("/audit/count")).body.count).toBe(65536);
+  expect((await auditPost("/audit/usage")).body.count).toBe(65536);
 });
 
 test("SQLite state survives a workerd restart", async () => {
@@ -175,4 +220,34 @@ test("socket reservations survive a second workerd restart", async () => {
   const namespace = await mf.getDurableObjectNamespace("STORAGE");
   stub = namespace.getByName("team-e2e");
   expect((await post("/socket/list", { userId: "socket-capacity" })).body.length).toBe(501);
+});
+
+
+test("ordinary activation retains schema 6 so the deployed reader can reopen it", async () => {
+  const result = await post("/schema", {});
+  expect(result.status).toBe(200);
+  expect(result.body.map((row: any) => row.version)).toEqual([1, 2, 3, 4, 5, 6]);
+});
+
+
+test("reader-first rollout preserves devices and can reopen both schemas without downgrading", async () => {
+  const namespace = await mf.getDurableObjectNamespace("STORAGE");
+  const stub = namespace.getByName("reader-first-upgrade");
+  const request = (path: string, body: unknown = {}) => postTo(stub, path, body);
+  const challenge = {challengeId: "upgrade", nonceHash: "n", payloadHash: "p", issuedAt: 100, expiresAt: 200};
+  await request("/issue", {identity, issue: challenge});
+  const registered = await request("/register", {input: {descriptor, ...challenge, requestId: "r", requestHash: "h", now: 101}});
+  expect(registered.status).toBe(200);
+  const id = registered.body.device.deviceRecordId;
+  expect((await request("/legacy-reopen")).status).toBe(200);
+  expect((await request("/device", {deviceRecordId: id})).body).toEqual(registered.body.device);
+  expect((await request("/upgrade-schema", {version: 7})).status).toBe(200);
+  const legacy = await request("/legacy-reopen");
+  expect(legacy.status).toBe(500);
+  expect(legacy.body.code).toBe("iroh_v2_unsupported_schema_history");
+  expect((await request("/bridge-reopen")).status).toBe(200);
+  expect((await request("/schema")).body.at(-1).version).toBe(7);
+  expect((await request("/device", {deviceRecordId: id})).body).toEqual(registered.body.device);
+  expect((await request("/revoke", {deviceRecordId: id, now: 102, actorUserId: identity.userId})).status).toBe(200);
+  expect((await request("/device", {deviceRecordId: id})).body.revoked).toBe(true);
 });

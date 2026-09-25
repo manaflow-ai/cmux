@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -12,6 +13,8 @@ import Testing
 @MainActor
 final class CloudDesktopOpenFixture {
     let app: VaultPaneAppFixture
+    /// Never shown. It only makes the fixture's window context routable.
+    let window: NSWindow
     let catalog: SurfaceCatalog
     let provider: CloudDesktopOpenTestProvider
     let owner: Workspace
@@ -43,6 +46,28 @@ final class CloudDesktopOpenFixture {
 
     init(ownerID: String = "desktop-a", hasRemoteView: Bool = true) throws {
         app = try VaultPaneAppFixture()
+        // A drop onto a pane resolves that pane through the main-window
+        // registry (`v2LocatePane`), which lists only contexts that own a
+        // window. The app always has one; the testing context is registered
+        // without one, so the drop would throw `paneNotFound` inside its Task.
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
+        // Opens and drops request focus, and a routable window would now take
+        // it. Suppress activation so the window stays hidden and never key.
+        let appDelegate = app.appDelegate
+        appDelegate.mainWindowVisibilityController = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { true },
+                setActiveMainWindow: { [weak appDelegate] window in
+                    appDelegate?.setActiveMainWindow(window)
+                }
+            )
+        )
+        let windowID = app.windowID
+        let context = try #require(app.appDelegate.mainWindowContexts.values.first { $0.windowId == windowID })
+        context.window = window
         owner = app.workspace
         other = app.manager.addWorkspace(title: "workspace-1", select: false)
         owner.cloudVMBinding = WorkspaceCloudVMBinding(vmID: ownerID, isBase: false, remoteWorkspaceID: "ws-same")
@@ -62,6 +87,7 @@ final class CloudDesktopOpenFixture {
         var info = provider.info
         info.remoteWorkspaces = [remote]
         catalog.replaceResources([display], on: provider.machine, info: info)
+        assertWindowStaysHidden()
     }
 
     func poolNode() throws -> CloudTreeNode {
@@ -73,6 +99,7 @@ final class CloudDesktopOpenFixture {
     }
 
     func activate(_ node: CloudTreeNode, menu: Bool = false) throws {
+        defer { assertWindowStaysHidden() }
         _ = container
         coordinator.apply(nodes: [node])
         let outline = try #require(coordinator.outlineView)
@@ -123,11 +150,19 @@ final class CloudDesktopOpenFixture {
     func waitForOpen() async {
         var iterator = completion.stream.makeAsyncIterator()
         _ = await iterator.next()
+        assertWindowStaysHidden()
     }
 
     func drop(_ row: CloudTreeNode, into workspace: Workspace) async throws {
         let group = try #require(row.dragGroup)
         let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        // The drop's Task swallows a routing failure, so check the lookup it
+        // performs first and fail here instead of after the commit deadline.
+        let route = try #require(TerminalController.shared.v2LocatePane(pane.id),
+            "the drop's target pane is not routable through the main-window registry")
+        try #require(route.windowId == app.windowID && route.tabManager === app.manager)
+        try #require(route.workspace === workspace && route.paneId == pane)
+        try #require(workspace.selectedPanelForPaneDrop(in: pane) != nil)
         let expected = catalog.projections(of: display.id).count + 1
         let committed = CloudLinkFirstValue<Bool>()
         let catalog = catalog
@@ -135,13 +170,29 @@ final class CloudDesktopOpenFixture {
         let token = NotificationCenter.default.addObserver(forName: SurfaceCatalog.didChangeNotification,
             object: catalog, queue: .main) { _ in
                 MainActor.assumeIsolated {
-                    if catalog.projections(of: resource).count == expected { committed.resolve(true) }
+                    if catalog.projections(of: resource).count >= expected { committed.resolve(true) }
                 }
             }
         defer { NotificationCenter.default.removeObserver(token) }
-        #expect(workspace.handleSurfaceResourceDrop(group: group,
+        try #require(workspace.handleSurfaceResourceDrop(group: group,
             destination: .split(targetPane: pane, orientation: .vertical, insertFirst: false), catalog: catalog))
-        _ = await committed.result
+        // The commit can land before the next catalog notification, and an
+        // unbounded wait turns a missed commit into the suite's 60 s time limit,
+        // which restarts the app host and discards the rest of the shard.
+        if catalog.projections(of: resource).count >= expected { committed.resolve(true) }
+        let deadline = Task {
+            try? await Task.sleep(for: .seconds(10))
+            committed.resolve(false)
+        }
+        defer { deadline.cancel() }
+        let didCommit = await committed.result
+        #expect(didCommit == true, "the drop never committed a second Desktop projection")
+        assertWindowStaysHidden()
+    }
+
+    private func assertWindowStaysHidden() {
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
     }
 
     func close() {
@@ -149,6 +200,8 @@ final class CloudDesktopOpenFixture {
         catalog.unregister(machine: provider.machine)
         app.manager.tabs.forEach { $0.teardownAllPanels() }
         app.tearDown()
+        app.appDelegate.forgetRecoverableMainWindowRoute(windowId: app.windowID)
+        window.close()
         defaults.removePersistentDomain(forName: defaultsName)
     }
 }

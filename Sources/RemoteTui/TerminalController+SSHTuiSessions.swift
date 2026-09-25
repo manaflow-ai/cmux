@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension TerminalController {
@@ -68,12 +69,21 @@ extension TerminalController {
               let legacyPayload = legacyRaw as? [String: Any] else {
             return .err(code: "internal_error", message: CloudDiagnosticFailure.response.localizedDescription, data: nil)
         }
-        return .ok([
+        // Typed locals keep this literal cheap for the type checker; the inline
+        // `as? ?? +` form timed out on slower CI runners.
+        let tuiCount: Int = tuiPayload["workspace_count"] as? Int ?? 0
+        let legacyCount: Int = legacyPayload["workspace_count"] as? Int ?? 0
+        let tuiSessions: [[String: Any]] = tuiPayload["sessions"] as? [[String: Any]] ?? []
+        let legacySessions: [[String: Any]] = legacyPayload["sessions"] as? [[String: Any]] ?? []
+        let tuiErrors: [[String: Any]] = tuiPayload["errors"] as? [[String: Any]] ?? []
+        let legacyErrors: [[String: Any]] = legacyPayload["errors"] as? [[String: Any]] ?? []
+        let merged: [String: Any] = [
             "all_workspaces": true,
-            "workspace_count": (tuiPayload["workspace_count"] as? Int ?? 0) + (legacyPayload["workspace_count"] as? Int ?? 0),
-            "sessions": (tuiPayload["sessions"] as? [[String: Any]] ?? []) + (legacyPayload["sessions"] as? [[String: Any]] ?? []),
-            "errors": (tuiPayload["errors"] as? [[String: Any]] ?? []) + (legacyPayload["errors"] as? [[String: Any]] ?? [])
-        ])
+            "workspace_count": tuiCount + legacyCount,
+            "sessions": tuiSessions + legacySessions,
+            "errors": tuiErrors + legacyErrors,
+        ]
+        return .ok(merged)
     }
 
     @MainActor
