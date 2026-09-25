@@ -452,28 +452,19 @@ extension CMUXCLI {
         var paneSurfaceId = terminalSurfaceId
         var terminalId: String?
         var remoteWorkspaceId: String?
+        var remoteWorkspaceName: String?
         if !options.fullClient {
             // Open the machine's existing terminal. Explicit New Terminal actions
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                // Snapshot images expose an existing starter; first-workspace
-                // images reserve its identity and defer the shell to first open.
-                // Both are read through the same machine-owned graph.
-                //
-                // `ensure_linked` is that minimum, and it is required: a machine
-                // created a moment ago has no provider and no link in this app,
-                // so a plain cached read returns no graph and the resolver
-                // reports `.unavailable` ("The machine's sessions are
-                // unavailable"). That regression shipped once when the flag was
-                // dropped to "save work". Do not remove it, and do not upgrade it
-                // to `refresh: true`: a forced pass waits behind the fleet poll's
-                // in-flight connect and rescans ports for nothing. A reopen of a
-                // machine that is already linked costs no network at all.
+                // Snapshot images provide a starter; first-workspace images defer its shell.
+                // `ensure_linked` joins that graph; a forced refresh adds a fleet/port rescan.
                 let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "ensure_linked": true], responseTimeout: 180)
                 let opened: [String: Any]
                 switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
+                    remoteWorkspaceName = Self.remoteWorkspaceName(remoteWorkspaceID, machine: vmId, in: catalog)
                     var params: [String: Any] = ["resource": "\(vmId)/terminal/\(terminalID)", "workspace_id": workspaceId, "remote_workspace_id": remoteWorkspaceID, "focus": paneFocus, "reuse": false]
                     if let tabID { params["remote_tab_id"] = tabID }
                     var projected = try client.sendV2(method: "surface.project", params: params, responseTimeout: 180)
@@ -481,6 +472,9 @@ extension CMUXCLI {
                     projected["remote_workspace_id"] = remoteWorkspaceID
                     opened = projected
                 case .empty(let remoteWorkspaceID):
+                    if let remoteWorkspaceID {
+                        remoteWorkspaceName = Self.remoteWorkspaceName(remoteWorkspaceID, machine: vmId, in: catalog)
+                    }
                     var params: [String: Any] = ["machine": vmId, "open": true, "workspace_id": workspaceId, "focus": paneFocus, "initial_workspace": true, "suppress_welcome": ProcessInfo.processInfo.environment["CMUX_CLOUD_WELCOME"] == "0"]
                     if let remoteWorkspaceID { params["remote_workspace_id"] = remoteWorkspaceID }
                     opened = try client.sendV2(method: "surface.new_terminal", params: params, responseTimeout: 180)
@@ -489,6 +483,7 @@ extension CMUXCLI {
                 }
                 terminalId = opened["terminal_id"] as? String
                 remoteWorkspaceId = opened["remote_workspace_id"] as? String
+                remoteWorkspaceName = (opened["remote_workspace_name"] as? String) ?? remoteWorkspaceName
                 let newSurface = (opened["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 if let placeholder = terminalSurfaceId, !placeholder.isEmpty, placeholder != newSurface {
                     _ = try? client.sendV2(method: "surface.close", params: ["workspace_id": workspaceId, "surface_id": placeholder])
@@ -509,7 +504,8 @@ extension CMUXCLI {
                             vmID: vmId,
                             base: options.pinAsBase,
                             remoteWorkspaceID: remoteWorkspaceId,
-                            generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil
+                            generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil,
+                            remoteWorkspaceName: remoteWorkspaceName
                         )
                     )
                 }
