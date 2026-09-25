@@ -620,13 +620,14 @@ jobs:
             echo "$line"; echo "- $line" >> "$GITHUB_STEP_SUMMARY"
           }
           edit() { printf '\n// canary edit %s\n' "$1" >> "$src/cmuxTests/CmuxSSHURLRequestTests.swift"; }
-          find "$dd" -name '*ChainedBridgingHeader*' -exec stat -f '%Sm %N' {} + 2>/dev/null | head -3
           edit baseline; probe baseline-test-edit "-driver-show-incremental"
-          find "$dd" -name '*ChainedBridgingHeader*' -exec stat -f '%Sm %N' {} + 2>/dev/null | head -3
-          probe baseline-null "-driver-show-incremental"
-          probe nochain-prime "-driver-show-incremental -no-auto-bridging-header-chaining"
-          edit nochain; probe nochain-test-edit "-driver-show-incremental -no-auto-bridging-header-chaining"
-          probe nochain-null "-driver-show-incremental -no-auto-bridging-header-chaining"
+          export CMUX_CI_EXTRA_BUILD_SETTING=SWIFT_PRECOMPILE_BRIDGING_HEADER=NO
+          probe nopch-prime "-driver-show-incremental"
+          find "$dd" -name '*ChainedBridgingHeader*' -newer "$src/cmuxTests/CmuxSSHURLRequestTests.swift" -exec stat -f '%Sm %N' {} + 2>/dev/null | head -3
+          edit nopch1; probe nopch-test-edit "-driver-show-incremental"
+          edit nopch2; probe nopch-test-edit-2 "-driver-show-incremental"
+          probe nopch-null "-driver-show-incremental"
+          unset CMUX_CI_EXTRA_BUILD_SETTING
           exit 0
 
       - name: Upload canary probe logs

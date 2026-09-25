@@ -162,7 +162,7 @@ build() {
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
       ${module_cache_setting[@]+"${module_cache_setting[@]}"} \
-      ${CMUX_CI_EXTRA_SWIFT_FLAGS:+"OTHER_SWIFT_FLAGS=\$(inherited) $CMUX_CI_EXTRA_SWIFT_FLAGS"} -showBuildTimingSummary \
+      ${CMUX_CI_EXTRA_SWIFT_FLAGS:+"OTHER_SWIFT_FLAGS=\$(inherited) $CMUX_CI_EXTRA_SWIFT_FLAGS"} ${CMUX_CI_EXTRA_BUILD_SETTING:+"$CMUX_CI_EXTRA_BUILD_SETTING"} -showBuildTimingSummary \
       build-for-testing 2>&1 | tee "$derived_data/$scheme-build.log" | tee -a "$log"
   done
 }
