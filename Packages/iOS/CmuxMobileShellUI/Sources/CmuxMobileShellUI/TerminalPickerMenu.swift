@@ -28,6 +28,9 @@ struct TerminalPickerMenu: View, Equatable {
             // its 28-point intrinsic label and leaves the stack icon left of
             // center inside the 42-point UIKit bar item.
             .frame(width: 42, height: 36)
+            // SwiftUI anchors Menu's fixed label to its intrinsic origin. The
+            // UIKit host centers that origin ten points to the right.
+            .offset(x: 10)
         }
         .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
