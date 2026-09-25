@@ -118,7 +118,13 @@ export async function GET(request: Request): Promise<Response> {
         throw err;
       }
 
-      const listed = await runVmRoute(listUserVms(user.id, billingTeamId), { request });
+      const includesPersonalScope = !requestedBillingTeamId && !user.selectedTeamId;
+      const listed = await runVmRoute(
+        includesPersonalScope
+          ? listUserVms(user.id, billingTeamId, { includePersonal: true })
+          : listUserVms(user.id, billingTeamId),
+        { request },
+      );
       if (!listed.ok) return listed.response;
       const entries = listed.value;
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
@@ -162,10 +168,14 @@ export async function GET(request: Request): Promise<Response> {
         // render countdowns from this instead of re-deriving the policy.
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
       }));
+      const activeVmCount = entries.filter((vm) =>
+        (vm.status === "running" || vm.status === "provisioning") &&
+        (!includesPersonalScope || !billingTeamId || billingTeamId === user.id || vm.ownerTeamId === billingTeamId),
+      ).length;
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
-          activeVmCount: entries.filter((vm) => vm.status === "running" || vm.status === "provisioning").length,
+          activeVmCount,
           planId: listEntitlements.planId,
           freeAccessWindowDays,
           ...(listEntitlements.planId === "go" ? {
