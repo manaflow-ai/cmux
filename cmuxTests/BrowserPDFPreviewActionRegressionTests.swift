@@ -38,7 +38,7 @@ struct BrowserPDFPreviewActionRegressionTests {
         let delegate = try #require(panel.webView.uiDelegate as? NSObject)
         let selector = NSSelectorFromString("_webViewDidRequestPointerLock:completionHandler:")
 
-        #expect(
+        try #require(
             delegate.responds(to: selector),
             "WebKit only asks the embedder to grant pointer lock when its UI delegate implements the private request callback."
         )
