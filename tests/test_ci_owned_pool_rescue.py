@@ -557,16 +557,17 @@ class QueueBudget(unittest.TestCase):
         self.assertIn("for at least 30s", summary)
         self.assertLess(api.cancelled_at, 40 + 30 + rescue.POLL_SECONDS + 1)
 
-    def test_only_ci_and_test_ios_runs_get_the_expected_wait(self):
-        # E2E, iOS screenshots and side-lane runs have no queueing picker.
-        for payload in (e2e_event(), e2e_event(path=".github/workflows/ios-screenshots.yml")):
+    def test_only_ci_test_ios_and_e2e_runs_get_the_expected_wait(self):
+        # iOS screenshots and side-lane runs have no queueing picker.
+        for payload in (e2e_event(path=".github/workflows/ios-screenshots.yml"),):
             clock = Clock()
             api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
             _, summary = run_main(api, clock, payload=payload,
                                   env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
             self.assertIn("(budget 30s)", summary, payload["workflow_run"]["path"])
-        # ios_runner_pool.py queues within CI_PR_POOL_QUEUE_ROUNDS, dispatch or pull request.
-        for payload in (e2e_event(path=".github/workflows/test-ios.yml"), event(path=".github/workflows/test-ios.yml")):
+        # ios_runner_pool.py and e2e_runner_pool.py queue within CI_PR_POOL_QUEUE_ROUNDS.
+        for payload in (e2e_event(path=".github/workflows/test-ios.yml"), event(path=".github/workflows/test-ios.yml"),
+                        e2e_event()):
             clock = Clock()
             api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
             _, summary = run_main(api, clock, payload=payload,
