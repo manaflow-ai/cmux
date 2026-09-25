@@ -1871,6 +1871,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
 
         XCTAssertTrue(NSApp.sendAction(selector, to: rebuiltReloadItem.target, from: rebuiltReloadItem))
 
+        // The menu action only enqueues a reload. GhosttyApp runs it behind the
+        // font-size work barrier and after any reload already in flight, so it
+        // can finish on a later main-loop turn. Wait for the store to pick up
+        // the new file instead of assuming the reload ran inside sendAction.
+        let reloadDeadline = Date(timeIntervalSinceNow: 10)
+        while cmuxConfigStore.resolvedAction(id: "second") == nil, Date() < reloadDeadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
+
         XCTAssertNil(cmuxConfigStore.resolvedAction(id: "first"))
         XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "second"))
 #else
