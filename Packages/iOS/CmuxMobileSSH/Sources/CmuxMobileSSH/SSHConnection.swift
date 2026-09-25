@@ -35,6 +35,9 @@ public actor SSHConnection {
         self.sshHandler = sshHandler
     }
 
+    /// The event loop this connection's transport runs on.
+    nonisolated var eventLoop: any EventLoop { channel.eventLoop }
+
     /// Future that completes when the connection closes.
     public nonisolated var closeFuture: EventLoopFuture<Void> { channel.closeFuture }
 
@@ -52,43 +55,51 @@ public actor SSHConnection {
     ) async throws -> SSHConnection {
         let authDelegate = SSHCredentialAuthDelegate(username: endpoint.username, credentials: credentials)
         let hostKeyDelegate = SSHHostKeyAuthDelegate(endpoint: endpoint, verifier: hostKeyVerifier)
-        let clientConfiguration = SSHClientConfiguration(userAuthDelegate: authDelegate, serverAuthDelegate: hostKeyDelegate)
 
-        let channel: any Channel
-        if let jump {
-            channel = try await jump.openDirectTCPIP(host: endpoint.host, port: endpoint.port) { child in
-                child.pipeline.addHandler(SSHChannelDataUnwrapper())
-            }
-        } else {
-            channel = try await NIOTSConnectionBootstrap(group: NIOTSEventLoopGroup.singleton)
-                .connectTimeout(connectTimeout)
-                .channelOption(NIOTSChannelOptions.waitForActivity, value: false)
-                .connect(host: endpoint.host, port: endpoint.port)
-                .get()
-        }
-
+        // The SSH handler must be in the pipeline before the first inbound
+        // byte: servers send their version line the moment they accept, and
+        // a line that reaches an empty pipeline is dropped, stalling the
+        // handshake until the timeout. So it is installed by the transport's
+        // channel initializer, never after the connect returns.
+        let eventLoop: any EventLoop = jump?.eventLoop ?? NIOTSEventLoopGroup.singleton.next()
+        let handshake = eventLoop.makePromise(of: Void.self)
         // Network phases spend this budget; host key verification, which can
         // wait on a trust prompt, pauses it (see SSHHostKeyAuthDelegate).
-        let deadline = SSHHandshakeDeadline(timeout: connectTimeout, eventLoop: channel.eventLoop)
+        let deadline = SSHHandshakeDeadline(timeout: connectTimeout, eventLoop: eventLoop)
         hostKeyDelegate.pauseDuringVerification(deadline)
-        let handshake = channel.eventLoop.makePromise(of: Void.self)
         deadline.complete(with: handshake.futureResult)
+        let installSSH: @Sendable (any Channel) -> EventLoopFuture<Void> = { channel in
+            channel.eventLoop.makeCompletedFuture {
+                try channel.pipeline.syncOperations.addHandlers(
+                    NIOSSHHandler(
+                        role: .client(SSHClientConfiguration(userAuthDelegate: authDelegate, serverAuthDelegate: hostKeyDelegate)),
+                        allocator: channel.allocator,
+                        inboundChildChannelInitializer: nil
+                    ),
+                    SSHHandshakeObserver(promise: handshake)
+                )
+            }
+        }
+
+        let channel: any Channel
         let sshHandler: NIOSSHHandler
         do {
-            sshHandler = try await channel.eventLoop.flatSubmit { () -> EventLoopFuture<NIOSSHHandler> in
-                let handler = NIOSSHHandler(
-                    role: .client(clientConfiguration),
-                    allocator: channel.allocator,
-                    inboundChildChannelInitializer: nil
-                )
-                return channel.pipeline.addHandlers([
-                    handler,
-                    SSHHandshakeObserver(promise: handshake),
-                ]).map { handler }
-            }.get()
+            if let jump {
+                channel = try await jump.openDirectTCPIP(host: endpoint.host, port: endpoint.port) { child in
+                    child.pipeline.addHandler(SSHChannelDataUnwrapper()).flatMap { installSSH(child) }
+                }
+            } else {
+                channel = try await NIOTSConnectionBootstrap(group: eventLoop)
+                    .connectTimeout(connectTimeout)
+                    .channelOption(NIOTSChannelOptions.waitForActivity, value: false)
+                    .channelInitializer(installSSH)
+                    .connect(host: endpoint.host, port: endpoint.port)
+                    .get()
+            }
+            sshHandler = try await channel.pipeline.handler(type: NIOSSHHandler.self).get()
         } catch {
+            // No channel (or no handler) means the observer never ran.
             handshake.fail(error)
-            try? await channel.close()
             throw error
         }
         do {

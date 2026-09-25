@@ -29,6 +29,20 @@ public enum MobileSSHPrompt: Identifiable, Sendable {
         case .hostKeyChanged(let host, _, _): "changed-\(host.id)"
         }
     }
+
+    /// Whether answering `self` also answers `other`: same host, address,
+    /// and keys.
+    func asksSameQuestion(as other: MobileSSHPrompt) -> Bool {
+        switch (self, other) {
+        case let (.trustNewHostKey(host, key), .trustNewHostKey(otherHost, otherKey)):
+            host.id == otherHost.id && host.endpoint == otherHost.endpoint && key == otherKey
+        case let (.hostKeyChanged(host, pinned, presented), .hostKeyChanged(otherHost, otherPinned, otherPresented)):
+            host.id == otherHost.id && host.endpoint == otherHost.endpoint
+                && pinned == otherPinned && presented == otherPresented
+        default:
+            false
+        }
+    }
 }
 
 /// Connection state of one SSH computer, shown on its Computers row.
@@ -111,7 +125,10 @@ public final class MobileSSHComputers {
     /// Panels whose current stream has delivered at least one frame.
     @ObservationIgnored private var browserPanelsWithFrames: Set<String> = []
     @ObservationIgnored private var publishedBrowserPanels: [String: [MobileBrowserPanelDescriptor]] = [:]
-    @ObservationIgnored private var promptContinuations: [String: CheckedContinuation<MobileSSHPromptAnswer, Never>] = [:]
+    /// Everyone waiting on each on-screen prompt. Connections that ask the
+    /// same question at once (the editor's password install and the saved
+    /// host's auto-connect) share one prompt and one answer.
+    @ObservationIgnored private var promptContinuations: [String: [CheckedContinuation<MobileSSHPromptAnswer, Never>]] = [:]
     /// Hosts that stay manual until the user connects them again: the user
     /// disconnected them or declined a first-connect question.
     @ObservationIgnored private var autoConnectSuppressed: Set<UUID> = []
@@ -193,13 +210,24 @@ public final class MobileSSHComputers {
         if answer != .trust, let hostID = prompt.identityHostID {
             setAutoConnectPaused(true, hostID: hostID)
         }
-        promptContinuations.removeValue(forKey: prompt.id)?.resume(returning: answer)
+        for waiter in promptContinuations.removeValue(forKey: prompt.id) ?? [] {
+            waiter.resume(returning: answer)
+        }
     }
 
     func ask(_ prompt: MobileSSHPrompt) async -> MobileSSHPromptAnswer {
         await withCheckedContinuation { continuation in
-            promptContinuations[prompt.id]?.resume(returning: .cancel)
-            promptContinuations[prompt.id] = continuation
+            if let pending = prompts.first(where: { $0.id == prompt.id }), pending.asksSameQuestion(as: prompt),
+               promptContinuations[prompt.id] != nil {
+                promptContinuations[prompt.id, default: []].append(continuation)
+                return
+            }
+            // A different question under the same id (another key for this
+            // host) replaces the stale one; its answer must not carry over.
+            for stale in promptContinuations.removeValue(forKey: prompt.id) ?? [] {
+                stale.resume(returning: .cancel)
+            }
+            promptContinuations[prompt.id] = [continuation]
             prompts.removeAll { $0.id == prompt.id }
             prompts.append(prompt)
         }
