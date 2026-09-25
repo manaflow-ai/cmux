@@ -282,7 +282,8 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         )
 
         let firstSplit = try XCTUnwrap(splitNodes(in: workspace.bonsplitController.treeSnapshot()).first)
-        XCTAssertTrue(workspace.bonsplitController.setDividerPosition(0.8, forSplit: firstSplit))
+        let firstSplitId = try XCTUnwrap(UUID(uuidString: firstSplit.id))
+        XCTAssertTrue(workspace.bonsplitController.setDividerPosition(0.8, forSplit: firstSplitId))
 
         workspace.toggleTilingMode()
 
