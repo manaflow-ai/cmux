@@ -326,6 +326,13 @@ struct WorkspaceTodoSidebarModelTests {
             fallbackSpacing: 2
         )
         #expect(fallbackHeight == 40)
+
+        let measuredRowHeights = SidebarWorkspaceChecklistPopoverViewportModel.viewportHeight(
+            rowHeights: [24, 24, 31, 24, 24, 24, 24],
+            fallbackRowHeight: 19,
+            fallbackSpacing: 2
+        )
+        #expect(measuredRowHeights == 161)
     }
 
     @Test
