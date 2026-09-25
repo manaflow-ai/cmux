@@ -953,7 +953,7 @@ final class FileExplorerContainerView: NSView {
         outlineView = FileExplorerNSOutlineView()
         searchScrollView = NSScrollView()
         searchResultsView = FileExplorerSearchResultsTableView()
-        emptyLabel = NSTextField(labelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
+        emptyLabel = NSTextField(wrappingLabelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
         loadingIndicator = NSProgressIndicator()
         self.searchController = searchController ?? FileSearchController()
         self.presentation = presentation
@@ -1010,6 +1010,7 @@ final class FileExplorerContainerView: NSView {
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
+        emptyLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
 
@@ -1163,7 +1164,8 @@ final class FileExplorerContainerView: NSView {
             searchScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             searchScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            emptyLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            emptyLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),

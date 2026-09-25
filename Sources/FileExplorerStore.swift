@@ -786,6 +786,9 @@ final class FileExplorerStore: ObservableObject {
     }
 
     var displayRootPath: String {
+        if rootPath.isEmpty, let cloudProvider = provider as? CloudVMFileExplorerProvider {
+            return cloudProvider.displayTarget
+        }
         if let sshProvider = provider as? SSHFileExplorerProvider {
             guard !rootPath.isEmpty else {
                 return "ssh://\(sshProvider.displayTarget)"
