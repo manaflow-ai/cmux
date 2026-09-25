@@ -195,7 +195,9 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         if let description = model.anchorDescription, !description.isEmpty {
             descriptionView.configurePlainText(
                 description.sidebarBoundedDisplayString(maxDisplayedLines: 2, maxDisplayedCharacters: 512),
-                font: .systemFont(ofSize: GlobalFontMagnification.scaledSize(10.5, percent: percent)),
+                font: .systemFont(
+                    ofSize: GlobalFontMagnification.scaledSize(10.5 * model.fontScale, percent: percent)
+                ),
                 color: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
             )
         }
@@ -425,7 +427,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         let descriptionHeight: CGFloat = {
             guard let description = model.anchorDescription, !description.isEmpty else { return 0 }
             let descriptionFont = NSFont.systemFont(
-                ofSize: GlobalFontMagnification.scaledSize(10.5, percent: percent)
+                ofSize: GlobalFontMagnification.scaledSize(10.5 * model.fontScale, percent: percent)
             )
             let boundedDescription = description.sidebarBoundedDisplayString(
                 maxDisplayedLines: 2,
