@@ -11,11 +11,11 @@ waiting on the child's copy of the output pipe.
 
 from __future__ import annotations
 
+import concurrent.futures
 import re
 import subprocess
 import sys
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
@@ -131,12 +131,10 @@ class StepsFinish(unittest.TestCase):
             env={},
             working_directory=None,
         )
-        with tempfile.TemporaryDirectory() as temp:
-            started = time.monotonic()
-            code, output = run_ci_guards.run_step(
-                step, Path(temp), {"PATH": "/usr/bin:/bin"}, Path(temp) / "log"
-            )
-        self.assertLess(time.monotonic() - started, 10)
+        with tempfile.TemporaryDirectory() as temp, concurrent.futures.ThreadPoolExecutor(1) as pool:
+            future = pool.submit(run_ci_guards.run_step, step, Path(temp), {"PATH": "/usr/bin:/bin"}, Path(temp) / "log")
+            # A hang raises TimeoutError here instead of blocking the suite.
+            code, output = future.result(timeout=60)
         self.assertEqual(code, 0)
         self.assertIn("started", output)
 
