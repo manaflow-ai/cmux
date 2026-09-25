@@ -29,13 +29,30 @@ take an owned Mac? Owned Macs are `glaeda-<class>-xcode-<version>` pools
                                      hold the `actions: read` the queue snapshot
                                      needs; it reaches the minis only on request
     the pool has room              the picker finds LANES[lane].jobs machines
-                                     free on an owned pool
+                                     free on an owned pool, or the run may
+                                     queue there (see Minis first)
     the simulators have room       SIM_LABEL has the run's simulator jobs free
 
-Otherwise the run keeps the default, exactly as before: when the picker would
-have chosen a Blacksmith pool (12vcpu overflow, say), iOS still takes its own
-variable, so MACOS_RUNNER_IOS keeps meaning what it meant. No job is sent to
-wait in an owned queue.
+Otherwise the run keeps the default: when the picker would have chosen a
+Blacksmith pool (12vcpu overflow, say), iOS still takes its own variable, so
+MACOS_RUNNER_IOS keeps meaning what it meant.
+
+Minis first. test-ios.yml passes vars.CI_PR_POOL_QUEUE_ROUNDS. Above 0, a
+run whose simulators are free takes the lane's owned pool (the one `runner:
+owned` takes) even when the picker counts every owned machine as spoken for,
+and queues there behind whatever is ahead: a mini keeps the iOS build state
+warm, and the picker's count is an estimate (in-flight runs' declared peaks,
+plus every newer pull request run it cannot place). On 2026-09-25 that
+estimate sent a run behind 25 queued jobs on blacksmith-6vcpu-macos-26 while
+20 owned runners sat idle. The simulators are the lane's real limit and are
+counted, so at most CI_OWNED_POOL_SLOTS' SIM_LABEL runs queue this way at
+once. Only a fresh snapshot is read, and a pool with a release or nightly job
+queued, or already queued a full round deep (as many jobs as machines), is
+left alone. The picker itself is unchanged, so a Swift package run, which
+holds no simulator, never queues this way. ci-owned-pool-rescue.yml gives
+test-ios.yml runs the queue allowance CI runs get, then moves a job still
+waiting to Blacksmith. `0` (the kill switch) restores "free machines now or
+Blacksmith".
 
 Simulator capacity. glaeda puts SIM_LABEL (`glaeda-ios-sim`) on the runners of
 minis that have an iOS simulator role and an iOS 26.x runtime, and runs one
@@ -221,6 +238,7 @@ def resolve(
     pr_xcode_app: str | None,
     order: str | None,
     max_queued: str | None,
+    queue_rounds: str | None = None,
     ios_version: str | None = None,
     device_family: str | None = None,
     swift_package: str | None = None,
@@ -285,14 +303,46 @@ def resolve(
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
         log(f"could not read the runner queue ({error}); staying on {default}")
         return ephemeral(default)
-    if not pr_runner_pool.persistent(choice.runner):
-        log(f"{choice.reason or 'no owned pool has room'}; staying on {default}")
-        return ephemeral(default)
     if needed and free < needed:
         log(f"{SIM_LABEL}: {free} of {capacity} free, {needed} needed; staying on {default}")
         return ephemeral(default)
+    if not pr_runner_pool.persistent(choice.runner):
+        queued = queue_for_a_mini(load, queue_rounds, pr_xcode_app, pool_slots(owned_slots, pr_xcode_app),
+                                  needed, now=now)
+        if queued:
+            log(f"{choice.reason or 'no owned pool has room'}; minis first: {queued}, "
+                f"{SIM_LABEL} {free} of {capacity} free, {needed} needed")
+            return Route(queued, retry_label(default), True)
+        log(f"{choice.reason or 'no owned pool has room'}; staying on {default}")
+        return ephemeral(default)
     log(f"{choice.reason} -> {choice.runner} with {SIM_LABEL} ({free} of {capacity} free, {needed} needed)")
     return Route(choice.runner, retry_label(default), True)
+
+
+def queue_for_a_mini(load: IOSLoad, queue_rounds: str | None, pr_xcode_app: str | None,
+                     slots: Mapping[str, int], needed: int, *, now: dt.datetime) -> str:
+    """The lane's owned pool a simulator run queues on when the picker counted it full, or "" (see Minis first).
+
+    Only from a fresh snapshot (anything uncertain keeps the default), onto
+    the pool `runner: owned` takes, when no release or nightly job is queued
+    there and it is less than a full round deep.
+    """
+    rounds = pr_runner_pool.parse_queue_rounds(queue_rounds) if queue_rounds is not None else 0
+    if not rounds or not needed or load.pool is None:
+        return ""
+    snapshot = load.pool.snapshot
+    age = pr_runner_pool.snapshot_age_minutes(snapshot, now)
+    if age is None or age < -5 or age > pr_runner_pool.MAX_SNAPSHOT_MINUTES:
+        return ""
+    pools = pr_runner_pool.owned_pools(pr_xcode_app)
+    if not pools:
+        return ""
+    label = pools[0]
+    entry = (snapshot.get("pools") or {}).get(label) or {}
+    machines = int(slots.get(label) or 0)
+    if not machines or int(entry.get("reserved_queued") or 0) or int(entry.get("queued") or 0) >= machines:
+        return ""
+    return label
 
 
 # test-ios.yml's run-name: "iOS tests · REF · PACKAGE|simulator · FILTER · FAMILY · iOS VERSION · on RUNNER".
@@ -336,6 +386,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--pr-xcode-app", default="", help=f"vars.{pr_runner_pool.PR_XCODE_VARIABLE}")
     parser.add_argument("--order", default="", help=f"vars.{pr_runner_pool.ORDER_VARIABLE}")
     parser.add_argument("--max-queued", default="", help=f"vars.{pr_runner_pool.MAX_QUEUED_VARIABLE}")
+    parser.add_argument("--queue-rounds", default=None,
+                        help=f"vars.{pr_runner_pool.QUEUE_ROUNDS_VARIABLE}; omitted means no rounds")
     parser.add_argument("--ios-version", default="", help="the workflow's ios_version input")
     parser.add_argument("--device-family", default="", help="the workflow's device_family input")
     parser.add_argument("--swift-package", default="", help="the workflow's swift_package input")
@@ -367,6 +419,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             args.lane, args.requested, args.variable,
             ios_owned=args.ios_owned, owned=args.owned, owned_slots=args.owned_slots,
             pr_xcode_app=args.pr_xcode_app, order=args.order, max_queued=args.max_queued,
+            queue_rounds=args.queue_rounds,
             ios_version=args.ios_version, device_family=args.device_family,
             swift_package=args.swift_package, upload=args.upload, called=args.called,
             seed_cache=args.seed_cache,

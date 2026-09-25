@@ -145,9 +145,11 @@ its budget is the pool's expected wait plus a margin:
 CI_OWNED_POOL_RESCUE_SECONDS plus QUEUE_ROUND_SECONDS per round
 (queue_seconds(), 930 seconds by default), under the watch limit so a stuck
 job is still moved. With the rounds at 0 the picker takes an owned pool
-only with machines free now, and the budget is the configured one. So is
-an E2E, iOS or side-lane run's (#14391: no picker; the side lanes share the
-runners PR runs queue on, so they are moved to Blacksmith more often), and a
+only with machines free now, and the budget is the configured one. A
+test-ios.yml run queues by the same rounds (ios_runner_pool.py) and gets the
+same allowance. An E2E, iOS screenshot or side-lane run's budget is the
+configured one (#14391: no picker; the side lanes share the
+runners PR runs queue on, so they are moved to Blacksmith more often), and so is a
 re-run of failed jobs'.
 """
 from __future__ import annotations
@@ -760,9 +762,10 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         else f"pull request #{target.pr_number}"
     if target.side:
         subject += " (side lane)"
-    # Only ci.yml's picker queues on purpose, and says so with a marker (see the docstring).
-    # A CI run's owned jobs may wait up to the pool's expected wait (see the docstring).
-    queue_extra = queue_seconds(env.get("QUEUE_ROUNDS")) if target.path == CI_WORKFLOW_PATH else 0
+    # Only ci.yml's and test-ios.yml's pickers queue on purpose (see the docstring).
+    # Their owned jobs may wait up to the pool's expected wait (see the docstring).
+    queue_extra = (queue_seconds(env.get("QUEUE_ROUNDS"))
+                   if target.path in (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH) else 0)
     log(f"watching run {target.run_id} of {subject} (budget {seconds + queue_extra}s"
         + (f": {seconds}s past the {queue_extra}s an owned job may expect to wait)" if queue_extra else ")"))
     # A watch deadline for attempt 1, and a fresh one (capped by the job's

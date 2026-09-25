@@ -1900,7 +1900,7 @@ IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache=""):
+              swift_package="", seed_cache="", queue_rounds=None):
     calls = []
 
     def measured():
@@ -1912,7 +1912,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
     route = ios_pool.resolve(
         lane, requested, variable, ios_owned=ios_owned, owned=owned,
         owned_slots=json.dumps(IOS_SLOTS if slots is None else slots),
-        pr_xcode_app=PR_XCODE, order="", max_queued="",
+        pr_xcode_app=PR_XCODE, order="", max_queued="", queue_rounds=queue_rounds,
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
         swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW)
     return route, len(calls)
@@ -2106,6 +2106,67 @@ class IOSRouting(unittest.TestCase):
         route, calls = ios_route(snap, variable=SMALL)
         self.assertEqual(calls, 1)
         self.assertEqual((route.label, json.loads(route.runs_on), route.persistent), (SMALL, SMALL, False))
+
+    def minis_first(self, snap, **kwargs):
+        """The route and whether the minis-first step (not the picker) made it."""
+        logs = []
+        route = ios_pool.resolve(
+            "test-ios", "auto", "", ios_owned="1", owned="1", owned_slots=json.dumps(IOS_SLOTS),
+            pr_xcode_app=PR_XCODE, order="", max_queued="",
+            measure=lambda: ios_pool.IOSLoad(e2e_pool.PoolLoad(snap)), now=NOW, log=logs.append,
+            **{"device_family": "iphone", "queue_rounds": "", **kwargs})
+        return route, any("minis first" in line for line in logs)
+
+    def test_minis_first_queues_on_a_counted_full_fleet_while_simulators_are_free(self):
+        # 2026-09-25: every mini counted as taken, 25 jobs queued on 6vcpu and 68
+        # on 12vcpu. Without rounds the run went to 6vcpu's queue.
+        snap = sim_fleet(busy=40, small=25, large=68, old=4)
+        for rounds in (None, "0"):
+            route, queued = self.minis_first(snap, queue_rounds=rounds)
+            self.assertEqual((route.label, route.persistent, queued), (SMALL, False, False), rounds)
+        route, queued = self.minis_first(snap)
+        self.assertEqual((route.label, route.persistent, queued), (MINI, True, True))
+        self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
+        self.assertEqual(json.loads(route.retry_runs_on), SMALL)
+        # Even with a Blacksmith machine free: the mini keeps the build state warm.
+        idle_blacksmith = sim_fleet(busy=40, small=0, large=0, old=4)
+        idle_blacksmith["pools"][SMALL]["running"] = 0
+        self.assertEqual(self.minis_first(idle_blacksmith)[0].label, MINI)
+        # A free machine is still the picker's own pick.
+        self.assertEqual(self.minis_first(sim_fleet(busy=0, small=25))[1], False)
+
+    def test_minis_first_never_queues_for_a_simulator_or_onto_a_full_or_reserved_pool(self):
+        # glaeda refuses a second simulator job on a mini, so simulators are not queued for.
+        self.assertFalse(self.minis_first(sim_fleet(running=2, busy=40, small=25))[0].persistent)
+        # A pool already queued as many jobs as it has machines is a full round deep.
+        jammed = sim_fleet(busy=40, small=25)
+        jammed["pools"][MINI]["queued"] = 40
+        self.assertFalse(self.minis_first(jammed)[0].persistent)
+        jammed["pools"][MINI]["queued"] = 39
+        self.assertEqual(self.minis_first(jammed)[0].label, MINI)
+        # A release or nightly job queued there keeps the pool for it.
+        reserved = sim_fleet(busy=40, small=25)
+        reserved["pools"][MINI]["reserved_queued"] = 1
+        self.assertFalse(self.minis_first(reserved)[0].persistent)
+        # A Swift package run holds no simulator: the picker alone decides, as before.
+        route, queued = self.minis_first(sim_fleet(busy=40, small=25, large=68), device_family="",
+                                         swift_package="CmuxMobileShell")
+        self.assertEqual((route.persistent, queued), (False, False))
+
+    def test_minis_first_reads_only_a_fresh_snapshot(self):
+        # Anything uncertain keeps the default: no snapshot, or one past the age limit.
+        route, queued = self.minis_first(None)
+        self.assertEqual((route.label, route.persistent, queued), (SMALL, False, False))
+        stale = sim_fleet(busy=40, small=25, age=pool.MAX_SNAPSHOT_MINUTES + 5)
+        route, queued = self.minis_first(stale)
+        self.assertEqual((route.label, route.persistent, queued), (SMALL, False, False))
+
+    def test_the_workflow_passes_the_queue_rounds_and_the_rescue_allows_them(self):
+        text = (ROOT / ".github/workflows/test-ios.yml").read_text(encoding="utf-8")
+        self.assertIn("POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}", text)
+        self.assertIn('--queue-rounds "$POOL_QUEUE_ROUNDS"', text)
+        rescue = (ROOT / "scripts/ci/owned_pool_rescue.py").read_text(encoding="utf-8")
+        self.assertIn("if target.path in (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH) else 0", rescue)
 
     def test_a_run_needs_two_pool_machines_but_no_root_runner(self):
         self.assertEqual(ios_pool.LANES["test-ios"].jobs, 2)

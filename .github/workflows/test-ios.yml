@@ -142,6 +142,8 @@ jobs:
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          # Queue for a warm mini as a pull request would (ios_runner_pool.py).
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           IOS_VERSION: ${{ inputs.ios_version }}
           DEVICE_FAMILY: ${{ inputs.device_family }}
           SWIFT_PACKAGE: ${{ inputs.swift_package }}
@@ -158,6 +160,7 @@ jobs:
             --pr-xcode-app "$PR_XCODE_APP" \
             --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" \
+            --queue-rounds "$POOL_QUEUE_ROUNDS" \
             --ios-version "$IOS_VERSION" \
             --device-family "$DEVICE_FAMILY" \
             --swift-package "$SWIFT_PACKAGE" \
