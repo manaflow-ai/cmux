@@ -20,107 +20,41 @@ and [agent build contract](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/
 These are the authoritative fleet instructions even when an old PR worktree has
 copied instructions. `AGENTS.md` in this repository is a symlink to this file.
 
-Commit and push the intended edits first. This builds the exact pushed SHA;
-it does not upload dirty local edits. `--tag` is required: pick a descriptive
-tag and a new iteration suffix per submission. Put the full PR URL in
-`--workspace`. The controller records the submitter from your personal client
-token, so `--submitter` is not needed. Preserve both receipts:
+Commit and push first: the recipe builds the exact pushed SHA
+(`cmux-ci build cmux --ref "$SHA" --tag <descriptive-tag-vN> --workspace <PR URL> --receipt ...`,
+then `wait` with a separate terminal receipt, then `publish-hq` after `wait` succeeds; keep both receipts; full commands in
+the contract above). `--tag` is required; the submitter comes from your client
+token. Return the job ID right away. If `wait` times out, wait again on the same
+ID; never resubmit. Never print the private credential file or copy secrets into
+PR evidence.
 
-```bash
-SHA=$(git rev-parse HEAD)
-PR_URL=https://github.com/manaflow-ai/cmux/pull/123
-TAG=pr-123-sidebar-star-align-v1
-mkdir -p artifacts/fleet
-JOB_JSON=$(~/.local/bin/cmux-ci build cmux --ref "$SHA" --tag "$TAG" \
-  --workspace "$PR_URL" \
-  --receipt "artifacts/fleet/$SHA-submit.json")
-JOB_ID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$JOB_JSON")
-~/.local/bin/cmux-ci wait "$JOB_ID" --receipt "artifacts/fleet/$SHA-terminal.json" && \
-  ~/.local/bin/cmux-ci publish-hq "$JOB_ID"
-```
+Use the client's disk defaults (**80 GiB for CMUX**, 180 GiB cold Chromium); do
+not carry the retired 120 or 250 GiB CMUX floors or bypass a rejection with a
+lower floor. Queueing is not permission to build over SSH. The disk daemon owns
+cleanup: do not remove shared caches, active workspaces, or other agents'
+builds. A cached artifact replay is not a changed-source warm compile benchmark.
 
-Run `publish-hq` only after `wait` succeeds. Return the job ID immediately to a
-requesting agent, then the receipts and HQ download link when complete. If
-`wait` times out, wait again on the same ID; do not submit a duplicate. The job
-continues if the submitting laptop disconnects. The installed client loads a
-private credential file; never print it or copy secrets into PR evidence.
+The macfleet skill and new maclease allocations (`reload-cloud`, `tsadmin
+builder`, `verify-remote`) are retired; direct SSH and `tsadmin` stay for
+administration and diagnostics; do not change SSH keys, Tailscale, or host
+access. Report missing controller recipe support rather than bypassing
+scheduling. A busy/idle guess or process check never grants a machine; host
+refusal flows back to the caller, not around it
+([shared-host rules](docs/ci-runners.md#shared-physical-host-interoperability)).
 
-Use the client's workload defaults: **80 GiB for CMUX**, **180 GiB for a cold
-Chromium build**. The former 120 GiB and blanket 250 GiB CMUX requirements are
-obsolete. Do not copy them into new requests or bypass a rejection with an
-arbitrary lower floor. A validated Chromium warm profile may use 120 GiB through
-the runbook's compatibility-receipt workflow. Report a controller/worker policy mismatch;
-queueing is not permission to build over SSH.
-
-The disk daemon owns cleanup under the host lock. Do not remove shared caches,
-active workspaces, or other agents' builds to make space. Retain the terminal
-receipt's timing, cache, disk, cleanup, and artifact evidence. A cached artifact
-replay is not a changed-source warm compilation benchmark.
-
-### Shared-machine execution ownership
-
-The controller job/reservation and the host's physical execution lease are
-separate identities. `cmux-ci`, GitHub Actions, direct agents, and operator
-commands may share one CMUX-owned machine while keeping their own caller and
-workflow state.
-
-When a controller has already reserved a machine, the execution adapter
-validates that reservation and binds its local lease to the same ownership
-evidence. A target-machine choice without reservation still goes through fresh
-host admission. Native build lanes, heavy Linux slots, project locks, publisher slots, and
-resident workspaces must have one local owner before execution starts.
-
-A busy/idle guess, runner process, SSH session, or process-name check never
-grants or releases that ownership. Keep using the existing controller job ID for
-retries, and preserve its receipts; host refusal or pressure should flow back to
-the caller instead of being bypassed through direct execution.
-
-### Fleet allocation transition
-
-The macfleet skill is retired. Do not load, invoke, reinstall, or follow it.
-Do not start new maclease workloads, including `reload-cloud`, `tsadmin builder`,
-or `verify-remote` flows that allocate through maclease. Use the controller where
-supported and report missing recipe support rather than bypassing scheduling.
-Existing jobs may complete and release their reservations. Direct SSH and
-`tsadmin` remain available for administration and diagnostics; do not change SSH
-keys, Tailscale, or host access as part of this transition.
-
-### Tagged builds outside the team fleet
-
-Reuse the tag's warm DerivedData and published dependencies before a cold
-build. For prebuilt GhosttyKit, run `./scripts/download-prebuilt-ghosttykit.sh`,
-then use `CMUX_GHOSTTYKIT_PREPROVISIONED=1` with the tagged reload. The download
-verifies the pinned artifact.
+### Tagged builds
 
 Always build with a tag. **Never run bare `xcodebuild` or open an untagged
 `cmux DEV.app`**: untagged builds share the default debug socket and bundle ID
-with other agents. The fleet publishes isolated tags through HQ. Report the
-`publish-hq` URL as a Markdown link so HQ can restore/download the build; never
-substitute a raw `.app` path or a `file://` URL.
+with other agents. Report the `publish-hq` URL as a Markdown link; never a raw
+`.app` path or a `file://` URL.
 
-For standalone contributors without the team controller, the local workflow is
-`./scripts/reload.sh --tag <branch-slug>` (build without launch) or the same
-command with `--launch`. In a checkout not created through
-cmuxterm-hq, set `CMUX_DEV_BACKEND_MODE=local`; the default shared dev backend
-refuses otherwise. This is not a queue-bypass fallback for team agents.
-Other local variants remain `reloadp.sh` (Release), `reloads.sh` (isolated
-Release staging), and `reload2.sh --tag <tag>` (both). Local compile-only checks
-must use the tagged DerivedData directory rather than an untagged default.
-Clean up only tags you own; retain DerivedData while an active task needs it.
-
-Standalone local compile-only check, reusing the tag's DerivedData:
-
-```bash
-xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug -destination 'platform=macOS' -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/cmux-<tag>" build
-```
-
-`<tag>` is the slug `reload.sh` makes: lowercase, with runs of other characters
-replaced by `-` (`Fix/ABC-1` becomes `fix-abc-1`). A different path starts a cold
-build. When GhosttyKit itself needs rebuilding (see prebuilt reuse above):
-
-```bash
-cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -Doptimize=ReleaseFast
-```
+Standalone contributors without the team controller use
+`./scripts/reload.sh --tag <branch-slug>` (add `--launch` to open it). In a
+checkout not created through cmuxterm-hq, set `CMUX_DEV_BACKEND_MODE=local`. This is not a queue-bypass fallback for team agents. Reuse
+the tag's DerivedData and prebuilt GhosttyKit before a cold build, and clean up
+only tags you own; the compile-only command, reload variants and GhosttyKit
+rebuild are in [tagged builds](skills/cmux-dev-workflow/references/tagged-builds.md).
 
 ### Intel Macs, Xcode 16.2, Swift 6.0
 
@@ -128,14 +62,7 @@ The macOS app also builds on Intel Macs running macOS 14 with Xcode 16.2 (Swift 
 
 ## Tag-bound debug CLI
 
-For CLI or socket dogfood against a tagged Debug app, set `CMUX_TAG` and use the helper. Do not use `/tmp/cmux-cli`, which points at the most recently reloaded build and can target the user's main app socket.
-
-```bash
-CMUX_TAG=<tag> scripts/cmux-debug-cli.sh list-workspaces
-CMUX_TAG=<tag> scripts/cmux-debug-cli.sh send --workspace workspace:1 --surface surface:1 "echo ok"
-```
-
-The helper refuses to run without `CMUX_TAG`, targets `/tmp/cmux-debug-<tag>.sock`, and uses the matching tagged CLI from DerivedData. It scrubs ambient cmux terminal context (`CMUX_SOCKET`, `CMUX_SOCKET_PASSWORD`, workspace/surface/tab/panel IDs, cmuxd socket, debug log), then sets `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, and `CMUX_BUNDLED_CLI_PATH` for the tag.
+For CLI or socket dogfood against a tagged Debug app, use `CMUX_TAG=<tag> scripts/cmux-debug-cli.sh <command>` ([details](skills/cmux-dev-workflow/references/tagged-builds.md#tagged-cli-and-socket)). Do not use `/tmp/cmux-cli`, which points at the most recently reloaded build and can target the user's main app socket.
 
 ## Area-specific instructions
 
@@ -153,7 +80,7 @@ Before drafting or revising a top-level issue or PR description, read [STYLE.md]
 
 Several agent sessions work this repo at once and cannot see each other. They push through one GitHub account, so `author` and `mergedBy` name the account, never which session acted. Do not infer from them that a particular session opened, merged, or reviewed something, and do not report that to the user as fact.
 
-The failure mode is duplicate work, not merge conflicts. A shared observable — a red `main`, a failing required check — reaches every session at once, and each independently diagnoses it and opens a PR. On 2026-09-22 five PRs landed on one test function, `test_ci_executes_review_fabric_contracts`, in twenty-one minutes: #13785, #13788, #13800, #13801, #13802. Two of them were opened five seconds apart.
+The failure mode is duplicate work, not merge conflicts. A shared observable — a red `main`, a failing required check — reaches every session at once, and each independently diagnoses it and opens a PR.
 
 Before `gh pr create`:
 
@@ -163,11 +90,11 @@ Before `gh pr create`:
 4. Run `git worktree list` and inspect the branches in other local worktrees for an existing fix before starting a duplicate.
 5. Run `git for-each-ref --sort=-committerdate --count=20 --format='%(committerdate:iso8601) %(refname:short) %(subject)' refs/remotes/` after fetching. Inspect recent remote branches for a fix that has not reached an open PR yet; commit dates indicate recent work, not when a branch was pushed.
 
-Query `state` before acting on any PR. GitHub keeps serving `mergeable` and `mergeStateStatus` on closed and merged PRs, where they mean nothing; reading `CONFLICTING` off an already-merged PR has twice sent a session to resolve a conflict that did not exist.
+Query `state` before acting on any PR. GitHub keeps serving `mergeable` and `mergeStateStatus` on closed and merged PRs, where they mean nothing.
 
 If the fix already exists, say so and stop. When a duplicate is already open, close yours in favour of the earlier one and move any genuine improvement to a comment on it — that costs less review attention than a second PR carrying one extra idea.
 
-Overlapping files are not evidence of a duplicate. #13754 and #13797 changed exactly the same two files and fixed different bugs — one made the seeder run on the pool that PR admission restores from, the other stopped it restoring its own last seed — and both merged. Read what each PR asserts, and if they look compatible, merge one into the other locally and run the shared test before proposing that either close.
+Overlapping files are not evidence of a duplicate (#13754 and #13797 changed the same two files, fixed different bugs, and both merged). Read what each PR asserts, and if they look compatible, merge one into the other locally and run the shared test before proposing that either close.
 
 ### Callsigns
 
@@ -194,7 +121,7 @@ A callsign is attribution, never authority. The worker attempt is identified by 
 
 ## Outside contributors
 
-Most open PRs from people outside the team never got a human reply: of 810 open on 2026-09-23, 765 had only bot comments. Several were fixed on `main` by a maintainer PR while the contributor's PR sat open, and the contributor found out on their own.
+Most outside PRs never got a human reply, and some were fixed on `main` by a maintainer PR while theirs sat open.
 
 Before fixing a bug or building a feature, run `gh search prs --repo manaflow-ai/cmux --state open '<symptom or issue number>'` and look for an outside PR (author not on the team). If one exists:
 
@@ -249,32 +176,11 @@ Notify through `cmux notify` so the user can leave and return. Handoff: `--title
 
 ## Reading CI cost
 
-Three measurements that are routinely read wrong, each established against
-`test-e2e.yml` on 2026-09-23 over a 98-run window.
+Measured on `test-e2e.yml`, 2026-09-23 (#13971):
 
-**A cancelled job's duration is usually queue, not spend.** GitHub sets a
-queued job's `started_at` to when it entered the queue, so a run that waited 45
-minutes for a runner and was then cancelled reports a 45-minute job. Check
-`runner_name` and `steps`: both empty means no runner was ever assigned and the
-job burned nothing. Of 20 cancelled runs totalling an apparent 239 macOS
-runner-minutes, 15 never got a runner and the real spend was 46. All 15 were
-waiting on `blacksmith-6vcpu-macos-15`, whose queue then ran a 26-minute median
-against 0.6 minutes for the macOS 26 pool.
-
-**Compiling fewer schemes saves almost nothing.** `build-for-testing` over
-`cmux`, `cmux-unit` and `cmux-numeric-locale` costs 691 s, 28 s and 16 s. The
-app scheme is 94% of it and is the test host every app-host test needs, so
-selecting schemes per test target is not a lever. What the schemes cost is
-worth re-measuring before any plan depends on splitting them.
-
-**The compile is close to binary, and one file decides it.** Against the same
-restored compilation cache, a revision with no changed native sources compiled
-in 280 s; a revision differing by a single file in `Sources/` took 737 s. The
-cause is not established (Debug builds are not whole-module), but "small diff"
-does not mean "short build",
-and a cache seeded from a commit that has since drifted is worth much less than
-its hit rate suggests. Prefer adopting an already-compiled product over
-reasoning about cache warmth.
+- **A cancelled job's duration is usually queue, not spend.** A queued job's `started_at` is when it entered the queue. Empty `runner_name` and `steps` mean no runner was assigned and nothing was spent.
+- **Compiling fewer schemes saves almost nothing.** The `cmux` app scheme is about 94% of `build-for-testing` and is the host every app-host test needs.
+- **"Small diff" does not mean "short build".** One changed `Sources/` file took 737 s against 280 s for none, on the same cache. Prefer adopting an already-compiled product over reasoning about cache warmth.
 
 ## Pitfalls
 
@@ -317,25 +223,6 @@ Rules when adding a v2 method or a remote CLI command (`daemon/remote/cmd/cmuxd-
 
 ## Skills
 
-The [skill index](skills/README.md) separates contributor work from operating the
-installed app. Use the task-specific skill before changing that area, then load
-only the relevant references. Start with [cmux-dev-workflow](skills/cmux-dev-workflow/SKILL.md)
-for setup/builds or [cmux-testing](skills/cmux-testing/SKILL.md) for verification.
+The [skill index](skills/README.md) lists contributor and installed-app skills. Load the task's skill before changing that area, then only the references you need. Start with [cmux-dev-workflow](skills/cmux-dev-workflow/SKILL.md) for setup/builds or [cmux-testing](skills/cmux-testing/SKILL.md) for verification.
 
-- `cmux-dev-workflow`: setup, tagged reloads, Xcode project normalization, sidebar extension tagging, build isolation.
-- `cmux-architecture`: package boundaries, file/API discipline, testability, Swift concurrency.
-- `cmux-backend`: backend TypeScript, Effect, Cloud VM control plane, provider secrets, Postgres and migrations.
-- `cmux-billing`: Stripe checkout, entitlements, webhooks, pricing dev stack, live provisioning.
-- `cmux-cloud-vm`: driving cmux Cloud machines from the CLI (`cmux vm` exec/push/pull/wait, ports, checkpoints, forks) and the agent etiquette around them.
-- `cmux-debugging`: debug event log, Debug menu, runtime pitfalls, typing-sensitive paths, SwiftUI list boundaries.
-- `cmux-localization`: user-facing strings, localization files, shortcut text, localization audit.
-- `cmux-testing`: regression policy, Swift Testing, test quality, test wiring, local vs CI validation.
-- `cmux-socket-policy`: socket command threading and focus preservation.
-- `cmux-shared-behavior`: shared action paths for multi-entrypoint behavior and optimistic updates.
-- `cmux-ghostty`: Ghostty submodule and GhosttyKit workflow.
-- `cmux-release`: release, version bump, changelog, pretag guard, release assets.
-
-- Blacksmith Testbox (remote Linux builds for cmux-tui): warm your own box before any cmux-tui Rust or Zig
-  build, and never compile cmux-tui on the Mac. The skill lives in cmuxterm-hq at
-  `skills/infra/blacksmith-testbox/SKILL.md`; the workflows, `scripts/blacksmith-*.sh`, and the
-  `tests/test_testbox_*` guards stay here. Quickest path: `./scripts/blacksmith-testbox-demo.sh`.
+Blacksmith Testbox (remote Linux builds for cmux-tui): warm your own box before any cmux-tui Rust or Zig build, and never compile cmux-tui on the Mac. The skill lives in cmuxterm-hq at `skills/infra/blacksmith-testbox/SKILL.md`; the workflows, `scripts/blacksmith-*.sh`, and the `tests/test_testbox_*` guards stay here. Quickest path: `./scripts/blacksmith-testbox-demo.sh`.
