@@ -118,10 +118,15 @@ public final class MobilePushCoordinator {
     }
 
     @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
+    @ObservationIgnored private var pendingDeeplinkTimedOutID: UUID?
+    @ObservationIgnored private var pendingDeeplinkRecheckTask: Task<Void, Never>?
     /// Set when a tapped terminal is proven unavailable after the connection
     /// is ready. It remains observable so a cold-launch tap can present the
     /// alert after the root mounts.
     public private(set) var tabUnavailableAlert: TabUnavailableAlert?
+    /// Delayed recheck interval for cold launch and slow attach. It is not a
+    /// deletion deadline because an unavailable Mac cannot prove a tab is gone.
+    private static let pendingDeeplinkRecheckDelay: Duration = .seconds(120)
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var pendingReplyState = PendingReplyState()
     @ObservationIgnored private var replySendInFlight = false
@@ -1030,6 +1035,8 @@ public final class MobilePushCoordinator {
     ) {
         diagnosticLog?.recordAppEvent(.pushTapped)
         tabUnavailableAlert = nil
+        pendingDeeplinkRecheckTask?.cancel()
+        pendingDeeplinkTimedOutID = nil
         pendingDeeplink = PendingDeeplink(
             id: UUID(),
             workspaceId: workspaceId,
@@ -1038,6 +1045,7 @@ public final class MobilePushCoordinator {
             macInstanceTag: macInstanceTag,
             retargetsToLiveSurfaceOwner: retargetsToLiveSurfaceOwner
         )
+        schedulePendingDeeplinkRecheck()
         diagnosticLog?.recordAppEvent(.pushDeeplinkParked)
         applyPendingDeeplinkIfReady()
     }
@@ -1045,7 +1053,27 @@ public final class MobilePushCoordinator {
     /// Dismiss the one-shot alert presented for a terminal that no longer
     /// exists on its owning Mac.
     public func dismissTabUnavailableAlert() {
+        if tabUnavailableAlert?.kind == .connectionUnavailable {
+            clearPendingDeeplink()
+        }
         tabUnavailableAlert = nil
+    }
+
+    /// Retries a timed-out notification tap after the user has restored the
+    /// Mac connection. The original target remains parked until it resolves.
+    public func retryPendingDeeplink() {
+        tabUnavailableAlert = nil
+        pendingDeeplinkTimedOutID = nil
+        schedulePendingDeeplinkRecheck()
+        applyPendingDeeplinkIfReady()
+        guard let pending = pendingDeeplink, let store else { return }
+        Task { @MainActor [weak self] in
+            await store.reconnectToMac(
+                macDeviceID: pending.macDeviceId,
+                instanceTag: pending.macInstanceTag
+            )
+            self?.workspacesDidChange()
+        }
     }
 
     /// Parks an inline notification reply and sends it once its exact Mac, workspace, surface, and RPC channel are ready.
@@ -1119,6 +1147,13 @@ public final class MobilePushCoordinator {
                 failure: .protocolViolation
             )
             return
+        }
+        if pendingDeeplinkTimedOutID == pending.id {
+            // A timeout alert pauses automatic work until the owning Mac is
+            // usable again. The connection/topology hooks then resume the
+            // original tap without requiring a second notification tap.
+            guard pendingConnectionIsUsable(pending, store: store) else { return }
+            pendingDeeplinkTimedOutID = nil
         }
         guard pending.retargetsToLiveSurfaceOwner || pending.workspaceId != nil else {
             clearPendingDeeplink()
@@ -1244,6 +1279,28 @@ public final class MobilePushCoordinator {
 
     private func clearPendingDeeplink() {
         pendingDeeplink = nil
+        pendingDeeplinkTimedOutID = nil
+        pendingDeeplinkRecheckTask?.cancel()
+        pendingDeeplinkRecheckTask = nil
+    }
+
+    private func schedulePendingDeeplinkRecheck() {
+        pendingDeeplinkRecheckTask?.cancel()
+        guard let pendingID = pendingDeeplink?.id else { return }
+        pendingDeeplinkRecheckTask = Task { @MainActor [weak self] in
+            do {
+                try await ContinuousClock().sleep(
+                    for: Self.pendingDeeplinkRecheckDelay
+                )
+            } catch {
+                return
+            }
+            guard let self,
+                  self.pendingDeeplink?.id == pendingID else { return }
+            self.pendingDeeplinkRecheckTask = nil
+            self.pendingDeeplinkTimedOutID = pendingID
+            self.presentConnectionUnavailableAlert()
+        }
     }
 
     private func isWorkspaceConnectionReady(_ workspace: MobileWorkspacePreview?) -> Bool {
@@ -1321,6 +1378,13 @@ public final class MobilePushCoordinator {
         tabUnavailableAlert = TabUnavailableAlert(kind: .tabUnavailable)
         diagnosticLog?.recordAppEvent(.pushDeeplinkFailed, failure: .endpointUnavailable)
         analytics.capture("ios_push_deeplink_failed", ["reason": .string("tab_unavailable")])
+    }
+
+    private func presentConnectionUnavailableAlert() {
+        guard tabUnavailableAlert == nil else { return }
+        tabUnavailableAlert = TabUnavailableAlert(kind: .connectionUnavailable)
+        diagnosticLog?.recordAppEvent(.pushDeeplinkFailed, failure: .timedOut)
+        analytics.capture("ios_push_deeplink_failed", ["reason": .string("connection_unavailable")])
     }
 
     /// Applies the parked reply without mutating UI selection; later topology changes retry only unresolved prerequisites.

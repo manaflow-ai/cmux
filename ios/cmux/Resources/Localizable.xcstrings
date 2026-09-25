@@ -87099,6 +87099,62 @@
         "ko": {"stringUnit": {"state": "translated", "value": "Mac에서 이 탭을 더 이상 사용할 수 없습니다."}}
       }
     },
+    "mobile.push.connectionUnavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Connection unavailable"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "接続できません"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Verbindung nicht verfügbar"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Connexion indisponible"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "الاتصال غير متاح"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Conexión no disponible"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "連線無法使用"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "连接不可用"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "연결할 수 없음"}}
+      }
+    },
+    "mobile.push.connectionUnavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "We’ll keep this notification ready until your Mac reconnects."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Mac が再接続するまで、この通知を準備しておきます。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Wir halten diese Benachrichtigung bereit, bis Ihr Mac wieder verbunden ist."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Nous garderons cette notification prête jusqu’à la reconnexion de votre Mac."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "سنُبقي هذا الإشعار جاهزًا حتى يعاود جهاز Mac الاتصال."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Mantendremos esta notificación lista hasta que tu Mac se vuelva a conectar."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我們會保留此通知，直到 Mac 重新連線。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我们会保留此通知，直到 Mac 重新连接。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Mac이 다시 연결될 때까지 이 알림을 준비해 둡니다."}}
+      }
+    },
+    "mobile.push.connectionUnavailable.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Try again"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "再試行"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Erneut versuchen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Réessayer"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "حاول مرة أخرى"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Intentar de nuevo"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "再試一次"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "重试"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "다시 시도"}}
+      }
+    },
+    "mobile.push.connectionUnavailable.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cancel"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "キャンセル"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Abbrechen"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Annuler"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إلغاء"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Cancelar"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "取消"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "취소"}}
+      }
+    },
     "mobile.push.preview.ready": {
       "extractionState": "manual",
       "localizations": {
