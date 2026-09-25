@@ -13,7 +13,8 @@ of `owned_build_state.py warm-keys`,
      "keys": ["<sha12>", "pr-<n>", ...]}
 
 with the kept build's merge base and pull request first, then the mini's
-other roots' and the local seeds' (owned_build_state.py `warm-keys`).
+other roots', then the local seeds' on a mini with one root
+(owned_build_state.py `warm-keys`).
 
 The queue janitor folds those artifacts into its `macos-pool-load` snapshot
 as `warm` (sweep()), and pr_runner_pool.py reads it: when an idle root runner
@@ -64,7 +65,7 @@ KEYS_FILE = "warm-keys.json"
 # ci-macos.yml's compile admission job; the jobs API prefixes the caller's job name.
 ADMISSION_JOB = "macOS compile admission"
 # Keys one runner keeps at most (owned_build_state.MAX_WARM_KEYS): each of
-# its mini's roots' kept merge base and `pr-<n>`, then its local seeds.
+# its mini's roots' kept merge base and `pr-<n>`, then its local seeds (one-root minis).
 MAX_KEYS = 8
 # ci.yml's display name: admission of any other workflow proves nothing.
 CI_WORKFLOW = "CI"
