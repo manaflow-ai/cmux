@@ -883,16 +883,21 @@ final class MobileHostService {
         }
 
         let id = UUID()
-        let inputOrderingToken = terminalInputOrderingToken ?? await MainActor.run {
-            let identity: String? = switch authorization {
-            case .stackBearer:
-                nil
-            case let .irohAdmission(peer):
-                "iroh:\(peer.bindingID)"
+        let inputOrderingToken: MobileTerminalInputOrderingToken
+        if let terminalInputOrderingToken {
+            inputOrderingToken = terminalInputOrderingToken
+        } else {
+            inputOrderingToken = await MainActor.run {
+                let identity: String? = switch authorization {
+                case .stackBearer:
+                    nil
+                case let .irohAdmission(peer):
+                    "iroh:\(peer.bindingID)"
+                }
+                return MobileHostService.shared.terminalInputOrdering.beginConnection(
+                    identity: identity
+                )
             }
-            return MobileHostService.shared.terminalInputOrdering.beginConnection(
-                identity: identity
-            )
         }
         let defaultFirstFrameTimeout: UInt64 = switch authorization {
         case .irohAdmission:

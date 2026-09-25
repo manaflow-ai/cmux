@@ -30,6 +30,18 @@ struct MobileHostRPCExecutionContext: Sendable {
     /// cannot apply after the replacement becomes current.
     let terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
 
+    init(
+        connectionID: UUID,
+        authorization: MobileHostConnectionAuthorizationContext,
+        artifactTransfers: MobileHostIrohArtifactTransferRegistry?,
+        terminalInputOrderingToken: MobileTerminalInputOrderingToken? = nil
+    ) {
+        self.connectionID = connectionID
+        self.authorization = authorization
+        self.artifactTransfers = artifactTransfers
+        self.terminalInputOrderingToken = terminalInputOrderingToken
+    }
+
     func issueArtifactTransfer(
         canonicalPath: String
     ) async throws -> ChatArtifactLaneDescriptor {
