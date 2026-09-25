@@ -19,7 +19,7 @@ They are separate from the public extension-author SDK.
 
 ## Five-Minute Sidebar Extension
 
-Sidebar extensions are ExtensionKit app extensions. `CmuxExtensionKit` and the reference projects target macOS 14+, matching CMUX.
+Sidebar extensions are ExtensionKit app extensions. `CmuxExtensionKit` and the reference projects target macOS 13+, matching CMUX.
 
 Use [`Examples/SampleSidebarExtensionApp`](../../../Examples/SampleSidebarExtensionApp)
 as the reference project:

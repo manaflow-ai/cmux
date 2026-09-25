@@ -11,7 +11,7 @@ let package = Package(
     name: "CmuxMobileCrashReporting",
     platforms: [
         .iOS(.v17),
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxComputerUse",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v13)],
     products: [.library(name: "CmuxComputerUse", targets: ["CmuxComputerUse"])],
     dependencies: [
         .package(path: "../CmuxControlSocket"),

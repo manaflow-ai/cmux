@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxSudoBrokerUI",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(name: "CmuxSudoBrokerUI", targets: ["CmuxSudoBrokerUI"]),

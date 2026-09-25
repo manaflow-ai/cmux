@@ -8,7 +8,7 @@ let package = Package(
     name: "CmuxSyntaxHighlighting",
     platforms: [
         .iOS(.v17),
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(

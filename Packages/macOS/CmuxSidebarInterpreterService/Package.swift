@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxSidebarInterpreterService",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         // Host-side client + wire protocol the app links against.

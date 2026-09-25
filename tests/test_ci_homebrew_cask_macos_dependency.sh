@@ -26,8 +26,8 @@ if [ "$deployment_target_count" -ne 1 ]; then
   fail=1
 else
   case "$deployment_targets" in
-    14.*)
-      required_symbol=":sonoma"
+    13.*)
+      required_symbol=":ventura"
       ;;
     *)
       echo "FAIL: update Homebrew cask macOS symbol mapping for deployment target $deployment_targets" >&2

@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxCloudImagePaste",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v13)],
     products: [
         .library(name: "CmuxCloudImagePaste", targets: ["CmuxCloudImagePaste"]),
     ],

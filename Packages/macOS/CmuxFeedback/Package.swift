@@ -6,7 +6,7 @@ let package = Package(
     name: "CmuxFeedback",
     defaultLocalization: "en",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(

@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxCanvas",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v13),
         .iOS(.v17),
     ],
     products: [

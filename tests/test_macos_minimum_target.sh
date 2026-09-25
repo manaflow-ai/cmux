@@ -30,7 +30,7 @@ while IFS= read -r package_file; do
     echo "FAIL: $package_file still requires macOS 14" >&2
     fail=1
   fi
-done < <(rg -l 'macOS\(\.v1[34]\)' "$ROOT_DIR/Packages" "$ROOT_DIR/vendor/bonsplit/Package.swift" --glob 'Package.swift' | sort)
+done < <(rg -l 'macOS\(\.v1[34]\)' "$ROOT_DIR/Packages" --glob 'Package.swift' | sort)
 
 for file in \
   "$ROOT_DIR/scripts/build-diff-sidecar.sh" \
@@ -38,7 +38,7 @@ for file in \
   "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh" \
   "$ROOT_DIR/scripts/build-plain-text-paste-worker.sh" \
   "$ROOT_DIR/scripts/build-wireguard-go.sh" \
-  "$ROOT_DIR/homebrew-cmux/Casks/cmux.rb" \
+  "$ROOT_DIR/Native/DiffSidecar/README.md" \
   "$ROOT_DIR/.github/workflows/update-homebrew.yml" \
   "$ROOT_DIR/scripts/build-sign-upload.sh"; do
   if rg -n 'macOS 14|macos14|macos: :sonoma|:sonoma|macos-version-min=14\.0|MACOSX_DEPLOYMENT_TARGET:-14\.0|CMUX_DIFF_SIDECAR_MIN_MACOS:-14\.0|minimum 14\.0' "$file" >/dev/null; then
@@ -48,7 +48,6 @@ for file in \
 done
 
 for file in \
-  "$ROOT_DIR/homebrew-cmux/Casks/cmux.rb" \
   "$ROOT_DIR/.github/workflows/update-homebrew.yml" \
   "$ROOT_DIR/scripts/build-sign-upload.sh"; do
   if ! rg -n "depends_on macos:[[:space:]]*$EXPECTED_SYMBOL" "$file" >/dev/null; then

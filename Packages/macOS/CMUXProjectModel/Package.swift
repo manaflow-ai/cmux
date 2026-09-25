@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "CMUXProjectModel",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(

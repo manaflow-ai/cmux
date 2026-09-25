@@ -6,7 +6,7 @@ let package = Package(
     name: "CmuxMobileBrowserStream",
     platforms: [
         .iOS(.v17),
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(name: "CmuxMobileBrowserStream", targets: ["CmuxMobileBrowserStream"]),

@@ -8,7 +8,7 @@ let package = Package(
         .iOS(.v17),
         // macOS so the engine, mapping, and store logic unit-test locally;
         // the display view itself is UIKit-gated.
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(

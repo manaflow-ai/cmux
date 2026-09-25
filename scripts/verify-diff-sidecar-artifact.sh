@@ -44,8 +44,8 @@ if [ "$ACTUAL_ARCHS" != "$EXPECTED_ARCHS" ]; then
 fi
 for arch in $ARCHS; do
   MINOS="$(otool -arch "$arch" -l "$BINARY" | awk '/LC_BUILD_VERSION/{found=1; next} found && /minos / && !printed {print $2; printed=1}')"
-  if [[ "$MINOS" != "14.0" ]]; then
-    echo "error: $arch diff sidecar has macOS minimum $MINOS, expected 14.0" >&2
+  if [[ "$MINOS" != "13.0" ]]; then
+    echo "error: $arch diff sidecar has macOS minimum $MINOS, expected 13.0" >&2
     exit 1
   fi
   while IFS= read -r dependency; do
@@ -93,4 +93,4 @@ assert "transport.fetch" not in capabilities, payload
 assert "transport.websocket" not in capabilities, payload
 PY
 
-echo "diff sidecar: ${SIZE_BYTES} bytes, architectures: ${ARCHS}, minimum macOS: 14.0, ${SIGNING_STATE}"
+echo "diff sidecar: ${SIZE_BYTES} bytes, architectures: ${ARCHS}, minimum macOS: 13.0, ${SIGNING_STATE}"

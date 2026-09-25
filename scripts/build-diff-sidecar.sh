@@ -61,7 +61,7 @@ for arch in $requested_archs; do
   ensure_rust_target "$target"
   target_dir="${BUILD_WORK_DIR}/${target}"
   CARGO_TARGET_DIR="$target_dir" \
-    MACOSX_DEPLOYMENT_TARGET="${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}" \
+    MACOSX_DEPLOYMENT_TARGET="${CMUX_DIFF_SIDECAR_MIN_MACOS:-13.0}" \
     "$CARGO_RUNNER" build \
       --manifest-path "${CRATE_DIR}/Cargo.toml" \
       --bin "$BINARY_NAME" \
@@ -109,7 +109,7 @@ if [[ -n "${CMUX_DIFF_SIDECAR_STAMP:-}" ]]; then
   trap cleanup_stamp_tmp EXIT
   {
     printf 'requested_archs=%s\n' "$requested_archs"
-    printf 'min_macos=%s\n' "${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}"
+    printf 'min_macos=%s\n' "${CMUX_DIFF_SIDECAR_MIN_MACOS:-13.0}"
     shasum -a 256 "$destination"
   } > "$stamp_tmp"
   mv -f "$stamp_tmp" "$CMUX_DIFF_SIDECAR_STAMP"

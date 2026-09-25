@@ -4,7 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxHive",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v13)],
     products: [.library(name: "CmuxHive", targets: ["CmuxHive"])],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),

@@ -6,7 +6,7 @@ let package = Package(
     name: "CmuxClientConfig",
     platforms: [
         .iOS(.v17),
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(

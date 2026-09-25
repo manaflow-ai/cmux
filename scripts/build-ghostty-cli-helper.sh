@@ -307,7 +307,7 @@ int main(int argc, char **argv) {
   return 1;
 }
 EOF
-  xcrun clang -target "$clang_target" -mmacosx-version-min=14.0 "$source" -o "$output"
+  xcrun clang -target "$clang_target" -mmacosx-version-min=13.0 "$source" -o "$output"
 }
 
 # Allow CI to skip the Zig helper build where only a valid app bundle shape is
@@ -319,14 +319,14 @@ if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   STUB_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cmux-ghostty-helper-stub.XXXXXX")"
   trap 'rm -rf "$STUB_TMP_DIR"' EXIT
   if [[ "$UNIVERSAL" == "true" ]]; then
-    write_macho_stub "$STUB_TMP_DIR/ghostty-arm64" "arm64-apple-macos14" "$STUB_TMP_DIR"
-    write_macho_stub "$STUB_TMP_DIR/ghostty-x86_64" "x86_64-apple-macos14" "$STUB_TMP_DIR"
+    write_macho_stub "$STUB_TMP_DIR/ghostty-arm64" "arm64-apple-macos13" "$STUB_TMP_DIR"
+    write_macho_stub "$STUB_TMP_DIR/ghostty-x86_64" "x86_64-apple-macos13" "$STUB_TMP_DIR"
     /usr/bin/lipo -create "$STUB_TMP_DIR/ghostty-arm64" "$STUB_TMP_DIR/ghostty-x86_64" -output "$OUTPUT_PATH"
   else
     case "$TARGET_TRIPLE" in
-      aarch64-macos) write_macho_stub "$OUTPUT_PATH" "arm64-apple-macos14" "$STUB_TMP_DIR" ;;
-      x86_64-macos) write_macho_stub "$OUTPUT_PATH" "x86_64-apple-macos14" "$STUB_TMP_DIR" ;;
-      *) write_macho_stub "$OUTPUT_PATH" "$(detected_host_arch)-apple-macos14" "$STUB_TMP_DIR" ;;
+      aarch64-macos) write_macho_stub "$OUTPUT_PATH" "arm64-apple-macos13" "$STUB_TMP_DIR" ;;
+      x86_64-macos) write_macho_stub "$OUTPUT_PATH" "x86_64-apple-macos13" "$STUB_TMP_DIR" ;;
+      *) write_macho_stub "$OUTPUT_PATH" "$(detected_host_arch)-apple-macos13" "$STUB_TMP_DIR" ;;
     esac
   fi
   chmod +x "$OUTPUT_PATH"

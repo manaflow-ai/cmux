@@ -21,7 +21,7 @@ xcrun --sdk macosx clang \
   -fobjc-arc \
   -fmodules \
   -O2 -Wall -Wextra -Werror \
-  -mmacosx-version-min="${MACOSX_DEPLOYMENT_TARGET:-14.0}" \
+  -mmacosx-version-min="${MACOSX_DEPLOYMENT_TARGET:-13.0}" \
   "${arch_flags[@]+"${arch_flags[@]}"}" \
   -framework AppKit \
   -framework Foundation \

@@ -11,7 +11,7 @@
 #   BUILT_PRODUCTS_DIR                output directory for libwg-go.a
 #   CMUX_WIREGUARD_GO_OUTPUT          explicit output path (overrides the above)
 #   TARGET_TEMP_DIR                   per-arch intermediates
-#   MACOSX_DEPLOYMENT_TARGET          minimum macOS (default 14.0)
+#   MACOSX_DEPLOYMENT_TARGET          minimum macOS (default 13.0)
 #   SDKROOT                           macOS SDK (default: xcrun --show-sdk-path)
 #   CONFIGURATION                     Release always requires a real toolchain
 #   CMUX_WIREGUARD_GO_REQUIRE         1: fail when `go` is missing
@@ -33,7 +33,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GO_SRC_DIR="${ROOT}/vendor/WireGuardKit/Sources/WireGuardKitGo"
 CONFIGURATION="${CONFIGURATION:-Debug}"
-MIN_MACOS="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
+MIN_MACOS="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
 OUTPUT="${CMUX_WIREGUARD_GO_OUTPUT:-${BUILT_PRODUCTS_DIR:-${GO_SRC_DIR}/out}/libwg-go.a}"
 WORK_DIR="${TARGET_TEMP_DIR:-${GO_SRC_DIR}/.tmp}/wireguard-go"
 

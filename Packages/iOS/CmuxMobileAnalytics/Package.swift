@@ -14,7 +14,7 @@ let package = Package(
     name: "CmuxMobileAnalytics",
     platforms: [
         .iOS(.v17),
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(

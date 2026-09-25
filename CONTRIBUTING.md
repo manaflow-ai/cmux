@@ -12,7 +12,7 @@ These prerequisites are for native app development. For documentation or portabl
 contributor tooling, start with [fast checks](#fast-checks-before-committing-or-building)
 and the [validation guide](skills/cmux-testing/references/local-vs-ci-validation.md).
 
-- macOS 14+
+- macOS 13+ (the shipped app target; building from source still requires macOS 14+ for the pinned Xcode toolchain)
 - Xcode 26 (the pinned toolchain); Xcode 16.2 on Intel Macs running macOS 14 also builds the macOS app (best effort)
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
 - [Rust](https://rustup.rs) — `scripts/setup.sh` requires `rustup`, and every app build compiles

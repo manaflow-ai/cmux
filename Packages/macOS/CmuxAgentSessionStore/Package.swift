@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "CmuxAgentSessionStore",
     platforms: [
-        .macOS(.v14),
+        .macOS(.v13),
     ],
     products: [
         .library(

@@ -239,7 +239,7 @@ without the entitlement continue to use the existing unavailable-backend path.
 
 ## Supported platforms and versions
 
-- macOS 14 (Sonoma) and later, matching the cmux system requirements.
+- macOS 13 (Ventura) and later, matching the cmux system requirements.
 - cmux for macOS 1.x builds that include this feature (see the changelog
   entry that shipped it). All release channels honor the release payload
   domain as described above.
