@@ -97,6 +97,9 @@ struct ComputerUseHelperStaging {
                 guard removeStagedBundle(at: temporary) else { throw CocoaError(.fileWriteNoPermission) }
                 defer { _ = removeStagedBundle(at: temporary) }
                 try fileManager.copyItem(at: nested, to: temporary)
+                // macOS 15 can deny renameatx_np for a read-only directory.
+                // Normalize only our managed copy, never the bundled source.
+                try makeDirectoriesWritable(at: temporary)
                 try releaseCopiedHelperFromQuarantine(at: temporary)
                 try Task.checkCancellation()
                 guard isCurrent(nested: nested, destination: temporary) else {
@@ -169,6 +172,7 @@ struct ComputerUseHelperStaging {
     private nonisolated func publish(temporary: URL, destination: URL) throws {
         try Task.checkCancellation()
         let exists = modeBits(at: destination) != nil
+        if exists { try makeDirectoriesWritable(at: destination) }
         let flags = UInt32(exists ? RENAME_SWAP : RENAME_EXCL)
         guard renameatx_np(AT_FDCWD, temporary.path, AT_FDCWD, destination.path, flags) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
