@@ -3661,7 +3661,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             true as orphan_only,
             1 as snapshot_rank
           from (
-            select
+            select distinct on (intents.provider, intents.metadata->>'snapshotId')
               intents.id,
               intents.user_id,
               intents.billing_team_id,
@@ -3688,6 +3688,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                   and deleted.provider = intents.provider
                   and deleted.metadata->>'snapshotId' = intents.metadata->>'snapshotId'
               )
+            order by intents.provider, intents.metadata->>'snapshotId', intents.created_at asc, intents.id asc
           ) as orphan
         ) as candidate
         where candidate.deletion_requested
