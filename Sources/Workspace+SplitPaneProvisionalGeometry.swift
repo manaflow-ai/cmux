@@ -121,8 +121,19 @@ extension Workspace {
         newPaneIsFirst: Bool,
         newPane: PaneID
     ) {
+        var existingPaneIDStrings = Set<String>()
+        var pendingNodes = [existingTree]
+        while let node = pendingNodes.popLast() {
+            switch node {
+            case .pane(let pane):
+                existingPaneIDStrings.insert(pane.id)
+            case .split(let split):
+                pendingNodes.append(split.first)
+                pendingNodes.append(split.second)
+            }
+        }
         let existingPaneIds = bonsplitController.allPaneIds.filter {
-            splitTreeContainsPane($0.id.uuidString, in: existingTree)
+            existingPaneIDStrings.contains($0.id.uuidString)
         }
         let existingTerminals = existingPaneIds.flatMap { paneId in
             presentedTerminalHostedViews(forTabs: bonsplitController.tabs(inPane: paneId))
