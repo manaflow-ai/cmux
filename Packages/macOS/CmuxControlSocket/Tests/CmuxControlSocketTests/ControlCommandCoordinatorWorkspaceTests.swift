@@ -57,6 +57,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         }
 
         #expect(row["id"] == .string(workspaceID.uuidString))
+        #expect(row["stable_id"] == .string(workspaceID.uuidString))
         #expect(row["title"] == .string("Manual name"))
         #expect(row["custom_title"] == .string("Manual name"))
         #expect(row["has_custom_title"] == .bool(true))
