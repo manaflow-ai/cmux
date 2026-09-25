@@ -69,6 +69,13 @@ fingerprint() {
       xcodebuild -version
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
+      # The default root adds nothing, so every existing seed and cache key
+      # stays the same. Another root (an owned Mac's second compile slot)
+      # compiles different absolute paths into every entry, so it gets keys
+      # of its own and never adopts a seed or cache made at the default.
+      if [ "$CANONICAL_BUILD_ROOT" != /private/tmp/cmux-ci ]; then
+        printf 'root=%s\n' "$CANONICAL_BUILD_ROOT"
+      fi
     } | shasum -a 256 | cut -c1-32
     return
   fi

@@ -358,6 +358,32 @@ jobs:
           print(f"hosted admission queue-to-start: {seconds:.3f}s")
           PY
 
+      - name: Choose this job's canonical build root
+        id: build-slot
+        run: |
+          set -euo pipefail
+          # /private/tmp/cmux-ci everywhere but the second compile slot of an
+          # owned Mac, where glaeda exports CMUX_CI_CANONICAL_ROOT as
+          # /private/tmp/cmux-ci-<n> for the compile token it granted, so two
+          # compiles on one Mac never share a tree. Such a root is part of the
+          # canonical build fingerprint, so it never adopts a seed or
+          # compilation cache made at another root. Consumers read the root
+          # from the product's receipt (restore-app-host-test-product.sh). Its
+          # kept build state sits in its own directory beside the first slot's.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          case "$root" in
+            /private/tmp/cmux-ci) ;;
+            /private/tmp/cmux-ci-[0-9]|/private/tmp/cmux-ci-[0-9][0-9])
+              case "$CMUX_PRODUCT_RUNNER" in
+                glaeda-*) ;;
+                *) echo "::error::$root is only for an owned Mac's second compile slot"; exit 1 ;;
+              esac
+              echo "CMUX_OWNED_STATE_ROOT=$CMUX_OWNED_STATE_ROOT/${root##*/}" >> "$GITHUB_ENV"
+              ;;
+            *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
+          esac
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+
       - name: Prepare isolated admission DerivedData
         run: |
           set -euo pipefail
