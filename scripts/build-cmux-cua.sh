@@ -9,6 +9,10 @@ CMUX_CUA_HELPER_OWNER_FILE=".cmux-cua-managed-helper"
 CMUX_CUA_HELPER_OWNER_VALUE="cmux-cua-helper-v2"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# Xcode build phases do not inherit a login-shell PATH. Prefer rustup's
+# conventional bin directory, then the standard Homebrew prefixes.
+export PATH="${CARGO_HOME:-${HOME}/.cargo}/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+
 OUTPUT=""
 ARCHS_RAW=""
 PRINT_HELPER_ID=""
