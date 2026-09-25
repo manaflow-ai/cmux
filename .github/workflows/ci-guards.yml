@@ -703,6 +703,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_download_stall.sh
 
+      - name: Validate the owned-Mac GhosttyKit archive cache
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_ghosttykit_archive_cache.sh
+
       - name: Validate GhosttyKit release check behavior
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_ghosttykit_release_check.sh
