@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import importlib.util
 import io
@@ -288,7 +289,7 @@ class FailSafe(unittest.TestCase):
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
                                               f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
-                                              f"refused_retry_runner=\nroot_runner=\nadmission_runner=\nowned_jobs=\n")
+                                              f"refused_retry_runner=\nroot_runner=\nqueued=false\nadmission_runner=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -651,6 +652,9 @@ class OwnedPools(unittest.TestCase):
         # Light has to fit the whole owned peak, as on attempt 1.
         self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", jobs=4,
                                       actor=bot).runner, LARGE)
+        # A retry takes no queue allowance (CI_PR_POOL_QUEUE_ROUNDS): it exists to get off a queue.
+        self.assertEqual(owned_choice(snap, owned_slots=slots, attempt=2, light_retry="1", jobs=4,
+                                      actor=bot, queue_rounds="").runner, LARGE)
         # A fork never reaches an owned pool.
         fork = choose(snap, owned="1", owned_slots=slots, jobs=3, attempt=2, light_retry="1", actor=bot,
                       head="someone/cmux", default="", pins={})
@@ -1112,6 +1116,9 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(pool.DEFAULT_QUEUE_ROUNDS, 1)
         self.assertEqual(pool.settings("", "", "", queue_rounds="0").queue_rounds, 0)
         self.assertEqual(pool.settings("", "", "", queue_rounds=" 2 ").queue_rounds, 2)
+        # Capped, so the rescue's longer budget stays inside its watch.
+        self.assertEqual(pool.MAX_QUEUE_ROUNDS, 3)
+        self.assertEqual(pool.settings("", "", "", queue_rounds="9").queue_rounds, 3)
         for bad in ("-1", "1.5", "x"):
             self.assertIsNone(pool.settings("", "", "", queue_rounds=bad), bad)
             self.assertEqual(choose(backlog(), queue_rounds=bad).runner, "", bad)
@@ -1185,12 +1192,41 @@ class QueueBehindBusyRunners(unittest.TestCase):
                             routed=routed, queue_rounds="")
         self.assertEqual(full.root_budget, 0)
 
-    def test_live_capacity_queues_only_behind_idle_runners(self):
-        # The runners API shows no queue: the allowance is a round of the idle runners.
+    def test_live_capacity_queues_a_round_of_the_slot_count(self):
+        # Two of 11 idle: a 3-job run fits with a round of queue, not without.
         fresh = fleet(busy=0)
-        self.assertEqual(owned_choice(fresh, live_owned={MINI: 2}, queue_rounds="").runner, MINI)
         self.assertEqual(owned_choice(fresh, live_owned={MINI: 2}, queue_rounds="0").runner, LARGE)
-        self.assertEqual(owned_choice(fresh, live_owned={MINI: 0}, queue_rounds="").runner, LARGE)
+        choice = owned_choice(fresh, live_owned={MINI: 2}, queue_rounds="")
+        self.assertEqual(choice.runner, MINI)
+        self.assertIn("2 of 11 owned machines free and 11 may queue behind them", choice.reason)
+
+    def test_live_busy_fleet_still_queues_but_bounded(self):
+        # Every runner busy (the API cannot see a queue): the pool still takes a
+        # round, charged against the busy runners and the recent runs' peaks.
+        fresh = fleet(busy=0)
+        busy = owned_choice(fresh, live_owned={MINI: 0}, queue_rounds="")
+        self.assertEqual((busy.runner, busy.owned_budget), (MINI, 3))
+        # Runs of the live window that took 9: 11 busy + 9 + 3 > 22.
+        recent = pool.Routed(owned={MINI: 9})
+        self.assertEqual(owned_choice(fresh, live_owned={MINI: 0}, queue_rounds="", routed=recent).runner, LARGE)
+        self.assertEqual(owned_choice(fresh, live_owned={MINI: 0}, queue_rounds="",
+                                      routed=pool.Routed(owned={MINI: 8})).runner, MINI)
+        # The janitor's queue counts where no runner is idle, and the peaks of
+        # runs since the snapshot but before the window (they may still queue).
+        self.assertEqual(owned_choice(fleet(busy=11, queued=9), live_owned={MINI: 0}, queue_rounds="").runner,
+                         LARGE)
+        windows = []
+
+        def routed(since):
+            windows.append(since)
+            return pool.Routed(owned={MINI: 9}) if len(windows) == 1 else pool.Routed()
+
+        self.assertEqual(owned_choice(fresh, live_owned={MINI: 0}, queue_rounds="", routed=routed).runner, LARGE)
+        # An idle runner means that label has no queue: the older runs are running.
+        windows.clear()
+        self.assertEqual(owned_choice(fresh, live_owned={MINI: 1}, queue_rounds="", routed=routed).runner, MINI)
+        # Without a slot count the idle runners are the capacity, as before.
+        self.assertEqual(owned_choice(fresh, owned_slots="", live_owned={MINI: 0}, queue_rounds="").runner, LARGE)
 
     def test_forks_read_the_rounds_the_janitor_copied(self):
         snap = backlog(small=0, large=0, old=0, settings={**FORK_SETTINGS, "queue_rounds": "0"})
@@ -1202,10 +1238,10 @@ class QueueBehindBusyRunners(unittest.TestCase):
         self.assertEqual(choose(snap, **fork).runner, LARGE)
         self.assertEqual(janitor.POOL_SETTINGS_ENV["PR_POOL_QUEUE_ROUNDS"], "queue_rounds")
 
-    def test_main_queues_by_default(self):
+    def main_outputs(self, busy):
         with tempfile.TemporaryDirectory() as tmp:
             snapshot = Path(tmp, "snap.json")
-            fresh = fleet(busy=11)
+            fresh = fleet(busy=busy)
             fresh["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             snapshot.write_text(json.dumps(fresh))
             out = Path(tmp, "out")
@@ -1216,8 +1252,25 @@ class QueueBehindBusyRunners(unittest.TestCase):
                    "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), "RUN_MACOS": "true"}
             with unittest.mock.patch("sys.stdout", io.StringIO()):
                 pool.main(["--snapshot", str(snapshot)], env)
-            outputs = dict(line.split("=", 1) for line in out.read_text().splitlines())
-        self.assertEqual((outputs["runner"], outputs["owned_jobs"]), (MINI, " admission "))
+            return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+    def test_main_queues_by_default_and_says_so(self):
+        # Every mini busy: admission waits in the queue, and the rescue must know.
+        busy = self.main_outputs(busy=11)
+        self.assertEqual((busy["runner"], busy["owned_jobs"], busy["queued"]), (MINI, " admission ", "true"))
+        # Free machines for the whole run: no queue marker, so the rescue keeps its short budget.
+        free = self.main_outputs(busy=0)
+        self.assertEqual((free["runner"], free["queued"]), (MINI, "false"))
+
+    def test_used_queue_counts_root_runners_too(self):
+        plan = pool.run_plan(macos="true", full_suite="", unit_suite="", unit_in_admission="",
+                             claude_wrapper="true", cli="", remote_daemon="")
+        keys = ("admission", "claude-wrapper")
+        choice = pool.Choice(MINI, "", "", free_now=5, root_runner=ROOT_MINI, root_free_now=1)
+        self.assertFalse(pool.used_queue(choice, plan, keys, 2))
+        self.assertTrue(pool.used_queue(dataclasses.replace(choice, free_now=1), plan, keys, 2))
+        self.assertTrue(pool.used_queue(dataclasses.replace(choice, root_free_now=0), plan, keys, 2))
+        self.assertFalse(pool.used_queue(pool.Choice(LARGE, "", ""), plan, keys, 2))
 
     def test_workflows_pass_the_variable(self):
         ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())

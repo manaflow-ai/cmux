@@ -62,8 +62,10 @@ class FakeAPI:
     """Jobs come from a function of elapsed seconds; every call is recorded."""
 
     def __init__(self, clock, jobs, *, marker=False, head=HEAD, state="open", settles_after=10,
-                 attempt_after_cancel=1, finished=lambda seconds: False, rerun_jobs=None):
+                 attempt_after_cancel=1, finished=lambda seconds: False, rerun_jobs=None, queued=False):
         self.clock, self.jobs_at, self.marker = clock, jobs, marker
+        # The picker's queued marker (macos-pool-queued-...), beside the persistent one.
+        self.queued = queued
         # Jobs of attempt 2 onwards, as a function of seconds since that attempt began.
         self.rerun_jobs = rerun_jobs or (lambda seconds: [job("macos / tests", status="completed",
                                                               labels=[BLACKSMITH])])
@@ -96,6 +98,8 @@ class FakeAPI:
 
     def has_artifact(self, run_id, name):
         self.calls.append(f"artifact:{name}")
+        if name.startswith(rescue.QUEUED_PREFIX):
+            return self.queued
         return self.marker(name) if callable(self.marker) else self.marker
 
     def pull(self, number):
@@ -397,7 +401,7 @@ class Watching(unittest.TestCase):
 
 
 class QueueBudget(unittest.TestCase):
-    """A CI run's owned job may wait a round per CI_PR_POOL_QUEUE_ROUNDS on purpose; the rescue waits it out."""
+    """A CI run the picker queued on purpose (its queued marker) waits a round per CI_PR_POOL_QUEUE_ROUNDS."""
 
     def test_a_round_is_a_compile_admissions_length(self):
         self.assertEqual(rescue.queue_seconds(""), rescue.QUEUE_ROUND_SECONDS)
@@ -407,37 +411,77 @@ class QueueBudget(unittest.TestCase):
         for value in ("0", "-1", "x"):
             self.assertEqual(rescue.queue_seconds(value), 0, value)
 
+    def test_rounds_are_capped_so_the_rescue_can_still_fire(self):
+        cap = rescue.MAX_QUEUE_ROUNDS
+        self.assertEqual(cap, 3)
+        self.assertEqual(rescue.queue_seconds("50"), cap * rescue.QUEUE_ROUND_SECONDS)
+        self.assertEqual(pool_rounds("50"), cap)
+        # The longest budget, with its first look and a poll, still ends inside the watch.
+        longest = rescue.MAX_BUDGET_SECONDS + rescue.queue_seconds("50")
+        self.assertLess(longest + rescue.FIRST_LOOK_SECONDS + rescue.POLL_SECONDS, rescue.WATCH_LIMIT_SECONDS)
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, queued=True)
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "600", "QUEUE_ROUNDS": "50"})
+        self.assertIn(f"for at least {longest}s", summary)
+        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+
     def test_a_queued_ci_job_is_not_rescued_at_30_seconds(self):
         # CI_OWNED_POOL_RESCUE_SECONDS is 30 on manaflow-ai/cmux (2026-09-25).
         clock = Clock()
         # Compile admission waits 10 minutes for a busy root runner, then starts.
-        api = FakeAPI(clock, persistent_run(compile_started_at=40 + 600), marker=True)
+        api = FakeAPI(clock, persistent_run(compile_started_at=40 + 600), marker=True, queued=True)
         code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
         self.assertEqual(code, 0)
-        self.assertIn(f"(budget {30 + rescue.QUEUE_ROUND_SECONDS}s)", summary)
+        self.assertIn(f"budget {30 + rescue.QUEUE_ROUND_SECONDS}s", summary)
+        self.assertIn("artifact:macos-pool-queued-555-1-", api.calls)
         self.assertNotIn("cancel", api.calls)
 
     def test_a_ci_job_queued_past_its_round_is_still_rescued(self):
         clock = Clock()
-        api = FakeAPI(clock, persistent_run(), marker=True)
+        api = FakeAPI(clock, persistent_run(), marker=True, queued=True)
         code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
         self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
         budget = 30 + rescue.QUEUE_ROUND_SECONDS
         self.assertIn(f"for at least {budget}s", summary)
         self.assertLess(api.cancelled_at, 40 + budget + rescue.POLL_SECONDS + 1)
 
-    def test_only_ci_runs_get_the_queue_round(self):
-        # E2E (and iOS, side-lane) pickers take an owned pool only when it is free.
+    def test_a_run_placed_on_free_machines_keeps_30_seconds(self):
+        # No queued marker: the picker found every placed job a free machine.
         clock = Clock()
-        api = FakeAPI(clock, lambda s: [e2e_runner()(s)])
+        api = FakeAPI(clock, persistent_run(), marker=True, queued=False)
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
+        self.assertIn("for at least 30s", summary)
+        self.assertLess(api.cancelled_at, 40 + 30 + rescue.POLL_SECONDS + 1)
+
+    def test_queueing_off_never_looks_for_the_marker(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, queued=True)
+        _, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": "0"})
+        self.assertIn("for at least 30s", summary)
+        self.assertFalse(any(call.startswith("artifact:macos-pool-queued") for call in api.calls))
+
+    def test_only_ci_runs_get_the_queue_round(self):
+        # E2E (and iOS, side-lane) runs have no queueing picker.
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [e2e_runner()(s)], queued=True)
         _, summary = run_main(api, clock, payload=e2e_event(),
                               env_extra={"RESCUE_SECONDS": "30", "QUEUE_ROUNDS": ""})
         self.assertIn("(budget 30s)", summary)
 
-    def test_the_workflow_passes_the_rounds_variable(self):
+    def test_the_workflows_pass_the_rounds_and_upload_the_marker(self):
         doc = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
         step = doc["jobs"]["rescue"]["steps"][-1]
         self.assertEqual(step["env"]["QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
+        steps = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]["changes"]["steps"]
+        upload = next(step for step in steps if step.get("name") == "Upload the owned queue marker")
+        self.assertIn("steps.macos-pool.outputs.queued == 'true'", upload["if"])
+        self.assertTrue(upload["with"]["name"].startswith(rescue.QUEUED_PREFIX + "-${{ github.run_id }}-"
+                                                          "${{ github.run_attempt }}-"))
+        self.assertTrue(upload["continue-on-error"])
+
+
+def pool_rounds(value):
+    return rescue.parse_queue_rounds(value)
 
 
 class Rescuing(unittest.TestCase):
