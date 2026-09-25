@@ -141,6 +141,34 @@ class Decide(unittest.TestCase):
                               "--github-output", str(out)])
             values = dict(line.split("=", 1) for line in out.read_text().splitlines())
         self.assertEqual((values["build"], json.loads(values["pools"])), ("true", [LARGE, OLD]))
+        self.assertEqual(json.loads(values["matrix"]), {"include": [{"pool": LARGE}, {"pool": OLD}]})
+
+    def test_a_root_lane_is_its_own_matrix_entry_and_job(self):
+        # An owned Mac's second compile slot builds in /private/tmp/cmux-ci-2,
+        # part of the seed key, so the trusted pool seeds there as its own job.
+        import json
+        import tempfile
+        trusted = "glaeda-trusted-std-xcode-26.6"
+        self.assertEqual(seed_decide.lane(f"{trusted}@2"), {"pool": trusted, "root": "2"})
+        self.assertEqual(seed_decide.seed_job_name(f"{trusted}@2"), f"seed ({trusted}, 2)")
+        self.assertEqual(seed_decide.seed_job_name(trusted), f"seed ({trusted})")
+        for bad in ("@1", "@0", "@02", "@x", "@"):
+            with self.assertRaises(ValueError):
+                seed_decide.lane(trusted + bad)
+        # Each lane finds its own nearest seed: root 1's does not count for root 2.
+        api = Api([run(1, "p1")], {1: [seed_job(pool=trusted)]})
+        build, _ = decide(api, ["p1"], {"HEAD": "v1", "p1": "v1"},
+                          pools=((trusted, "x"), (f"{trusted}@2", "x")))
+        self.assertEqual(build, [f"{trusted}@2"])
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.object(seed_decide, "decide", return_value=([trusted, f"{trusted}@2"], ["r"])), \
+                unittest.mock.patch("sys.stdout"):
+            out = Path(tmp, "out")
+            seed_decide.main(["--repository", REPO, "--pool", f"{trusted}=x", "--pool", f"{trusted}@2=x",
+                              "--github-output", str(out)])
+            values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+        self.assertEqual(json.loads(values["matrix"]),
+                         {"include": [{"pool": trusted}, {"pool": trusted, "root": "2"}]})
 
 
 class Wiring(unittest.TestCase):
@@ -156,7 +184,8 @@ class Wiring(unittest.TestCase):
         # The matrix is decide's list, and the product publisher is named, not
         # the first matrix entry, which moves when a pool skips.
         seed = workflow["jobs"][seed_decide.SEED_JOB]
-        self.assertEqual(seed["strategy"]["matrix"]["pool"], "${{ fromJSON(needs.decide.outputs.pools) }}")
+        self.assertEqual(seed["strategy"]["matrix"], "${{ fromJSON(needs.decide.outputs.matrix) }}")
+        self.assertEqual(decide_job["outputs"]["matrix"], "${{ steps.inputs.outputs.matrix }}")
         stage = next(step for step in seed["steps"] if step.get("id") == "stage-products")
         self.assertIn("matrix.pool == needs.decide.outputs.publisher", stage["if"])
         self.assertNotIn("job-index", yaml.safe_dump(workflow))

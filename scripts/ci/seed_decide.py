@@ -21,8 +21,13 @@ alone: a macOS 15 seed that keeps failing must not make every push rebuild the
 macOS 26 seeds too. Anything unknown (API errors, no seeded ancestor within
 the window, a commit outside the shallow checkout) builds that pool.
 
-Outputs `pools`, the JSON list of pools to build (the seed job's matrix, in the
-order given), and `build`, whether that list is empty.
+A pool may be a lane `LABEL@K`: the same runners, building in the second (or
+Kth) canonical root, /private/tmp/cmux-ci-K. That root is part of the seed
+key, so an owned Mac's second compile slot only adopts a seed built there.
+
+Outputs `pools`, the JSON list of pools to build, in the order given, `matrix`,
+the seed job's matrix over them (`pool`, plus `root` for a lane), and `build`,
+whether that list is empty.
 """
 from __future__ import annotations
 
@@ -61,9 +66,20 @@ def fingerprint(revision: str, xcode: str) -> str:
     ).strip()
 
 
+def lane(pool: str) -> dict[str, str]:
+    """The seed job's matrix entry for a pool: `LABEL@K` builds in root K."""
+    label, separator, root = pool.partition("@")
+    if not separator:
+        return {"pool": pool}
+    if not (root.isdigit() and 2 <= int(root) <= 99 and not root.startswith("0")):
+        raise ValueError(f"expected LABEL@<root 2 to 99>, got {pool!r}")
+    return {"pool": label, "root": root}
+
+
 def seed_job_name(pool: str) -> str:
-    """The seed job is a matrix over pools, which GitHub names "seed (<pool>)"."""
-    return f"{SEED_JOB} ({pool})"
+    """GitHub names a matrix job by its entry's values: "seed (<pool>)", or
+    "seed (<pool>, <root>)" for a lane."""
+    return f"{SEED_JOB} ({', '.join(lane(pool).values())})"
 
 
 def saved(jobs: Sequence[dict], pool: str) -> bool:
@@ -165,11 +181,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--event-name", default="push")
     parser.add_argument("--github-output")
     args = parser.parse_args(argv)
+    for pool, _ in args.pool:
+        if pool:
+            lane(pool)
     build, reasons = decide(args.event_name, args.repository, args.pool)
     print("\n".join(reasons))
     if args.github_output:
+        matrix = {"include": [lane(pool) for pool in build]}
         with open(args.github_output, "a", encoding="utf-8") as handle:
-            handle.write(f"build={'true' if build else 'false'}\npools={json.dumps(build)}\n")
+            handle.write(f"build={'true' if build else 'false'}\npools={json.dumps(build)}\n"
+                         f"matrix={json.dumps(matrix)}\n")
     return 0
 
 
