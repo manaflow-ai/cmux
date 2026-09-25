@@ -3405,14 +3405,19 @@ def test_macos_admission_gate_needs_every_fast_linux_only_job() -> None:
     entry = {"changes", "static-preflight"}
     # The gate is derived, not hand-picked: every job that starts right after
     # the entry jobs and runs only on Linux. A job with any Mac runner is
-    # already billed and slow, so waiting on it would save nothing.
+    # already billed and slow, so waiting on it would save nothing. A job
+    # that cannot fail (continue-on-error at job level, like the report-only
+    # reverse-test-impact) can never decline macOS, so the gate skips it too.
     expected = entry | {
         key
         for key in jobs
         if key not in entry | {"macos-admission-gate"}
         and set(_job_needs(jobs, key)) <= entry
         and _job_runs_only_on_linux(jobs[key])
+        and jobs[key].get("continue-on-error") is not True
     }
+    assert "reverse-test-impact" in jobs
+    assert "reverse-test-impact" not in expected
     assert set(_job_needs(jobs, "macos-admission-gate")) == expected
     assert {"guards", "web", "suite-coverage"} <= expected
     assert not {"claude-wrapper", "remote-daemon", "cli", "linux-preflight"} & expected
@@ -4454,7 +4459,7 @@ def product_runner_output(key: str) -> str:
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
     return ("${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, " + key + ") "
-            "&& inputs.pr_refused_retry_runner "
+            "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + "needs.macos-compile-admission.outputs.runner }}")
 
