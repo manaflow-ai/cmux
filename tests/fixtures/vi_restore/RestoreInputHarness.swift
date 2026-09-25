@@ -9,6 +9,12 @@ final class TerminalSurface {
     let terminalLifecycleId = UUID()
     var startupInputGate = TerminalStartupInputGate()
     var bytes = Data()
+    var engine = Engine()
+    var pasteEnabled = true
+
+    struct Engine {
+        var resolvedUserShell: String? = "/bin/zsh"
+    }
 
     struct Result {
         let accepted = true
@@ -20,11 +26,11 @@ final class TerminalSurface {
         return Result()
     }
 
-    func sendTextAfterExplicitInput(_ data: Data, recordsExplicitInput: Bool = true) -> Result {
+    func sendTextAfterExplicitInput(_ data: Data, recordsExplicitInput: Bool = true, treatsAsPaste: Bool = true) -> Result {
         precondition(!recordsExplicitInput, "restore must not count as user input")
-        bytes.append(contentsOf: "\u{1b}[200~".utf8)
+        if treatsAsPaste && pasteEnabled { bytes.append(contentsOf: "\u{1b}[200~".utf8) }
         bytes.append(data)
-        bytes.append(contentsOf: "\u{1b}[201~".utf8)
+        if treatsAsPaste && pasteEnabled { bytes.append(contentsOf: "\u{1b}[201~".utf8) }
         return Result()
     }
 }
@@ -34,6 +40,8 @@ struct RestoreInputHarness {
     @MainActor
     static func main() {
         let terminal = TerminalSurface()
+        terminal.engine.resolvedUserShell = "/bin/" + CommandLine.arguments[2]
+        terminal.pasteEnabled = CommandLine.arguments[3] == "true"
         terminal.startupInputGate.stage(CommandLine.arguments[1], generation: terminal.terminalLifecycleId)
         terminal.shellDidBecomeReadyForStartupInput()
         terminal.shellDidBecomeReadyForStartupInput()

@@ -11,6 +11,7 @@ import termios
 from pathlib import Path
 import pty
 import select
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -43,7 +44,13 @@ class AgentRestoreViModeTests(unittest.TestCase):
     def test_fish_normal_mode(self):
         self.run_shell(os.environ.get("CMUX_TEST_FISH") or shutil.which("fish"), "fish")
 
-    def run_shell(self, executable, kind):
+    def test_zsh_readiness_before_paste_mode(self):
+        self.run_shell(shutil.which("zsh"), "zsh", early=True)
+
+    def test_fish_readiness_before_paste_mode(self):
+        self.run_shell(os.environ.get("CMUX_TEST_FISH") or shutil.which("fish"), "fish", early=True)
+
+    def run_shell(self, executable, kind, early=False):
         if not executable:
             self.skipTest(f"{kind} is not installed")
         with tempfile.TemporaryDirectory(prefix="cmux-vi-restore-") as directory:
@@ -69,12 +76,23 @@ class AgentRestoreViModeTests(unittest.TestCase):
                 'printf "init\\n" >> "$CMUX_TEST_INIT_LOG"\n'
                 'PROMPT="READY>"\n'
             )
+            if early:
+                os.mkfifo(root / "prompt-gate")
+                with (root / "fish/config.fish").open("a") as config:
+                    config.write('function _cmux_test_wait --on-event fish_prompt\n'
+                                 'functions --erase _cmux_test_wait\n'
+                                 'printf STARTUP_READY > /dev/tty\n'
+                                 '/bin/cat "$CMUX_TEST_PROMPT_GATE" > /dev/null\nend\n')
+                with (root / ".zshrc").open("a") as config:
+                    config.write('precmd() { unfunction precmd; printf STARTUP_READY; '
+                                 '/bin/cat "$CMUX_TEST_PROMPT_GATE" > /dev/null; }\n')
             env = {
                 "HOME": directory, "ZDOTDIR": directory,
                 "XDG_CONFIG_HOME": directory, "TERM": "xterm-256color",
                 "PATH": f"{root}/bin:/usr/bin:/bin", "LC_ALL": "en_US.UTF-8",
                 "CMUX_TEST_CALLS": str(root / "calls"),
                 "CMUX_TEST_INIT_LOG": str(root / "init"),
+                "CMUX_TEST_PROMPT_GATE": str(root / "prompt-gate"),
             }
             fd, slave = pty.openpty()
             child = subprocess.Popen(
@@ -85,12 +103,16 @@ class AgentRestoreViModeTests(unittest.TestCase):
             os.close(slave)
             pid = child.pid
             try:
-                self.read_prompt(fd)
-                for session in ("restore-first", "restore-second"):
+                self.read_prompt(fd, early=early)
+                for index, session in enumerate(("restore-first", "restore-second")):
+                    before_paste_mode = early and index == 0
                     payload = subprocess.check_output([
-                        str(self.harness), f" cmux restore claude {session}\n",
+                        str(self.harness), f" cmux restore claude {session}\n", kind,
+                        "false" if before_paste_mode else "true",
                     ])
                     os.write(fd, payload)
+                    if before_paste_mode:
+                        (root / "prompt-gate").write_text("continue\n")
                     output = self.read_prompt(fd, command_completed=True)
                     self.assertTrue((root / "calls").exists(), repr(output))
                 calls = (root / "calls").read_text().splitlines()
@@ -100,14 +122,17 @@ class AgentRestoreViModeTests(unittest.TestCase):
                 ], "each restore must execute once in the original initialized shell")
                 self.assertEqual((root / "init").read_text(), "init\n")
             finally:
-                child.kill()
+                os.killpg(pid, signal.SIGKILL)
                 os.close(fd)
                 child.wait(timeout=30)
 
-    def read_prompt(self, fd, command_completed=False):
+    def read_prompt(self, fd, command_completed=False, early=False):
         output = b""
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
+            if early and b"STARTUP_READY" in output:
+                self.assertNotIn(b"\x1b[?2004h", output)
+                return output
             prompt_output = output
             if command_completed:
                 marker = output.find(b"COMMAND_DONE\r\n")
