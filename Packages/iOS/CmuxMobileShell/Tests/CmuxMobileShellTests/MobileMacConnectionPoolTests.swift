@@ -1614,6 +1614,13 @@ import Testing
             of: "mobile.host.status",
             atLeast: 1
         ))
+        // Different app tags coexist. Revoke the original row before
+        // installing its replacement so this actually invalidates the dial.
+        try await pairedStore.remove(
+            macDeviceID: "mac-targeted",
+            stackUserID: "user-1",
+            teamID: "team-1"
+        )
         try await pairedStore.upsert(
             macDeviceID: "mac-targeted",
             displayName: "Replacement Mac",
