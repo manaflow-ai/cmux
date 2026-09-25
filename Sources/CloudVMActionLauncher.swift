@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxFoundation
+import CmuxCloudMachines
 import CmuxSettings
 import AppKit
 import Foundation
@@ -434,15 +436,7 @@ final class CloudVMActionLauncher {
     /// `cmux vm new` prints `OK machine=<id>` the moment the machine exists,
     /// before it tries to open it, so a failed open still reports the machine.
     private static func createdMachineId(from output: String) -> String? {
-        for token in output.split(whereSeparator: \.isWhitespace) {
-            let string = String(token)
-            guard string.hasPrefix("machine=") else { continue }
-            let id = String(string.dropFirst("machine=".count))
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
-                return id
-            }
-        }
-        return nil
+        CloudMachineCreateOutput(legacyCreatedFormat: "").machineID(in: output)
     }
 
     private static func createdWorkspaceId(from output: String) -> UUID? {

@@ -161,8 +161,10 @@ struct SimulatorBoundedCommandRunnerTests {
 
         #expect(result.timedOut)
         let pid = try #require(processIdentifier.value)
-        #expect(Darwin.kill(pid, 0) != 0)
-        #expect(errno == ESRCH)
+        let probeResult = Darwin.kill(pid, 0)
+        let probeErrno = errno
+        #expect(probeResult != 0)
+        #expect(probeErrno == ESRCH)
     }
 
     @Test("The public runner bounds timeout and kills descendants")
@@ -184,8 +186,10 @@ struct SimulatorBoundedCommandRunnerTests {
         #expect(result.status == 124)
         let descendant = try await requireMarkerPID(marker)
         await expectProcessExited(descendant)
-        #expect(Darwin.kill(descendant, 0) != 0)
-        #expect(errno == ESRCH)
+        let probeResult = Darwin.kill(descendant, 0)
+        let probeErrno = errno
+        #expect(probeResult != 0)
+        #expect(probeErrno == ESRCH)
     }
 
     @Test("The owned command runner delegates asynchronously to its injected process runner")

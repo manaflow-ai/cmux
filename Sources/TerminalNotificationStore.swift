@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import CmuxNotifications
 import AppKit
@@ -23,113 +24,6 @@ extension TerminalNotificationStore {
         phoneForwardingEnabled && categoryAllowsDelivery
     }
 }
-enum NotificationBadgeSettings {
-    static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
-    static let defaultDockBadgeEnabled = true
-
-    static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: dockBadgeEnabledKey) == nil {
-            return defaultDockBadgeEnabled
-        }
-        return defaults.bool(forKey: dockBadgeEnabledKey)
-    }
-}
-
-enum NotificationPaneRingSettings {
-    static let enabledKey = "notificationPaneRingEnabled"
-    static let defaultEnabled = true
-}
-
-enum NotificationPaneFlashSettings {
-    static let enabledKey = "notificationPaneFlashEnabled"
-    static let defaultEnabled = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
-        }
-        return defaults.bool(forKey: enabledKey)
-    }
-}
-
-enum TaggedRunBadgeSettings {
-    static let environmentKey = "CMUX_TAG"
-    private static let maxTagLength = 10
-
-    static func normalizedTag(from env: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        normalizedTag(env[environmentKey])
-    }
-
-    static func normalizedTag(_ rawTag: String?) -> String? {
-        guard var tag = rawTag?.trimmingCharacters(in: .whitespacesAndNewlines), !tag.isEmpty else {
-            return nil
-        }
-        if tag.count > maxTagLength {
-            tag = String(tag.prefix(maxTagLength))
-        }
-        return tag
-    }
-}
-
-enum AppFocusState {
-    static var overrideIsFocused: Bool?
-
-    static func isAppActive() -> Bool {
-        if let overrideIsFocused {
-            return overrideIsFocused
-        }
-        return NSApp.isActive
-    }
-
-    static func isAppFocused() -> Bool {
-        if let overrideIsFocused {
-            return overrideIsFocused
-        }
-        guard NSApp.isActive else { return false }
-        guard let keyWindow = NSApp.keyWindow, keyWindow.isKeyWindow else { return false }
-        // Only treat the app as "focused" for notification suppression when a main terminal window
-        // is key. If Settings/About/debug panels are key, we still want notifications to show.
-        if let raw = keyWindow.identifier?.rawValue {
-            return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
-        }
-        return false
-    }
-
-}
-
-enum NotificationAuthorizationState: Equatable, Sendable {
-    case unknown
-    case notDetermined
-    case authorized
-    case denied
-    case provisional
-    case ephemeral
-
-    var statusLabel: String {
-        switch self {
-        case .unknown, .notDetermined:
-            return "Not Requested"
-        case .authorized:
-            return "Allowed"
-        case .denied:
-            return "Denied"
-        case .provisional:
-            return "Deliver Quietly"
-        case .ephemeral:
-            return "Temporary"
-        }
-    }
-
-    var allowsDelivery: Bool {
-        switch self {
-        case .authorized, .provisional, .ephemeral:
-            return true
-        case .unknown, .notDetermined, .denied:
-            return false
-        }
-    }
-}
-
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -369,6 +263,10 @@ final class TerminalNotificationStore: ObservableObject {
     /// `@Published`) so its updates stay independent of the store's own
     /// `objectWillChange`.
     let sidebarUnread = SidebarUnreadModel()
+    /// Observes every read or clear applied by target, so unread indicators
+    /// keyed by other identities (the Cloud tree's remote terminals) follow the
+    /// dismissal even when no local record exists for what they show.
+    var readTargetObserver: (@MainActor (NotificationReadTarget) -> Void)?
     // Workspace panels own their manual unread state on Workspace. Dock panels
     // have no Workspace owner, so their surface-scoped state lives here beside
     // the cross-container unread projection.
@@ -1914,6 +1812,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markRead(forTabId tabId: UUID) {
+        defer { readTargetObserver?(.workspace(tabId)) }
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil)
         notificationFeedHistory.markRead(inWorkspace: tabId)
         var updated = notifications
@@ -1943,6 +1842,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markRead(forTabId tabId: UUID, surfaceId: UUID?) {
+        defer { readTargetObserver?(.surface(workspaceID: tabId, surfaceID: surfaceId)) }
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId)
         notificationFeedHistory.markRead(inWorkspace: tabId, surfaceId: surfaceId)
         var updated = notifications
@@ -2086,6 +1986,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func markAllRead() {
+        defer { readTargetObserver?(.all) }
         notificationFeedHistory.markAllRead()
         var updated = notifications
         var idsToClear: [String] = []
@@ -2242,6 +2143,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
     func clearAll(discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
+        defer { readTargetObserver?(.all) }
         inFlightPolicyRequests.discardAll(through: throughNotificationGeneration)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications() }
         guard !notifications.isEmpty ||
@@ -2272,6 +2174,7 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceId: UUID?,
         discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil
     ) {
+        defer { readTargetObserver?(.surface(workspaceID: tabId, surfaceID: surfaceId)) }
         let liveTabId = surfaceId.flatMap { AppDelegate.shared?.agentNotificationDeliveryTarget(claimedTabId: tabId, surfaceId: $0)?.tabId } ?? tabId
         let tabIds = Set([tabId, liveTabId])
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: surfaceId, through: throughNotificationGeneration)
@@ -2379,6 +2282,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
     func clearNotifications(forTabId tabId: UUID, discardQueuedNotifications: Bool = true, throughNotificationGeneration: UInt64? = nil) {
+        defer { readTargetObserver?(.workspace(tabId)) }
         inFlightPolicyRequests.discard(forTabId: tabId, surfaceId: nil, through: throughNotificationGeneration)
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotificationsForClear(tabId: tabId, surfaceId: nil) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId] != nil

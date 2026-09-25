@@ -318,6 +318,29 @@ enum MobileHostPublicStatusCache {
         return mergedRoutesLocked()
     }
 
+    /// One publication of this Mac: the routes a peer may dial plus the v2
+    /// installation identity those routes belong to.
+    ///
+    /// Ticket minting needs both halves of the *same* publication. Reading
+    /// ``snapshot()`` and ``currentV2DeviceID()`` separately can straddle a
+    /// concurrent republish or teardown (the runtime calls ``removeAll()`` on
+    /// every reconcile), which would bind fresh routes to a retired identity.
+    struct PublishedStatus: Sendable {
+        var routes: [CmxAttachRoute]
+        var v2DeviceID: String?
+
+        init(routes: [CmxAttachRoute], v2DeviceID: String?) {
+            self.routes = routes
+            self.v2DeviceID = v2DeviceID
+        }
+    }
+
+    static func publishedStatus() -> PublishedStatus {
+        lock.lock()
+        defer { lock.unlock() }
+        return PublishedStatus(routes: mergedRoutesLocked(), v2DeviceID: v2DeviceID)
+    }
+
     static func hasIrohRoute() -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -326,6 +349,7 @@ enum MobileHostPublicStatusCache {
 
     static func result(
         includeIdentity: Bool = false,
+        deviceID authorizedDeviceID: String? = nil,
         additionalCapabilities: Set<String> = [],
         phonePushAdmission: PhonePushAdmission = .unknown,
         phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
@@ -333,7 +357,10 @@ enum MobileHostPublicStatusCache {
     ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
-        let deviceID = v2DeviceID
+        // An admitted older peer uses the account-directory identity; modern
+        // peers use the team-directory identity. One response cannot rename
+        // the other protocol's saved computer.
+        let deviceID = authorizedDeviceID ?? v2DeviceID
         lock.unlock()
         guard includeIdentity else {
             return .ok(MobileHostService.publicStatusPayload(routes: cachedRoutes))

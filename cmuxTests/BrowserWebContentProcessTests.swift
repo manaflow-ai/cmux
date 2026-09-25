@@ -129,13 +129,13 @@ struct BrowserWebContentProcessTests {
         #expect(loadedReturnURL == completion.1)
     }
 
-    @Test
-    func blockedAuthCallbackConsumptionStillTerminatesNavigation() {
+    @Test(arguments: ["cmux-nightly://auth-callback?refresh_token=secret", "cmux-rc://auth-callback?refresh_token=secret"])
+    func blockedAuthCallbackConsumptionStillTerminatesNavigation(callbackURLString: String) {
         let policy = BrowserAuthCallbackNavigationPolicy(
             trustedSourcePageOrigin: URL(string: "https://cmux.test")!,
             callbackScheme: "cmux-dev-test"
         )
-        let callbackURL = URL(string: "cmux-nightly://auth-callback?refresh_token=secret")!
+        let callbackURL = URL(string: callbackURLString)!
         var cancellationCount = 0
         var terminalCancellationReportCount = 0
 

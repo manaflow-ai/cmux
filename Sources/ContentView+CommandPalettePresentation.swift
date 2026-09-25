@@ -9,6 +9,7 @@ extension ContentView {
              "palette.forkAgentConversationNewTab",
              "palette.forkAgentConversationNewWorkspace",
              "palette.layout.saveCurrent",
+             "palette.swapWithSession",
              // Entering browser focus mode focuses the web view synchronously;
              // dismiss the palette first so its makeFirstResponder(nil) doesn't
              // clear that focus and leave focus mode active without key routing.

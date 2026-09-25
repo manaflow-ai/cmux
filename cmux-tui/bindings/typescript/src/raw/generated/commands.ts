@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR d9db9b34a8e4f367ce1aae230fcd188796903d6adf169f9675872a48d9fd1f25. */
+/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
 
 
 import type * as T from "./types.js";
@@ -37,9 +37,11 @@ export interface ApplyLayoutRequest extends CmuxRequestBase {
 export interface AttachSurfaceRequest extends CmuxRequestBase {
   cmd: "attach-surface";
   "cols"?: (number) | null;
+  "expected_generation"?: (string) | null;
+  "expected_terminal_id"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
   "rows"?: (number) | null;
-  "surface": T.Id;
+  "surface"?: (T.Id) | null;
 }
 export type AttachSurfaceResult = T.EmptyResult;
 
@@ -442,6 +444,14 @@ export interface MoveTabRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type MoveTabResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabToWorkspaceRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-workspace";
+  "surface": T.Id;
+  "workspace"?: (T.Id) | null;
+}
+export type MoveTabToWorkspaceResult = T.EmptyResult;
 
 /** Protocol v9; authority: control. */
 export interface MoveTerminalRequest extends CmuxRequestBase {
@@ -942,6 +952,36 @@ export interface UnregisterBrowserProviderRequest extends CmuxRequestBase {
 }
 export type UnregisterBrowserProviderResult = T.BrowserProviderUnregisterResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface UrlOpenRequest extends CmuxRequestBase {
+  cmd: "url-open";
+  "terminal_id": string;
+  "url": string;
+}
+export type UrlOpenResult = T.GuestUrlOpenResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenClaimRequest extends CmuxRequestBase {
+  cmd: "url-open-claim";
+  "request_id": string;
+}
+export type UrlOpenClaimResult = T.GuestUrlClaimResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenResultRequest extends CmuxRequestBase {
+  cmd: "url-open-result";
+  "opened": boolean;
+  "request_id": string;
+}
+export type UrlOpenResultResult = T.GuestUrlAcknowledgeResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenSubscribeRequest extends CmuxRequestBase {
+  cmd: "url-open-subscribe";
+  "terminal_ids": Array<string>;
+}
+export type UrlOpenSubscribeResult = T.GuestUrlSubscribeResult;
+
 /** Protocol v5; authority: control. */
 export interface VtStateRequest extends CmuxRequestBase {
   cmd: "vt-state";
@@ -1015,6 +1055,7 @@ export type CmuxRequest =
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveTabRequest
+  | MoveTabToWorkspaceRequest
   | MoveTerminalRequest
   | MoveWorkspaceRequest
   | NewBrowserTabRequest
@@ -1070,6 +1111,10 @@ export type CmuxRequest =
   | TerminalEventsRequest
   | UndoLayoutRequest
   | UnregisterBrowserProviderRequest
+  | UrlOpenRequest
+  | UrlOpenClaimRequest
+  | UrlOpenResultRequest
+  | UrlOpenSubscribeRequest
   | VtStateRequest
   | WaitForRequest
   | ZoomPaneRequest;
@@ -1466,6 +1511,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "move-tab-to-workspace": {
+    request: MoveTabToWorkspaceRequest;
+    result: MoveTabToWorkspaceResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-workspace-move-v1";
     stream: null;
   };
   "move-terminal": {
@@ -1907,6 +1960,38 @@ export interface CmuxCommandDefinitionMap {
     since: 10;
     capability: "browser-provider-v1";
     stream: null;
+  };
+  "url-open": {
+    request: UrlOpenRequest;
+    result: UrlOpenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-claim": {
+    request: UrlOpenClaimRequest;
+    result: UrlOpenClaimResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-result": {
+    request: UrlOpenResultRequest;
+    result: UrlOpenResultResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-subscribe": {
+    request: UrlOpenSubscribeRequest;
+    result: UrlOpenSubscribeResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: "subscribe";
   };
   "vt-state": {
     request: VtStateRequest;

@@ -30,6 +30,11 @@ export type VMStats = {
   readonly diskUsedMb?: number;
 };
 
+/** Validated guest gauges and their server observation time; never capacity. */
+export type VMResourceStatsResult = Pick<VMStats, "cpuPercent" | "memoryUsedMb" | "diskUsedMb"> & {
+  readonly resourceSampledAt: number;
+};
+
 /** A provider persistent volume normalized for report-only inventory scans. */
 export type VMVolume = {
   readonly name: string;
@@ -72,6 +77,8 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** Provider-enforced lifetime runtime allowance for this allocation. */
+  runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
   displayName?: string;
   /** Current prompt name, written into the guest rather than a shell environment. */
@@ -468,11 +475,14 @@ export interface VMProvider {
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string): Promise<VMStats>;
+  /** Optional direct guest probe; must not install tooling, mutate, or wake. */
+  getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
+  setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
 

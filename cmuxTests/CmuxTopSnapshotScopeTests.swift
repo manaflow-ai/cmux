@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 import Foundation
 import Darwin
 
@@ -8,23 +8,24 @@ import Darwin
 @testable import cmux
 #endif
 
-final class CmuxTopSnapshotScopeTests: XCTestCase {
-    func testProcessForegroundGroupRequiresTerminalForegroundMatch() {
+@Suite(.serialized)
+struct CmuxTopSnapshotScopeTests {
+    @Test func testProcessForegroundGroupRequiresTerminalForegroundMatch() {
         let foreground = makeProcessInfo(processGroupID: 10, terminalProcessGroupID: 10)
         let background = makeProcessInfo(processGroupID: 11, terminalProcessGroupID: 10)
         let detached = makeProcessInfo(processGroupID: nil, terminalProcessGroupID: nil)
 
-        XCTAssertTrue(foreground.isTerminalForegroundProcessGroup)
-        XCTAssertFalse(background.isTerminalForegroundProcessGroup)
-        XCTAssertFalse(detached.isTerminalForegroundProcessGroup)
+        #expect(foreground.isTerminalForegroundProcessGroup)
+        #expect(!(background.isTerminalForegroundProcessGroup))
+        #expect(!(detached.isTerminalForegroundProcessGroup))
     }
 
     @MainActor
-    func testWindowRollupMatchesPSForApplicationProcessTree() throws {
+    @Test func testWindowRollupMatchesPSForApplicationProcessTree() async throws {
         let fixture = try SpawnedProcessTree.start()
         defer { fixture.terminate() }
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         var windows: [[String: Any]] = [[
             "kind": "window",
             "id": UUID().uuidString,
@@ -60,22 +61,22 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             browserPIDOccurrences: [:],
             includeProcesses: false
         )
-        let resources = try XCTUnwrap(windows[0]["resources"] as? [String: Any])
+        let resources = try #require(windows[0]["resources"] as? [String: Any])
         let rolledRSS = int64(resources["resident_bytes"])
         let expectedRSS = try psResidentBytesForRecursiveTree(rootPID: fixture.parentPID)
         let processIDs = Set(intArray(resources["pids"]))
 
-        XCTAssertTrue(processIDs.contains(fixture.parentPID))
-        XCTAssertTrue(totalPIDs.contains(fixture.parentPID))
-        XCTAssertLessThanOrEqual(abs(rolledRSS - expectedRSS), 8 * 1024 * 1024)
+        #expect(processIDs.contains(fixture.parentPID))
+        #expect(totalPIDs.contains(fixture.parentPID))
+        #expect((abs(rolledRSS - expectedRSS)) <= (8 * 1024 * 1024))
     }
 
     @MainActor
-    func testApplicationProcessDoesNotExpandIntoOtherWindowResources() throws {
+    @Test func testApplicationProcessDoesNotExpandIntoOtherWindowResources() async throws {
         let fixture = try SpawnedProcessTree.start()
         defer { fixture.terminate() }
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         var windows: [[String: Any]] = [
             [
                 "kind": "window",
@@ -122,24 +123,24 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             browserPIDOccurrences: [:],
             includeProcesses: false
         )
-        let keyResources = try XCTUnwrap(windows[0]["resources"] as? [String: Any])
-        let otherResources = try XCTUnwrap(windows[1]["resources"] as? [String: Any])
+        let keyResources = try #require(windows[0]["resources"] as? [String: Any])
+        let otherResources = try #require(windows[1]["resources"] as? [String: Any])
         let keyProcessIDs = Set(intArray(keyResources["pids"]))
         let otherProcessIDs = Set(intArray(otherResources["pids"]))
 
-        XCTAssertTrue(keyProcessIDs.contains(fixture.parentPID))
-        XCTAssertTrue(keyProcessIDs.isDisjoint(with: fixture.childPIDs))
-        XCTAssertFalse(otherProcessIDs.contains(fixture.parentPID))
-        XCTAssertTrue(fixture.childPIDs.allSatisfy { otherProcessIDs.contains($0) })
-        XCTAssertTrue(([fixture.parentPID] + fixture.childPIDs).allSatisfy { totalPIDs.contains($0) })
+        #expect(keyProcessIDs.contains(fixture.parentPID))
+        #expect(keyProcessIDs.isDisjoint(with: fixture.childPIDs))
+        #expect(!(otherProcessIDs.contains(fixture.parentPID)))
+        #expect(fixture.childPIDs.allSatisfy { otherProcessIDs.contains($0) })
+        #expect(([fixture.parentPID] + fixture.childPIDs).allSatisfy { totalPIDs.contains($0) })
     }
 
     @MainActor
-    func testSharedWebViewResourceRowsAreAttributedAcrossOccurrences() throws {
+    @Test func testSharedWebViewResourceRowsAreAttributedAcrossOccurrences() async throws {
         let fixture = try SpawnedProcessTree.start()
         defer { fixture.terminate() }
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         var windows: [[String: Any]] = [[
             "kind": "window",
             "id": UUID().uuidString,
@@ -168,7 +169,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         ]]
 
         let browserPIDOccurrences = TerminalController.shared.v2TopBrowserPIDOccurrences(in: windows)
-        XCTAssertEqual(browserPIDOccurrences[fixture.parentPID], 2)
+        #expect((browserPIDOccurrences[fixture.parentPID]) == (2))
 
         _ = TerminalController.shared.v2AnnotateTopWindows(
             &windows,
@@ -177,7 +178,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             includeProcesses: false
         )
 
-        let windowResources = try XCTUnwrap(windows[0]["resources"] as? [String: Any])
+        let windowResources = try #require(windows[0]["resources"] as? [String: Any])
         let windowMemoryBytes = int64(windowResources["memory_bytes"])
         let windowResidentBytes = int64(windowResources["resident_bytes"])
         let webViewMemoryBytes = try annotatedWebViewResources(in: windows)
@@ -185,19 +186,19 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         let webViewResidentBytes = try annotatedWebViewResources(in: windows)
             .map { int64($0["resident_bytes"]) }
 
-        XCTAssertGreaterThan(windowMemoryBytes, 0)
-        XCTAssertGreaterThan(windowResidentBytes, 0)
-        XCTAssertEqual(webViewMemoryBytes.count, 2)
-        XCTAssertEqual(webViewResidentBytes.count, 2)
+        #expect((windowMemoryBytes) > (0))
+        #expect((windowResidentBytes) > (0))
+        #expect((webViewMemoryBytes.count) == (2))
+        #expect((webViewResidentBytes.count) == (2))
         for memoryBytes in webViewMemoryBytes {
-            XCTAssertLessThanOrEqual(abs(memoryBytes * 2 - windowMemoryBytes), 1)
+            #expect((abs(memoryBytes * 2 - windowMemoryBytes)) <= (1))
         }
         for residentBytes in webViewResidentBytes {
-            XCTAssertLessThanOrEqual(abs(residentBytes * 2 - windowResidentBytes), 1)
+            #expect((abs(residentBytes * 2 - windowResidentBytes)) <= (1))
         }
     }
 
-    func testApplicationProcessAttachesToKeyWindow() {
+    @Test func testApplicationProcessAttachesToKeyWindow() {
         var windows: [[String: Any]] = [
             ["kind": "window", "id": "first", "key": false],
             ["kind": "window", "id": "second", "key": true],
@@ -206,12 +207,12 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         TerminalController.shared.v2AttachTopApplicationProcess(to: &windows)
 
-        XCTAssertEqual(intArray(windows[0]["app_process_pids"]), [])
-        XCTAssertEqual(intArray(windows[1]["app_process_pids"]), [Int(Darwin.getpid())])
-        XCTAssertEqual(intArray(windows[2]["app_process_pids"]), [])
+        #expect((intArray(windows[0]["app_process_pids"])) == ([]))
+        #expect((intArray(windows[1]["app_process_pids"])) == ([Int(Darwin.getpid())]))
+        #expect((intArray(windows[2]["app_process_pids"])) == ([]))
     }
 
-    func testApplicationProcessFallsBackToFirstWindowWithoutKeyWindow() {
+    @Test func testApplicationProcessFallsBackToFirstWindowWithoutKeyWindow() {
         var windows: [[String: Any]] = [
             ["kind": "window", "id": "first", "key": false],
             ["kind": "window", "id": "second", "key": false]
@@ -219,11 +220,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         TerminalController.shared.v2AttachTopApplicationProcess(to: &windows)
 
-        XCTAssertEqual(intArray(windows[0]["app_process_pids"]), [Int(Darwin.getpid())])
-        XCTAssertEqual(intArray(windows[1]["app_process_pids"]), [])
+        #expect((intArray(windows[0]["app_process_pids"])) == ([Int(Darwin.getpid())]))
+        #expect((intArray(windows[1]["app_process_pids"])) == ([]))
     }
 
-    func testApplicationProcessIsNotAttachedForWorkspaceScope() {
+    @Test func testApplicationProcessIsNotAttachedForWorkspaceScope() {
         var windows: [[String: Any]] = [
             ["kind": "window", "id": "workspace-window", "key": true]
         ]
@@ -233,15 +234,15 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             workspaceFilter: UUID()
         )
 
-        XCTAssertEqual(intArray(windows[0]["app_process_pids"]), [])
+        #expect((intArray(windows[0]["app_process_pids"])) == ([]))
     }
 
     @MainActor
-    func testApplicationProcessTreeIsExposedAtWindowLevel() throws {
+    @Test func testApplicationProcessTreeIsExposedAtWindowLevel() async throws {
         let fixture = try SpawnedProcessTree.start()
         defer { fixture.terminate() }
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         var windows: [[String: Any]] = [[
             "kind": "window",
             "id": UUID().uuidString,
@@ -259,49 +260,34 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             includeProcesses: true
         )
 
-        let processes = try XCTUnwrap(windows[0]["processes"] as? [[String: Any]])
-        let rootProcess = try XCTUnwrap(processes.first)
-        let rootResources = try XCTUnwrap(rootProcess["resources"] as? [String: Any])
+        let processes = try #require(windows[0]["processes"] as? [[String: Any]])
+        let rootProcess = try #require(processes.first)
+        let rootResources = try #require(rootProcess["resources"] as? [String: Any])
 
-        let rootPID = try XCTUnwrap(int(rootProcess["pid"]))
-        XCTAssertEqual(rootPID, fixture.parentPID)
-        XCTAssertEqual(intArray(rootResources["pids"]), [fixture.parentPID])
+        let rootPID = try #require(int(rootProcess["pid"]))
+        #expect((rootPID) == (fixture.parentPID))
+        #expect((intArray(rootResources["pids"])) == ([fixture.parentPID]))
     }
 
-    func testSummaryPayloadIncludesPhysicalFootprintMemoryBytes() throws {
+    @Test func testSummaryPayloadIncludesPhysicalFootprintMemoryBytes() async throws {
         let pid = Int(Darwin.getpid())
-        let expectedFootprintBytes = try XCTUnwrap(
-            physicalFootprintBytes(for: pid),
-            "proc_pid_rusage did not return physical footprint for current process"
-        )
+        let expectedFootprintBytes = try #require(physicalFootprintBytes(for: pid), "proc_pid_rusage did not return physical footprint for current process")
 
-        let snapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let snapshot = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
         let payload = snapshot.summaryPayload(for: [pid])
         let memoryBytes = int64(payload["memory_bytes"])
 
-        XCTAssertGreaterThan(memoryBytes, 0)
-        XCTAssertLessThanOrEqual(
-            abs(memoryBytes - expectedFootprintBytes),
-            max(16 * 1024 * 1024, expectedFootprintBytes / 5)
-        )
+        #expect((memoryBytes) > (0))
+        #expect((abs(memoryBytes - expectedFootprintBytes)) <= (max(16 * 1024 * 1024, expectedFootprintBytes / 5)))
     }
 
-    func testSamplePayloadDescribesPhysicalFootprintFallbackSource() {
-        let sample = CmuxTopProcessSnapshot.capture(includeProcessDetails: false).samplePayload()
+    @Test func testSamplePayloadDescribesPhysicalFootprintFallbackSource() async {
+        let sample = await CmuxTopProcessSnapshot.capture(includeProcessDetails: false).samplePayload()
 
-        XCTAssertEqual(
-            sample["memory_source"] as? String,
-            CmuxTopProcessMemorySource.physicalFootprint.rawValue
-        )
-        XCTAssertEqual(
-            sample["memory_fallback_source"] as? String,
-            CmuxTopProcessMemorySource.residentSize.rawValue
-        )
-        XCTAssertEqual(
-            sample["resident_memory_fallback_source"] as? String,
-            CmuxTopProcessMemorySource.rusageResidentSize.rawValue
-        )
-        XCTAssertEqual(sample["cmux_scope"] as? Bool, true)
+        #expect((sample["memory_source"] as? String) == (CmuxTopProcessMemorySource.physicalFootprint.rawValue))
+        #expect((sample["memory_fallback_source"] as? String) == (CmuxTopProcessMemorySource.residentSize.rawValue))
+        #expect((sample["resident_memory_fallback_source"] as? String) == (CmuxTopProcessMemorySource.rusageResidentSize.rawValue))
+        #expect((sample["cmux_scope"] as? Bool) == (true))
 
         let unscopedSnapshot = CmuxTopProcessSnapshot(
             processes: [],
@@ -309,7 +295,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             includesProcessDetails: false,
             includesCMUXScope: false
         )
-        XCTAssertEqual(unscopedSnapshot.samplePayload()["cmux_scope"] as? Bool, false)
+        #expect((unscopedSnapshot.samplePayload()["cmux_scope"] as? Bool) == (false))
 
         let fallbackSnapshot = CmuxTopProcessSnapshot(
             processes: [
@@ -335,17 +321,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             includesProcessDetails: false
         )
         let fallbackSample = fallbackSnapshot.samplePayload()
-        XCTAssertEqual(
-            fallbackSample["resident_memory_source"] as? String,
-            CmuxTopProcessMemorySource.rusageResidentSize.rawValue
-        )
-        XCTAssertEqual(
-            fallbackSample["resident_memory_sources"] as? [String],
-            [CmuxTopProcessMemorySource.rusageResidentSize.rawValue]
-        )
+        #expect((fallbackSample["resident_memory_source"] as? String) == (CmuxTopProcessMemorySource.rusageResidentSize.rawValue))
+        #expect((fallbackSample["resident_memory_sources"] as? [String]) == ([CmuxTopProcessMemorySource.rusageResidentSize.rawValue]))
     }
 
-    func testUnavailableMemorySourcesAreExposedInAggregatePayloads() throws {
+    @Test func testUnavailableMemorySourcesAreExposedInAggregatePayloads() throws {
         let unavailablePID = 1111
         let fallbackPID = 2222
         let snapshot = CmuxTopProcessSnapshot(
@@ -396,19 +376,17 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         let summary = snapshot.summaryPayload(for: [unavailablePID, fallbackPID])
         assertUnavailableMemoryPayload(summary, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
 
-        let program = try XCTUnwrap(snapshot.programSummaryPayload(for: [unavailablePID, fallbackPID]).first)
-        let programResources = try XCTUnwrap(program["resources"] as? [String: Any])
+        let program = try #require(snapshot.programSummaryPayload(for: [unavailablePID, fallbackPID]).first)
+        let programResources = try #require(program["resources"] as? [String: Any])
         assertUnavailableMemoryPayload(programResources, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
 
-        let codingAgent = try XCTUnwrap(
-            snapshot.codingAgentSummaryPayload(for: [unavailablePID, fallbackPID])
-                .first { $0["id"] as? String == "codex" }
-        )
-        let codingAgentResources = try XCTUnwrap(codingAgent["resources"] as? [String: Any])
+        let codingAgent = try #require(snapshot.codingAgentSummaryPayload(for: [unavailablePID, fallbackPID])
+                .first { $0["id"] as? String == "codex" })
+        let codingAgentResources = try #require(codingAgent["resources"] as? [String: Any])
         assertUnavailableMemoryPayload(codingAgentResources, unavailablePID: unavailablePID, fallbackPID: fallbackPID)
     }
 
-    func testKernProcArgsWorkspaceID() {
+    @Test func testKernProcArgsWorkspaceID() {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let bytes = kernProcArgs(environment: [
             "CMUX_WORKSPACE_ID=\(workspaceID.uuidString)"
@@ -416,11 +394,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         let scope = CmuxTopProcessSnapshot.cmuxScope(fromKernProcArgs: bytes)
 
-        XCTAssertEqual(scope?.workspaceID, workspaceID)
-        XCTAssertNil(scope?.surfaceID)
+        #expect((scope?.workspaceID) == (workspaceID))
+        #expect((scope?.surfaceID) == nil)
     }
 
-    func testKernProcArgsTabIDFallback() {
+    @Test func testKernProcArgsTabIDFallback() {
         let tabID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
         let bytes = kernProcArgs(environment: [
             "CMUX_TAB_ID=\(tabID.uuidString)"
@@ -428,11 +406,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         let scope = CmuxTopProcessSnapshot.cmuxScope(fromKernProcArgs: bytes)
 
-        XCTAssertEqual(scope?.workspaceID, tabID)
-        XCTAssertNil(scope?.surfaceID)
+        #expect((scope?.workspaceID) == (tabID))
+        #expect((scope?.surfaceID) == nil)
     }
 
-    func testKernProcArgsSurfaceID() {
+    @Test func testKernProcArgsSurfaceID() {
         let surfaceID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
         let bytes = kernProcArgs(environment: [
             "CMUX_SURFACE_ID=\(surfaceID.uuidString)"
@@ -440,11 +418,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         let scope = CmuxTopProcessSnapshot.cmuxScope(fromKernProcArgs: bytes)
 
-        XCTAssertNil(scope?.workspaceID)
-        XCTAssertEqual(scope?.surfaceID, surfaceID)
+        #expect((scope?.workspaceID) == nil)
+        #expect((scope?.surfaceID) == (surfaceID))
     }
 
-    func testKernProcArgsPanelIDFallback() {
+    @Test func testKernProcArgsPanelIDFallback() {
         let panelID = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!
         let bytes = kernProcArgs(environment: [
             "CMUX_PANEL_ID=\(panelID.uuidString)"
@@ -452,15 +430,15 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
 
         let scope = CmuxTopProcessSnapshot.cmuxScope(fromKernProcArgs: bytes)
 
-        XCTAssertNil(scope?.workspaceID)
-        XCTAssertEqual(scope?.surfaceID, panelID)
+        #expect((scope?.workspaceID) == nil)
+        #expect((scope?.surfaceID) == (panelID))
     }
 
-    func testCodexMonitorArgumentsSupportJoinedUUIDOptions() throws {
+    @Test func testCodexMonitorArgumentsSupportJoinedUUIDOptions() throws {
         let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
         let surfaceID = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
 
-        let scope = try XCTUnwrap(CmuxTopProcessSnapshot.cmuxScope(
+        let scope = try #require(CmuxTopProcessSnapshot.cmuxScope(
             arguments: [
                 "/Applications/cmux.app/Contents/Resources/bin/cmux",
                 "hooks",
@@ -472,12 +450,12 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             environment: [:]
         ))
 
-        XCTAssertEqual(scope.workspaceID, workspaceID)
-        XCTAssertEqual(scope.surfaceID, surfaceID)
-        XCTAssertEqual(scope.attributionReason, "cmux-hook-arguments")
+        #expect((scope.workspaceID) == (workspaceID))
+        #expect((scope.surfaceID) == (surfaceID))
+        #expect((scope.attributionReason) == ("cmux-hook-arguments"))
     }
 
-    func testCodexMonitorArgumentsIgnorePathValuedSubcommandLookalikes() {
+    @Test func testCodexMonitorArgumentsIgnorePathValuedSubcommandLookalikes() {
         let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
 
         let scope = CmuxTopProcessSnapshot.cmuxScope(
@@ -493,10 +471,10 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             environment: [:]
         )
 
-        XCTAssertNil(scope)
+        #expect((scope) == nil)
     }
 
-    func testCodexMonitorArgumentsRequireCmuxExecutable() {
+    @Test func testCodexMonitorArgumentsRequireCmuxExecutable() {
         let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
 
         let scope = CmuxTopProcessSnapshot.cmuxScope(
@@ -510,11 +488,11 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             environment: [:]
         )
 
-        XCTAssertNil(scope)
+        #expect((scope) == nil)
     }
 
     @MainActor
-    func testLaunchdParentedCodexMonitorArgumentsAttachToOwningSurface() throws {
+    @Test func testLaunchdParentedCodexMonitorArgumentsAttachToOwningSurface() throws {
         let workspaceID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
         let surfaceID = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
         let monitorPID = 4242
@@ -533,9 +511,9 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             ],
             environment: []
         )
-        let scope = try XCTUnwrap(CmuxTopProcessSnapshot.cmuxScope(fromKernProcArgs: bytes))
-        XCTAssertEqual(scope.workspaceID, workspaceID)
-        XCTAssertEqual(scope.surfaceID, surfaceID)
+        let scope = try #require(CmuxTopProcessSnapshot.cmuxScope(fromKernProcArgs: bytes))
+        #expect((scope.workspaceID) == (workspaceID))
+        #expect((scope.surfaceID) == (surfaceID))
 
         let snapshot = CmuxTopProcessSnapshot(
             processes: [
@@ -597,16 +575,16 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             includeProcesses: true
         )
         let surface = try firstSurface(in: windows)
-        let resources = try XCTUnwrap(surface["resources"] as? [String: Any])
-        let processes = try XCTUnwrap(surface["processes"] as? [[String: Any]])
-        let monitorProcess = try XCTUnwrap(processes.first)
+        let resources = try #require(surface["resources"] as? [String: Any])
+        let processes = try #require(surface["processes"] as? [[String: Any]])
+        let monitorProcess = try #require(processes.first)
 
-        XCTAssertEqual(intArray(resources["pids"]), [monitorPID])
-        XCTAssertEqual(int(resources["process_count"]), 1)
-        XCTAssertEqual(int(monitorProcess["pid"]), monitorPID)
-        XCTAssertEqual(int(monitorProcess["ppid"]), 1)
-        XCTAssertEqual(monitorProcess["attribution_reason"] as? String, "cmux-hook-arguments")
-        XCTAssertTrue(totalPIDs.contains(monitorPID))
+        #expect((intArray(resources["pids"])) == ([monitorPID]))
+        #expect((int(resources["process_count"])) == (1))
+        #expect((int(monitorProcess["pid"])) == (monitorPID))
+        #expect((int(monitorProcess["ppid"])) == (1))
+        #expect((monitorProcess["attribution_reason"] as? String) == ("cmux-hook-arguments"))
+        #expect(totalPIDs.contains(monitorPID))
     }
 
     private func makeProcessInfo(
@@ -632,7 +610,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
     }
 
     @MainActor
-    func testLaunchdParentedWebKitRootProcessStaysUnderBrowserWebView() throws {
+    @Test func testLaunchdParentedWebKitRootProcessStaysUnderBrowserWebView() throws {
         let workspaceID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
         let surfaceID = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
         let webContentPID = 4343
@@ -703,16 +681,16 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             includeProcesses: true
         )
         let webview = try firstWebView(in: windows)
-        let resources = try XCTUnwrap(webview["resources"] as? [String: Any])
-        let processes = try XCTUnwrap(webview["processes"] as? [[String: Any]])
-        let webContentProcess = try XCTUnwrap(processes.first)
+        let resources = try #require(webview["resources"] as? [String: Any])
+        let processes = try #require(webview["processes"] as? [[String: Any]])
+        let webContentProcess = try #require(processes.first)
 
-        XCTAssertEqual(intArray(resources["pids"]), [webContentPID])
-        XCTAssertEqual(int(resources["process_count"]), 1)
-        XCTAssertEqual(int(webContentProcess["pid"]), webContentPID)
-        XCTAssertEqual(int(webContentProcess["ppid"]), 1)
-        XCTAssertEqual(webContentProcess["attribution_reason"] as? String, "webview-root-pid")
-        XCTAssertTrue(totalPIDs.contains(webContentPID))
+        #expect((intArray(resources["pids"])) == ([webContentPID]))
+        #expect((int(resources["process_count"])) == (1))
+        #expect((int(webContentProcess["pid"])) == (webContentPID))
+        #expect((int(webContentProcess["ppid"])) == (1))
+        #expect((webContentProcess["attribution_reason"] as? String) == ("webview-root-pid"))
+        #expect(totalPIDs.contains(webContentPID))
     }
 
     private func kernProcArgs(
@@ -849,7 +827,7 @@ while allocations:
                 }
                 Thread.sleep(forTimeInterval: 0.05)
             }
-            throw XCTSkip("Timed out waiting for process tree fixture")
+            throw NSError(domain: "ProcessFixtureTimeout", code: 1)
         }
 
         private static func intValues(in raw: String) -> [Int] {
@@ -897,7 +875,7 @@ while allocations:
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw XCTSkip("ps failed with status \(process.terminationStatus)")
+            throw NSError(domain: "ProcessFixturePS", code: Int(process.terminationStatus))
         }
         return String(data: data, encoding: .utf8) ?? ""
     }
@@ -938,44 +916,43 @@ while allocations:
     }
 
     private func annotatedWebViewResources(in windows: [[String: Any]]) throws -> [[String: Any]] {
-        let workspaces = try XCTUnwrap(windows[0]["workspaces"] as? [[String: Any]])
-        let panes = try XCTUnwrap(workspaces[0]["panes"] as? [[String: Any]])
-        let surfaces = try XCTUnwrap(panes[0]["surfaces"] as? [[String: Any]])
+        let workspaces = try #require(windows[0]["workspaces"] as? [[String: Any]])
+        let panes = try #require(workspaces[0]["panes"] as? [[String: Any]])
+        let surfaces = try #require(panes[0]["surfaces"] as? [[String: Any]])
         return try surfaces.map { surface in
-            let webviews = try XCTUnwrap(surface["webviews"] as? [[String: Any]])
-            let webview = try XCTUnwrap(webviews.first)
-            return try XCTUnwrap(webview["resources"] as? [String: Any])
+            let webviews = try #require(surface["webviews"] as? [[String: Any]])
+            let webview = try #require(webviews.first)
+            return try #require(webview["resources"] as? [String: Any])
         }
     }
 
     private func firstSurface(in windows: [[String: Any]]) throws -> [String: Any] {
-        let workspaces = try XCTUnwrap(windows[0]["workspaces"] as? [[String: Any]])
-        let panes = try XCTUnwrap(workspaces[0]["panes"] as? [[String: Any]])
-        let surfaces = try XCTUnwrap(panes[0]["surfaces"] as? [[String: Any]])
-        return try XCTUnwrap(surfaces.first)
+        let workspaces = try #require(windows[0]["workspaces"] as? [[String: Any]])
+        let panes = try #require(workspaces[0]["panes"] as? [[String: Any]])
+        let surfaces = try #require(panes[0]["surfaces"] as? [[String: Any]])
+        return try #require(surfaces.first)
     }
 
     private func firstWebView(in windows: [[String: Any]]) throws -> [String: Any] {
         let surface = try firstSurface(in: windows)
-        let webviews = try XCTUnwrap(surface["webviews"] as? [[String: Any]])
-        return try XCTUnwrap(webviews.first)
+        let webviews = try #require(surface["webviews"] as? [[String: Any]])
+        return try #require(webviews.first)
     }
 
     private func assertUnavailableMemoryPayload(
         _ payload: [String: Any],
         unavailablePID: Int,
         fallbackPID: Int,
-        file: StaticString = #filePath,
-        line: UInt = #line
+        sourceLocation: SourceLocation = #_sourceLocation
     ) {
-        XCTAssertEqual(intArray(payload["memory_source_fallback_pids"]), [fallbackPID], file: file, line: line)
-        XCTAssertEqual(int(payload["memory_source_fallback_count"]), 1, file: file, line: line)
-        XCTAssertEqual(intArray(payload["resident_memory_source_fallback_pids"]), [fallbackPID], file: file, line: line)
-        XCTAssertEqual(int(payload["resident_memory_source_fallback_count"]), 1, file: file, line: line)
-        XCTAssertEqual(intArray(payload["unavailable_memory_pids"]), [unavailablePID], file: file, line: line)
-        XCTAssertEqual(int(payload["unavailable_memory_count"]), 1, file: file, line: line)
-        XCTAssertEqual(intArray(payload["unavailable_resident_memory_pids"]), [unavailablePID], file: file, line: line)
-        XCTAssertEqual(int(payload["unavailable_resident_memory_count"]), 1, file: file, line: line)
+        #expect((intArray(payload["memory_source_fallback_pids"])) == ([fallbackPID]) , sourceLocation: sourceLocation)
+        #expect((int(payload["memory_source_fallback_count"])) == (1) , sourceLocation: sourceLocation)
+        #expect((intArray(payload["resident_memory_source_fallback_pids"])) == ([fallbackPID]) , sourceLocation: sourceLocation)
+        #expect((int(payload["resident_memory_source_fallback_count"])) == (1) , sourceLocation: sourceLocation)
+        #expect((intArray(payload["unavailable_memory_pids"])) == ([unavailablePID]) , sourceLocation: sourceLocation)
+        #expect((int(payload["unavailable_memory_count"])) == (1) , sourceLocation: sourceLocation)
+        #expect((intArray(payload["unavailable_resident_memory_pids"])) == ([unavailablePID]) , sourceLocation: sourceLocation)
+        #expect((int(payload["unavailable_resident_memory_count"])) == (1) , sourceLocation: sourceLocation)
     }
 
     private func int64(_ raw: Any?) -> Int64 {
