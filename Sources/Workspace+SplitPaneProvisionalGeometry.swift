@@ -123,7 +123,6 @@ extension Workspace {
         newPaneIsFirst: Bool,
         newPane: PaneID
     ) {
-        let configuration = bonsplitController.configuration
         let layout = bonsplitController.layoutSnapshot()
         let localTreeFrame = NSRect(
             x: 0, y: 0,
