@@ -171,6 +171,12 @@ struct IrohZeroTouchDiscoveryTests {
             now: stale.lastSeenAt
         )
         await fixture.shell.loadPairedMacs()
+        // This scenario is a live post-startup session whose saved Mac went
+        // stale: the launch stored-Mac restore has already settled. Automatic
+        // wake-ups arriving BEFORE that first restore defer to it instead of
+        // dialing half-initialized launch state
+        // (`shouldDeferAutomaticRecoveryToFirstStoredMacRestore`).
+        fixture.shell.didFinishStoredMacReconnectAttempt = true
         let scope = try #require(await fixture.shell.currentScopeSnapshot(userID: "user-1"))
 
         fixture.shell.applyPresenceUpdate(.online(PresenceInstance(

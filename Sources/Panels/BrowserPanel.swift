@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxMobileHost
 import Foundation
 import CMUXMobileCore
@@ -600,6 +601,86 @@ enum BrowserAvailabilitySettings {
         // `set` already persists; `synchronize()` is a deprecated no-op-style fsync.
         defaults.set(disabled, forKey: disabledKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+
+    /// Whether the UI should offer a browser-*creating* affordance at all.
+    ///
+    /// Every browser action already refuses when the browser is disabled, but
+    /// the affordances that reach those actions were gated one at a time, so
+    /// disabling the browser left inert buttons and menu items behind (issue
+    /// #10866). Affordances resolve visibility here, against the same value
+    /// the action consults, so the two gates cannot drift apart.
+    ///
+    /// Creation only. Controls that drive an already-open browser panel (Back,
+    /// Reload, developer tools) must stay visible: the user-level toggle does
+    /// not close live panels — only the managed policy does, through
+    /// `closeBrowserPanelsForManagedPolicy()` — so hiding them would strand a
+    /// working panel with no way to navigate it.
+    static func offersBrowserAffordance(isEnabled: Bool) -> Bool {
+        isEnabled
+    }
+}
+
+/// The single owner of "browser availability changed" for the whole app.
+///
+/// The gate is mutated through entrypoints that signal differently: the
+/// palette and MDM policy post ``BrowserAvailabilitySettings/didChangeNotification``,
+/// the Settings toggle writes defaults directly, and the CLI writes from
+/// another process (seen on activation at the latest). Each consumer used to
+/// observe all three itself, which both duplicated the state and made every
+/// unrelated `UserDefaults` write rebuild live tab-bar button models.
+///
+/// This type observes those sources once, tracks the resolved value, and
+/// re-broadcasts only when it actually changes. It owns *when* availability
+/// changed; ``BrowserAvailabilitySettings/isEnabled(defaults:)`` stays the one
+/// owner of *what* the value is, so a consumer reading on redraw can never see
+/// a stale cache.
+@MainActor
+final class BrowserAvailabilityMonitor {
+    static let shared = BrowserAvailabilityMonitor()
+
+    /// Posted only when the resolved availability differs from the last value.
+    static let didChangeNotification = Notification.Name(
+        "cmux.browserAvailabilityMonitorDidChange"
+    )
+
+    private(set) var isEnabled: Bool
+    private var observers: [NSObjectProtocol] = []
+
+    /// Brings the lazy singleton up. Consumers observe
+    /// ``didChangeNotification`` rather than touching ``shared``, so without
+    /// an explicit start nothing would ever construct the watcher.
+    func activate() {}
+
+    /// - Parameter notificationCenter: injectable so a test can drive the
+    ///   underlying signals without touching the app-wide center.
+    init(notificationCenter: NotificationCenter = .default) {
+        isEnabled = BrowserAvailabilitySettings.isEnabled()
+        observers = [
+            BrowserAvailabilitySettings.didChangeNotification,
+            UserDefaults.didChangeNotification,
+            NSApplication.didBecomeActiveNotification,
+        ].map { name in
+            notificationCenter.addObserver(
+                forName: name,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.reevaluate(notificationCenter: notificationCenter)
+                }
+            }
+        }
+    }
+
+    /// Re-reads the gate and broadcasts only a real transition, so an
+    /// unrelated defaults write costs one boolean read instead of a rebuild
+    /// in every observer.
+    private func reevaluate(notificationCenter: NotificationCenter) {
+        let resolved = BrowserAvailabilitySettings.isEnabled()
+        guard resolved != isEnabled else { return }
+        isEnabled = resolved
+        notificationCenter.post(name: Self.didChangeNotification, object: self)
     }
 }
 
@@ -2996,7 +3077,7 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         )
 
-        let webView = CmuxWebView(frame: .zero, configuration: config)
+        let webView = CmuxWebView(frame: .zero, configuration: config, host: CmuxWebViewAppHost())
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
@@ -4412,10 +4493,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let model = cloudAccess.model,
            let cloudURL = restoreURL ?? cloudAccess.remoteURL,
            cloudAccess.owns(cloudURL) {
-            cloudAccess.configure(model: model, url: cloudURL)
-            if let readyURL = cloudAccess.nextURL() {
-                _ = navigate(to: readyURL)
-            }
+            configureCloudBrowser(model: model, url: cloudURL)
         } else if shouldRestoreURL, let restoreURL {
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,
@@ -7210,7 +7288,7 @@ extension BrowserPanel {
 
     private func performDiffViewerFindActionOrFallback(
         _ action: CmuxWebView.DiffViewerFindAction,
-        fallback: @escaping @MainActor () -> Void
+        fallback: @escaping @MainActor @Sendable () -> Void
     ) {
         guard let cmuxWebView = webView as? CmuxWebView else {
             fallback()
@@ -8265,7 +8343,7 @@ private extension NSObject {
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then moving the finished file to the user's
 /// Downloads folder unless the browser save-panel setting is enabled.
-class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
+class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFilenameOverriding {
     private nonisolated static let maxDownloadDestinationCollisionRetries = 100
 
     private struct DownloadState: Sendable {
