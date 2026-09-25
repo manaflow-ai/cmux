@@ -14956,10 +14956,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         registrationToken: UUID,
         releaseViewport: Bool
     ) {
-        // Compare the registration identity, not the delivery epoch: the cold
-        // attach replay barrier armed during registration already rotated
-        // the epoch, so an epoch check would leave every stream registered
-        // (and its viewport pinned) after its consumer went away.
+        // Compare the registration identity, not the delivery epoch: replay
+        // barriers (including the cold attach one armed during registration),
+        // ack-reset retries, and disconnects all rotate the epoch, so an epoch
+        // check would leave the stream registered (and its viewport pinned)
+        // after its consumer went away.
         guard terminalOutputRegistrationTokensBySurfaceID[surfaceID] == registrationToken else { return }
         terminalLatencyObserver.surfaceClosed(surfaceID: surfaceID)
         terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
