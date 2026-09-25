@@ -27,11 +27,10 @@ driver_help="$(xcrun swiftc -help-hidden 2>/dev/null)"
 has_frontend() { grep -q -- "  $1\b" <<<"$frontend_help"; }
 has_driver() { grep -q -- "  $1\b" <<<"$driver_help"; }
 
-base_flags="-Xfrontend -stats-output-dir -Xfrontend $stats"
-has_frontend -fine-grained-timers && base_flags+=" -Xfrontend -fine-grained-timers"
-base_flags+=" -Xfrontend -warn-long-expression-type-checking=100 -Xfrontend -warn-long-function-bodies=100"
+# Round 1 showed -fine-grained-timers doubles emit-module time, so round 2
+# measures without stats.
+base_flags=""
 echo "swift: $(xcrun swiftc --version 2>&1 | head -1)" | tee -a "$summary"
-echo "base flags: \`$base_flags\`" | tee -a "$summary"
 
 report() {
   local series="$1" name="$2" log="$3" seconds="$4" tarball="$5"
@@ -147,7 +146,12 @@ build() {
 }
 
 edit_test_body() {
-  perl -0pi -e 's/(func testParsesSSHURLWithExplicitHostUserPortAndTitle\(\) throws \{\n)/$1        let cmuxProbeTestBody = '"$1"'; _ = cmuxProbeTestBody\n/' "$test_file"
+  # Replace the probe line if present, else insert it: one body edit per build.
+  if grep -q 'let cmuxProbeTestBody = ' "$test_file"; then
+    perl -pi -e 's/let cmuxProbeTestBody = \d+;/let cmuxProbeTestBody = '"$1"';/' "$test_file"
+  else
+    perl -0pi -e 's/(func testParsesSSHURLWithExplicitHostUserPortAndTitle\(\) throws \{\n)/$1        let cmuxProbeTestBody = '"$1"'; _ = cmuxProbeTestBody\n/' "$test_file"
+  fi
 }
 
 no_objc_header() {
@@ -156,28 +160,71 @@ no_objc_header() {
   grep -q 'SWIFT_OBJC_INTERFACE_HEADER_NAME = "";' "$pbxproj" || echo "noobjc: pbxproj edit did not apply" | tee -a "$summary"
 }
 
+# What the built bundle holds: Swift Testing records, ObjC classes, and the
+# enumerated test count, so a mode that drops the module cannot drop tests.
+inventory() {
+  local series="$1" bin
+  bin="$(find "$derived/Build/Products/Debug" -path '*cmuxTests.xctest/Contents/MacOS/cmuxTests' -type f | head -1)"
+  {
+    echo "- inventory $series: binary \`${bin#$derived/}\`"
+    [ -n "$bin" ] && otool -l "$bin" | awk '/sectname __swift5_tests/{f=1} f&&/size/{print "  - __swift5_tests size " $2; exit}'
+    [ -n "$bin" ] && echo "  - ObjC classes named *Tests: $(nm -j "$bin" 2>/dev/null | grep -c '^_OBJC_CLASS_\$_.*Tests$')"
+    ls "$derived/Build/Intermediates.noindex/cmux.build/Debug/cmuxTests.build/Objects-normal/arm64/" 2>/dev/null | grep -E 'swiftmodule|Swift\.h|abi\.json' | sed 's/^/  - intermediate: /'
+  } | tee -a "$summary"
+  local xctestrun out="$RUNNER_TEMP/enum-$series.json"
+  xctestrun="$(ls -t "$derived"/Build/Products/*.xctestrun 2>/dev/null | head -1)"
+  [ -n "$xctestrun" ] || { echo "  - no xctestrun" | tee -a "$summary"; return; }
+  (cd "$src" && perl -e 'alarm 420; exec @ARGV' scripts/ci/run-in-console-session.sh \
+    xcodebuild test-without-building -enumerate-tests -xctestrun "$xctestrun" \
+    -destination "platform=macOS" -test-enumeration-style flat \
+    -test-enumeration-format json -test-enumeration-output-path "$out") \
+    > "$RUNNER_TEMP/probe-$series-enumerate.txt" 2>&1
+  python3 - "$out" "$summary" <<'PY'
+import json, sys
+out, summary = sys.argv[1:]
+try:
+    d = json.load(open(out))
+except Exception as e:
+    line = f"  - enumeration failed: {e}"
+else:
+    n = 0
+    def walk(x):
+        global n
+        if isinstance(x, dict):
+            if "identifier" in x and not x.get("children"):
+                n += 1
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                walk(v)
+    walk(d)
+    line = f"  - enumerated tests: {n}"
+print(line)
+open(summary, "a").write(line + "\n")
+PY
+}
+
 series_run() {
-  local s="$1" flags="$base_flags"
+  local s="$1" flags="${PROBE_BASE_FLAGS:-}"
   local -a extra=()
+  local legacy=(
+    'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_TARGET_DRIVER_$(TARGET_NAME):default=YES)'
+    CMUX_CI_TARGET_DRIVER_cmuxTests=NO)
+  local implicit=(
+    'SWIFT_ENABLE_EXPLICIT_MODULES=$(CMUX_CI_TARGET_EXPLICIT_$(TARGET_NAME):default=YES)'
+    CMUX_CI_TARGET_EXPLICIT_cmuxTests=NO)
   restore
   case "$s" in
-    control)
-      has_frontend -debug-time-function-bodies && flags+=" -Xfrontend -debug-time-function-bodies" ;;
-    noobjc) no_objc_header ;;
-    noabi) flags+=" -Xfrontend -empty-abi-descriptor" ;;
-    lean)
-      no_objc_header
-      flags+=" -Xfrontend -empty-abi-descriptor -avoid-emit-module-source-info" ;;
-    lazy)
-      no_objc_header
-      flags+=" -Xfrontend -empty-abi-descriptor -avoid-emit-module-source-info -Xfrontend -experimental-lazy-typecheck" ;;
-    legacy-merge)
-      flags+=" -no-emit-module-separately"
-      extra=(
-        'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_TARGET_DRIVER_$(TARGET_NAME):default=YES)'
-        CMUX_CI_TARGET_DRIVER_cmuxTests=NO
-        'SWIFT_ENABLE_EXPLICIT_MODULES=$(CMUX_CI_TARGET_EXPLICIT_$(TARGET_NAME):default=YES)'
-        CMUX_CI_TARGET_EXPLICIT_cmuxTests=NO) ;;
+    base) ;;
+    lazy) flags+=" -Xfrontend -experimental-lazy-typecheck" ;;
+    legacy) no_objc_header; extra=("${legacy[@]}" "${implicit[@]}") ;;
+    nomodule)
+      no_objc_header; flags+=" -no-emit-module-separately"
+      extra=("${legacy[@]}" "${implicit[@]}") ;;
+    nomodule-explicit)
+      no_objc_header; flags+=" -no-emit-module-separately"
+      extra=("${legacy[@]}") ;;
     *) echo "unknown series $s"; return ;;
   esac
   echo "## series $s: \`$flags\` ${extra[*]+${extra[*]}}" >> "$summary"
@@ -186,6 +233,7 @@ series_run() {
   build "$s" test-body "$flags" ${extra[@]+"${extra[@]}"}
   edit_test_body 7
   build "$s" test-body-2 "$flags" ${extra[@]+"${extra[@]}"}
+  case "$s" in base|nomodule|nomodule-explicit) inventory "$s" ;; esac
 }
 
 for s in "$@"; do

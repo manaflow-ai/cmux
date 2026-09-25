@@ -652,7 +652,7 @@ jobs:
         run: |
           scripts/ci/canary-cmuxtests-emit-module.sh \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS" \
-            control noobjc noabi lean lazy legacy-merge
+            base nomodule nomodule-explicit legacy lazy
 
       - name: Canary upload probe logs
         if: always()
