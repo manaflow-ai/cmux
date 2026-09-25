@@ -232,13 +232,15 @@ static int runWorker(NSArray<NSString *> *arguments) {
 
     // Match PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss:
     // the full worker can recover characters lost by the plain-text exporter.
+    // U+FFFD or a run of "?" marks lost characters; isolated "?" is content.
     if (hasRichText) {
-        NSUInteger questionMarks = 0;
+        unichar previous = 0;
         for (NSUInteger index = 0; index < text.length; index++) {
             unichar character = [text characterAtIndex:index];
-            if (character == 0xFFFD || (character == '?' && ++questionMarks >= 2)) {
+            if (character == 0xFFFD || (character == '?' && previous == '?')) {
                 return kIneligibleStatus;
             }
+            previous = character;
         }
     }
 
