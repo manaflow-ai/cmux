@@ -103,4 +103,67 @@ struct ComputerUseRuntimeServiceTests {
         // Only the copy is released; the bundled source keeps its record.
         #expect(try TestQuarantineAttribute.record(at: fixture.executable) == record)
     }
+
+    @Test func failedInstallAttemptsDoNotAccumulateStagingBundles() throws {
+        let fixture = try HelperBundleFixture()
+        let fileManager = FileManager.default
+        let directory = fixture.root.appendingPathComponent("staged", isDirectory: true)
+        let destinationParent = fixture.root.appendingPathComponent("installed", isDirectory: true)
+        let destination = destinationParent.appendingPathComponent(
+            "cmux Computer Use.app",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: destinationParent, withIntermediateDirectories: true)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o555],
+            ofItemAtPath: destinationParent.path
+        )
+        for entry in try fixture.bundleEntries() {
+            var metadata = stat()
+            guard lstat(entry.path, &metadata) == 0 else { continue }
+            if (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) {
+                try fileManager.setAttributes(
+                    [.posixPermissions: 0o555],
+                    ofItemAtPath: entry.path
+                )
+            }
+        }
+        defer {
+            if let enumerator = fileManager.enumerator(
+                at: fixture.root,
+                includingPropertiesForKeys: []
+            ) {
+                for case let entry as URL in enumerator {
+                    var metadata = stat()
+                    guard lstat(entry.path, &metadata) == 0 else { continue }
+                    if (metadata.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) {
+                        _ = chmod(entry.path, mode_t(0o755))
+                    }
+                }
+            }
+            _ = chmod(destinationParent.path, mode_t(0o755))
+            _ = chmod(fixture.root.path, mode_t(0o755))
+            fixture.remove()
+        }
+
+        for _ in 0 ..< 8 {
+            #expect(
+                ComputerUseRuntimeService.installHelper(
+                    nested: fixture.bundle,
+                    destination: destination,
+                    directory: directory
+                ) == nil
+            )
+        }
+
+        let orphanedBundles = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        ).filter { url in
+            url.lastPathComponent.hasPrefix(".cmux Computer Use.")
+                && url.pathExtension == "app"
+        }
+        #expect(orphanedBundles.isEmpty)
+    }
 }
