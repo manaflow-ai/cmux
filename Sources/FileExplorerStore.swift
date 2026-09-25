@@ -227,6 +227,24 @@ protocol FileExplorerProvider: AnyObject {
     var isAvailable: Bool { get }
 }
 
+extension FileExplorerProvider {
+    func createFile(path: String) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    func createDirectory(path: String) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    func rename(path: String, to destinationPath: String) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    func delete(path: String) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+}
+
 struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
@@ -263,6 +281,37 @@ protocol SSHFileExplorerTransport: AnyObject {
         path: String,
         connection: SSHFileExplorerConnection
     ) async throws
+}
+
+extension SSHFileExplorerTransport {
+    nonisolated func createFile(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    nonisolated func createDirectory(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    nonisolated func rename(
+        path: String,
+        to destinationPath: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        throw FileExplorerError.mutationFailed
+    }
+
+    nonisolated func delete(
+        path: String,
+        connection: SSHFileExplorerConnection
+    ) async throws {
+        throw FileExplorerError.mutationFailed
+    }
 }
 
 enum FileExplorerWorkspaceRoot: Equatable {
@@ -515,7 +564,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     ) async throws {
         try await Self.runSSHMutationCommand(
             connection: connection,
-            command: ": > \(Self.shellSingleQuote(path))"
+            // POSIX noclobber makes the redirection fail when the path already
+            // exists instead of truncating an existing remote file.
+            command: "set -C; : > \(Self.shellSingleQuote(path))"
         )
     }
 
@@ -536,7 +587,10 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     ) async throws {
         try await Self.runSSHMutationCommand(
             connection: connection,
-            command: "mv -- \(Self.shellSingleQuote(path)) \(Self.shellSingleQuote(destinationPath))"
+            // `mv -n` refuses to replace an existing destination. Verify that
+            // the source disappeared so a no-op is reported as a failure.
+            command: "mv -n -- \(Self.shellSingleQuote(path)) \(Self.shellSingleQuote(destinationPath)) && "
+                + "[ ! -e \(Self.shellSingleQuote(path)) ] && [ ! -L \(Self.shellSingleQuote(path)) ]"
         )
     }
 
@@ -1068,6 +1122,9 @@ final class FileExplorerStore: ObservableObject {
         in directoryPath: String,
         named name: String
     ) async throws -> String {
+        guard Self.path(directoryPath, isContainedIn: rootPath) else {
+            throw FileExplorerError.mutationFailed
+        }
         let path = try Self.childPath(directoryPath: directoryPath, name: name)
         guard let provider, provider.isAvailable else {
             throw FileExplorerError.providerUnavailable
@@ -1090,6 +1147,9 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func renameEntry(path: String, toName name: String) async throws -> String {
+        guard Self.path(path, isContainedIn: rootPath) else {
+            throw FileExplorerError.mutationFailed
+        }
         let parentPath = (path as NSString).deletingLastPathComponent
         let destinationPath = try Self.childPath(directoryPath: parentPath, name: name)
         guard let provider, provider.isAvailable else {
@@ -1118,6 +1178,10 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func deleteEntries(paths: [String]) async throws {
+        guard !paths.isEmpty,
+              paths.allSatisfy({ Self.path($0, isContainedIn: rootPath) }) else {
+            throw FileExplorerError.mutationFailed
+        }
         guard let provider, provider.isAvailable else {
             throw FileExplorerError.providerUnavailable
         }

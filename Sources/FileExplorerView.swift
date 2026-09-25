@@ -836,15 +836,29 @@ struct FileExplorerPanelView: NSViewRepresentable {
             menu.removeAllItems()
             guard let outlineView else { return }
             let clickedRow = outlineView.clickedRow
-            guard clickedRow >= 0,
-                  let node = outlineView.item(atRow: clickedRow) as? FileExplorerNode else { return }
+            let node: FileExplorerNode
+            if clickedRow >= 0 {
+                guard let clickedNode = outlineView.item(atRow: clickedRow) as? FileExplorerNode else { return }
+                node = clickedNode
+            } else {
+                // A blank tree still represents the current directory. Keep
+                // creation available when it has no children yet, and avoid
+                // offering rename/delete for the directory itself.
+                guard !store.rootPath.isEmpty else { return }
+                node = FileExplorerNode(name: store.displayRootPath, path: store.rootPath, isDirectory: true)
+            }
 
             let isLocal = store.provider is LocalFileExplorerProvider
 
             if store.provider?.isAvailable == true {
-                addMutationMenuItems(for: node, to: menu)
-                menu.addItem(.separator())
+                addCreationMenuItems(for: node, to: menu)
+                if clickedRow >= 0 {
+                    addRenameAndDeleteMenuItems(for: node, to: menu)
+                    menu.addItem(.separator())
+                }
             }
+
+            guard clickedRow >= 0 else { return }
 
             if !node.isDirectory && isLocal {
                 FileExplorerExternalOpenMenuItems(
@@ -888,7 +902,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             menu.addItem(copyRelItem)
         }
 
-        private func addMutationMenuItems(for node: FileExplorerNode, to menu: NSMenu) {
+        private func addCreationMenuItems(for node: FileExplorerNode, to menu: NSMenu) {
             let newFolderItem = NSMenuItem(
                 title: String(localized: "fileExplorer.contextMenu.newFolder", defaultValue: "New Folder"),
                 action: #selector(contextMenuNewFolder(_:)),
@@ -906,7 +920,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
             newFileItem.target = self
             newFileItem.representedObject = node
             menu.addItem(newFileItem)
+        }
 
+        private func addRenameAndDeleteMenuItems(for node: FileExplorerNode, to menu: NSMenu) {
             let renameItem = NSMenuItem(
                 title: String(localized: "fileExplorer.contextMenu.rename", defaultValue: "Rename"),
                 action: #selector(contextMenuRename(_:)),

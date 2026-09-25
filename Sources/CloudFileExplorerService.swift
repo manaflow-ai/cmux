@@ -221,6 +221,10 @@ try:
     elif operation == "rename":
         if destination is None:
             sys.exit(74)
+        # Keep rename consistent with local and SSH providers: never replace
+        # an existing destination (including a dangling symlink).
+        if os.path.lexists(destination):
+            sys.exit(74)
         os.rename(path, destination)
     elif operation == "delete":
         if os.path.isdir(path) and not os.path.islink(path):
