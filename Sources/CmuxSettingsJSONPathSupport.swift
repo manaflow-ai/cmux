@@ -232,6 +232,11 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.copyOnSelect"
         ),
         .init(
+            jsonKey: "reflowHardWrapOnCopy",
+            defaultsKey: terminal.reflowHardWrapOnCopy.userDefaultsKey,
+            invalidPath: terminal.reflowHardWrapOnCopy.id
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"

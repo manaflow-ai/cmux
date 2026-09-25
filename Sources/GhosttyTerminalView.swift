@@ -4020,6 +4020,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeRenderedFrameDemandRelease: (() -> Void)?
     private var keyboardCopyModeSelectionKind: KeyboardCopyModeSelectionKind?
     private var keyboardCopyModeVisualActive: Bool { keyboardCopyModeSelectionKind != nil }
+    /// Option-drag selections are rectangular. Joining wrapped rows would merge columns.
+    private var copySelectionMayBeRectangular = false
     private var keyboardCopyModeVisualLineActive: Bool { keyboardCopyModeSelectionKind == .line }
     let keyboardCopyModeCursorOverlayView: NSView = GhosttyFlashOverlayView(frame: .zero)
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
@@ -5710,7 +5712,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
         if let formattedRepresentations {
             GhosttyApp.terminalPasteboard.writeRepresentations(
-                formattedRepresentations,
+                representationsJoiningSoftWraps(
+                    formattedRepresentations,
+                    surface: surface,
+                    joiningEnabled: !copySelectionMayBeRectangular
+                ),
                 to: GHOSTTY_CLIPBOARD_STANDARD
             )
             return true
@@ -5720,7 +5726,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return false
         }
 
-        GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+        GhosttyApp.terminalPasteboard.writeString(
+            joinedCopyText(
+                selectedText,
+                surface: surface,
+                joiningEnabled: !copySelectionMayBeRectangular
+            ),
+            to: GHOSTTY_CLIPBOARD_STANDARD
+        )
         return true
     }
 
@@ -5728,11 +5741,166 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let maximumBytes = UInt(
             TerminalClipboardRepresentationDecoder.defaultMaximumRichTextBytes
         )
-        return ghostty_surface_copy_selection_to_clipboard_bounded(
-            surface,
-            maximumBytes
+        var copied = false
+        let formattedRepresentations = GhosttyApp.terminalPasteboard
+            .captureNextStandardClipboardRepresentations {
+                copied = ghostty_surface_copy_selection_to_clipboard_bounded(
+                    surface,
+                    maximumBytes
+                )
+                return copied
+            }
+        if let formattedRepresentations {
+            GhosttyApp.terminalPasteboard.writeRepresentations(
+                representationsJoiningSoftWraps(
+                    formattedRepresentations,
+                    surface: surface,
+                    joiningEnabled: true
+                ),
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+        return copied
+    }
+
+    /// Joins rows Ghostty marks as soft-wrapped before the selection is published.
+    ///
+    /// Ghostty's clipboard formatter already does this when `unwrap` is on. When
+    /// the emitted plain text still has one line per physical row, the wrap
+    /// flags from a paired screen read finish the join. Hard-wrap reflow runs
+    /// only when `terminal.reflowHardWrapOnCopy` is set.
+    private func joinedCopyText(
+        _ text: String,
+        surface: ghostty_surface_t,
+        joiningEnabled: Bool
+    ) -> String {
+        guard joiningEnabled, text.contains("\n") else { return text }
+        return TerminalSoftWrapCopy.joiningSoftWraps(
+            in: text,
+            wrapFlags: ghosttySelectionRowWrapFlags(
+                surface: surface,
+                matchingLineCount: TerminalSoftWrapCopy.physicalLineCount(in: text)
+            ),
+            hardWrapReflow: UserDefaults.standard.bool(
+                forKey: "terminal.reflowHardWrapOnCopy"
+            ),
+            terminalColumns: Int(ghostty_surface_size(surface).columns)
         )
     }
+
+    private func representationsJoiningSoftWraps(
+        _ representations: [TerminalClipboardRepresentation],
+        surface: ghostty_surface_t,
+        joiningEnabled: Bool
+    ) -> [TerminalClipboardRepresentation] {
+        guard joiningEnabled,
+              let plainIndex = representations.firstIndex(where: { isPlainTextClipboardRepresentation($0) }) else {
+            return representations
+        }
+        let joined = joinedCopyText(
+            representations[plainIndex].string,
+            surface: surface,
+            joiningEnabled: true
+        )
+        guard joined != representations[plainIndex].string else { return representations }
+        return representations.compactMap { representation in
+            guard self.isPlainTextClipboardRepresentation(representation) else { return nil }
+            return TerminalClipboardRepresentation(
+                mimeType: representation.mimeType,
+                string: joined
+            )
+        }
+    }
+
+    private func isPlainTextClipboardRepresentation(
+        _ representation: TerminalClipboardRepresentation
+    ) -> Bool {
+        let mimeType = representation.mimeType.split(separator: ";", maxSplits: 1).first
+            .map(String.init) ?? representation.mimeType
+        return mimeType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "text/plain"
+    }
+
+    /// Wrap flag for each selected physical row.
+    ///
+    /// A clipboard read omits the newline exactly when Ghostty's row wrap flag
+    /// joins those rows. The selection text already has one line per physical
+    /// row only when that join has not happened; any other line count keeps
+    /// Ghostty's text. One full-span read then decides whether any row is
+    /// wrapped, so ordinary multi-line copies do not probe every boundary.
+    /// Selections taller than ``maximumSoftWrapJoinRows`` skip the probe.
+    private func ghosttySelectionRowWrapFlags(
+        surface: ghostty_surface_t,
+        matchingLineCount: Int
+    ) -> [Bool]? {
+        var top: UInt32 = 0
+        var bottom: UInt32 = 0
+        guard ghostty_surface_selection_screen_rows(surface, &top, &bottom),
+              bottom >= top else { return nil }
+        let span = UInt64(bottom) - UInt64(top) + 1
+        guard span > 1,
+              span <= UInt64(Self.maximumSoftWrapJoinRows),
+              span == UInt64(matchingLineCount) else { return nil }
+
+        let maxBytes = UInt(256 * 1024)
+        guard let spanText = readScreenClipboardText(
+            surface: surface,
+            top: top,
+            bottom: bottom,
+            maxBytes: maxBytes
+        ), TerminalSoftWrapCopy.physicalLineCount(in: spanText) != matchingLineCount else {
+            return nil
+        }
+
+        var flags: [Bool] = []
+        flags.reserveCapacity(Int(span))
+        var row = top
+        while row < bottom {
+            guard let nextText = readScreenClipboardText(
+                surface: surface,
+                top: row + 1,
+                bottom: row + 1,
+                maxBytes: maxBytes
+            ), let pair = readScreenClipboardText(
+                surface: surface,
+                top: row,
+                bottom: row + 1,
+                maxBytes: maxBytes
+            ) else { return nil }
+            if nextText.isEmpty {
+                flags.append(false)
+            } else {
+                flags.append(!pair.contains("\n"))
+            }
+            row += 1
+        }
+        flags.append(false)
+        return flags
+    }
+
+    private func readScreenClipboardText(
+        surface: ghostty_surface_t,
+        top: UInt32,
+        bottom: UInt32,
+        maxBytes: UInt
+    ) -> String? {
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_screen_clipboard_text(
+            surface,
+            top,
+            bottom,
+            maxBytes,
+            &text
+        ) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(
+            decoding: Data(bytes: pointer, count: Int(text.text_len)),
+            as: UTF8.self
+        )
+    }
+
+    private static let maximumSoftWrapJoinRows = 256
 
     private func hasCopyableTerminalSelection(surface: ghostty_surface_t) -> Bool {
         ghostty_surface_has_selection(surface)
@@ -7755,6 +7923,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #endif
         let eventPoint = mouseState.localPoint
         let pressFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Option-drag is Ghostty's rectangular selection on macOS. Joining
+        // those rows would paste columns as one line.
+        copySelectionMayBeRectangular = pressFlags.contains(.option)
         terminalPointerGesture.begin(
             windowNumber: event.windowNumber,
             timestamp: event.timestamp,
@@ -9023,6 +9194,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
         let mouseState = rememberGhosttyMouseState(from: event)
+        copySelectionMayBeRectangular = event.modifierFlags.contains(.option)
         let eventPoint = mouseState.localPoint
         trackMousePointIfUsable(eventPoint)
         // Forward the raw drag coordinates, including out-of-bounds positions.

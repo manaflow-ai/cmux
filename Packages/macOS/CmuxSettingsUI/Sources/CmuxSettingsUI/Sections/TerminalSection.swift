@@ -23,6 +23,7 @@ public struct TerminalSection: View {
     @State private var sessionContentAlignment: DefaultsValueModel<SessionContentAlignment>
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var reflowHardWrapOnCopy: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -51,6 +52,7 @@ public struct TerminalSection: View {
         _sessionContentAlignment = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentAlignment))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _reflowHardWrapOnCopy = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.reflowHardWrapOnCopy))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
@@ -86,6 +88,7 @@ public struct TerminalSection: View {
             sessionContentAlignment,
             scrollBar,
             copyOnSelect,
+            reflowHardWrapOnCopy,
             textEditingGestures,
             adaptiveDefaultTheme,
             autoResume,
@@ -425,6 +428,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.reflowHardWrapOnCopy"),
+                String(localized: "settings.terminal.reflowHardWrapOnCopy", defaultValue: "Reflow Hard-Wrapped Text on Copy"),
+                subtitle: reflowHardWrapOnCopy.current
+                    ? String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitleOn", defaultValue: "Copy also rejoins lines that filled the terminal width, and drops a short continuation indent.")
+                    : String(localized: "settings.terminal.reflowHardWrapOnCopy.subtitleOff", defaultValue: "Copy keeps line breaks the program printed. Rows Ghostty marks as soft-wrapped still copy as one line.")
+            ) {
+                Toggle("", isOn: Binding(get: { reflowHardWrapOnCopy.current }, set: { reflowHardWrapOnCopy.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalReflowHardWrapOnCopyToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
