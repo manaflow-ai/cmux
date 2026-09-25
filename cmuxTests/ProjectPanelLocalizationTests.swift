@@ -22,6 +22,7 @@ struct ProjectPanelLocalizationTests {
             String(localized: "projectPanel.loadError.unreadable", defaultValue: "Cannot read project at %@"),
             url.path
         ))
+        #expect(message.contains(url.path))
     }
 
     @Test("parse failure errors hide parser reasons")
@@ -40,6 +41,7 @@ struct ProjectPanelLocalizationTests {
             String(localized: "projectPanel.loadError.parseFailure", defaultValue: "Unable to parse project at %@"),
             directory.path
         ))
+        #expect(message.contains(directory.path))
         #expect(!message.localizedCaseInsensitiveContains("not a property list"))
     }
 
@@ -49,7 +51,8 @@ struct ProjectPanelLocalizationTests {
     }
 
     private static func waitForFailure(in panel: ProjectPanel) async throws -> String {
-        for _ in 0..<100 {
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
             if case let .failed(message) = panel.loadState {
                 return message
             }
