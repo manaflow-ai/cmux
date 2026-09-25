@@ -94,7 +94,8 @@ class PlainTextPasteWorkerTests(unittest.TestCase):
 
     def test_plain_text_with_rich_flavors_uses_fast_path(self):
         for flavor in ["public.html", "public.rtf"]:
-            for text in ["hello\n日本語 🦀 e\u0301\r\n", "Question?", "文本\n" * 100_000]:
+            for text in ["hello\n日本語 🦀 e\u0301\r\n", "Question?", "Why? Why not?",
+                         "https://a.test/x?id=1 https://b.test/y?q=2", "文本\n" * 100_000]:
                 with self.subTest(flavor=flavor, bytes=len(text.encode())):
                     board = self.board(text=text, extra={flavor: "unused rich text"})
                     path = self.directory(board)
