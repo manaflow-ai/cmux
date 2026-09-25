@@ -355,8 +355,6 @@ Yes. When an agent spawns subagents or teammates, cmux turns them into native pa
 
 Yes. Open workspaces over SSH and attach to remote tmux sessions, so agents can run on a remote host while you drive them from cmux. See [SSH and remote](https://cmux.com/docs/ssh).
 
-With tmux 3.5 or newer, native mirrors report each pane's foreground and background colors to the server on attach, reconnect, and theme changes. This lets terminal apps detect the pane's actual colors without forcing a dark theme or changing your tmux configuration. Older supported tmux versions still connect but lack this color-reporting API.
-
 ### How do notifications work?
 
 When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the [cmux CLI](https://cmux.com/docs/notifications#cli-usage) and [agent hooks](https://cmux.com/docs/notifications#integration-examples). Any agent that supports hooks or OSC works, including Claude Code, Codex, OpenCode, and pi.
