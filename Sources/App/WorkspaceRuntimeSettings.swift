@@ -205,6 +205,15 @@ enum TerminalCopyOnSelectSettings {
     }
 }
 
+enum TerminalPressAndHoldSettings {
+    static let enabledKey = SettingCatalog().terminal.macosPressAndHold.userDefaultsKey
+    static let defaultEnabled = SettingCatalog().terminal.macosPressAndHold.defaultValue
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
+    }
+}
+
 enum TerminalManagedGhosttySettings {
     static func ghosttyConfigContents(defaults: UserDefaults = .standard, emitsCopyOnSelectFalse: Bool = true) -> String? {
         let lines = [

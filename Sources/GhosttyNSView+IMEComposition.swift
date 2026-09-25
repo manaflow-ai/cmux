@@ -42,9 +42,19 @@ extension GhosttyNSView {
         after: (text: String, selection: NSRange),
         accumulatedText: [String],
         event: NSEvent? = nil,
-        inputSourceId: String? = nil
+        inputSourceId: String? = nil,
+        suppressPressAndHoldKeyRepeat: Bool = false
     ) -> Bool {
         guard accumulatedText.isEmpty else { return false }
+
+        if suppressPressAndHoldKeyRepeat,
+           shouldSuppressPressAndHoldKeyRepeat(
+               event: event,
+               before: before,
+               after: after
+           ) {
+            return true
+        }
 
         let hadMarkedTextBefore = !before.text.isEmpty
         let hasMarkedTextAfter = !after.text.isEmpty
@@ -71,6 +81,20 @@ extension GhosttyNSView {
             return false
         }
         return shouldKeepIMECompositionCommandInsideTextInput(event)
+    }
+
+    private func shouldSuppressPressAndHoldKeyRepeat(
+        event: NSEvent?,
+        before: (text: String, selection: NSRange),
+        after: (text: String, selection: NSRange)
+    ) -> Bool {
+        guard let event, event.isARepeat else { return false }
+        guard before.text.isEmpty, after.text.isEmpty else { return false }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.isDisjoint(with: [.command, .control, .option]) else { return false }
+        guard let characters = event.charactersIgnoringModifiers, !characters.isEmpty else { return false }
+        return characters.unicodeScalars.allSatisfy { CharacterSet.letters.contains($0) }
     }
 
     private func shouldForwardKoreanMarkedSelectionArrowToTerminal(
@@ -165,14 +189,16 @@ extension GhosttyNSView {
         markedSelectionAfter: NSRange,
         accumulatedText: [String],
         event: NSEvent? = nil,
-        inputSourceId: String? = nil
+        inputSourceId: String? = nil,
+        suppressPressAndHoldKeyRepeat: Bool = false
     ) -> Bool {
         shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
             before: (markedTextBefore, markedSelectionBefore),
             after: (markedTextAfter, markedSelectionAfter),
             accumulatedText: accumulatedText,
             event: event,
-            inputSourceId: inputSourceId
+            inputSourceId: inputSourceId,
+            suppressPressAndHoldKeyRepeat: suppressPressAndHoldKeyRepeat
         )
     }
 #endif

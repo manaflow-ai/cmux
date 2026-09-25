@@ -24,6 +24,7 @@ public struct TerminalSection: View {
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var textEditingGestures: DefaultsValueModel<Bool>
+    @State private var macosPressAndHold: DefaultsValueModel<Bool>
     @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
@@ -52,6 +53,7 @@ public struct TerminalSection: View {
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
+        _macosPressAndHold = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.macosPressAndHold))
         _adaptiveDefaultTheme = State(
             initialValue: DefaultsValueModel(
                 store: defaultsStore,
@@ -88,6 +90,7 @@ public struct TerminalSection: View {
             scrollBar,
             copyOnSelect,
             textEditingGestures,
+            macosPressAndHold,
             adaptiveDefaultTheme,
             autoResume,
             hibernation,
@@ -439,6 +442,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalTextEditingGesturesToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.macosPressAndHold"),
+                String(localized: "settings.terminal.macosPressAndHold", defaultValue: "macOS Press-and-Hold Accents"),
+                subtitle: macosPressAndHold.current
+                    ? String(localized: "settings.terminal.macosPressAndHold.subtitleOn", defaultValue: "Held letters open the macOS accent menu without repeating into the terminal. Key repeat stays disabled for those letters while the menu is open.")
+                    : String(localized: "settings.terminal.macosPressAndHold.subtitleOff", defaultValue: "Held letters repeat in the terminal as usual. Enable this to use the macOS accent menu for accented characters.")
+            ) {
+                Toggle("", isOn: Binding(get: { macosPressAndHold.current }, set: { macosPressAndHold.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalMacOSPressAndHoldToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(

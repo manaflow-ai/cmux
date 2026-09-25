@@ -4622,7 +4622,184 @@
           }
         }
       }
+    },
+    "settings.terminal.macosPressAndHold": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "macOS Press-and-Hold Accents"
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "macOS-Akzente per Gedrückthalten"
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Accents macOS par maintien"
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "علامات macOS بالضغط المطول"
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Acentos de macOS al mantener pulsado"
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "macOS 長按重音符號"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "macOS 长按重音符号"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "macOS 길게 눌러 악센트"
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "macOS 長押しアクセント"
+      }
     }
+  }
+},
+    "settings.terminal.macosPressAndHold.subtitleOff": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Held letters repeat in the terminal as usual. Enable this to use the macOS accent menu for accented characters."
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Gedrückte Buchstaben werden im Terminal wie gewohnt wiederholt. Aktiviere dies, um das macOS-Akzentmenü für akzentierte Zeichen zu verwenden."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Les lettres maintenues se répètent normalement dans le terminal. Activez cette option pour utiliser le menu des accents macOS."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "تتكرر الأحرف المضغوطة في الطرفية كالمعتاد. فعّل هذا الخيار لاستخدام قائمة علامات macOS للأحرف المنقوطة."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Las letras mantenidas se repiten normalmente en la terminal. Activa esta opción para usar el menú de acentos de macOS."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "按住字母時會照常在終端機中重複。啟用此選項即可使用 macOS 重音符號選單。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "按住字母时会照常在终端中重复。启用此选项即可使用 macOS 重音符号菜单。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "누른 문자는 터미널에서 평소처럼 반복됩니다. macOS 악센트 메뉴를 사용하려면 이 옵션을 켜세요."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "文字キーを押し続けると通常どおりターミナルで繰り返されます。macOS のアクセントメニューを使うには有効にしてください。"
+      }
+    }
+  }
+},
+    "settings.terminal.macosPressAndHold.subtitleOn": {
+  "extractionState": "manual",
+  "localizations": {
+    "en": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Held letters open the macOS accent menu without repeating into the terminal. Key repeat stays disabled for those letters while the menu is open."
+      }
+    },
+    "de": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Gedrückte Buchstaben öffnen das macOS-Akzentmenü, ohne im Terminal wiederholt zu werden. Die Tastenwiederholung bleibt für diese Buchstaben deaktiviert, solange das Menü geöffnet ist."
+      }
+    },
+    "fr": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Les lettres maintenues ouvrent le menu des accents macOS sans se répéter dans le terminal. La répétition reste désactivée pour ces lettres tant que le menu est ouvert."
+      }
+    },
+    "ar": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "تفتح الأحرف المضغوطة قائمة علامات macOS من دون تكرارها في الطرفية. يظل تكرار المفاتيح معطلاً لهذه الأحرف أثناء فتح القائمة."
+      }
+    },
+    "es": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Las letras mantenidas abren el menú de acentos de macOS sin repetirse en la terminal. La repetición permanece desactivada para esas letras mientras el menú está abierto."
+      }
+    },
+    "zh-Hant": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "按住字母會開啟 macOS 重音符號選單，不會在終端機中重複輸入。選單開啟時，這些字母會維持停用按鍵重複。"
+      }
+    },
+    "zh-Hans": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "按住字母会打开 macOS 重音符号菜单，不会在终端中重复输入。菜单打开时，这些字母会保持禁用按键重复。"
+      }
+    },
+    "ko": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "누른 문자는 터미널에 반복 입력되지 않고 macOS 악센트 메뉴를 엽니다. 메뉴가 열려 있는 동안 해당 문자의 키 반복은 비활성화됩니다."
+      }
+    },
+    "ja": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "文字キーを押し続けるとターミナルに繰り返し入力されず、macOS のアクセントメニューが開きます。メニューを開いている間はその文字のキーリピートが無効になります。"
+      }
+    }
+  }
+}
   },
   "version": "1.0"
 }

@@ -53,6 +53,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textEditingGestures"
     )
 
+    /// Whether plain repeated letter key events stay inside macOS so its
+    /// press-and-hold accent picker can own the held key.
+    public let macosPressAndHold = DefaultsKey<Bool>(
+        id: "terminal.macosPressAndHold",
+        defaultValue: false,
+        userDefaultsKey: "terminal.macosPressAndHold"
+    )
+
     /// Whether cmux supplies its appearance-adaptive managed palette for an
     /// Ghostty config without authored themes or terminal colors. Font and
     /// behavior settings preserve the managed palette; it is enabled by default.

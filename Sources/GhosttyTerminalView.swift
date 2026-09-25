@@ -6866,7 +6866,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             after: (markedText.string, markedSelectedRange),
             accumulatedText: accumulatedText,
             event: textInputEvent,
-            inputSourceId: keyboardIdBefore
+            inputSourceId: keyboardIdBefore,
+            suppressPressAndHoldKeyRepeat: TerminalPressAndHoldSettings.isEnabled()
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
             return
