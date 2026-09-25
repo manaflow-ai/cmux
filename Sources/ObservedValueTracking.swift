@@ -83,6 +83,7 @@ final class ObservationToken: @unchecked Sendable {
         coordinatorStorage.withLock { $0 == nil }
     }
 
+    @MainActor
     fileprivate static func start<Value: Equatable>(
         initial: Bool,
         read: @escaping @MainActor () -> Value,
