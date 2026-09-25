@@ -3,7 +3,8 @@
 # compile-app-host-test-product.sh resolve <derived-data> <source-packages>
 # compile-app-host-test-product.sh build <derived-data> <source-packages> <cas-path> [log]
 #
-# Compiles the app-host test product with Xcode's compilation cache on. ci.yml
+# Compiles the app-host test product with Xcode's compilation cache on for
+# every target except cmuxTests (see build()). ci.yml
 # `macos-compile-admission` restores that cache read-only and nightly.yml
 # `refresh-test-compilation-cache` writes it. A cache entry is keyed on the
 # whole compiler invocation and on absolute paths, so both jobs must build
@@ -156,6 +157,7 @@ build() {
   # same edit compiled one task and cmuxTests took 31 s instead of 139 s
   # (#14249, run 36081880621, 12vcpu). Command-line settings are evaluated per
   # target, so every other target keeps the cache and its arguments.
+  # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   local -a cache_setting=(
     'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
     CMUX_CI_COMPILATION_CACHE_cmuxTests=NO
