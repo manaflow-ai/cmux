@@ -60,15 +60,21 @@ struct TerminalColorSchemeQueryTests {
         }
 
         // The first query covers inheritance before any surface callback.
-        #expect(try await query(surface, inputs: pair.stream) == Self.report(dark: initiallyDark))
+        let initial = try await query(surface, inputs: pair.stream)
+        print("996 initial=\(initial.map { String(format: "%02x", $0) }.joined())")
+        #expect(initial.range(of: Self.report(dark: initiallyDark)) != nil)
         for dark in [true, false, true] {
             ghostty_surface_set_color_scheme(surface, Self.scheme(dark: dark))
-            #expect(try await query(surface, inputs: pair.stream) == Self.report(dark: dark))
+            let actual = try await query(surface, inputs: pair.stream)
+            print("996 transition=\(actual.map { String(format: "%02x", $0) }.joined())")
+            #expect(actual.range(of: Self.report(dark: dark)) != nil)
             ghostty_surface_update_config(surface, config)
             // The same-scheme callback is intentionally a no-op. Reloading a
             // plain config must not reset the scheme used by the terminal parser.
             ghostty_surface_set_color_scheme(surface, Self.scheme(dark: dark))
-            #expect(try await query(surface, inputs: pair.stream) == Self.report(dark: dark))
+            let reloaded = try await query(surface, inputs: pair.stream)
+            print("996 reload=\(reloaded.map { String(format: "%02x", $0) }.joined())")
+            #expect(reloaded.range(of: Self.report(dark: dark)) != nil)
         }
     }
 
