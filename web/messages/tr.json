@@ -1322,6 +1322,7 @@
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur.",
+          "suppressWhenAppFocused": "Etkinleştirildiğinde cmux, etkin uygulama olduğu sürece yalnızca odaklanılan bölme için değil tüm bildirimler için masaüstü başlığını ve telefona gönderilen push bildirimini atlar. Bildirimler kenar çubuğunda görünmeye devam eder, ses ve özel komut da çalışmaya devam eder. Kapalıyken cmux odaktayken diğer workspace'ler ve bölmeler için başlıklar gösterilmeye devam eder.",
           "agentIdleReminder": "Bir ajan boşta olup girişinizi beklediğinde (tur sona erdikten yaklaşık 60 saniye sonra) bildirim gönderin. Önceki turdan kalan arka plan işi devam ederken bastırılır; böylece çalışan bir derleme veya izleyici yanlış bir bekleme uyarısı oluşturmaz.",
           "soundOverrides": "Ajan ve uyarı türüne göre seyrek bildirim sesi geçersiz kılmaları. Eksik hücreler notifications.sound kullanır.",
           "soundOverride": "Bir bildirim sesi geçersiz kılması. default, notifications.sound kullanır; none oynatmayı devre dışı bırakır; diğer değerler yerleşik veya özel bir ses seçer."

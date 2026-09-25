@@ -1322,6 +1322,7 @@
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea.",
+          "suppressWhenAppFocused": "Kada je uključeno, cmux preskače baner na radnoj površini i push na telefon za svaku notifikaciju dok je cmux aktivna aplikacija, a ne samo za fokusirani panel. Notifikacije se i dalje prikazuju u bočnoj traci, a zvuk i prilagođena komanda se i dalje pokreću. Isključeno i dalje prikazuje banere za druge workspaceove i panele dok je cmux u fokusu.",
           "agentIdleReminder": "Pošalji obavijest kada agent miruje i čeka vaš unos (oko 60 sekundi nakon završetka turna). Utišano je dok je pozadinski rad prethodnog turna još na čekanju, pa pokrenuta izgradnja ili nadzor ne izazivaju pogrešnu obavijest o čekanju.",
           "soundOverrides": "Rijetka nadjačavanja zvuka obavijesti po agentu i vrsti upozorenja. Ćelije koje nedostaju koriste notifications.sound.",
           "soundOverride": "Nadjačavanje zvuka obavijesti. default koristi notifications.sound, none onemogućava reprodukciju, a ostale vrijednosti biraju ugrađeni ili prilagođeni zvuk."

@@ -1322,6 +1322,7 @@
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "Når dette er slået til, trækkes et notifikationsbanner kun automatisk tilbage, når dets surface er præcis den fokuserede surface. Et banner leveret til en ikke-fokuseret surface i det aktuelt synlige workspace bliver vist, indtil du fokuserer på den surface (eller klikker/afviser det), i stedet for at blive trukket tilbage, når workspacet bliver synligt. Fra bevarer den ældre tilbagetrækning baseret på workspace-synlighed.",
+          "suppressWhenAppFocused": "Når dette er slået til, springer cmux skrivebordsbanneret og push til telefonen over for alle notifikationer, mens cmux er den aktive app, ikke kun for det fokuserede panel. Notifikationer vises stadig i sidebjælken, og lyden og den brugerdefinerede kommando kører stadig. Fra bliver ved med at vise bannere for andre workspaces og paneler, mens cmux er i fokus.",
           "agentIdleReminder": "Send en notifikation, når en agent har været inaktiv og venter på dit input (ca. 60 sekunder efter en tur slutter). Undertrykkes, mens baggrundsarbejde fra den seneste tur stadig kører, så en igangværende build eller overvågning ikke udløser en falsk vente-notifikation.",
           "soundOverrides": "Sparsomme tilsidesættelser af notifikationslyd pr. agent og alarmtype. Manglende felter bruger notifications.sound.",
           "soundOverride": "En tilsidesættelse af notifikationslyden. default bruger notifications.sound, none deaktiverer afspilning, og de øvrige værdier vælger en indbygget eller brugerdefineret lyd."

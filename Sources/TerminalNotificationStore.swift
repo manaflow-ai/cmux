@@ -1510,10 +1510,8 @@ final class TerminalNotificationStore: ObservableObject {
             restoreCooldownReservation(cooldownReservation)
             return false
         }
-        let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
-            tabId: request.tabId,
-            surfaceId: request.surfaceId
-        )
+        let focusState = notificationFocusState(tabId: request.tabId, surfaceId: request.surfaceId)
+        let shouldSuppressExternalDelivery = Self.shouldSuppressExternalDelivery(focusState)
         let notification = TerminalNotification(
             id: notificationID,
             tabId: request.tabId,
@@ -1536,6 +1534,7 @@ final class TerminalNotificationStore: ObservableObject {
         if effects.record {
             recordNotification(
                 notification,
+                isFocusedSurfaceArrival: focusState.isFocusedSurfaceArrival,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
                 effects: effects,
                 now: now,
@@ -1566,6 +1565,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private func recordNotification(
         _ notification: TerminalNotification,
+        isFocusedSurfaceArrival: Bool,
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
@@ -1591,7 +1591,7 @@ final class TerminalNotificationStore: ObservableObject {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
         }
 
-        if shouldSuppressExternalDelivery, effects.markUnread {
+        if isFocusedSurfaceArrival, effects.markUnread {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
@@ -1641,13 +1641,6 @@ final class TerminalNotificationStore: ObservableObject {
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
-    }
-
-    private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
-        let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
-        return focusState.isAppFocused
-            && focusState.isActiveTab
-            && focusState.isFocusedSurface
     }
 
     private func deliverNotificationSideEffects(
