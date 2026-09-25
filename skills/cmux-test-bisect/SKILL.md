@@ -39,8 +39,10 @@ python3 $T --package CmuxMobileShell cleanup           # delete probe branches
   old CI scripts, which is why a plain `-f ref=<sha>` dispatch fails early.
 - Probes leave the runner on `auto` (idle owned mini first, Blacksmith
   overflow). Do not pin a runner.
-- `adopt <sha> <run-id>` counts a run that already exists, for example the red
-  main run, without dispatching again.
+- `adopt <sha> <run-id>` counts a `test-ios.yml` run with
+  `swift_package=<pkg>` that already exists (a dispatch on main, or a probe
+  run whose id `start` could not read) without dispatching again. A `ci.yml`
+  run has no package job to read.
 - `--filter <regex>` narrows the suite once you are chasing a few tests;
   `--paths` changes which commits count as midpoint candidates (default: the
   iOS and Shared packages).
@@ -48,7 +50,8 @@ python3 $T --package CmuxMobileShell cleanup           # delete probe branches
   when older commits hang or fail to build for a reason you already know:
   bisect the question you have, not the known break.
 - `--bisect <name>` keeps a second experiment (for example the same commits
-  with a `--patch`) beside the first.
+  with a `--patch`) beside the first. `--package` and `--bisect` go before the
+  subcommand, and every later command for that bisect needs them too.
 - State is shared by every worktree of the checkout, in
   `<git-common-dir>/package-bisect/<name>.json`. Finished job logs are cached
   beside it per run attempt, so `status --refetch` costs one run lookup per
@@ -66,7 +69,8 @@ Check the probe list first. A probe marked `INCOMPLETE` never printed its
 out, so every test after that point shows `-`. A `-` is never a pass: a suite
 that hangs early makes a whole cluster look like it "broke" at the commit that
 fixed the hang. Probe those commits again in a second bisect with the hang fix
-applied: `start --bisect <pkg>-patched --patch <hang fix> <shas>`.
+applied:
+`python3 $T --package <pkg> --bisect <pkg>-patched start --patch <hang fix> <shas>`.
 
 | Verdict | Meaning | Next |
 | --- | --- | --- |

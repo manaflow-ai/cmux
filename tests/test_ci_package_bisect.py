@@ -166,6 +166,25 @@ class SaveTests(unittest.TestCase):
             finally:
                 MODULE.State.path = original
 
+    def test_save_keep_lets_an_adopted_older_run_replace_a_newer_one(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as scratch:
+            path = pathlib.Path(scratch) / "Pkg.json"
+            original = MODULE.State.path
+            MODULE.State.path = classmethod(lambda cls, name: path)
+            try:
+                first, shas = state([set()])
+                first.probes[shas[0]].run_id = 200
+                first.save()
+                first.probes[shas[0]] = MODULE.Probe(sha=shas[0], branch="", run_id=100)
+                first.save()
+                self.assertEqual(MODULE.State.load("Pkg").probes[shas[0]].run_id, 200)
+                first.probes[shas[0]] = MODULE.Probe(sha=shas[0], branch="", run_id=100)
+                first.save(keep=frozenset({shas[0]}))
+                self.assertEqual(MODULE.State.load("Pkg").probes[shas[0]].run_id, 100)
+            finally:
+                MODULE.State.path = original
+
 
 class OverlayTests(unittest.TestCase):
     def test_drops_only_the_package_job_lint_gate(self):
@@ -175,6 +194,10 @@ class OverlayTests(unittest.TestCase):
         self.assertEqual(head, workflow.partition(f"\n  {MODULE.PACKAGE_JOB}:")[0])
         self.assertNotIn(MODULE.LINT_GATE, package.split("\n  ios-simulator")[0])
         self.assertEqual(len(workflow) - len(patched), len(MODULE.LINT_GATE) - len("&& (true"))
+
+    def test_missing_package_job_is_a_clear_error(self):
+        with self.assertRaises(SystemExit):
+            MODULE.drop_lint_gate("jobs:\n  other:\n    runs-on: x\n")
 
     def test_overlay_paths_exist(self):
         for path in MODULE.OVERLAY_PATHS:

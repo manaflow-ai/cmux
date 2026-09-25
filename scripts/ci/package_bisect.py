@@ -7,16 +7,18 @@ the probed commit's tree with today's iOS CI files laid over it and the
 package-lint gate dropped (old sources fail today's lint baseline). The
 package suite then runs exactly as it does now.
 
-    package_bisect.py start --package CmuxMobileShell --points 6 GOOD..BAD
-    package_bisect.py start --package CmuxMobileShell SHA [SHA ...]
+    package_bisect.py --package CmuxMobileShell start --points 6 GOOD..BAD
+    package_bisect.py --package CmuxMobileShell start SHA [SHA ...]
     package_bisect.py probe SHA [SHA ...]  # add chosen commits to this bisect
     package_bisect.py adopt SHA RUN_ID     # count a run that already exists
     package_bisect.py status [--wait]      # failure matrix + per-test windows
     package_bisect.py next [--dispatch]    # midpoints that split each break window
     package_bisect.py cleanup              # delete the probe branches
 
-Add --bisect NAME to run a second experiment beside the first, for example
-the same commits with `start --patch <fix>` applied to get past a hang.
+--package and --bisect go before the subcommand, on every command of that
+bisect. --bisect NAME runs a second experiment beside the first, for example
+the same commits with a patch applied to get past a hang:
+`package_bisect.py --package PKG --bisect PKG-patched start --patch FIX SHA ...`.
 
 State lives in <git-common-dir>/package-bisect/<package>.json, so every
 worktree of one checkout shares a bisect; finished job logs are cached beside
@@ -159,13 +161,18 @@ class State:
         data["probes"] = {k: Probe(**v) for k, v in data["probes"].items()}
         return cls(**data)
 
-    def save(self) -> None:
-        """Write atomically, keeping probes another invocation added meanwhile."""
+    def save(self, keep: frozenset[str] = frozenset()) -> None:
+        """Write atomically, keeping probes another invocation added meanwhile.
+
+        `keep` names probes whose copy here wins regardless of run id (adopt).
+        """
         path = self.path(self.name)
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             on_disk = json.loads(path.read_text()).get("probes", {})
             for sha, probe in on_disk.items():
+                if sha in keep:
+                    continue
                 mine = self.probes.get(sha)
                 # The newer dispatch or adoption of a commit has the higher run id.
                 if mine is None or (probe.get("run_id") or 0) > (mine.run_id or 0):
@@ -183,7 +190,9 @@ class State:
 
 
 def drop_lint_gate(workflow: str) -> str:
-    start = workflow.index(f"\n  {PACKAGE_JOB}:")
+    start = workflow.find(f"\n  {PACKAGE_JOB}:")
+    if start < 0:
+        raise SystemExit(f"{WORKFLOW_PATH}: no {PACKAGE_JOB} job")
     body = workflow[start:]
     if LINT_GATE not in body:
         raise SystemExit(f"{WORKFLOW_PATH}: {PACKAGE_JOB} lint gate not found")
@@ -218,16 +227,31 @@ def dispatch(state: State, sha: str) -> Probe:
     branch = f"{BRANCH_PREFIX}{state.name}/{sha[:10]}"
     commit = probe_commit(sha, state.ci_base, state.patches)
     git("push", "-q", "-f", REMOTE_URL, f"{commit}:refs/heads/{branch}")
+    dispatched_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 60))
     args = ["gh", "workflow", "run", WORKFLOW, "--repo", REPO, "--ref", branch,
             "-f", f"swift_package={state.package}"]
     if state.test_filter:
         args += ["-f", f"test_filter={state.test_filter}"]
     match = RUN_URL.search(run(*args))
-    probe = Probe(sha=sha, branch=branch, run_id=int(match["id"]) if match else None)
+    run_id = int(match["id"]) if match else find_dispatched_run(branch, dispatched_at)
+    if run_id is None:
+        print(f"{sha[:10]}: no run id yet for {branch}; `adopt {sha[:10]} <run-id>` once it shows", file=sys.stderr)
+    probe = Probe(sha=sha, branch=branch, run_id=run_id)
     state.probes[sha] = probe
     state.save()  # a later probe's failure must not orphan this branch and run
     print(f"{sha[:10]} -> {branch} run {probe.run_id}")
     return probe
+
+
+def find_dispatched_run(branch: str, since: str) -> int | None:
+    """The run a dispatch created, when `gh workflow run` printed no URL."""
+    for _ in range(5):
+        time.sleep(3)
+        runs = gh_json("run", "list", "--repo", REPO, "--workflow", WORKFLOW, "--branch", branch,
+                       "--event", "workflow_dispatch", "-L", "1", "--json", "databaseId,createdAt")
+        if runs and runs[0]["createdAt"] >= since:
+            return int(runs[0]["databaseId"])
+    return None
 
 
 def log_cache(run_id: int, attempt: int) -> Path:
@@ -258,7 +282,7 @@ def package_job_log(run_id: int) -> tuple[str, str]:
     return "completed", log
 
 
-def refresh(state: State, refetch: bool = False) -> None:
+def refresh(state: State, refetch: bool = False, keep: frozenset[str] = frozenset()) -> None:
     for probe in state.probes.values():
         if probe.run_id is None or (probe.status != "pending" and not refetch):
             continue
@@ -275,7 +299,7 @@ def refresh(state: State, refetch: bool = False) -> None:
             probe.failures = sorted(results.failed) if results else []
             probe.passes = sorted(results.passed) if results else []
             probe.complete = bool(results and results.complete)
-    state.save()
+    state.save(keep)
 
 
 # --- analysis --------------------------------------------------------------
@@ -421,6 +445,8 @@ def cmd_start(args) -> None:
     for spec in args.commits:
         if ".." in spec:
             good, bad = (resolve(s) for s in spec.split("..", 1))
+            if history.index(good) >= history.index(bad):
+                raise SystemExit(f"{spec}: the good commit must come before the bad one")
             span = [good] + [c for c in between(state, good, bad)] + [bad]
             count = min(len(span), max(2, args.points))
             shas += [span[round(i * (len(span) - 1) / (count - 1))] for i in range(count)]
@@ -448,9 +474,15 @@ def cmd_adopt(args) -> None:
     sha = git("rev-parse", args.sha).strip()
     if sha not in state.history:
         raise SystemExit(f"{args.sha} is not on the bisect's first-parent history")
+    head = gh_json("run", "view", str(args.run_id), "--repo", REPO, "--json", "headSha")["headSha"]
+    if head != sha:
+        # A probe run's head is the overlay commit, whose parent is the probed commit.
+        parent = subprocess.run(["git", "rev-parse", "--verify", "-q", f"{head}^"], capture_output=True, text=True)
+        if parent.stdout.strip() != sha:
+            raise SystemExit(f"run {args.run_id} ran {head[:10]}, not {sha[:10]} or a probe of it")
     branch = state.probes[sha].branch if sha in state.probes else ""
     state.probes[sha] = Probe(sha=sha, branch=branch, run_id=args.run_id)
-    refresh(state)
+    refresh(state, keep=frozenset({sha}))
 
 
 def cmd_status(args) -> None:
@@ -482,8 +514,11 @@ def cmd_next(args) -> None:
 def cmd_cleanup(args) -> None:
     state = State.load(args.bisect or args.package)
     branches = sorted({p.branch for p in state.probes.values() if p.branch})
+    # Delete only what is still there, so a rerun after a partial cleanup works.
+    remaining = git("ls-remote", "--heads", REMOTE_URL, *(f"refs/heads/{b}" for b in branches)) if branches else ""
+    present = {line.split("refs/heads/", 1)[1] for line in remaining.splitlines() if "refs/heads/" in line}
     failed = [
-        b for b in branches
+        b for b in sorted(present)
         if subprocess.run(["git", "push", "-q", REMOTE_URL, f":refs/heads/{b}"]).returncode != 0
     ]
     if failed:
@@ -502,7 +537,8 @@ def main(argv: list[str] | None = None) -> None:
     start.add_argument("--points", type=int, default=6, help="probes per range")
     start.add_argument("--filter", default="", help="test_filter for the package suite")
     start.add_argument("--ci-base", default="upstream/main", help="where today's CI files come from")
-    start.add_argument("--paths", nargs="+", default=list(DEFAULT_PATHS))
+    start.add_argument("--paths", nargs="+", default=list(DEFAULT_PATHS),
+                       help="paths whose commits are midpoint candidates; put the commits before --paths")
     start.add_argument("--force", action="store_true")
     start.add_argument("--patch", action="append", default=[], metavar="SHA",
                        help="apply this commit's change to every probe (repeatable)")
