@@ -116,7 +116,22 @@ func titlebarControlForegroundNSColor(opacity: CGFloat, appearance: WindowAppear
 }
 
 func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
-    WindowAppearanceSnapshot.resolvedColor(.controlAccentColor, for: colorScheme)
+    switch colorScheme {
+    case .dark:
+        return NSColor(
+            srgbRed: 0,
+            green: 145.0 / 255.0,
+            blue: 1.0,
+            alpha: 1.0
+        )
+    default:
+        return NSColor(
+            srgbRed: 0,
+            green: 136.0 / 255.0,
+            blue: 1.0,
+            alpha: 1.0
+        )
+    }
 }
 
 func cmuxAccentNSColor(for appAppearance: NSAppearance?) -> NSColor {

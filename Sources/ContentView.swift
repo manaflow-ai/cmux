@@ -16029,7 +16029,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var activeProgressFillColor: Color {
-        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : cmuxAccentColor()
+        usesInvertedActiveForeground ? activeSecondaryColor(0.8) : Color(nsColor: WindowAppearanceSnapshot.resolvedColor(.controlAccentColor, for: colorScheme))
     }
 
     private var shortcutHintEmphasis: Double {
@@ -16734,7 +16734,7 @@ struct TabItemView: View, Equatable {
         }
         switch level {
         case .info: return .secondary
-        case .progress: return Color(nsColor: cmuxAccentNSColor(for: colorScheme))
+        case .progress: return Color(nsColor: WindowAppearanceSnapshot.resolvedColor(.controlAccentColor, for: colorScheme))
         case .success: return .green
         case .warning: return .orange
         case .error: return .red

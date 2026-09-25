@@ -367,7 +367,7 @@ final class SidebarRowIconTextLine: NSView {
         } else {
             switch log.level {
             case .info: color = palette.secondary(0.5)
-            case .progress: color = cmuxAccentNSColor(for: palette.colorScheme)
+            case .progress: color = palette.semantic(.controlAccentColor)
             case .success: color = .systemGreen
             case .warning: color = .systemOrange
             case .error: color = .systemRed
