@@ -83,7 +83,7 @@ extension FeedCoordinator {
     /// claim is only a validated hint: the current surface registry wins after
     /// a pane move, while workspace-only events may use the hook-session match.
     @MainActor
-    private func liveNotificationTarget(
+    func liveNotificationTarget(
         for event: WorkstreamEvent,
         resolved: (ownerId: UUID, surfaceId: UUID?)?
     ) -> (ownerID: UUID, surfaceID: UUID?)? {
