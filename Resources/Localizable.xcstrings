@@ -528950,19 +528950,19 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quell-Surface, dessen Bereich die Datei erhält (Standard: fokussiertes Surface)"
+            "value": "Quelloberfläche, deren Teilfenster die Datei erhält (Standard: fokussierte Oberfläche)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Surface source dont le volet reçoit le fichier (par défaut : surface active)"
+            "value": "Surface d’affichage source dont le volet reçoit le fichier (par défaut : surface active)"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "السطح المصدر الذي تستقبل لوحته الملف (الافتراضي: السطح المُركّز)"
+            "value": "السطح المصدر الذي يستقبل جزؤه الملف (الافتراضي: السطح النشط)"
           }
         },
         "es": {
@@ -528974,19 +528974,19 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "接收檔案的窗格所屬的來源 surface（預設：目前聚焦的 surface）"
+            "value": "接收檔案的窗格所屬的來源介面（預設：目前聚焦的介面）"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "接收文件的窗格所属的源 surface（默认：当前聚焦的 surface）"
+            "value": "接收文件的窗格所属的源表面（默认：当前聚焦的表面）"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "파일을 받을 패인이 속한 소스 서피스 (기본값: 포커스된 서피스)"
+            "value": "파일을 받을 분할 창이 속한 원본 화면 (기본값: 포커스된 화면)"
           }
         }
       }
