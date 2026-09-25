@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Carbon.HIToolbox
 import Testing
 import WebKit
@@ -80,7 +81,7 @@ final class CmuxWebViewKeyDownReentryTests {
             ))
 
             let webView = try #require(window.firstResponder as? WKWebView)
-            let handled = cmuxWithBrowserWebKitKeyDownDispatch(for: webView) {
+            let handled = webView.withBrowserWebKitKeyDownDispatch {
                 window.performKeyEquivalent(with: event)
             }
 
@@ -101,7 +102,7 @@ final class CmuxWebViewKeyDownReentryTests {
             ))
 
             let webView = try #require(window.firstResponder as? WKWebView)
-            let handled = cmuxWithBrowserWebKitKeyDownDispatch(for: webView) {
+            let handled = webView.withBrowserWebKitKeyDownDispatch {
                 window.performKeyEquivalent(with: event)
             }
 
@@ -122,7 +123,7 @@ final class CmuxWebViewKeyDownReentryTests {
             ))
 
             let webView = try #require(window.firstResponder as? WKWebView)
-            let handled = cmuxWithBrowserWebKitKeyDownDispatch(for: webView) {
+            let handled = webView.withBrowserWebKitKeyDownDispatch {
                 window.performKeyEquivalent(with: event)
             }
 
@@ -180,7 +181,7 @@ final class CmuxWebViewKeyDownReentryTests {
             ))
 
             let webView = try #require(window.firstResponder as? WKWebView)
-            let handled = cmuxWithBrowserWebKitKeyDownDispatch(for: webView) {
+            let handled = webView.withBrowserWebKitKeyDownDispatch {
                 window.performKeyEquivalent(with: event)
             }
 
@@ -244,7 +245,7 @@ final class CmuxWebViewKeyDownReentryTests {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
-        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
 

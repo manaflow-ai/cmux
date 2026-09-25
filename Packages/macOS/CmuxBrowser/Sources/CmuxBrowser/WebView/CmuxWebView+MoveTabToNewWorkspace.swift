@@ -27,7 +27,7 @@ extension CmuxWebView {
         }
     }
 
-    @objc func contextMenuMoveTabToNewWorkspace(_ sender: Any?) {
+    @objc public func contextMenuMoveTabToNewWorkspace(_ sender: Any?) {
         _ = sender
         guard contextMenuMoveTabToNewWorkspace?() == true else {
             NSSound.beep()

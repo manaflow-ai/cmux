@@ -380,7 +380,9 @@ def test_routed_lane_names_the_packages_the_job_would_run() -> None:
     # A dependency pulls in its dependents, and nothing else.
     settings = module.swift_package_test_selection(["Packages/macOS/CmuxSettings/Package.swift"])
     assert "CmuxSettings" in settings and "CmuxSettingsUI" in settings
-    assert "CmuxBrowser" not in settings
+    # CmuxBrowser depends on CmuxSettings, so it is a dependent; CmuxGit is not.
+    assert "CmuxBrowser" in settings
+    assert "CmuxGit" not in settings
     assert module.swift_package_test_selection(["Sources/AppDelegate.swift"]) == ()
 
 
