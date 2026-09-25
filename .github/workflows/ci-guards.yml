@@ -553,6 +553,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_notification_semantics.py
 
+      - name: Validate package test bisect
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_package_bisect.py
+
       - name: Validate app-host test failure classification
         if: ${{ matrix.group == 'app-host-process' }}
         run: python3 tests/test_ci_app_host_test_output.py
