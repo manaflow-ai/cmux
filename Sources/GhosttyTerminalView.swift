@@ -6346,8 +6346,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         pendingSuppressedFirstResponderFocusTransactionId = nil
 #if DEBUG
         cmuxDebugLog(
-            "focus.firstResponder REPLAY (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? \"nil\") " +
-            "transaction=\(focusTransactionId?.uuidString.prefix(5) ?? \"nil\")"
+            "focus.firstResponder REPLAY (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "transaction=\(focusTransactionId?.uuidString.prefix(5) ?? "nil")"
         )
 #endif
         applyFirstResponderFocus(focusTransactionId: focusTransactionId)
