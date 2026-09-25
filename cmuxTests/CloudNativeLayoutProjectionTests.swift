@@ -16,8 +16,8 @@ import Testing
 @Suite("Native Cloud layout projection preserves panels and focus")
 struct CloudNativeLayoutProjectionTests {
     @Test("Closing a mirrored Mac terminal updates its owner, while teardown only detaches",
-          arguments: [SurfaceProjectionEndReason.paneClosed, .workspaceTeardown, .replaced])
-    func closingDeviceProjectionUpdatesSource(reason: SurfaceProjectionEndReason) async throws {
+          arguments: [SurfaceProjectionEndReason.paneClosed, .workspaceTeardown, .replaced], [false, true])
+    func closingDeviceProjectionUpdatesSource(reason: SurfaceProjectionEndReason, mixed: Bool) async throws {
         let manager = TabManager(autoWelcomeIfNeeded: false)
         let viewer = try #require(manager.selectedWorkspace)
         let pane = try #require(viewer.bonsplitController.allPaneIds.first)
@@ -74,10 +74,14 @@ struct CloudNativeLayoutProjectionTests {
         provider.layoutSync = coordinator
         coordinator.accept(source)
         await coordinator.waitForIdle()
+        if mixed {
+            let localPane = try #require(viewer.bonsplitController.allPaneIds.first)
+            _ = try #require(viewer.newTerminalSurface(inPane: localPane, focus: false))
+        }
         viewer.performRemoteTmuxMirrorMutation { _ = viewer.closePanel(second, force: true) }
         catalog.endProjections(panelID: second, reason: reason)
         await coordinator.waitForIdle()
-        let shouldClose = reason == .paneClosed
+        let shouldClose = reason == .paneClosed && !mixed
         #expect(closes == (shouldClose ? 1 : 0))
         #expect(try source.layout.validatedSurfaceIDs() == (shouldClose ? [remoteA] : [remoteA, remoteB]))
         if shouldClose {
