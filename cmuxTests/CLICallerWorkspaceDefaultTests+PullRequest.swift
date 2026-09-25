@@ -178,8 +178,8 @@ extension CLICallerWorkspaceDefaultTests {
                 #expect(!result.stderr.contains("provider secret"))
                 #expect(result.stderr.contains("check authentication"))
             }
-        if scenario == "gh-malformed" {
-                #expect(result.stderr.contains("invalid pull-request metadata"))
+            if scenario == "gh-malformed" {
+                #expect(result.stderr.contains("invalid pull-request information"))
                 #expect(!result.stderr.contains("not-json"))
             }
             return

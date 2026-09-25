@@ -7809,7 +7809,7 @@ struct CMUXCLI {
             print(response)
 
         case "pr":
-            try runPullRequestCommand(
+            try await runPullRequestCommand(
                 commandArgs: commandArgs,
                 client: client,
                 windowOverride: windowId,
