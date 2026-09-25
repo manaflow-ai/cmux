@@ -280,6 +280,10 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_pi_extension_wakeup.py"
+lane = "macos-cli-no-socket-post-fish"
+
+[[test]]
 path = "tests/test_codex_permission_prompt_notification.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
@@ -338,6 +342,10 @@ path = "tests/test_ci_app_host_failure_census.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_bisect.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_replay_app_host_verdict.py"
 lane = "linux-guard"
 
@@ -359,6 +367,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cli_lane_in_admission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_delta_since_green.py"
 lane = "linux-guard"
 
 [[test]]
@@ -446,7 +458,7 @@ path = "tests/test_ci_owned_pool_rescue.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_owned_warm_labels.py"
+path = "tests/test_ci_owned_warm_state.py"
 lane = "linux-guard"
 
 [[test]]
@@ -727,6 +739,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_check_ghostty_zig_workflows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ensure_ghosttykit_zig.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1228,4 +1244,20 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_main_regression_attribution.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_merge_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_regression_bisect.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_late_placement.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_catch_up_pr.py"
 lane = "linux-guard"

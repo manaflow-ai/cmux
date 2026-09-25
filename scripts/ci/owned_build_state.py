@@ -4,9 +4,10 @@
     owned_build_state.py check STORE FINGERPRINT WORKSPACE [PACKAGE_STORE]
     owned_build_state.py adopt STORE DERIVED_DATA SOURCE
     owned_build_state.py record SOURCE DERIVED_DATA
-    owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT
+    owned_build_state.py keep STORE DERIVED_DATA FINGERPRINT [MERGED_ONTO [PR_NUMBER]]
     owned_build_state.py save STORE SOURCE_PACKAGES WORKSPACE [PACKAGE_STORE]
     owned_build_state.py prefer STORE WORKSPACE PREFIX REVISION [MAX_DISTANCE]
+    owned_build_state.py warm-keys STORE RUNNER POOL [FINGERPRINT]
 
 An owned Mac (a `glaeda-<class>-xcode-<version>` runner, pr_runner_pool.py)
 outlives the job, but ci-macos.yml compile admission was written for
@@ -24,9 +25,10 @@ This keeps two things under STORE (CMUX_OWNED_STATE_ROOT,
   swift-driver still decides what to recompile by modification time, so the
   kept DerivedData also carries the input times it was built against (below).
 - `source-packages`: the resolved `.ci-source-packages`, so the resolve
-  fetches what changed instead of restoring the whole cache. It is not
-  handed to the resolve as an exact hit: that would change the Resolve step,
-  which is part of the product key (product_input_identity.py). Packages hold
+  needs no cache restore. The resolve stamps them with the Package.resolved
+  it resolved, and a matching stamp resolves offline
+  (compile-app-host-test-product.sh `resolve`); otherwise it fetches what
+  changed. Packages hold
   no absolute build paths, so they live in PACKAGE_STORE, one per Mac, which
   every compile slot shares (STORE is per slot, ci-macos.yml's build-slot).
 
@@ -74,13 +76,21 @@ to 160 s from a seed a few commits behind. `prefer` runs on a warm Mac when
 CI_OWNED_PREFER_SEED is set and says whether the seed should replace the kept
 DerivedData. It digests the workspace once and counts the inputs each would
 rebuild: those whose content differs from the kept RECORD, and from the
-MANIFEST of the nearest seed in this commit's history that this Mac keeps
-(seed_derived_data.py CMUX_SEED_LOCAL_CACHE). Both are a local clone, so the
-one with fewer changed inputs wins, and the adopt that follows clones exactly
-that seed (CMUX_SEED_EXACT). A seed this Mac does not keep costs a download of about 250 s,
-so it wins only within MAX_DISTANCE commits, and only when MAX_DISTANCE is
-given. A kept DerivedData without a record replays nothing and rebuilds the
-whole `cmux` module, so any seed beats it. Every error keeps the warm path.
+MANIFEST of every seed in this commit's history that this Mac keeps
+(seed_derived_data.py CMUX_SEED_LOCAL_CACHE, as many as the disk holds). All are a local
+clone, so the one with the fewest changed inputs wins, and the adopt that
+follows clones exactly that seed (CMUX_SEED_EXACT). A seed this Mac does not
+keep costs a download of about 250 s, worth about DOWNLOAD_INPUTS changed
+inputs, so it wins only when GitHub's compare of its commit with the checkout
+lists that many fewer files than the kept build changed, at most MAX_DISTANCE
+commits back, and only when MAX_DISTANCE is given. A commit count alone says
+little: main takes about 25 merges an hour and a seed about 15 minutes, so the
+newest seed is usually 5 to 8 commits behind. A start that changes at most
+DOWNLOAD_INPUTS inputs never pays for a download, and when the compare bumps
+a submodule (the counts no longer compare) only a seed
+UNKNOWN_ESTIMATE_DISTANCE commits behind is downloaded. A kept DerivedData
+without a record replays nothing and rebuilds the whole `cmux` module, so any
+seed beats it. Every error keeps the warm path.
 
 The count alone misleads when a local package's source changed (Packages/,
 vendor/, Examples/): every `cmux` file imports those modules and recompiles,
@@ -93,6 +103,37 @@ to one that does not, and when both the kept DerivedData and the kept seed
 would, a nearer bucket seed wins at any distance if GitHub's compare of its
 commit with the checkout shows no package source change: its download (about
 250 s on a mini) costs less than recompiling the app (365 to 1,053 s).
+
+`keep` also stamps MERGED_ONTO, the main commit the kept build merged onto,
+and `warm-keys` prints the main commits this Mac starts from cheaply, for the
+queue janitor to route a later admission merging onto one of them to this
+runner (owned_warm_state.py, pr_runner_pool.py warm affinity):
+
+    {"runner": "<RUNNER>", "pool": "<POOL>", "keys": ["<sha12>", ...]}
+
+The kept build's merge base comes first, when its stamp matches FINGERPRINT,
+then `pr-<n>` for the pull request it built (`keep`'s PR_NUMBER, so a re-push
+goes back to its previous push's build), then the same two keys of the mini's
+other canonical roots, then, on a mini with a single root, the commits of the
+seeds this Mac keeps for FINGERPRINT (CMUX_SEED_LOCAL_CACHE, set only when
+CI_OWNED_PREFER_SEED lets `prefer` clone them), most recently used first,
+MAX_WARM_KEYS in all. It never fails: anything it cannot read leaves that key
+out.
+
+The other roots count because a job's root follows glaeda's free token, not
+the runner: the janitor records the keys against the runner that ran
+admission, and glaeda-cmux-runner-hook gives a routed admission the root
+whose stamp is warm for it. Root k>1 keeps its state in STORE/cmux-ci-<k>
+(ci-macos.yml build-slot), root 1 in STORE itself. Another root's fingerprint
+includes its root (compile-app-host-test-product.sh), so its stamp is checked
+by STATE_VERSION only. Seeds are left out once the mini has a second root
+(any STORE/cmux-ci-<k>): each root keeps its own seeds for its own
+fingerprint, and the hook routes by stamps only, so a routed admission lands
+on its runner's own root (or any free one), not on the root that listed the
+seed. A seed key recorded against the runner would send it there to miss.
+A second root counts once its store directory exists: one whose store was
+never created still lists seeds, and a store left behind after a mini goes back to
+one root keeps them out, which costs affinity but never a wrong route.
 
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
@@ -107,6 +148,7 @@ requests never reach an owned pool.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -133,6 +175,11 @@ RECORD = "cmux-owned-input-mtimes.json"
 # before `record` existed may hold only a seed's record, so bumping this
 # discards every older kept DerivedData instead of trusting it.
 STATE_VERSION = "owned-rec1"
+# The keys owned_warm_state.py keeps per runner (its MAX_KEYS).
+MAX_WARM_KEYS = 8
+# The second and later canonical roots' stores, beside the first root's.
+ROOT_STORE_PREFIX = "cmux-ci-"
+SEED_KEY_PREFIX = "admission-derived-data-v1-"
 
 
 def stamped(fingerprint: str) -> str:
@@ -207,6 +254,21 @@ def clone(source: Path, destination: Path) -> None:
 
 def check(store: Path, fingerprint: str, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
+    if fingerprint and os.environ.get("RUNNER_OS") and os.environ.get("RUNNER_ARCH"):
+        # Which seeds this root adopts, for seed_derived_data.py `prefetch`
+        # to fetch ahead while the Mac is idle. Best effort.
+        source = {
+            "prefix": f"admission-derived-data-v1-{os.environ['RUNNER_OS']}-{os.environ['RUNNER_ARCH']}-{fingerprint}-",
+            "runner_os": os.environ["RUNNER_OS"],
+            "runner_arch": os.environ["RUNNER_ARCH"],
+            "public_url": os.environ.get("CI_CACHE_R2_PUBLIC_URL", ""),
+        }
+        try:
+            incoming = store / f".{seed.SEED_SOURCE}.{os.getpid()}"
+            incoming.write_text(json.dumps(source) + "\n")
+            incoming.rename(store / seed.SEED_SOURCE)
+        except OSError:
+            pass
     stamp = read_stamp(store)
     result = {"warm": "false", "packages": "false"}
     derived = store / DERIVED
@@ -282,8 +344,14 @@ def record(source: Path, derived: Path) -> dict[str, str]:
     return {"recorded": "true", "inputs": str(len(recorded))}
 
 
-def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
-    """Clone a just-compiled DerivedData into STORE, stamped with its fingerprint."""
+def warm_key(commit: str | None) -> str:
+    """A commit's warm key (its first 12 hex digits), or "" (pr_runner_pool.warm_key)."""
+    key = (commit or "").strip().lower()[:12]
+    return key if len(key) == 12 and all(char in "0123456789abcdef" for char in key) else ""
+
+
+def keep(store: Path, derived: Path, fingerprint: str, merged_onto: str = "", pr_number: str = "") -> dict[str, str]:
+    """Clone a just-compiled DerivedData into STORE, stamped with its fingerprint and merge base."""
     if not fingerprint or not derived.is_dir():
         return {"kept": "false", "reason": "no fingerprint or no DerivedData"}
     store.mkdir(parents=True, exist_ok=True)
@@ -294,12 +362,83 @@ def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
         remove(incoming / name)
     stamp = read_stamp(store)
     stamp.pop("fingerprint", None)
+    stamp.pop("merged_onto", None)
+    stamp.pop("pr", None)
     write_stamp(store, stamp)
     clear(store / DERIVED)
     incoming.rename(store / DERIVED)
     stamp["fingerprint"] = stamped(fingerprint)
+    if warm_key(merged_onto):
+        stamp["merged_onto"] = merged_onto.strip().lower()
+    if pr_key(pr_number):
+        stamp["pr"] = int(pr_number.strip())
     write_stamp(store, stamp)
     return {"kept": "true"}
+
+
+def pr_key(number: object) -> str:
+    """Pull request NUMBER's warm key, `pr-<n>`, or ""."""
+    text = str(number if number is not None else "").strip()
+    return f"pr-{int(text)}" if text.isdigit() and 0 < int(text) < 10**9 else ""
+
+
+def stamp_keys(store: Path, fingerprint: str) -> list[str]:
+    """The kept build's keys (merge base, pull request) when its stamp matches FINGERPRINT.
+
+    An empty FINGERPRINT checks STATE_VERSION only (another root's stamp).
+    """
+    stamp = read_stamp(store)
+    kept = str(stamp.get("fingerprint") or "")
+    if not (store / DERIVED).is_dir() or not kept.endswith(f"-{STATE_VERSION}"):
+        return []
+    if fingerprint and kept != stamped(fingerprint):
+        return []
+    return [warm_key(str(stamp.get("merged_onto") or "")), pr_key(stamp.get("pr"))]
+
+
+def other_root_stores(store: Path) -> list[Path]:
+    """The mini's other canonical roots' stores (STORE is root 1's, or STORE/../cmux-ci-<k>)."""
+    def is_root(path: Path) -> bool:
+        suffix = path.name[len(ROOT_STORE_PREFIX):]
+        return path.name.startswith(ROOT_STORE_PREFIX) and suffix.isdigit() and len(suffix) <= 2
+    base = store.parent if is_root(store) else store
+    try:
+        roots = [base, *sorted(path for path in base.iterdir() if is_root(path))]
+    except OSError:
+        roots = [base]
+    return [path for path in roots if path != store]
+
+
+def warm_keys(store: Path, runner: str, pool: str, fingerprint: str = "") -> dict[str, object]:
+    """The main commits and pull requests this Mac starts from cheaply, as owned_warm_state.py reads them."""
+    found: list[str] = stamp_keys(store, fingerprint)
+    others = other_root_stores(store)
+    for other in others:
+        found.extend(stamp_keys(other, ""))
+    # A seed sits in one root's store, and glaeda routes by stamps only: on a
+    # mini with more than one root, a routed admission may start at another
+    # root, whose store lacks the seed and whose fingerprint rules it out.
+    cache = None if others else seed.local_cache()
+    seeds: list[tuple[float, str]] = []
+    try:
+        entries = list(cache.iterdir()) if cache is not None and cache.is_dir() else []
+    except OSError:
+        entries = []
+    for entry in entries:
+        name = entry.name
+        if (not name.startswith(SEED_KEY_PREFIX) or (fingerprint and f"-{fingerprint}-j" not in name)
+                or seed.cached(name) is None):
+            continue
+        try:
+            seeds.append((entry.stat().st_mtime, warm_key(name.rsplit("-", 1)[-1])))
+        except OSError:
+            continue
+    found.extend(key for _, key in sorted(seeds, reverse=True))
+    keys: list[str] = []
+    for key in found:
+        if key and key not in keys:
+            keys.append(key)
+    return {"runner": runner, "pool": pool, "keys": keys[:MAX_WARM_KEYS]}
 
 
 def save(store: Path, source_packages: Path, workspace: Path, package_store: Path | None = None) -> dict[str, str]:
@@ -339,6 +478,12 @@ UNCOMPARED = (".ci-source-packages/", "GhosttyKit.xcframework/")
 PACKAGE_SOURCES = ("Packages/", "vendor/", "Examples/")
 # GitHub's compare API lists at most this many files; a longer diff is unknown.
 COMPARE_FILE_LIMIT = 300
+# A download costs about 250 s on a mini, about what this many changed app
+# inputs cost to recompile, so a downloaded seed must change this many fewer.
+DOWNLOAD_INPUTS = 150
+# Without GitHub's compare, a downloaded seed is taken only this near: a bare
+# commit count says nothing about what changed in between.
+UNKNOWN_ESTIMATE_DISTANCE = 2
 
 
 def changed_paths(current: dict[str, list], recorded: dict[str, list]) -> set[str]:
@@ -372,26 +517,42 @@ def cost(paths: set[str]) -> tuple[bool, int]:
     return rebuilds_app(paths), len(paths)
 
 
+def bucket_compare(key: str, workspace: Path) -> list[str] | None:
+    """The files that differ between KEY's revision and the checkout, per GitHub.
+
+    None when GitHub cannot say (no repository, an error, or a diff past the
+    compare API's file limit).
+    """
+    files: list[str] | None = None
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
+    if repository:
+        try:
+            head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],
+                                  check=True, capture_output=True, text=True, timeout=30).stdout.strip()
+            files = json.loads(subprocess.run(
+                ["gh", "api", f"repos/{repository}/compare/{key.rsplit('-', 1)[-1]}...{head}",
+                 "--jq", "[.files[]? | .filename, (.previous_filename // empty)]"],
+                check=True, capture_output=True, text=True, timeout=60,
+            ).stdout)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            files = None
+        if files is not None and len(files) >= COMPARE_FILE_LIMIT:
+            files = None
+    return files
+
+
 def bucket_seed_rebuilds_app(key: str, workspace: Path) -> bool | None:
     """Whether the commits from KEY's revision to the checkout change a package source.
 
     None when GitHub cannot say (no repository, an error, or a diff past the
     compare API's file limit); the caller then treats the seed as no better.
     """
-    repository = os.environ.get("GITHUB_REPOSITORY", "")
-    if not repository:
-        return None
-    try:
-        head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "HEAD"],
-                              check=True, capture_output=True, text=True, timeout=30).stdout.strip()
-        files = json.loads(subprocess.run(
-            ["gh", "api", f"repos/{repository}/compare/{key.rsplit('-', 1)[-1]}...{head}",
-             "--jq", "[.files[]? | .filename, (.previous_filename // empty)]"],
-            check=True, capture_output=True, text=True, timeout=60,
-        ).stdout)
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return None
-    if len(files) >= COMPARE_FILE_LIMIT:
+    return files_rebuild_app(bucket_compare(key, workspace), workspace)
+
+
+def files_rebuild_app(files: list[str] | None, workspace: Path) -> bool | None:
+    """Whether a GitHub compare's FILES change a package source; None if unknown."""
+    if files is None:
         return None
     # A submodule bump (vendor/bonsplit) is listed as the bare submodule
     # path, while the local records see the .swift files under it.
@@ -413,19 +574,42 @@ def submodules(workspace: Path) -> set[str]:
     return {line.split(None, 1)[1].strip() for line in listed.splitlines() if len(line.split(None, 1)) == 2}
 
 
-def nearest_kept_seed(prefix: str, revision: str) -> tuple[str, int] | None:
-    """The nearest seed in REVISION's history that this Mac keeps, and its distance.
+def kept_seeds(prefix: str, revision: str) -> list[tuple[str, int]]:
+    """Every seed in REVISION's history that this Mac keeps, nearest first, with its distance.
 
     The nearest seed in the bucket moves with every main push that reseeds, so
-    a warm Mac that never downloads would rarely keep that exact one.
+    a warm Mac that never downloads would rarely keep that exact one. The
+    nearest one it keeps is not always the cheapest either: one behind a
+    package change recompiles the app, an older one before it may not.
     """
     widths = (seed.swift_jobs(), *(width for width in seed.SEEDED_JOB_WIDTHS if width != seed.swift_jobs()))
+    found = []
     for distance, commit in enumerate(seed.lineage(revision)):
         for jobs in widths:
             key = seed.scoped(prefix, jobs) + commit
             if seed.cached(key):
-                return key, distance
-    return None
+                found.append((key, distance))
+    return found
+
+
+def best_kept_seed(prefix: str, revision: str, current: dict) -> tuple[str, int, tuple[bool, int] | None] | None:
+    """The kept seed that compiles least from CURRENT, nearest on a tie, and its cost.
+
+    With an empty CURRENT (no kept record to digest against) the nearest wins
+    and its cost is None.
+    """
+    best = None
+    for key, distance in kept_seeds(prefix, revision):
+        if not current:
+            return key, distance, None
+        try:
+            manifest = json.loads((seed.cached(key) / seed.MANIFEST).read_text())
+        except (OSError, TypeError, ValueError):
+            continue
+        seed_cost = cost(changed_paths(current, manifest))
+        if best is None or seed_cost < best[2]:
+            best = (key, distance, seed_cost)
+    return best
 
 
 def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distance: int | None) -> dict[str, str]:
@@ -441,23 +625,21 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
     kept_cost = cost(changed_paths(current, kept_record)) if kept_record is not None else None
     if kept_cost is not None:
         result.update(kept_changed=str(kept_cost[1]), kept_rebuilds_app=str(kept_cost[0]).lower())
-    kept_seed = nearest_kept_seed(prefix, revision)
-    local_rebuilds_app = False
+    kept_seed = best_kept_seed(prefix, revision, current)
+    best = kept_cost  # the cheapest start found so far
+    local_distance = None
     if kept_seed:
-        key, distance = kept_seed
+        key, distance, seed_cost = kept_seed
         result.update(seed_key=key, seed_distance=str(distance), local="true")
-        if kept_cost is None:
+        if kept_cost is None or seed_cost is None:
+            touch_kept_seed(key)
             result.update(prefer="true", reason="kept DerivedData has no input record")
             return result
-        seed_cost = cost(changed_paths(current, json.loads((seed.cached(key) / seed.MANIFEST).read_text())))
         result.update(seed_changed=str(seed_cost[1]), seed_rebuilds_app=str(seed_cost[0]).lower())
         if seed_cost < kept_cost:
+            touch_kept_seed(key)
             result.update(prefer="true", reason="this Mac keeps a seed with fewer changed inputs")
-            if not seed_cost[0] or max_distance is None:
-                return result
-            # It still recompiles the whole app. A newer seed in the bucket
-            # may not; checked below.
-            local_rebuilds_app = True
+            best, local_distance = seed_cost, distance
         else:
             result["reason"] = "the kept DerivedData has no more changed inputs than the seed this Mac keeps"
     if max_distance is None:
@@ -468,28 +650,90 @@ def prefer(store: Path, workspace: Path, prefix: str, revision: str, max_distanc
         result.setdefault("reason", "no seed in this commit's history")
         return result
     downloaded = {"prefer": "true", "seed_key": exact, "seed_distance": str(distance), "local": "false"}
-    if local_rebuilds_app:
-        if distance < int(result["seed_distance"]) and bucket_seed_rebuilds_app(exact, workspace) is False:
-            result.update(downloaded, reason=f"the seed this Mac keeps recompiles the app; the seed {distance} commits behind does not")
+    if best is None:
+        # A kept DerivedData without a record rebuilds the whole module, so
+        # any seed up to MAX_DISTANCE beats it.
+        if distance <= max_distance:
+            result.update(downloaded, reason=f"seed {distance} commits behind, within {max_distance}; "
+                                             "kept DerivedData has no input record")
+        else:
+            result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
         return result
-    if kept_cost is not None and kept_cost[1] == 0:
-        result["reason"] = "the kept DerivedData has no changed inputs"
-    elif distance <= max_distance and not (
-        kept_cost is not None and not kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is not False
-    ):
-        # A near seed that would recompile the app never replaces a kept build
-        # that would not; unknown counts as would.
-        result.update(downloaded, reason=f"seed {distance} commits behind, within {max_distance}"
-                      + ("" if kept_cost is not None else "; kept DerivedData has no input record"))
-    elif kept_cost is not None and kept_cost[0] and bucket_seed_rebuilds_app(exact, workspace) is False:
+    # One GitHub compare per decision: the files, and whether they recompile the app.
+    asked: dict[str, object] = {}
+
+    def compared() -> list[str] | None:
+        if "files" not in asked:
+            asked["files"] = bucket_compare(exact, workspace)
+        return asked["files"]  # type: ignore[return-value]
+
+    def seed_rebuilds_app() -> bool | None:
+        if "app" not in asked:
+            asked["app"] = (files_rebuild_app(compared(), workspace) if "files" in asked
+                            else bucket_seed_rebuilds_app(exact, workspace))
+        return asked["app"]  # type: ignore[return-value]
+
+    start = "the seed this Mac keeps" if local_distance is not None else "the kept DerivedData"
+    if best[0]:
         # A download (about 250 s on a mini) costs less than recompiling the
-        # whole app (365 to 1,053 s on an owned mini on 2026-09-25).
-        result.update(downloaded, reason=f"the kept DerivedData recompiles the app; the seed {distance} commits behind does not")
-    elif distance <= max_distance:
-        result.setdefault("reason", f"the seed {distance} commits behind may recompile the app; the kept DerivedData does not")
+        # whole app (365 to 1,053 s on an owned mini on 2026-09-25), at any
+        # distance, when GitHub's compare shows no package change.
+        if seed_rebuilds_app() is False:
+            result.update(downloaded, reason=f"{start} recompiles the app; the seed {distance} commits behind does not")
+        else:
+            result.setdefault("reason", f"{start} recompiles the app, and so may the seed {distance} commits behind")
+        return result
+    if best[1] <= DOWNLOAD_INPUTS:
+        # A download costs about DOWNLOAD_INPUTS changed inputs of compile.
+        result["reason"] = f"{start} changes {best[1]} inputs, too few to pay for a download"
+        return result
+    if distance > max_distance:
+        result["reason"] = f"the nearest seed is {distance} commits behind, past {max_distance}"
+        return result
+    estimate = compare_estimate(compared(), workspace)
+    if estimate is not None and seed_rebuilds_app() is False:
+        # GitHub's compare says what the download would recompile, so weigh
+        # it against the best start instead of trusting a commit count: main
+        # moves 5 to 8 commits per seed, so a count of 2 almost never passed.
+        if estimate + DOWNLOAD_INPUTS < best[1]:
+            result.update(downloaded, seed_changed=str(estimate),
+                          reason=f"the seed {distance} commits behind changes about {estimate} inputs, "
+                                 f"{start} {best[1]}")
+        else:
+            result["reason"] = (f"the seed {distance} commits behind changes about {estimate} inputs, "
+                                f"not enough fewer than {start}'s {best[1]} to pay for a download")
+    elif estimate is None and distance <= UNKNOWN_ESTIMATE_DISTANCE and seed_rebuilds_app() is False:
+        result.update(downloaded, reason=f"seed {distance} commits behind, within {UNKNOWN_ESTIMATE_DISTANCE}")
+    elif seed_rebuilds_app() is not False:
+        # A seed that would recompile the app never replaces a start that
+        # would not; unknown counts as would.
+        result["reason"] = f"the seed {distance} commits behind may recompile the app; {start} does not"
     else:
-        result.setdefault("reason", f"the nearest seed is {distance} commits behind, past {max_distance}")
+        result["reason"] = f"the seed {distance} commits behind is too far to download without GitHub's estimate"
     return result
+
+
+def compare_estimate(files: list[str] | None, workspace: Path) -> int | None:
+    """About how many inputs a downloaded seed recompiles: the files GitHub's
+    compare lists. It overcounts docs and workflows, which only makes a
+    download less likely. None when GitHub cannot say, or when the compare
+    bumps a submodule: GitHub lists that as one path while the kept record
+    counts every file under it, so the two counts do not compare.
+    """
+    if files is None:
+        return None
+    listed = set(files)
+    if not submodules(workspace).isdisjoint(listed):
+        return None
+    return len(listed)
+
+
+def touch_kept_seed(key: str) -> None:
+    """Mark the chosen kept seed recent, so a concurrent prune spares it until adopt."""
+    path = seed.cached(key)
+    if path is not None:
+        with contextlib.suppress(OSError):
+            os.utime(path)
 
 
 def package_store(argv: list[str]) -> Path | None:
@@ -506,8 +750,17 @@ def main(argv: list[str]) -> int:
     if len(argv) == 4 and argv[1] == "record":
         write_outputs(record(Path(argv[2]).resolve(), Path(argv[3])))
         return 0
-    if len(argv) == 5 and argv[1] == "keep":
-        write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4]))
+    if len(argv) in (5, 6, 7) and argv[1] == "keep":
+        write_outputs(keep(Path(argv[2]), Path(argv[3]), argv[4], argv[5] if len(argv) >= 6 else "",
+                           argv[6] if len(argv) == 7 else ""))
+        return 0
+    if len(argv) in (5, 6) and argv[1] == "warm-keys":
+        # Only the document on stdout: the workflow uploads it as is.
+        try:
+            document = warm_keys(Path(argv[2]), argv[3], argv[4], argv[5] if len(argv) == 6 else "")
+        except Exception:  # noqa: BLE001 - a key it cannot read is left out
+            document = {"runner": argv[3], "pool": argv[4], "keys": []}
+        print(json.dumps(document, separators=(",", ":")))
         return 0
     if len(argv) in (5, 6) and argv[1] == "save":
         write_outputs(save(Path(argv[2]), Path(argv[3]), Path(argv[4]), package_store(argv)))
