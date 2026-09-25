@@ -22,15 +22,11 @@ extension TabManager {
               workspace.panels[surfaceId] != nil else { return .failed }
         workspace.clearSplitZoom()
         sentryBreadcrumb("split.create", data: ["direction": String(describing: direction)])
-        let outcome = workspace.newTerminalSplitOutcome(
+        return workspace.newTerminalSplitOutcome(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
             focus: focus
         )
-        if let panel = outcome.panel {
-            workspace.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
-        }
-        return outcome
     }
 }

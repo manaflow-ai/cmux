@@ -18,12 +18,6 @@ extension cmuxApp {
             }
             .disabled(!historyState.canNavigateForward)
 
-            splitCommandButton(title: String(localized: "menu.history.focusLast", defaultValue: "Focus Last"), shortcut: menuShortcut(for: .focusHistoryLast)) {
-                if !historyMenuCoordinator.navigateToLastFocused() {
-                    NSSound.beep()
-                }
-            }
-
             Divider()
 
             recentlyFocusedMenuSection(

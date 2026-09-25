@@ -71,7 +71,6 @@ extension CmuxSettingsFileStore {
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
                     "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
-                    "equalizeSplitsOnCreate": SettingCatalog().app.equalizeSplitsOnCreate.defaultValue,
                     "preferredEditor": "",
                     "defaultWorkspacePath": AppCatalogSection().defaultWorkspacePath.defaultValue,
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
@@ -249,6 +248,12 @@ extension CmuxSettingsFileStore {
             [
                 "fileExplorer": [
                     "doubleClickAction": FileExplorerDoubleClickActionSettings.defaultValue.rawValue,
+                ],
+            ],
+            [
+                "rightSidebar": [
+                    "showTitlebarToggle": SettingCatalog().rightSidebar.showTitlebarToggle.defaultValue,
+                    "showOpenAsPaneButton": SettingCatalog().rightSidebar.showOpenAsPaneButton.defaultValue,
                 ],
             ],
             [

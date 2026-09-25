@@ -1288,7 +1288,6 @@
       "metaTitle": "Configuración",
       "schemaDescriptions": {
         "root": "Configuración de cmux. El cmux.json global admite ajustes de la aplicación, atajos, acciones, comandos personalizados, hooks de notificación y diseños de espacios de trabajo. Un .cmux/cmux.json o cmux.json local del proyecto admite acciones, comandos, hooks de notificación, conexión de acciones de la interfaz, ajustes de Agent Chat, agentes del vault, ajustes de grupos de espacios de trabajo y configuración de inicio y botones del espacio de trabajo.",
-        "rightSidebar": "Configuración heredada y propiedad de extensiones de la barra lateral derecha que se conserva en cmux.json.",
         "packs": {
           "description": "Archivos o directorios de paquetes cmux locales que se cargan antes de esta configuración. Los directorios se resuelven como cmux.pack.json. Usa una cadena de ruta o un objeto con un campo path.",
           "path": "Ruta de archivo o directorio local, relativa a este archivo de configuración salvo que sea absoluta."
@@ -1350,6 +1349,11 @@
         "fileExplorer": {
           "description": "Ajustes del explorador de archivos (árbol de archivos) de la barra lateral derecha.",
           "doubleClickAction": "Qué hace al hacer doble clic (o presionar Return en un resultado de búsqueda) sobre un archivo en el explorador de archivos. `preview` abre la vista previa integrada de archivos de cmux (comportamiento predeterminado e histórico). `defaultEditor` abre con la app predeterminada de macOS para ese tipo de archivo. `preferredEditor` abre con el comando `app.preferredEditor`, con fallback a la app predeterminada cuando no está configurado. Solo aplica a archivos; los directorios siempre se expanden/contraen, y los exploradores de archivos no locales (remotos) siempre abren la vista previa de cmux."
+        },
+        "rightSidebar": {
+          "description": "Configuración de los controles de la barra lateral derecha.",
+          "showTitlebarToggle": "Mantener un botón persistente para alternar la barra lateral derecha en la barra de título, incluso cuando esté oculta.",
+          "showOpenAsPaneButton": "Mostrar el botón Abrir como panel en la barra de modos de la barra lateral derecha."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
