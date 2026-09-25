@@ -12,6 +12,21 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### CJK fallback ideograph sizing
+
+- Branch: `issue-4978-cjk-spacing`
+- Commits: `7dd7a420a` (regression test), `0068ece73` (fix)
+- Summary: keep the existing measured ideograph width for fallback faces, but
+  size a primary face without an ideograph metric against its full two-cell
+  terminal span. This prevents Hangul glyphs selected through CoreText fallback
+  from leaving a gap before the next terminal cell.
+- Verification: the Ghostty `Collection` regression test
+  `ideograph fallback sizing fills two primary cells` fails before
+  `0068ece73` and passes after it.
+- Conflict note: preserve the distinction between `icWidth()` for a face's
+  measured or conservative fallback metric and `fallbackIcWidth()` for the
+  primary terminal grid's missing-ideograph target.
+
 ### Cloud restore replay trailing rows
 
 - Commit: `a3e9304c5d19c8667f58a342830f774579c74472`
