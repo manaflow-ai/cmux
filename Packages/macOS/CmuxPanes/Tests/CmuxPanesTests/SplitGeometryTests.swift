@@ -126,6 +126,43 @@ struct SplitGeometryTests {
         #expect(plan.adjustments.isEmpty)
     }
 
+    @Test @MainActor func tileSplitsRestoresEvenNestedPaneSpans() throws {
+        let controller = BonsplitController()
+        let rootPane = try #require(controller.allPaneIds.first)
+        _ = try #require(controller.splitPane(
+            rootPane,
+            orientation: .vertical,
+            withTab: .init(title: "second")
+        ))
+        _ = try #require(controller.splitPane(
+            rootPane,
+            orientation: .vertical,
+            withTab: .init(title: "third")
+        ))
+
+        let initialTree = controller.treeSnapshot()
+        let idealPlan = initialTree.equalizeDividerPlan()
+        #expect(idealPlan.adjustments.count == 2)
+        for (index, adjustment) in idealPlan.adjustments.enumerated() {
+            #expect(controller.setDividerPosition(
+                index == 0 ? 0.8 : 0.2,
+                forSplit: adjustment.splitId,
+                fromExternal: true
+            ))
+        }
+
+        let result = PaneLayoutService().tileSplits(
+            in: controller.treeSnapshot(),
+            controller: controller
+        )
+
+        #expect(result.didFullyEqualize)
+        let actualPositions = splitPositions(in: controller.treeSnapshot())
+        for adjustment in idealPlan.adjustments {
+            #expect(actualPositions[adjustment.splitId] == Double(adjustment.position))
+        }
+    }
+
     // MARK: Resize planning
 
     @Test func resizeMovesControllingDividerByPixelDelta() {
@@ -145,6 +182,20 @@ struct SplitGeometryTests {
         #expect(adjustment?.splitId == splitId)
         // 60px over a 600px axis = 0.1 delta, signed negative for .left.
         #expect(adjustment.map { abs($0.position - 0.4) < 0.0001 } == true)
+    }
+
+    private func splitPositions(in node: ExternalTreeNode) -> [UUID: Double] {
+        switch node {
+        case .pane:
+            return [:]
+        case .split(let split):
+            var positions = splitPositions(in: split.first)
+            positions.merge(splitPositions(in: split.second)) { current, _ in current }
+            if let id = UUID(uuidString: split.id) {
+                positions[id] = split.dividerPosition
+            }
+            return positions
+        }
     }
 
     @Test func resizeRequiresMatchingChildSide() {
