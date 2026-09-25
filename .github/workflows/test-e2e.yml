@@ -827,6 +827,10 @@ jobs:
             "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission")
               rm -rf -- "$derived_data_path"
               if [ -n "$cache_path" ]; then rm -rf -- "$cache_path"; fi
+              # The tests run next, in this job, from a DerivedData of their
+              # own. Hand the variable over empty, so their cleanup finds
+              # nothing to refuse when a failure skips their preparation.
+              echo "CMUX_DERIVED_DATA_PATH=" >> "$GITHUB_ENV"
               ;;
             "")
               echo "DerivedData was not prepared; nothing to clean"

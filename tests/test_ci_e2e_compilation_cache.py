@@ -301,6 +301,20 @@ exit 97
         self.assertFalse(Path(values['CMUX_DERIVED_DATA_PATH']).exists())
         self.assertFalse(Path(values['CMUX_E2E_COMPILATION_CACHE']).exists())
 
+    def test_the_test_steps_cleanup_after_the_build_cleanup_when_preparation_was_skipped(self):
+        # Run 36168944875: the screen-capture preflight failed, which skipped
+        # the tests' "Prepare isolated DerivedData", and their always()
+        # cleanup then refused the build's canonical path still in the env.
+        values = self.prepare()
+        (self.root / 'env').write_text('')
+        result = self.run_step('Clean owned DerivedData', 'build', **values)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        handed_over = dict(line.split('=', 1) for line in (self.root / 'env').read_text().splitlines())
+        self.assertEqual(handed_over.get('CMUX_DERIVED_DATA_PATH'), '')
+        result = self.run_step('Clean owned DerivedData', TESTS, **dict(values, **handed_over))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('nothing to clean', result.stdout)
+
     def prepare_test_job(self):
         for file in ('env', 'output'):
             (self.root / file).write_text('')
