@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Coalesces one remote view within its destination and pending pane generation.

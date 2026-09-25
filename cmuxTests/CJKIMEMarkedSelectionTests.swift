@@ -100,6 +100,36 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
         )
     }
 
+    func testJapaneseConversionBackspaceReplacesOnlyRequestedMarkedSubrange() {
+        let view = GhosttyNSView(frame: .zero)
+
+        view.setMarkedText(
+            "日本語",
+            selectedRange: NSRange(location: 0, length: 3),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+
+        // During Japanese conversion AppKit can express Backspace as an empty
+        // replacement over one character of the existing marked text.
+        view.setMarkedText(
+            "",
+            selectedRange: NSRange(location: 0, length: 0),
+            replacementRange: NSRange(location: 2, length: 1)
+        )
+
+        XCTAssertTrue(view.hasMarkedText())
+        XCTAssertEqual(view.markedRange(), NSRange(location: 0, length: 2))
+        XCTAssertEqual(view.selectedRange(), NSRange(location: 2, length: 0))
+
+        var actualRange = NSRange(location: NSNotFound, length: 0)
+        let remaining = view.attributedSubstring(
+            forProposedRange: view.markedRange(),
+            actualRange: &actualRange
+        )
+        XCTAssertEqual(actualRange, NSRange(location: 0, length: 2))
+        XCTAssertEqual(remaining?.string, "日本")
+    }
+
     func testSelectedRangeReturnsEmptyRangeAfterCompositionEnds() {
         let view = GhosttyNSView(frame: .zero)
 

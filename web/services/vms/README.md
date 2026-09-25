@@ -485,8 +485,8 @@ The current port-preview and model-plane paths have different trust boundaries:
   Revoking network access is not a promise to erase content already cached by a browser.
 - **Model-plane edge injection** — an egress rule `{ vmId } → { public }` on the
   CodeRouter origin with a headers transform. The edge overwrites the guest's
-  placeholder `authorization` and injects the explicit `x-coderouter-route-token`
-  plus `x-cmux-vm-id` binding header in flight. The persisted env file carries only
+  placeholder `authorization` and injects one signed `x-cmux-authorization`
+  header in flight. The persisted env file carries only
   placeholder keys, and a compromised guest has no credential to exfiltrate. Header
   values are write-only at the provider (read back as `***`); provisioning fails
   closed if the rule cannot be installed.
@@ -609,11 +609,10 @@ health with `bun run cloud-vm:stress -- <target> --provider default`.
 No coderouter secret ever lands in a guest. `createVm`/`restoreVm` take a `modelPlane`
 provisioner (`services/vms/modelPlaneGateway.ts` adapting
 `services/coderouter/vmModelPlane.ts`). After the `cloud_vms` row exists and before the
-provider call, it mints one route token bound to the row id (`coderouter_route_tokens.vm_id`)
+provider call, it mints one signed authorization token bound to the row id (`coderouter_route_tokens.vm_id`)
 and returns one edge rule: domain `coderouter.cmux.internal` (the alias every guest dials;
 `CMUX_VM_EDGE_ALIAS_DOMAIN` overrides it per deployment, never per machine), destination host
-this deployment's API host, and headers `authorization`, `x-coderouter-route-token`, and
-`x-cmux-vm-id`. The
+this deployment's API host, and header `x-cmux-authorization`. The
 Freestyle driver passes the rule inline as `tls.rules` on the create; the platform resolves the
 alias to its edge, installs its CA in the guest at boot, terminates TLS for the alias, forwards
 to the destination host, and injects (and overwrites) those headers on every request.
@@ -652,3 +651,19 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 ### Pricing is flat
 
 Go includes one active VM with the starter resource shape. Pro and Max include up to 50 active VMs (per paid seat on Team) for a flat subscription price, with independent CPU, memory, and disk for each VM. Go is capped by active VM count until usage metering is added. There is no overage billing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. Legacy VM resource claims are repaired by the status-reconcile cron in batches of 50, so create and resize requests do not fan out provider stats reads. Legacy resource metadata does not block new machines or consume another machine's capacity.
+# Signed VM model-plane authorization
+
+VM model traffic uses one `x-cmux-authorization: Bearer <JWT>` header. The
+token is signed with HMAC-SHA-256 and contains `vm_id`, `team_id`, `owner_id`,
+`aud`, `iat`, `exp`, `jti`, and a `kid` key-version claim. The signing key is
+provided to the web deployment as the base64url value `CMUX_VM_AUTH_SIGNING_KEY`
+and its active version as `CMUX_VM_AUTH_SIGNING_KEY_ID`. During rotation, keep
+old verification keys in the JSON map `CMUX_VM_AUTH_SIGNING_PREVIOUS_KEYS`,
+then remove them after the longest token lifetime (30 days).
+
+The verifier requires the `cmux` issuer and `cmux-vm-model-plane` audience,
+rejects malformed, expired, wrong-owner, and wrong-VM claims, and checks the
+hashed token row for revocation and live VM ownership. Destroying a VM or
+revoking its tokens therefore takes effect immediately even before a signing
+key is retired. The edge injects this single header; guest clients and upstream
+providers never receive the signing key or a separate VM-id credential header.

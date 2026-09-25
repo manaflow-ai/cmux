@@ -48,6 +48,11 @@ pub const FLAG_SMART_RENDERER: u32 = 1 << 2;
 /// Protocol-v4 HostHello flag. The authenticated launch-owner connection must
 /// send `Activate` after its daemon has durably committed public topology.
 pub const FLAG_LAUNCH_ACTIVATION_REQUIRED: u32 = 1 << 3;
+/// ClientHello opt-in and HostHello acknowledgement for the optional
+/// generic terminal metadata tail in a Snapshot payload. The bit is separate
+/// from the protocol version so older persistent hosts and renderers can keep
+/// using the exact v4 snapshot layout.
+pub const FLAG_TERMINAL_METADATA: u32 = 1 << 4;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.

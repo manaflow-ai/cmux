@@ -168,7 +168,9 @@ struct BrowserInsecureHTTPSettingsTests {
         checkEqual(prepared.httpMethod, "POST")
         checkEqual(prepared.httpBody, Data("token=abc123".utf8))
         checkEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
-        checkEqual(prepared.cachePolicy, .useProtocolCachePolicy)
+        // #13003: the prepared request keeps the caller's cache policy so refreshing a
+        // failed navigation replays the original request semantics.
+        checkEqual(prepared.cachePolicy, .reloadIgnoringLocalAndRemoteCacheData)
     }
 
     @Test

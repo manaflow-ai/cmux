@@ -1,4 +1,6 @@
+import CmuxCloud
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Browser opens target the VM's private address. The provider may carry that
@@ -10,7 +12,7 @@ enum CloudPortRoutePlan: Equatable, Sendable {
 
     static func plan(resource: SurfaceResource, privateAddress: String?) -> CloudPortRoutePlan {
         let desktop = resource.kind == .display
-        guard let port = resource.id.forwardedPort ?? resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil),
+        guard let port = resource.id.forwardedPort ?? resource.port,
               (1...65_535).contains(port) else {
             return .unsupported(String(format: String(localized: "cloudTree.port.noPort", defaultValue: "%@ has no port to open."), resource.id.rawValue))
         }
@@ -18,7 +20,7 @@ enum CloudPortRoutePlan: Equatable, Sendable {
             return .unsupported(String(format: String(localized: "cloudTree.port.noPrivateAddress", defaultValue: "%@ has no private network address yet; refresh the machine list and retry."), resource.machine.rawValue))
         }
         let raw = resource.url ?? (desktop
-            ? CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: address)
+            ? CmuxTuiSurfaceProvider.privateDesktopURL(privateAddress: address, port: port)
             : CmuxInternalHostnames().directPortURL(privateAddress: address, port: port))
         guard let url = privateURL(raw, address: address) else {
             return .unsupported(String(localized: "cloud.portAccess.invalidURL", defaultValue: "This port does not have a valid HTTP or HTTPS address."))

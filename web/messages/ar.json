@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "تم اكتشاف إعداد harness",
+    "selectionNotice": "لا يؤدي اختيار موفر إلى تشغيل هذه الـ harness أو تفعيلها.",
+    "selectProvider": "اختيار {provider}",
+    "foundPath": "تم العثور على {path}",
+    "foundCommand": "تم العثور على الأمر {command}",
+    "installed": "الموفر مثبت",
+    "missing": "الموفر غير مثبت",
+    "install": "التثبيت باستخدام: {command}",
+    "benefitPi": "ضغط السياق والذاكرة وتوجيه الموفرين",
+    "benefitOpenagent": "متخصصون متوازون واسترداد لـ OpenCode",
+    "benefitClaude": "فرق وتحقق لـ Claude Code",
+    "benefitSuperpowers": "التخطيط وTDD والوكلاء الفرعيون والمراجعة"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "لم يكتمل إعداد Cloud VM",
+      "reason": "لم يكتمل إعداد الضيف لـ Cloud VM.",
+      "message": "تعذر على cmux إكمال إعداد Cloud VM.",
+      "action": "أعد المحاولة. إذا استمرت المشكلة، تواصل مع الدعم."
+    },
+    "createCleanupPending": {
+      "title": "تنظيف آلة Cloud الافتراضية معلق",
+      "message": "فشل إعداد آلة Cloud الافتراضية وما زال التنظيف معلقًا.",
+      "action": "تواصل مع الدعم وأرفق معرّف التتبع قبل إنشاء آلة أخرى."
+    },
     "unsupported": {
       "title": "عملية Cloud VM غير متاحة",
       "reason": "هذا النوع من الأجهزة لا يوفر هذه العملية.",
@@ -399,6 +424,22 @@
       "savingRelaySettings": "جارٍ الحفظ…"
     },
     "coderouterAccounts": {
+      "transferAction": "نقل",
+      "transferringAction": "جارٍ النقل…",
+      "transferDialogTitle": "نقل الحساب إلى فريق آخر",
+      "transferChooseBody": "اختر الفريق الذي سيستلم {account}. ينتمي حاليًا إلى {source}.",
+      "transferDestinationLabel": "الفريق الوجهة",
+      "continueAction": "متابعة",
+      "backAction": "رجوع",
+      "transferConfirmTitle": "هل تريد نقل {account}؟",
+      "transferConfirmBody": "سينتقل {account} من {source} إلى {destination}. ستتوقف الأجهزة السحابية وأعضاء {source} عن استخدامه فورًا. يحتفظ بإعداد المشاركة الحالي في {destination}.",
+      "transferConfirmAction": "نقل الحساب",
+      "transferSuccess": "تم نقل {account} إلى {destination}.",
+      "transferError": "تعذّر نقل هذا الحساب. حاول مرة أخرى.",
+      "transferForbiddenError": "لم يعد بإمكانك نقل الحسابات إلى ذلك الفريق.",
+      "transferNotFoundError": "لم يعد هذا الحساب ضمن هذا الفريق. حدّث الصفحة لمعرفة مكانه.",
+      "transferConflictError": "تغيّر الحساب أثناء نقله. حدّث الصفحة وحاول مرة أخرى.",
+      "transferUnavailableError": "النقل غير متاح مؤقتًا، أو يجري تحديث الحساب. حاول مرة أخرى بعد قليل.",
       "shareWithTeam": "مشاركة مع الفريق",
       "makePrivate": "جعله خاصًا",
       "privateImportHint": "الحسابات الجديدة خاصة. شارك الحساب لإتاحته لأجهزة Cloud VM الخاصة بهذا الفريق.",
@@ -1248,6 +1289,10 @@
       "schemaDescriptions": {
         "root": "إعدادات cmux. يدعم ملف cmux.json العام إعدادات التطبيق والاختصارات والإجراءات والأوامر المخصصة وخطافات الإشعارات وتخطيطات مساحات العمل. ويدعم ملف .cmux/cmux.json أو cmux.json الخاص بالمشروع الإجراءات والأوامر وخطافات الإشعارات وربط إجراءات الواجهة وتجاوزات Agent Chat ووكلاء الخزنة وتجاوزات مجموعات مساحات العمل وإعداد تشغيل مساحات العمل وأزرارها.",
         "rightSidebar": "إعداد الشريط الجانبي الأيمن القديم والذي تديره الإضافات، والمحفوظ في cmux.json.",
+        "packs": {
+          "description": "ملفات أو مجلدات حزم cmux المحلية التي تُحمّل قبل هذا الإعداد. تشير المجلدات إلى cmux.pack.json. استخدم مسارًا نصيًا أو كائنًا يحتوي على حقل path.",
+          "path": "مسار ملف أو مجلد محلي، نسبي إلى ملف الإعداد هذا ما لم يكن مطلقًا."
+        },
         "paneBorderColor": "تجاوز لون فاصل ألواح cmux في مساحات العمل المقسمة. يؤثر هذا على حدود ألواح cmux، وليس على التقسيمات الداخلية في Ghostty.",
         "activePaneBorderColor": "لون حدود اختياري يُرسم حول لوح cmux المركّز في مساحات العمل المقسمة.",
         "automation": {
@@ -1259,6 +1304,7 @@
         "app": {
           "confirmQuit": "يتحكم في وقت طلب cmux التأكيد قبل الإنهاء. تنتهي إصدارات DEV فوراً دائماً بغض النظر عن هذا الإعداد. يظل app.warnBeforeQuit القديم مقبولاً كخيار احتياطي منطقي.",
           "windowTitleTemplate": "قالب اختياري لعنوان NSWindow. اتركه فارغاً للحفاظ على سلوك العنوان الافتراضي الحالي في cmux، بما في ذلك الرجوع إلى الدليل الحالي. العناصر النائبة المدعومة: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "اسم عرض يُستخدم فقط في إصدارات DEBUG عند فتح نوافذ جديدة. تستخدم القيمة الفارغة الإعداد الافتراضي للنظام.",
           "warnBeforeQuit": "خيار منطقي قديم احتياطي لتأكيد الإنهاء. استخدم app.confirmQuit للإعدادات الجديدة.",
           "warnBeforeClosingTabXButton": "اعرض تأكيدًا قبل إغلاق تبويب بزر إغلاق التبويب.",
           "hideTabCloseButton": "أخفِ أزرار إغلاق التبويبات في شريط تبويبات الجزء.",
@@ -1434,6 +1480,7 @@
       "restartNew": "إنشاء مساحة عمل جديدة (الافتراضي)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "تبديل التفاف الكلمات في محرر الملفات (Option+Z).",
       "title": "اختصارات لوحة المفاتيح",
       "description": "جميع اختصارات لوحة المفاتيح المتاحة في cmux، مجمعة حسب الفئة.",
       "metaDescription": "جميع اختصارات لوحة مفاتيح cmux لمساحات العمل والأسطح والألواح المقسمة والمتصفح والإشعارات والبحث وإدارة النوافذ على macOS.",
@@ -4023,5 +4070,15 @@
     "organization": "المؤسسة",
     "personalAccount": "حساب شخصي",
     "switchAccountButton": "استخدام حساب مختلف"
+  },
+  "MobileRelease106": {
+    "title": "الجديد في 1.0.6",
+    "releaseLabel": "1.0.6 · سبتمبر 2026",
+    "connectionTitle": "تحديث اتصالات Mac",
+    "connectionDetail": "يستخدم هذا التحديث خدمة الاتصال الجديدة ونقل Iroh. تحتاج إصدارات Mac القديمة إلى تحديث كي تتصل.",
+    "updateTitle": "حدّث cmux على Mac",
+    "updateDetail": "يتطلب cmux {stableVersion} أو أحدث، أو NIGHTLY {nightlyVersion} أو أحدث. فعّل إقران iOS في الإعدادات > الهاتف المحمول على كل Mac.",
+    "rollbackTitle": "هل تحتاج إلى الاحتفاظ بإصدار Mac قديم؟",
+    "rollbackDetail": "استخدم cmux BETA 1.0.5 ({rollbackBuild}) من TestFlight > الإصدارات السابقة ما دام متاحًا. اختر هذا الإصدار بالتحديد، لأن الإصدارات اللاحقة تستخدم خدمة اتصال أحدث."
   }
 }

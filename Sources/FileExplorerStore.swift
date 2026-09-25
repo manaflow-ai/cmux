@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import AppKit
 import Combine
@@ -406,7 +407,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         let outputURL = localURL
         let commandProcess = SSHDownloadCommandProcess(
             connection: connection,
-            command: "cat -- \(escapedPath)",
+            command: "test -f \(escapedPath) && cat -- \(escapedPath)",
             outputURL: outputURL
         )
         let result = try await withTaskCancellationHandler {

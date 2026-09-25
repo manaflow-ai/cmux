@@ -1,6 +1,8 @@
 # All settings keys
 
-Auto-generated from `web/data/cmux.schema.json`. For the rendered docs, see `https://cmux.com/docs/configuration`.
+Hand-maintained from `web/data/cmux.schema.json` and known to lag it. The schema is
+authoritative; `cmux-settings list-supported` enumerates what the helper accepts. For the
+rendered docs, see `https://cmux.com/docs/configuration`.
 
 ## app
 
@@ -20,6 +22,7 @@ General app preferences from Settings > App.
 | `app.preferredEditor` | string | `""` | Custom editor command used when Cmd-click file previews are disabled or a file is unsupported. Leave empty to use the default. |
 | `app.openSupportedFilesInCmux` | boolean | `true` | When enabled, Cmd-clicking readable local files opens supported previews in cmux, including text, code, PDFs, images, audio, video, and Quick Look files. Preview headers include an Open With menu based on the user's default and compatible macOS apps for that file. |
 | `app.openMarkdownInCmuxViewer` | boolean | `true` | When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview. |
+| `app.devWindowDisplay` | string | `""` | DEBUG-only display name used when opening new windows. An empty value uses the system default. |
 | `app.reorderOnNotification` | boolean | `true` | Move workspaces with new notifications toward the top. |
 | `app.iMessageMode` | boolean | `false` | Move a workspace to the top and show the submitted message when sending an agent prompt. |
 | `app.sendAnonymousTelemetry` | boolean | `true` | Allow anonymous telemetry. |
@@ -89,6 +92,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 |---|---|---|---|
 | `sidebar.hideAllDetails` | boolean | `false` | Hide all per-workspace detail rows. |
 | `sidebar.showWorkspaceDescription` | boolean | `true` | Show custom workspace descriptions in the sidebar. |
+| `sidebar.workspaceDescriptionColor` | colorHexOrNull | `null` | Override the workspace description text color in the sidebar. |
 | `sidebar.branchLayout` | `"vertical"` or `"inline"` | `"vertical"` | Show git branch details stacked vertically or inline. |
 | `sidebar.showNotificationMessage` | boolean | `true` | Show the latest notification text in the sidebar. |
 | `sidebar.showBranchDirectory` | boolean | `true` | Show the workspace working directory. |

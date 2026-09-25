@@ -1979,7 +1979,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .flatMap { entries in entries.compactMap { $0["command"] as? String } }
         XCTAssertFalse(commands.isEmpty)
 
-        let ambientInvocation = #""$CMUX_BUNDLED_CLI_PATH" --socket "$CMUX_SOCKET_PATH" hooks enqueue antigravity"#
+        let ambientInvocation = #""${cmux_hook_ambient_cli:-}" --socket "${cmux_hook_ambient_socket:-}" hooks enqueue antigravity"#
         let pinnedInvocation = "--socket '\(pinnedSocketPath)' hooks enqueue antigravity"
         for command in commands {
             let ambientRange = command.range(of: ambientInvocation)
@@ -2000,11 +2000,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 )
             }
             XCTAssertTrue(
-                command.contains(#"[ -S "$CMUX_SOCKET_PATH" ]"#),
+                command.contains(#"[ -S "${cmux_hook_ambient_socket:-}" ]"#),
                 "Ambient dispatch must require a live socket so an exited app falls back to the pinned build, saw \(command)"
             )
             XCTAssertTrue(
-                command.contains(#"[ -f "${CMUX_BUNDLED_CLI_PATH:-}" ]"#),
+                command.contains(#"[ -f "${cmux_hook_ambient_cli:-}" ]"#),
                 "Ambient dispatch must require a bundled CLI file, not a directory, saw \(command)"
             )
         }
@@ -2074,7 +2074,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 Darwin.bind(socketFD, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        XCTAssertEqual(bindResult, 0, String(cString: strerror(errno)))
+        let bindErrno = errno
+        XCTAssertEqual(bindResult, 0, String(cString: strerror(bindErrno)))
         close(socketFD)
         XCTAssertTrue(FileManager.default.fileExists(atPath: staleSocketPath))
 
@@ -2325,7 +2326,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// classified wire name (`PostToolUse`) rather than the raw camelCase hook
     /// event — i.e. the suppression actually triggers for real Kiro events.
     func testKiroStandardLevelSuppressesReadOnlyToolFeedEvents() throws {
-        func feedPushCount(forTool tool: String) throws -> Int {
+        // A suppressed hook returns `{}` without ever opening the cmux socket,
+        // so the negative case is settled by the listener's empty accept queue
+        // once the hook process has exited — never by waiting out a timeout.
+        func runKiroPostToolUseHook(
+            forTool tool: String,
+            servesSocket: Bool
+        ) throws -> (feedPushCount: Int, openedSocket: Bool) {
             let cliPath = try bundledCLIPath()
             let socketPath = makeSocketPath("kiro-suppress")
             let listenerFD = try bindUnixSocket(at: socketPath)
@@ -2338,11 +2345,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 unlink(socketPath)
                 try? FileManager.default.removeItem(at: root)
             }
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
-                    return self.malformedRequestResponse(raw: line)
+            var serverHandled: XCTestExpectation?
+            if servesSocket {
+                serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                    guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
+                        return self.malformedRequestResponse(raw: line)
+                    }
+                    return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
                 }
-                return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
             }
             let result = runProcess(
                 executablePath: cliPath,
@@ -2364,17 +2374,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
-            // A non-suppressed event sends one feed.push, so wait for the
-            // server to record it (generous timeout to avoid flaking on the
-            // socket/process round-trip under CI load). A suppressed event
-            // sends nothing, so this wait simply times out silently.
-            _ = XCTWaiter().wait(for: [serverHandled], timeout: 5)
-            return state.commands.filter { $0.contains("feed.push") }.count
+            // A non-suppressed event sends one feed.push, so wait on the server
+            // recording it. The suppressed run serves no connection at all: the
+            // exited hook either left a connection queued on the listener or
+            // never dialed it, and poll answers that immediately.
+            if let serverHandled {
+                wait(for: [serverHandled], timeout: 10)
+            }
+            var listener = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
+            let queuedConnection = Darwin.poll(&listener, 1, 0) > 0
+            return (
+                state.commands.filter { $0.contains("feed.push") }.count,
+                queuedConnection || !state.commands.isEmpty
+            )
         }
 
-        XCTAssertEqual(try feedPushCount(forTool: "fs_read"), 0,
+        let suppressed = try runKiroPostToolUseHook(forTool: "fs_read", servesSocket: false)
+        XCTAssertFalse(suppressed.openedSocket,
+                       "read-only kiro tool at standard level must be suppressed before it dials cmux")
+        XCTAssertEqual(suppressed.feedPushCount, 0,
                        "read-only kiro tool at standard level must be suppressed")
-        XCTAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
+        let reported = try runKiroPostToolUseHook(forTool: "fs_write", servesSocket: true)
+        XCTAssertGreaterThan(reported.feedPushCount, 0,
                              "mutating kiro tool at standard level must still emit telemetry")
     }
 
@@ -4265,7 +4286,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let captureURL = root.appendingPathComponent("arguments.txt", isDirectory: false)
         try makeCodexHookExecutableShellFile(at: pinnedCLI, lines: [
             "#!/bin/sh",
-            "printf '%s\\n' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\" \"$@\" > \"$CMUX_TEST_CAPTURE\"",
+            "{ printf 'pinned:%s\\n' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\"; printf '%s\\n' \"$@\"; } > \"$CMUX_TEST_CAPTURE\"",
         ])
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: pinnedCLI.path)
 
@@ -4320,22 +4341,53 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let notificationCommand = try XCTUnwrap(
             allCommands.first { $0.contains("hooks enqueue grok notification") }
         )
-        let ambientResult = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", notificationCommand],
-            environment: [
-                "CMUX_BUNDLED_CLI_PATH": pinnedCLI.path,
-                "CMUX_SOCKET_PATH": socketPath,
+        let ambientCLI = root.appendingPathComponent("cmux ambient '$ cli\n", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: ambientCLI, lines: [
+            "#!/bin/sh",
+            "{ printf 'ambient:%s\\n' \"${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC:-missing}\"; printf '%s\\n' \"$@\"; } > \"$CMUX_TEST_CAPTURE\"",
+        ])
+        let failedAmbientCLI = root.appendingPathComponent("cmux failed ambient", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: failedAmbientCLI, lines: ["#!/bin/sh", "exit 1"])
+        let ambientSocketPath = socketPath + "\n"
+        let ambientSocketFD = try bindUnixSocket(at: ambientSocketPath)
+        defer {
+            Darwin.close(ambientSocketFD)
+            unlink(ambientSocketPath)
+        }
+        func capture(_ route: String, socket: String) -> String {
+            "\(route):0.5\n--socket\n\(socket)\nhooks\nenqueue\ngrok\nnotification\n"
+        }
+        let cases: [(name: String, cli: String?, socket: String?, expected: String)] = [
+            ("sanitized environment", nil, nil, capture("pinned", socket: socketPath)),
+            ("live launching terminal", ambientCLI.path, ambientSocketPath, capture("ambient", socket: ambientSocketPath)),
+            ("stale launching socket", ambientCLI.path, ambientSocketPath + ".missing", capture("pinned", socket: socketPath)),
+            ("failed launching CLI", failedAmbientCLI.path, ambientSocketPath, capture("pinned", socket: socketPath)),
+        ]
+        for testCase in cases {
+            var environment = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_TEST_CAPTURE": captureURL.path,
-            ],
-            timeout: 2
-        )
-        XCTAssertFalse(ambientResult.timedOut, ambientResult.stderr)
-        XCTAssertEqual(ambientResult.status, 0, ambientResult.stderr)
-        XCTAssertEqual(
-            try String(contentsOf: captureURL, encoding: .utf8),
-            "0.5\n--socket\n\(socketPath)\nhooks\nenqueue\ngrok\nnotification\n"
-        )
+            ]
+            environment["CMUX_BUNDLED_CLI_PATH"] = testCase.cli
+            environment["CMUX_SOCKET_PATH"] = testCase.socket
+            for shellOptions in ["-c", "-ec"] {
+                try? FileManager.default.removeItem(at: captureURL)
+                let execution = runProcess(
+                    executablePath: "/bin/sh",
+                    arguments: [shellOptions, notificationCommand],
+                    environment: environment,
+                    timeout: 2
+                )
+                XCTAssertFalse(execution.timedOut, "\(testCase.name) \(shellOptions): \(execution.stderr)")
+                XCTAssertEqual(execution.status, 0, "\(testCase.name) \(shellOptions): \(execution.stderr)")
+                XCTAssertEqual(
+                    try String(contentsOf: captureURL, encoding: .utf8),
+                    testCase.expected,
+                    "\(testCase.name) \(shellOptions)"
+                )
+            }
+        }
     }
 
     func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {

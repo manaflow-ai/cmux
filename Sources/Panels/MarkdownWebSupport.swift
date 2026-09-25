@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxFoundation
 import WebKit
 
@@ -205,6 +206,10 @@ final class MarkdownWebView: CmuxUndoableWebView {
         Self.installEditableFocusTracking(on: configuration.userContentController)
         super.init(frame: frame, configuration: configuration)
         renderingCoordinator = makeRenderingCoordinator(initialBoundsSize: bounds.size)
+    }
+
+    override func isWebContentUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        event.cmuxIsUndoRedoCommandEquivalent
     }
 
     required init?(coder: NSCoder) {

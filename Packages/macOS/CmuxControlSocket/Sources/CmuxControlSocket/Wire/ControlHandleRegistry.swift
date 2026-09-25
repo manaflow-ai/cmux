@@ -1,9 +1,14 @@
 public import Foundation
 
-/// Mints and resolves the stable `kind:N` handle refs the v2 protocol hands
-/// to callers (was the `v2NextHandleOrdinal`/`v2RefByUUID`/`v2UUIDByRef`
+/// Mints and resolves the `kind:N` handle refs the v2 protocol hands to
+/// callers (was the `v2NextHandleOrdinal`/`v2RefByUUID`/`v2UUIDByRef`
 /// dictionaries + `v2EnsureHandleRef`/`v2ResolveHandleRef` on
 /// `TerminalController`).
+///
+/// Refs are stable for the lifetime of this registry. The composition owner
+/// may provide non-default starting ordinals and persist ordinal advancement so
+/// a ref minted by an earlier app process cannot be rebound to a different
+/// object after restart.
 ///
 /// A plain value type; the owner provides isolation (legacy: main-actor
 /// state on the controller).
@@ -12,14 +17,28 @@ public struct ControlHandleRegistry: Sendable {
     private var refByUUID: [ControlHandleKind: [UUID: String]]
     private var uuidByRef: [ControlHandleKind: [String: UUID]]
     private var topologyRefreshNeeded: Bool
+    private let nextOrdinalDidAdvance:
+        (@Sendable (_ kind: ControlHandleKind, _ nextOrdinal: Int) -> Void)?
 
-    /// Creates an empty registry with all ordinals starting at 1.
-    public init() {
+    /// Creates an empty registry.
+    ///
+    /// - Parameters:
+    ///   - startingOrdinals: Optional first ordinal per handle kind. Missing or
+    ///     invalid values start at 1, preserving the historical in-memory
+    ///     behavior.
+    ///   - nextOrdinalDidAdvance: Optional persistence hook invoked after a new
+    ///     ref advances one kind's next ordinal. Idempotent lookups do not call
+    ///     the hook.
+    public init(
+        startingOrdinals: [ControlHandleKind: Int] = [:],
+        nextOrdinalDidAdvance:
+            (@Sendable (_ kind: ControlHandleKind, _ nextOrdinal: Int) -> Void)? = nil
+    ) {
         var ordinals: [ControlHandleKind: Int] = [:]
         var byUUID: [ControlHandleKind: [UUID: String]] = [:]
         var byRef: [ControlHandleKind: [String: UUID]] = [:]
         for kind in ControlHandleKind.allCases {
-            ordinals[kind] = 1
+            ordinals[kind] = max(1, startingOrdinals[kind] ?? 1)
             byUUID[kind] = [:]
             byRef[kind] = [:]
         }
@@ -27,6 +46,7 @@ public struct ControlHandleRegistry: Sendable {
         refByUUID = byUUID
         uuidByRef = byRef
         topologyRefreshNeeded = true
+        self.nextOrdinalDidAdvance = nextOrdinalDidAdvance
     }
 
     /// Returns the existing ref for an object, minting the next
@@ -35,7 +55,7 @@ public struct ControlHandleRegistry: Sendable {
     /// - Parameters:
     ///   - kind: The handle kind.
     ///   - uuid: The object identity.
-    /// - Returns: The stable ref string.
+    /// - Returns: The registry-lifetime-stable ref string.
     public mutating func ensureRef(kind: ControlHandleKind, uuid: UUID) -> String {
         if let existing = refByUUID[kind]?[uuid] {
             return existing
@@ -44,7 +64,9 @@ public struct ControlHandleRegistry: Sendable {
         let ref = "\(kind.rawValue):\(next)"
         refByUUID[kind, default: [:]][uuid] = ref
         uuidByRef[kind, default: [:]][ref] = uuid
-        nextOrdinal[kind] = next + 1
+        let advanced = next + 1
+        nextOrdinal[kind] = advanced
+        nextOrdinalDidAdvance?(kind, advanced)
         return ref
     }
 

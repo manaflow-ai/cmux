@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { identifier } from "./contracts/common";
 import { environmentScope, type Environment } from "./environment";
-import { OperationError, publicError } from "./errors";
+import { errorSummary, OperationError, publicError } from "./errors";
 import { objectName } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { UserSocketStore } from "./storage/socket-store";
@@ -13,6 +13,7 @@ function result<T>(action: () => T): Result<T> {
   try { return { ok: true, value: action() }; }
   catch (error) {
     const failure = publicError(error);
+    if (!(error instanceof OperationError)) console.error(JSON.stringify({ event: "iroh.user_usage.unclassified", cause: errorSummary(error) }));
     return { ok: false, code: failure.code, status: failure.status, retryable: failure.retryable,
       ...(failure.retryAfterMs === undefined ? {} : { retryAfterMs: failure.retryAfterMs }) };
   }

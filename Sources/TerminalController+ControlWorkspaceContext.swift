@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxControlSocket
 import CmuxCore
 import CmuxPanes
@@ -237,6 +238,11 @@ extension TerminalController: ControlWorkspaceContext {
             iMessageModeEnabled: iMessageModeEnabled
         ) else {
             return .notFound
+        }
+        if let surfaceID = routing.surfaceID,
+           let terminalSurface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
+           terminalSurface.tabId == workspaceID {
+            terminalSurface.hostedView.recordPromptScrollMarker()
         }
         let preview = tabManager.tabs.first(where: { $0.id == workspaceID })?.latestSubmittedMessage
         let windowId = AppDelegate.shared?.windowId(for: tabManager)

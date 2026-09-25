@@ -435,6 +435,53 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(recovered["reason"], "stale_active_lease")
         self.assertFalse(lease_path.exists())
 
+    def test_stale_task_lease_keeps_cold_generation_until_exact_group_settles(self):
+        layout = warm_slot.Layout(self.state.resolve(), "slot")
+        layout.slot.mkdir(parents=True, exist_ok=True)
+        generation = "9" * 32
+        active = warm_slot.cold_task_root(layout, generation)
+        (active / "DerivedData").mkdir(parents=True)
+        (active / "DerivedData/fixture.bin").write_bytes(b"x")
+        outside = self.root / "lease-supplied-path-must-survive"
+        outside.mkdir()
+        outside_marker = outside / "marker"
+        outside_marker.write_text("keep")
+        warm_slot.atomic_json(layout.lease, {
+            "schema_version": 1,
+            "lease_id": "stale-native",
+            "kind": "task",
+            "owner": "dead-task",
+            "pid": 2147483647,
+            "target_commit": self.base,
+            "native_run_id": "exact-run",
+            "native_process_group": 424242,
+            "cold_task_generation_id": generation,
+            "derived_data_path": str(outside),
+        })
+        args = argparse.Namespace(machine_state=self.state, slot="slot", run_id="exact-run")
+
+        with mock.patch.object(warm_slot, "group_alive", return_value=True):
+            blocked = warm_slot.recover(args)
+        self.assertEqual(blocked["status"], "blocked")
+        self.assertEqual(blocked["reason"], "process_group_alive")
+        self.assertTrue(active.exists())
+        self.assertTrue(layout.lease.exists())
+
+        wrong = argparse.Namespace(machine_state=self.state, slot="slot", run_id="wrong-run")
+        with mock.patch.object(warm_slot, "group_alive", return_value=False):
+            mismatch = warm_slot.recover(wrong)
+        self.assertEqual(mismatch["status"], "blocked")
+        self.assertEqual(mismatch["reason"], "run_id_mismatch")
+        self.assertTrue(active.exists())
+
+        with mock.patch.object(warm_slot, "group_alive", return_value=False):
+            recovered = warm_slot.recover(args)
+        self.assertEqual(recovered["status"], "recovered")
+        self.assertEqual(recovered["cold_cache_retirement"], "retired")
+        self.assertFalse(active.exists())
+        self.assertTrue(warm_slot.retired_cold_task_root(layout, generation).exists())
+        self.assertEqual(outside_marker.read_text(), "keep")
+
     def test_tree_change_runs_native_warmer(self):
         first = self.warm(self.base)
         second = self.warm(self.neutral)
@@ -501,6 +548,7 @@ class WarmSlotTest(unittest.TestCase):
         generation = receipt["cold_task_generation_id"]
         self.assertRegex(generation, r"^[0-9a-f]{32}$")
         self.assertEqual(receipt["cold_cache_retirement"], "retired")
+        self.assertGreaterEqual(receipt["cold_cache_retirement_seconds"], 0.0)
 
         active = self.state / "slots/slot/cache/cold-tasks" / generation
         retired = self.state / "slots/slot/cache/retired-cold-tasks" / generation
@@ -512,10 +560,62 @@ class WarmSlotTest(unittest.TestCase):
             "--machine-state", str(self.state),
             "--slot", "slot",
             "--max-generations", "1",
+            "--measure-bytes",
         )
         self.assertEqual(cleanup["status"], "reclaimed")
         self.assertEqual(cleanup["reclaimed"], 1)
+        self.assertEqual(cleanup["reclaimed_bytes"], 4096)
+        self.assertGreaterEqual(cleanup["wall_seconds"], 0.0)
         self.assertFalse(retired.exists())
+
+    def test_repeated_cold_fallbacks_leave_no_active_generations_and_reap_in_bounds(self):
+        active_root = self.state / "slots/slot/cache/cold-tasks"
+        retired_root = self.state / "slots/slot/cache/retired-cold-tasks"
+        generations = set()
+
+        for index in range(4):
+            result = self.task(
+                self.base,
+                task_id=f"cold-repeat-{index}",
+                command=derived_data_command(),
+            )
+            receipt = result["receipt"]
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(receipt["cold_cache_retirement"], "retired")
+            generations.add(receipt["cold_task_generation_id"])
+            self.assertEqual(list(active_root.iterdir()), [])
+
+        self.assertEqual(len(generations), 4)
+        self.assertEqual({path.name for path in retired_root.iterdir()}, generations)
+
+        layout = warm_slot.Layout(self.state.resolve(), "slot")
+        first = warm_slot.cleanup_retired_cold_tasks(layout, max_generations=2)
+        self.assertEqual(first["status"], "reclaimed")
+        self.assertEqual(first["reclaimed"], 2)
+        self.assertEqual(len(list(retired_root.iterdir())), 2)
+        self.assertEqual(list(active_root.iterdir()), [])
+
+        second = warm_slot.cleanup_retired_cold_tasks(layout, max_generations=2)
+        self.assertEqual(second["status"], "reclaimed")
+        self.assertEqual(second["reclaimed"], 2)
+        self.assertEqual(list(retired_root.iterdir()), [])
+
+    def test_cleanup_never_selects_warm_shared_lineage_derived_data(self):
+        warmed = self.warm(self.base, command=derived_data_command())
+        self.assertEqual(warmed["status"], "warmed")
+        warm_derived = Path(warmed["generation"]["derived_data_path"])
+        sentinel = warm_derived / "warm-shared-sentinel"
+        sentinel.write_text("keep")
+
+        layout = warm_slot.Layout(self.state.resolve(), "slot")
+        retired = warm_slot.retired_cold_task_root(layout, "8" * 32)
+        (retired / "DerivedData").mkdir(parents=True)
+        (retired / "DerivedData/fixture.bin").write_bytes(b"x")
+
+        cleanup = warm_slot.cleanup_retired_cold_tasks(layout, max_generations=1)
+        self.assertEqual(cleanup["status"], "reclaimed")
+        self.assertTrue(warm_derived.exists())
+        self.assertEqual(sentinel.read_text(), "keep")
 
     def test_warmer_reclaims_retired_cold_task_before_background_build(self):
         result = self.task(
@@ -535,9 +635,13 @@ class WarmSlotTest(unittest.TestCase):
         layout = warm_slot.Layout(self.state, "slot")
         layout.slot.mkdir(parents=True, exist_ok=True)
         generation = "a" * 32
+        decoy_generation = "b" * 32
         active = warm_slot.cold_task_root(layout, generation)
+        decoy = warm_slot.cold_task_root(layout, decoy_generation)
         (active / "DerivedData").mkdir(parents=True)
         (active / "DerivedData/fixture.bin").write_bytes(b"x")
+        (decoy / "DerivedData").mkdir(parents=True)
+        (decoy / "DerivedData/fixture.bin").write_bytes(b"keep")
         warm_slot.atomic_json(layout.inflight, {
             "schema_version": 1,
             "run_id": "cold-recovery",
@@ -556,6 +660,61 @@ class WarmSlotTest(unittest.TestCase):
         self.assertEqual(recovered["cold_cache_retirement"], "retired")
         self.assertFalse(active.exists())
         self.assertTrue(warm_slot.retired_cold_task_root(layout, generation).exists())
+        self.assertTrue(decoy.exists())
+        self.assertFalse(
+            warm_slot.retired_cold_task_root(layout, decoy_generation).exists()
+        )
+
+    def test_cold_recovery_required_retains_generation_until_exact_recovery(self):
+        program = (
+            "import os,subprocess,sys;"
+            "from pathlib import Path;"
+            "p=Path(os.environ['CMUX_DERIVED_DATA']);"
+            "p.mkdir(parents=True, exist_ok=True);"
+            "(p/'fixture.bin').write_bytes(b'x');"
+            "subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']);"
+            "print('SwiftCompile descendant', flush=True)"
+        )
+        result = self.task(
+            self.base,
+            task_id="cold-recovery-required",
+            command=[sys.executable, "-c", program],
+        )
+        receipt = result["receipt"]
+        generation = receipt["cold_task_generation_id"]
+        active = self.state / "slots/slot/cache/cold-tasks" / generation
+        retired = self.state / "slots/slot/cache/retired-cold-tasks" / generation
+
+        self.assertEqual(result["status"], "recovery_required")
+        self.assertEqual(
+            receipt["cold_cache_retirement"],
+            "deferred_recovery_required",
+        )
+        self.assertTrue(active.exists())
+        self.assertFalse(retired.exists())
+
+        inflight = json.loads(
+            (self.state / "slots/slot/inflight.json").read_text()
+        )
+        pgid = inflight["process_group"]
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        deadline = time.time() + 5
+        while time.time() < deadline and warm_slot.group_alive(pgid):
+            time.sleep(0.05)
+
+        recovered = self.call(
+            "recover",
+            "--machine-state", str(self.state),
+            "--slot", "slot",
+            "--run-id", inflight["run_id"],
+        )
+        self.assertEqual(recovered["status"], "recovered")
+        self.assertEqual(recovered["cold_cache_retirement"], "retired")
+        self.assertFalse(active.exists())
+        self.assertTrue(retired.exists())
 
     def test_cold_retirement_rejects_untrusted_identity(self):
         layout = warm_slot.Layout(self.state, "slot")
@@ -566,6 +725,87 @@ class WarmSlotTest(unittest.TestCase):
         result = warm_slot.retire_cold_task(layout, "../must-survive")
         self.assertEqual(result["status"], "invalid_identity")
         self.assertEqual(marker.read_text(), "keep")
+
+    def test_retirement_and_cleanup_reject_symlink_path_confusion(self):
+        generation = "7" * 32
+
+        active_layout = warm_slot.Layout(self.state.resolve(), "active-slot")
+        active_layout.cache.mkdir(parents=True)
+        outside_active = self.root / "outside-active"
+        outside_generation = outside_active / generation
+        (outside_generation / "DerivedData").mkdir(parents=True)
+        active_marker = outside_generation / "DerivedData/marker"
+        active_marker.write_text("keep")
+        (active_layout.cache / "cold-tasks").symlink_to(
+            outside_active,
+            target_is_directory=True,
+        )
+        retirement = warm_slot.retire_cold_task(active_layout, generation)
+        self.assertEqual(retirement["status"], "invalid_namespace")
+        self.assertEqual(retirement["reason"], "active_namespace_path_confusion")
+        self.assertEqual(active_marker.read_text(), "keep")
+
+        retired_layout = warm_slot.Layout(self.state.resolve(), "retired-slot")
+        retired_layout.cache.mkdir(parents=True)
+        outside_retired = self.root / "outside-retired"
+        outside_retired.mkdir()
+        victim = outside_retired / generation
+        victim.mkdir()
+        retired_marker = victim / "marker"
+        retired_marker.write_text("keep")
+        retired_layout.retired_cold_tasks.symlink_to(
+            outside_retired,
+            target_is_directory=True,
+        )
+        cleanup = warm_slot.cleanup_retired_cold_tasks(
+            retired_layout,
+            max_generations=1,
+        )
+        self.assertEqual(cleanup["status"], "failed")
+        self.assertEqual(cleanup["reason"], "retired_namespace_path_confusion")
+        self.assertEqual(retired_marker.read_text(), "keep")
+
+        final_layout = warm_slot.Layout(self.state.resolve(), "final-slot")
+        final_layout.retired_cold_tasks.mkdir(parents=True)
+        outside_final = self.root / "outside-final"
+        outside_final.mkdir()
+        final_marker = outside_final / "marker"
+        final_marker.write_text("keep")
+        warm_slot.retired_cold_task_root(final_layout, generation).symlink_to(
+            outside_final,
+            target_is_directory=True,
+        )
+        final_cleanup = warm_slot.cleanup_retired_cold_tasks(
+            final_layout,
+            max_generations=1,
+        )
+        self.assertEqual(final_cleanup["status"], "failed")
+        self.assertEqual(final_cleanup["reason"], "cleanup_generation_path_confusion")
+        self.assertEqual(final_marker.read_text(), "keep")
+
+    def test_descriptor_cleanup_unlinks_symlink_without_touching_target(self):
+        layout = warm_slot.Layout(self.state.resolve(), "fd-cleanup-slot")
+        generation = "6" * 32
+        retired = warm_slot.retired_cold_task_root(layout, generation)
+        retired.mkdir(parents=True)
+        nested = retired / "nested"
+        nested.mkdir()
+        (nested / "fixture.bin").write_bytes(b"x")
+
+        outside = self.root / "fd-cleanup-outside"
+        outside.mkdir()
+        marker = outside / "marker"
+        marker.write_text("keep")
+        (retired / "escape").symlink_to(outside, target_is_directory=True)
+
+        fd = os.open(retired, warm_slot._DIRECTORY_OPEN_FLAGS)
+        try:
+            warm_slot._remove_tree_contents_fd(fd)
+        finally:
+            os.close(fd)
+
+        self.assertEqual(marker.read_text(), "keep")
+        self.assertEqual(list(retired.iterdir()), [])
 
     def test_cleanup_budget_is_bounded_and_unknown_entries_are_preserved(self):
         layout = warm_slot.Layout(self.state, "slot")
@@ -602,23 +842,23 @@ class WarmSlotTest(unittest.TestCase):
             (root / "fixture.bin").write_bytes(b"x")
 
         class FakeCleanup:
-            def __init__(self, root):
-                self.root = root
+            def __init__(self, generation):
+                self.generation = generation
                 self.pid = 2147483647
                 self.returncode = None
 
             def wait(self, timeout=None):
-                if self.root == removable:
-                    shutil.rmtree(self.root)
+                if self.generation == removable.name:
+                    (removable / "fixture.bin").unlink()
                     self.returncode = 0
                 else:
                     self.returncode = 1
                 return self.returncode
 
-        def launch(args, **_kwargs):
-            return FakeCleanup(Path(args[-1]))
+        def launch(_generation_fd, generation):
+            return FakeCleanup(generation)
 
-        with mock.patch.object(warm_slot.subprocess, "Popen", side_effect=launch):
+        with mock.patch.object(warm_slot, "_launch_cleanup_worker", side_effect=launch):
             result = warm_slot.cleanup_retired_cold_tasks(
                 layout,
                 max_generations=2,
@@ -665,8 +905,8 @@ class WarmSlotTest(unittest.TestCase):
         try:
             os.write(write_fd, b"1")
             with mock.patch.object(
-                warm_slot.subprocess,
-                "Popen",
+                warm_slot,
+                "_launch_cleanup_worker",
                 return_value=fake_cleanup,
             ):
                 with mock.patch.object(
@@ -685,6 +925,20 @@ class WarmSlotTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "preempted")
         self.assertTrue(retired.exists())
+
+        resumed = warm_slot.cleanup_retired_cold_tasks(
+            layout,
+            max_generations=1,
+        )
+        self.assertEqual(resumed["status"], "reclaimed")
+        self.assertEqual(resumed["reclaimed"], 1)
+        self.assertFalse(retired.exists())
+        repeated = warm_slot.cleanup_retired_cold_tasks(
+            layout,
+            max_generations=1,
+        )
+        self.assertEqual(repeated["status"], "idle")
+        self.assertEqual(repeated["reclaimed"], 0)
 
     def test_same_checkout_serializes_different_slots(self):
         slow = native_command(seconds=1.5)
@@ -787,24 +1041,35 @@ class WarmSlotTest(unittest.TestCase):
         layout.slot.mkdir(parents=True, exist_ok=True)
         layout.logs.mkdir(parents=True, exist_ok=True)
         read_fd, write_fd = os.pipe()
+        ready = layout.slot / "forced-kill-ready.fifo"
+        os.mkfifo(ready)
         command = [
             sys.executable,
             "-c",
             (
-                "import signal,time;"
+                "import signal,sys,time;"
                 "signal.signal(signal.SIGTERM, lambda *_: None);"
+                "open(sys.argv[1], 'w').close();"
                 "print('SwiftCompile forced-kill', flush=True);"
                 "time.sleep(30)"
             ),
+            str(ready),
         ]
 
         def request_preempt():
-            # The FIFO-style pipe retains the byte until run_native installs its
-            # watcher, so the test does not need to race the launch journal.
-            time.sleep(0.05)
+            # The forced kill only happens when the child outlives TERM_GRACE,
+            # which it only does once it has installed its SIGTERM handler.
+            # Opening the FIFO rendezvous blocks until the child has done so,
+            # where a fixed sleep raced interpreter startup and left the run
+            # dying on the default SIGTERM action instead. The pipe itself
+            # retains the byte until run_native installs its watcher.
+            with open(ready, "r"):
+                pass
             os.write(write_fd, b"1")
 
-        thread = threading.Thread(target=request_preempt)
+        # Daemon so a child that never reaches the rendezvous fails the
+        # assertions instead of wedging the suite on a blocked open().
+        thread = threading.Thread(target=request_preempt, daemon=True)
         thread.start()
         try:
             with (
@@ -936,6 +1201,109 @@ class WarmSlotTest(unittest.TestCase):
         result = self.call("plan", *self.common(), "--target", self.base)
         self.assertEqual(result["decision"], "fallback")
         self.assertEqual(result["reason"], "state_unreadable")
+
+    def test_event_journal_bounds_growth_without_fsync(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        max_bytes = 1024
+        with (
+            mock.patch.object(warm_slot, "EVENT_JOURNAL_MAX_BYTES", max_bytes),
+            mock.patch.object(warm_slot.os, "fsync", side_effect=AssertionError("telemetry must not fsync")),
+        ):
+            for index in range(500):
+                warm_slot.event(layout, "high_rate", index=index, payload="x" * 64)
+
+        retained = []
+        paths = [layout.events_archive, layout.events]
+        for path in paths:
+            self.assertTrue(path.exists())
+            self.assertLessEqual(path.stat().st_size, max_bytes + 512)
+            for line in path.read_text().splitlines():
+                retained.append(json.loads(line))
+        self.assertEqual(retained[-1]["index"], 499)
+        self.assertLessEqual(sum(path.stat().st_size for path in paths), 2 * (max_bytes + 512))
+
+    def test_event_journal_repairs_partial_tail_before_rotation(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        layout.events.parent.mkdir(parents=True, exist_ok=True)
+        complete = json.dumps(
+            {"event": "kept", "index": 1, "payload": "x" * 256},
+            sort_keys=True,
+        ) + "\n"
+        layout.events.write_bytes(complete.encode() + b'{"event":"partial"')
+
+        with mock.patch.object(warm_slot, "EVENT_JOURNAL_MAX_BYTES", len(complete.encode()) + 64):
+            warm_slot.event(layout, "after_crash", index=2)
+
+        self.assertEqual(layout.events_archive.read_text(), complete)
+        current = [json.loads(line) for line in layout.events.read_text().splitlines()]
+        self.assertEqual([row["event"] for row in current], ["after_crash"])
+        self.assertEqual(current[0]["index"], 2)
+
+    def test_event_journal_recovers_archive_only_and_recreates_after_deletion(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        layout.events.parent.mkdir(parents=True, exist_ok=True)
+        archived = json.dumps({"event": "before_crash"}, sort_keys=True) + "\n"
+        layout.events_archive.write_text(archived)
+
+        warm_slot.event(layout, "after_restart")
+        self.assertEqual(layout.events_archive.read_text(), archived)
+        self.assertEqual(json.loads(layout.events.read_text())["event"], "after_restart")
+
+        layout.events.unlink()
+        layout.events_archive.unlink()
+        warm_slot.event(layout, "after_deletion")
+        self.assertEqual(json.loads(layout.events.read_text())["event"], "after_deletion")
+
+    def test_event_journal_concurrent_high_rate_appends_are_complete(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        threads = []
+        workers = 8
+        per_worker = 50
+
+        def append(worker: int) -> None:
+            for index in range(per_worker):
+                warm_slot.event(layout, "concurrent", worker=worker, index=index)
+
+        for worker in range(workers):
+            thread = threading.Thread(target=append, args=(worker,))
+            threads.append(thread)
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            self.assertFalse(thread.is_alive())
+
+        rows = [json.loads(line) for line in layout.events.read_text().splitlines()]
+        self.assertEqual(len(rows), workers * per_worker)
+        self.assertEqual(
+            {(row["worker"], row["index"]) for row in rows},
+            {(worker, index) for worker in range(workers) for index in range(per_worker)},
+        )
+
+    def test_event_journal_retries_partial_os_writes(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        real_write = os.write
+
+        def partial_write(fd, data):
+            chunk = bytes(data[:max(1, len(data) // 2)])
+            return real_write(fd, chunk)
+
+        with mock.patch.object(warm_slot.os, "write", side_effect=partial_write):
+            warm_slot.event(layout, "partial_write", index=7)
+
+        row = json.loads(layout.events.read_text())
+        self.assertEqual(row["event"], "partial_write")
+        self.assertEqual(row["index"], 7)
+
+    def test_event_journal_drops_row_larger_than_retention_budget(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        with mock.patch.object(warm_slot, "EVENT_JOURNAL_MAX_BYTES", 64):
+            warm_slot.event(layout, "oversized", payload="x" * 128)
+        self.assertFalse(layout.events.exists())
+
+    def test_event_io_failure_is_observational(self):
+        layout = warm_slot.Layout(self.state, "slot")
+        with mock.patch.object(warm_slot, "_append_event_line", side_effect=OSError("telemetry unavailable")):
+            warm_slot.event(layout, "dropped")
 
 
 if __name__ == "__main__":

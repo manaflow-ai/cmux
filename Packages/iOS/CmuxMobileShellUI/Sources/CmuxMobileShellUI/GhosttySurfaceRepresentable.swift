@@ -12,7 +12,7 @@ import UIKit
 /// Mounts a `GhosttySurfaceHostView`, routes terminal output, and bridges the SwiftUI
 /// composer into the host-owned bottom dock. Primary-screen output uses the
 /// phone's natural height; alternate-screen replay can pin to the Mac's grid.
-struct GhosttySurfaceRepresentable: UIViewRepresentable {
+struct GhosttySurfaceRepresentable: UIViewControllerRepresentable {
     #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     #endif
@@ -53,6 +53,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var terminalFolderTapEnabled: Bool = true
     var terminalFilesChipEnabled: Bool = true
     var showMissingFiles: Bool = false
+    /// When enabled, preserve the pre-visible-height behavior for all terminal
+    /// screens. The default uses the settled visible-height grid for
+    /// alternate-screen apps.
+    var useLegacyTerminalSizing: Bool = false
     var sessionArtifactCountEnabled: Bool = false
     var visibleArtifactCount: Int = 0
     var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void = { _ in }
@@ -60,7 +64,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void = { _ in }
     var onArtifactGalleryRefreshSignal: @MainActor (TerminalArtifactGalleryRefreshSignal) -> Void = { _ in }
 
-    func makeUIView(context: Context) -> UIView {
+    func makeUIViewController(context: Context) -> UIViewController {
         let runtime: GhosttyRuntime
         do {
             runtime = try GhosttyRuntime.shared()
@@ -73,7 +77,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 "mobile.terminal.rendererFailed",
                 defaultValue: "Terminal renderer failed to start."
             )
-            return fallback
+            let controller = UIViewController()
+            controller.view = fallback
+            return controller
         }
         let view = GhosttySurfaceView(
             runtime: runtime,
@@ -83,6 +89,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             terminalConfigTheme: terminalConfigTheme
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        view.useLegacyTerminalSizing = useLegacyTerminalSizing
+        view.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
         view.artifactFilesEnabled = artifactFilesEnabled
         // Screen-anchored sessions scroll the local mirror's own scrollback
         // immediately (the Mac never repaints for a primary-screen scroll), so
@@ -104,8 +112,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // Mount the composer band immediately if the composer was already open when
         // this surface was (re)built (e.g. a terminal switch while composing), and
         // seed the surface's composerActive flag to match. SwiftUI does call
-        // `updateUIView` right after `makeUIView`, but the compose button's intent
-        // math reads this flag, so it must never depend on that ordering contract.
+        // `updateUIViewController` right after `makeUIViewController`, but the
+        // compose button reads this flag independently of that ordering contract.
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         view.setTopContentInset(topContentInset)
@@ -115,27 +123,30 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // for a reattached surface recovers keyboard transitions it missed.
         // Previews and isolated harnesses have no injected tracker; a
         // coordinator-owned instance still records for this mount's lifetime.
-        return GhosttySurfaceHostView(
+        let host = GhosttySurfaceHostView(
             surfaceView: view,
             keyboardFrameTracker: context.environment.mobileKeyboardFrameTracker
                 ?? context.coordinator.fallbackKeyboardFrameTracker,
             keyboardDockRebuildRevertEnabled: context.environment.keyboardDockRebuildRevertEnabled,
             capturedBottomSafeAreaInset: bottomSafeAreaInset
         )
+        return GhosttySurfaceHostViewController(hostView: host)
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIViewController(_ controller: UIViewController, context: Context) {
+        let uiView = controller.view
         // Bytes flow via the byte sink; the prop-driven mutations are the autofocus
         // suppression and the composer's open/closed state. `setComposerActive`
         // handles the first-responder handover that keeps the keyboard up; the
         // coordinator mounts/unmounts the hosted compose field into the surface's
         // composer band. This is a UIKit-internal mutation, not a sibling-observed
-        // state write, so it is safe in `updateUIView`.
+        // state write, so it is safe in `updateUIViewController`.
         context.coordinator.setTerminalPresentationActive(terminalPresentationIsActive)
         context.coordinator.attemptPendingOutputConsumerRecoveryPresentation()
         guard let surfaceView = (uiView as? GhosttySurfaceHostView)?.surfaceView else { return }
         surfaceView.terminalWorkPopulation = terminalWorkPopulation
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.useLegacyTerminalSizing = useLegacyTerminalSizing
         surfaceView.terminalTheme = terminalTheme
         surfaceView.terminalConfigTheme = terminalConfigTheme
         surfaceView.setTopContentInset(topContentInset)
@@ -179,8 +190,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         context.coordinator.remeasureComposerForLayoutChange()
     }
 
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        (uiView as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
+    static func dismantleUIViewController(_ controller: UIViewController, coordinator: Coordinator) {
+        (controller.view as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
         coordinator.detach()
@@ -513,9 +524,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     }
                 }
             )
-            // Drive every output chunk into the libghostty surface. Ending this
-            // task terminates the stream, which unregisters the surface and
-            // clears its viewport pin on the Mac (see `terminalOutputStream`).
+            // Drive every output chunk into the libghostty surface. The output
+            // stream owns delivery only; this coordinator's presentation owns
+            // the sticky viewport lease and releases it explicitly on teardown.
             outputTaskGeneration &+= 1
             let taskGeneration = outputTaskGeneration
             let ownerID = UUID()
@@ -539,7 +550,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(
                     surfaceID: surfaceID,
-                    ownerID: ownerID
+                    ownerID: ownerID,
+                    releaseViewportOnTermination: false
                 ) {
                     guard !Task.isCancelled else { return }
                     guard let self else { return }
@@ -1217,6 +1229,53 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 outputConsumerRecoveryAlertPending = false
                 stopMountedTasks()
             }
+        }
+
+        func ghosttySurfaceViewDidBecomeActive(_ surfaceView: GhosttySurfaceView) {
+            guard self.surfaceView === surfaceView,
+                  terminalPresentationIsActive,
+                  surfaceView.window != nil else { return }
+
+            let ownsCurrentStream: Bool
+            if let ownerID = outputConsumerOwnerID,
+               let store {
+                ownsCurrentStream = store.isTerminalOutputConsumerOwner(
+                    surfaceID: surfaceID,
+                    ownerID: ownerID
+                )
+            } else {
+                ownsCurrentStream = false
+            }
+            if outputTask != nil, ownsCurrentStream {
+                // The connection can drop the Mac's sticky viewport lease while
+                // the local AsyncStream remains alive. Revalidate the current
+                // alternate-screen capacity on every foreground return so a
+                // stale effective grid cannot survive a reconnect. Primary
+                // screens retain their existing foreground behavior.
+                if surfaceView.hostedAltScreenActive,
+                   !surfaceView.useLegacyTerminalSizing {
+                    MobileDebugLog.anchormux(
+                        "terminal.output.foreground_viewport_refresh surface=\(surfaceID)"
+                    )
+                    surfaceView.requestForegroundViewportRefresh()
+                }
+                return
+            }
+
+            // Backgrounding can cancel the AsyncStream task without UIKit
+            // detaching the surface. Clear the old viewport owner before
+            // registering a replacement so an alternate-screen grant from
+            // before suspension cannot letterbox the foreground surface.
+            MobileDebugLog.anchormux(
+                "terminal.output.foreground_reconcile surface=\(surfaceID) "
+                    + "task=\(outputTask != nil) owner=\(ownsCurrentStream)"
+            )
+            stopMountedTasks(releaseViewport: true)
+            startMountedTasks(
+                surfaceView: surfaceView,
+                resetRestartFailure: true
+            )
+            attemptPendingOutputConsumerRecoveryPresentation()
         }
 
         /// Whether a theme-carrying chunk must be abandoned (reset plus

@@ -1,3 +1,5 @@
+import CmuxCloud
+
 /// Resolves organization against the actual catalog-built tree. No row is
 /// inserted, removed, renamed, reparented, or recreated by organization.
 struct CloudSidebarOrganizationTree {

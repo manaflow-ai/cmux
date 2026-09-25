@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxRemoteSession
 import Foundation
@@ -115,6 +118,10 @@ extension CmuxTuiSurfaceProvider {
                       ) else {
                     throw CancellationError()
                 }
+                workspace.updateCloudTerminalTabIcon(
+                    panelID: adopted.panelID,
+                    assetName: resource.terminalAgentIconAssetName
+                )
                 created = adopted
                 reservation.inputRelay.attach(inputRouter)
                 // The card's grace counts from the moment the pane appeared.
@@ -123,6 +130,7 @@ extension CmuxTuiSurfaceProvider {
                 created = try SurfacePaneFactory.makeCloudManualMirrorPane(
                     at: destination,
                     focus: focus,
+                    iconAssetName: resource.terminalAgentIconAssetName,
                     onInput: { input in inputRouter.send(input) },
                     keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value },
                     onResize: { [weak session] sample in

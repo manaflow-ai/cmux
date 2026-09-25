@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 /// Top-level navigation targets for the settings window.
@@ -11,7 +12,6 @@ import Foundation
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
-    case computers
     case app
     case terminal
     case textBox
@@ -19,6 +19,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case sleepyMode
     /// Mobile pairing and sync settings.
     case mobile
+    case computers
     /// Cloud Machines: persistent cloud VM plan and entry points.
     case cloudMachines
     /// Iroh relay policy, custom relays, and private-network routes.
@@ -40,6 +41,17 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
 
     public var id: Self { self }
 
+    /// Maps the catalog-owned destination into this package's navigation id.
+    ///
+    /// Keep this switch exhaustive as UserFacingSettingSection grows so
+    /// catalog metadata can never refer to an unknown Settings destination.
+    public init(userFacingSection section: UserFacingSettingSection) {
+        switch section {
+        case .app:
+            self = .app
+        }
+    }
+
     /// User-facing section title shown in the sidebar.
     public var title: String {
         switch self {
@@ -56,7 +68,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation: return String(localized: "settings.section.automation", defaultValue: "Automation")
-        case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
+        case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
         case .browser: return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport: return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
         case .globalHotkey: return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")

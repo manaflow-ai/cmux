@@ -54,6 +54,7 @@ export async function exportCloudDiagnostics(
   const errors = rows.filter((row) => ["failure", "timeout"].includes(row.payload.span.outcome)).map((row) => ({
     _time: new Date(row.payload.span.endedAtMs).toISOString(),
     client_channel: row.payload.client.channel,
+    client_tag: row.payload.client.tag,
     client_version: row.payload.client.version,
     client_build: row.payload.client.build,
     client_revision: row.payload.client.revision,
@@ -110,7 +111,7 @@ function resourceAttributes(row: StoredCloudDiagnostic, configuration: CloudAxio
     "cmux.backend.revision": row.payload.backend?.revision ?? "unknown",
     "cmux.backend.tag": row.payload.backend?.tag,
     "cmux.backend.source_sha256": row.payload.backend?.sourceSha256,
-    "cmux.client.channel": client.channel, "cmux.client.build": client.build,
+    "cmux.client.channel": client.channel, "cmux.client.tag": client.tag, "cmux.client.build": client.build,
     "cmux.client.revision": client.revision,
     "os.version": row.payload.source === "server" ? undefined : client.osVersion,
     "host.arch": row.payload.source === "server" ? undefined : client.architecture,

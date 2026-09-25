@@ -245,8 +245,11 @@ public protocol ControlSurfaceContext: AnyObject {
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings
 
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
-    /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
-    /// and stores the binding.
+    /// target, applies any stored approval, and stores the binding. It must not
+    /// present approval UI: a modal here parks the command on the main actor and
+    /// stops the socket from answering (#13369). A binding that still needs a
+    /// person's approval is stored without resume trust and reported through
+    /// ``ControlSurfaceResumeSnapshot/approvalRequired``.
     ///
     /// - Parameters:
     ///   - routing: The routing selectors (with the surface-resume precedence).

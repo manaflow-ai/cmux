@@ -357,10 +357,14 @@ extension CMUXCLI {
             return values.isEmpty ? nil : values
         }()
 
-        // Discover accepted machine metadata before exposing the binding in the
-        // left sidebar. Keep an app-reserved creating card intact if this fails.
+        // The vm.create socket receipt registers the provider before this shared
+        // open path runs. Join its first graph read before mutating the local
+        // workspace so the authoritative remote workspace/terminal receipt can
+        // bind the pending projection without a second discovery pass.
         let catalog = options.fullClient ? nil : try client.sendV2(
-            method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180
+            method: "surface.catalog",
+            params: ["machine": vmId, "ensure_linked": true],
+            responseTimeout: 180
         )
 
         let initialCommand: String
