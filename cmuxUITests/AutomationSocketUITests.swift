@@ -288,7 +288,7 @@ final class AutomationSocketUITests: XCTestCase {
         XCTAssertEqual(typedTitles.first, "$iterate-pr")
     }
 
-    func testAgentFooterRendersFromOSC699AndClearsOnExit() throws {
+    func testAgentFooterRendersFromOSC699AndClearsOnEmptyAgent() throws {
         let app = configuredApp(mode: "allowAll")
         app.launchArguments += ["-NSAppSleepDisabled", "YES"]
         defer { app.terminate() }

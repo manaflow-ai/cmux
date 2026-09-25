@@ -70,4 +70,21 @@ struct AgentFooterOSCParserTests {
 
         #expect(parser.consume(Data(text.utf8)) == AgentFooterState(agent: "codex", contextPercent: 10))
     }
+
+    @Test("Resynchronizes after an incomplete footer escape")
+    func resynchronizesAfterIncompleteFooterEscape() {
+        var parser = AgentFooterOSCParser()
+        let text = "\u{1B}]699;agent=stale\u{1B}]699;agent=codex;context=10%\u{07}"
+
+        #expect(parser.consume(Data(text.utf8)) == AgentFooterState(agent: "codex", contextPercent: 10))
+    }
+
+    @Test("Resynchronizes after an oversized footer escape")
+    func resynchronizesAfterOversizedFooterEscape() {
+        var parser = AgentFooterOSCParser()
+        let oversized = "\u{1B}]699;agent=" + String(repeating: "x", count: 1_100) + "\u{1B}]"
+        let valid = "699;agent=codex;context=10%\u{07}"
+
+        #expect(parser.consume(Data((oversized + valid).utf8)) == AgentFooterState(agent: "codex", contextPercent: 10))
+    }
 }

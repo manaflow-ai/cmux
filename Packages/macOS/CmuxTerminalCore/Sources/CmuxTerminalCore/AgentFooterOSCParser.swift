@@ -155,6 +155,10 @@ public struct AgentFooterOSCParser: Sendable {
                 phase = .ground
                 return Self.state(from: payload)
             }
+            if byte == 0x5D {
+                phase = .oscCode([])
+                return nil
+            }
             if byte == 0x1B {
                 phase = .footerPayloadEscape(Self.append(byte, to: payload))
             } else {
@@ -171,6 +175,8 @@ public struct AgentFooterOSCParser: Sendable {
         case .discardFooterPayloadEscape:
             if byte == 0x5C {
                 phase = .ground
+            } else if byte == 0x5D {
+                phase = .oscCode([])
             } else if byte != 0x1B {
                 phase = .discardFooterPayload
             }
