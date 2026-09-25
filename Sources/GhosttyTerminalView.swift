@@ -8161,7 +8161,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     /// Check if the word under the mouse cursor resolves to an existing file/directory
     /// in the terminal panel's CWD. Returns the resolved absolute path, or nil.
-    private func resolveWordUnderCursorAsPath(at point: NSPoint? = nil) -> String? {
+    func resolveWordUnderCursorAsPath(at point: NSPoint? = nil) -> String? {
         resolveWordUnderCursorPath(at: point)?.path
     }
 
@@ -9059,6 +9059,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             keyEquivalent: ""
         )
         pasteItem.target = self
+        addRevealInFinderMenuItem(
+            to: menu,
+            surface: surface,
+            pointerLocation: sendsTerminalPointerEvent ? convert(event.locationInWindow, from: nil) : nil
+        )
         menu.addItem(.separator())
         let splitHorizontallyItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.splitHorizontally", defaultValue: "Split Horizontally"),
