@@ -3855,6 +3855,7 @@ class TabManager: ObservableObject {
         applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: nil, sourceSurface: nil)
     }
 
+    @discardableResult
     private func applyPanelTitle(
         tabId: UUID,
         panelId: UUID,
@@ -3900,10 +3901,6 @@ class TabManager: ObservableObject {
         sourceSurface: TerminalSurface
     ) {
         applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: stableTitle, sourceSurface: sourceSurface)
-    }
-
-    private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String, sourceSurface: TerminalSurface) {
-        applyPanelTitle(tabId: tabId, panelId: panelId, title: title, stableTitle: nil, sourceSurface: sourceSurface)
     }
 
     func shouldScheduleRawTitleRefresh(forWorkspaceId workspaceId: UUID?) -> Bool { workspaceId == selectedTabId && !PanelTitleUpdateCoalescingSettings.isEnabled(settings: settings) }
