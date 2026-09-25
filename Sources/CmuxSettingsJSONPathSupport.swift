@@ -196,6 +196,10 @@ enum NotificationSettingsFileMapping {
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
         ),
         .init(
+            jsonKey: "suppressWhenAppFocused",
+            defaultsKey: notifications.suppressWhenAppFocused.userDefaultsKey
+        ),
+        .init(
             jsonKey: "agentPermissionPrompt",
             defaultsKey: notifications.agentPermissionPrompt.userDefaultsKey
         ),

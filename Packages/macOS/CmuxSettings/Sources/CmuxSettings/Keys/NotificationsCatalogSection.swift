@@ -72,6 +72,18 @@ public struct NotificationsCatalogSection: SettingCatalogSection {
         userDefaultsKey: "notificationsSuppressOnlyFocusedSurface"
     )
 
+    /// When enabled, cmux skips the desktop banner for every notification while
+    /// cmux is the active app, not only for the focused surface. The
+    /// notification is still recorded, the sound and custom command still run,
+    /// and phone forwarding keeps the focused-surface gate. Off keeps
+    /// delivering banners for other workspaces and panes while cmux is
+    /// focused. See issue #3126.
+    public let suppressWhenAppFocused = DefaultsKey<Bool>(
+        id: "notifications.suppressWhenAppFocused",
+        defaultValue: false,
+        userDefaultsKey: "notificationsSuppressWhenAppFocused"
+    )
+
     /// Notify when an agent (e.g. Claude Code) is blocked waiting for the user's
     /// permission to run a tool. On by default: this is the one alert the user
     /// must act on to unblock the agent.

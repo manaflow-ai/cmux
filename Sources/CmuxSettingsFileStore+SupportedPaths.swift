@@ -70,6 +70,7 @@ extension CmuxSettingsFileStore {
         "notifications.hooks",
         "notifications.hooksMode",
         "notifications.suppressOnlyFocusedSurface",
+        "notifications.suppressWhenAppFocused",
         "notifications.agentPermissionPrompt",
         "notifications.agentTurnComplete",
         "notifications.agentIdleReminder",

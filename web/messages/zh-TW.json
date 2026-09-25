@@ -1322,6 +1322,7 @@
         },
         "notifications": {
           "suppressOnlyFocusedSurface": "啟用後，只有當通知橫幅的 Surface 正好是目前聚焦的 Surface 時，該橫幅才會自動撤回。對於目前可見 workspace 中未聚焦的 Surface 所投遞的橫幅，在你聚焦該 Surface（或點擊／關閉它）之前會持續顯示，而不會在 workspace 變為可見時被撤回。關閉則保留舊有的基於 workspace 可見性的撤回行為。",
+          "suppressWhenAppFocused": "啟用後，只要 cmux 是目前使用中的 App，cmux 就會對所有通知略過桌面橫幅，而不只限於取得焦點的窗格。通知仍會顯示在側邊欄中，音效與自訂指令也仍會執行，轉送到手機的行為不變。關閉時，即使 cmux 取得焦點，其他 workspace 與窗格的橫幅也會繼續顯示。",
           "agentIdleReminder": "當代理程式閒置並等待你的輸入時（回合結束後約 60 秒）傳送通知。只要上一回合的背景工作仍在等待，就會抑制通知，避免正在執行的建置或監看程式觸發錯誤的等待提醒。",
           "soundOverrides": "依代理程式和提醒類型設定的稀疏通知聲音覆寫。缺少的儲存格會使用 notifications.sound。",
           "soundOverride": "通知聲音覆寫。default 使用 notifications.sound，none 停用播放，其餘值選擇內建或自訂聲音。"

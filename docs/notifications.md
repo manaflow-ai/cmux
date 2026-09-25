@@ -113,6 +113,20 @@ By default cmux withdraws a delivered banner when its workspace becomes visible/
 }
 ```
 
+## Suppress banners while cmux is focused
+
+By default cmux skips the desktop banner only when the notification is for the pane you are looking at. A notification for another workspace or pane still shows a banner even while cmux is the active app. Set the opt-in flag below to `true` to skip the desktop banner for every notification while cmux is the active app. Banners come back as soon as you switch to another app. Notifications still land in the sidebar with their unread state, the notification sound and custom command still run, and phone forwarding keeps its usual focused-pane rule, since cmux can be frontmost while you are away from the Mac.
+
+```jsonc
+{
+  "notifications": {
+    // Default: false (only the focused pane skips its banner).
+    // Set to true to skip banners for every notification while cmux is focused.
+    "suppressWhenAppFocused": true
+  }
+}
+```
+
 ## Notification Hooks
 
 `cmux.json` can define composable hooks that receive every notification policy as JSON on stdin and return updated JSON on stdout. Hooks are off by default; cmux only runs them when `notifications.hooks` contains at least one enabled hook. Hooks can filter native banners, sidebar history, sounds, custom commands, workspace reordering, and pane flashes.

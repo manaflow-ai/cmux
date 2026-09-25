@@ -1510,10 +1510,9 @@ final class TerminalNotificationStore: ObservableObject {
             restoreCooldownReservation(cooldownReservation)
             return false
         }
-        let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
-            tabId: request.tabId,
-            surfaceId: request.surfaceId
-        )
+        let focusState = notificationFocusState(tabId: request.tabId, surfaceId: request.surfaceId)
+        let shouldSuppressExternalDelivery = Self.shouldSuppressExternalDelivery(focusState)
+        let isFocusedSurfaceArrival = focusState.isFocusedSurfaceArrival
         let notification = TerminalNotification(
             id: notificationID,
             tabId: request.tabId,
@@ -1536,6 +1535,7 @@ final class TerminalNotificationStore: ObservableObject {
         if effects.record {
             recordNotification(
                 notification,
+                isFocusedSurfaceArrival: isFocusedSurfaceArrival,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
                 effects: effects,
                 now: now,
@@ -1559,6 +1559,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         deliverNotificationSideEffects(
             notification,
+            isFocusedSurfaceArrival: isFocusedSurfaceArrival,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
@@ -1566,6 +1567,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
     private func recordNotification(
         _ notification: TerminalNotification,
+        isFocusedSurfaceArrival: Bool,
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
@@ -1591,7 +1593,7 @@ final class TerminalNotificationStore: ObservableObject {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
         }
 
-        if shouldSuppressExternalDelivery, effects.markUnread {
+        if isFocusedSurfaceArrival, effects.markUnread {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
@@ -1638,20 +1640,15 @@ final class TerminalNotificationStore: ObservableObject {
         }
         deliverNotificationSideEffects(
             notification,
+            isFocusedSurfaceArrival: isFocusedSurfaceArrival,
             shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
             effects: effects
         )
     }
 
-    private func shouldSuppressExternalDelivery(tabId: UUID, surfaceId: UUID?) -> Bool {
-        let focusState = notificationFocusState(tabId: tabId, surfaceId: surfaceId)
-        return focusState.isAppFocused
-            && focusState.isActiveTab
-            && focusState.isFocusedSurface
-    }
-
     private func deliverNotificationSideEffects(
         _ notification: TerminalNotification,
+        isFocusedSurfaceArrival: Bool,
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects
     ) {
@@ -1672,7 +1669,10 @@ final class TerminalNotificationStore: ObservableObject {
             tabId: notification.tabId,
             surfaceId: notification.surfaceId
         )
-        let shouldAttemptPhone = !shouldSuppressExternalDelivery
+        // `suppressWhenAppFocused` only withholds the desktop banner: the Mac
+        // may be frontmost with nobody at it, so phone forwarding keeps the
+        // exact focused-surface gate.
+        let shouldAttemptPhone = !isFocusedSurfaceArrival
             && Self.shouldAttemptPhoneForward(
                 effects: effects,
                 phoneForwardingEnabled: PhonePushClient.shared
