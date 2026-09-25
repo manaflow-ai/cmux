@@ -93,6 +93,9 @@ struct AgentFeedRow: View, Equatable {
     /// CMUX Labs quote treatment: iMessage-style bubbles instead of the
     /// leading-bar quote.
     var bubbleQuotes = false
+    /// Settings > Display > Show Tab in Feed: append the event's tab to its
+    /// workspace in the author line.
+    var showsTab = false
     let actions: AgentFeedActions
 
     /// Rows re-render only when their item, pending flag, time reference, or
@@ -102,6 +105,7 @@ struct AgentFeedRow: View, Equatable {
             && lhs.isReplyPending == rhs.isReplyPending
             && lhs.now == rhs.now
             && lhs.bubbleQuotes == rhs.bubbleQuotes
+            && lhs.showsTab == rhs.showsTab
     }
 
     var body: some View {
@@ -204,15 +208,38 @@ struct AgentFeedRow: View, Equatable {
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
                 .layoutPriority(2)
-            Text(model.presentation.headline)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if let headline = model.presentation.headline {
+                Text(headline)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let location = locationLabel {
+                Text(verbatim: "· \(location)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("MobileAgentFeedRowLocation")
+            }
             Spacer(minLength: 4)
             Text(model.compactTimeLabel(now: now))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .layoutPriority(2)
+        }
+    }
+
+    /// Where the event came from: its workspace, plus its tab when the user
+    /// opted in, so the agent's context is visible without opening it.
+    private var locationLabel: String? {
+        let presentation = model.presentation
+        let tab = showsTab ? presentation.tabName : nil
+        switch (presentation.workspaceName, tab) {
+        case let (workspace?, tab?): return "\(workspace) › \(tab)"
+        case let (workspace?, nil): return workspace
+        case let (nil, tab?): return tab
+        case (nil, nil): return nil
         }
     }
 

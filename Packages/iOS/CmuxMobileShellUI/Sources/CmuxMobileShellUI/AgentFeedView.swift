@@ -122,6 +122,7 @@ struct AgentFeedView: View {
                                 || item.requestID.map { pendingReplyRequestIDs.contains($0) } ?? false,
                             now: now,
                             bubbleQuotes: displaySettings.feedBubbleQuotes,
+                            showsTab: displaySettings.feedShowsTab,
                             actions: rowActions
                         )
                         .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))

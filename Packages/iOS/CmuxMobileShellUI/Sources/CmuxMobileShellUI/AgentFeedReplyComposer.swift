@@ -97,10 +97,12 @@ struct AgentFeedReplyComposer: View {
                 HStack(spacing: 4) {
                     Text(model.presentation.authorName)
                         .font(.subheadline.weight(.semibold))
-                    Text(model.presentation.headline)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if let headline = model.presentation.headline {
+                        Text(headline)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
                 if let output = model.presentation.outputText {
                     Text(output)

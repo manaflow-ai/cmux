@@ -34,7 +34,13 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
     /// person avatar instead of the agent brand icon.
     let authorIsUser: Bool
     /// What happened, in words ("asked to use Bash", "proposed a plan").
-    let headline: String
+    /// Nil for finished turns: the output itself says what happened, so the
+    /// author line carries only who and where.
+    let headline: String?
+    /// The workspace the event came from (its title, else the cwd folder).
+    let workspaceName: String?
+    /// The terminal tab the event came from, shown when the user opts in.
+    let tabName: String?
     /// The user's ask the row responds to, quoted above the output.
     let quotedUserMessage: String?
     /// The agent's own words rendered inline (preamble, plan, prompt, text).
@@ -60,7 +66,12 @@ struct AgentFeedRowPresentation: Equatable, Sendable {
             )
             : agentName
         authorIconValue = "agent:\(item.source)"
-        headline = AgentFeedRowPresentation.headline(for: item, agentName: agentName)
+        headline = item.kind == .stop
+            ? nil
+            : AgentFeedRowPresentation.headline(for: item, agentName: agentName)
+        workspaceName = Self.normalized(item.workspaceTitle)
+            ?? Self.normalized(item.cwd).map { ($0 as NSString).lastPathComponent }
+        tabName = Self.normalized(item.surfaceTitle)
         let output = AgentFeedRowPresentation.outputText(for: item)
         outputText = output
         quotedUserMessage = AgentFeedRowPresentation.quotedUserMessage(for: item)

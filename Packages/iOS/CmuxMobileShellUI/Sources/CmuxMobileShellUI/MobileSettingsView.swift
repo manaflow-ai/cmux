@@ -440,6 +440,22 @@ struct MobileSettingsView: View {
                     }
                     .accessibilityIdentifier("MobileSettingsWrapTitles")
 
+                    Toggle(isOn: $displaySettings.feedShowsTab) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.feedShowsTab",
+                                defaultValue: "Show Tab in Feed"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.feedShowsTabCaption",
+                                defaultValue: "Show the tab each Feed event came from next to its workspace."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsFeedShowsTab")
+
                     Picker(selection: $displaySettings.workspacePreviewLineCount) {
                         Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))
                             .tag(1)

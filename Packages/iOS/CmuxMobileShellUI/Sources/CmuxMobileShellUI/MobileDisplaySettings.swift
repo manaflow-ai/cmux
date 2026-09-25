@@ -24,6 +24,7 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     public let haptics: MobileHapticFeedback
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
+    private static let feedShowsTabKey = "cmux.mobile.feedShowsTab"
     private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
@@ -58,6 +59,13 @@ public final class MobileDisplaySettings {
     /// this writes through to the injected ``UserDefaults``.
     public var wrapWorkspaceTitles: Bool {
         didSet { defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey) }
+    }
+
+    /// Whether Feed rows show the event's terminal tab after its workspace.
+    /// Defaults to `false` (workspace only), for people who organize agents
+    /// by tab rather than by workspace.
+    public var feedShowsTab: Bool {
+        didSet { defaults.set(feedShowsTab, forKey: Self.feedShowsTabKey) }
     }
 
     /// Whether the alternate-screen sizing notice is shown. Defaults to `true`.
@@ -204,6 +212,7 @@ public final class MobileDisplaySettings {
         self.defaults = defaults
         self.haptics = haptics
         self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
+        self.feedShowsTab = defaults.bool(forKey: Self.feedShowsTabKey)
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
