@@ -283,16 +283,14 @@ class CanonicalRecipeTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
             records = [json.loads(line) for line in calls.read_text().splitlines()]
-            # Derive the expected calls from the recipe rather than pinning a
-            # count: one version probe, one resolve, then one build per scheme.
-            # A hardcoded total silently breaks whenever a scheme is added --
-            # cmux-cli-tests did exactly that. The recipe now takes its scheme
-            # list from PRODUCT_PROFILES, so read the same source it does.
+            # Derive the expected build calls from the recipe rather than
+            # pinning a total. The build now probes Xcode once more to choose
+            # the cache mode, and a hardcoded total would also break whenever
+            # a scheme is added (cmux-cli-tests did exactly that).
             sys.path.insert(0, str(ROOT / "scripts" / "ci"))
             import product_input_identity as identity
 
             expected_schemes = list(identity.profile_schemes("app-host"))
-            self.assertEqual(len(records), 2 + len(expected_schemes))
             # resolve() also passes -scheme (cmux-unit) alongside
             # -resolvePackageDependencies; only the build invocations count.
             built = [
@@ -301,8 +299,13 @@ class CanonicalRecipeTests(unittest.TestCase):
                 if "-scheme" in args and "-resolvePackageDependencies" not in args
             ]
             self.assertEqual(built, expected_schemes)
+            self.assertEqual(
+                sum("-resolvePackageDependencies" in args for _cwd, args in records),
+                1,
+            )
+            canonical_src = str((root / "src").resolve())
             for cwd, args in records:
-                self.assertEqual(cwd, str(root / "src"))
+                self.assertEqual(cwd, canonical_src)
                 if '-clonedSourcePackagesDirPath' in args:
                     self.assertEqual(args[args.index('-clonedSourcePackagesDirPath')+1],
                                      str(root / 'src' / '.ci-source-packages'))
@@ -344,8 +347,9 @@ class CanonicalRecipeTests(unittest.TestCase):
             self.assertFalse((root / "src").is_symlink())
             records = [json.loads(line) for line in calls.read_text().splitlines()]
             self.assertTrue(records)
+            canonical_src = str((root / "src").resolve())
             for cwd, _args in records:
-                self.assertEqual(cwd, str(root / "src"))
+                self.assertEqual(cwd, canonical_src)
 
 class SeededBuildFileSystemModeTests(unittest.TestCase):
     """A seeded build must compare inputs by content, not by stat.
