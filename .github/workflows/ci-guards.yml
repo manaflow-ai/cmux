@@ -62,6 +62,11 @@ jobs:
       - name: Validate repository variable defaults
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
+
+      - name: Validate the report-only reverse test impact selector
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reverse_test_impact.py
+
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_public_url.py

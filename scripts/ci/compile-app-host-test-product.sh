@@ -5,7 +5,7 @@
 #
 # Compiles the app-host test product with Xcode's compilation cache on for
 # every target except cmuxTests, and except the app before Xcode 26.6 (see
-# build()). ci.yml
+# build()). cmuxTests also emits no Swift module. ci.yml
 # `macos-compile-admission` restores that cache read-only and nightly.yml
 # `refresh-test-compilation-cache` writes it. A cache entry is keyed on the
 # whole compiler invocation and on absolute paths, so both jobs must build
@@ -179,10 +179,25 @@ build() {
   # same edit compiled one task and cmuxTests took 31 s instead of 139 s
   # (#14249, run 36081880621, 12vcpu). Command-line settings are evaluated per
   # target, so every other target keeps the cache and its arguments.
+  #
+  # cmuxTests also emits no Swift module. Nothing imports cmuxTests.swiftmodule,
+  # but its separate emit-module job type-checks every declaration in ~1,000
+  # files and expands every @Test macro: 26 s of a 31 s one-test-file rebuild,
+  # serial. Xcode's integrated driver always emits the module separately; the
+  # standalone driver with -no-emit-module-separately emits none. The project
+  # sets an empty SWIFT_OBJC_INTERFACE_HEADER_NAME for cmuxTests in every
+  # build, because the generated header was the one output that needed the
+  # module job and nothing includes it. The same edit took cmuxTests 4.1 s and a
+  # full cmuxTests rebuild 105 s instead of 137 s, with the same 11,758
+  # enumerated tests (#14352, run 36089490735, 12vcpu).
   # shellcheck disable=SC2016 # Xcode expands $(TARGET_NAME), not the shell
   local -a cache_setting=(
     'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
     CMUX_CI_COMPILATION_CACHE_cmuxTests=NO
+    'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)'
+    CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO
+    'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))'
+    CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately
   )
   # Before Xcode 26.6 the app target has the same defect: under the cache the
   # driver rewrites cmux_DEV-*-ChainedBridgingHeader.h and the bridging PCH

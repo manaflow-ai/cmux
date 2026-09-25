@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -63,6 +63,10 @@ if (sweepOlderThanMinutes !== null && !(Number.isFinite(sweepOlderThanMinutes) &
   console.error("--sweep-older-than-minutes must be a number of at least 10");
   process.exit(2);
 }
+// --result-file writes one JSON summary on success and on failure: outcome,
+// the stage that failed, a short error, and per-step timings. The canary
+// workflow turns it into a metrics event.
+const resultFile = optionValue(rest, "--result-file");
 if (claudeCheck && !edgeCheck) {
   console.error("--claude-check requires --edge-check");
   process.exit(2);
@@ -96,6 +100,19 @@ let vmId;
 let authHeaders;
 // Set when a VM may still exist; the user then stays for the next sweep.
 let keepUserForSweep = false;
+// The step in progress, reported as the failure stage, and per-step timings.
+let stage = "setup";
+const runStartedAt = performance.now();
+const timings = {};
+async function timed(name, work) {
+  stage = name;
+  const startedAt = performance.now();
+  try {
+    return await work();
+  } finally {
+    timings[`${name}Ms`] = Math.round(performance.now() - startedAt);
+  }
+}
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs);
@@ -162,6 +179,22 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   }
 }
 
+function writeResultFile(outcome) {
+  if (!resultFile) return;
+  const summary = {
+    ...outcome,
+    ...(outcome.error ? { error: outcome.error.replace(/\s+/g, " ").slice(0, 300) } : {}),
+    target,
+    durationMs: Math.round(performance.now() - runStartedAt),
+    ...timings,
+  };
+  try {
+    writeFileSync(resultFile, `${JSON.stringify(summary)}\n`);
+  } catch (writeError) {
+    console.error(`result_file_write_failed error=${writeError instanceof Error ? writeError.message : String(writeError)}`);
+  }
+}
+
 async function sessionHeaders(stackUser, expiresInMillis) {
   const session = await stackUser.createSession({ expiresInMillis, isImpersonation: true });
   const tokens = await session.getTokens();
@@ -216,11 +249,14 @@ try {
 
   const app = new StackServerApp({ projectId, publishableClientKey, secretServerKey });
   const emailPrefix = `cmux-${project.stackLabel}-smoke+`;
-  const swept = sweepOlderThanMinutes === null ? null : await sweepLeftovers(app, emailPrefix, sweepOlderThanMinutes);
+  const swept = sweepOlderThanMinutes === null
+    ? null
+    : await timed("sweep", () => sweepLeftovers(app, emailPrefix, sweepOlderThanMinutes));
   // A leftover that cannot be deleted is a leaked VM; fail so it is seen.
   if (swept && swept.kept.length > 0) {
     throw new Error(`sweep could not delete the VMs of ${swept.kept.length} earlier smoke user(s): ${swept.kept.join(", ")}`);
   }
+  stage = "auth";
   const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
   user = await app.createUser({
     primaryEmail: `${emailPrefix}${suffix}@manaflow.dev`,
@@ -270,6 +306,7 @@ try {
 
   if (shouldCreate) {
     keepUserForSweep = true;
+    stage = "create";
     const createStartedAt = performance.now();
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
@@ -289,6 +326,7 @@ try {
     }
     vmId = created.id;
 
+    timings.createMs = createDurationMs;
     let attachTransport;
     let attachDurationMs;
     if (!skipAttach) {
@@ -324,6 +362,7 @@ try {
         await new Promise((resolve) => setTimeout(resolve, Math.max(1, retryAfterSeconds) * 1000));
       }
       attachDurationMs = Math.round(performance.now() - attachStartedAt);
+      timings.attachMs = attachDurationMs;
       if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
       const attached = JSON.parse(attachText);
       if (attached.transport !== expectedTransport) {
@@ -338,6 +377,8 @@ try {
 
     let edge;
     if (edgeCheck) {
+      stage = "edge";
+      const edgeStartedAt = performance.now();
       const exec = async (command, timeoutMs = 120_000) => {
         const response = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/exec`, {
           method: "POST",
@@ -402,9 +443,15 @@ try {
       if (modelsStatus !== "200") problems.push(`GET /api/coderouter/vm-usage/self from the guest returned ${modelsStatus || "nothing"}`);
       if (codexOutcome === "failed") problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
       if (claudeCheck && edge.claudeOutcome !== "answered") problems.push(`claude turn through the edge did not answer: ${edge.claudeTail}`);
+      timings.edgeMs = Math.round(performance.now() - edgeStartedAt);
+      // Everything past the guest's hosts and disk is coderouter answering.
+      if (modelsStatus !== "200" || codexOutcome === "failed" || (claudeCheck && edge.claudeOutcome !== "answered")) {
+        stage = "coderouter";
+      }
       if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")} :: ${JSON.stringify(edge)}`);
     }
 
+    stage = "destroy";
     const destroyStartedAt = performance.now();
     const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
       method: "DELETE",
@@ -415,6 +462,7 @@ try {
     if (destroy.status !== 200) throw new Error(`DELETE /api/vm/${vmId} expected 200, got ${destroy.status}: ${destroyText}`);
     vmId = undefined;
     keepUserForSweep = false;
+    timings.destroyMs = destroyDurationMs;
 
     Object.assign(result, {
       createdProvider: created.provider,
@@ -430,7 +478,9 @@ try {
   }
 
   console.log(JSON.stringify(result));
+  writeResultFile({ ok: true });
 } catch (error) {
+  writeResultFile({ ok: false, stage, error: error instanceof Error ? error.message : String(error) });
   if (vmId && authHeaders) {
     try {
       const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
