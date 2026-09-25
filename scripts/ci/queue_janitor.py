@@ -85,6 +85,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pr_runner_pool import MAX_RUN_JOBS  # noqa: E402
 from pr_runner_pool import persistent as owned_pool  # noqa: E402
+from pr_runner_pool import pool_label, root_label  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -275,6 +276,28 @@ def runner_pool(job: Mapping[str, Any]) -> str:
     return ",".join(labels)
 
 
+def counted_pools(pool: str) -> tuple[str, ...]:
+    """The pools a job on `pool` counts toward: an owned pool's root runners are its machines too."""
+    return (pool, pool_label(pool)) if pool_label(pool) != pool else (pool,)
+
+
+def marker_peaks(marker: tuple[str, int], owned_jobs: Sequence[Mapping[str, Any]]) -> list[tuple[str, int]]:
+    """The peak a run's marker reserves on each pool it counts toward.
+
+    ci.yml's marker names the pool label and every owned machine the run
+    placed, root jobs and side lanes alike. Its root jobs' share is that peak
+    less the jobs it put on the pool label itself (the side lanes, which
+    start beside admission); a side lane not listed yet only reserves more.
+    An E2E marker names the root label when the run took one, which is also
+    one of the pool's machines.
+    """
+    pool, peak = marker
+    if pool_label(pool) != pool:
+        return [(pool, peak), (pool_label(pool), peak)]
+    side = sum(1 for job in owned_jobs if owned_label(job) == pool)
+    return [(pool, peak)] + ([(root_label(pool), peak - side)] if root_label(pool) and peak > side else [])
+
+
 @dataclasses.dataclass(frozen=True)
 class MacosUsage:
     queued: int = 0
@@ -310,10 +333,10 @@ def macos_usage(jobs: Iterable[Mapping[str, Any]]) -> MacosUsage:
         status = job.get("status")
         name = job.get("name") or ""
         if status in QUEUED_JOB_STATUSES or status in RUNNING_JOB_STATUSES:
-            pool = runner_pool(job)
-            held_by_pool[pool] = held_by_pool.get(pool, 0) + 1
-            if status in QUEUED_JOB_STATUSES:
-                queued_by_pool[pool] = queued_by_pool.get(pool, 0) + 1
+            for pool in counted_pools(runner_pool(job)):
+                held_by_pool[pool] = held_by_pool.get(pool, 0) + 1
+                if status in QUEUED_JOB_STATUSES:
+                    queued_by_pool[pool] = queued_by_pool.get(pool, 0) + 1
         if status in QUEUED_JOB_STATUSES:
             queued += 1
             created = parse_time(job.get("created_at"))
@@ -412,7 +435,11 @@ def pool_load_snapshot(
     many of the pool's machines are taken. An owned pool also gets
     `committed`: for each run holding it, the larger of the jobs seen there
     and the peak its marker declares (`markers`, run id -> (pool, jobs)), so
-    a run whose later jobs do not exist yet still counts them.
+    a run whose later jobs do not exist yet still counts them. A job on an
+    owned pool's root runners (`glaeda-root-...`) counts toward both the root
+    label and the pool (counted_pools()), and so does its run's marker
+    (marker_peaks()), so the picker reads free root runners and free machines
+    from one snapshot.
     """
     pools: dict[str, dict[str, Any]] = {}
     oldest: dict[str, dt.datetime] = {}
@@ -423,7 +450,8 @@ def pool_load_snapshot(
         for job in jobs_by_run.get(run.get("id"), ()):
             if is_macos_job(job) and owned_label(job) and job.get("status") in (
                     POOL_QUEUED_JOB_STATUSES | RUNNING_JOB_STATUSES):
-                seen[runner_pool(job)] = seen.get(runner_pool(job), 0) + 1
+                for label in counted_pools(runner_pool(job)):
+                    seen[label] = seen.get(label, 0) + 1
         marker = (markers or {}).get(run.get("id"))
         # A run whose owned jobs all finished holds no owned machine, even while
         # its Blacksmith jobs (per-job placement) keep it in flight. Shard jobs
@@ -434,7 +462,8 @@ def pool_load_snapshot(
         released = (bool(owned_jobs) and done == len(owned_jobs)
                     and (not marker or done >= marker[1]))
         if marker and run.get("status") != "completed" and not released:
-            seen[marker[0]] = max(seen.get(marker[0], 0), marker[1])
+            for label, peak in marker_peaks(marker, owned_jobs):
+                seen[label] = max(seen.get(label, 0), peak)
         for label, count in seen.items():
             committed[label] = committed.get(label, 0) + count
         for job in jobs_by_run.get(run.get("id"), ()):
@@ -443,18 +472,18 @@ def pool_load_snapshot(
             status = job.get("status")
             if status not in POOL_QUEUED_JOB_STATUSES and status not in RUNNING_JOB_STATUSES:
                 continue
-            pool = runner_pool(job)
-            entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
-                                            "oldest_queued_minutes": 0})
-            if status in RUNNING_JOB_STATUSES:
-                entry["running"] += 1
-                continue
-            entry["queued"] += 1
-            if reserved:
-                entry["reserved_queued"] += 1
-            created = parse_time(job.get("created_at"))
-            if created and (pool not in oldest or created < oldest[pool]):
-                oldest[pool] = created
+            for pool in counted_pools(runner_pool(job)):
+                entry = pools.setdefault(pool, {"queued": 0, "running": 0, "reserved_queued": 0,
+                                                "oldest_queued_minutes": 0})
+                if status in RUNNING_JOB_STATUSES:
+                    entry["running"] += 1
+                    continue
+                entry["queued"] += 1
+                if reserved:
+                    entry["reserved_queued"] += 1
+                created = parse_time(job.get("created_at"))
+                if created and (pool not in oldest or created < oldest[pool]):
+                    oldest[pool] = created
     for pool, created in oldest.items():
         pools[pool]["oldest_queued_minutes"] = max(0, int((now - created).total_seconds() // 60))
     for pool, count in committed.items():
