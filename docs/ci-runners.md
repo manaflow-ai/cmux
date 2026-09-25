@@ -19,7 +19,7 @@ gh variable list --repo manaflow-ai/cmux
 
 | Variable | Used by | Intended steady state | Fallback baked into the workflow |
 | --- | --- | --- | --- |
-| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, claude, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
+| `LINUX_RUNNER` | every Linux job (`ci.yml` web/typecheck/db, presence, cloud-vm, nightly/ios decide jobs, homebrew, tmux fuzz) | `blacksmith-4vcpu-ubuntu-2404` | `blacksmith-4vcpu-ubuntu-2404` |
 | `LINUX_ARM64_RUNNER` | native ARM64 package entrypoint verification | `ubuntu-24.04-arm` | `ubuntu-24.04-arm` |
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
@@ -493,7 +493,13 @@ reads `MACOS_RUNNER_*`, `LINUX_RUNNER` or `LINUX_ARM64_RUNNER` first takes
 github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && '<Blacksmith fallback>'
 ```
 
-as a top-level alternative, ahead of any variable. The guard parses each
+as a top-level alternative, ahead of any variable. Workflows that an outside
+contributor can start in the base repository's context (`pull_request_target`,
+`issue_comment`, `issues`, `pull_request_review`, `pull_request_review_comment`)
+cannot use this branch: `pull_request_target` carries a write token, and a
+comment event does not say whether the pull request comes from a fork. Their
+jobs pin a literal GitHub-hosted label instead and read no runner variable.
+The guard parses each
 expression rather than matching text, so this branch nested under another
 condition (for example the paid-overflow switch) does not count.
 
