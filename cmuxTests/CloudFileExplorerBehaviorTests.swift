@@ -196,4 +196,31 @@ struct CloudFileExplorerBehaviorTests {
             try await provider.listDirectory(path: "/home/cmux", showHidden: true)
         }
     }
+
+    @Test
+    func cloudMutationsUseTheBoundVmCommandRunner() async throws {
+        let runner = CloudFileExplorerCommandRunnerFixture()
+        let provider = CloudVMFileExplorerProvider(
+            vmID: "vivid-newt",
+            displayTarget: "vivid-newt",
+            isAvailable: true,
+            commandRunner: runner
+        )
+
+        try await provider.createDirectory(path: "/home/cmux/new-folder")
+        try await provider.createFile(path: "/home/cmux/new-folder/new-file")
+        try await provider.rename(
+            path: "/home/cmux/new-folder/new-file",
+            to: "/home/cmux/new-folder/renamed-file"
+        )
+        try await provider.delete(path: "/home/cmux/new-folder")
+
+        #expect(runner.calls.count == 4)
+        #expect(runner.calls.allSatisfy { $0.vmID == "vivid-newt" && $0.timeoutMs == 30_000 })
+        #expect(runner.calls[0].command.contains("create_directory"))
+        #expect(runner.calls[1].command.contains("create_file"))
+        #expect(runner.calls[2].command.contains("rename"))
+        #expect(runner.calls[3].command.contains("delete"))
+        #expect(runner.calls[2].command.contains("renamed-file"))
+    }
 }

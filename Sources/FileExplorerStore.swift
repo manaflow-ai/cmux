@@ -227,24 +227,6 @@ protocol FileExplorerProvider: AnyObject {
     var isAvailable: Bool { get }
 }
 
-extension FileExplorerProvider {
-    func createFile(path: String) async throws {
-        throw FileExplorerError.mutationFailed
-    }
-
-    func createDirectory(path: String) async throws {
-        throw FileExplorerError.mutationFailed
-    }
-
-    func rename(path: String, to destinationPath: String) async throws {
-        throw FileExplorerError.mutationFailed
-    }
-
-    func delete(path: String) async throws {
-        throw FileExplorerError.mutationFailed
-    }
-}
-
 struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
@@ -281,37 +263,6 @@ protocol SSHFileExplorerTransport: AnyObject {
         path: String,
         connection: SSHFileExplorerConnection
     ) async throws
-}
-
-extension SSHFileExplorerTransport {
-    nonisolated func createFile(
-        path: String,
-        connection: SSHFileExplorerConnection
-    ) async throws {
-        throw FileExplorerError.mutationFailed
-    }
-
-    nonisolated func createDirectory(
-        path: String,
-        connection: SSHFileExplorerConnection
-    ) async throws {
-        throw FileExplorerError.mutationFailed
-    }
-
-    nonisolated func rename(
-        path: String,
-        to destinationPath: String,
-        connection: SSHFileExplorerConnection
-    ) async throws {
-        throw FileExplorerError.mutationFailed
-    }
-
-    nonisolated func delete(
-        path: String,
-        connection: SSHFileExplorerConnection
-    ) async throws {
-        throw FileExplorerError.mutationFailed
-    }
 }
 
 enum FileExplorerWorkspaceRoot: Equatable {
@@ -564,7 +515,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     ) async throws {
         try await Self.runSSHMutationCommand(
             connection: connection,
-            command: ": > (Self.shellSingleQuote(path))"
+            command: ": > \(Self.shellSingleQuote(path))"
         )
     }
 
@@ -574,7 +525,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     ) async throws {
         try await Self.runSSHMutationCommand(
             connection: connection,
-            command: "mkdir -- (Self.shellSingleQuote(path))"
+            command: "mkdir -- \(Self.shellSingleQuote(path))"
         )
     }
 
@@ -585,7 +536,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     ) async throws {
         try await Self.runSSHMutationCommand(
             connection: connection,
-            command: "mv -- (Self.shellSingleQuote(path)) (Self.shellSingleQuote(destinationPath))"
+            command: "mv -- \(Self.shellSingleQuote(path)) \(Self.shellSingleQuote(destinationPath))"
         )
     }
 
@@ -595,7 +546,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     ) async throws {
         try await Self.runSSHMutationCommand(
             connection: connection,
-            command: "rm -rf -- (Self.shellSingleQuote(path))"
+            command: "rm -rf -- \(Self.shellSingleQuote(path))"
         )
     }
 
@@ -1159,7 +1110,8 @@ final class FileExplorerStore: ObservableObject {
         if selectedPath == path {
             selectedPath = destinationPath
         }
-        expandedPaths = Set(expandedPaths.map { $0 == path ? destinationPath : $0 })
+        expandedPaths = Set(expandedPaths.map { Self.replacingPathPrefix($0, old: path, new: destinationPath) })
+        selectedPaths = Set(selectedPaths.map { Self.replacingPathPrefix($0, old: path, new: destinationPath) })
         reload()
         refreshGitStatus()
         return destinationPath
@@ -1234,6 +1186,12 @@ final class FileExplorerStore: ObservableObject {
             throw FileExplorerError.invalidMutationName
         }
         return (directoryPath as NSString).appendingPathComponent(name)
+    }
+
+    private static func replacingPathPrefix(_ candidate: String, old: String, new: String) -> String {
+        guard candidate == old || Self.path(candidate, isContainedIn: old) else { return candidate }
+        let suffix = String(candidate.dropFirst(old.count))
+        return new + suffix
     }
 
     /// Cancels the directory-watch consumer and drops the watcher; the watcher's

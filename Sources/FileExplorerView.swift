@@ -936,12 +936,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         private func createEntry(kind: FileExplorerEntryKind, relativeTo node: FileExplorerNode?) {
             guard let node else { return }
-            let titleKey = kind == .directory
-                ? "fileExplorer.dialog.newFolder.title"
-                : "fileExplorer.dialog.newFile.title"
-            let title = kind == .directory
-                ? String(localized: titleKey, defaultValue: "New Folder")
-                : String(localized: titleKey, defaultValue: "New File")
+            let title: String
+            switch kind {
+            case .directory:
+                title = String(localized: "fileExplorer.dialog.newFolder.title", defaultValue: "New Folder")
+            case .file:
+                title = String(localized: "fileExplorer.dialog.newFile.title", defaultValue: "New File")
+            }
             guard let name = promptForName(title: title, initialName: nil, confirmTitle: String(localized: "common.create", defaultValue: "Create")) else {
                 return
             }

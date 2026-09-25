@@ -40,6 +40,11 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
         }
         return []
     }
+
+    func createFile(path: String) async throws { throw FileExplorerError.mutationFailed }
+    func createDirectory(path: String) async throws { throw FileExplorerError.mutationFailed }
+    func rename(path: String, to destinationPath: String) async throws { throw FileExplorerError.mutationFailed }
+    func delete(path: String) async throws { throw FileExplorerError.mutationFailed }
 }
 
 private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
@@ -88,12 +93,10 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
 
     func createFile(path: String, connection: SSHFileExplorerConnection) async throws {
         mutationOperations.append("create-file:\(path)")
-        throw FileExplorerError.mutationFailed
     }
 
     func createDirectory(path: String, connection: SSHFileExplorerConnection) async throws {
         mutationOperations.append("create-directory:\(path)")
-        throw FileExplorerError.mutationFailed
     }
 
     func rename(
@@ -102,12 +105,10 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
         connection: SSHFileExplorerConnection
     ) async throws {
         mutationOperations.append("rename:\(path)->\(destinationPath)")
-        throw FileExplorerError.mutationFailed
     }
 
     func delete(path: String, connection: SSHFileExplorerConnection) async throws {
         mutationOperations.append("delete:\(path)")
-        throw FileExplorerError.mutationFailed
     }
 }
 
@@ -132,6 +133,11 @@ private final class DeferredListFileExplorerProvider: FileExplorerProvider {
         didCompleteListing = true
         return entries
     }
+
+    func createFile(path: String) async throws { throw FileExplorerError.mutationFailed }
+    func createDirectory(path: String) async throws { throw FileExplorerError.mutationFailed }
+    func rename(path: String, to destinationPath: String) async throws { throw FileExplorerError.mutationFailed }
+    func delete(path: String) async throws { throw FileExplorerError.mutationFailed }
 
     func resumeListing(returning entries: [FileExplorerEntry]) {
         continuation?.resume(returning: entries)
@@ -251,6 +257,55 @@ struct FileExplorerStoreTests {
             "rename:/home/dev/new-folder/new-file->/home/dev/new-folder/renamed-file",
             "delete:/home/dev/new-folder",
         ])
+    }
+
+    @Test
+    func testLocalStoreMutationsCreateRenameAndDeleteEntries() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-mutations-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
+        store.rootPath = rootURL.path
+
+        let folderPath = try await store.createEntry(
+            kind: .directory,
+            in: rootURL.path,
+            named: "new-folder"
+        )
+        let filePath = try await store.createEntry(
+            kind: .file,
+            in: folderPath,
+            named: "new-file.txt"
+        )
+        #expect(FileManager.default.fileExists(atPath: folderPath))
+        #expect(FileManager.default.fileExists(atPath: filePath))
+
+        let renamedPath = try await store.renameEntry(path: filePath, toName: "renamed.txt")
+        #expect(!FileManager.default.fileExists(atPath: filePath))
+        #expect(FileManager.default.fileExists(atPath: renamedPath))
+
+        try await store.deleteEntries(paths: [folderPath])
+        #expect(!FileManager.default.fileExists(atPath: folderPath))
+    }
+
+    @Test
+    func testMutationNamesCannotEscapeParentDirectory() async throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-validation-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
+        store.rootPath = rootURL.path
+
+        await #expect(throws: FileExplorerError.self) {
+            try await store.createEntry(kind: .file, in: rootURL.path, named: "../outside")
+        }
+        #expect(!FileManager.default.fileExists(atPath: rootURL.deletingLastPathComponent().appendingPathComponent("outside").path))
     }
 
     @Test
