@@ -7,22 +7,24 @@
 //! both into its own ghostty terminal. Rendering, key encoding, and mode
 //! queries then work identically in both cases.
 
+mod cursor_provenance;
 mod remote;
 pub(crate) mod tree;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use cmux_tui_core::resource::ResourceOperation;
 use cmux_tui_core::server::{
-    CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
-    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MAX_CREATION_SELECTOR_FALLBACKS,
-    PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY, VIEWPORT_COLUMN_RESIZE_CAPABILITY,
-    VIEWPORT_SPLITS_CAPABILITY,
+    CLIENT_FOCUS_CAPABILITY, CREATION_RECEIPTS_CAPABILITY, CREATION_SELECTOR_FALLBACKS_CAPABILITY,
+    FRONTEND_JOURNAL_CAPABILITY, LAYOUT_UNDO_CAPABILITY, MACHINE_USAGE_CAPABILITY,
+    MAX_CREATION_SELECTOR_FALLBACKS, PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+    VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY,
 };
 use cmux_tui_core::{
-    BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, DefaultColors, GuardedMouseEncode,
-    LayoutRatioError, LayoutUndoError, LayoutUndoResult, Mux, MuxEventReceiver, PaneId,
+    BrowserFrameUpdate, BrowserStatus, ClearHistoryFailure, GuardedMouseEncode, LayoutRatioError,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEventReceiver, PaneId,
     PointerSemanticProbe, PointerSnapshotProbe, ResourceSelectors, ScreenId, SidebarPluginStatus,
     SplitDir, SplitId, Surface, SurfaceId, SurfaceKind, SurfaceRenderFrame, SurfaceResizeReporter,
     TerminalPointerSnapshot, ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
@@ -31,7 +33,7 @@ use ghostty_vt::{
     KeyInput, MouseInput, RenderState, Scrollbar, Terminal, TerminalPointerSemanticSnapshot,
 };
 use serde::Deserialize;
-use serde_json::{Map, json};
+use serde_json::{Map, Value, json};
 
 pub use remote::{
     RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
@@ -42,17 +44,70 @@ pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 pub(crate) const CLEAR_HISTORY_UNSUPPORTED_ERROR: &str =
     "remote server does not support clear-history; restart the cmux-tui server";
 
+/// Decode the `usage` object shared by the `machine-usage` result and the
+/// `machine-usage-changed` event. Anything malformed reads as no readout.
+pub(crate) fn parse_machine_usage(value: &Value) -> Option<MachineUsage> {
+    let usage = value.get("usage")?;
+    if usage.is_null() {
+        return None;
+    }
+    let period_days = u32::try_from(usage.get("period_days")?.as_u64()?).ok()?;
+    let api_equivalent_usd = usage.get("api_equivalent_usd")?.as_f64()?;
+    if !api_equivalent_usd.is_finite() {
+        return None;
+    }
+    Some(MachineUsage {
+        vm_id: usage.get("vm_id")?.as_str()?.to_string(),
+        period_days,
+        total_tokens: usage.get("total_tokens")?.as_u64()?,
+        api_equivalent_usd,
+        as_of: usage.get("as_of").and_then(Value::as_str).map(str::to_string),
+    })
+}
+
+pub(crate) fn parse_identity_capabilities(value: &Value) -> Result<HashSet<String>, &'static str> {
+    let Some(capabilities) = value.get("capabilities") else {
+        return Ok(HashSet::new());
+    };
+    let Some(capabilities) = capabilities.as_array() else {
+        return Err("capabilities must be an array of strings");
+    };
+    capabilities
+        .iter()
+        .map(|capability| {
+            capability.as_str().map(str::to_owned).ok_or("capabilities must be an array of strings")
+        })
+        .collect()
+}
+
 pub(crate) fn apply_config_to_local_owner(mux: &Mux, config: &crate::config::Config) {
     mux.update_surface_options(|options| {
         crate::config::apply_browser_to_surface_options(config, options);
     });
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
+    mux.configure_journal_plugin(config.agents.plugin.clone());
 }
 
 #[derive(Clone)]
 pub enum Session {
     Local(Arc<Mux>),
     Remote(Arc<RemoteSession>),
+}
+
+/// Stable frontend boundary for session reads.
+///
+/// This is deliberately small: mutations and transport recovery remain on
+/// `Session` until their command and acknowledgement semantics are migrated.
+/// Agent metadata is exposed through this boundary while the normal tree read
+/// remains on `Session::tree`.
+pub(crate) trait SessionPort: Send + Sync {
+    fn agents(&self) -> Vec<AgentInfo>;
+}
+
+impl SessionPort for Session {
+    fn agents(&self) -> Vec<AgentInfo> {
+        self.agents_impl()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -70,7 +125,7 @@ impl CreationReceipt {
 #[derive(Clone)]
 pub(crate) struct AmbiguousCreation {
     remote: Arc<RemoteSession>,
-    request: serde_json::Value,
+    request: Value,
     created: &'static str,
 }
 
@@ -99,7 +154,7 @@ impl AmbiguousCreation {
 
 fn request_receipted_creation(
     remote: &Arc<RemoteSession>,
-    request: serde_json::Value,
+    request: Value,
     created: &'static str,
 ) -> anyhow::Result<SurfaceId> {
     match remote.request(request.clone()) {
@@ -115,6 +170,13 @@ pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<remote::RemoteRequestError>()
         .is_some_and(remote::RemoteRequestError::is_transport_failure)
+}
+
+pub(crate) fn is_expected_remote_shutdown(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<remote::RemoteRequestError>(),
+        Some(remote::RemoteRequestError::DaemonShutdown)
+    )
 }
 
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
@@ -275,6 +337,9 @@ pub struct AgentInfo {
     pub state: String,
     pub source: String,
     pub session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...), when known.
+    #[serde(default)]
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -295,8 +360,48 @@ fn default_true() -> bool {
     true
 }
 
+/// How attach must bootstrap a session so a bare `cmux` launch never lands on
+/// pure emptiness. A brand-new session gets its first workspace. A session
+/// whose every workspace has lost its screens (the legitimate outcome of the
+/// startup repair that prunes dead terminals) gets the default shell in the
+/// active workspace, because empty is indistinguishable from broken at
+/// attach. One surviving screen anywhere means the user's layout is intact,
+/// and includes the deliberately-empty-workspace case, so startup must not
+/// mutate anything.
+enum InitialBootstrap {
+    FirstWorkspace,
+    ShellInActiveWorkspace,
+    LayoutIntact,
+}
+
+/// Idempotency identity for the bare-session bootstrap create. Uniqueness
+/// matters: a collision would make the daemon replay another client's create
+/// instead of applying the revision guard.
+fn bootstrap_mutation_id() -> anyhow::Result<String> {
+    use std::fmt::Write as _;
+    let mut bytes = [0_u8; 16];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| anyhow::anyhow!("cannot allocate bootstrap mutation identity: {error}"))?;
+    let mut id = String::with_capacity(50);
+    id.push_str("attach-bootstrap_");
+    for byte in bytes {
+        let _ = write!(id, "{byte:02x}");
+    }
+    Ok(id)
+}
+
+fn initial_bootstrap(tree: &TreeView) -> InitialBootstrap {
+    if tree.workspaces().is_empty() {
+        return InitialBootstrap::FirstWorkspace;
+    }
+    if tree.workspaces().iter().all(|workspace| workspace.screens.is_empty()) {
+        return InitialBootstrap::ShellInActiveWorkspace;
+    }
+    InitialBootstrap::LayoutIntact
+}
+
 /// Attach optional cols/rows fields to a remote command.
-fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json::Value {
+fn with_size(mut cmd: Value, size: Option<(u16, u16)>) -> Value {
     if let Some((cols, rows)) = size {
         cmd["cols"] = json!(cols);
         cmd["rows"] = json!(rows);
@@ -304,7 +409,7 @@ fn with_size(mut cmd: serde_json::Value, size: Option<(u16, u16)>) -> serde_json
     cmd
 }
 
-fn creation_fields(size: Option<(u16, u16)>) -> Map<String, serde_json::Value> {
+fn creation_fields(size: Option<(u16, u16)>) -> Map<String, Value> {
     let mut fields = Map::new();
     if let Some((cols, rows)) = size {
         fields.insert("cols".to_string(), json!(cols));
@@ -328,10 +433,10 @@ fn creation_selector_fallbacks(
     }
 }
 
-fn response_surface(result: &serde_json::Value, created: &str) -> anyhow::Result<SurfaceId> {
+fn response_surface(result: &Value, created: &str) -> anyhow::Result<SurfaceId> {
     result
         .get("surface")
-        .and_then(serde_json::Value::as_u64)
+        .and_then(Value::as_u64)
         .ok_or_else(|| anyhow::anyhow!("remote {created} creation omitted its surface"))
 }
 
@@ -362,7 +467,100 @@ pub(crate) enum SurfaceAttach {
     Missing,
 }
 
+/// A client's focused pane and tab. Reported to the mux as memory only: a
+/// later attach adopts it (the same client through its own record, any other
+/// client through the session's last reported focus), and future follow-along
+/// clients can subscribe to it. Reports never move the live shared focus, so
+/// clients that are already attached stay where they are.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct ClientFocus {
+    pub(crate) pane: PaneId,
+    pub(crate) tab: usize,
+}
+
 impl Session {
+    /// Returns the first reason recorded when a remote transport reader stops.
+    pub(crate) fn transport_disconnect_reason(&self) -> Option<String> {
+        match self {
+            Session::Local(_) => None,
+            Session::Remote(remote) => remote.transport_disconnect_reason(),
+        }
+    }
+
+    /// Best-effort focus report: the client already navigated optimistically,
+    /// so failures are ignored and remote sends are never awaited. On the
+    /// local path and on a `client-focus-v1` server the report only writes
+    /// memory: the session's last reported focus (the adoption default for a
+    /// later attach) and, with a client id, this client's own record for its
+    /// reconnection. It never moves the live shared focus, so other attached
+    /// clients keep their own view. Only a remote server without the
+    /// capability degrades to `focus-pane` plus `select-tab`, which does move
+    /// the shared focus.
+    pub(crate) fn report_focus(
+        &self,
+        previous: Option<ClientFocus>,
+        focus: ClientFocus,
+        client_id: Option<&str>,
+    ) {
+        let pane_changed = previous.map(|value| value.pane) != Some(focus.pane);
+        let tab_changed = previous != Some(focus);
+        if !pane_changed && !tab_changed {
+            return;
+        }
+        match self {
+            Session::Local(mux) => {
+                mux.record_session_focus(focus.pane, Some(focus.tab));
+                if let Some(client_id) = client_id {
+                    mux.remember_client_focus(client_id.to_string(), focus.pane, Some(focus.tab));
+                }
+            }
+            Session::Remote(remote) => {
+                let combined =
+                    client_id.filter(|_| remote.supports_capability(CLIENT_FOCUS_CAPABILITY));
+                if let Some(client_id) = combined {
+                    let _ = remote.notify(json!({
+                        "cmd": "report-focus",
+                        "client_id": client_id,
+                        "pane": focus.pane,
+                        "tab": focus.tab,
+                    }));
+                    return;
+                }
+                if pane_changed {
+                    let _ = remote.notify(json!({"cmd": "focus-pane", "pane": focus.pane}));
+                }
+                if tab_changed {
+                    let _ = remote.notify(
+                        json!({"cmd": "select-tab", "pane": focus.pane, "index": focus.tab}),
+                    );
+                }
+            }
+        }
+    }
+
+    /// This client's remembered focus on this session, falling back to the
+    /// session's last reported focus from any client, if the server has
+    /// either and its pane is still alive. The remote server applies the
+    /// same fallback inside the `client-focus` command.
+    pub(crate) fn client_focus(&self, client_id: &str) -> Option<ClientFocus> {
+        match self {
+            Session::Local(mux) => mux
+                .client_focus(client_id)
+                .or_else(|| mux.session_focus())
+                .map(|(pane, tab)| ClientFocus { pane, tab: tab.unwrap_or(0) }),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(CLIENT_FOCUS_CAPABILITY) {
+                    return None;
+                }
+                let value =
+                    remote.request(json!({"cmd": "client-focus", "client_id": client_id})).ok()?;
+                let pane: PaneId = serde_json::from_value(value.get("pane")?.clone()).ok()?;
+                let tab = value.get("tab").and_then(|tab| tab.as_u64()).unwrap_or(0) as usize;
+                Some(ClientFocus { pane, tab })
+            }
+        }
+    }
+
     pub(crate) fn allocate_layout_resize_owner(&self) -> u64 {
         match self {
             Session::Local(mux) => mux.allocate_in_process_resize_owner(),
@@ -378,6 +576,22 @@ impl Session {
             Session::Remote(remote) => remote.request(json!({"cmd": "list-clients"}))?,
         };
         serde_json::from_value(value).map_err(Into::into)
+    }
+
+    /// The session's machine-level model spend readout. `None` when the
+    /// server has no readout or predates the `machine-usage` command; the
+    /// readout is informational, so an old server is not an error.
+    pub fn machine_usage(&self) -> anyhow::Result<Option<MachineUsage>> {
+        match self {
+            Session::Local(mux) => Ok(mux.machine_usage()),
+            Session::Remote(remote) => {
+                if !remote.supports_capability(MACHINE_USAGE_CAPABILITY) {
+                    return Ok(None);
+                }
+                let value = remote.request(json!({"cmd": "machine-usage"}))?;
+                Ok(parse_machine_usage(&value))
+            }
+        }
     }
 
     pub fn set_client_sizing(
@@ -465,6 +679,17 @@ impl Session {
         }
     }
 
+    /// Whether this session's transport can still serve requests. A remote
+    /// session whose reader hit EOF (VM paused, stream ended, network died)
+    /// flips its shutdown flag; a warm connection pool must not hand such a
+    /// corpse back to a switch.
+    pub fn is_alive(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => !remote.is_shut_down(),
+        }
+    }
+
     pub fn journal_frontend_event(
         &self,
         event: cmux_tui_core::FrontendJournalEvent,
@@ -481,7 +706,7 @@ impl Session {
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),
-            Session::Remote(_) => false,
+            Session::Remote(remote) => remote.daemon_shutdown_requested(),
         }
     }
     pub fn invalidate_remote_tree(&self) {
@@ -523,16 +748,120 @@ impl Session {
     pub fn ensure_initial(&self, size: Option<(u16, u16)>) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
-                mux.new_workspace(None, size)?;
+                // Hold the per-mux bootstrap guard across the snapshot and
+                // mutation.  Without this, concurrent attaches can both
+                // observe a bare session and create duplicate workspaces or
+                // shells before either mutation becomes visible.
+                let _bootstrap = mux.lock_initial_bootstrap();
+                // One snapshot serves both the decision and the target
+                // selection; a second read could disagree with the first
+                // when another mux owner mutates the tree in between.
+                let tree = self.tree();
+                match initial_bootstrap(&tree) {
+                    InitialBootstrap::FirstWorkspace => {
+                        mux.new_workspace(None, size)?;
+                    }
+                    InitialBootstrap::ShellInActiveWorkspace => {
+                        let workspace = tree
+                            .workspaces()
+                            .get(tree.active_workspace)
+                            .or_else(|| tree.workspaces().first())
+                            .expect("bare-session bootstrap requires at least one workspace")
+                            .id;
+                        mux.create_terminal_in_workspace(workspace, None, None, None, size)?;
+                    }
+                    InitialBootstrap::LayoutIntact => {}
+                }
                 Ok(())
             }
             Session::Remote(remote) => {
-                if remote.refresh_tree()?.workspaces.is_empty() {
-                    remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
-                    anyhow::ensure!(
-                        !remote.refresh_tree()?.workspaces.is_empty(),
-                        "remote session did not expose the workspace it created"
-                    );
+                let tree = remote.refresh_tree()?;
+                match initial_bootstrap(&tree) {
+                    InitialBootstrap::FirstWorkspace => {
+                        remote.request(with_size(json!({"cmd": "new-workspace"}), size))?;
+                        anyhow::ensure!(
+                            !remote.refresh_tree()?.workspaces().is_empty(),
+                            "remote session did not expose the workspace it created"
+                        );
+                    }
+                    InitialBootstrap::ShellInActiveWorkspace => {
+                        // Re-read the tree raw so the create can carry the
+                        // terminal revision of the very snapshot it targets,
+                        // and re-verify bareness from that snapshot: when two
+                        // clients attach to one bare session, the daemon
+                        // rejects the guarded create whose revision already
+                        // moved, and the postcondition accepts the shell
+                        // whichever client created it.
+                        let snapshot = remote.request(json!({"cmd": "list-workspaces"}))?;
+                        let workspaces = snapshot["workspaces"].as_array();
+                        let bare = workspaces.is_some_and(|workspaces| {
+                            !workspaces.is_empty()
+                                // An explicit empty screen array is the only
+                                // proof of bareness; a missing or malformed
+                                // field fails closed and skips the create.
+                                && workspaces.iter().all(|workspace| {
+                                    workspace["screens"]
+                                        .as_array()
+                                        .is_some_and(|screens| screens.is_empty())
+                                })
+                        });
+                        // Fail closed: without the revision metadata the
+                        // create cannot carry its guard, and an unguarded
+                        // create from two concurrent attaches would add two
+                        // shells. A daemon old enough to omit the metadata
+                        // keeps its old behavior (the session stays bare).
+                        let guard = match (
+                            snapshot["generation"].as_str(),
+                            snapshot["terminal_revision"].as_u64(),
+                        ) {
+                            (Some(generation), Some(revision)) => Some((generation, revision)),
+                            _ => None,
+                        };
+                        let create_result = match (bare, guard) {
+                            (true, Some((generation, revision))) => {
+                                let workspaces = workspaces.expect("bareness implies an array");
+                                let target = workspaces
+                                    .iter()
+                                    .find(|workspace| workspace["active"].as_bool() == Some(true))
+                                    .unwrap_or(&workspaces[0]);
+                                let mut request = json!({
+                                    "cmd": "create-terminal",
+                                    "origin": "attach-bare-session-bootstrap",
+                                    "mutation_id": bootstrap_mutation_id()?,
+                                    "expected_generation": generation,
+                                    "expected_revision": revision,
+                                });
+                                match target["key"].as_str() {
+                                    Some(key) if !key.is_empty() => request["key"] = json!(key),
+                                    _ => request["workspace"] = target["id"].clone(),
+                                }
+                                Some(remote.request(with_size(request, size)).map(|_| ()))
+                            }
+                            _ => None,
+                        };
+                        // Refresh unconditionally: when another attach won
+                        // between the first tree read and the raw snapshot,
+                        // no create runs here, and without this refresh the
+                        // cached tree would still show the pre-shell session.
+                        let refreshed = remote.refresh_tree()?;
+                        if let Some(create_result) = create_result {
+                            let bootstrapped = refreshed
+                                .workspaces()
+                                .iter()
+                                .any(|workspace| !workspace.screens.is_empty());
+                            if !bootstrapped {
+                                return Err(match create_result {
+                                    Err(error) => error.context(
+                                        "bare-session bootstrap could not create its shell",
+                                    ),
+                                    Ok(()) => anyhow::anyhow!(
+                                        "remote session did not expose the shell it created in its bare workspace"
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                    InitialBootstrap::LayoutIntact => {}
                 }
                 Ok(())
             }
@@ -565,16 +894,6 @@ impl Session {
         }
     }
 
-    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
-        match self {
-            Session::Local(mux) => {
-                mux.set_default_colors(colors);
-                Ok(())
-            }
-            Session::Remote(remote) => remote.set_default_colors(colors),
-        }
-    }
-
     pub fn apply_config(&self, config: &crate::config::Config) {
         if let Session::Local(mux) = self {
             apply_config_to_local_owner(mux, config);
@@ -600,12 +919,9 @@ impl Session {
                         retry_after_ms: None,
                     };
                 };
-                let requested_surface_id = data
-                    .get("surface")
-                    .and_then(serde_json::Value::as_u64)
-                    .map(|id| id as SurfaceId);
-                let mut error =
-                    data.get("error").and_then(serde_json::Value::as_str).map(str::to_string);
+                let requested_surface_id =
+                    data.get("surface").and_then(Value::as_u64).map(|id| id as SurfaceId);
+                let mut error = data.get("error").and_then(Value::as_str).map(str::to_string);
                 let surface_id = match requested_surface_id {
                     Some(id) => {
                         match remote.try_ensure_surface_with_kind(id, SurfaceKind::Pty, Some(size))
@@ -635,7 +951,7 @@ impl Session {
                 SidebarPluginSurface {
                     surface_id,
                     error,
-                    retry_after_ms: data.get("retry_after_ms").and_then(serde_json::Value::as_u64),
+                    retry_after_ms: data.get("retry_after_ms").and_then(Value::as_u64),
                 }
             }
         }
@@ -654,6 +970,10 @@ impl Session {
     }
 
     pub fn agents(&self) -> Vec<AgentInfo> {
+        <Self as SessionPort>::agents(self)
+    }
+
+    fn agents_impl(&self) -> Vec<AgentInfo> {
         match self {
             Session::Local(mux) => mux
                 .list_agents(None, None)
@@ -663,6 +983,7 @@ impl Session {
                     state: agent.state.as_str().to_string(),
                     source: agent.source.as_str().to_string(),
                     session: agent.session,
+                    agent: agent.agent,
                     updated_at_ms: agent.updated_at_ms,
                 })
                 .collect(),
@@ -956,11 +1277,10 @@ impl Session {
     pub fn surface_cwd(&self, surface: SurfaceId) -> Option<String> {
         match self {
             Session::Local(mux) => mux.surface(surface).and_then(|surface| surface.local_cwd()),
-            Session::Remote(remote) => {
-                remote.request(json!({"cmd": "process-info", "surface": surface})).ok().and_then(
-                    |data| data.get("cwd").and_then(serde_json::Value::as_str).map(str::to_owned),
-                )
-            }
+            Session::Remote(remote) => remote
+                .request(json!({"cmd": "process-info", "surface": surface}))
+                .ok()
+                .and_then(|data| data.get("cwd").and_then(Value::as_str).map(str::to_owned)),
         }
     }
 
@@ -1030,7 +1350,7 @@ impl Session {
                 ))?;
                 result
                     .get("surface")
-                    .and_then(serde_json::Value::as_u64)
+                    .and_then(Value::as_u64)
                     .ok_or_else(|| anyhow::anyhow!("remote browser creation omitted its surface"))
             }
         }
@@ -1752,6 +2072,35 @@ impl Session {
         }
     }
 
+    pub fn supports_tab_workspace_moves(&self) -> bool {
+        match self {
+            Session::Local(_) => true,
+            Session::Remote(remote) => {
+                remote.supports_capability(cmux_tui_core::server::TAB_WORKSPACE_MOVE_CAPABILITY)
+            }
+        }
+    }
+
+    pub fn move_tab_to_workspace(
+        &self,
+        surface: SurfaceId,
+        workspace: Option<WorkspaceId>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.supports_tab_workspace_moves(),
+            "{}",
+            crate::localization::catalog().menu.move_tab_workspace_unsupported
+        );
+        match self {
+            Session::Local(mux) => mux.move_tab_to_workspace(surface, workspace),
+            Session::Remote(remote) => remote
+                .request(json!({
+                    "cmd":"move-tab-to-workspace", "surface":surface, "workspace":workspace
+                }))
+                .map(|_| ()),
+        }
+    }
+
     pub fn move_workspace(&self, workspace: WorkspaceId, index: usize) -> anyhow::Result<()> {
         match self {
             Session::Local(mux) => {
@@ -1766,8 +2115,28 @@ impl Session {
 }
 
 impl SurfaceHandle {
+    #[cfg(test)]
+    pub(crate) fn test_scan_cursor_provenance(&self, bytes: &[u8]) {
+        if let SurfaceHandle::Remote(surface, _) = self {
+            surface.test_scan_cursor_provenance(bytes);
+        }
+    }
+
     pub fn is_remote(&self) -> bool {
         matches!(self, SurfaceHandle::Remote(_, _))
+    }
+
+    /// Whether the terminal application authored its cursor style (DECSCUSR)
+    /// rather than inheriting a session or frontend default. A scoped attach
+    /// client mirrors the cursor to the host terminal only when this is true.
+    /// Local surfaces render inside a full TUI that owns the host cursor, so
+    /// they always report true.
+    pub fn cursor_style_authored(&self) -> bool {
+        match self {
+            SurfaceHandle::Local(_, _) => true,
+            SurfaceHandle::Remote(surface, _) => surface.cursor_style_authored(),
+            SurfaceHandle::RemoteBrowserUnsupported => false,
+        }
     }
 
     pub fn kind(&self) -> SurfaceKind {
@@ -1862,7 +2231,7 @@ impl SurfaceHandle {
                         return Err(error);
                     }
                 };
-                match response.get("outcome").and_then(serde_json::Value::as_str) {
+                match response.get("outcome").and_then(Value::as_str) {
                     Some("superseded") => {
                         report(None);
                         return Ok(false);
@@ -1878,14 +2247,13 @@ impl SurfaceHandle {
                         anyhow::bail!("unknown resize outcome {other}");
                     }
                 }
-                let accepted =
-                    response.get("accepted").and_then(serde_json::Value::as_bool).unwrap_or(true);
+                let accepted = response.get("accepted").and_then(Value::as_bool).unwrap_or(true);
                 surface.set_reported_size(desired);
                 if !accepted {
                     report(None);
                     return Ok(false);
                 }
-                response.get("reservation_id").and_then(serde_json::Value::as_u64).or(Some(0))
+                response.get("reservation_id").and_then(Value::as_u64).or(Some(0))
             }
             SurfaceHandle::RemoteBrowserUnsupported => {
                 report(None);
@@ -2538,9 +2906,28 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
     Session::Remote(remote::test_session_without_provider_authority())
 }
 
+/// A remote session whose event transport already died with `reason`, the
+/// state the reader thread leaves behind before it synthesizes
+/// `MuxEvent::Empty` on connection loss.
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_lost_transport(reason: &str) -> Session {
+    let session = remote::test_session_without_provider_authority();
+    session.disconnect_transport_with_reason(Some(reason.to_string()));
+    Session::Remote(session)
+}
+
 #[cfg(test)]
 fn test_remote_session_with_view_attachment_leases() -> Session {
     Session::Remote(remote::test_session_with_view_attachment_leases())
+}
+
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_unleased_view_surface(
+    surface_id: SurfaceId,
+) -> (Session, SurfaceHandle) {
+    let (session, surface) = remote::test_unleased_view_surface(surface_id);
+    let handle = SurfaceHandle::Remote(surface, session.clone());
+    (Session::Remote(session), handle)
 }
 
 #[cfg(test)]
@@ -2629,9 +3016,9 @@ mod tests {
     use cmux_tui_core::{LayoutUndoError, Mux, SurfaceOptions};
 
     use super::{
-        Session, is_remote_surface_unavailable, normalize_remote_layout_undo_error, resize_action,
-        test_remote_rejected_error_with_code, test_remote_rejected_error_with_message,
-        test_remote_session_with_view_attachment_leases,
+        Session, SessionPort, is_remote_surface_unavailable, normalize_remote_layout_undo_error,
+        resize_action, test_remote_rejected_error_with_code,
+        test_remote_rejected_error_with_message, test_remote_session_with_view_attachment_leases,
         test_remote_surface_with_missing_attachment_lease, test_remote_transport_error,
     };
 
@@ -2737,6 +3124,15 @@ mod tests {
     }
 
     #[test]
+    fn session_port_agents_matches_existing_agent_read() {
+        let session =
+            Session::Local(Mux::new("session-port-agents-test", SurfaceOptions::default()));
+        let direct = session.agents_impl();
+        let port: &dyn SessionPort = &session;
+        assert_eq!(port.agents(), direct);
+    }
+
+    #[test]
     fn local_provider_guard_surfaces_actionable_ordinary_mutation_errors() {
         let mux = Mux::new("local-provider-guard-test", SurfaceOptions::default());
         let workspace = mux
@@ -2765,5 +3161,42 @@ mod tests {
             assert_eq!(state.workspaces.len(), 1);
             assert_eq!(state.workspaces[0].name, "managed");
         });
+    }
+
+    #[test]
+    fn machine_usage_payload_decodes_and_degrades_to_none() {
+        use super::parse_machine_usage;
+        use serde_json::json;
+
+        let ready = json!({
+            "usage": {
+                "vm_id": "vm-1",
+                "period_days": 30,
+                "total_tokens": 17,
+                "api_equivalent_usd": 1.23,
+                "as_of": "2026-09-01T00:00:00Z"
+            }
+        });
+        let usage = parse_machine_usage(&ready).expect("ready usage decodes");
+        assert_eq!(usage.vm_id, "vm-1");
+        assert_eq!(usage.period_days, 30);
+        assert_eq!(usage.total_tokens, 17);
+        assert!((usage.api_equivalent_usd - 1.23).abs() < f64::EPSILON);
+        assert_eq!(usage.as_of.as_deref(), Some("2026-09-01T00:00:00Z"));
+
+        let without_stamp = json!({"usage": {
+            "vm_id": "vm-1", "period_days": 30, "total_tokens": 0, "api_equivalent_usd": 0.0, "as_of": null
+        }});
+        assert_eq!(parse_machine_usage(&without_stamp).map(|usage| usage.as_of), Some(None));
+
+        assert_eq!(parse_machine_usage(&json!({"usage": null})), None);
+        assert_eq!(parse_machine_usage(&json!({})), None);
+        assert_eq!(parse_machine_usage(&json!({"usage": {"vm_id": "vm-1"}})), None);
+        assert_eq!(
+            parse_machine_usage(&json!({"usage": {
+                "vm_id": "vm-1", "period_days": -1, "total_tokens": 0, "api_equivalent_usd": 0.0
+            }})),
+            None
+        );
     }
 }

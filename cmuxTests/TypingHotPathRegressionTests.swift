@@ -378,92 +378,6 @@ struct GhosttyTitleUpdateDispatcherTests {
     }
 }
 
-@Suite("Ghostty title update ingress")
-@MainActor
-struct GhosttyTitleUpdateIngressTests {
-    @Test func duplicateCallbackTitleIsRejectedBeforeEnqueue() {
-        let ingress = GhosttyTitleUpdateIngress()
-        let tabId = UUID()
-        let surfaceId = UUID()
-        let source = NSObject()
-        let terminalLifecycleID = UUID()
-
-        #expect(ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            terminalLifecycleID: terminalLifecycleID,
-            title: "stable"
-        ))
-        #expect(!ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            terminalLifecycleID: terminalLifecycleID,
-            title: "stable"
-        ))
-        #expect(ingress.submit(
-            tabId: UUID(),
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            terminalLifecycleID: terminalLifecycleID,
-            title: "stable"
-        ))
-    }
-
-    @Test func spinnerFramesCollapseBeforeAsyncStreamEnqueue() {
-        let ingress = GhosttyTitleUpdateIngress()
-        let tabId = UUID()
-        let surfaceId = UUID()
-        let source = NSObject()
-        let terminalLifecycleID = UUID()
-        let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-
-        for (index, frame) in frames.enumerated() {
-            let submitted = ingress.submit(
-                tabId: tabId,
-                surfaceId: surfaceId,
-                sourceSurface: source,
-                terminalLifecycleID: terminalLifecycleID,
-                title: "\(frame) pnpm install"
-            )
-            #expect(submitted == (index == 0))
-        }
-
-        #expect(ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            terminalLifecycleID: terminalLifecycleID,
-            title: "⠋ pnpm run build"
-        ))
-    }
-
-    @Test func retiringAttachmentAllowsItsFirstRepeatedTitleAfterReattach() {
-        let ingress = GhosttyTitleUpdateIngress()
-        let tabId = UUID()
-        let surfaceId = UUID()
-        let source = NSObject()
-        let terminalLifecycleID = UUID()
-
-        #expect(ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            terminalLifecycleID: terminalLifecycleID,
-            title: "stable"
-        ))
-        ingress.retireCurrentAttachment()
-        #expect(ingress.submit(
-            tabId: tabId,
-            surfaceId: surfaceId,
-            sourceSurface: source,
-            terminalLifecycleID: terminalLifecycleID,
-            title: "stable"
-        ))
-    }
-}
-
 @Suite("Right-sidebar mode shortcut matcher")
 @MainActor
 struct RightSidebarModeShortcutMatcherTests {
@@ -488,7 +402,7 @@ struct RightSidebarModeShortcutMatcherTests {
             #expect(matcher.modeShortcut(for: event, allowingAction: { _ in true }) == nil)
         }
 
-        #expect(initialLookupCount == 5)
+        #expect(initialLookupCount == 6)
         #expect(shortcutLookupCount == initialLookupCount)
         #expect(layoutLookupCount == 0)
     }
@@ -504,11 +418,11 @@ struct RightSidebarModeShortcutMatcherTests {
             layoutCharacterProvider: { _, _ in nil }
         )
 
-        #expect(shortcutLookupCount == 5)
+        #expect(shortcutLookupCount == 6)
         matcher.reload()
-        #expect(shortcutLookupCount == 10)
+        #expect(shortcutLookupCount == 12)
         _ = matcher.modeShortcut(for: makeKeyEvent(characters: "x", modifiers: []), allowingAction: { _ in true })
-        #expect(shortcutLookupCount == 10)
+        #expect(shortcutLookupCount == 12)
     }
 
     private func makeKeyEvent(

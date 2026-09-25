@@ -16,6 +16,16 @@ import Foundation
 /// when no host action is available.
 @MainActor
 public protocol SettingsHostActions: AnyObject {
+    func computersSettingsActions() -> ComputersSettingsActions
+    /// A registry snapshot used to populate the per-agent notification sound
+    /// matrix. The host owns discovery so newly registered agents appear
+    /// without a second list in the settings package.
+    func notificationSoundAgentOptions() async -> [NotificationSoundAgentOption]
+
+    /// Validates and prepares a custom notification sound before a matrix cell
+    /// is persisted. Returning `false` keeps the previous cell untouched.
+    func validateNotificationSoundFile(path: String) async -> Bool
+
     /// Deletes the user's browser history (visited-page suggestions,
     /// omnibar autocomplete cache). Idempotent.
     func clearBrowserHistory()
@@ -25,6 +35,35 @@ public protocol SettingsHostActions: AnyObject {
     /// this is the escape hatch for users who prefer their own
     /// editor.
     func openConfigInExternalEditor()
+
+    /// Reads the existing config-backed automation rules for Settings status.
+    func automationRulesStatus() async -> AutomationRulesStatus
+
+    /// Opens ~/.cmuxterm/automations.json in the user's preferred editor.
+    func openAutomationRulesInExternalEditor()
+
+    /// Asks the running automation engine to reload its existing config file.
+    /// Returns false when the host has no live automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool
+
+    /// Names of custom sidebar files currently discovered by the host.
+    func customSidebarNames() -> [String]
+
+    /// Streams sidebar names after external filesystem changes, including an initial snapshot.
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]>
+
+    /// Creates a starter custom sidebar and opens it in the preferred editor.
+    func createCustomSidebar() -> CustomSidebarOnboardingResult
+
+    /// Copies one bundled example into the custom-sidebar directory and opens it.
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
+
+    /// Opens an existing discovered custom sidebar in the preferred editor.
+    func openCustomSidebarInExternalEditor(named name: String)
+
+    /// Creates the custom-sidebar directory when needed, then reveals it in Finder.
+    func openCustomSidebarsFolder()
 
     /// Launches the host's feedback flow (typically a "Send Feedback"
     /// URL or in-app form).
@@ -55,6 +94,12 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Applies the current persisted control-socket configuration to the live server.
     func socketControlConfigurationDidChange()
+
+    /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
+    func terminalAdaptiveDefaultThemeDidChange()
+
+    /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
+    func openTerminalThemePicker()
 
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
@@ -114,6 +159,28 @@ public protocol SettingsHostActions: AnyObject {
     ///   is `async`; call it from a `Task` in the slider/reset action.
     @discardableResult
     func setSidebarFontSize(_ points: Double) async -> Bool
+
+    /// The customizable right-sidebar tabs in the user's order, hidden tabs
+    /// included. Backed by host-owned mode metadata and tab preferences the
+    /// package cannot read; empty when the host has no right sidebar
+    /// (previews/tests).
+    func rightSidebarTabs() -> [RightSidebarTabSettingsItem]
+
+    /// Shows or hides one right-sidebar tab.
+    ///
+    /// - Returns: `false` when the host refused the change (hiding the last
+    ///   visible tab); the card re-reads state so the toggle snaps back.
+    @discardableResult
+    func setRightSidebarTabVisible(id: String, visible: Bool) -> Bool
+
+    /// Moves one right-sidebar tab by `offset` within the ordered tab list
+    /// (negative is toward the front). Hidden tabs keep their slot.
+    func moveRightSidebarTab(id: String, offset: Int)
+
+    /// Yields a fresh tab list whenever the tabs change from any entrypoint
+    /// (this card, the mode bar's context menu, shortcut rebinds that change
+    /// the displayed digit hints).
+    func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]>
 
     /// The current workspace tab-bar font size with its range + default.
     /// Backed by the Ghostty config file (`surface-tab-bar-font-size`).
@@ -213,17 +280,208 @@ public protocol SettingsHostActions: AnyObject {
     /// Applies the host-side OS `AppleLanguages` override for a changed app
     /// language selection.
     func applyLanguageOverride(_ language: AppLanguage)
+
+    /// Gives the host a chance to refresh computer-use permission state.
+    func refreshComputerUsePermissions() async
+
+    /// Whether the Computer Use helper currently has Accessibility permission.
+    func computerUseAccessibilityGranted() -> Bool
+
+    /// Whether the Computer Use helper currently has Screen Recording permission.
+    func computerUseScreenRecordingGranted() -> Bool
+
+    /// Whether the displayed Computer Use permission values are authoritative.
+    func computerUsePermissionStatusIsKnown() -> Bool
+
+    /// The remaining setup step, including capture confirmation beyond the TCC grants.
+    func computerUseSetupStatus() -> ComputerUseSetupStatus
+
+    /// One runtime-owned enablement, permission, and setup snapshot.
+    func computerUseSetupSnapshot() -> ComputerUseSettingsSnapshot
+
+    /// Emits coalesced invalidations of the host's cached permission and setup snapshot.
+    func computerUseSetupUpdates() -> AsyncStream<Void>
+
+    /// Opens the explicit setup flow, including when both TCC grants already exist.
+    func finishComputerUseSetup()
+
+    /// Starts the helper-owned Accessibility permission flow.
+    func requestComputerUseAccessibility()
+
+    /// Starts the helper-owned Screen Recording permission flow.
+    func requestComputerUseScreenRecording()
+
+    /// Opens the Accessibility pane in System Settings.
+    func openComputerUseAccessibilitySettings()
+
+    /// Opens the Screen Recording pane in System Settings.
+    func openComputerUseScreenRecordingSettings()
+
+    /// Whether the host exposes Cloud Machines (persistent cloud VMs). When
+    /// false the Cloud Machines settings section renders nothing.
+    var isCloudMachinesAvailable: Bool { get }
+
+    /// The caller's machine plan: plan name, machines in use, and the plan's
+    /// machine ceiling. `nil` when signed out or the backend is unreachable.
+    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
+
+    /// Reveals the right-sidebar Machines panel in the active main window.
+    func openCloudMachinesPanel()
+
+    /// Opens the host's plan management / upgrade flow.
+    func openCloudMachinesBilling()
+}
+
+/// Host-provided summary of the existing config-backed automation rules.
+public struct AutomationRulesStatus: Equatable, Sendable {
+    public let configPath: String
+    public let ruleCount: Int
+    public let enabledCount: Int
+    public let configExists: Bool
+    public let hasError: Bool
+
+    public init(
+        configPath: String,
+        ruleCount: Int,
+        enabledCount: Int,
+        configExists: Bool,
+        hasError: Bool = false
+    ) {
+        self.configPath = configPath
+        self.ruleCount = max(0, ruleCount)
+        self.enabledCount = min(max(0, enabledCount), max(0, ruleCount))
+        self.configExists = configExists
+        self.hasError = hasError
+    }
+
+    /// Number of configured rules that are currently disabled.
+    public var disabledCount: Int {
+        ruleCount - enabledCount
+    }
+}
+
+/// Snapshot of the caller's Cloud Machines plan for the settings section.
+public struct CloudMachinesPlanSummary: Equatable, Sendable {
+    public let planLabel: String
+    public let activeMachines: Int
+    /// Active-machine ceiling; nil when the plan has no cap.
+    public let maxMachines: Int?
+    public let isPaidPlan: Bool
+
+    /// Creates a plan summary.
+    /// - Parameters:
+    ///   - planLabel: Display name of the plan, already localized.
+    ///   - activeMachines: Machines currently counted against the plan.
+    ///   - maxMachines: Active-machine ceiling, or nil when the plan has no cap.
+    ///   - isPaidPlan: Whether the plan is one the backend provisions for.
+    public init(planLabel: String, activeMachines: Int, maxMachines: Int?, isPaidPlan: Bool) {
+        self.planLabel = planLabel
+        self.activeMachines = activeMachines
+        self.maxMachines = maxMachines
+        self.isPaidPlan = isPaidPlan
+    }
+}
+
+/// One right-sidebar tab as the Sidebar section's customization card renders
+/// it. `id` is the host's stable mode identifier (the mode raw value).
+public struct RightSidebarTabSettingsItem: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let symbolName: String
+    public let isVisible: Bool
+    /// Resolved switch-shortcut label (e.g. `⌃4`); empty when unbound.
+    public let shortcutLabel: String
+
+    public init(
+        id: String,
+        title: String,
+        symbolName: String,
+        isVisible: Bool,
+        shortcutLabel: String
+    ) {
+        self.id = id
+        self.title = title
+        self.symbolName = symbolName
+        self.isVisible = isVisible
+        self.shortcutLabel = shortcutLabel
+    }
 }
 
 public extension SettingsHostActions {
+    /// Returns the registry-backed agent choices shown by notification sound settings.
+    func notificationSoundAgentOptions() -> [NotificationSoundAgentOption] { [] }
+
+    /// Validates a candidate custom notification sound path on the host.
+    func validateNotificationSoundFile(path: String) async -> Bool { false }
+
+    /// Empty automation summary for previews and package-only hosts.
+    func automationRulesStatus() async -> AutomationRulesStatus {
+        AutomationRulesStatus(
+            configPath: "~/.cmuxterm/automations.json",
+            ruleCount: 0,
+            enabledCount: 0,
+            configExists: false
+        )
+    }
+
+    /// Default no-op for hosts without app-owned automation files.
+    func openAutomationRulesInExternalEditor() {}
+
+    /// Default failure for hosts without a live automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool { false }
+
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
+
+    /// Right-sidebar tab defaults for previews, tests, and package-only
+    /// hosts: no tabs, refuse mutations, no updates.
+    func rightSidebarTabs() -> [RightSidebarTabSettingsItem] { [] }
+    @discardableResult
+    func setRightSidebarTabVisible(id: String, visible: Bool) -> Bool { false }
+    func moveRightSidebarTab(id: String, offset: Int) {}
+    func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]> {
+        AsyncStream { $0.finish() }
+    }
+
+    /// Cloud Machines defaults for previews, tests, and package-only hosts:
+    /// unavailable, no plan, no-op actions.
+    var isCloudMachinesAvailable: Bool { false }
+    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
+    func openCloudMachinesPanel() {}
+    func openCloudMachinesBilling() {}
+
+    /// Default no-op for package-only settings hosts without Ghostty.
+    func terminalAdaptiveDefaultThemeDidChange() {}
+
+    /// Default no-op for package-only settings hosts without a terminal theme picker.
+    func openTerminalThemePicker() {}
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}
+
+    /// Custom-sidebar defaults for package previews and tests without a live host.
+    func customSidebarNames() -> [String] { [] }
+
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]> {
+        let names = customSidebarNames()
+        return AsyncStream { continuation in
+            continuation.yield(names)
+            continuation.finish()
+        }
+    }
+    func createCustomSidebar() -> CustomSidebarOnboardingResult {
+        .writeFailed
+    }
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func openCustomSidebarInExternalEditor(named name: String) { _ = name }
+    func openCustomSidebarsFolder() {}
 
     /// Default no-op for package previews and tests without host layout editing.
     func customizeWorkspaceLayouts() {}
