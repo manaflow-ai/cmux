@@ -1747,6 +1747,14 @@ struct WorkspaceShellView: View {
     /// open (you are looking at it, so it should not count toward "waiting back
     /// in the list"). Drives the back-button unread count.
     private func unreadWorkspaceCount(excluding workspaceID: MobileWorkspacePreview.ID?) -> Int {
+#if os(iOS) && DEBUG
+        // The toolbar presentation fixture can exercise the compact 99+ label
+        // without materializing hundreds of list rows in the simulator.
+        if let override = Int(ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_TOOLBAR_UNREAD_COUNT"] ?? ""),
+           override > 0 {
+            return override
+        }
+#endif
         store.workspaces.filter { $0.hasUnread && $0.id != workspaceID }.count
     }
 
