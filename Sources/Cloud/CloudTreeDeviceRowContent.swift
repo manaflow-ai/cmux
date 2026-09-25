@@ -16,14 +16,14 @@ struct CloudTreeDeviceRowContent: View {
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: style.iconGap) {
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
                 CloudTreeRowIcon(
                     style: style,
                     systemName: "desktopcomputer",
                     tint: CloudTreeIconPalette.machine,
                     dimmed: !row.isOnline
                 )
-                .frame(height: scaled(style.machineNameLineHeight))
+                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
                 VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
                     HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.detailGap) {
                         name(weight: .medium)
