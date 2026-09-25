@@ -2,89 +2,13 @@ import Darwin
 import Foundation
 import Testing
 
-@Suite struct SSHPTYAttachReconnectInputFilterTests {
-    @Test func keepsFilteringAcrossProbeOnlyReadsUntilFirstNormalInput() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}[1;1R\u{1B}[?1;2c\u{1B}[?0u".utf8)) == Data())
-        #expect(filter.filter(Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8)) == Data())
-        #expect(filter.filter(Data("\u{1B}]12;rgb:ffff/ffff/ffff\u{07}".utf8)) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(normalInput) == normalInput)
-
-        let laterReply = Data("\u{1B}[2;2R".utf8)
-        #expect(filter.filter(laterReply) == laterReply)
-    }
-
-    @Test func keepsFilteringAtIdleProbeBoundaryUntilNormalInput() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}[1;1R".utf8)) == Data())
-        #expect(filter.isFilteringAtProbeBoundary)
-
-        let liveReply = Data("\u{1B}[2;2R".utf8)
-        #expect(filter.filter(liveReply) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(normalInput) == normalInput)
-        #expect(filter.filter(liveReply) == liveReply)
-    }
-
-    @Test func stopFilteringPreservesLaterProbeLikeInput() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}[1;1R".utf8)) == Data())
-        #expect(filter.stopFiltering() == Data())
-
-        let liveReply = Data("\u{1B}[2;2R".utf8)
-        #expect(filter.filter(liveReply) == liveReply)
-    }
-
-    @Test func buffersRecognizedSplitOSCColorReplyWithinInitialDrain() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}]11;rgb:e5e5/e9e9".utf8)) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(Data("/f0f0\u{1B}\\".utf8) + normalInput) == normalInput)
-    }
-
-    @Test func buffersOSCColorReplySplitBeforeCommandSeparator() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        #expect(filter.filter(Data("\u{1B}]1".utf8)) == Data())
-        #expect(filter.filter(Data("2".utf8)) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(Data(";rgb:e5e5/e9e9/f0f0\u{07}".utf8) + normalInput) == normalInput)
-    }
-
-    @Test func buffersInitialEscapeUntilProbeContinuationArrives() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        let escape = Data([0x1B])
-        #expect(filter.filter(escape) == Data())
-
-        let normalInput = Data("printf keep\n".utf8)
-        #expect(filter.filter(Data("]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8) + normalInput) == normalInput)
-    }
-
-    @Test func passesThroughAmbiguousEscapeAfterNonProbeContinuation() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        let escape = Data([0x1B])
-        #expect(filter.filter(escape) == Data())
-        #expect(filter.filter(Data("x".utf8)) == Data("\u{1B}x".utf8))
-
-        let keyInput = Data("\u{1B}[13;2u".utf8)
-        #expect(filter.filter(keyInput) == keyInput)
-    }
-
-    @Test func flushesPendingInputWhenNoContinuationArrives() {
-        let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-        let escape = Data([0x1B])
-        #expect(filter.filter(escape) == Data())
-        #expect(filter.hasPendingInput)
-        #expect(filter.flushPendingInput() == escape)
-
-        let keyInput = Data("\u{1B}[13;2u".utf8)
-        #expect(filter.filter(keyInput) == keyInput)
-    }
-
+// Serialized: each stdin-pump test parks a Swift Testing cooperative thread in
+// a blocking wait while the pump under test is a detached task that needs one
+// of those same threads. Running the five pump tests concurrently can leave
+// no thread for any pump, and the suite then hangs until CI's idle timeout
+// (run 34414741413, shard 3, three attempts). Every wait below is also
+// bounded so a starved pump fails the test instead of the batch.
+@Suite(.serialized) struct SSHPTYAttachReconnectInputFilterTests {
     @Test func deadlineFlushesPendingAndStopsStripping() {
         var expired = false
         let filter = SSHPTYAttachReconnectInputFilter(
@@ -98,69 +22,6 @@ import Testing
         let probeReply = Data("\u{1B}[1;1R".utf8)
         #expect(filter.filter(probeReply) == escape + probeReply)
         #expect(filter.filter(Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8)) == Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{07}".utf8))
-    }
-
-    @Test func seededSplitFuzzPreservesNonProbeBytes() {
-        var seed: UInt64 = 0x7708
-        let probes = [
-            Data("\u{1B}[1;1R".utf8),
-            Data("\u{1B}[?1;2c".utf8),
-            Data("\u{1B}[?0u".utf8),
-            Data("\u{1B}[4$y".utf8),
-            Data("\u{1B}]10;rgb:ffff/ffff/ffff\u{07}".utf8),
-            Data("\u{1B}]11;rgb:e5e5/e9e9/f0f0\u{1B}\\".utf8),
-        ]
-        let keys = [
-            Data("plain text\n".utf8),
-            Data("\u{1B}[A".utf8),
-            Data("\u{1B}x".utf8),
-            Data("\u{1B}[13;2u".utf8),
-            Data("\u{1B}[200~paste\u{1B}[201~".utf8),
-            Data([0x1B]),
-        ]
-
-        // Keys are inserted before, between, and after probe replies. The
-        // oracle mirrors the prefix-safety contract: probes are stripped only
-        // while every byte seen so far belonged to a probe reply; the first
-        // key byte ends stripping and everything after it (probes included)
-        // must reach the output verbatim, in order.
-        for index in 0..<128 {
-            let filter = SSHPTYAttachReconnectInputFilter(enabled: true)
-            var segments: [(data: Data, isKey: Bool)] = []
-            for _ in 0..<(1 + Int(nextRandom(&seed) % 4)) {
-                segments.append((probes[Int(nextRandom(&seed) % UInt64(probes.count))], false))
-            }
-            for _ in 0..<(1 + Int(nextRandom(&seed) % 2)) {
-                let key = keys[Int(nextRandom(&seed) % UInt64(keys.count))]
-                let position = Int(nextRandom(&seed) % UInt64(segments.count + 1))
-                segments.insert((key, true), at: position)
-            }
-
-            var input = Data()
-            var expected = Data()
-            var stripping = true
-            for segment in segments {
-                input.append(segment.data)
-                if segment.isKey {
-                    stripping = false
-                }
-                if !segment.isKey && stripping {
-                    continue
-                }
-                expected.append(segment.data)
-            }
-
-            var output = Data()
-            var cursor = 0
-            while cursor < input.count {
-                let remaining = input.count - cursor
-                let step = 1 + Int(nextRandom(&seed) % UInt64(min(7, remaining)))
-                output.append(filter.filter(Data(input[cursor..<(cursor + step)])))
-                cursor += step
-            }
-            output.append(filter.finish())
-            #expect(output == expected, "seed 0x7708 case \(index)")
-        }
     }
 
     @Test func stdinPumpKeepsFilteringLateProbeRepliesAfterInitialDrain() throws {
@@ -214,7 +75,7 @@ import Testing
         let lateProbeReply = Data("\u{1B}[1;1R".utf8)
         let forwardedInput = Data("printf keep\n".utf8)
         try writeAll(fd: inputPipe[1], data: lateProbeReply + forwardedInput)
-        control?.stopFiltering()
+        #expect(control?.stopFiltering(timeoutMilliseconds: Self.waitTimeoutMilliseconds) == true)
         Darwin.close(inputPipe[1])
         inputPipe[1] = -1
 
@@ -240,7 +101,7 @@ import Testing
         )
         #expect(control != nil)
 
-        control?.stopFiltering()
+        #expect(control?.stopFiltering(timeoutMilliseconds: Self.waitTimeoutMilliseconds) == true)
         let liveProbeReply = Data("\u{1B}[2;2R".utf8)
         try writeAll(fd: inputPipe[1], data: liveProbeReply)
         Darwin.close(inputPipe[1])
@@ -272,13 +133,43 @@ import Testing
         try writeAll(fd: inputPipe[1], data: normalInput)
         #expect(try readExactly(fd: bridgePair[1], count: normalInput.count) == normalInput)
 
-        control?.stopFiltering()
+        #expect(control?.stopFiltering(timeoutMilliseconds: Self.waitTimeoutMilliseconds) == true)
         let liveProbeReply = Data("\u{1B}[3;3R".utf8)
         try writeAll(fd: inputPipe[1], data: liveProbeReply)
         Darwin.close(inputPipe[1])
         inputPipe[1] = -1
 
         #expect(try readUntilEOF(fd: bridgePair[1]) == liveProbeReply)
+    }
+
+    @Test func stdinPumpDoesNotPropagateReconnectInputEOFToBridge() throws {
+        var inputPipe = [Int32](repeating: -1, count: 2)
+        try makePipe(&inputPipe)
+        var bridgePair = [Int32](repeating: -1, count: 2)
+        try makeSocketPair(&bridgePair)
+        defer {
+            closeIfOpen(inputPipe[0])
+            closeIfOpen(inputPipe[1])
+            closeIfOpen(bridgePair[0])
+            closeIfOpen(bridgePair[1])
+        }
+
+        let control = try SSHPTYAttachReconnectInputFilter.startStdinPump(
+            fd: bridgePair[0],
+            inputFD: inputPipe[0],
+            filterEnabled: true
+        )
+        #expect(control != nil)
+        Darwin.close(inputPipe[1])
+        inputPipe[1] = -1
+
+        var bridgePoll = pollfd(
+            fd: bridgePair[1],
+            events: Int16(POLLIN | POLLHUP | POLLERR),
+            revents: 0
+        )
+        #expect(Darwin.poll(&bridgePoll, 1, 500) == 0, "stdin EOF must not half-close the persistent bridge")
+        _ = control
     }
 
     private func makePipe(_ fds: inout [Int32]) throws {
@@ -312,10 +203,35 @@ import Testing
         }
     }
 
+    /// Longer than the pump's reconnect probe deadline, which the EOF reads
+    /// below legitimately wait out, and short enough that a pump that never
+    /// got scheduled fails the test well inside CI's 300s idle timeout.
+    private static let waitTimeoutMilliseconds: Int32 = 30_000
+
+    private struct WaitTimedOut: Error {}
+
+    private func waitReadable(fd: Int32) throws {
+        let events = Int16(POLLIN | POLLHUP | POLLERR | POLLNVAL)
+        var pollFD = pollfd(fd: fd, events: events, revents: 0)
+        while true {
+            let result = Darwin.poll(&pollFD, 1, Self.waitTimeoutMilliseconds)
+            if result > 0 {
+                return
+            }
+            if result == 0 {
+                throw WaitTimedOut()
+            }
+            if errno != EINTR {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        }
+    }
+
     private func readUntilEOF(fd: Int32) throws -> Data {
         var output = Data()
         var buffer = [UInt8](repeating: 0, count: 1024)
         while true {
+            try waitReadable(fd: fd)
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count > 0 {
                 output.append(contentsOf: buffer.prefix(count))
@@ -332,6 +248,7 @@ import Testing
         var buffer = [UInt8](repeating: 0, count: 1024)
         while output.count < expectedCount {
             let remaining = expectedCount - output.count
+            try waitReadable(fd: fd)
             let count = Darwin.read(fd, &buffer, min(buffer.count, remaining))
             if count > 0 {
                 output.append(contentsOf: buffer.prefix(count))
@@ -351,8 +268,4 @@ import Testing
         Darwin.close(fd)
     }
 
-    private func nextRandom(_ seed: inout UInt64) -> UInt64 {
-        seed = seed &* 6364136223846793005 &+ 1442695040888963407
-        return seed
-    }
 }

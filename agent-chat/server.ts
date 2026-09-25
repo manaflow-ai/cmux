@@ -17,6 +17,9 @@ import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
+import { discoverHarnesses } from "./harnesses";
+import type { HarnessRecommendation } from "./harness-contract";
+import { harnessCatalogs } from "./harness-messages";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -235,6 +238,10 @@ function sessionSummary(s: Session) {
     title: s.title,
     status: s.status,
     createdAt: s.createdAt,
+    conversationId: s.conversationId,
+    parentSessionId: s.parentSessionId,
+    parentConversationId: s.parentConversationId,
+    startRequestId: s.startRequestId,
     capabilities: capabilitiesFor(s.provider),
   };
 }
@@ -245,6 +252,39 @@ function capabilitiesFor(provider: string): ProviderCapabilities {
 
 function capabilitiesMap(): Record<string, ProviderCapabilities> {
   return Object.fromEntries(PROVIDERS.map((p) => [p.id, capabilitiesFor(p.id)]));
+}
+
+/**
+ * Build the server-side harness choices consumed by the command palette and
+ * other clients. The resolver is injectable so this stays deterministic in
+ * tests and callers can provide a cached installation probe.
+ */
+export function harnessRecommendations(
+  providers: ProviderDef[] = PROVIDERS,
+  isInstalled: (provider: ProviderDef) => boolean = (provider) => Boolean(Bun.which(provider.cmd?.[0] ?? provider.id, { PATH: process.env.PATH })),
+  triggersFor: (provider: ProviderDef) => CommandTrigger[] = (provider) => capabilitiesFor(provider.id).triggers,
+): HarnessRecommendation[] {
+  return providers
+    .map((provider) => {
+      const installed = isInstalled(provider);
+      return {
+        id: provider.id,
+        label: provider.label,
+        installed,
+        priority: installed ? 0 : 1,
+        triggers: triggersFor(provider),
+        kind: "provider" as const,
+        provider: provider.id,
+        tags: [],
+        reason: installed
+          ? { id: "installed" as const }
+          : provider.installCommand
+            ? { id: "install" as const, params: { command: provider.installCommand } }
+            : { id: "missing" as const },
+        ...(provider.installCommand ? { installCommand: provider.installCommand } : {}),
+      };
+    })
+    .sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label));
 }
 
 function providerInfo(p: ProviderDef) {
@@ -305,6 +345,12 @@ function createSession(
   autoApprove: boolean,
   title: string,
   startOptions: Record<string, OptionValue> = {},
+  lineage: {
+    conversationId?: string;
+    parentSessionId?: string;
+    parentConversationId?: string;
+    startRequestId?: string;
+  } = {},
 ): Session {
   const adapter = adapters.get(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
@@ -314,6 +360,10 @@ function createSession(
     provider,
     cwd,
     title,
+    conversationId: lineage.conversationId ?? crypto.randomUUID(),
+    parentSessionId: lineage.parentSessionId,
+    parentConversationId: lineage.parentConversationId,
+    startRequestId: lineage.startRequestId,
     autoApprove,
     startOptions,
     seedOptions: optionCatalog.get(provider)?.options,
@@ -349,6 +399,17 @@ function createSession(
   sessions.set(id, sess);
   broadcastSessions();
   return sess;
+}
+
+function emitRouting(
+  sess: Session,
+  input: Omit<Extract<AgentEvent, { kind: "routing" }>, "kind" | "conversationId"> & { conversationId?: string },
+) {
+  sess.emit({
+    kind: "routing",
+    ...input,
+    conversationId: input.conversationId ?? sess.conversationId ?? sess.id,
+  });
 }
 
 function emitSessionEvent(sess: Session, evt: AgentEvent) {
@@ -506,7 +567,8 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
   });
 }
 
-function sendPrompt(sess: Session, prompt: string) {
+function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
+  emitRouting(sess, { phase: "started", requestId, attempt: 1, provider: sess.provider });
   const activeGeneration = activeAttributionGeneration(sess);
   if (adapterAttributionMode(sess) === "current-turn" && activeGeneration) {
     sess.emit({ kind: "user", text: prompt });
@@ -552,14 +614,30 @@ function refreshSession(sess: Session) {
   });
 }
 
-async function forkSession(source: Session): Promise<Session> {
+async function forkSession(source: Session, reason = "fork"): Promise<Session> {
+  if (source.status === "running") {
+    throw new Error("cannot continue elsewhere while a turn is running");
+  }
   if (!source.adapter.forkSession) throw new Error(`${source.provider} does not support fork`);
   await assertCwd(source.cwd);
-  const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions });
+  const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions }, {
+    parentSessionId: source.id,
+    parentConversationId: source.conversationId,
+  });
   fork.events = source.events.slice();
   rebuildFileDiffAllowlist(fork);
   try {
     await source.adapter.forkSession(source, fork);
+    emitRouting(fork, {
+      phase: "handoff",
+      requestId: crypto.randomUUID(),
+      attempt: 1,
+      parentSessionId: source.id,
+      parentConversationId: source.conversationId,
+      provider: fork.provider,
+      reason,
+      handoffMode: "native_fork",
+    });
     refreshSession(fork);
     return fork;
   } catch (err) {
@@ -568,6 +646,15 @@ async function forkSession(source: Session): Promise<Session> {
     broadcastSessions();
     throw err;
   }
+}
+
+/**
+ * User-facing continuation. This is deliberately separate from the legacy
+ * `fork` operation: callers can distinguish an intentional handoff from a
+ * branching experiment while both use the provider-native context transfer.
+ */
+async function handoffSession(source: Session): Promise<Session> {
+  return forkSession(source, "user_handoff");
 }
 
 async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string }> {
@@ -615,18 +702,29 @@ async function sanitizeStartOptions(provider: string, cwd: string, raw: Record<s
 
 function filterOptions(raw: Record<string, OptionValue>, catalog: SessionOption[]): Record<string, OptionValue> {
   const byId = new Map(catalog.map((o) => [o.id, o]));
+  const modelOption = byId.get("model");
+  const requestedModel = typeof raw.model === "string"
+    ? modelOption?.choices?.find((choice) => choice.value === raw.model && !choice.disabled)
+    : undefined;
   const out: Record<string, OptionValue> = {};
   for (const [id, value] of Object.entries(raw)) {
     const option = byId.get(id);
     if (!option) continue;
     if (option.kind === "toggle" && typeof value === "boolean") out[id] = value;
-    if (option.kind === "select" && typeof value === "string" && option.choices?.some((c) => c.value === value && !c.disabled)) out[id] = value;
+    const choices = option.role === "effort" && requestedModel
+      ? requestedModel.efforts ?? []
+      : option.choices ?? [];
+    if (option.kind === "select" && typeof value === "string" && choices.some((c) => c.value === value && !c.disabled)) out[id] = value;
   }
   return out;
 }
 
 function fallbackOptions(provider: string): SessionOption[] {
   return adapters.get(provider)?.capabilities?.options ?? [];
+}
+
+function isOffLikeEffort(value: string): boolean {
+  return /^(off|none|no[-_ ]?reasoning)$/i.test(value);
 }
 
 function mergeRemoteModelOptions(provider: string, options: SessionOption[], remote = agentModelCatalog.provider(provider)): SessionOption[] {
@@ -636,7 +734,25 @@ function mergeRemoteModelOptions(provider: string, options: SessionOption[], rem
   const choices: import("./types").OptionChoice[] = remote.models.map((entry) => {
     const reported = binary.get(entry.id);
     binary.delete(entry.id);
-    return { ...reported, value: entry.id, label: entry.label, description: entry.description ?? reported?.description };
+    const efforts = entry.efforts
+      ?.filter((effort) => !isOffLikeEffort(effort.value))
+      .map((effort) => ({
+        value: effort.value,
+        label: effort.label,
+        description: effort.description,
+      }));
+    return {
+      ...reported,
+      value: entry.id,
+      label: entry.label,
+      description: entry.description ?? reported?.description,
+      ...(efforts?.length ? {
+        efforts,
+        defaultEffort: efforts.some((effort) => effort.value === entry.defaultEffort)
+          ? entry.defaultEffort
+          : efforts[0]!.value,
+      } : {}),
+    };
   });
   choices.push(...binary.values());
   const current = typeof model?.value === "string" ? choices.find((choice) => choice.value === model.value && !choice.disabled) : undefined;
@@ -1816,6 +1932,11 @@ function startServer() {
       ws.send(JSON.stringify({
         kind: "hello",
         providers: PROVIDERS.map(providerInfo),
+        harnessCatalogs,
+        harnesses: [
+          ...harnessRecommendations(),
+          ...discoverHarnesses({ cwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD }),
+        ],
         capabilities: capabilitiesMap(),
         defaultCwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD,
         keys: keyConfig,
@@ -1919,14 +2040,20 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const cwd = String(msg.cwd || DEFAULT_CWD);
       const title = prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt;
       const provider = String(msg.provider);
+      const conversationId = typeof msg.conversationId === "string" && msg.conversationId ? msg.conversationId : undefined;
+      const parentSessionId = typeof msg.parentSessionId === "string" && msg.parentSessionId ? msg.parentSessionId : undefined;
       const autoApprove = msg.autoApprove !== false;
       const rawOptions = applyAutoApproveDefaults(provider, autoApprove, parseOptions(msg.options));
       pruneStartRequests();
       const existing = requestId ? startRequests.get(requestId) : undefined;
       const startPromise = existing?.promise ?? Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
-        const sess = createSession(provider, cwd, autoApprove, title, options);
+        const sess = createSession(provider, cwd, autoApprove, title, options, {
+          conversationId,
+          parentSessionId,
+          startRequestId: requestId,
+        });
         refreshSession(sess);
-        sendPrompt(sess, prompt);
+        sendPrompt(sess, prompt, requestId ?? crypto.randomUUID());
         return sess;
       });
       if (requestId && !existing) {
@@ -1939,7 +2066,8 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       }
       startPromise.then((sess) => {
         subscribe(ws, sess);
-        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId }));
+        const routing = [...sess.events].reverse().find((evt) => evt.kind === "routing");
+        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId, routing }));
         if (existing) {
           ws.send(JSON.stringify({
             kind: "history",
@@ -1955,16 +2083,26 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
     }
     case "check-cwd": {
       const cwd = String(msg.cwd || DEFAULT_CWD);
+      const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+      const connectionEpoch = typeof msg.connectionEpoch === "number" ? msg.connectionEpoch : undefined;
       Promise.resolve(checkCwd(cwd))
-        .then((res) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ...res })))
-        .catch((err) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ok: false, message: String(err) })));
+        .then((res) => ws.send(JSON.stringify({
+          kind: "cwd-check",
+          cwd,
+          ...(requestId ? { requestId } : {}),
+          ...(connectionEpoch !== undefined ? { connectionEpoch } : {}),
+          ...res,
+          harnesses: discoverHarnesses({ cwd }),
+        })))
+        .catch((err) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ok: false, message: String(err), ...(requestId ? { requestId } : {}), ...(connectionEpoch !== undefined ? { connectionEpoch } : {}) })));
       break;
     }
     case "send": {
       const sess = sessions.get(String(msg.sessionId));
       const prompt = String(msg.prompt ?? "").trim();
       if (!sess || !prompt) return;
-      sendPrompt(sess, prompt);
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : crypto.randomUUID();
+      sendPrompt(sess, prompt, requestId);
       break;
     }
     case "subscribe": {
@@ -2010,6 +2148,20 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("fork", err) });
           sendWsErrorDetails(ws, "fork", err, { sessionId: sess.id });
+        });
+      break;
+    }
+    case "handoff": {
+      const sess = sessions.get(String(msg.sessionId));
+      if (!sess) {
+        sendWsErrorDetails(ws, "handoff", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
+        return;
+      }
+      Promise.resolve(handoffSession(sess))
+        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id })))
+        .catch((err) => {
+          sess.emit({ kind: "error", message: safeErrorMessage("handoff", err) });
+          sendWsErrorDetails(ws, "handoff", err, { sessionId: sess.id });
         });
       break;
     }

@@ -12,8 +12,6 @@ extension WKWebView {
         switch BrowserUserAgentPolicy.system.resolution(for: url) {
         case .custom(let userAgent):
             resolvedUserAgent = userAgent
-        case .webKitDefault:
-            resolvedUserAgent = nil
         case .notApplicable:
             guard currentUserAgent != nil else { return false }
             customUserAgent = nil
@@ -42,9 +40,11 @@ extension WKWebView {
         return browserUserAgentPolicyRestartRequest(for: request)
     }
 
+    /// Applies a changed user-agent policy to a main-frame request and starts its replacement.
     @MainActor
+    @discardableResult
     func restartNavigationForBrowserUserAgentPolicyIfNeeded(
-        for request: URLRequest,
+        request: URLRequest,
         targetFrameIsMainFrame: Bool?,
         decisionHandler: (WKNavigationActionPolicy) -> Void,
         willRestart: () -> Void = {},

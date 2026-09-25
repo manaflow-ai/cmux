@@ -13,7 +13,7 @@ extension AuthCoordinator {
     /// neither restore nor make `shouldStartAutoLogin` skip the DEBUG
     /// auto-login — then run the normal existing-session check.
     func bootstrapSession() async {
-        if launch.clearStaleAuthOnLaunch {
+        if launch.shouldClearStoredSessionBeforePriming {
             await clearPersistedStackSession()
         }
         await checkExistingSession()
@@ -32,7 +32,7 @@ extension AuthCoordinator {
         // continues, so DEBUG auto-login credentials keep working on this
         // same launch. ``AuthCoordinator/start()`` clears the persisted
         // tokens (awaited) before the restore probe.
-        if launch.clearStaleAuthOnLaunch {
+        if launch.shouldClearStoredSessionBeforePriming {
             clearAuthState()
         }
 
@@ -155,6 +155,7 @@ extension AuthCoordinator {
             sessionCache.setHasTokens(true)
             currentUser = fixtureUser
             isAuthenticated = true
+            publishAuthenticatedSessionIdentity()
             return
         }
 

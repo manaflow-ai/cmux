@@ -92,7 +92,11 @@ extension TerminalController {
 
         let targetIndex: Int
         if let index = inputs.index {
-            targetIndex = index
+            // The CLI sends a final tab position; reorderSurface takes a bonsplit insertion gap.
+            // Moving a tab to a higher slot must target index + 1 so the gap lands after the tab
+            // currently occupying that slot; otherwise a move to sourceIndex + 1 is a silent no-op.
+            guard let currentIndex = ws.indexInPane(forPanelId: sourcePanelID) else { return .reorderFailed }
+            targetIndex = index > currentIndex ? index + 1 : index
         } else if let beforeSurfaceID = inputs.beforeSurfaceID {
             guard let anchorPanelID = ws.controlReorderContainerPanelID(for: beforeSurfaceID),
                   let anchorPane = ws.paneId(forPanelId: anchorPanelID),
@@ -344,7 +348,8 @@ extension TerminalController {
                         initialCommand: v2NonEmptyString(remotePane.panel.surface.debugInitialCommand()),
                         tmuxStartCommand: v2NonEmptyString(remotePane.panel.surface.debugTmuxStartCommand()),
                         isTerminal: true,
-                        resumeBinding: nil
+                        resumeBinding: nil,
+                        renderHealthRawValue: remotePane.panel.surface.renderHealth.rawValue
                     )
                 }
             }
@@ -372,6 +377,7 @@ extension TerminalController {
                 resumeBinding: terminalPanel != nil
                     ? controlResumeBinding(from: workspace.surfaceResumeBinding(panelId: panel.id))
                     : nil,
+                renderHealthRawValue: terminalPanel?.surface.renderHealth.rawValue,
                 simulatorDeviceID: simulatorPanel?.selectedDeviceID,
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,

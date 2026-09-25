@@ -3,6 +3,11 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BROWSER_MACOS_NIGHTLY_AVAILABLE,
+  BROWSER_MACOS_NIGHTLY_DOWNLOAD,
+  BROWSER_NIGHTLY_PAGE,
+  BROWSER_NIGHTLY_RELEASE_URL,
+  BROWSER_RELEASE_REPOSITORY_URL,
   DOWNLOAD_PLATFORMS,
   PLATFORM_DOWNLOADS,
   WAITLIST_PLATFORMS,
@@ -21,23 +26,47 @@ const PLATFORM_PAGE_SOURCE = fileURLToPath(
     import.meta.url,
   ),
 );
+const BROWSER_PAGE_SOURCE = fileURLToPath(
+  new URL("../app/[locale]/(landing)/browser/page.tsx", import.meta.url),
+);
+const DOWNLOAD_BUTTON_SOURCE = fileURLToPath(
+  new URL("../app/[locale]/components/download-button.tsx", import.meta.url),
+);
 
 describe("Windows and Linux downloads", () => {
-  test("keeps unpublished platforms gated behind the waitlist", () => {
-    expect(DOWNLOAD_PLATFORMS).toEqual([]);
-    expect(WAITLIST_PLATFORMS).toEqual(["linux", "android", "windows"]);
+  test("publishes Linux without leaking the private product repository", () => {
+    expect(DOWNLOAD_PLATFORMS).toEqual(["linux"]);
+    expect(WAITLIST_PLATFORMS).toEqual(["android", "windows"]);
 
     expect(PLATFORM_DOWNLOADS.windows.primary.url).toBe(
-      "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64-installer.exe",
+      "/api/download/browser-nightly/windows-x64/installer",
     );
-    expect(PLATFORM_DOWNLOADS.windows.portable.url).toBe(
-      "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-windows-x64.zip",
+    expect(PLATFORM_DOWNLOADS.windows.secondary.url).toBe(
+      "/api/download/browser-nightly/windows-x64/zip",
     );
     expect(PLATFORM_DOWNLOADS.linux.primary.url).toBe(
-      "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.deb",
+      "/api/download/browser-nightly/linux-x64/run",
     );
-    expect(PLATFORM_DOWNLOADS.linux.portable.url).toBe(
-      "https://github.com/manaflow-ai/cmux-browser/releases/latest/download/cmux-linux-x64.zip",
+    expect(PLATFORM_DOWNLOADS.linux.secondary.url).toBe(
+      "/api/download/browser-nightly/linux-x64/deb",
+    );
+    expect(BROWSER_NIGHTLY_PAGE).toBe("/browser");
+    expect(BROWSER_MACOS_NIGHTLY_AVAILABLE).toBe(false);
+    expect(BROWSER_MACOS_NIGHTLY_DOWNLOAD.primary.url).toBe(
+      "/api/download/browser-nightly/mac-arm64/dmg",
+    );
+    expect(BROWSER_MACOS_NIGHTLY_DOWNLOAD.secondary.url).toBe(
+      "/api/download/browser-nightly/mac-arm64/zip",
+    );
+    expect(BROWSER_RELEASE_REPOSITORY_URL).toBe(
+      "https://github.com/manaflow-ai/cmux-v2",
+    );
+    expect(BROWSER_NIGHTLY_RELEASE_URL).toBe(
+      "https://github.com/manaflow-ai/cmux-v2/releases/tag/nightly",
+    );
+    expect(JSON.stringify(PLATFORM_DOWNLOADS)).not.toContain("cmux-browser");
+    expect(JSON.stringify(BROWSER_MACOS_NIGHTLY_DOWNLOAD)).not.toContain(
+      "cmux-browser",
     );
   });
 
@@ -112,14 +141,37 @@ describe("Windows and Linux downloads", () => {
     }
   });
 
-  test("keeps unavailable platform pages out of the sitemap", () => {
-    for (const path of ["/windows", "/linux"]) {
-      expect(
-        sitemap().filter((entry) =>
-          new URL(entry.url).pathname.endsWith(path),
-        ),
-      ).toEqual([]);
-    }
+  test("publishes Linux and keeps unavailable Windows out of the sitemap", () => {
+    expect(
+      sitemap().filter((entry) =>
+        new URL(entry.url).pathname.endsWith(BROWSER_NIGHTLY_PAGE),
+      ),
+    ).toHaveLength(locales.length);
+    expect(
+      sitemap().filter((entry) =>
+        new URL(entry.url).pathname.endsWith("/windows"),
+      ),
+    ).toEqual([]);
+    expect(
+      sitemap().filter((entry) =>
+        new URL(entry.url).pathname.endsWith("/linux"),
+      ),
+    ).toHaveLength(locales.length);
+  });
+
+  test("makes Browser downloads discoverable without enabling unsigned platforms", async () => {
+    const [browserPage, downloadButton] = await Promise.all([
+      readFile(BROWSER_PAGE_SOURCE, "utf8"),
+      readFile(DOWNLOAD_BUTTON_SOURCE, "utf8"),
+    ]);
+
+    expect(browserPage).toContain("BROWSER_MACOS_NIGHTLY_AVAILABLE");
+    expect(browserPage).toContain("PLATFORM_DOWNLOAD_AVAILABILITY.windows");
+    expect(browserPage).toContain("PLATFORM_DOWNLOAD_AVAILABILITY.linux");
+    expect(browserPage).toContain('getTranslations("waitlist")');
+    expect(browserPage).not.toContain('getTranslations("vault.detail")');
+    expect(downloadButton).toContain("BROWSER_NIGHTLY_PAGE");
+    expect(downloadButton).toContain("cmux_browser_nightly_page_clicked");
   });
 
   test("wraps long localized installer labels on narrow screens", async () => {
@@ -129,6 +181,12 @@ describe("Windows and Linux downloads", () => {
       "min-w-0 text-balance whitespace-normal text-center",
     );
     expect(source).toContain('className="shrink-0"');
+  });
+
+  test("makes the auto-updating Linux installer the first-install path", async () => {
+    const source = await readFile(PLATFORM_PAGE_SOURCE, "utf8");
+    expect(source).toContain("cmux-linux-x64-installer.run");
+    expect(source).not.toContain("sudo apt install ./cmux-linux-x64.deb");
   });
 });
 

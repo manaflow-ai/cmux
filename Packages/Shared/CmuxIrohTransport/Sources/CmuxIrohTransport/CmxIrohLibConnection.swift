@@ -135,10 +135,16 @@ struct CmxIrohLibConnection:
     @concurrent
     func close(errorCode: UInt64, reason: String) async {
         let code = Int64(exactly: errorCode) ?? Int64.max
+        let parsedReason = CmxIrohConnectionCloseAttribution.classify(
+            "closed by peer: \(reason) (code \(code))"
+        )
         await closeAttributionStore.recordTentative(CmxIrohConnectionCloseAttribution(
             initiator: .local,
             applicationErrorCode: code,
-            failureKind: .cancelled
+            failureKind: parsedReason.failureKind == .unknown
+                ? .cancelled
+                : parsedReason.failureKind,
+            remoteReason: parsedReason.remoteReason
         ))
         try? driver.close(
             errorCode: code,

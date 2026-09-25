@@ -1,8 +1,6 @@
 import { routing, type Locale } from "../../../i18n/routing";
 import { buildLocalizedBlogRssFeed } from "../../lib/localized-blog-feed";
 
-export const dynamic = "force-static";
-export const dynamicParams = false;
 
 export function generateStaticParams() {
   return routing.locales

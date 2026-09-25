@@ -13,6 +13,7 @@ typealias SidebarPresetOption = WindowChromeSidebarPresetOption
 struct AppWindowChromeComposition {
     let glassEffect: WindowGlassEffect
     let nativeTitlebarBackdropCoordinator: NativeTitlebarBackdropCoordinator
+    let contentOverlayTargetResolver: WindowContentOverlayTargetResolver
 
     init(fullscreenAuxiliaryWindows: (@MainActor @Sendable () -> [NSWindow])? = nil) {
         self.init(
@@ -31,6 +32,7 @@ struct AppWindowChromeComposition {
         nativeTitlebarBackdropCoordinator = NativeTitlebarBackdropCoordinator(
             fullscreenAuxiliaryWindows: resolvedFullscreenAuxiliaryWindows
         )
+        contentOverlayTargetResolver = WindowContentOverlayTargetResolver(glassEffect: glassEffect)
     }
 
     var windowBackgroundPolicy: WindowBackgroundPolicy {
@@ -43,16 +45,13 @@ struct AppWindowChromeComposition {
         )
     }
 
-    var contentOverlayTargetResolver: WindowContentOverlayTargetResolver {
-        WindowContentOverlayTargetResolver(glassEffect: glassEffect)
-    }
-
     func terminalAppearanceSnapshot(app: GhosttyApp = .shared) -> WindowTerminalAppearanceSnapshot {
         WindowTerminalAppearanceSnapshot(
             backgroundColor: app.defaultBackgroundColor,
             backgroundOpacity: app.defaultBackgroundOpacity,
             backgroundBlur: app.defaultBackgroundBlur,
-            usesHostLayerBackground: app.usesHostLayerBackground
+            usesHostLayerBackground: app.usesHostLayerBackground,
+            resolvedColorScheme: app.effectiveTerminalColorSchemePreference == .dark ? .dark : .light
         )
     }
 
@@ -74,15 +73,10 @@ struct AppWindowChromeComposition {
     ) -> WindowAppearanceSnapshot {
         appearanceResolver(app: app).currentFromUserDefaults(
             defaults: defaults,
-            colorScheme: colorScheme ?? Self.currentAppColorScheme()
+            // Translucent chrome composites over the window base the ambient
+            // appearance paints; inject the live ambient instead of letting
+            // the resolver fall back to the terminal-only authority.
+            colorScheme: colorScheme ?? AppearanceSettings.currentAmbientColorScheme(defaults: defaults)
         )
-    }
-
-    @MainActor
-    private static func currentAppColorScheme(
-        appearance: NSAppearance? = nil
-    ) -> ColorScheme {
-        let resolved = appearance ?? NSApplication.shared.effectiveAppearance
-        return resolved.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .dark : .light
     }
 }

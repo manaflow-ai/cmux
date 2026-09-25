@@ -74,6 +74,10 @@ export function createHostedSubrouterClient(options: {
     options.baseUrl ?? env.SUBROUTER_HOSTED_URL ?? defaultHostedSubrouterURL(),
   );
   const fetchImpl = options.fetch ?? fetch;
+  // Read lazily from process.env, not the validated `env` object: t3-env
+  // freezes values at first import, but tenant-control configuration must be
+  // observable per client construction (env.ts still validates presence on
+  // Vercel non-preview deployments).
   const tenantDeleteToken = (
     options.tenantDeleteToken ??
     process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??
