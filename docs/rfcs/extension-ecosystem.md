@@ -198,7 +198,7 @@ pack layers:
 ```text
 ProviderDescriptor {
   id:             stable provider id
-  kind:           provider kind, such as notes.store or diff.render
+  kind:           provider-kind ID, such as cmux.provider.notes-store or cmux.provider.diff-render
   driver:         builtin | filesystem | webview | stdio
   protocol:       provider protocol id and major version
   source:         bundled | installed-pack | global-config | project-config
