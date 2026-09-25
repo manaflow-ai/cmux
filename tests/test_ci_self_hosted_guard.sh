@@ -19,6 +19,7 @@ CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
+E2E_TEST_ACTION_FILE="$ROOT_DIR/.github/actions/e2e-run-tests/action.yml"
 TMUX_CORPUS_FILE="$ROOT_DIR/.github/workflows/tmux-corpus.yml"
 IOS_FILE="$ROOT_DIR/.github/workflows/test-ios.yml"
 CLA_GUARD_FILE="$ROOT_DIR/.github/workflows/cla-policy-guard.yml"
@@ -164,11 +165,16 @@ check_e2e_runner_fallbacks() {
   # Compilation caching is an optional optimization. Its failure must not
   # suppress setup/test failures or make successful tests depend on the cache
   # service. Keep the exception confined to these cache operations.
-  python3 - "$E2E_FILE" <<'PYTHON'
+  python3 - "$E2E_FILE" "${E2E_TEST_ACTION_FILE:-}" <<'PYTHON'
 import sys
 import yaml
 
 document = yaml.safe_load(open(sys.argv[1]))
+# The tests run in this composite action, from the build job or the fallback
+# test job, so its steps answer to the same rule. None may mask a failure.
+if len(sys.argv) > 2 and sys.argv[2]:
+    action = yaml.safe_load(open(sys.argv[2]))
+    document["jobs"]["e2e-run-tests action"] = {"steps": action["runs"]["steps"]}
 # Compilation caching, adopted DerivedData and the fast artifact transport are optimizations with
 # canonical fallbacks. Everything else must fail the job it runs in.
 allowed = {
@@ -181,6 +187,12 @@ allowed = {
     ("build", "seed", "Adopt the DerivedData seed", ""),
     ("build", None, "Forget the adopted-build inode override", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # The git object seed: a miss leaves checkout to fetch everything, and a
+    # checkout the seed breaks is retried without it by the next steps.
+    ("build", None, "Restore git object seed", ""),
+    ("build", "checkout", "Checkout", "actions/checkout"),
+    ("test", None, "Restore git object seed", ""),
+    ("test", "checkout", "Checkout", "actions/checkout"),
     # The owned-pool rescue marker: without it the run is only not watched.
     ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
     ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),

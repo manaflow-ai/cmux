@@ -87,6 +87,8 @@ PATH_OWNERS = {
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
     "scripts/ci/main_full_suite.py": frozenset(("ci",)),
+    # test_ci_package_bisect.py loads it by path.
+    "scripts/ci/package_bisect.py": frozenset(("ci",)),
     # test_ci_merge_receipt.py and test_ci_main_regression_attribution.py load
     # these by path; the receipt test also reads its workflow and fixtures.
     "scripts/ci/main_regression_attribution.py": frozenset(("ci",)),

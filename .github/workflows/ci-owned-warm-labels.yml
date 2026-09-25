@@ -71,12 +71,27 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: write
+          permission-organization-self-hosted-runners: write
+
+      - name: Mint the labeling token without the org permission
+        id: route-token-repo
+        # The mint is all or nothing: an App not yet granted the organization
+        # self-hosted runners permission gets no token above. This one asks
+        # for the repository permission alone, as before.
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: write
 
       - name: Label the runner
-        if: steps.keys.outcome == 'success' && steps.route-token.outputs.token != ''
+        if: steps.keys.outcome == 'success' && (steps.route-token.outputs.token || steps.route-token-repo.outputs.token) != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
           RUN_PATH: ${{ github.event.workflow_run.path }}

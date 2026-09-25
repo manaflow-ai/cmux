@@ -177,6 +177,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:betaFeatures:cloudMachines",
         "setting:betaFeatures:customSidebars",
         "setting:betaFeatures:remoteTmux",
+        "setting:betaFeatures:predictedEcho",
         "setting:customSidebars:enabled",
         "setting:computerUse:permissions",
         "setting:browser:history",
