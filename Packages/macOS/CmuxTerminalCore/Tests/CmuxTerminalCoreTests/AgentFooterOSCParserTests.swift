@@ -12,6 +12,17 @@ struct AgentFooterOSCParserTests {
         #expect(update == AgentFooterState(agent: "claude", contextPercent: 34))
     }
 
+    @Test("Parses a C1 ST terminated footer")
+    func parsesC1STerminatedFooter() {
+        var parser = AgentFooterOSCParser()
+        let bytes = [0x1B, 0x5D, 0x36, 0x39, 0x39, 0x3B]
+            + Array("agent=codex;context=12%".utf8)
+            + [0x9C]
+        let update = parser.consume(Data(bytes))
+
+        #expect(update == AgentFooterState(agent: "codex", contextPercent: 12))
+    }
+
     @Test("Carries a footer sequence across output chunks")
     func carriesSequenceAcrossChunks() {
         var parser = AgentFooterOSCParser()

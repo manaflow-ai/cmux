@@ -110,7 +110,7 @@ final class TerminalPanel: Panel, ObservableObject {
     var onTerminalFocus: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
-    private var agentFooterUpdatesTask: Task<Void, Never>?
+    private var agentFooterUpdateObserver: NSObjectProtocol?
     /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
     private var attentionFlashActiveUntil: TimeInterval = 0
 
@@ -167,21 +167,22 @@ final class TerminalPanel: Panel, ObservableObject {
             }
             .store(in: &cancellables)
 
-        agentFooterUpdatesTask = Task { @MainActor [weak self] in
-            for await notification in NotificationCenter.default.notifications(
-                named: .terminalAgentFooterDidUpdate
-            ) {
-                guard let update = notification.object as? TerminalAgentFooterUpdate,
-                      update.surfaceID == self?.id else {
-                    continue
-                }
-                self?.agentFooter = update.state
+        agentFooter = TerminalAgentFooterUpdate.latestState(for: id)
+        agentFooterUpdateObserver = NotificationCenter.default.addObserver(
+            forName: .terminalAgentFooterDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let update = notification.object as? TerminalAgentFooterUpdate,
+                  update.surfaceID == self?.id else {
+                return
             }
+            self?.agentFooter = update.state
         }
     }
 
     deinit {
-        agentFooterUpdatesTask?.cancel()
+        NotificationCenter.default.removeObserver(agentFooterUpdateObserver)
     }
 
     /// Create a new terminal panel with a fresh surface

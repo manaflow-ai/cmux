@@ -78,6 +78,10 @@ public struct AgentFooterOSCParser: Sendable {
                 phase = .ground
                 return nil
             }
+            if byte == 0x9C {
+                phase = .ground
+                return nil
+            }
             if byte == 0x1B {
                 phase = .otherOSCEscape
                 return nil
@@ -101,6 +105,8 @@ public struct AgentFooterOSCParser: Sendable {
         case .otherOSC:
             if byte == 0x07 {
                 phase = .ground
+            } else if byte == 0x9C {
+                phase = .ground
             } else if byte == 0x1B {
                 phase = .otherOSCEscape
             }
@@ -114,6 +120,10 @@ public struct AgentFooterOSCParser: Sendable {
             }
         case let .footerPayload(payload):
             if byte == 0x07 {
+                phase = .ground
+                return Self.state(from: payload)
+            }
+            if byte == 0x9C {
                 phase = .ground
                 return Self.state(from: payload)
             }
@@ -136,6 +146,8 @@ public struct AgentFooterOSCParser: Sendable {
             }
         case .discardFooterPayload:
             if byte == 0x07 {
+                phase = .ground
+            } else if byte == 0x9C {
                 phase = .ground
             } else if byte == 0x1B {
                 phase = .discardFooterPayloadEscape

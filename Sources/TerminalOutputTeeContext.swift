@@ -7,11 +7,39 @@ struct TerminalAgentFooterUpdate: Sendable {
     let surfaceID: UUID
     let state: AgentFooterState?
 
+    private struct Snapshot: Sendable {
+        let state: AgentFooterState?
+    }
+
+    // Footer updates can arrive while a startup command is creating its
+    // surface, before TerminalPanel has installed its notification observer.
+    // This short-lived replay cache closes that construction gap; the lock
+    // protects only the synchronous snapshot read/write, not ongoing domain
+    // state.
+    private static let latestStates = OSAllocatedUnfairLock(
+        initialState: [UUID: Snapshot]()
+    )
+
     static func post(surfaceID: UUID, state: AgentFooterState?) {
+        latestStates.withLock { snapshots in
+            snapshots[surfaceID] = Snapshot(state: state)
+        }
         NotificationCenter.default.post(
             name: .terminalAgentFooterDidUpdate,
             object: TerminalAgentFooterUpdate(surfaceID: surfaceID, state: state)
         )
+    }
+
+    static func latestState(for surfaceID: UUID) -> AgentFooterState? {
+        latestStates.withLock { snapshots in
+            snapshots[surfaceID]?.state
+        }
+    }
+
+    static func remove(surfaceID: UUID) {
+        latestStates.withLock { snapshots in
+            snapshots.removeValue(forKey: surfaceID)
+        }
     }
 }
 
