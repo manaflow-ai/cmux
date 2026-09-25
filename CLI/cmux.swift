@@ -3959,21 +3959,13 @@ final class SocketClient {
         lastConfiguredReceiveTimeout = timeout
     }
 
-    /// Internal (not `private`) so regression tests can drive the typed
-    /// failure through the wrapper on an unconnected socket.
-    func configureResponseReceiveTimeout(_ timeout: TimeInterval) throws {
+    private func configureResponseReceiveTimeout(_ timeout: TimeInterval) throws {
         if let lastConfiguredReceiveTimeout,
            abs(lastConfiguredReceiveTimeout - timeout) <= Self.receiveTimeoutReconfigurationToleranceSeconds {
             return
         }
         do {
             try configureReceiveTimeout(timeout)
-        } catch let cliError as CLIError {
-            // Preserve the typed failure (e.g.
-            // .receiveTimeoutConfiguration) so transport classifiers see it;
-            // the localized conversion below is only for untyped errors.
-            close()
-            throw cliError
         } catch {
             close()
             throw CLIError(message: String(localized:

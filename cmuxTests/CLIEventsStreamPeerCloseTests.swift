@@ -24,7 +24,16 @@ final class CLIEventsStreamPeerCloseTests: XCTestCase {
             defer { Darwin.close(clientFD) }
             var pending = Data()
             var buffer = [UInt8](repeating: 0, count: 4096)
-            while !pending.contains(0x0A) {
+            // Answer a password handshake if the runner has one configured,
+            // then wait for the events.stream request line.
+            while true {
+                if let newline = pending.firstIndex(of: 0x0A) {
+                    let line = String(decoding: pending[..<newline], as: UTF8.self)
+                    pending.removeSubrange(...newline)
+                    guard line.hasPrefix("auth ") else { break }
+                    _ = "OK\n".withCString { Darwin.write(clientFD, $0, strlen($0)) }
+                    continue
+                }
                 let count = Darwin.read(clientFD, &buffer, buffer.count)
                 if count < 0, errno == EINTR { continue }
                 guard count > 0 else { return }
@@ -43,7 +52,6 @@ final class CLIEventsStreamPeerCloseTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment.removeValue(forKey: "CMUX_SOCKET_PASSWORD")
 
         let result = CLINotifyProcessIntegrationRegressionTests.runProcess(
             executablePath: cliPath,
