@@ -118,9 +118,9 @@ jobs:
     # takes the pool label alone. Otherwise, and for an ios_version run, the
     # default holds. `owned` forces the owned pool for a proof run. A job an
     # owned Mac leaves queued or refuses is re-run by ci-owned-pool-rescue.yml
-    # (started by owned-pool-watch), and every re-run attempt takes retry_runs_on (Blacksmith).
+    # (its sweeper), and every re-run attempt takes retry_runs_on (Blacksmith).
     # scripts/ci/ios_runner_pool.py has the rules.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # Reads the queue janitor's pool snapshot and the runs created since it
     # (six API calls at most; see ios_runner_pool.py for the budget).
@@ -137,9 +137,6 @@ jobs:
       # mobile-core-package needs no simulator: the pool label alone.
       package_runs_on: ${{ steps.pool.outputs.package_runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
-      # 'true' when the run uploaded the persistent pool marker: owned-pool-watch
-      # starts ci-owned-pool-rescue.yml for it.
-      owned_marker: ${{ steps.marker.outputs.path != '' }}
     steps:
       # The helper comes from this workflow's revision, not the tested one,
       # which may predate it.
@@ -224,30 +221,19 @@ jobs:
           path: ${{ steps.marker.outputs.path }}
           retention-days: 1
 
-  owned-pool-watch:
-    # Starts ci-owned-pool-rescue.yml (from main) for a run whose `runner`
-    # job put it on an owned Mac; any other run creates no rescue workflow
-    # run. The only job here with Actions write; it runs no repository code.
-    # Fail-safe: if the dispatch fails the run is only not watched.
-    name: Watch owned pool jobs
-    needs: runner
-    if: ${{ needs.runner.outputs.owned_marker == 'true' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_OWNED_POOL_RESCUE || '1') != '0' }}
-    runs-on: ubuntu-24.04 # github-hosted-required: one API call; keeps CI's Linux pool free
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Dispatch the persistent pool rescue
+      # The owned-pool rescue sweeper (ci-owned-pool-rescue.yml) finds the runs
+      # it watches by this fixed name, one listing for all of them.
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
         continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: gh workflow run ci-owned-pool-rescue.yml --ref main -f run_id="$RUN_ID" -f run_attempt="$RUN_ATTEMPT"
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
 
   detect-ios-changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_run: ${{ steps.detect.outputs.should_run }}
@@ -349,7 +335,7 @@ jobs:
   package-conventions-lint:
     needs: detect-ios-changes
     if: ${{ needs.detect-ios-changes.outputs.should_lint == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -613,9 +599,11 @@ jobs:
         # An owned Mac outlives the job, so it keeps this job's DerivedData and
         # resolved packages instead of downloading the packages from R2 and
         # compiling cold every time: on cmux7s the R2 restore took 273 s and
-        # the resolve 282 s (run 36108107919). The state is per runner
-        # instance (one job at a time, and the kept packages carry this
-        # instance's paths), under a separate root from ci-macos.yml's.
+        # the resolve 282 s (run 36108107919). DerivedData is per runner
+        # instance (one job at a time, and it carries this instance's paths);
+        # the packages are per Mac, so every instance on it starts with them
+        # (the sanitize step below drops the one file with absolute paths).
+        # Both live under a separate root from ci-macos.yml's.
         # scripts/ci/owned_build_state.py has the rules; nothing is uploaded.
         id: owned-state
         continue-on-error: true
@@ -626,10 +614,12 @@ jobs:
             *) echo "Not an owned Mac: $RUNNER_NAME"; exit 0 ;;
           esac
           store="/Users/Shared/cmux-build-fleet/ci-ios/$RUNNER_NAME"
+          packages="/Users/Shared/cmux-build-fleet/ci-ios-packages"
           fingerprint="$( { echo ios-owned-v1; xcodebuild -version; echo "$PWD"; echo "$RUNNER_TEMP"; } | shasum -a 256 | cut -d' ' -f1)"
           echo "IOS_OWNED_STORE=$store" >> "$GITHUB_ENV"
+          echo "IOS_OWNED_PACKAGES=$packages" >> "$GITHUB_ENV"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
-          python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$PWD"
+          python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$PWD" "$packages"
           # check clones the kept packages to ci-macos.yml's directory name.
           if [ -d .ci-source-packages ]; then
             rm -rf .ci-ios-source-packages
@@ -647,8 +637,8 @@ jobs:
             ios-spm-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Sanitize iOS SwiftPM cache
-        # Kept packages have only ever lived at this runner's paths.
-        if: ${{ steps.owned-state.outputs.packages != 'true' }}
+        # R2's and a Mac's kept packages were resolved at another checkout's
+        # paths; the resolve recreates the dropped state from the checkouts.
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
 
       - name: Ensure iOS simulator runtime
@@ -900,7 +890,7 @@ jobs:
       - name: Save this owned Mac's iOS packages
         if: ${{ always() && steps.owned-state.outputs.fingerprint != '' }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_build_state.py save "$IOS_OWNED_STORE" "$IOS_SPM_CACHE" "$PWD"
+        run: python3 scripts/ci/owned_build_state.py save "$IOS_OWNED_STORE" "$IOS_SPM_CACHE" "$PWD" "$IOS_OWNED_PACKAGES"
 
       - name: Upload producer log
         if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
@@ -1255,7 +1245,7 @@ jobs:
       - ios-simulator-build
       - ios-simulator
     if: ${{ always() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Check iOS test routing
