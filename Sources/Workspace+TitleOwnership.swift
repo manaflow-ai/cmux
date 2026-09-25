@@ -137,7 +137,9 @@ extension Workspace {
     /// spinner never writes `@Published` state, never reaches the sidebar's
     /// observation stream, and never refreshes the titlebar.
     ///
-    /// Returns whether anything beyond the tab label changed.
+    /// Returns whether anything beyond the tab label changed. Callers that pass
+    /// no `stableTitle` (socket and restore paths) also get `true` when only the
+    /// tab label was reconciled, matching the pre-spinner-split contract.
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String, stableTitle: String? = nil) -> Bool {
         let remote = cloudProjectedResource(forPanel: panelId).flatMap { $0.kind == .terminal ? $0 : nil }
@@ -160,12 +162,14 @@ extension Workspace {
         // Runs on every frame, which is what keeps the animation. It still
         // invalidates the tab bar's own SwiftUI subtree; what it avoids is the
         // app-wide cascade below.
-        refreshTabLabel(panelId: panelId, displayTitle: trimmed)
+        let didRefreshTabLabel = refreshTabLabel(panelId: panelId, displayTitle: trimmed)
 
         // Only the spinner advanced. Everything below either writes @Published
         // state or signals the sidebar chokepoint, and all of it would land on
         // the same values it already holds.
-        guard !isRemoteTmuxMirror, panelTitles[panelId] != stable else { return false }
+        guard !isRemoteTmuxMirror, panelTitles[panelId] != stable else {
+            return stableTitle == nil && didRefreshTabLabel
+        }
 
         var didMutateWorkspaceTitle = false
         panelTitles[panelId] = stable
@@ -197,19 +201,21 @@ extension Workspace {
     /// This is not free: `PaneState` is `@Observable` with `var tabs:
     /// [TabItem]`, so writing one tab's title writes the whole `tabs` property
     /// and re-renders the entire tab bar. Narrowing that is separate work.
-    private func refreshTabLabel(panelId: UUID, displayTitle: String) {
+    @discardableResult
+    private func refreshTabLabel(panelId: UUID, displayTitle: String) -> Bool {
         guard !isRemoteTmuxMirror,
               let tabId = surfaceIdFromPanelId(panelId),
-              let existing = bonsplitController.tab(tabId) else { return }
+              let existing = bonsplitController.tab(tabId) else { return false }
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: displayTitle)
         let titleUpdate: String? = existing.title == resolvedTitle ? nil : resolvedTitle
         let hasCustomTitle = panelCustomTitles[panelId] != nil
-        guard titleUpdate != nil || existing.hasCustomTitle != hasCustomTitle else { return }
+        guard titleUpdate != nil || existing.hasCustomTitle != hasCustomTitle else { return false }
         bonsplitController.updateTab(
             tabId,
             title: titleUpdate,
             hasCustomTitle: hasCustomTitle
         )
+        return true
     }
 
     private static func normalizedCustomDescription(_ description: String?) -> String? {
