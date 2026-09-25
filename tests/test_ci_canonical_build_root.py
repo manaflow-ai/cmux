@@ -391,7 +391,8 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
                    CMUX_CI_CANONICAL_ROOT=str(root),
                    # A caller's per-step noise, its tools and its settings.
                    GITHUB_RUN_ID="12345", HOME=str(base / "home"), CI="true",
-                   CMUX_SKIP_ZIG_BUILD="1", CARGO_HOME=str(base / "cargo"))
+                   CMUX_SKIP_ZIG_BUILD="1", CARGO_HOME=str(base / "cargo"),
+                   CARGO_REGISTRIES_X_TOKEN="secret")
         env.pop("FileSystemMode", None)
         self.caller_env = env
         derived = str(root / "derived-data-compile-admission")
@@ -458,6 +459,7 @@ class BuildEnvironmentTests(SeededBuildFileSystemModeTests):
                 self.assertIn(f"{name}={caller[name]}", args)
             self.assertIn(f"CMUX_CALLER_PATH={caller['PATH']}", args)
             self.assertFalse(any(a.startswith("GITHUB_RUN_ID=") for a in args))
+            self.assertFalse(any(a.startswith("CARGO_REGISTRIES_X_TOKEN=") for a in args))
 
 
 class BuildPhaseCallerPathTests(unittest.TestCase):

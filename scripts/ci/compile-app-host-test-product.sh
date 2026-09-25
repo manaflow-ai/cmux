@@ -230,9 +230,11 @@ build() {
   local -a caller_settings=("CMUX_CALLER_PATH=$PATH")
   local name
   while IFS= read -r name; do
+    # xcodebuild prints command-line settings, and they land in the build log
+    # a DerivedData seed carries, so nothing that looks like a secret goes.
     case "$name" in
-      CMUX_CALLER_PATH) ;;
-      CI|HOME|TMPDIR|ZIG_REQUIRED|CMUX_*|CARGO_*|RUSTUP_*|RUSTC_WRAPPER|RUSTFLAGS|GOROOT|GOPATH|GOCACHE|GOMODCACHE|GOFLAGS|GOPROXY|GOTOOLCHAIN)
+      CMUX_CALLER_PATH|*TOKEN*|*SECRET*|*PASSWORD*|*_KEY) ;;
+      CI|HOME|TMPDIR|ZIG_REQUIRED|RUSTC|RUSTC_WRAPPER|RUSTFLAGS|CMUX_*|CARGO_*|RUSTUP_*|GO[A-Z]*|CGO_*)
         caller_settings+=("$name=${!name}")
         ;;
     esac
