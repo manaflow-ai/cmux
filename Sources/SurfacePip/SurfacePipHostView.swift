@@ -27,6 +27,7 @@ struct SurfacePipHostView: View {
             isFocused: true,
             isSelectedInPane: true,
             isVisibleInUI: true,
+            allowsPointerInput: true,
             portalPriority: 10_000,
             isSplit: false,
             appearance: appearance,
@@ -39,7 +40,8 @@ struct SurfacePipHostView: View {
             onRequestPanelFocus: onRequestFocus,
             onResumeAgentHibernation: {},
             onAutoResumeAgentHibernation: {},
-            onTriggerFlash: {}
+            onTriggerFlash: {},
+            onRequestDeferredBrowserMaterialization: {}
         )
         .background(Color.clear)
         .onAppear {

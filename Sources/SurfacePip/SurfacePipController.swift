@@ -80,7 +80,8 @@ final class SurfacePipController {
         case .terminal, .browser:
             return true
         case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession,
-             .project, .extensionBrowser, .cloudVMLoading:
+             .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading,
+             .simulator, .mobilePairing, .accountSignIn:
             return false
         }
     }
