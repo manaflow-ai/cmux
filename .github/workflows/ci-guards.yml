@@ -388,6 +388,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_late_placement.py
 
+      - name: Validate spread-first compile admission placement
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_admission_placement.py
+
       - name: Validate owned Mac build state
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_build_state.py
