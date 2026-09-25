@@ -26,9 +26,19 @@ name: CI queue janitor
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool.
+#
+# GitHub delays scheduled runs (the */10 cron fired 55 minutes apart on
+# 2026-09-25), and pull request CI trusts a snapshot for at most
+# MAX_SNAPSHOT_MINUTES, so a CI run being requested also starts a sweep. It
+# skips when the newest snapshot is under FRESH_SECONDS old, and the
+# concurrency group keeps one sweep running and one waiting, so a burst of
+# pushes costs at most one extra sweep.
 on:
   schedule:
     - cron: "*/10 * * * *"
+  workflow_run:
+    workflows: [CI]
+    types: [requested]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -54,12 +64,33 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
+      - name: Skip when the pool snapshot is fresh
+        id: fresh
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FRESH_SECONDS: "240"
+        run: |
+          set -euo pipefail
+          newest="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=macos-pool-load&per_page=20" \
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main") | .created_at] | max // ""')" || newest=""
+          age=999999
+          if [ -n "$newest" ]; then
+            age=$(( $(date -u +%s) - $(date -u -d "$newest" +%s) ))
+          fi
+          echo "newest snapshot: ${newest:-none} (${age}s old)"
+          if [ "$age" -lt "$FRESH_SECONDS" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Check out trusted janitor
+        if: steps.fresh.outputs.skip != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
       - name: Cancel wasted macOS runs
+        if: steps.fresh.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -84,7 +115,7 @@ jobs:
       # pull request run lands on, for two API requests instead of one job
       # listing per in-flight run.
       - name: Publish macOS pool load
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: macos-pool-load

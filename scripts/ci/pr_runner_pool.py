@@ -181,7 +181,11 @@ SIDE_LANES = 3
 MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
 REPLAYED_RUN_JOBS = SIDE_LANES + 1
 # A snapshot older than this is not trusted to place a run on an owned pool.
-OWNED_MAX_AGE_MINUTES = 20
+# It was 20, but GitHub delays scheduled runs: the janitor's */10 cron fired
+# 55 minutes apart (23:59Z to 00:54Z, 2026-09-25) and every run skipped 40
+# idle minis. ci-queue-janitor.yml now also sweeps when CI is requested, and
+# a mini that turns out busy is caught by the rescue within its budget.
+OWNED_MAX_AGE_MINUTES = 45
 # Pools whose machines are discarded after each job; the only ones a fork run may use.
 EPHEMERAL_PREFIX = "blacksmith-"
 
@@ -1019,7 +1023,9 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     )
     problems = slot_problems(env.get("OWNED_SLOTS")) if (env.get("POOL_OWNED") or "").strip() == "1" else []
     for problem in problems:
-        print(f"::warning title={SLOTS_VARIABLE}::{problem}")
+        # An error, not a warning: a malformed entry silently takes the
+        # fleet out of the order (a bare `40` did for 30 minutes on 2026-09-25).
+        print(f"::error title={SLOTS_VARIABLE}::{problem}")
     # A persistent pick names the jobs that take it; every other job of the
     # run takes retry_runner. The marker's jobs are the owned machines held.
     owned_jobs, held = place(plan, choice.owned_budget, gui) if persistent(choice.runner) else ((), plan.peak)

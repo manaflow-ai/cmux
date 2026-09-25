@@ -13,6 +13,8 @@ import urllib.parse
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/queue_janitor.py"
@@ -647,6 +649,18 @@ class OwnedMarkerRunTests(unittest.TestCase):
 class WorkflowShapeTests(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def test_a_requested_ci_run_refreshes_a_stale_snapshot(self):
+        # The cron drifts (55 minutes apart on 2026-09-25), so CI being
+        # requested also sweeps, unless the newest snapshot is fresh.
+        workflow = yaml.safe_load(self.text)
+        triggers = workflow[True] if True in workflow else workflow["on"]
+        self.assertEqual(triggers["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
+        steps = workflow["jobs"]["sweep"]["steps"]
+        self.assertEqual(steps[0]["id"], "fresh")
+        self.assertEqual(steps[0]["if"], "github.event_name == 'workflow_run'")
+        for step in steps[1:]:
+            self.assertIn("steps.fresh.outputs.skip != 'true'", step["if"], step["name"])
 
     def test_triggers_permissions_and_runner(self):
         text = self.text
