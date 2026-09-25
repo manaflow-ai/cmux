@@ -65,6 +65,11 @@ on:
         required: false
         default: "1"
         type: string
+      late:
+        description: 1 when the picker placed nothing owned, so the watch waits for ci-macos.yml's late placement
+        required: false
+        default: "0"
+        type: string
 
 permissions: {}
 
@@ -103,14 +108,33 @@ jobs:
           ref: main
           persist-credentials: false
 
+      # Reads from the org's manaflow-glaeda-route App, on its own 5000 requests
+      # an hour; cancels and re-runs stay on GITHUB_TOKEN (owned_pool_rescue.py,
+      # GitHub). Any failure leaves READ_TOKEN empty and GITHUB_TOKEN reads.
+      - name: Mint the read token
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       - name: Watch the run's persistent pool jobs
         env:
+          READ_TOKEN: ${{ steps.read-token.outputs.token }}
           # A CI run's budget grows by a round per queue round the picker allows.
           QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           GH_TOKEN: ${{ github.token }}
           RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
+          # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.
+          LATE_PLACEMENT: ${{ inputs.late }}
           # 1: a stuck run's full re-run may take the light pool; watch it.
           OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
         run: python3 scripts/ci/owned_pool_rescue.py
