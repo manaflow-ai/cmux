@@ -591,11 +591,11 @@ try {
     "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && " +
       "echo snapshot-resume-quiet-ok",
   );
+  await step("cmux-cloud-first-workspace-contract", "install -m 0644 /dev/null /etc/cmux/cloud-first-workspace-v1");
   await step(
     "cmux-tui-daemon-unit",
     "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",
   );
-  await step("cmux-cloud-first-workspace-contract", "install -m 0644 /dev/null /etc/cmux/cloud-first-workspace-v1");
   await step(
     "cmux-prompt-sync-unit",
     "python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl daemon-reload && systemctl enable cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync",
