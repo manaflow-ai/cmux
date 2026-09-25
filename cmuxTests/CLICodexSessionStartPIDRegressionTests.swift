@@ -16,12 +16,23 @@ struct CLICodexSessionStartPIDRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-new-pid-session"
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let rolloutDirectory = codexHome.appendingPathComponent("sessions", isDirectory: true)
+        let transcriptURL = rolloutDirectory.appendingPathComponent("rollout-\(sessionId).jsonl")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
+
+        // Resume publication requires a durable foreground rollout independently
+        // of SessionStart admission. Keep that gate satisfied while testing PID identity.
+        try FileManager.default.createDirectory(at: rolloutDirectory, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: [
+            "type": "session_meta",
+            "payload": ["id": sessionId, "cwd": root.path, "source": "cli", "originator": "codex-tui"],
+        ]).write(to: transcriptURL, options: .atomic)
 
         let now = Date().timeIntervalSince1970
         let store: [String: Any] = [
@@ -54,6 +65,7 @@ struct CLICodexSessionStartPIDRegressionTests {
             "HOME": root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "PWD": root.path,
+            "CODEX_HOME": codexHome.path,
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceId,
             "CMUX_SURFACE_ID": surfaceId,
@@ -61,7 +73,7 @@ struct CLICodexSessionStartPIDRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CODEX_PID": "2",
         ]
-        let payload = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        let payload = #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"SessionStart"}"#
 
         let firstStart = runCodexHookProcess(
             executablePath: cliPath,
