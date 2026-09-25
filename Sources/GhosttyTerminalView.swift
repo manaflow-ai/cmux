@@ -467,7 +467,7 @@ class GhosttyApp {
         // last) place this file calls a raw `ghostty_surface_*` C
         // function for hover; see the type doc above.
         drainDiagnostics: { lease, capacity in
-            Self.drainExternalHoverDiagnostics(lease.surface, capacity: capacity)
+            GhosttyApp.drainExternalHoverDiagnostics(lease.surface, capacity: capacity)
         }
     )
 
