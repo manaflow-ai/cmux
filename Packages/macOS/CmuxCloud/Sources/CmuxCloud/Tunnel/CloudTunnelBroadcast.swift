@@ -9,6 +9,8 @@ import Foundation
 /// hops back onto its isolation and calls ``remove(_:)``, so polling clients
 /// that subscribe and leave between yields never accumulate here.
 public struct CloudTunnelBroadcast<Value: Sendable> {
+    public init() {}
+
     private var continuations: [UUID: AsyncStream<Value>.Continuation] = [:]
 
     /// A new stream that receives `current` first (when given) and then every

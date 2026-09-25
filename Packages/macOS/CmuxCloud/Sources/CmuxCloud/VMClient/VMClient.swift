@@ -410,6 +410,18 @@ public struct VMBaseSummary: Sendable {
     public let name: String
     public let generation: Int
     public let retainedProviderVmId: String?
+
+    public init(
+        id: String,
+        name: String,
+        generation: Int,
+        retainedProviderVmId: String?
+    ) {
+        self.id = id
+        self.name = name
+        self.generation = generation
+        self.retainedProviderVmId = retainedProviderVmId
+    }
 }
 
 public struct VMExecResult: Sendable {
@@ -433,6 +445,16 @@ public struct VMOpenPortEndpoint: Sendable {
     public let token: String
     /// URL with the preview token embedded as a query parameter, ready for a browser.
     public let openUrl: String
+
+    public init(
+        url: String,
+        token: String,
+        openUrl: String
+    ) {
+        self.url = url
+        self.token = token
+        self.openUrl = openUrl
+    }
 }
 
 public enum VMPublicationAccessMode: String, CaseIterable, Sendable {
@@ -458,6 +480,18 @@ public struct VMPublicationDNSInstruction: Equatable, Sendable {
             "value": value,
         ]
     }
+
+    public init(
+        purpose: String,
+        recordTypes: [String],
+        name: String,
+        value: String
+    ) {
+        self.purpose = purpose
+        self.recordTypes = recordTypes
+        self.name = name
+        self.value = value
+    }
 }
 
 public struct VMPublicationVerification: Equatable, Sendable {
@@ -479,6 +513,22 @@ public struct VMPublicationVerification: Equatable, Sendable {
                 "certificate": certificateInstruction.foundationObject,
             ],
         ]
+    }
+
+    public init(
+        verificationID: String,
+        domain: String,
+        state: String,
+        verificationInstruction: VMPublicationDNSInstruction,
+        routingInstruction: VMPublicationDNSInstruction,
+        certificateInstruction: VMPublicationDNSInstruction
+    ) {
+        self.verificationID = verificationID
+        self.domain = domain
+        self.state = state
+        self.verificationInstruction = verificationInstruction
+        self.routingInstruction = routingInstruction
+        self.certificateInstruction = certificateInstruction
     }
 }
 
@@ -516,6 +566,32 @@ public struct VMPublication: Equatable, Sendable {
             "verification": verification.map { $0.foundationObject as Any } ?? NSNull(),
         ]
     }
+
+    public init(
+        id: String,
+        hostname: String,
+        url: String,
+        domainKind: String,
+        vmID: String,
+        port: Int,
+        accessMode: VMPublicationAccessMode,
+        teamID: String?,
+        state: String,
+        routingRevision: Int,
+        verification: VMPublicationVerification?
+    ) {
+        self.id = id
+        self.hostname = hostname
+        self.url = url
+        self.domainKind = domainKind
+        self.vmID = vmID
+        self.port = port
+        self.accessMode = accessMode
+        self.teamID = teamID
+        self.state = state
+        self.routingRevision = routingRevision
+        self.verification = verification
+    }
 }
 
 /// One publication routed through a custom zone, as listed with that zone.
@@ -526,6 +602,16 @@ public struct VMPublicationDomainPublication: Equatable, Sendable {
 
     public var foundationObject: [String: Any] {
         ["id": id, "hostname": hostname, "state": state]
+    }
+
+    public init(
+        id: String,
+        hostname: String,
+        state: String
+    ) {
+        self.id = id
+        self.hostname = hostname
+        self.state = state
     }
 }
 
@@ -555,6 +641,24 @@ public struct VMPublicationDomain: Equatable, Sendable {
             "publications": publications.map(\.foundationObject),
         ]
     }
+
+    public init(
+        id: String,
+        hostname: String,
+        verificationState: String,
+        certificateState: String,
+        createdAt: String?,
+        dnsInstructions: [VMPublicationDNSInstruction],
+        publications: [VMPublicationDomainPublication]
+    ) {
+        self.id = id
+        self.hostname = hostname
+        self.verificationState = verificationState
+        self.certificateState = certificateState
+        self.createdAt = createdAt
+        self.dnsInstructions = dnsInstructions
+        self.publications = publications
+    }
 }
 
 /// One row of `GET /api/vm/<id>/snapshots`: the provider snapshot id, its display name
@@ -563,6 +667,16 @@ public struct VMSnapshotSummary: Sendable, Equatable {
     public let id: String
     public let name: String?
     public let createdAt: String
+
+    public init(
+        id: String,
+        name: String?,
+        createdAt: String
+    ) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+    }
 }
 
 public struct VMSCPEndpoint: Sendable {
@@ -571,6 +685,20 @@ public struct VMSCPEndpoint: Sendable {
     public let username: String
     public let hostPublicKey: String
     public let expiresAtUnix: Int
+
+    public init(
+        host: String,
+        port: Int,
+        username: String,
+        hostPublicKey: String,
+        expiresAtUnix: Int
+    ) {
+        self.host = host
+        self.port = port
+        self.username = username
+        self.hostPublicKey = hostPublicKey
+        self.expiresAtUnix = expiresAtUnix
+    }
 }
 
 public struct VMSSHEndpoint: Sendable {
@@ -586,6 +714,24 @@ public struct VMSSHEndpoint: Sendable {
         case password(String)
         case authorizedKey(privateKeyPem: String)
     }
+
+    public init(
+        transport: String,
+        host: String,
+        port: Int,
+        username: String,
+        credential: Credential,
+        publicKeyFingerprint: String?,
+        daemon: VMWebSocketDaemonEndpoint?
+    ) {
+        self.transport = transport
+        self.host = host
+        self.port = port
+        self.username = username
+        self.credential = credential
+        self.publicKeyFingerprint = publicKeyFingerprint
+        self.daemon = daemon
+    }
 }
 
 public struct VMWebSocketPtyEndpoint: Sendable {
@@ -597,6 +743,26 @@ public struct VMWebSocketPtyEndpoint: Sendable {
     public let attachmentId: String
     public let expiresAtUnix: Int64
     public let daemon: VMWebSocketDaemonEndpoint?
+
+    public init(
+        transport: String,
+        url: String,
+        headers: [String: String],
+        token: String,
+        sessionId: String,
+        attachmentId: String,
+        expiresAtUnix: Int64,
+        daemon: VMWebSocketDaemonEndpoint?
+    ) {
+        self.transport = transport
+        self.url = url
+        self.headers = headers
+        self.token = token
+        self.sessionId = sessionId
+        self.attachmentId = attachmentId
+        self.expiresAtUnix = expiresAtUnix
+        self.daemon = daemon
+    }
 }
 
 public struct VMCloudSession: Sendable {
@@ -616,11 +782,55 @@ public struct VMCloudSession: Sendable {
     public let createdAt: String
     public let updatedAt: String
     public let lastAttachedAt: String?
+
+    public init(
+        id: String,
+        vmId: String,
+        sessionId: String,
+        title: String?,
+        kind: String,
+        status: String,
+        attachmentCount: Int,
+        effectiveCols: Int?,
+        effectiveRows: Int?,
+        lastKnownCols: Int?,
+        lastKnownRows: Int?,
+        scrollbackBytes: Int,
+        metadata: [String: String],
+        createdAt: String,
+        updatedAt: String,
+        lastAttachedAt: String?
+    ) {
+        self.id = id
+        self.vmId = vmId
+        self.sessionId = sessionId
+        self.title = title
+        self.kind = kind
+        self.status = status
+        self.attachmentCount = attachmentCount
+        self.effectiveCols = effectiveCols
+        self.effectiveRows = effectiveRows
+        self.lastKnownCols = lastKnownCols
+        self.lastKnownRows = lastKnownRows
+        self.scrollbackBytes = scrollbackBytes
+        self.metadata = metadata
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.lastAttachedAt = lastAttachedAt
+    }
 }
 
 public struct VMCloudSessionAttach: Sendable {
     public let endpoint: VMAttachEndpoint
     public let session: VMCloudSession?
+
+    public init(
+        endpoint: VMAttachEndpoint,
+        session: VMCloudSession?
+    ) {
+        self.endpoint = endpoint
+        self.session = session
+    }
 }
 
 public struct VMWebSocketDaemonEndpoint: Sendable {
@@ -629,6 +839,20 @@ public struct VMWebSocketDaemonEndpoint: Sendable {
     public let token: String
     public let sessionId: String
     public let expiresAtUnix: Int64
+
+    public init(
+        url: String,
+        headers: [String: String],
+        token: String,
+        sessionId: String,
+        expiresAtUnix: Int64
+    ) {
+        self.url = url
+        self.headers = headers
+        self.token = token
+        self.sessionId = sessionId
+        self.expiresAtUnix = expiresAtUnix
+    }
 }
 
 /// Attach through the cmux-tui remote daemon in the machine (Phase 1 of the
@@ -707,6 +931,44 @@ public struct VMTunnelEndpoint: Sendable {
     public let networkCidrV6: String?
     public let created: Bool
     public let rotated: Bool
+
+    public init(
+        accessGrantId: String,
+        tunnelId: String,
+        provider: String,
+        deviceFingerprint: String,
+        tunnelPurpose: String,
+        clientConfig: String,
+        clientPublicKey: String,
+        serverPublicKey: String,
+        endpointHost: String?,
+        endpointPort: Int,
+        routes: [String],
+        addressV4: String?,
+        addressV6: String?,
+        networkCidr: String?,
+        networkCidrV6: String?,
+        created: Bool,
+        rotated: Bool
+    ) {
+        self.accessGrantId = accessGrantId
+        self.tunnelId = tunnelId
+        self.provider = provider
+        self.deviceFingerprint = deviceFingerprint
+        self.tunnelPurpose = tunnelPurpose
+        self.clientConfig = clientConfig
+        self.clientPublicKey = clientPublicKey
+        self.serverPublicKey = serverPublicKey
+        self.endpointHost = endpointHost
+        self.endpointPort = endpointPort
+        self.routes = routes
+        self.addressV4 = addressV4
+        self.addressV6 = addressV6
+        self.networkCidr = networkCidr
+        self.networkCidrV6 = networkCidrV6
+        self.created = created
+        self.rotated = rotated
+    }
 }
 
 /// Talks to the manaflow cloud VM backend at `/api/vm/*`. Stack Auth tokens come from

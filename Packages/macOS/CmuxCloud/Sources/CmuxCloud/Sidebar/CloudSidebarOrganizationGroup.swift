@@ -3,4 +3,12 @@
 public struct CloudSidebarOrganizationGroup: Codable, Equatable, Sendable {
     public var order: [String] = []
     public var pinned: Set<String> = []
+
+    public init(
+        order: [String] = [],
+        pinned: Set<String> = []
+    ) {
+        self.order = order
+        self.pinned = pinned
+    }
 }

@@ -89,5 +89,35 @@ public struct CloudSidebarDebugMetrics: Codable, Equatable, Sendable {
             )
         )
     }
+
+    public init(
+        referenceInset: Double = 12,
+        disclosureSlot: Double = 16,
+        disclosureGap: Double = 2,
+        dotSlot: Double = 11,
+        dotGap: Double = 4,
+        detailGap: Double = 5,
+        trailingGap: Double = 10,
+        machineLineSpacing: Double = 1,
+        rowHeight: Double = 22,
+        indentPerLevel: Double = 10,
+        iconSlot: Double = 16,
+        iconGap: Double = 4,
+        machineVerticalPadding: Double = 2
+    ) {
+        self.referenceInset = referenceInset
+        self.disclosureSlot = disclosureSlot
+        self.disclosureGap = disclosureGap
+        self.dotSlot = dotSlot
+        self.dotGap = dotGap
+        self.detailGap = detailGap
+        self.trailingGap = trailingGap
+        self.machineLineSpacing = machineLineSpacing
+        self.rowHeight = rowHeight
+        self.indentPerLevel = indentPerLevel
+        self.iconSlot = iconSlot
+        self.iconGap = iconGap
+        self.machineVerticalPadding = machineVerticalPadding
+    }
 }
 #endif

@@ -22,4 +22,6 @@ public struct CloudTunnelInertController: CloudTunnelControlling, Sendable {
     public func remove() async throws {}
 
     public nonisolated func stopForTermination() {}
+
+    public init() {}
 }

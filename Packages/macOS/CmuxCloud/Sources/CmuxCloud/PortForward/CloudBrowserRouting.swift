@@ -177,4 +177,6 @@ public struct CloudBrowserRouting: Sendable {
         }
         return (data, response)
     }
+
+    public init() {}
 }

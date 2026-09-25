@@ -4,4 +4,12 @@ import Network
 public struct CloudHubConnection: Sendable {
     public let connection: NWConnection
     public let host: String
+
+    public init(
+        connection: NWConnection,
+        host: String
+    ) {
+        self.connection = connection
+        self.host = host
+    }
 }

@@ -30,4 +30,16 @@ public struct CloudGuestDisplay: Decodable, Sendable {
         let base = CmuxInternalHostnames().directPortURL(privateAddress: privateAddress, port: port)
         return "\(base)/vnc.html?path=websockify&autoconnect=1&resize=remote&reconnect=1&reconnect_delay=2000"
     }
+
+    public init(
+        id: String,
+        number: Int,
+        port: Int,
+        state: SurfaceLifecycle
+    ) {
+        self.id = id
+        self.number = number
+        self.port = port
+        self.state = state
+    }
 }

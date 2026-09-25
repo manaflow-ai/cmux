@@ -107,6 +107,14 @@ public struct RemoteRouteSpec: Equatable, Sendable {
         }
         return true
     }
+
+    public init(
+        host: String,
+        port: Int
+    ) {
+        self.host = host
+        self.port = port
+    }
 }
 
 /// A registered remote as returned by the device registry, flattened to one
@@ -122,9 +130,35 @@ public struct RemoteSummary: Sendable {
     /// false for a Mac's own self-registration. `cmux remotes` only lists and
     /// removes manual remotes so it never touches a self-registered device row.
     public let manual: Bool
+
+    public init(
+        deviceId: String,
+        displayName: String?,
+        platform: String,
+        tag: String?,
+        routes: [RemoteRouteDisplay],
+        lastSeen: String?,
+        manual: Bool
+    ) {
+        self.deviceId = deviceId
+        self.displayName = displayName
+        self.platform = platform
+        self.tag = tag
+        self.routes = routes
+        self.lastSeen = lastSeen
+        self.manual = manual
+    }
 }
 
 public struct RemoteRouteDisplay: Sendable {
     public let host: String
     public let port: Int
+
+    public init(
+        host: String,
+        port: Int
+    ) {
+        self.host = host
+        self.port = port
+    }
 }

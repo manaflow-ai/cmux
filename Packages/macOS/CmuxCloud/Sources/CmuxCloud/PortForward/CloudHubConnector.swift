@@ -217,6 +217,20 @@ public struct CloudHubConnector: Sendable {
             connection.cancel()
         }
     }
+
+    public init(
+        timeout: Duration = .seconds(15),
+        fallbackDelay: Duration = .milliseconds(250),
+        redialInterval: Duration = .milliseconds(50),
+        maxRedials: Int = 60,
+        clock: any Clock<Duration> = ContinuousClock()
+    ) {
+        self.timeout = timeout
+        self.fallbackDelay = fallbackDelay
+        self.redialInterval = redialInterval
+        self.maxRedials = maxRedials
+        self.clock = clock
+    }
 }
 
 enum CloudHubHedgeEvent<Value: Sendable>: Sendable {

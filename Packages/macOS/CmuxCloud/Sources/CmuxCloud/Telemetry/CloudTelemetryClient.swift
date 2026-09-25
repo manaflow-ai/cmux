@@ -34,4 +34,22 @@ public struct CloudTelemetryClient: Codable, Sendable, Equatable {
             architecture: architecture
         )
     }
+
+    public init(
+        channel: String,
+        tag: String?,
+        version: String,
+        build: String,
+        revision: String,
+        osVersion: String,
+        architecture: String
+    ) {
+        self.channel = channel
+        self.tag = tag
+        self.version = version
+        self.build = build
+        self.revision = revision
+        self.osVersion = osVersion
+        self.architecture = architecture
+    }
 }

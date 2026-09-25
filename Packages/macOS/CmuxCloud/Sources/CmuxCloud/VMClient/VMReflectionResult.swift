@@ -10,4 +10,12 @@ public struct VMReflectionResult: Sendable {
     public var object: [String: Any] {
         ((try? JSONSerialization.jsonObject(with: body, options: [])) as? [String: Any]) ?? [:]
     }
+
+    public init(
+        statusCode: Int,
+        body: Data
+    ) {
+        self.statusCode = statusCode
+        self.body = body
+    }
 }

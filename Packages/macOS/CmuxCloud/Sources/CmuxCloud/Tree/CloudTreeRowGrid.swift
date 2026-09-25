@@ -12,4 +12,26 @@ public struct CloudTreeRowGrid: Equatable, Sendable {
     var trailingSlot: CGFloat = 16
     public var trailingPadding: CGFloat = 12
     public var machineLineSpacing: CGFloat = 1
+
+    public init(
+        disclosureSlot: CGFloat = 16,
+        disclosureGap: CGFloat = 2,
+        attentionSlot: CGFloat = 12,
+        dotGap: CGFloat = 4,
+        detailGap: CGFloat = 5,
+        trailingGap: CGFloat = 10,
+        trailingSlot: CGFloat = 16,
+        trailingPadding: CGFloat = 12,
+        machineLineSpacing: CGFloat = 1
+    ) {
+        self.disclosureSlot = disclosureSlot
+        self.disclosureGap = disclosureGap
+        self.attentionSlot = attentionSlot
+        self.dotGap = dotGap
+        self.detailGap = detailGap
+        self.trailingGap = trailingGap
+        self.trailingSlot = trailingSlot
+        self.trailingPadding = trailingPadding
+        self.machineLineSpacing = machineLineSpacing
+    }
 }

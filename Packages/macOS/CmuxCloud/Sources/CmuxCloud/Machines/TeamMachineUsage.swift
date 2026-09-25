@@ -22,4 +22,18 @@ public struct TeamMachineUsage: Equatable, Sendable {
         }
         return result
     }
+
+    public init(
+        teamID: String,
+        periodDays: Int,
+        kind: Kind,
+        asOf: Date?,
+        machines: [MachineUsageSnapshot]
+    ) {
+        self.teamID = teamID
+        self.periodDays = periodDays
+        self.kind = kind
+        self.asOf = asOf
+        self.machines = machines
+    }
 }

@@ -156,6 +156,12 @@ public struct ManagedPolicyRefusal: Error, CustomStringConvertible, LocalizedErr
     public let message: String
     public var description: String { message }
     public var errorDescription: String? { message }
+
+    public init(
+        message: String
+    ) {
+        self.message = message
+    }
 }
 
 /// MDM master switch for cmux-managed Iroh networking.

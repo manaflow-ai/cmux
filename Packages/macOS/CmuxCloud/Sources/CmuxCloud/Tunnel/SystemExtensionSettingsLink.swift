@@ -28,4 +28,6 @@ public struct SystemExtensionSettingsLink: Sendable {
     public static func open() {
         NSWorkspace.shared.open(current)
     }
+
+    public init() {}
 }
