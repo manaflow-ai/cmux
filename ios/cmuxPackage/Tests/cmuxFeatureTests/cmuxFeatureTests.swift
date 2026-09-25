@@ -4211,6 +4211,20 @@ struct InertPushRegistration: PushRegistering {
     )
 }
 
+/// Models a (re)attach delivering its workspace snapshot: the live
+/// connection, the foreground Mac's status, and a fresh list. The push
+/// coordinator navigates only on an authoritative list, and setting
+/// `connectionState` alone leaves the Mac status unavailable, which is the
+/// retained-cache state during recovery.
+@MainActor func deliverConnectedWorkspaceSnapshot(
+    to store: CMUXMobileShellStore,
+    _ workspaces: [MobileWorkspacePreview] = PreviewMobileHost.workspaces
+) {
+    store.connectionState = .connected
+    store.macConnectionStatus = .connected
+    store.replaceForegroundWorkspaceState(workspaces)
+}
+
 /// Cold launch from a notification tap: `didReceive` fires before the root
 /// view has mounted, so no store is bound yet. The tap must survive until the
 /// store binds and its workspace list loads, then navigate. Pre-fix the tap
@@ -4236,14 +4250,17 @@ struct InertPushRegistration: PushRegistering {
 /// driven by the root view's workspace-list change hook.
 @Test @MainActor func notificationTapBeforeAttachAppliesWhenWorkspaceArrives() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    // Not attached yet. A connected store with an empty list would be an
+    // authoritative "workspace is gone" and correctly spend the tap.
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
     // Target not loaded yet: no navigation to an absent workspace.
     #expect(store.selectedWorkspaceID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4269,7 +4286,7 @@ struct InertPushRegistration: PushRegistering {
     #expect(store.selectedTerminalID == nil)
     #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.connectionState = .connected
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
@@ -4290,7 +4307,7 @@ struct InertPushRegistration: PushRegistering {
     #expect(store.selectedTerminalID == nil)
     #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.connectionState = .connected
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4340,14 +4357,15 @@ struct InertPushRegistration: PushRegistering {
 /// retry, stranding the user on the home screen.
 @Test @MainActor func surfaceOnlyNotificationTapWaitsForOwningWorkspace() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
-    let store = deeplinkTestStore()
+    let store = deeplinkTestStore(connectionState: .disconnected)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: nil, surfaceId: "terminal-notes")
     // Nothing loaded yet: the tap must stay parked, not be spent.
     #expect(store.selectedTerminalID == nil)
+    #expect(coordinator.tabUnavailableAlert == nil)
 
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4374,8 +4392,7 @@ struct InertPushRegistration: PushRegistering {
     #expect(store.selectedWorkspaceID == nil)
     #expect(store.selectedTerminalID == nil)
 
-    store.connectionState = .connected
-    store.replaceForegroundWorkspaceState(PreviewMobileHost.workspaces)
+    deliverConnectedWorkspaceSnapshot(to: store)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
