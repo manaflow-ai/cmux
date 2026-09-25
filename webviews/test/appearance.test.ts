@@ -87,6 +87,22 @@ describe("appearanceBackgroundColor", () => {
     expect(style.getPropertyValue("--cmux-diff-addition-fg-dark")).toBe("#a6e22e");
   });
 
+  test("applies user custom properties to the webview root", () => {
+    dom = new JSDOM("<!doctype html><html><body></body></html>");
+    (globalThis as any).document = dom.window.document;
+
+    applyDiffViewerAppearance(resolveDiffViewerAppearance({
+      customProperties: {
+        "--cmux-diff-accent": "#ff4fd8",
+        "--cmux-diff-error": "#ff3355",
+      },
+    } as any));
+
+    const style = dom.window.document.documentElement.style;
+    expect(style.getPropertyValue("--cmux-diff-accent")).toBe("#ff4fd8");
+    expect(style.getPropertyValue("--cmux-diff-error")).toBe("#ff3355");
+  });
+
   test("keeps the page surface transparent for opaque themes", () => {
     dom = new JSDOM("<!doctype html><html><body></body></html>");
     (globalThis as any).document = dom.window.document;
