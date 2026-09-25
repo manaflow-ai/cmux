@@ -298,13 +298,18 @@ with:
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
   (`{ target, state, connected }`), `agents` (coding-agent sessions hosted by
   the workspace's terminals, most recent first; omitted when none). Each
-  `agents[j]` always has `id`, `kind` (`claude`/`codex`/raw source), `name`
-  (display name), `status` (`idle`|`working`|`needs_input`|`ended`), and
-  `lastActivityAt` (epoch); when available it adds `sinceEpoch` (when the
-  current working/needs-input state began), `title` (first user prompt),
-  `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
-  tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, and `pid`.
+  `agents[j]` always has `id`, `workspaceId` (the containing workspace's
+  stable id), `kind` (`claude`/`codex`/raw source), `name` (display name),
+  `status` (`idle`|`working`|`needs_input`|`ended`), and `lastActivityAt`
+  (epoch); when available it adds `sinceEpoch` (when the current
+  working/needs-input state began), `title` (first user prompt), `panelId`
+  (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting tab's
+  `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
+  `transcriptPath`, and `pid`. Use `workspaceId` as the roster key when a
+  session may restart: `id` identifies the current agent session and can
+  change after a restart. Each agent may also include `children`, an array of
+  child runs. A child always has `id`, `running`, and `startedEpoch`; when
+  available it adds `label` and `endedEpoch`.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).
