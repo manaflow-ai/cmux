@@ -319,14 +319,20 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
             // Only a hidden-to-visible transition schedules the automatic apply. The panel can be
             // visible again after setup, which would turn the reveal below into a no-op.
             panel.hostedView.setVisibleInUI(false)
-            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             try #require(!panel.hostedView.debugPortalVisibleInUI, "The reveal below must start from a hidden panel")
 
             panel.hostedView.setVisibleInUI(true)
             try #require(panel.hostedView.debugPortalVisibleInUI, "Portal authority should let the selected workspace's panel reveal")
-            await AppKitTestEventPump().drain()
+            try #require(
+                panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting(),
+                "The reveal should queue the automatic first-responder apply"
+            )
 
-            _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
+            // Run that apply against a 0x0 surface in this same turn. Left on the queue, the
+            // reveal's layout pass can resize the surface back to the portal first (seen on
+            // macOS 26 CI), and the apply then correctly focuses a usable surface.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
             #expect(
                 panel.hostedView.isSurfaceViewFirstResponder(),
                 "First responder after the reveal: \(String(describing: window.firstResponder))"
@@ -439,14 +445,20 @@ struct WorkspaceTerminalFocusRecoverySwiftTests {
 
             // Only a hidden-to-visible transition schedules the automatic apply.
             panel.hostedView.setVisibleInUI(false)
-            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
             try #require(!panel.hostedView.debugPortalVisibleInUI, "The reveal below must start from a hidden panel")
 
             panel.hostedView.setVisibleInUI(true)
             try #require(panel.hostedView.debugPortalVisibleInUI, "Portal authority should let the selected workspace's panel reveal")
-            await AppKitTestEventPump().drain()
+            try #require(
+                panel.hostedView.debugHasPendingAutomaticFirstResponderApplyForTesting(),
+                "The reveal should queue the automatic first-responder apply"
+            )
 
-            _ = await AppKitTestEventPump().waitUntil { panel.hostedView.isSurfaceViewFirstResponder() }
+            // Run that apply against a 0x0 surface in this same turn. Left on the queue, the
+            // reveal's layout pass can resize the surface back to the portal first (seen on
+            // macOS 26 CI), and the apply then correctly focuses a usable surface.
+            surfaceView.frame = NSRect(x: 0, y: 0, width: 0, height: 0)
+            panel.hostedView.debugApplyFirstResponderNowForTesting()
             #expect(
                 panel.hostedView.isSurfaceViewFirstResponder(),
                 "First responder after the reveal: \(String(describing: window.firstResponder))"
