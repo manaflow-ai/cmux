@@ -39,6 +39,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
     let onOpenFilePreview: (String) -> Void
+    let onRevealInCmux: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
     var onFocus: (() -> Void)?
@@ -50,6 +51,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             store: store,
             state: state,
             onOpenFilePreview: onOpenFilePreview,
+            onRevealInCmux: onRevealInCmux,
             placement: placement,
             onFocus: onFocus,
             onContainerChange: onContainerChange
@@ -69,6 +71,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.store = store
         context.coordinator.state = state
         context.coordinator.onOpenFilePreview = onOpenFilePreview
+        context.coordinator.onRevealInCmux = onRevealInCmux
         context.coordinator.placement = placement
         context.coordinator.onFocus = onFocus
         context.coordinator.onContainerChange = onContainerChange
@@ -96,6 +99,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         var store: FileExplorerStore
         var state: FileExplorerState
         var onOpenFilePreview: (String) -> Void
+        var onRevealInCmux: (String) -> Void
         var placement: FileExplorerPanelPlacement
         var onFocus: (() -> Void)?
         var onContainerChange: ((FileExplorerContainerView?) -> Void)?
@@ -121,6 +125,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             store: FileExplorerStore,
             state: FileExplorerState,
             onOpenFilePreview: @escaping (String) -> Void,
+            onRevealInCmux: @escaping (String) -> Void = { _ in },
             placement: FileExplorerPanelPlacement = .rightSidebar,
             onFocus: (() -> Void)? = nil,
             onContainerChange: ((FileExplorerContainerView?) -> Void)? = nil
@@ -128,6 +133,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             self.store = store
             self.state = state
             self.onOpenFilePreview = onOpenFilePreview
+            self.onRevealInCmux = onRevealInCmux
             self.placement = placement
             self.onFocus = onFocus
             self.onContainerChange = onContainerChange
@@ -878,7 +884,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
             guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
-            FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
+            switch request.action {
+            case .open(let applicationURL):
+                FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: applicationURL)
+            case .revealInCmux:
+                onRevealInCmux(request.fileURL.path)
+            }
         }
 
         @objc private func contextMenuRevealInFinder(_ sender: NSMenuItem) {
@@ -1755,7 +1766,12 @@ final class FileExplorerContainerView: NSView {
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
         guard coordinator.store.provider is LocalFileExplorerProvider,
               let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
-        FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
+        switch request.action {
+        case .open(let applicationURL):
+            FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: applicationURL)
+        case .revealInCmux:
+            coordinator.onRevealInCmux(request.fileURL.path)
+        }
     }
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
         guard coordinator.store.provider is LocalFileExplorerProvider,

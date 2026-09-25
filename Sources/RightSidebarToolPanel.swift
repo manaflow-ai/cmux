@@ -106,6 +106,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             })
     }
 
+    func revealFileInCmux(_ filePath: String) {
+        guard let workspace else { return }
+        _ = workspace.revealFileInCmux(filePath: filePath, sourcePanelId: id)
+    }
+
     var isFocusedInWorkspace: Bool {
         workspace?.focusedPanelId == id
     }
@@ -233,6 +238,7 @@ struct RightSidebarToolPanelView: View {
                 store: panel.fileExplorerStore,
                 state: panel.fileExplorerState,
                 onOpenFilePreview: panel.openFilePreview,
+                onRevealInCmux: panel.revealFileInCmux,
                 presentation: .files,
                 placement: .pane,
                 onFocus: requestPanelFocusIfNeeded,
@@ -243,6 +249,7 @@ struct RightSidebarToolPanelView: View {
                 store: panel.fileExplorerStore,
                 state: panel.fileExplorerState,
                 onOpenFilePreview: panel.openFilePreview,
+                onRevealInCmux: panel.revealFileInCmux,
                 presentation: .find,
                 placement: .pane,
                 onFocus: requestPanelFocusIfNeeded,
