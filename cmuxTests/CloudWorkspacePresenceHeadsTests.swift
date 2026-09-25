@@ -1,5 +1,6 @@
 import AppKit
 import CMUXMobileCore
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import CmuxWorkspacePresence
 import SwiftUI

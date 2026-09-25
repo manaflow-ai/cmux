@@ -2,7 +2,6 @@ import CmuxCloud
 import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import CmuxWorkspacePresence
-import CmuxSurfaceCatalogModel
 import SwiftUI
 enum CloudTreeIconPalette {
     static let workspace = Color.blue
