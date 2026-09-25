@@ -54,3 +54,35 @@ import Testing
         #expect(await freshAsk.value == .trust)
     }
 }
+
+/// SwiftUI's `sheet(item:)` writes `nil` back through its binding when the
+/// sheet goes away after an answer, and the prompt presenter treats that
+/// write as a swipe-down Cancel for the prompt it last rendered. The runtime
+/// must ignore an answer for a prompt that is no longer pending, or trusting
+/// a new computer pauses its automatic connects (seen in the simulator: after
+/// "Trust and Connect" the host was saved with autoConnectPaused and never
+/// reconnected at launch).
+@MainActor
+@Suite struct MobileSSHStaleAnswerTests {
+    private static let serverKey = SSHHostKey(openSSHString: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl")
+
+    @Test func aCancelForAnAlreadyTrustedPromptDoesNotPauseTheHost() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-ssh-stale-\(UUID().uuidString)")
+        let computers = MobileSSHComputers(directory: dir)
+        let host = SSHHostRecord(name: "New", endpoint: SSHEndpoint(host: "127.0.0.1", port: 1, username: "nobody"))
+        try await computers.saveHost(host)
+        let prompt = MobileSSHPrompt.trustNewHostKey(host: host, key: Self.serverKey)
+        let asked = Task { await computers.ask(prompt) }
+        while computers.prompts.isEmpty { await Task.yield() }
+
+        computers.answer(prompt, with: .trust)
+        #expect(await asked.value == .trust)
+        // The dismissing sheet's binding write.
+        computers.answer(prompt, with: .cancel)
+
+        #expect(!computers.isAutoConnectPaused(hostID: host.id))
+        #expect(computers.canAutoConnect(hostID: host.id))
+        for _ in 0..<200 { await Task.yield() }
+        #expect(await computers.hostStore.host(id: host.id)?.isAutoConnectPaused == false)
+    }
+}
