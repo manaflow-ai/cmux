@@ -12615,6 +12615,7 @@ class TerminalController {
         let height = parseDimension(parts[2], name: "height")
         if let error = height.error { return error }
 
+        // NSWindow frames are main-thread only; parsing above stays off main.
         let size = v2MainSync {
             AppDelegate.shared?.resizeMainWindow(
                 windowId: windowId,

@@ -104,6 +104,7 @@ Environment:
 | `new-window` | Create a new window. |
 | `focus-window` | Focus a window by handle. |
 | `close-window` | Close a window by handle. |
+| `resize-window` | Resize a window by handle, keeping its top-left corner fixed; prints the resulting frame size. With no `--width`/`--height`, reads the size without changing it. Does not steal focus. |
 | `window displays` | List connected displays (name, index, main flag). |
 | `window display <name\|index>` | Move the instance's window(s) onto a display by name (exact, substring) or index, preserving size. Does not steal focus. With `--window`, targets that window; otherwise moves all main windows. `--list` aliases `window displays`. |
 | `window default-display [<name>\|--clear]` | Set, show (no arg), or clear (`--clear`) the shared, cross-tag default display that DEBUG dev builds open new windows on, stored in `~/.config/cmux/cmux.json` under `app.devWindowDisplay`. No running app required; applied at window creation. Also settable in Debug > Debug Windows > Dev Window Display. |
@@ -873,6 +874,7 @@ the expected text without connecting to a cmux socket.
 - `cmux new-window --help` -> `Usage: cmux new-window`
 - `cmux focus-window --help` -> `Usage: cmux focus-window --window <id|ref|index>`
 - `cmux close-window --help` -> `Usage: cmux close-window --window <id|ref|index>`
+- `cmux resize-window --help` -> `Usage: cmux resize-window --window <id|ref|index> [--width <points>] [--height <points>]`
 - `cmux move-workspace-to-window --help` -> `Usage: cmux move-workspace-to-window`
 - `cmux move-surface --help` -> `Usage: cmux move-surface`
 - `cmux split-off --help` -> `Usage: cmux split-off`
