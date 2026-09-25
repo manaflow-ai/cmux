@@ -339,6 +339,21 @@ struct AppWebThemeContrastTests {
 }
 
 final class SidebarWorkspaceSelectionColorTests: XCTestCase {
+    func testBorderIndicatorPreservesActiveWorkspaceColor() {
+        let decodedStyle = WorkspaceIndicatorStyle.decodeFromUserDefaults("border") ?? .leftRail
+        let background = sidebarWorkspaceRowBackgroundStyle(
+            activeTabIndicatorStyle: decodedStyle,
+            isActive: true,
+            isMultiSelected: false,
+            customColorHex: "#E85D75",
+            colorScheme: .light,
+            sidebarSelectionColorHex: nil
+        )
+
+        XCTAssertEqual(background.color?.hexString(), "#E85D75")
+        XCTAssertEqual(background.opacity, 1, accuracy: 0.001)
+    }
+
     func testSelectedColoredWorkspaceUsesStandardSelectionBackgroundInLightAndDark() {
         for colorScheme in [ColorScheme.light, .dark] {
             let coloredSelected = sidebarWorkspaceRowBackgroundStyle(
