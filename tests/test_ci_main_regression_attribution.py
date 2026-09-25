@@ -1,6 +1,7 @@
 """New failures on main's full suite, their suspect pull requests, and the report text."""
 
 import importlib.util
+import json
 import pathlib
 import sys
 import unittest
@@ -48,18 +49,19 @@ def run(**overrides):
     return base
 
 
-def pr_node(number, merge_sha, state="MERGED", base="main"):
+def pr_node(number, merge_sha, state="MERGED", base="main", labels=()):
     return {
         "number": number, "title": f"PR {number}", "url": f"https://github.com/{REPO}/pull/{number}",
         "state": state, "baseRefName": base, "author": {"login": "someone"},
         "mergeCommit": {"oid": merge_sha} if merge_sha else None,
+        "labels": {"nodes": [{"name": name} for name in labels]},
     }
 
 
-def pr(number, edited=(), reached=()):
+def pr(number, edited=(), reached=(), unverified=False):
     return MODULE.PullRequest(
         number=number, title=f"PR {number}", url=f"u/{number}", merge_sha=f"m{number}",
-        edited_suites=set(edited), reached_suites=set(reached),
+        edited_suites=set(edited), reached_suites=set(reached), unverified=unverified,
     )
 
 
@@ -182,6 +184,16 @@ class RankingTests(unittest.TestCase):
         reaches = pr(1, reached={"Suite"})
         self.assertEqual(MODULE.suspects_for("Suite/test()", [reaches], ["abc"])[0], [reaches])
 
+    def test_only_commits_that_can_change_an_app_host_test_are_bisected(self):
+        log = "\0".join([
+            "", f"{'a' * 40}\n\nSources/App.swift\ndocs/x.md\n",
+            f"{'b' * 40}\n\ndocs/readme.md\nweb/app/page.tsx\nscripts/ci/foo.py\n",
+            f"{'c' * 40}\n\ncmuxTests/FooTests.swift\n",
+            f"{'d' * 40}\n\n",
+            f"{'e' * 40}\n\nPackages/macOS/Kit/Sources/K.swift\n",
+        ])
+        self.assertEqual(MODULE.outcome_commits(log), ["a" * 40, "c" * 40, "e" * 40])
+
     def test_overlay_reads_changed_files_at_the_merge(self):
         files = {"Sources/A.swift": "old", "Sources/B.swift": "b", "cmuxTests/T.swift": "t"}
         self.assertEqual(
@@ -201,6 +213,22 @@ class RankingTests(unittest.TestCase):
     def test_ties_name_every_top_pull_request(self):
         a, b = pr(1, reached={"Suite"}), pr(2, reached={"Suite"})
         self.assertEqual([p.number for p in MODULE.suspects_for("Suite/t()", [a, b, pr(3)])[0]], [1, 2])
+
+    def test_a_tie_lists_pull_requests_that_merged_unverified_first(self):
+        a, b = pr(1, reached={"Suite"}), pr(2, reached={"Suite"}, unverified=True)
+        suspects, how = MODULE.suspects_for("Suite/t()", [a, b, pr(3, unverified=True)])
+        self.assertEqual([p.number for p in suspects], [2, 1])
+        self.assertEqual(how, "changes code the suite names")
+        # The label breaks ties only: a stronger signal still wins, and no signal blames nobody.
+        edits = pr(4, edited={"Suite"})
+        self.assertEqual([p.number for p in MODULE.suspects_for("Suite/t()", [edits, b])[0]], [4])
+        self.assertEqual(MODULE.suspects_for("Suite/t()", [pr(1), pr(2, unverified=True)])[0], [])
+
+    def test_merged_prs_reads_the_merged_unverified_label(self):
+        prs, _ = MODULE.merged_prs(["m1", "m2"], {
+            "m1": [pr_node(1, "m1", labels=("merged-unverified",))], "m2": [pr_node(2, "m2")],
+        })
+        self.assertEqual([(p.number, p.unverified) for p in prs], [(2, False), (1, True)])
 
     def test_no_signal_blames_nobody(self):
         self.assertEqual(MODULE.suspects_for("Suite/t()", [pr(1), pr(2)])[0], [])
@@ -224,6 +252,37 @@ class ReportTests(unittest.TestCase):
         self.assertIn("`S/x()` | #1, #2 (changes code the suite names) | [job](https://job/1)", text)
         self.assertIn("`T/y()` | #2 (changes code the suite names)", text)
         self.assertIn("`U/z()` | unattributed", text)
+
+    def test_issue_section_carries_the_data_the_bisect_reads(self):
+        text = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures=self.failures,
+            attributions=self.attributions, prs=[self.a, self.b], direct=[], commits=["c" * 40],
+        )
+        marker = [line for line in text.splitlines() if line.startswith(MODULE.DATA_PREFIX)]
+        self.assertEqual(len(marker), 1)
+        data = json.loads(marker[0][len(MODULE.DATA_PREFIX):-3])
+        self.assertEqual((data["run_id"], data["head"], data["prev"]), (2, HEAD, PREV))
+        self.assertEqual(data["commits"], ["c" * 40])
+        self.assertEqual(data["tests"][0], {"test": "S/x()", "suspects": [1, 2], "how": "changes code the suite names"})
+        self.assertEqual(data["tests"][2]["suspects"], [])
+        self.assertEqual(data["prs"], {})  # neither merge commit is one the bisect probes
+        merged = [pr(n) for n in range(MODULE.MAX_BISECT_COMMITS + 1)]
+        for each in merged:
+            each.merge_sha = f"{each.number:040x}"
+        long = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures=self.failures,
+            attributions=self.attributions, prs=merged, direct=[],
+            commits=[each.merge_sha for each in merged],
+        )
+        marker = [line for line in long.splitlines() if line.startswith(MODULE.DATA_PREFIX)][0]
+        long_data = json.loads(marker[len(MODULE.DATA_PREFIX):-3])
+        self.assertIsNone(long_data["commits"])
+        self.assertEqual(long_data["prs"], {})
+        without = MODULE.issue_section(
+            repo=REPO, run=run(), previous=self.previous, failures=self.failures,
+            attributions=self.attributions, prs=[self.a, self.b], direct=[],
+        )
+        self.assertNotIn(MODULE.DATA_PREFIX, without)
 
     def test_issue_section_lists_failures_without_a_baseline(self):
         text = MODULE.issue_section(

@@ -28,6 +28,7 @@ parsing, test compilation, executed tests and runtime evidence.
 | Shared actions across multiple entry points | [cmux-shared-behavior](cmux-shared-behavior/SKILL.md) |
 | Ghostty submodule or GhosttyKit | [cmux-ghostty](cmux-ghostty/SKILL.md) |
 | Versions, changelog and release artifacts | [cmux-release](cmux-release/SKILL.md) |
+| Adversarial review of agent-written changes | [cmux-review](cmux-review/SKILL.md) |
 
 ## Using the installed app
 

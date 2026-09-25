@@ -30,6 +30,38 @@ sys.modules[peer_spec.name] = peer
 peer_spec.loader.exec_module(peer)
 
 
+class ConfiguredRootTests(unittest.TestCase):
+    def test_owned_runners_get_the_default_root(self):
+        for name in ("cmux12s-mac-mini-glaeda", "cmux12s-mac-mini-glaeda-3", "cmux14-glaeda-1"):
+            self.assertEqual(cache.configured_root({"RUNNER_NAME": name}), cache.OWNED_DEFAULT_ROOT, name)
+
+    def test_disposable_runners_keep_no_store(self):
+        for name in ("", "blacksmith-6vcpu-macos-26-Runner-abc", "GitHub Actions 12", "glaeda", "x-glaeda-1b"):
+            self.assertIsNone(cache.configured_root({"RUNNER_NAME": name}), name)
+            self.assertIsNone(cache.configured_store({"RUNNER_NAME": name}), name)
+
+    def test_the_variable_wins_and_off_disables(self):
+        self.assertEqual(cache.configured_root({"CMUX_NODE_PRODUCT_CACHE_ROOT": "/tmp/x",
+                                                "RUNNER_NAME": "cmux14-glaeda"}), "/tmp/x")
+        self.assertEqual(cache.configured_root({"CMUX_NODE_PRODUCT_CACHE_ROOT": "/tmp/x",
+                                                "RUNNER_NAME": "blacksmith-1"}), "/tmp/x")
+        for value in ("off", "OFF", " off "):
+            self.assertIsNone(cache.configured_root({"CMUX_NODE_PRODUCT_CACHE_ROOT": value,
+                                                     "RUNNER_NAME": "cmux14-glaeda"}))
+
+    def test_ci_waiters_do_not_wait_for_another_fill_by_default(self):
+        self.assertEqual(cache.wait_seconds({}), 0.0)
+        self.assertEqual(cache.wait_seconds({"CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS": "bad"}), 0.0)
+        self.assertEqual(cache.wait_seconds({"CMUX_NODE_PRODUCT_CACHE_WAIT_SECONDS": "90"}), 90.0)
+
+    def test_an_owned_runner_opens_a_store_at_the_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(cache, "OWNED_DEFAULT_ROOT", str(Path(tmp) / "node-products")):
+                store = cache.configured_store({"RUNNER_NAME": "cmux8s-mac-mini-glaeda-2"})
+            self.assertIsNotNone(store)
+            self.assertTrue((Path(tmp) / "node-products" / "objects").is_dir())
+
+
 class NodeProductCacheTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
