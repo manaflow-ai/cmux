@@ -7,7 +7,7 @@ import type { ControlResponse } from "./contracts/responses";
 import { identityKey, issueTicket } from "./crypto";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import { environmentScope, runtime, type Environment } from "./environment";
-import { errorSummary, OperationError, publicError } from "./errors";
+import { failureDiagnostics, OperationError, publicError } from "./errors";
 import { AuthoritySchema, objectName, readInternalRequest } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
@@ -50,9 +50,13 @@ export class TeamControl extends DurableObject<Environment> {
   async fetch(request: Request): Promise<Response> {
     if (new URL(request.url).pathname === "/dashboard/socket") return this.dashboard.fetch(request);
     let requestId = "unidentified";
+    const pathname = new URL(request.url).pathname;
+    const route = ["/request", "/session", "/socket"].includes(pathname) ? pathname.slice(1) : "unknown";
+    let stage = "parse";
     try {
       const incoming = await readInternalRequest(request);
       requestId = incoming.setup.requestId;
+      stage = incoming.path === "/request" ? "execute" : "open";
       const broker = this.broker(incoming.authority.teamId);
       if (incoming.path === "/request") {
         const session = await broker.authorizeHTTP(incoming.setup, incoming.input, incoming.authority, incoming.expiresAt, incoming.issueTicket);
@@ -66,6 +70,7 @@ export class TeamControl extends DurableObject<Environment> {
       this.scheduleChanges(result, incoming.authority.teamId);
       observe(this.ctx, this.env, { event: "iroh.team.operation", environment: this.env.ENVIRONMENT, operation: result.response.schemaId, requestId, status: 200 });
       if (incoming.path === "/session") return this.json(result.response);
+      stage = "accept";
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") throw new OperationError("invalid_request", 400);
       if (this.ctx.getWebSockets().length >= TEAM_SOCKET_LIMIT) throw new OperationError("rate_limited", 429, true, 5000);
       const session = result.session;
@@ -77,15 +82,18 @@ export class TeamControl extends DurableObject<Environment> {
         const client = pair[0], server = pair[1];
         this.ctx.acceptWebSocket(server, ["user:" + session.identity.userId, "device:" + deviceKey]);
         this.save(server, { version: 1, session, deviceKey, delivery: emptyDeliveryState(), outputRevision: 0, closed: false });
+        stage = "send";
         try { await this.enqueue(server, 0, () => this.send(server, result.response)); }
         catch (error) { this.close(server, "slow_consumer"); throw error; }
+        stage = "ready";
         // The replacement is accepted and ready before any previous socket closes.
         for (const old of this.ctx.getWebSockets("device:" + deviceKey)) if (old !== server) this.close(old, "session_replaced");
         return new Response(null, { status: 101, webSocket: client });
       } finally { this.opening.delete(session.sessionId); }
     } catch (error) {
       const failure = publicError(error);
-      observe(this.ctx, this.env, { event: "iroh.team.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status, retryable: failure.retryable });
+      observe(this.ctx, this.env, { event: "iroh.team.failure", environment: this.env.ENVIRONMENT, requestId, code: failure.code, status: failure.status, retryable: failure.retryable,
+        route, stage, ...failureDiagnostics(error) });
       return httpFailure(error, requestId);
     }
   }
@@ -126,7 +134,7 @@ export class TeamControl extends DurableObject<Environment> {
         } catch (error) {
           const failure = errorResponse(error, inputRequestId(input));
           status = failure.failure.status; code = failure.failure.code;
-          if (!(error instanceof OperationError)) cause = errorSummary(error);
+          cause = failureDiagnostics(error).cause;
           try { await this.send(ws, failure.body); } catch { this.close(ws, "slow_consumer"); }
           if (["device_revoked", "team_access_revoked", "identity_mismatch", "key_replacement_required"].includes(code)) this.close(ws, code);
         } finally {

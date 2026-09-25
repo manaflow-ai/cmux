@@ -439,7 +439,7 @@ jobs:
           # Fixed paths survive across jobs on persistent runners. Clear them
           # before any trusted product/cache restoration.
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
-          rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
+          scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
           # Outside DerivedData: the resolve step below recreates that directory.
           echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
@@ -648,7 +648,7 @@ jobs:
         run: |
           set -euo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          rm -rf "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
+          scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
           finished="$(python3 -c 'import time; print(time.monotonic())')"
@@ -778,27 +778,31 @@ jobs:
         continue-on-error: true
         env:
           FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
-        run: python3 scripts/ci/owned_build_state.py keep "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$FINGERPRINT"
+          # The main commit the kept build merged onto and its pull request:
+          # its warm keys (warm-keys below).
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python3 scripts/ci/owned_build_state.py keep "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$FINGERPRINT" "$MERGED_ONTO" "$PR_NUMBER"
 
-      # The main commits this Mac's kept DerivedData starts from cheaply, for
-      # the queue janitor to record against this root runner
-      # (owned_warm_state.py), so a later run merging onto one of them can ask
-      # for this Mac by its static glaeda-runner- label (pr_runner_pool.py,
-      # warm affinity). Only once owned_build_state.py has `warm-keys`; before
-      # that, and on any failure, nothing is uploaded and nothing changes.
+      # The main commits and pull requests this Mac's kept builds (every
+      # root's) start from cheaply, for the queue janitor to record against
+      # this root runner (owned_warm_state.py), so a later run merging onto
+      # one of them, or re-pushing the same pull request, can ask for this Mac
+      # by its static glaeda-runner- label (pr_runner_pool.py, warm affinity).
+      # On any failure nothing is uploaded and nothing changes.
       - name: List the commits this owned Mac starts from warm
         id: owned-warm-keys
         if: ${{ !cancelled() && steps.owned-state.outputs.fingerprint != '' }}
         continue-on-error: true
+        env:
+          FINGERPRINT: ${{ steps.owned-state.outputs.fingerprint }}
+          # The seeds `prefer` may clone count only when it runs (the adopt steps' cache).
+          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
         run: |
           set -euo pipefail
-          usage="$(python3 scripts/ci/owned_build_state.py --help 2>&1 || true)"
-          case "$usage" in
-            *"owned_build_state.py warm-keys"*) ;;
-            *) echo "owned_build_state.py has no warm-keys yet"; exit 0 ;;
-          esac
           python3 scripts/ci/owned_build_state.py warm-keys "$CMUX_OWNED_STATE_ROOT" "$RUNNER_NAME" "$CMUX_PRODUCT_RUNNER" \
-            > "$RUNNER_TEMP/warm-keys.json"
+            "$FINGERPRINT" > "$RUNNER_TEMP/warm-keys.json"
+          cat "$RUNNER_TEMP/warm-keys.json"
           echo "path=$RUNNER_TEMP/warm-keys.json" >> "$GITHUB_OUTPUT"
 
       - name: Upload the owned Mac's warm keys
@@ -2826,7 +2830,7 @@ jobs:
     # macOS-neutral for the app build yet still own tests this lane runs.
     # The job narrows itself to the affected packages in "Select package
     # tests", so the routed case costs one runner and a short build, not the
-    # full 33-package sweep.
+    # full package sweep.
     if: ${{ (inputs.macos == 'true' && inputs.full_suite == 'true') || inputs.swift_packages == 'true' }}
     outputs:
       release_archs: ${{ steps.release-archs.outputs.archs }}
@@ -2835,7 +2839,7 @@ jobs:
       ghostty_helper_sdk: ${{ steps.ghostty-helper-identity.outputs.sdk }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       # The owned label's Xcode (the lane pin) exactly when runs-on took it;
       # the pool picker's Wiring tests keep the two conditions equal.
@@ -2900,6 +2904,8 @@ jobs:
           FULL_SUITE: ${{ inputs.full_suite }}
         run: |
           set -euo pipefail
+          # CmuxSidebarGit is left out until its ProbeSchedulingTests agree with
+          # the first-trusted-remote-directory clearing rule (see the PR notes).
           PACKAGES=(
             CMUXAuthCore
             CmuxBrowser
@@ -2940,6 +2946,26 @@ jobs:
             CmuxAgentJournal
             CmuxFilePreviewCore
             CmuxSyntaxHighlighting
+            CmuxAppKitSupportUI
+            CmuxCanvas
+            CmuxCloudBannerCore
+            CmuxCloudImagePaste
+            CmuxCloudTunnelCore
+            CMUXDebugLog
+            CmuxExtensionKit
+            CmuxFeedback
+            CmuxLiveEval
+            CmuxPanes
+            CmuxPhonePush
+            CMUXProjectModel
+            CmuxSidebar
+            CmuxSidebarInterpreterService
+            CmuxSimulator
+            CmuxSwiftRender
+            CmuxSwiftRenderUI
+            CmuxTestSupport
+            CmuxUpdaterUI
+            CmuxWindowing
           )
 
           changed="$RUNNER_TEMP/changed-files.txt"

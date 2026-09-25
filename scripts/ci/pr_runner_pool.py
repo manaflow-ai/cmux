@@ -148,7 +148,8 @@ each root runner, the main commits its kept build starts from cheaply
 When `vars.CI_OWNED_WARM == '1'`, admission is placed on a pool with a root
 count and the runners were read live, the picker looks for an idle runner of
 that root label that the snapshot calls warm for this run's merge base
-(MERGED_ONTO, the merge commit's first parent) and that carries its own
+(MERGED_ONTO, the merge commit's first parent), or failing that for this
+pull request (`pr-<PR_NUMBER>`, a re-push), and that carries its own
 static label, `glaeda-runner-<runner name>` (glaeda-cmux-runner gives every
 root runner one at install). If one does, it writes `admission_runner`, the
 JSON array `["<root label>", "glaeda-runner-<name>"]`, which admission's
@@ -271,8 +272,9 @@ SIDE_PREFIX = "glaeda-side-"
 # pools: slots() leaves them out, and capability_slots() reads their count
 # (machines, one simulator job each) from CI_OWNED_POOL_SLOTS.
 CAPABILITY_LABELS = ("glaeda-ios-sim",)
-# A main commit's warm key: its first 12 hex digits (owned_warm_state.py).
-WARM_KEY = re.compile(r"[0-9a-f]{12}")
+# A warm key (owned_warm_state.py): a main commit's first 12 hex digits, or
+# `pr-<number>` for a kept build of that pull request.
+WARM_KEY = re.compile(r"[0-9a-f]{12}|pr-[1-9][0-9]{0,8}")
 # `glaeda-runner-<runner name>`: the static label naming one root runner
 # (glaeda-cmux-runner runner_label()), which warm affinity puts in runs-on.
 RUNNER_LABEL_PREFIX = "glaeda-runner-"
@@ -948,9 +950,15 @@ def live_owned_free(runners: Sequence[Mapping[str, Any]], labels: Sequence[str])
 
 
 def warm_key(commit: str | None) -> str:
-    """A commit's warm key (its first 12 hex digits), or "" for anything else."""
-    key = (commit or "").strip().lower()[:12]
+    """A commit's warm key (its first 12 hex digits), a `pr-<n>` key as is, or "" for anything else."""
+    key = (commit or "").strip().lower()
+    key = key if key.startswith("pr-") else key[:12]
     return key if WARM_KEY.fullmatch(key) else ""
+
+
+def pr_warm_key(number: str | None) -> str:
+    """The warm key of pull request NUMBER, or ""."""
+    return warm_key(f"pr-{(number or '').strip()}")
 
 
 def runner_label(name: str) -> str:
@@ -959,27 +967,31 @@ def runner_label(name: str) -> str:
 
 
 def warm_admission_runner(runners: Sequence[Mapping[str, Any]], root: str, merged_onto: str | None,
-                          warm: Any) -> str:
-    """Admission's runs-on labels as JSON when an idle `root` runner is warm for `merged_onto`, else "".
+                          warm: Any, pr_number: str | None = None) -> str:
+    """Admission's runs-on labels as JSON when an idle `root` runner is warm for this run, else "".
 
+    Warm for this run: its keys hold `merged_onto`'s key, or else this pull
+    request's `pr-<n>` key (a re-push starts from the previous push's build).
     `warm` is the snapshot's `warm` (owned_warm_state.py). The runner must
     carry its own runner_label(), or a job naming it would wait forever.
     """
-    key = warm_key(merged_onto)
     kept = warm.get("runners") if isinstance(warm, Mapping) else None
-    if not key or not root.startswith(ROOT_PREFIX) or not isinstance(kept, Mapping):
+    if not root.startswith(ROOT_PREFIX) or not isinstance(kept, Mapping):
         return ""
-    for runner in runners:
-        if runner.get("status") != "online" or runner.get("busy"):
+    for key in (warm_key(merged_onto), pr_warm_key(pr_number)):
+        if not key:
             continue
-        name = str(runner.get("name") or "")
-        entry = kept.get(name)
-        if not name or not isinstance(entry, Mapping) or key not in (entry.get("keys") or []):
-            continue
-        names = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
-        own = runner_label(name)
-        if root in names and own in names:
-            return json.dumps([root, own], separators=(",", ":"))
+        for runner in runners:
+            if runner.get("status") != "online" or runner.get("busy"):
+                continue
+            name = str(runner.get("name") or "")
+            entry = kept.get(name)
+            if not name or not isinstance(entry, Mapping) or key not in (entry.get("keys") or []):
+                continue
+            names = {str(item.get("name")) for item in runner.get("labels") or [] if isinstance(item, Mapping)}
+            own = runner_label(name)
+            if root in names and own in names:
+                return json.dumps([root, own], separators=(",", ":"))
     return ""
 
 
@@ -1832,7 +1844,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     if (env.get("OWNED_WARM") == "1" and choice.root_runner and ADMISSION_JOB in owned_jobs
             and live_runners is not None and snapshot):
         admission_runner = warm_admission_runner(live_runners, choice.root_runner, env.get("MERGED_ONTO"),
-                                                 snapshot.get("warm"))
+                                                 snapshot.get("warm"), env.get("PR_NUMBER"))
     owned_slots = slots(env.get("OWNED_SLOTS"), pr_xcode_app)
     side = side_runner(choice, owned_slots)
     text = summary(choice, snapshot, now=now, owned_slots=owned_slots, problems=problems,
