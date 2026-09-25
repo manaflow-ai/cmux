@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Agent goal lifecycle")
 struct AgentGoalLifecycleTests {
+    @Test
+    func codexAdapterMapsAuthoritativeStatusesAndFailsClosed() {
+        let adapter = CodexGoalLifecycleAdapter()
+        #expect(adapter.state(for: "active") == .active)
+        #expect(adapter.state(for: "usageLimited") == .blocked)
+        #expect(adapter.state(for: "budgetLimited") == .blocked)
+        #expect(adapter.state(for: "unsupported-provider-value") == .unknown)
+    }
     @Test("goal state carries its generation and provenance on the wire")
     func wireRoundTrip() throws {
         let goal = AgentGoalLifecycle(

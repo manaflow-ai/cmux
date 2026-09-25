@@ -227,6 +227,8 @@ struct AgentJournalStoreTests {
             state: .paused, generation: "g1", updatedAtMs: 123, provenance: "generic_hook"
         )
         var event = draft(kind: .goalStateChanged)
+        event.source = "claude"
+        event.agentKey = "claude"
         event.goalLifecycle = goal
         event.nativeEvent = "goal-state"
         let outcome = try store.append(event)

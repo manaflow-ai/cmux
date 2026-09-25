@@ -68,6 +68,26 @@ struct AgentJournalEventDraftTests {
         #expect(emoji.validationProblem() == nil)
     }
 
+    @Test func goalEventsRequireOneProviderIdentity() {
+        let goal = AgentGoalLifecycle(
+            state: .active,
+            generation: "goal-1",
+            updatedAtMs: 1,
+            provenance: "generic_hook"
+        )
+        let draft = AgentJournalEventDraft(
+            kind: .goalStateChanged,
+            occurredAtMs: 1,
+            source: "codex",
+            agentKey: "codex_status",
+            sessionId: "session-1",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            goalLifecycle: goal
+        )
+        #expect(draft.validationProblem()?.contains("source and agent_key") == true)
+    }
+
     @Test func jsonRoundTripsWithSnakeCaseKeys() throws {
         let draft = AgentJournalEventDraft(
             eventId: "event-1",
