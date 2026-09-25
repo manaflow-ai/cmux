@@ -207,6 +207,10 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
             read |= set(
                 re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
             )
+        # This is a retention allowlist of runner names, compared with runner.name
+        # after scheduling. It never supplies a runs-on label, so it does not
+        # belong in the report's runner-label policy inputs.
+        read.discard("CI_SEED_KEEP_LOCAL_RUNNERS")
         self.assertTrue(read)
         missing = read - reported_runner_variables()
         self.assertEqual(missing, set(), f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name}")
