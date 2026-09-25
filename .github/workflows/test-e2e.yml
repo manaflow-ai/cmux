@@ -382,7 +382,7 @@ jobs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id || steps.upload-product-after-tests.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest || steps.upload-product-after-tests.outputs.artifact-digest }}
       sha256: ${{ steps.package.outputs.sha256 }}
-      product_contract: ${{ steps.product-key.outputs.key }}
+      product_contract: ${{ steps.reuse.outputs.product_key || steps.product-key.outputs.key }}
       xcode_app: ${{ env.CMUX_CI_XCODE_APP }}
     env:
       TEST_REF: ${{ needs.resolve-ref.outputs.sha }}
@@ -526,11 +526,16 @@ jobs:
         id: product-key
         run: python3 scripts/ci/reuse_app_host_products.py key "$CMUX_DERIVED_DATA_PATH"
 
+      # On an owned Mac this also looks at the Mac's other canonical roots
+      # and, on a hit there, moves the job to that root before restoring
+      # (reuse_app_host_products.py switch_root): about one E2E build in five
+      # starts on a root other than the one its product was compiled at.
       - name: Reuse a compiled product instead of building one
         id: reuse
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          CMUX_REUSE_SWITCH_ROOTS: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '1' || '' }}
         run: python3 scripts/ci/reuse_app_host_products.py restore "$CMUX_DERIVED_DATA_PATH"
 
       # An owned Mac (glaeda-*) keeps compile admission's DerivedData and
@@ -839,7 +844,7 @@ jobs:
         if: ${{ (vars.CI_E2E_TEST_IN_BUILD || '1') == '0' || !startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
+          name: app-host-products-v1-${{ steps.reuse.outputs.product_key || steps.product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
           if-no-files-found: error
           retention-days: 3
@@ -1048,7 +1053,7 @@ jobs:
           artifact-id: ${{ steps.upload-product.outputs.artifact-id }}
           artifact-digest: ${{ steps.upload-product.outputs.artifact-digest }}
           sha256: ${{ steps.package.outputs.sha256 }}
-          product-contract: ${{ steps.product-key.outputs.key }}
+          product-contract: ${{ steps.reuse.outputs.product_key || steps.product-key.outputs.key }}
           product-from-producer: "true"
 
       # main_regression_bisect.py reads a run's verdict from its failed
@@ -1081,7 +1086,7 @@ jobs:
         if: ${{ always() && steps.late-upload-check.outcome == 'success' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: app-host-products-v1-${{ steps.product-key.outputs.key }}-${{ github.run_attempt }}
+          name: app-host-products-v1-${{ steps.reuse.outputs.product_key || steps.product-key.outputs.key }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/app-host-products.tar.gz
           if-no-files-found: error
           retention-days: 3
