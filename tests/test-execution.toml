@@ -1225,3 +1225,7 @@ lane = "macos-shell"
 [[test]]
 path = "tests/test_shell_surface_scoped_keys.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_main_regression_attribution.py"
+lane = "linux-guard"
