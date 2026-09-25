@@ -1202,7 +1202,7 @@ extension BrowserWebAuthnCoordinator: ASAuthorizationControllerDelegate, ASAutho
 
 @MainActor
 extension BrowserWebAuthnCoordinator {
-    func assertionReply(
+    public func assertionReply(
         credentialID: Data,
         clientDataJSON: Data,
         authenticatorData: Data,
