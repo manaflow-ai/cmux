@@ -1040,8 +1040,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         run_attempt=int(attempt) if attempt.isdigit() else 1,
     )
     pr_xcode_app = env.get(PR_XCODE_VARIABLE)
+    # Only a same-repository pull request reads the slots; ci.yml blanks the pin
+    # everywhere else, so checking there would flag a class entry on every run.
+    same_repo_pr = env.get("EVENT_NAME") == "pull_request" and env.get("HEAD_REPO") == repo
     problems = (slot_problems(env.get("OWNED_SLOTS"), pr_xcode_app)
-                if (env.get("POOL_OWNED") or "").strip() == "1" else [])
+                if same_repo_pr and (env.get("POOL_OWNED") or "").strip() == "1" else [])
     for problem in problems:
         # An error, not a warning: a malformed entry silently takes the
         # fleet out of the order (a bare `40` did for 30 minutes on 2026-09-25).

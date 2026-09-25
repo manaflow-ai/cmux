@@ -306,7 +306,7 @@ def resolve(
         measure=measure,
         now=now,
         log=log,
-        owned_slots=pr_runner_pool.slots(owned_slots),
+        owned_slots=pr_runner_pool.slots(owned_slots, pr_xcode_app),
     ) or SMALL_RUNNER
 
 

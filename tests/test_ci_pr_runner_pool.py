@@ -649,16 +649,22 @@ class OwnedPools(unittest.TestCase):
         self.assertIn("not JSON", pool.slot_problems("nope")[0])
         self.assertIn("not a JSON object", pool.slot_problems("[1]")[0])
 
-    def test_main_warns_about_bad_slots_only_while_owned_pools_are_on(self):
-        for owned, warned in (("1", True), ("", False)):
+    def test_main_flags_bad_slots_only_on_same_repo_prs_while_owned_pools_are_on(self):
+        cases = (("1", "pull_request", "manaflow-ai/cmux", True), ("", "pull_request", "manaflow-ai/cmux", False),
+                 ("1", "push", "", False), ("1", "pull_request", "someone/cmux", False))
+        for owned, event, head, flagged in cases:
             with tempfile.TemporaryDirectory() as tmp:
                 stdout = io.StringIO()
-                env = {"EVENT_NAME": "push", "POOL_OWNED": owned, "OWNED_SLOTS": '{"glaeda-std": 3}',
-                       "GITHUB_STEP_SUMMARY": str(Path(tmp, "summary"))}
+                snapshot = Path(tmp, "snap.json")
+                snapshot.write_text(json.dumps(fleet()))
+                env = {"EVENT_NAME": event, "GITHUB_REPOSITORY": "manaflow-ai/cmux", "HEAD_REPO": head,
+                       "DEFAULT_RUNNER": SMALL, "POOL_OWNED": owned, "OWNED_SLOTS": '{"glaeda-std": 3}',
+                       "CMUX_CI_XCODE_APP_PR": PR_XCODE, "GITHUB_STEP_SUMMARY": str(Path(tmp, "summary"))}
                 with unittest.mock.patch("sys.stdout", stdout):
-                    pool.main([], env)
-                self.assertEqual("::error title=CI_OWNED_POOL_SLOTS::" in stdout.getvalue(), warned, owned)
-                self.assertEqual("**Error:**" in Path(tmp, "summary").read_text(), warned, owned)
+                    pool.main(["--snapshot", str(snapshot)], env)
+                case = (owned, event, head)
+                self.assertEqual("::error title=CI_OWNED_POOL_SLOTS::" in stdout.getvalue(), flagged, case)
+                self.assertEqual("**Error:**" in Path(tmp, "summary").read_text(), flagged, case)
 
     def test_slots_take_a_bare_count_or_a_class_for_the_lane_pin(self):
         pin = "/Applications/Xcode_26.6.app"
