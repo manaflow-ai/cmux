@@ -334,8 +334,11 @@ import Testing
         }
         #expect(reportIndices.count == 2)
         let lastReportIndex = try #require(reportIndices.last)
+        // The seed goes out as one ` ; `-joined tmux command queue (output
+        // pause, alt-screen query, capture-pane, ...), so capture-pane is not
+        // at the start of its line.
         let captureIndex = try #require(commands.firstIndex {
-            $0.hasPrefix("capture-pane ") && $0.contains("%4")
+            $0.contains("capture-pane ") && $0.contains("-t %4")
         })
         #expect(lastReportIndex < captureIndex)
         let reports = reportIndices.map { commands[$0] }.joined(separator: "\n")
