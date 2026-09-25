@@ -172,6 +172,7 @@ extension AppDelegate {
             // New Workspace command. Do not inherit a Cloud-only working directory.
             didExecute = context.tabManager.addWorkspaceIfActive(
                 inheritWorkingDirectory: context.tabManager.selectedWorkspace?.cloudVMID == nil
+                    && context.tabManager.selectedWorkspace?.cloudVMBinding == nil
             ) != nil
         } else {
             didExecute = executeConfiguredCmuxAction(box.action, context: context, preferredWindow: window)

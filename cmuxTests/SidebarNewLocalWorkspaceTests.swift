@@ -80,6 +80,23 @@ struct SidebarNewLocalWorkspaceTests {
         #expect(created.cloudVMID == nil)
         #expect(created.remoteConfiguration == nil)
     }
+
+    @Test func plusMenuDoesNotInheritDirectoryFromSSHCloudBinding() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let selected = try #require(fixture.manager.selectedWorkspace)
+        selected.currentDirectory = "/remote-only/project"
+        selected.cloudVMBinding = WorkspaceCloudVMBinding(
+            vmID: "ssh:" + String(repeating: "a", count: 64),
+            isBase: false
+        )
+
+        try fixture.clickNewWorkspace()
+
+        let created = try #require(fixture.manager.selectedWorkspace)
+        #expect(created.cloudVMBinding == nil)
+        #expect(created.currentDirectory == fixture.root.path)
+    }
 }
 
 private extension SidebarNewLocalWorkspaceTests {
