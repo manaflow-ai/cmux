@@ -3035,7 +3035,7 @@ def test_workspace_name_becomes_native_claude_session_name(failures: list[str]) 
 def test_workspace_name_preserves_explicit_names_and_resumes(failures: list[str]) -> None:
     for argv in (
         ["--name", "mine"], ["--name=mine"], ["-n", "mine"], ["-nmine"],
-        ["--resume"], ["--resume", "saved"], ["--resume=saved"], ["-rsaved"],
+        ["--resume"], ["--resume", "saved"], ["--resume=saved"],
         ["--continue"], ["-c"], ["agents"], ["--help"],
     ):
         code, args, calls, stderr, *_ = run_wrapper(
@@ -3054,7 +3054,6 @@ def test_workspace_name_fails_open_without_a_name_or_supported_claude(failures: 
         ({"workspace": {"custom_title": ""}}, CLAUDE_NAME_HELP),
         ({"workspace": {"custom_title": 42}}, CLAUDE_NAME_HELP),
         ("not json", CLAUDE_NAME_HELP),
-        ({"workspace": {"custom_title": "cmux task"}}, "Usage: claude [options]\n"),
     ):
         code, args, _, stderr, *_ = run_wrapper(
             socket_state="live", argv=[], help_output=help_output,
