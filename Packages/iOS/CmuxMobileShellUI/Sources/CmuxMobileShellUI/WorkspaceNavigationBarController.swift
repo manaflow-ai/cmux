@@ -56,15 +56,11 @@ final class WorkspaceNavigationBarController: UIViewController {
 
         for value in leadingItems + trailingItems {
             let itemWidth = WorkspaceNavigationControlView.width(for: value.id)
-            let content = AnyView(
-                ZStack {
-                    value.content
-                }
-                .buttonStyle(.plain)
-                .imageScale(.large)
-                .frame(width: itemWidth, height: 36)
-                .environment(\.self, environment)
-            )
+            let content = AnyView(WorkspaceNavigationControlContent(
+                content: value.content,
+                width: itemWidth,
+                centersRegularMenu: value.id == .terminals
+            ).environment(\.self, environment))
             if let control = controls[value.id] {
                 control.view.update(content: content)
             } else {
@@ -204,6 +200,26 @@ final class WorkspaceNavigationBarController: UIViewController {
             trailingGroup = item.pinnedTrailingGroup
             additionalOverflowItems = item.additionalOverflowItems
         }
+    }
+}
+
+private struct WorkspaceNavigationControlContent: View {
+    let content: AnyView
+    let width: CGFloat
+    let centersRegularMenu: Bool
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    var body: some View {
+        ZStack {
+            content
+        }
+        .buttonStyle(.plain)
+        .imageScale(.large)
+        .frame(width: width, height: 36)
+        // UIKit gives regular-width navigation bars a ten-point content
+        // inset around SwiftUI Menu labels. Keep the fixed item rectangle
+        // centered in that slot without estimating available title space.
+        .offset(x: centersRegularMenu && horizontalSizeClass == .regular ? 10 : 0)
     }
 }
 #endif
