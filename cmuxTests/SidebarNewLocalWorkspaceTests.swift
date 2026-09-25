@@ -21,16 +21,21 @@ struct SidebarNewLocalWorkspaceTests {
             cloudWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "selected-machine", isBase: false)
             cloudWorkspace.currentDirectory = "/cloud-only/project"
             let originalCount = fixture.manager.tabs.count
+            let expectedWindowID = fixture.windowID
             var targets: [String] = []
-            let defaultMachineStore = DefaultCloudMachineStore(defaults: fixture.defaults)
-            defaultMachineStore.machineID = "different-default"
+            let machinePinStore = CloudMachinePinStore(
+                defaults: fixture.defaults,
+                scopeProvider: { "sidebar-local-workspace-scope" }
+            )
+            machinePinStore.setPinned(true, machineID: "different-pinned-machine")
             fixture.app.cloudWorkspaceCoordinator = CloudWorkspaceCoordinator(
-                defaultMachineStore: defaultMachineStore,
+                machinePinStore: machinePinStore,
                 allowsOperation: { true },
-                loadMachines: { Issue.record("New Workspace must not resolve the default VM"); return [] },
-                createWorkspace: { id, focus in
-                    #expect(focus)
-                    targets.append(id)
+                loadMachines: { Issue.record("New Workspace must not resolve a fleet target"); return [] },
+                createWorkspace: { request in
+                    #expect(request.windowID == expectedWindowID)
+                    #expect(request.scopeID == "sidebar-local-workspace-scope")
+                    targets.append(request.machineID)
                     return UUID()
                 }
             )
@@ -53,7 +58,7 @@ struct SidebarNewLocalWorkspaceTests {
             await fixture.app.cloudWorkspaceOperationController?.waitForPendingOperations()
             #expect(targets == ["selected-machine"])
             #expect(fixture.manager.tabs.count == originalCount + 1)
-            #expect(defaultMachineStore.machineID == "different-default")
+            #expect(machinePinStore.pinnedMachineIDs == ["different-pinned-machine"])
         }
     }
 
