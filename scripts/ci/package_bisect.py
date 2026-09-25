@@ -9,6 +9,7 @@ package suite then runs exactly as it does now.
 
     package_bisect.py start --package CmuxMobileShell --points 6 GOOD..BAD
     package_bisect.py start --package CmuxMobileShell SHA [SHA ...]
+    package_bisect.py probe SHA [SHA ...]  # add chosen commits to this bisect
     package_bisect.py adopt SHA RUN_ID     # count a run that already exists
     package_bisect.py status [--wait]      # failure matrix + per-test windows
     package_bisect.py next [--dispatch]    # midpoints that split each break window
@@ -430,6 +431,18 @@ def cmd_start(args) -> None:
         dispatch(state, sha)
 
 
+def cmd_probe(args) -> None:
+    state = State.load(args.bisect or args.package)
+    for spec in args.commits:
+        sha = git("rev-parse", spec).strip()
+        if sha not in state.history:
+            raise SystemExit(f"{spec} is not on the bisect's first-parent history")
+        if sha in state.probes:
+            print(f"{sha[:10]} already probed (run {state.probes[sha].run_id})")
+            continue
+        dispatch(state, sha)
+
+
 def cmd_adopt(args) -> None:
     state = State.load(args.bisect or args.package)
     sha = git("rev-parse", args.sha).strip()
@@ -493,6 +506,8 @@ def main(argv: list[str] | None = None) -> None:
     start.add_argument("--force", action="store_true")
     start.add_argument("--patch", action="append", default=[], metavar="SHA",
                        help="apply this commit's change to every probe (repeatable)")
+    probe = sub.add_parser("probe")
+    probe.add_argument("commits", nargs="+", help="SHAs to add to this bisect")
     adopt = sub.add_parser("adopt")
     adopt.add_argument("sha")
     adopt.add_argument("run_id", type=int)
@@ -506,7 +521,7 @@ def main(argv: list[str] | None = None) -> None:
     nxt.add_argument("--ways", type=int, default=1, help="probes per window per round (3 cuts 64 commits in 3 rounds)")
     sub.add_parser("cleanup")
     args = parser.parse_args(argv)
-    {"start": cmd_start, "adopt": cmd_adopt, "status": cmd_status, "next": cmd_next, "cleanup": cmd_cleanup}[args.command](args)
+    {"start": cmd_start, "probe": cmd_probe, "adopt": cmd_adopt, "status": cmd_status, "next": cmd_next, "cleanup": cmd_cleanup}[args.command](args)
 
 
 if __name__ == "__main__":
