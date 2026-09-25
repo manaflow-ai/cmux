@@ -451,7 +451,12 @@ final class SurfacePipController {
             }
             manager = context.tabManager
         }
-        let workspace = manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+        guard let workspace = manager.addWorkspaceIfActive(
+            select: true,
+            autoWelcomeIfNeeded: false
+        ) else {
+            return nil
+        }
         guard let pane = workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first else {
             return nil

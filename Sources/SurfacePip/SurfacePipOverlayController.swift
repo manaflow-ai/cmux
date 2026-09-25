@@ -227,7 +227,9 @@ final class SurfacePipOverlayController: NSObject {
                 context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 containerView.animator().frame = frameInContainer
             } completionHandler: { [weak self] in
-                self?.bringToFront()
+                Task { @MainActor [weak self] in
+                    self?.bringToFront()
+                }
             }
         } else {
             CATransaction.begin()
