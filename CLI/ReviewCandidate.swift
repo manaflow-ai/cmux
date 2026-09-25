@@ -43,15 +43,10 @@ struct ReviewCandidate {
             ))
         }
         patch = try String(contentsOf: patchURL, encoding: .utf8)
-        let changedPaths = try Self.git(repository, ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", baseSHA, tree, "--"], trim: false)
-            .split(separator: "\0").map(String.init)
         let rulePaths = try Self.git(repository, ["ls-tree", "-r", "-z", "--name-only", baseSHA], trim: false)
             .split(separator: "\0").map(String.init).filter { path in
-                if path.hasPrefix(".github/review-bot-rules/") { return true }
-                let components = path.split(separator: "/")
-                guard let name = components.last, name == "AGENTS.md" || name == "CLAUDE.md" else { return false }
-                let parent = components.dropLast().joined(separator: "/")
-                return parent.isEmpty || changedPaths.contains { $0.hasPrefix(parent + "/") }
+                path.hasPrefix(".github/review-bot-rules/")
+                    || path.split(separator: "/").last.map { $0 == "AGENTS.md" || $0 == "CLAUDE.md" } == true
             }
         rules = try rulePaths.map { path in
             "\(path):\n" + (try Self.git(repository, ["show", "\(baseSHA):\(path)"]))

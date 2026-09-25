@@ -20,7 +20,8 @@ extension CMUXCLI {
         let repository = try reviewGitRepoRoot(startingAt: repoArgument ?? FileManager.default.currentDirectoryPath)
         let ledger = try reviewDirectoryURL(repoRoot: repository)
         let runID = UUID().uuidString.lowercased()
-        let directory = ledger.appendingPathComponent(".runs", isDirectory: true).appendingPathComponent(runID, isDirectory: true)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-review-\(runID)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let defaultBase = (try? ReviewCandidate.git(repository, ["rev-parse", "--verify", "origin/main^{commit}"])) ?? "HEAD"
@@ -123,6 +124,7 @@ extension CMUXCLI {
         ]
         _ = try reviewValidateReceiptPayload(receipt, fileName: receiptID)
         let data = try JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys])
+        try FileManager.default.createDirectory(at: ledger, withIntermediateDirectories: true)
         try data.write(to: ledger.appendingPathComponent("\(receiptID).json"), options: .atomic)
         if jsonOutput {
             print(jsonString(receipt))
