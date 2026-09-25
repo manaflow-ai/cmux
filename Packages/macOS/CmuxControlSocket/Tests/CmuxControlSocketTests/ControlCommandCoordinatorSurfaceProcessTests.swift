@@ -22,9 +22,19 @@ struct ControlCommandCoordinatorSurfaceProcessTests {
         )
         var params: [String: JSONValue] = ["workspace_id": .string(workspaceID.uuidString)]
         if relayScoped { params["_cmux_remote_workspace_id"] = .string(workspaceID.uuidString) }
-        let result = ControlCommandCoordinator(context: context).handle(ControlRequest(
-            id: .int(1), method: "surface.list", params: params
-        ))
+        let coordinator = ControlCommandCoordinator(context: context)
+        if relayScoped {
+            // The fake has no relay authority; the public dispatcher must still deny it.
+            let unauthenticated = coordinator.handle(ControlRequest(
+                id: .int(1), method: "surface.list", params: params
+            ))
+            #expect(unauthenticated == .err(
+                code: "remote_relay_authentication_failed",
+                message: "Relay request authentication failed", data: nil
+            ))
+        }
+        // Inspect serialization after the separate authentication boundary.
+        let result = coordinator.surfaceList(params, context: context)
         guard case let .ok(.object(payload)) = result,
               case let .array(rows)? = payload["surfaces"],
               case let .object(row)? = rows.first else {

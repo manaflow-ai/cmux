@@ -61,6 +61,8 @@ class ProcessState(FakeCmuxState):
                 foreground_pid=os.tcgetpgrp(self.master),
                 tmux_start_command=self.start_command,
             )
+        if method == "pane.list":
+            result["panes"][0]["surface_count"] = 1
         return result
 
 
