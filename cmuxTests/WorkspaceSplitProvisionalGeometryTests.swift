@@ -239,9 +239,11 @@ struct WorkspaceSplitProvisionalGeometryTests {
             let configuration = workspace.bonsplitController.configuration
             let tabBarHeight = configuration.tabBarVisibility.showsTabBar(tabCount: 1)
                 ? configuration.appearance.tabBarHeight : 0
+            let anchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
             workspace.bonsplitController.setContainerFrame(CGRect(
-                x: 0, y: 0, width: anchor.frame.width,
-                height: anchor.frame.height + tabBarHeight
+                x: anchorFrameInWindow.minX, y: anchorFrameInWindow.minY,
+                width: anchorFrameInWindow.width,
+                height: anchorFrameInWindow.height + tabBarHeight
             ))
             sourcePanelId = try #require(workspace.focusedPanelId)
             let panel = try #require(workspace.terminalPanel(for: sourcePanelId))
