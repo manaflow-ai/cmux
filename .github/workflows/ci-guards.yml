@@ -62,6 +62,11 @@ jobs:
       - name: Validate repository variable defaults
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_repo_variable_defaults.py
+
+      - name: Validate the report-only reverse test impact selector
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_reverse_test_impact.py
+
       - name: Require the R2 public URL wherever the R2 cache actions run
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_public_url.py
@@ -85,6 +90,10 @@ jobs:
       - name: Validate seeded macOS checkout
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_git_seed.py
+
+      - name: Validate the CLI lane runs in compile admission
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cli_lane_in_admission.py
 
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' }}
