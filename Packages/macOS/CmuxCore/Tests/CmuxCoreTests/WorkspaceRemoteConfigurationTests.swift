@@ -415,7 +415,7 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(snapshot?.persistentDaemonSlot == nil)
     }
 
-    @Test("sshTerminalStartupEnvironment carries SSH_AUTH_SOCK only when an agent socket exists")
+    @Test("SSH processes carry user context even without an agent socket")
     func startupEnvironment() {
         #expect(makeConfiguration().sshTerminalStartupEnvironment == nil)
         let environment = makeConfiguration().sshProcessEnvironment
