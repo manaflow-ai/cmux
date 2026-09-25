@@ -634,6 +634,20 @@ jobs:
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        # The mint is all or nothing: an App not yet granted the organization
+        # self-hosted runners permission gets no token above. This one asks
+        # for the repository permission alone, as before.
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
       - name: Choose the pull request macOS pool
         id: macos-pool
         # Fail-safe: any error leaves the outputs empty, which is today's route.
@@ -650,7 +664,7 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           DEFAULT_RUNNER: ${{ vars.MACOS_RUNNER_PR }}
           # Empty unless the step above minted it: idle owned runners, live.
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
           POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}

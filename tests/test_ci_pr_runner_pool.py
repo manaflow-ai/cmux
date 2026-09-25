@@ -559,6 +559,10 @@ class ShardSpread(unittest.TestCase):
                 self.assertEqual((values["runner"], values["shard_runner"]), (LARGE, expected), full)
 
 
+# The picker's token: the org-permission mint's, else the repository-only fallback's.
+BOTH_TOKENS = "${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}"
+
+
 class OwnedPools(unittest.TestCase):
     """Owned Macs first when switched on, Blacksmith as overflow, never a queue."""
 
@@ -643,13 +647,30 @@ class OwnedPools(unittest.TestCase):
         # The minis are org runners (glaeda-minis), listed with the org permission.
         self.assertEqual(mint["with"]["permission-organization-self-hosted-runners"], "read")
         self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
-        self.assertEqual(steps[ids.index("macos-pool")]["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
+        self.assertEqual(steps[ids.index("macos-pool")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
+        self.assert_repo_fallback_mint(steps, "read")
         late = yaml.safe_load((WORKFLOWS / "ci-macos.yml").read_text())
-        late_mints = [step for job in late["jobs"].values() for step in job.get("steps") or []
-                      if step.get("id") == "route-token"]
-        self.assertTrue(late_mints)
-        for step in late_mints:
-            self.assertEqual(step["with"]["permission-organization-self-hosted-runners"], "read")
+        late_jobs = [job["steps"] for job in late["jobs"].values()
+                     if any(step.get("id") == "route-token" for step in job.get("steps") or [])]
+        self.assertTrue(late_jobs)
+        for late_steps in late_jobs:
+            late_ids = [step.get("id") for step in late_steps]
+            self.assertEqual(late_steps[late_ids.index("route-token")]["with"]
+                             ["permission-organization-self-hosted-runners"], "read")
+            self.assert_repo_fallback_mint(late_steps, "read")
+            self.assertEqual(late_steps[late_ids.index("place")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
+
+    def assert_repo_fallback_mint(self, steps, level):
+        """A second mint, only when the first failed, with the repository permission alone."""
+        ids = [step.get("id") for step in steps]
+        first, fallback = steps[ids.index("route-token")], steps[ids.index("route-token-repo")]
+        self.assertEqual(ids.index("route-token-repo"), ids.index("route-token") + 1)
+        self.assertEqual(fallback["if"], "steps.route-token.outcome == 'failure'")
+        self.assertIs(fallback["continue-on-error"], True)
+        self.assertEqual(fallback["uses"], first["uses"])
+        self.assertEqual(fallback["with"], {key: value for key, value in first["with"].items()
+                                            if key != "permission-organization-self-hosted-runners"})
+        self.assertEqual(fallback["with"]["permission-administration"], level)
 
     def fake_api(self, responses):
         """A GitHub whose get_api answers from `responses` (path -> payload or HTTP status)."""
