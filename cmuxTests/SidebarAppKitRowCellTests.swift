@@ -629,7 +629,7 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let accessibilityValue = try #require(
-            textView.cell?.accessibilityAttributedString(
+            textView.accessibilityAttributedString(
                 for: NSRange(location: 0, length: textView.attributedStringValue.length)
             )
         )
@@ -1044,11 +1044,10 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let attributedAccessibilityLink = try #require(
-            textView.attributedStringValue.attribute(
-                .accessibilityLink,
-                at: linkLocation,
-                effectiveRange: nil
-            ) as? SidebarRowTextAccessibilityLink
+            textView.accessibilityAttributedString(
+                for: NSRange(location: linkLocation, length: 1)
+            )?.attribute(.accessibilityLink, at: 0, effectiveRange: nil)
+                as? SidebarRowTextAccessibilityLink
         )
 
         #expect(accessibilityLink === attributedAccessibilityLink)
@@ -1373,7 +1372,7 @@ struct SidebarAppKitRowCellTests {
             Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
         )
         let accessibilityValue = try #require(
-            textView.cell?.accessibilityAttributedString(
+            textView.accessibilityAttributedString(
                 for: NSRange(location: 0, length: attributed.length)
             )
         )

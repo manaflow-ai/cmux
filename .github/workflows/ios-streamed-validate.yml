@@ -22,6 +22,15 @@ jobs:
     # dispatch. It wants the image the iOS simulator tests use, so it reads the
     # variable that names that pool rather than one named after this lane; the
     # selector below picks its Xcode 26 toolchain.
+    #
+    # It stays on an ephemeral Blacksmith machine and never takes an owned Mac
+    # (scripts/ci/ios_runner_pool.py): it changes the whole login session, not
+    # just its workspace. It puts CLAUDE_CODE_OAUTH_TOKEN into the GUI session
+    # environment (launchctl setenv), writes agent credentials under $HOME
+    # (~/.claude.json, ~/.codex/auth.json, ~/.pi, opencode), flips the global
+    # dark-mode default, symlinks into /usr/local/bin, launches the Mac app
+    # through launchd, and leaves Postgres and a Next.js server on fixed ports.
+    # On a reused runner every later job would inherit that.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 120
     env:
@@ -99,8 +108,12 @@ jobs:
           if [ -z "${CMUXTERM_DEV_ENV_B64:-}" ]; then
             echo "::error::CMUXTERM_DEV_ENV_B64 secret missing (dev Stack bundle + dedicated CI account)." >&2; exit 1
           fi
+          # The Mac app's DebugDogfoodCredentialResolver, scripts/lib/dev-secrets.sh
+          # and web/scripts/load-dev-env.sh all read this fixed path under $HOME,
+          # so it cannot move to $RUNNER_TEMP. "Remove dev secret bundle" below
+          # deletes it however the job ends.
           mkdir -p "$HOME/.secrets"
-          printf '%s' "$CMUXTERM_DEV_ENV_B64" | base64 --decode > "$HOME/.secrets/cmuxterm-dev.env"
+          ( umask 077; printf '%s' "$CMUXTERM_DEV_ENV_B64" | base64 --decode > "$HOME/.secrets/cmuxterm-dev.env" )
           chmod 600 "$HOME/.secrets/cmuxterm-dev.env"
 
       - name: Stand up dev web backend (native Postgres + Next.js)
@@ -315,3 +328,12 @@ jobs:
             /tmp/webdev.log
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Remove dev secret bundle
+        # The runner user's home outlives the job on a reused machine; never
+        # leave the dev Stack bundle or the agent token behind.
+        if: ${{ always() }}
+        run: |
+          rm -f "$HOME/.secrets/cmuxterm-dev.env"
+          rmdir "$HOME/.secrets" 2>/dev/null || true
+          launchctl unsetenv CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null || true
