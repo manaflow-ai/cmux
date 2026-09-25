@@ -440,6 +440,9 @@ class Wiring(unittest.TestCase):
     def test_state_steps_run_only_on_an_owned_runner(self):
         self.assertIn(OWNED, self.by_id["owned-state"]["if"])
         self.assertIn("github.event_name == 'pull_request'", self.by_id["owned-state"]["if"])
+        # Main's full-suite dispatch may be placed on an owned Mac too (pr_runner_pool.py).
+        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+                      self.by_id["owned-state"]["if"])
         # Every other state step follows owned-state.
         self.assertIn("steps.owned-state.outcome != 'skipped'", self.step("Keep this owned Mac's build state")["if"])
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", self.step("Keep this owned Mac's DerivedData")["if"])

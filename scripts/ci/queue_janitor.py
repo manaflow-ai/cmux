@@ -421,8 +421,9 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
                         light_retry: bool = False) -> bool:
     """A run whose marker is worth an artifact listing: it may hold an owned pool.
 
-    Only attempt 1 of a same-repository pull request run of CI, or of an E2E
-    or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
+    Only attempt 1 of a same-repository pull request run of CI, of main's
+    full-suite dispatch of CI (pr_runner_pool.py routes it too), or of an
+    E2E or iOS dispatch (the runner job of test-e2e.yml, test-ios.yml and
     ios-screenshots.yml uploads the same marker), can. While
     CI_OWNED_LIGHT_RETRY is 1 (`light_retry`), attempt 2 can too: the
     rescue's full re-run picks again and may take the light tier
@@ -438,7 +439,8 @@ def may_hold_owned_pool(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]
         return False
     path = str(run.get("path") or "")
     if run.get("event") == "workflow_dispatch":
-        return path.endswith(OWNED_DISPATCH_WORKFLOWS)
+        return path.endswith(OWNED_DISPATCH_WORKFLOWS) or (
+            path.endswith("/ci.yml") and run.get("head_branch") == "main")
     return run.get("event") == "pull_request" and path.endswith("/ci.yml")
 
 
