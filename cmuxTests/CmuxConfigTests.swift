@@ -62,6 +62,30 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.fileBrowser?.exclude, [".git", "**/*.pyc", "node_modules"])
     }
 
+    func testFileBrowserExcludePatternsMergeGlobalAndProjectConfig() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-browser-config-\(UUID().uuidString)", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalURL = root.appendingPathComponent("global.json")
+        let localURL = projectDirectory.appendingPathComponent("cmux.json")
+        try "{ \"fileBrowser\": { \"exclude\": [\".git\", \"node_modules\"] } }"
+            .write(to: globalURL, atomically: true, encoding: .utf8)
+        try "{ \"fileBrowser\": { \"exclude\": [\"node_modules\", \".cache\"] } }"
+            .write(to: localURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalURL.path,
+            localConfigPath: localURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.fileBrowserExcludePatterns, [".git", "node_modules", ".cache"])
+    }
+
     func testDecodeSimpleCommandWithAllFields() throws {
         let json = """
         {

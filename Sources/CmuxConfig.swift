@@ -62,6 +62,33 @@ struct CmuxConfigPackReference: Codable, Sendable, Hashable {
     }
 }
 
+struct CmuxFileBrowserConfigDefinition: Codable, Sendable, Hashable {
+    let exclude: [String]
+
+    init(exclude: [String] = []) {
+        self.exclude = Self.normalizedPatterns(exclude)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let patterns = try container.decodeIfPresent([String].self, forKey: .exclude) ?? []
+        exclude = Self.normalizedPatterns(patterns)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case exclude
+    }
+
+    private static func normalizedPatterns(_ patterns: [String]) -> [String] {
+        var seen = Set<String>()
+        return patterns.compactMap { rawPattern in
+            let pattern = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !pattern.isEmpty, seen.insert(pattern).inserted else { return nil }
+            return pattern
+        }
+    }
+}
+
 struct CmuxConfigFile: Codable, Sendable {
     var packs: [CmuxConfigPackReference]
     var actions: [String: CmuxConfigActionDefinition]
@@ -73,9 +100,10 @@ struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
+    var fileBrowser: CmuxFileBrowserConfigDefinition?
 
     private enum CodingKeys: String, CodingKey {
-        case packs, actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case packs, actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups, fileBrowser
     }
 
     init(
@@ -88,7 +116,8 @@ struct CmuxConfigFile: Codable, Sendable {
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil,
+        fileBrowser: CmuxFileBrowserConfigDefinition? = nil
     ) {
         self.packs = packs
         self.actions = actions
@@ -100,6 +129,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.commands = commands
         self.vault = vault
         self.workspaceGroups = workspaceGroups
+        self.fileBrowser = fileBrowser
     }
 
     init(from decoder: Decoder) throws {
@@ -152,6 +182,10 @@ struct CmuxConfigFile: Codable, Sendable {
         workspaceGroups = try container.decodeIfPresent(
             CmuxConfigWorkspaceGroupsDefinition.self,
             forKey: .workspaceGroups
+        )
+        fileBrowser = try container.decodeIfPresent(
+            CmuxFileBrowserConfigDefinition.self,
+            forKey: .fileBrowser
         )
     }
 
@@ -1783,6 +1817,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
+    @Published private(set) var fileBrowserExcludePatterns: [String] = []
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -2062,6 +2097,10 @@ final class CmuxConfigStore: ObservableObject {
         let globalParseResult = parseConfig(at: globalConfigPath)
         let localConfig = localParseResult?.config
         let globalConfig = globalParseResult.config
+        fileBrowserExcludePatterns = Self.mergeFileBrowserExcludePatterns(
+            global: globalConfig?.fileBrowser?.exclude ?? [],
+            local: localConfig?.fileBrowser?.exclude ?? []
+        )
         var issues = [CmuxConfigIssue]()
         if let issue = localParseResult?.issue {
             issues.append(issue)
@@ -2290,6 +2329,11 @@ final class CmuxConfigStore: ObservableObject {
         }
         applySurfaceTabBarButtonsToCurrentManager()
         configRevision &+= 1
+    }
+
+    private static func mergeFileBrowserExcludePatterns(global: [String], local: [String]) -> [String] {
+        var seen = Set<String>()
+        return (global + local).filter { seen.insert($0).inserted }
     }
 
     private func resolvedLocalNotificationHookPaths(fallbackLocalPath: String?) -> [String] {

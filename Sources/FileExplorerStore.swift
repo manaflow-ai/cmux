@@ -170,6 +170,90 @@ struct FileExplorerEntry: Sendable {
     let isDirectory: Bool
 }
 
+enum FileExplorerExcludeMatcher {
+    static func matches(path: String, rootPath: String, patterns: [String]) -> Bool {
+        let root = normalizedPath(rootPath)
+        let candidate = normalizedPath(path)
+        let rootPrefix = root == "/" ? "/" : root + "/"
+        guard candidate != root, candidate.hasPrefix(rootPrefix) else { return false }
+        let relativePath = String(candidate.dropFirst(root == "/" ? 1 : root.count + 1))
+        return patterns.contains { patternMatches($0, relativePath: relativePath) }
+    }
+
+    private static func patternMatches(_ rawPattern: String, relativePath: String) -> Bool {
+        var pattern = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        while pattern.hasPrefix("./") {
+            pattern.removeFirst(2)
+        }
+        guard !pattern.isEmpty else { return false }
+        pattern = pattern.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !pattern.isEmpty else { return false }
+
+        let candidateSegments = relativePath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        let patternSegments = pattern.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !candidateSegments.isEmpty, !patternSegments.isEmpty else { return false }
+        if patternSegments.count == 1 {
+            if patternSegments[0] == "**" { return true }
+            return candidateSegments.contains { matchSegment(patternSegments[0], candidate: $0) }
+        }
+        return matchSegments(patternSegments, candidate: candidateSegments)
+    }
+
+    private static func matchSegments(_ pattern: [String], candidate: [String]) -> Bool {
+        var memo: [String: Bool] = [:]
+        func match(_ patternIndex: Int, _ candidateIndex: Int) -> Bool {
+            let key = "\(patternIndex):\(candidateIndex)"
+            if let result = memo[key] { return result }
+            let result: Bool
+            if patternIndex == pattern.count {
+                result = candidateIndex == candidate.count
+            } else if pattern[patternIndex] == "**" {
+                result = match(patternIndex + 1, candidateIndex) ||
+                    (candidateIndex < candidate.count && match(patternIndex, candidateIndex + 1))
+            } else {
+                result = candidateIndex < candidate.count &&
+                    matchSegment(pattern[patternIndex], candidate: candidate[candidateIndex]) &&
+                    match(patternIndex + 1, candidateIndex + 1)
+            }
+            memo[key] = result
+            return result
+        }
+        return match(0, 0)
+    }
+
+    private static func matchSegment(_ pattern: String, candidate: String) -> Bool {
+        let patternCharacters = Array(pattern)
+        let candidateCharacters = Array(candidate)
+        var memo: [String: Bool] = [:]
+        func match(_ patternIndex: Int, _ candidateIndex: Int) -> Bool {
+            let key = "\(patternIndex):\(candidateIndex)"
+            if let result = memo[key] { return result }
+            let result: Bool
+            if patternIndex == patternCharacters.count {
+                result = candidateIndex == candidateCharacters.count
+            } else if patternCharacters[patternIndex] == "*" {
+                result = match(patternIndex + 1, candidateIndex) ||
+                    (candidateIndex < candidateCharacters.count && match(patternIndex, candidateIndex + 1))
+            } else if patternCharacters[patternIndex] == "?" {
+                result = candidateIndex < candidateCharacters.count && match(patternIndex + 1, candidateIndex + 1)
+            } else {
+                result = candidateIndex < candidateCharacters.count &&
+                    patternCharacters[patternIndex] == candidateCharacters[candidateIndex] &&
+                    match(patternIndex + 1, candidateIndex + 1)
+            }
+            memo[key] = result
+            return result
+        }
+        return match(0, 0)
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
+        let standardized = (path as NSString).standardizingPath
+        guard standardized.count > 1 else { return standardized }
+        return standardized.hasSuffix("/") ? String(standardized.dropLast()) : standardized
+    }
+}
+
 final class FileExplorerNode: Identifiable {
     let id: String
     let name: String
@@ -743,6 +827,10 @@ final class FileExplorerStore: ObservableObject {
     /// Whether hidden files are shown. Set from FileExplorerState externally.
     var showHiddenFiles: Bool = false
 
+    /// Glob patterns from `fileBrowser.exclude` in global and project config.
+    private(set) var excludePatterns: [String] = []
+    private var configRevisionCancellable: AnyCancellable?
+
     /// Watches the root directory for filesystem changes (local only).
     private var directoryWatcher: FileWatcher?
     private var directoryWatchTask: Task<Void, Never>?
@@ -783,6 +871,28 @@ final class FileExplorerStore: ObservableObject {
 
     init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
         self.gitStatusProvider = gitStatusProvider
+    }
+
+    func setExcludePatterns(_ patterns: [String]) {
+        let normalized = patterns
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard normalized != excludePatterns else { return }
+        excludePatterns = normalized
+        reload()
+    }
+
+    func bindConfigStore(_ configStore: CmuxConfigStore?) {
+        configRevisionCancellable = nil
+        guard let configStore else {
+            setExcludePatterns([])
+            return
+        }
+        setExcludePatterns(configStore.fileBrowserExcludePatterns)
+        configRevisionCancellable = configStore.$configRevision.sink { [weak self, weak configStore] _ in
+            guard let self, let configStore else { return }
+            self.setExcludePatterns(configStore.fileBrowserExcludePatterns)
+        }
     }
 
     var displayRootPath: String {
@@ -1113,7 +1223,13 @@ final class FileExplorerStore: ObservableObject {
         do {
             let entries = try await provider.listDirectory(path: path, showHidden: showHiddenFiles)
             try Task.checkCancellation()
-            let children = entries.map { entry in
+            let children = entries.filter { entry in
+                !FileExplorerExcludeMatcher.matches(
+                    path: entry.path,
+                    rootPath: self.rootPath,
+                    patterns: self.excludePatterns
+                )
+            }.map { entry in
                 let node = FileExplorerNode(name: entry.name, path: entry.path, isDirectory: entry.isDirectory)
                 node.resourceContextID = resourceContextID
                 nodesByPath[entry.path] = node

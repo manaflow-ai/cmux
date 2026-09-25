@@ -1752,6 +1752,21 @@
         }
       }
     },
+    "fileBrowser": {
+      "x-cmux-scopes": ["global", "project"],
+      "title": "fileBrowser",
+      "description": "Patterns to hide from the file explorer tree. Global and project patterns are merged.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Glob patterns matched against paths relative to the workspace root. A pattern without a slash matches a file or folder at any depth.",
+          "default": []
+        }
+      }
+    },
     "diffViewer": {
       "x-cmux-scopes": ["global"],
       "title": "diffViewer",
