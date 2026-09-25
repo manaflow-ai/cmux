@@ -153,9 +153,9 @@ CI_OWNED_POOL_RESCUE_SECONDS plus QUEUE_ROUND_SECONDS per round
 (queue_seconds(), 930 seconds by default), under the watch limit so a stuck
 job is still moved. With the rounds at 0 the picker takes an owned pool
 only with machines free now, and the budget is the configured one. A
-test-ios.yml run's picker queues by the same rounds, so it gets the same
-allowance. The configured budget alone is an E2E, iOS screenshots or
-side-lane run's (#14391: no picker; the side lanes share the
+test-ios.yml or test-e2e.yml run's picker queues by the same rounds, so it
+gets the same allowance. The configured budget alone is an iOS screenshots
+or side-lane run's (#14391: no picker; the side lanes share the
 runners PR runs queue on, so they are moved to Blacksmith more often), and a
 re-run of failed jobs'.
 """
@@ -187,8 +187,9 @@ IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
 # picks the pool and uploads the marker.
 DISPATCH_WORKFLOW_PATHS = (E2E_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
-# CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py reads it since run 36136190497).
-QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH)
+# CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py and e2e_runner_pool.py read it
+# since run 36136190497).
+QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, E2E_WORKFLOW_PATH)
 # Side-lane workflows: no picker job. Their light macOS jobs take
 # vars.CI_SIDE_LANE_RUNNER (a glaeda-side-* label) on attempt 1 of a same-repo
 # pull request run, and every later attempt takes their Blacksmith default.
@@ -423,7 +424,8 @@ class GitHub:
     GITHUB_TOKEN: a re-run's triggering actor must stay github-actions[bot],
     which ci-macos.yml's attempt-2 routing checks. An installation token
     lasts an hour and a watch may outlive it, so a 401 on a read drops back to
-    `token` for the rest of the watch.
+    `token` for the rest of the watch. A 403 is a read the App may not make
+    (branch_head needs contents, which it lacks): that one read uses `token`.
     """
 
     def __init__(self, token: str, repo: str, read_token: str = "") -> None:
@@ -431,8 +433,8 @@ class GitHub:
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
 
-    def request(self, method: str, path: str) -> Any:
-        headers = self.read_headers if method == "GET" else self.headers
+    def request(self, method: str, path: str, *, own_token: bool = False) -> Any:
+        headers = self.read_headers if method == "GET" and not own_token else self.headers
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
@@ -441,8 +443,11 @@ class GitHub:
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
         except urllib.error.HTTPError as error:
-            if error.code != 401 or headers is self.headers:
+            if error.code not in (401, 403) or headers is self.headers:
                 raise
+            if error.code == 403:
+                # The installation lacks this read's permission: this one read goes on GITHUB_TOKEN.
+                return self.request(method, path, own_token=True)
             self.read_headers = self.headers
             return self.request(method, path)
         return json.loads(body) if body else None
@@ -876,7 +881,7 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         else f"pull request #{target.pr_number}"
     if target.side:
         subject += " (side lane)"
-    # ci.yml's and test-ios.yml's pickers queue on purpose, within the queue
+    # ci.yml's, test-ios.yml's and test-e2e.yml's pickers queue on purpose, within the queue
     # rounds: their owned jobs may wait up to the pool's expected wait (see the docstring).
     queue_extra = queue_seconds(queue_rounds) if target.path in QUEUEING_WORKFLOW_PATHS else 0
     log(f"watching run {target.run_id} of {subject} (budget {seconds + queue_extra}s"

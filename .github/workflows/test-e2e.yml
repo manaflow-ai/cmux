@@ -73,8 +73,8 @@ jobs:
     # back. Any error reading the queue stays on 6vcpu, and
     # CI_E2E_LARGE_POOL_OVERFLOW=0 turns the choice off. run-e2e.sh applies the
     # same rule from the same script. With CI_PR_POOL_OWNED=1 an owned Mac
-    # (glaeda-*) with a free slot in CI_OWNED_POOL_SLOTS comes first, as for
-    # pull requests. A job an owned Mac leaves queued or refuses is re-run by
+    # (glaeda-*) comes first while its job starts within CI_PR_POOL_QUEUE_ROUNDS
+    # job lengths and no later than on Blacksmith, as for pull requests. A job an owned Mac leaves queued or refuses is re-run by
     # ci-owned-pool-rescue.yml, and every re-run attempt of build or test takes
     # retry_label (Blacksmith) instead, so a busy Mac never strands a run.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -113,6 +113,7 @@ jobs:
           LARGE_POOL_OVERFLOW: ${{ vars.CI_E2E_LARGE_POOL_OVERFLOW }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
           PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
@@ -126,6 +127,7 @@ jobs:
             --overflow "$LARGE_POOL_OVERFLOW" \
             --order "$POOL_ORDER" \
             --max-queued "$POOL_MAX_QUEUED" \
+            --queue-rounds "$POOL_QUEUE_ROUNDS" \
             --owned "$POOL_OWNED" \
             --owned-slots "$OWNED_SLOTS" \
             --pr-xcode-app "$PR_XCODE_APP" \
@@ -404,6 +406,23 @@ jobs:
               ;;
           esac
 
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh, as ci-macos.yml does). The script is read at
+      # this commit over HTTPS because nothing is checked out yet. A miss, or a
+      # reused self-hosted workspace, leaves checkout to work as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -417,6 +436,21 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-ref.outputs.sha }}
+          submodules: recursive
+
+      # A seeded repository that checkout cannot use (a submodule moved to
+      # another URL) must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout without the git object seed
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.resolve-ref.outputs.sha }}
@@ -513,11 +547,20 @@ jobs:
           mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
           echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
+      # Restore only, from the seed nightly.yml saves after a resolve. This job
+      # resolves in the canonical root, so the workspace copy is still exactly
+      # what was restored: saving it (as actions/cache did) stored a fallback
+      # restore of the previous Package.resolved under the new exact key, and
+      # every later exact hit then failed its offline resolve and fetched every
+      # remote (run 36134675453: 44 s wasted, then 86 s online).
       - name: Cache Swift packages
         id: swift-package-cache
         if: ${{ steps.reuse.outputs.hit != 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        env:
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
@@ -826,6 +869,23 @@ jobs:
               ;;
           esac
 
+      # Start from main's git objects, so checkout fetches only what changed
+      # since then instead of the whole tree and its submodules
+      # (scripts/ci/git-seed.sh, as ci-macos.yml does). The script is read at
+      # this commit over HTTPS because nothing is checked out yet. A miss, or a
+      # reused self-hosted workspace, leaves checkout to work as before.
+      - name: Restore git object seed
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+        run: |
+          set -euo pipefail
+          script="$RUNNER_TEMP/git-seed.sh"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            -o "$script" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git-seed.sh"
+          bash "$script" restore "$GITHUB_WORKSPACE"
+
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
         run: |
@@ -839,6 +899,21 @@ jobs:
           fi
 
       - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-ref.outputs.sha }}
+          submodules: recursive
+
+      # A seeded repository that checkout cannot use (a submodule moved to
+      # another URL) must not fail the retry the same way.
+      - name: Discard the git object seed after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry checkout without the git object seed
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.resolve-ref.outputs.sha }}
