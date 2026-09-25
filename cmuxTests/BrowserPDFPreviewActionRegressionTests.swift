@@ -49,10 +49,11 @@ struct BrowserPDFPreviewActionRegressionTests {
             AnyObject,
             Selector,
             WKWebView,
-            @escaping (Bool) -> Void
+            @convention(block) (Bool) -> Void
         ) -> Void
         let function = unsafeBitCast(implementation, to: PointerLockFunction.self)
-        function(delegate, selector, panel.webView) { granted = $0 }
+        let completionBlock: @convention(block) (Bool) -> Void = { granted = $0 }
+        function(delegate, selector, panel.webView, completionBlock)
 
         #expect(granted == true)
     }
