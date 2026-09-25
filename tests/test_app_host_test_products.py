@@ -2,11 +2,13 @@
 """Exercise the build-product handoff across different runner paths and identities."""
 
 import importlib.util
+import os
 import plistlib
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HELPER = Path(__file__).resolve().parents[1] / "scripts/ci/app_host_test_products.py"
 spec = importlib.util.spec_from_file_location("app_host_test_products", HELPER)
@@ -59,6 +61,24 @@ class TestProductHandoff(unittest.TestCase):
             # Cover both manifest versions Xcode has shipped.
             value = {"cmuxTests": target} if scheme == "cmux-unit" else {"TestConfigurations": [{"TestTargets": [target]}]}
             (products / f"{scheme}_macosx26.5-arm64.xctestrun").write_bytes(plistlib.dumps(value))
+
+    def test_cli_profile_needs_only_its_own_manifest(self):
+        # The cheap producer builds one scheme. Its product is complete for the
+        # cli profile and must stamp, while the app-host profile must still
+        # refuse the same tree as partial -- otherwise a CLI-only build could
+        # answer an app-host consumer's restore.
+        products = self.producer / "Build/Products"
+        for scheme in ("cmux", "cmux-unit", "cmux-numeric-locale"):
+            (products / f"{scheme}_macosx26.5-arm64.xctestrun").unlink()
+
+        with mock.patch.dict(os.environ, {"CMUX_PRODUCT_PROFILE": "cli"}):
+            found = module.manifests(products)
+        self.assertEqual(list(found), ["cmux-cli-tests"])
+
+        with mock.patch.dict(os.environ, {"CMUX_PRODUCT_PROFILE": "app-host"}):
+            with self.assertRaises(ValueError) as caught:
+                module.manifests(products)
+        self.assertIn("cmux", str(caught.exception))
 
     def transfer(self):
         module.stamp(self.producer, self.identity)

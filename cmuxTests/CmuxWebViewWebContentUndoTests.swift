@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Carbon.HIToolbox
 import CmuxTerminal
 import Testing
@@ -322,7 +323,8 @@ final class CmuxWebViewWebContentUndoTests {
         try withBrowserUndoWindow { window, webView, _ in
             let secondWebView = CmuxWebView(
                 frame: webView.frame,
-                configuration: WKWebViewConfiguration()
+                configuration: WKWebViewConfiguration(),
+                host: CmuxWebViewAppHost()
             )
             defer { secondWebView.removeFromSuperview() }
             webView.superview?.addSubview(secondWebView)
@@ -393,7 +395,7 @@ final class CmuxWebViewWebContentUndoTests {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
-        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         webView.autoresizingMask = [.width, .height]
         container.addSubview(webView)
 
