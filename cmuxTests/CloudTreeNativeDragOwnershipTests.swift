@@ -39,6 +39,15 @@ struct CloudTreeNativeDragOwnershipTests {
         // The provisional writer must not claim an active native owner before
         // AppKit has called willBeginAt.
         weak var abandonedWriter: CloudTreeSurfaceDragPasteboardWriter?
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
+        )
+        // Keep the named pasteboard alive through the ARC boundary. AppKit
+        // retains a writer that has been written until its contents are cleared.
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
         let dragID = try autoreleasepool {
             var writer: (any NSPasteboardWriting)? = coordinator.outlineView(
                 outline,
@@ -47,12 +56,6 @@ struct CloudTreeNativeDragOwnershipTests {
             let result: UUID = try {
                 let writer = try #require(writer as? CloudTreeSurfaceDragPasteboardWriter)
                 abandonedWriter = writer
-                let pasteboard = NSPasteboard(
-                    name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
-                )
-                // A private named pasteboard owns server resources beyond an
-                // autorelease pool; release that owner before testing ARC.
-                defer { pasteboard.releaseGlobally() }
                 #expect(pasteboard.writeObjects([writer]))
                 #expect(transferRegistry.resolve(from: pasteboard) != nil)
                 let record = try #require(
