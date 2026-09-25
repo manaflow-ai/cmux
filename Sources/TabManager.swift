@@ -4212,7 +4212,12 @@ class TabManager: ObservableObject {
     /// Create a terminal split beside the selected workspace's complete pane tree.
     @discardableResult
     func createRootSplit(direction: SplitDirection) -> UUID? {
-        selectedWorkspace?.newTerminalRootSplit(direction: direction)?.id
+        createRootSplitOutcome(direction: direction).panel?.id
+    }
+
+    @discardableResult
+    func createRootSplitOutcome(direction: SplitDirection) -> TerminalPanelCreationOutcome {
+        selectedWorkspace?.newTerminalRootSplitOutcome(direction: direction) ?? .failed
     }
 
     /// Create a new split from an explicit source panel.

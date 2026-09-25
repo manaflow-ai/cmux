@@ -11,13 +11,15 @@ enum RemoteTmuxSplitFocusIntent: Sendable, Equatable {
         vertical: Bool,
         windowID: Int,
         paneID: Int,
-        insertBefore: Bool = false
+        insertBefore: Bool = false,
+        fullWindow: Bool = false
     ) -> String {
         let focusContract = self == .preserveActivePane
             ? "-d"
             : "-P -F '#{pane_id}'"
         let placement = insertBefore ? " -b" : ""
-        return "split-window \(focusContract) \(vertical ? "-v" : "-h")\(placement) -t @\(windowID).%\(paneID)"
+        let fullWindowOption = fullWindow ? " -f" : ""
+        return "split-window \(focusContract)\(fullWindowOption) \(vertical ? "-v" : "-h")\(placement) -t @\(windowID).%\(paneID)"
     }
 
     func agentForkCommand(
@@ -26,7 +28,8 @@ enum RemoteTmuxSplitFocusIntent: Sendable, Equatable {
         paneID: Int,
         insertBefore: Bool,
         shellCommand: String,
-        workingDirectory: String?
+        workingDirectory: String?,
+        fullWindow: Bool = false
     ) -> String? {
         guard RemoteTmuxHost.controlModeLineSafeName(shellCommand) != nil else {
             return nil
@@ -35,7 +38,8 @@ enum RemoteTmuxSplitFocusIntent: Sendable, Equatable {
             vertical: vertical,
             windowID: windowID,
             paneID: paneID,
-            insertBefore: insertBefore
+            insertBefore: insertBefore,
+            fullWindow: fullWindow
         )
         if let workingDirectory {
             guard RemoteTmuxHost.controlModeLineSafeName(workingDirectory) != nil else {

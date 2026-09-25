@@ -22,11 +22,16 @@ struct RemoteTmuxControlPaneLocation {
         owner.sendKey(toPane: pane.tmuxPaneID, name: name)
     }
 
-    func requestSplit(vertical: Bool, focusIntent: RemoteTmuxSplitFocusIntent) -> Bool {
+    func requestSplit(
+        vertical: Bool,
+        focusIntent: RemoteTmuxSplitFocusIntent,
+        fullWindow: Bool = false
+    ) -> Bool {
         owner.requestSplit(
             fromPane: pane.tmuxPaneID,
             vertical: vertical,
-            focusIntent: focusIntent
+            focusIntent: focusIntent,
+            fullWindow: fullWindow
         )
     }
 
@@ -42,7 +47,8 @@ struct RemoteTmuxControlPaneLocation {
             focusIntent: .focusCreatedPane,
             insertBefore: insertBefore,
             shellCommand: shellCommand,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            fullWindow: false
         )
     }
 

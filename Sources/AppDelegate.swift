@@ -15769,10 +15769,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitRootRight \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            _ = performRootSplitShortcut(
+            if !performRootSplitShortcut(
                 direction: .right,
                 preferredWindow: event.window ?? shortcutRoutingActiveWindow
-            )
+            ) { NSSound.beep() }
             return true
         }
 
@@ -15780,10 +15780,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             cmuxDebugLog("shortcut.action name=splitRootDown \(debugShortcutRouteSnapshot(event: event))")
 #endif
-            _ = performRootSplitShortcut(
+            if !performRootSplitShortcut(
                 direction: .down,
                 preferredWindow: event.window ?? shortcutRoutingActiveWindow
-            )
+            ) { NSSound.beep() }
             return true
         }
 
@@ -16896,7 +16896,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func performRootSplitShortcut(direction: SplitDirection, preferredWindow: NSWindow? = nil) -> Bool {
         let targetWindow = preferredWindow ?? shortcutRoutingActiveWindow
         let targetManager = synchronizeActiveMainWindowContext(preferredWindow: targetWindow) ?? tabManager
-        return targetManager?.createRootSplit(direction: direction) != nil
+        return targetManager?.createRootSplitOutcome(direction: direction).isAccepted ?? false
     }
 
     /// Allow AppKit-backed browser surfaces (WKWebView) to route non-menu shortcuts

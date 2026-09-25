@@ -81,6 +81,17 @@ import Testing
         )
     }
 
+    @Test func rootSplitRequestsTheEntireTmuxWindow() {
+        #expect(
+            RemoteTmuxSplitFocusIntent.focusCreatedPane.command(
+                vertical: false,
+                windowID: 2,
+                paneID: 4,
+                fullWindow: true
+            ) == "split-window -P -F '#{pane_id}' -f -h -t @2.%4"
+        )
+    }
+
     @Test func projectedForkSplitPreservesBeforePlacementAndRemoteLaunchContext() throws {
         let command = try #require(
             RemoteTmuxSplitFocusIntent.focusCreatedPane.agentForkCommand(

@@ -1400,7 +1400,9 @@ struct cmuxApp: App {
         if AppDelegate.shared?.performRootSplitShortcut(direction: direction) == true {
             return
         }
-        _ = tabManager.createRootSplit(direction: direction)
+        if !tabManager.createRootSplitOutcome(direction: direction).isAccepted {
+            NSSound.beep()
+        }
     }
 
     private func performBrowserSplitFromMenu(direction: SplitDirection) {

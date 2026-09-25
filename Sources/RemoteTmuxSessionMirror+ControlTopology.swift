@@ -189,7 +189,8 @@ extension RemoteTmuxSessionMirror {
         focusIntent: RemoteTmuxSplitFocusIntent,
         insertBefore: Bool,
         shellCommand: String?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        fullWindow: Bool = false
     ) -> Bool {
         guard let windowID = windowIdByPane[tmuxPaneID] else { return false }
         return sendSplit(
@@ -199,7 +200,8 @@ extension RemoteTmuxSessionMirror {
             focusIntent: focusIntent,
             insertBefore: insertBefore,
             shellCommand: shellCommand,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            fullWindow: fullWindow
         )
     }
 
@@ -209,7 +211,8 @@ extension RemoteTmuxSessionMirror {
     func requestSplit(
         windowPanelId panelId: UUID,
         vertical: Bool,
-        focusIntent: RemoteTmuxSplitFocusIntent
+        focusIntent: RemoteTmuxSplitFocusIntent,
+        fullWindow: Bool = false
     ) -> Bool {
         guard connection.connectionState == .connected,
               let windowID = windowId(forPanel: panelId) else { return false }
@@ -223,7 +226,8 @@ extension RemoteTmuxSessionMirror {
             focusIntent: focusIntent,
             insertBefore: false,
             shellCommand: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            fullWindow: fullWindow
         )
     }
 
@@ -234,7 +238,8 @@ extension RemoteTmuxSessionMirror {
         focusIntent: RemoteTmuxSplitFocusIntent,
         insertBefore: Bool,
         shellCommand: String?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        fullWindow: Bool
     ) -> Bool {
         let command: String
         if let shellCommand {
@@ -244,7 +249,8 @@ extension RemoteTmuxSessionMirror {
                 paneID: paneID,
                 insertBefore: insertBefore,
                 shellCommand: shellCommand,
-                workingDirectory: workingDirectory
+                workingDirectory: workingDirectory,
+                fullWindow: fullWindow
             ) else {
                 return false
             }
@@ -254,7 +260,8 @@ extension RemoteTmuxSessionMirror {
                 vertical: vertical,
                 windowID: windowID,
                 paneID: paneID,
-                insertBefore: insertBefore
+                insertBefore: insertBefore,
+                fullWindow: fullWindow
             )
         }
         guard focusIntent == .focusCreatedPane,

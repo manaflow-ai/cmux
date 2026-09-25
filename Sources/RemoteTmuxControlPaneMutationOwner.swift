@@ -19,7 +19,8 @@ protocol RemoteTmuxControlPaneMutationOwner: AnyObject {
         focusIntent: RemoteTmuxSplitFocusIntent,
         insertBefore: Bool,
         shellCommand: String?,
-        workingDirectory: String?
+        workingDirectory: String?,
+        fullWindow: Bool
     ) -> Bool
     func requestAgentForkNewWindow(
         afterPane tmuxPaneID: Int,
@@ -50,7 +51,8 @@ extension RemoteTmuxControlPaneMutationOwner {
     func requestSplit(
         fromPane tmuxPaneID: Int,
         vertical: Bool,
-        focusIntent: RemoteTmuxSplitFocusIntent
+        focusIntent: RemoteTmuxSplitFocusIntent,
+        fullWindow: Bool = false
     ) -> Bool {
         requestSplit(
             fromPane: tmuxPaneID,
@@ -58,7 +60,8 @@ extension RemoteTmuxControlPaneMutationOwner {
             focusIntent: focusIntent,
             insertBefore: false,
             shellCommand: nil,
-            workingDirectory: nil
+            workingDirectory: nil,
+            fullWindow: fullWindow
         )
     }
 

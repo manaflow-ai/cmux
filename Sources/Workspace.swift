@@ -8839,12 +8839,34 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         direction: SplitDirection,
         focus: Bool = true
     ) -> TerminalPanel? {
+        newTerminalRootSplitOutcome(direction: direction, focus: focus).panel
+    }
+
+    /// Creates a terminal beside the workspace's complete pane tree, or routes
+    /// the equivalent full-window split to the remote owner.
+    @discardableResult
+    func newTerminalRootSplitOutcome(
+        direction: SplitDirection,
+        focus: Bool = true
+    ) -> TerminalPanelCreationOutcome {
         guard layoutMode != .canvas,
               direction == .right || direction == .down,
-              let sourcePanelId = focusedPanelId,
-              !isRemoteTmuxMirror,
-              cloudTerminalSourcePlacement(forPanel: sourcePanelId) == nil else {
-            return nil
+              let sourcePanelId = focusedPanelId else {
+            return .failed
+        }
+        clearSplitZoom()
+        if isRemoteTmuxMirror {
+            let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+                workspaceId: id,
+                panelId: sourcePanelId,
+                vertical: direction == .down,
+                focusIntent: focus ? .focusCreatedPane : .preserveActivePane,
+                fullWindow: true
+            ) ?? false
+            return routed ? .routedToRemote : .failed
+        }
+        if let source = cloudTerminalSourcePlacement(forPanel: sourcePanelId) {
+            return rejectCloudTerminalCreation(source: source, panelID: sourcePanelId)
         }
         guard let panel = newTerminalSplitLocal(
             from: sourcePanelId,
@@ -8862,9 +8884,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             allowTextBoxFocusDefault: true,
             rootSplit: true
         ) else {
-            return nil
+            return .failed
         }
-        return panel
+        return .created(panel)
     }
 
     /// Like ``newTerminalSplit(from:orientation:insertFirst:focus:workingDirectory:initialCommand:initialInput:tmuxStartCommand:startupEnvironment:initialDividerPosition:remotePTYSessionID:)``

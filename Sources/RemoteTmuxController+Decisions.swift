@@ -8,13 +8,15 @@ extension RemoteTmuxController {
         workspaceId: UUID,
         panelId: UUID,
         vertical: Bool,
-        focusIntent: RemoteTmuxSplitFocusIntent
+        focusIntent: RemoteTmuxSplitFocusIntent,
+        fullWindow: Bool = false
     ) -> Bool {
         guard let mirror = sessionMirror(workspaceId: workspaceId) else { return false }
         return mirror.requestSplit(
             windowPanelId: panelId,
             vertical: vertical,
-            focusIntent: focusIntent
+            focusIntent: focusIntent,
+            fullWindow: fullWindow
         )
     }
 
