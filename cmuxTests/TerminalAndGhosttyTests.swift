@@ -6683,10 +6683,41 @@ final class TerminalWakeRefreshTests: XCTestCase {
             reason: "workspace.screensDidWake"
         )
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while visible.refreshReasons.isEmpty,
+              ProcessInfo.processInfo.systemUptime < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
 
         XCTAssertEqual(visible.refreshReasons, ["workspace.screensDidWake"])
         XCTAssertTrue(hidden.refreshReasons.isEmpty)
+    }
+
+    func testAppDelegateSchedulesRefreshForDisplayWake() {
+#if DEBUG
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        appDelegate.debugInstallLifecycleSnapshotObserversForTesting()
+        let initialCount = appDelegate.debugTerminalWakeRefreshScheduleCount
+
+        NSWorkspace.shared.notificationCenter.post(
+            name: NSWorkspace.screensDidWakeNotification,
+            object: nil
+        )
+
+        let deadline = ProcessInfo.processInfo.systemUptime + 1
+        while appDelegate.debugTerminalWakeRefreshScheduleCount == initialCount,
+              ProcessInfo.processInfo.systemUptime < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertEqual(
+            appDelegate.debugTerminalWakeRefreshScheduleCount,
+            initialCount + 1,
+            "AppDelegate must route display wake into terminal refresh scheduling"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
     }
 }
 
