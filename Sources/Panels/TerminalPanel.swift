@@ -189,8 +189,10 @@ final class TerminalPanel: Panel, ObservableObject {
         let stableSurfaceId = stableSurfaceId ?? UUID()
         var managedInitialEnvironmentOverrides = initialEnvironmentOverrides
         managedInitialEnvironmentOverrides["CMUX_STABLE_SURFACE_ID"] = stableSurfaceId.uuidString
-        var managedAdditionalEnvironment = additionalEnvironment
-        managedAdditionalEnvironment["CMUX_STABLE_SURFACE_ID"] = stableSurfaceId.uuidString
+        let managedAdditionalEnvironment = additionalEnvironment.merging(
+            ["CMUX_STABLE_SURFACE_ID": stableSurfaceId.uuidString],
+            uniquingKeysWith: { _, stableValue in stableValue }
+        )
         let surface = TerminalSurface(
             id: id,
             tabId: workspaceId,
