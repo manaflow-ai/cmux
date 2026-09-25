@@ -12,6 +12,43 @@ import Testing
 /// Uses a raw Python receiver, with no shell prompt, Codex, or agent hooks in the data path.
 @MainActor
 extension TerminalPlainTextPasteStartupTests {
+    @Test("Dictation paste retains requested text after the sender restores the clipboard")
+    func clipboardRestorationAfterNativePaste() async throws {
+        defer { NSPasteboard.general.clearContents() }
+        let fixture = try PlainPastePTYFixture(optimized: true)
+        defer { fixture.close() }
+        try await fixture.waitUntilReady()
+        let savedText = "previous clipboard contents"
+        for trial in 0..<3 {
+            let transcription = "dictation-\(trial) 日本語 🦀\nsecond line\n"
+            NSPasteboard.general.clearContents()
+            try #require(NSPasteboard.general.setString(transcription, forType: .string))
+            switch trial {
+            case 0:
+                let event = try #require(NSEvent.keyEvent(
+                    with: .keyDown, location: .zero, modifierFlags: .command,
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: fixture.window.windowNumber, context: nil,
+                    characters: "v", charactersIgnoringModifiers: "v", isARepeat: false, keyCode: 9
+                ))
+                try #require(fixture.view.performKeyEquivalent(with: event))
+            case 1:
+                fixture.view.paste(nil)
+            default:
+                try #require(fixture.view.performBindingAction("paste_from_clipboard"))
+            }
+            // Deterministically restore before the asynchronous preparation task
+            // can run, instead of relying on the dictation app's 100 ms timer.
+            NSPasteboard.general.clearContents()
+            try #require(NSPasteboard.general.setString(savedText, forType: .string))
+            let receipt = try await fixture.receipt(trial: trial)
+            let bytes = try #require(receipt["hex"] as? String)
+            let expected = Data(("\u{1b}[200~" + transcription + "\u{1b}[201~").utf8)
+            #expect(bytes == expected.map { String($0, radix: 16).leftPaddedByte }.joined())
+            #expect(NSPasteboard.general.string(forType: .string) == savedText)
+        }
+    }
+
     @Test("Cold and repeated keyboard, menu and runtime pastes preserve PTY bytes")
     func realPTYDelivery() async throws {
         defer { NSPasteboard.general.clearContents() }
