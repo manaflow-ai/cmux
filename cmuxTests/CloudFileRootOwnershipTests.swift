@@ -37,8 +37,10 @@ struct CloudFileRootOwnershipTests {
         container.layoutSubtreeIfNeeded()
         let label = try #require(container.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == message })
         #expect(!label.isHidden)
-        #expect(label.frame.minX >= 16)
-        #expect(label.frame.maxX <= width - 16)
+        // Text fields include cell padding outside the rectangle used by layout anchors.
+        let alignmentRect = label.alignmentRect(forFrame: label.frame)
+        #expect(alignmentRect.minX >= 16)
+        #expect(alignmentRect.maxX <= width - 16)
         if width < 320 {
             #expect(label.frame.height > (label.font?.pointSize ?? 13) * 1.5)
         }
