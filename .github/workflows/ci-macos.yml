@@ -2873,6 +2873,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxWorkspaces
             CMUXAgentLaunch
             CmuxAgentJournal
             CmuxFilePreviewCore
