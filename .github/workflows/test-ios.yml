@@ -135,6 +135,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
+          TART_FLEET: ${{ vars.CI_TART_FLEET }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}

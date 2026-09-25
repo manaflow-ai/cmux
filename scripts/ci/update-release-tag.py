@@ -6,6 +6,14 @@ checking workflow-file changes across a large tag jump; the refs API is the
 narrower operation and its failures are retried or reported here. The
 operation is safe to retry because every request targets the same exact commit
 and the final read-back is the publication completion check.
+
+GitHub also refuses some ref writes from the Actions token outright (403
+"Resource not accessible by integration") when the move involves
+.github/workflows changes, because that token can never hold the `workflows`
+permission. Main changes workflows many times a day, so this refusal is routine
+and not retryable. By then every asset and feed is already published, and a
+tag that stays behind only makes the next `decide` build more, never less, so
+the refusal is reported as a warning instead of failing the publish.
 """
 
 from __future__ import annotations
@@ -25,6 +33,10 @@ class TagUpdateError(RuntimeError):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+class WorkflowGuardRefusal(TagUpdateError):
+    """GitHub refused the ref write itself: the Actions token lacks `workflows`."""
 
 
 def _setting(name: str, default: float, *, integer: bool = False) -> float:
@@ -97,6 +109,15 @@ def _ref_sha(repo: str, ref: dict) -> str:
     return ""
 
 
+def _write_ref(method: str, path: str, payload: dict) -> None:
+    try:
+        api_request(method, path, payload=payload)
+    except TagUpdateError as error:
+        if error.status == 403:
+            raise WorkflowGuardRefusal(error.status, error.message) from error
+        raise
+
+
 def update_tag(repo: str, tag: str, sha: str, *, allow_non_descendant: bool = False) -> None:
     if not repo or "/" not in repo:
         raise TagUpdateError(0, "repo must be owner/name")
@@ -111,8 +132,8 @@ def update_tag(repo: str, tag: str, sha: str, *, allow_non_descendant: bool = Fa
         if error.status != 404:
             raise
         try:
-            api_request(
-                "POST", f"repos/{repo}/git/refs", payload={"ref": f"refs/tags/{tag}", "sha": sha}
+            _write_ref(
+                "POST", f"repos/{repo}/git/refs", {"ref": f"refs/tags/{tag}", "sha": sha}
             )
         except TagUpdateError as create_error:
             # 422 means the ref already exists: a retried create whose first
@@ -135,7 +156,7 @@ def update_tag(repo: str, tag: str, sha: str, *, allow_non_descendant: bool = Fa
                 )
         # Without force GitHub enforces the fast-forward in the same request,
         # so a concurrent move between the compare and here cannot regress it.
-        api_request("PATCH", ref_path, payload={"sha": sha, "force": allow_non_descendant})
+        _write_ref("PATCH", ref_path, {"sha": sha, "force": allow_non_descendant})
 
     observed = _ref_sha(repo, api_request("GET", ref_path))
     if observed != sha:
@@ -156,6 +177,18 @@ def main() -> int:
     args = parser.parse_args()
     try:
         update_tag(args.repo, args.tag, args.sha, allow_non_descendant=args.allow_non_descendant)
+    except WorkflowGuardRefusal as error:
+        note = (
+            f"GitHub refused to move {args.tag!r} to {args.sha} with the Actions token "
+            f"({' '.join(error.message.split()) or error.status}). The release assets and feeds are "
+            f"published; the tag stays on its previous commit until a later run can move it."
+        )
+        print(f"::warning title=Release tag not moved::{note}", flush=True)
+        summary = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as handle:
+                handle.write(f"{note}\n")
+        return 0
     except TagUpdateError as error:
         print(f"Nightly tag update failed: {error}", file=sys.stderr)
         return 1

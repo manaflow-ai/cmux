@@ -128,11 +128,6 @@ jobs:
       CMUX_UNIT_TEST_TIMEOUT_SECONDS: "900"
       CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS: "600"
       CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
-      # The products were compiled at these fixed paths (see
-      # scripts/ci/canonical-build-root.sh). Rebuilding the bundle at the same
-      # paths keeps it consistent with the swiftmodules it imports.
-      CANONICAL_ROOT: /private/tmp/cmux-ci
-      COMPILE_DERIVED_DATA: /private/tmp/cmux-ci/derived-data-compile-admission
       SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
       TEST_SHA: ${{ needs.plan.outputs.sha }}
     steps:
@@ -180,13 +175,37 @@ jobs:
             --destination "$RUNNER_TEMP/app-host-products"
           ls -la "$RUNNER_TEMP/app-host-products"
 
+      # The products were compiled in a canonical build root (see
+      # scripts/ci/canonical-build-root.sh): /private/tmp/cmux-ci, or
+      # /private/tmp/cmux-ci-<n> for an owned Mac's second compile slot.
+      # Rebuilding the bundle at the same paths keeps it consistent with the
+      # swiftmodules it imports, so this job builds in the producer's root,
+      # named by the receipt, and holds it (glaeda-canonical-root take) before
+      # it replaces anything there. That root's DerivedData is then this job's
+      # own: no compile or consumer can use the root until the job ends.
       - name: Unpack products at the path CI compiled them
         run: |
           set -euo pipefail
-          rm -rf "$COMPILE_DERIVED_DATA"
-          mkdir -p "$COMPILE_DERIVED_DATA"
-          tar -xzf "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz" -C "$COMPILE_DERIVED_DATA"
+          staged="$RUNNER_TEMP/rerun-products"
+          rm -rf "$staged"
+          mkdir -p "$staged"
+          tar -xzf "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz" -C "$staged"
           rm -f "$RUNNER_TEMP/app-host-products/app-host-products.tar.gz"
+          root="$("$GITHUB_WORKSPACE/.rerun-tools/scripts/ci/take-product-canonical-root.sh" \
+            "$staged/Build/Products/cmux-test-products.json")"
+          # The helper printed a root only after validating it and, on an
+          # owned Mac, holding it for this job.
+          test -n "$root"
+          COMPILE_DERIVED_DATA="$root/derived-data-compile-admission"
+          rm -rf "$COMPILE_DERIVED_DATA"
+          mkdir -p "$root"
+          mv "$staged" "$COMPILE_DERIVED_DATA"
+          {
+            echo "CMUX_CI_CANONICAL_ROOT=$root"
+            echo "CANONICAL_ROOT=$root"
+            echo "COMPILE_DERIVED_DATA=$COMPILE_DERIVED_DATA"
+          } >> "$GITHUB_ENV"
+          echo "- Canonical build root: \`$root\`" >> "$GITHUB_STEP_SUMMARY"
           # Stage the package frameworks the way restore-app-host-test-product.sh
           # does, before the bundle build can rewrite PackageFrameworks. The app
           # host loads them from these stable copies at test time.
