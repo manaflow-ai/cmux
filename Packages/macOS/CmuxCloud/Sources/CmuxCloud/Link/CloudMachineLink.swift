@@ -857,6 +857,8 @@ public enum CloudLinkPipe: Sendable {
 /// A value resolved at most once from a GCD callback and awaited from Swift concurrency;
 /// `resolve(nil)` finishes it without a value (EOF before the line, no exit status).
 public final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
+    public init() {}
+
     private enum State {
         case pending
         case done(Value?)
