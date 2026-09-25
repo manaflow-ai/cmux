@@ -66,7 +66,9 @@ extension Workspace {
         // new pane and the original holds nothing but a placeholder.
         let originalPaneHasRealSurface = originalTabs.contains { panelIdFromSurfaceId($0.id) != nil }
         guard let base = originalTerminals.first ?? (originalPaneHasRealSurface ? nil : newTerminals.first),
-              let baseFrame = TerminalWindowPortalRegistry.provisionalBaseFrameInWindow(for: base)
+              let baseFrame = TerminalWindowPortalRegistry.provisionalBaseFrameInWindow(
+                for: base, transactionID: transactionID
+              )
                 ?? Self.frameInWindow(of: base) else { return }
 
         let configuration = bonsplitController.configuration
@@ -139,7 +141,9 @@ extension Workspace {
             presentedTerminalHostedViews(forTabs: bonsplitController.tabs(inPane: paneId))
         }
         let baseFrames = existingTerminals.compactMap { hostedView -> (GhosttySurfaceScrollView, NSRect)? in
-            let frame = TerminalWindowPortalRegistry.provisionalBaseFrameInWindow(for: hostedView)
+            let frame = TerminalWindowPortalRegistry.provisionalBaseFrameInWindow(
+                for: hostedView, transactionID: transactionID
+            )
                 ?? Self.frameInWindow(of: hostedView)
             return frame.map { (hostedView, $0) }
         }

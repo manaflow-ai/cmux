@@ -230,8 +230,14 @@ extension TerminalWindowPortalRegistry {
         return hosted.portal.provisionalPaneGeometry(forHostedId: hosted.hostedId)
     }
 
-    static func provisionalBaseFrameInWindow(for hostedView: GhosttySurfaceScrollView) -> NSRect? {
-        guard let hosted = hostedPortal(for: hostedView) else { return nil }
+    /// Reuses a pre-split frame only when reprojecting the same split node.
+    static func provisionalBaseFrameInWindow(
+        for hostedView: GhosttySurfaceScrollView,
+        transactionID: UUID
+    ) -> NSRect? {
+        guard let hosted = hostedPortal(for: hostedView),
+              hosted.portal.provisionalPaneGeometry(forHostedId: hosted.hostedId)?.transactionID == transactionID
+        else { return nil }
         return hosted.portal.provisionalBaseFrameInWindow(forHostedId: hosted.hostedId)
     }
 
