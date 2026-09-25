@@ -475,10 +475,9 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         }
     }
 
-    /// browser.click/fill resolve selectors with `document.querySelector`,
-    /// which cannot pierce shadow roots (even open ones), and there is no
-    /// piercing selector syntax. The failure mode is a `not_found` error
-    /// envelope ("Element not found") for elements inside the shadow root.
+    /// Selectors should resolve controls in an open shadow root just like
+    /// controls in the light DOM. The Apple Developer portal uses this
+    /// web-component pattern for its account forms.
     func testShadowOpen() throws {
         try launchApp()
         let sid = try openFixture("shadow-open")
@@ -493,27 +492,37 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
             "fixture should expose an open shadow root with #s-btn"
         )
 
-        XCTExpectFailure("shadow DOM selectors not yet supported") {
-            let clickEnvelope = socketEnvelope(
-                method: "browser.click",
-                params: ["surface_id": sid, "selector": "#s-btn"]
-            )
-            XCTAssertEqual(
-                clickEnvelope?["ok"] as? Bool,
-                true,
-                "browser.click cannot reach #s-btn inside the open shadow root: \(String(describing: clickEnvelope))"
-            )
-            let fillEnvelope = socketEnvelope(
-                method: "browser.fill",
-                params: ["surface_id": sid, "selector": "#s-input", "text": "shadow-ok"]
-            )
-            XCTAssertEqual(
-                fillEnvelope?["ok"] as? Bool,
-                true,
-                "browser.fill cannot reach #s-input inside the open shadow root: \(String(describing: fillEnvelope))"
-            )
-            XCTAssertEqual(try? statusText(surfaceID: sid), "PASS")
-        }
+        try socketResult(method: "browser.click", params: ["surface_id": sid, "selector": "#s-btn"])
+        try socketResult(
+            method: "browser.fill",
+            params: ["surface_id": sid, "selector": "#s-input", "text": "shadow-ok"]
+        )
+        XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
+    }
+
+    /// Framework-controlled inputs need real WebKit key events. A focused
+    /// element is a valid target for `type`, so callers do not need to invent
+    /// a selector that cannot describe a shadow-DOM node.
+    func testFocusedTypeUsesNativeWebKitInput() throws {
+        try launchApp()
+        let sid = try openFixture("event-trust-and-order")
+
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#field"])
+        try socketResult(method: "browser.type", params: ["surface_id": sid, "text": "abc"])
+
+        XCTAssertEqual(
+            try evalString("document.getElementById('field').value", surfaceID: sid),
+            "abc"
+        )
+        XCTAssertTrue(
+            try evalBool(
+                "window.__cmuxLog.filter(e => e.type === 'keydown').length === 3 && " +
+                    "window.__cmuxLog.filter(e => e.type === 'input').length === 3 && " +
+                    "window.__cmuxLog.filter(e => e.isTrusted !== true).length === 0",
+                surfaceID: sid
+            ),
+            "type should deliver trusted per-character keyboard and input events"
+        )
     }
 
     /// One level of `browser.frame.select` works (the click script's
