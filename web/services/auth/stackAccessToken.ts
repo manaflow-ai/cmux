@@ -85,7 +85,7 @@ function remoteKeySet(url: URL): JWTVerifyGetKey {
 }
 
 /** Test hook: drop cached remote key sets. */
-export function clearStackAccessTokenKeySetsForTests(): void {
+function clearStackAccessTokenKeySetsForTests(): void {
   remoteKeySets.clear();
 }
 

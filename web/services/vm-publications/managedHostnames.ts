@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const ORGANIZATION_SLUG_MAX_LENGTH = 19;
+const ORGANIZATION_SLUG_MAX_LENGTH = 19;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 export function validOrganizationSlug(value: string): boolean {

@@ -3,7 +3,7 @@ import { cloudDb } from "../../db/client";
 import { cloudVms, cloudVmRuntimeIntervals, stripeSubscriptions } from "../../db/schema";
 
 export const GO_INCLUDED_VM_HOURS = 40;
-export const GO_INCLUDED_VM_SECONDS = GO_INCLUDED_VM_HOURS * 3600;
+const GO_INCLUDED_VM_SECONDS = GO_INCLUDED_VM_HOURS * 3600;
 /** Two retained machines in total, at most one of them running. */
 export const GO_SAVED_VM_LIMIT = 2;
 

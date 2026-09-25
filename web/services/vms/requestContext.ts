@@ -113,7 +113,7 @@ export function currentVmRequestContext(): VmRequestContext | undefined {
 
 const CLIENT_HEADER_MAX = 120;
 
-export const VM_CLIENT_REQUEST_ID_HEADER = "x-cmux-client-request-id";
+const VM_CLIENT_REQUEST_ID_HEADER = "x-cmux-client-request-id";
 
 /** Read the client identity headers into a bounded, printable shape. */
 export function vmClientIdentityFromRequest(request: Request): VmClientIdentity {

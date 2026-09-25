@@ -9,7 +9,7 @@ export const RELAY_POLICY_TYP = "cmux-relay-policy-v1+jwt" as const;
 // Matches `CmxIrohRelayPolicyVerifier.maximumRelayCount`. Keep the signed
 // server catalog within the client's bounded decode and endpoint limits.
 export const MAX_MANAGED_RELAYS = 16;
-export const MAX_CUSTOM_RELAYS = 16;
+const MAX_CUSTOM_RELAYS = 16;
 
 const relayIDSchema = z.string().trim().min(1).max(64).regex(/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/);
 const relayLabelSchema = z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9](?:[A-Za-z0-9._ -]*[A-Za-z0-9])?$/);
@@ -85,7 +85,7 @@ export function parseRelayCatalog(raw: string | undefined): RelayCatalog {
   return parsed.data;
 }
 
-export const customRelaySchema = z.object({
+const customRelaySchema = z.object({
   id: relayIDSchema,
   provider: relayLabelSchema,
   region: relayLabelSchema,

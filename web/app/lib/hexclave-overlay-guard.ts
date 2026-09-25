@@ -3,7 +3,7 @@
 import { posthog, whenAnalyticsCaptureBuffered } from "./posthog-client";
 
 /** Class Hexclave gives the full-screen card it appends to `<body>`. */
-export const HEXCLAVE_SETUP_OVERLAY_CLASS = "hexclave-setup-error-overlay";
+const HEXCLAVE_SETUP_OVERLAY_CLASS = "hexclave-setup-error-overlay";
 
 /**
  * Hexclave renders a failed authentication flow as a full-screen modal that

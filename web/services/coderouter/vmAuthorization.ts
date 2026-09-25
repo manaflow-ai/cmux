@@ -2,8 +2,8 @@ import { decodeProtectedHeader, jwtVerify, SignJWT } from "jose";
 import { createSecretKey, randomUUID } from "node:crypto";
 
 export const VM_AUTHORIZATION_HEADER = "x-cmux-authorization";
-export const VM_AUTHORIZATION_AUDIENCE = "cmux-vm-model-plane";
-export const VM_AUTHORIZATION_ALGORITHM = "HS256" as const;
+const VM_AUTHORIZATION_AUDIENCE = "cmux-vm-model-plane";
+const VM_AUTHORIZATION_ALGORITHM = "HS256" as const;
 export const VM_AUTHORIZATION_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 const TOKEN_TYPE = "cmux-vm+jwt";
 const KEY_ID = /^[a-zA-Z0-9_-]{1,64}$/;

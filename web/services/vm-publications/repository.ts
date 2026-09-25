@@ -745,7 +745,7 @@ async function requirePublicationRevision(
   return publication;
 }
 
-export function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVmPublicationRepositoryShape {
+function makeCloudVmPublicationRepository(getDb: typeof cloudDb): CloudVmPublicationRepositoryShape {
   return {
     claimProviderForwardAuth: (input) =>
       repositoryEffect("claimProviderForwardAuth", async () => {
@@ -2375,7 +2375,7 @@ export const CloudVmPublicationRepositoryLive = Layer.succeed(
   CloudVmPublicationRepository, makeCloudVmPublicationRepository(cloudDb),
 );
 
-export async function runCloudVmPublicationRepositoryEffect<A, E>(
+async function runCloudVmPublicationRepositoryEffect<A, E>(
   program: Effect.Effect<A, E, CloudVmPublicationRepository>,
 ): Promise<A> {
   const result = await Effect.runPromise(

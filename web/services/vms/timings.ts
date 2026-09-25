@@ -117,7 +117,7 @@ export async function measureVmAsync<T>(
   }
 }
 
-export function measureVmSync<T>(
+function measureVmSync<T>(
   timing: VmTimingSink | undefined,
   stage: VmTimingStage,
   fn: () => T,

@@ -28,7 +28,7 @@ export type VmResourceName = keyof VmResourceReservation;
  * Callers must use their conservative fallback when a provider value is
  * outside these bounds instead of treating it as a real machine shape.
  */
-export const VM_PROVIDER_RESOURCE_BOUNDS = {
+const VM_PROVIDER_RESOURCE_BOUNDS = {
   vcpus: { min: 1, max: 32 },
   memoryMb: { min: 4 * 1024, max: 64 * 1024 },
   diskMb: { min: 16 * 1024, max: VM_DISK_MB_MAX },

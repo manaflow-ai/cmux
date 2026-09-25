@@ -1,4 +1,4 @@
-export const CODEROUTER_ORGANIZATION_COOKIE =
+const CODEROUTER_ORGANIZATION_COOKIE =
   "cmux_coderouter_organization";
 
 const ORGANIZATION_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;

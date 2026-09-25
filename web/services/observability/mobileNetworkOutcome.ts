@@ -258,7 +258,7 @@ export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutc
   };
 }
 
-export function parseMobileIrohPathEvent(candidate: unknown): MobileIrohPathEvent | null {
+function parseMobileIrohPathEvent(candidate: unknown): MobileIrohPathEvent | null {
   if (!isRecord(candidate) || candidate.event !== IROH_PATH_EVENT_NAME || !isRecord(candidate.properties)) return null;
   if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties, irohPathPropertyKeys)) return null;
   const properties = candidate.properties;
@@ -300,7 +300,7 @@ function consistentIrohPathFields(
     && (operation !== "lagged" || path === "unknown");
 }
 
-export function parseMobileTerminalLatencyWindow(candidate: unknown): MobileTerminalLatencyWindow | null {
+function parseMobileTerminalLatencyWindow(candidate: unknown): MobileTerminalLatencyWindow | null {
   if (!isRecord(candidate) || candidate.event !== TERMINAL_WINDOW_EVENT_NAME || !isRecord(candidate.properties)) return null;
   if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
   const properties = candidate.properties;
@@ -382,7 +382,7 @@ function parseTerminalHistograms(properties: Record<string, unknown>): Record<st
   return histograms;
 }
 
-export function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTerminalLatencyAnomaly | null {
+function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTerminalLatencyAnomaly | null {
   if (!isRecord(candidate) || candidate.event !== TERMINAL_ANOMALY_EVENT_NAME || !isRecord(candidate.properties)) return null;
   if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
   const properties = candidate.properties;
@@ -462,7 +462,7 @@ function parseMobileTaskModelRetryMetadata(
   };
 }
 
-export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskModelDiscovery | null {
+function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskModelDiscovery | null {
   if (!isRecord(candidate) || candidate.event !== TASK_MODEL_EVENT_NAME || !isRecord(candidate.properties)) return null;
   if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
   const payload = parseMobileTaskModelDiscoveryPayload(candidate.properties);
@@ -483,7 +483,7 @@ export function parseMobileTaskModelDiscovery(candidate: unknown): MobileTaskMod
   };
 }
 
-export function parseMobileTaskModelResult(candidate: unknown): MobileTaskModelResult | null {
+function parseMobileTaskModelResult(candidate: unknown): MobileTaskModelResult | null {
   if (!isRecord(candidate) || candidate.event !== TASK_MODEL_RESULT_EVENT_NAME || !isRecord(candidate.properties)) return null;
   if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
   const payload = parseMobileTaskModelResultPayload(candidate.properties);
@@ -702,7 +702,7 @@ function parseMetadata(
 }
 
 /** Emits one fixed-name span per terminal connectivity phase into Axiom. */
-export async function emitMobileNetworkOutcomes(
+async function emitMobileNetworkOutcomes(
   userId: string,
   batch: readonly MobileNetworkOutcome[],
 ): Promise<void> {

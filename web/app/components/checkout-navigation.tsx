@@ -20,7 +20,7 @@ const CHECKOUT_PATH = "/api/billing/checkout";
 // (which flashes a blank page while it builds the Stripe session server-side),
 // fetch the resolved destination as JSON and redirect the browser straight
 // there, keeping a spinner on the button until the page leaves.
-export function useCheckoutRedirect() {
+function useCheckoutRedirect() {
   const [pending, setPending] = useState(false);
 
   const start = useCallback(
@@ -71,7 +71,7 @@ export function useCheckoutRedirect() {
   return { pending, start };
 }
 
-export function CheckoutSpinner() {
+function CheckoutSpinner() {
   return (
     <svg
       className="animate-spin"

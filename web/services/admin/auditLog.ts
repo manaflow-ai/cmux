@@ -55,7 +55,7 @@ export type AdminAuditPage = {
   readonly nextCursor: string | null;
 };
 
-export const ADMIN_AUDIT_DEFAULT_LIMIT = 50;
+const ADMIN_AUDIT_DEFAULT_LIMIT = 50;
 export const ADMIN_AUDIT_MAX_LIMIT = 200;
 
 const AUDIT_WRITE_FAILED_EVENT = "admin.audit.write_failed";
@@ -229,7 +229,7 @@ function keysetBefore(cursor: AuditCursor) {
   );
 }
 
-export class AdminAuditInvalidCursorError extends Error {
+class AdminAuditInvalidCursorError extends Error {
   constructor() {
     super("Invalid audit cursor");
     this.name = "AdminAuditInvalidCursorError";

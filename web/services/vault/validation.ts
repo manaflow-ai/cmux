@@ -4,7 +4,7 @@ export const VAULT_AGENTS = ["claude", "codex", "pi"] as const;
 export type VaultAgent = typeof VAULT_AGENTS[number];
 
 export const MAX_VAULT_BATCH_ITEMS = 25;
-export const MAX_VAULT_REQUEST_BYTES = 64 * 1024;
+const MAX_VAULT_REQUEST_BYTES = 64 * 1024;
 
 const AGENTS = new Set<string>(VAULT_AGENTS);
 const SHA256_RE = /^[a-f0-9]{64}$/;

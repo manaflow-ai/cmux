@@ -10,10 +10,10 @@
 import { createPrivateKey, sign as edSign, type KeyObject } from "node:crypto";
 import { configuredRelayCatalog } from "./catalog";
 
-export const RELAY_TOKEN_ISS = "cmux";
-export const RELAY_TOKEN_AUD = "cmux-relay";
+const RELAY_TOKEN_ISS = "cmux";
+const RELAY_TOKEN_AUD = "cmux-relay";
 export const RELAY_TOKEN_TTL_SECONDS = 300; // short-lived; the client refreshes
-export const RELAY_TOKEN_REFRESH_LEAD_SECONDS = 60;
+const RELAY_TOKEN_REFRESH_LEAD_SECONDS = 60;
 
 export type ManagedRelayCredentialGrant = {
   readonly relayUrl: string;

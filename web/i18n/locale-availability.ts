@@ -5,7 +5,7 @@ export const featureWorkflowContentLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
-export const featureWorkflowDocPaths = [
+const featureWorkflowDocPaths = [
   "/docs/vault",
   "/docs/task-manager",
 ] as const;
@@ -67,7 +67,7 @@ const fallbackContentRoutes = [
   { path: "/blog/gpl", locales: englishFallbackContentLocales },
 ] as const;
 
-export const fallbackContentPaths = fallbackContentRoutes.map(
+const fallbackContentPaths = fallbackContentRoutes.map(
   ({ path }) => path,
 );
 

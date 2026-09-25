@@ -3,7 +3,7 @@
 
 export type ApnsEnvironment = "sandbox" | "production";
 
-export const APNS_HOSTS: Record<ApnsEnvironment, string> = {
+const APNS_HOSTS: Record<ApnsEnvironment, string> = {
   sandbox: "api.sandbox.push.apple.com",
   production: "api.push.apple.com",
 };

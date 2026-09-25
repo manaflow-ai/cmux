@@ -222,7 +222,7 @@ export function parseRegistrationPayload(value: unknown, now: Date): IrohRegistr
   return payload;
 }
 
-export function parseIrohDirectPorts(value: unknown): IrohDirectPorts {
+function parseIrohDirectPorts(value: unknown): IrohDirectPorts {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new IrohInvalidInputError({ code: "invalid_direct_ports" });
   }

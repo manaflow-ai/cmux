@@ -24,7 +24,7 @@ export function canIOSBindingUseMac(
 }
 
 /** Personal Mac discovery keeps the native viewer's exact channel policy. */
-export function canMacBindingUseMac(caller: BuildBinding, target: BuildBinding): boolean {
+function canMacBindingUseMac(caller: BuildBinding, target: BuildBinding): boolean {
   if (caller.platform !== "mac" || target.platform !== "mac") return false;
   if (caller.deviceUuid === target.deviceUuid) return false;
   if (!caller.clientNamespace.startsWith("mac:") || !target.clientNamespace.startsWith("mac:")) return false;

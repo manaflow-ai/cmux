@@ -22,7 +22,7 @@ export async function resolveBillingTeam(
   return resolveBillingTeamFromTeams(teams);
 }
 
-export function resolveBillingTeamFromTeams(
+function resolveBillingTeamFromTeams(
   teams: readonly BillingTeamLike[],
 ): BillingTeamLike | null {
   if (teams.length === 1) return teams[0];

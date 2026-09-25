@@ -27,7 +27,7 @@ type PathHintLike = {
 };
 
 /** Keep only endpoint-reported managed relay URLs for server persistence. */
-export function serverPublishedIrohPathHints<T extends PathHintLike>(
+function serverPublishedIrohPathHints<T extends PathHintLike>(
   hints: readonly T[],
 ): T[] {
   return hints.filter((hint) =>
