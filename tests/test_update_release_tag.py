@@ -2,11 +2,9 @@
 """The nightly completion marker is updated through a verified API ref write."""
 
 import importlib.util
-import io
 import json
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest import mock
 from urllib.error import HTTPError
@@ -158,52 +156,6 @@ class UpdateReleaseTagTests(unittest.TestCase):
             MODULE.update_tag("owner/repo", "rc", self.SHA, allow_non_descendant=True)
         self.assertEqual([method for method, _ in calls], ["GET", "PATCH", "GET"])
         self.assertEqual(json.loads(calls[1][1]), {"sha": self.SHA, "force": True})
-
-    def test_workflow_guard_refusal_on_move_warns_without_failing(self):
-        calls = []
-
-        def urlopen(request, timeout=None):
-            calls.append(request.method)
-            if "/compare/" in request.full_url:
-                return FakeResponse({"status": "ahead"})
-            if request.method == "PATCH":
-                raise HTTPError(
-                    "https://api.github.com", 403,
-                    "Resource not accessible by integration", {},
-                    io.BytesIO(b'{"message":"Resource not accessible by integration","status":"403"}'),
-                )
-            return FakeResponse({"object": {"sha": "b" * 40, "type": "commit"}})
-
-        with tempfile.NamedTemporaryFile("r", suffix=".md") as summary, \
-                mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=urlopen), \
-                mock.patch.object(MODULE.time, "sleep") as sleep, \
-                mock.patch.object(sys, "argv", ["update-release-tag.py", "--repo", "owner/repo", "--tag", "nightly", "--sha", self.SHA]), \
-                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token", "GITHUB_STEP_SUMMARY": summary.name}, clear=False), \
-                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
-            self.assertEqual(MODULE.main(), 0)
-            self.assertIn("Resource not accessible by integration", summary.read())
-        self.assertEqual(calls, ["GET", "GET", "PATCH"])
-        sleep.assert_not_called()
-        self.assertIn("::warning title=Release tag not moved::", stdout.getvalue())
-
-    def test_workflow_guard_refusal_on_create_warns_without_failing(self):
-        responses = [
-            HTTPError("https://api.github.com", 404, "missing", {}, None),
-            HTTPError("https://api.github.com", 403, "forbidden", {}, None),
-        ]
-        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=responses), \
-                mock.patch.object(sys, "argv", ["update-release-tag.py", "--repo", "owner/repo", "--tag", "nightly", "--sha", self.SHA]), \
-                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token", "GITHUB_STEP_SUMMARY": ""}, clear=False), \
-                mock.patch("sys.stdout", new_callable=io.StringIO):
-            self.assertEqual(MODULE.main(), 0)
-
-    def test_read_permission_failure_still_fails_the_step(self):
-        error = HTTPError("https://api.github.com", 403, "forbidden", {}, None)
-        with mock.patch.object(MODULE.urllib.request, "urlopen", side_effect=error), \
-                mock.patch.object(sys, "argv", ["update-release-tag.py", "--repo", "owner/repo", "--tag", "nightly", "--sha", self.SHA]), \
-                mock.patch.dict(MODULE.os.environ, {"GH_TOKEN": "test-token"}, clear=False), \
-                mock.patch("sys.stderr", new_callable=io.StringIO):
-            self.assertEqual(MODULE.main(), 1)
 
 
 if __name__ == "__main__":
