@@ -4281,7 +4281,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate lazy var externalHoverOwnerCoordinator = externalHoverDiagnosticsRenderDemandTracker.makeExternalHoverOwnerCoordinator(
         scheduler: { DispatchQueue.main.async(execute: $0) },
         project: { [weak self] entry in self?.applyExternalHoverProjection(entry) },
-        logTransition: { [surfaceSerial = externalHoverSurfaceSerial] verdict in
+        logTransition: { [surfaceSerial = externalHoverSurfaceSerial, externalHoverDiagnosticsGate] verdict in
             #if DEBUG
             if externalHoverDiagnosticsGate.isEnabled {
                 cmuxDebugLog(
