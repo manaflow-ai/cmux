@@ -255,9 +255,13 @@ JOB_TIMEOUT_MARGIN_SECONDS = 5 * 60
 JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEOUT_MARGIN_SECONDS
 # Time kept back after a cancel settles, for the re-run request itself.
 RERUN_MARGIN_SECONDS = 60
-# A refused job fails in seconds; a real failure of the first step after
-# checkout takes longer than this, and one that does not is cheap to retry.
-REFUSAL_SECONDS = 120
+# A refused job fails within the runner's setup; a real failure of the first
+# step after checkout takes longer than this, and one that does not is cheap to
+# retry. glaeda's hook may wait up to 240 s inside that setup for the mini's one
+# gui token (GUI_WAIT_S) before refusing, and an app-host shard waiting there
+# costs far less than a refusal's rescue round trip and a Blacksmith re-run
+# (cmuxterm-hq#661 Workstream 7), so the window covers that wait with room.
+REFUSAL_SECONDS = 360
 # The last attempt that may run on an owned pool: a refused job's one retry
 # on the fleet (see the module docstring).
 LAST_OWNED_ATTEMPT = 2
