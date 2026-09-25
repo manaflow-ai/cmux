@@ -9,7 +9,7 @@ import Testing
 @Suite("Event stream reconnect policy")
 struct EventStreamReconnectPolicyTests {
     @Test func receiveTimeoutConfigurationFailureIsTransient() {
-        #expect(EventStreamReconnectPolicy.isTransient(
+        #expect(EventStreamReconnectPolicy().isTransient(
             socketFailureKind: .receiveTimeoutConfiguration,
             message: "Failed to configure socket receive timeout (Invalid argument, errno 22)"
         ))
@@ -19,7 +19,7 @@ struct EventStreamReconnectPolicyTests {
         // The typed kind is authoritative: even a message that no longer
         // carries the legacy markers must stay transient once the producer
         // classified the failure as a receive-timeout configuration issue.
-        #expect(EventStreamReconnectPolicy.isTransient(
+        #expect(EventStreamReconnectPolicy().isTransient(
             socketFailureKind: .receiveTimeoutConfiguration,
             message: ""
         ))
@@ -29,14 +29,14 @@ struct EventStreamReconnectPolicyTests {
         // Event *content* that happens to contain timeout-flavored text must
         // never classify a protocol frame as transient: a malformed frame is a
         // protocol error and --reconnect must not retry it forever.
-        #expect(!EventStreamReconnectPolicy.isTransient(
+        #expect(!EventStreamReconnectPolicy().isTransient(
             message:
                 "Invalid event stream frame: {\"text\":\"failed to configure socket receive timeout (Invalid argument, errno 22)\"}"
         ))
     }
 
     @Test func permanentProtocolErrorsStayFatal() {
-        #expect(!EventStreamReconnectPolicy.isTransient(
+        #expect(!EventStreamReconnectPolicy().isTransient(
             message: "Invalid event stream frame: not json"
         ))
     }
@@ -50,17 +50,17 @@ struct EventStreamReconnectPolicyTests {
             "broken pipe",
             "errno 54"
         ] {
-            #expect(EventStreamReconnectPolicy.isTransient(message: message))
+            #expect(EventStreamReconnectPolicy().isTransient(message: message))
         }
-        #expect(!EventStreamReconnectPolicy.isTransient(message: "Invalid event stream frame"))
+        #expect(!EventStreamReconnectPolicy().isTransient(message: "Invalid event stream frame"))
     }
 
     @Test func untypedFallbackDescriptionStillClassified() {
-        #expect(EventStreamReconnectPolicy.isTransient(
+        #expect(EventStreamReconnectPolicy().isTransient(
             message: "",
             untypedDescription: "POSIXErrorCode(rawValue: 54): Connection reset by peer"
         ))
-        #expect(!EventStreamReconnectPolicy.isTransient(
+        #expect(!EventStreamReconnectPolicy().isTransient(
             message: "",
             untypedDescription: "Invalid event stream frame: not json"
         ))
