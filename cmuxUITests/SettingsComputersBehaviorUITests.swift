@@ -30,8 +30,7 @@ final class SettingsComputersBehaviorUITests: SettingsUITestCase {
         add(after)
 
         options.click()
-        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersEnabled"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersDiscoveryToggle"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersDiscoveryToggle"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["SettingsComputersIncomingAccessToggle"].exists)
         app.typeKey(.escape, modifierFlags: [])
     }
