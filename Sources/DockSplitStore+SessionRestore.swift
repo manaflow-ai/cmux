@@ -432,7 +432,7 @@ extension DockSplitStore {
             deferredAgentResumeStartupInput
         let willRunAgentInput =
             agentLaunch?.initialInput != nil ||
-            bindingLaunch?.initialInput != nil ||
+            (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
             deferredAgentResumeStartupInput != nil
         let startupHandlesWorkingDirectory =
             tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil ||

@@ -143,9 +143,23 @@ struct RecoverableMainWindowLifecycleTests {
             )
             #expect(notificationStore.notifications.count == 3)
 
-            // Lightweight snapshots preserve live orphan routes. The full
-            // persistence snapshot owns freezing and irreversible teardown.
-            snapshot = try #require(app.sessionSnapshotForTesting(includeScrollback: true))
+            // Snapshot capture cannot scan synchronously. A missing or incomplete
+            // index keeps the route live, even when scrollback is requested.
+            for index: RestorableAgentSessionIndex? in [nil, .unavailable] {
+                _ = try #require(app.debugBuildSessionSnapshotForTesting(
+                    includeScrollback: true,
+                    restorableAgentIndex: index
+                ))
+                #expect(app.recoverableMainWindowRoute(windowId: windowId)?.tabManager === liveManager)
+                #expect(app.recoverableMainWindowRoute(windowId: windowId)?.frozenWindowSnapshot == nil)
+                #expect(liveManager.tabs.contains { !$0.panels.isEmpty })
+            }
+
+            // A complete scan authorizes the full snapshot's irreversible teardown.
+            snapshot = try #require(app.debugBuildSessionSnapshotForTesting(
+                includeScrollback: true,
+                restorableAgentIndex: .empty
+            ))
 
             let frozenRoute = try #require(
                 app.recoverableMainWindowRoute(windowId: windowId)
@@ -240,6 +254,7 @@ struct RecoverableMainWindowLifecycleTests {
         let snapshot = try #require(
             app.debugBuildSessionSnapshotForTesting(
                 includeScrollback: true,
+                restorableAgentIndex: .empty,
                 surfaceResumeBindingIndex: bindingIndex
             )
         )

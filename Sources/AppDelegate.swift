@@ -4636,10 +4636,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func debugBuildSessionSnapshotForTesting(
         includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         buildSessionSnapshot(
             includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
     }

@@ -1841,7 +1841,7 @@ extension Workspace {
                 resumeBinding?.isAgentHookBinding == true
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
-                restoredBindingLaunch?.initialInput != nil ||
+                (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
                 (deferredAgentResumeStartupInput != nil && deferredPersistentSSHResumeCommand == nil)
 #if DEBUG
             if let restorableAgent {
