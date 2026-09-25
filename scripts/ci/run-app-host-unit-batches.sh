@@ -188,6 +188,10 @@ PY
   fi
 
   local accounting_status
+  local ratchet_mode=()
+  if [ -n "${CMUX_APP_HOST_UNIT_SELECTORS:-}" ]; then
+    ratchet_mode=(--changed-suites)
+  fi
   set +e
   python3 scripts/ci/app_host_result_accounting.py check-run \
     --inventory "$CMUX_APP_HOST_TEST_INVENTORY" \
@@ -195,7 +199,8 @@ PY
     --known scripts/ci/app-host-known-failures.json \
     --log "$batch_output" \
     --xcode-status "$batch_status" \
-    --tests-json "${typed_results[@]}"
+    --tests-json "${typed_results[@]}" \
+    ${ratchet_mode[@]+"${ratchet_mode[@]}"}
   accounting_status=$?
   set -e
   if [ "$accounting_status" -eq 0 ]; then

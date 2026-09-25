@@ -5,6 +5,7 @@
     seed_derived_data.py prune DERIVED_DATA
     seed_derived_data.py start DERIVED_DATA PREFIX REVISION
     seed_derived_data.py adopt SOURCE DERIVED_DATA PREFIX REVISION
+    seed_derived_data.py scope PREFIX
 
 nightly.yml `refresh-test-compilation-cache` already compiles main cold on the
 runner, Xcode and canonical paths that ci-macos.yml compile admission uses.
@@ -33,6 +34,15 @@ overlaps the package resolve that must finish before `adopt` can replay input
 times. `adopt` with the same PREFIX and REVISION reuses the pick and waits for
 the download instead of downloading again; without a matching `start` it picks
 and downloads itself.
+
+A seed also serves only the machine width it was built at. Swift Build
+passes the runner's CPU count to every swift-driver invocation as -j<n>, so
+a seed built on 12 vCPU reran all 94 SwiftDriver tasks and re-emitted 62
+modules on a 6 vCPU admission at seed distance 0 (run 36043267820). Keys
+therefore carry the width, `<PREFIX>j<n>-<revision>`: `scope` prints the
+prefix a saver writes under, and `start` and `adopt` take the unscoped
+PREFIX, prefer their own width, and fall back to another width's seed,
+which still beats a cold build.
 
 Only jobs holding the bucket credentials can write R2 objects or pointers, and
 only the main-branch seeder is given them, so a pull request can read the seed
@@ -67,6 +77,10 @@ R2_CACHE = Path(__file__).resolve().parent / "r2-cache.sh"
 # main seeds about one commit in ten, so fifty ancestors reach back several
 # seeds; past that the newest pointer is as good as anything.
 ANCESTOR_LIMIT = 50
+# The widths seed-derived-data.yml seeds at: 12 on the 12 vCPU macOS 26 pool,
+# 6 on the 6 vCPU macOS 26 and macOS 15 pools. The macOS 15 seeds carry their
+# own Xcode in the key's fingerprint, so a width is shared, never a seed.
+SEEDED_JOB_WIDTHS = (12, 6)
 USER_AGENT = "cmux-ci-seed-derived-data"
 # Shorter than the adopt step's 8-minute timeout, so adopt stops the detached
 # download itself rather than leaving it pulling a seed through the compile.
@@ -159,10 +173,30 @@ def nearest(prefix: str, revisions: list[str], exists=None) -> tuple[str, int] |
     return None
 
 
+def swift_jobs() -> int:
+    """The -j Swift Build gives swift-driver here: the active CPU count."""
+    override = os.environ.get("CMUX_SEED_SWIFT_JOBS")
+    return int(override) if override else os.sysconf("SC_NPROCESSORS_ONLN")
+
+
+def scoped(prefix: str, jobs: int | None = None) -> str:
+    return f"{prefix}j{jobs or swift_jobs()}-"
+
+
 def locate(prefix: str, revision: str) -> tuple[str, int | None]:
-    """The exact key to restore for REVISION, and its distance if a seed has it."""
-    found = nearest(prefix, lineage(revision))
-    return found if found else (prefix + revision, None)
+    """The exact key to restore for REVISION, and its distance if a seed has it.
+
+    PREFIX is unscoped. The nearest seed of this width wins; failing that,
+    the nearest of another width, whose extra module work is still far less
+    than a cold build.
+    """
+    revisions = lineage(revision)
+    own = swift_jobs()
+    for jobs in (own, *(width for width in SEEDED_JOB_WIDTHS if width != own)):
+        found = nearest(scoped(prefix, jobs), revisions)
+        if found:
+            return found
+    return scoped(prefix, own) + revision, None
 
 
 def beside(derived: Path, suffix: str) -> Path:
@@ -346,10 +380,14 @@ def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[1] == "prune":
         write_outputs(prune(Path(argv[2])))
         return 0
+    if len(argv) == 3 and argv[1] == "scope":
+        print(scoped(argv[2]))
+        return 0
     if len(argv) == 5 and argv[1] == "start":
         prefix, revision = argv[3], argv[4]
         exact, distance = locate(prefix, revision)
-        start(Path(argv[2]), exact, prefix, revision, distance)
+        # The newest-pointer fallback stays within this width.
+        start(Path(argv[2]), exact, scoped(prefix), revision, distance)
         return 0
     if len(argv) == 5 and argv[1] == "fetch":
         fetch_detached(Path(argv[2]), argv[3], argv[4])
@@ -358,8 +396,8 @@ def main(argv: list[str]) -> int:
         source, derived = Path(argv[2]).resolve(), Path(argv[3])
         prefix, revision = argv[4], argv[5]
         try:
-            exact, distance = picked(derived, prefix, revision) or locate(prefix, revision)
-            result = adopt(source, derived, exact, prefix)
+            exact, distance = picked(derived, scoped(prefix), revision) or locate(prefix, revision)
+            result = adopt(source, derived, exact, scoped(prefix))
             if result.get("hit") == "true":
                 # Commits between the seed and REVISION; empty means the
                 # newest pointer supplied it.
