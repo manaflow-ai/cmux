@@ -166,6 +166,9 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Record this owned Mac's build inputs",
     "Keep this owned Mac's DerivedData",
     "Keep this owned Mac's build state",
+    # What the kept DerivedData starts from, for the warm runner labels.
+    "List the commits this owned Mac starts from warm",
+    "Upload the owned Mac's warm keys",
     "Validate Swift warning budget",
     "Run early CLI binary smoke checks",
     "Start product publication timer",

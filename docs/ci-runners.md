@@ -230,6 +230,21 @@ Claude wrapper lanes always do. A root count above its pool's is an error.
 With 8 std minis and 2 light ones:
 `{"std": 32, "light": 4, "root-std": 8, "root-light": 2}`.
 
+Warm affinity (`CI_OWNED_WARM_LABELS=1`, off by default): an owned Mac keeps
+compile admission's DerivedData, and admission uploads the main commits that
+build starts from cheaply (`owned_build_state.py warm-keys`). When the CI run
+completes, `ci-owned-warm-labels.yml` (from main, with the route App's
+administration: write) labels the runner that ran admission
+`glaeda-warm-<sha12>` for each, at most 4, and removes those labels from the
+other runners of its root pool, so one runner per pool carries each commit.
+With live runners, the picker sends a run's admission to
+`["<root label>", "glaeda-warm-<merge base sha12>"]` when an idle root runner
+carries that label (the `admission_runner` output, attempt 1 only); otherwise
+admission takes the root label as before. v1 matches the merge base exactly;
+it does not rank runners by commit distance. A warm runner taken between the
+pick and the queue leaves admission waiting, and the rescue moves it to
+Blacksmith like any other stuck owned job.
+
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it
 stays busy. An offline mini still counts as a slot, and the snapshot can be
