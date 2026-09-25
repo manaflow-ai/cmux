@@ -10,18 +10,18 @@
 # this script, so they pass the same settings and a seed stays incremental.
 # The CAS path is still passed; with caching off nothing reads or writes it.
 #
-# `fingerprint` keys the cache. A cache entry bakes in the absolute source and
-# derived-data paths, so which paths the build used decides whether a seed can
-# hit at all. Runner pools disagree about those paths -- Blacksmith checks out
-# under /Users/runner/_work, WarpBuild under /Users/runner/work -- so a seed
-# built on one pool could never hit on another.
+# `fingerprint` keys the DerivedData seeds (seed-derived-data.yml, compile
+# admission, test-e2e.yml's adopted seed) and an owned Mac's kept state. A
+# DerivedData bakes in the absolute source and derived-data paths, and runner
+# pools disagree about those paths -- Blacksmith checks out under
+# /Users/runner/_work, WarpBuild under /Users/runner/work -- so a seed built on
+# one pool would rebuild everything on another.
 #
 # scripts/ci/canonical-build-root.sh removes that disagreement by building from
 # a fixed location every pool can reproduce. When the build runs there the key
 # drops the paths, because they are now a constant, and one seed serves every
-# pool. A build anywhere else keeps the old path-scoped key and its own private
-# cache, so an unconverted lane degrades to a miss rather than downloading a
-# seed whose entries cannot hit.
+# pool. A build anywhere else keeps the old path-scoped key, so an unconverted
+# lane misses rather than adopting a seed built at other paths.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -70,10 +70,10 @@ fingerprint() {
       printf 'derived-data=%s\n' "${derived_data##*/}"
       printf 'file-system=%s\n' "$XCBUILD_FILE_SYSTEM_MODE"
       echo "compilation-cache=off"
-      # The default root adds nothing, so every existing seed and cache key
-      # stays the same. Another root (an owned Mac's second compile slot)
-      # compiles different absolute paths into every entry, so it gets keys
-      # of its own and never adopts a seed or cache made at the default.
+      # The default root adds nothing to the key. Another root (an owned
+      # Mac's second compile slot) compiles different absolute paths into
+      # the DerivedData, so it gets keys of its own and never adopts a seed
+      # made at the default.
       if [ "$CANONICAL_BUILD_ROOT" != /private/tmp/cmux-ci ]; then
         printf 'root=%s\n' "$CANONICAL_BUILD_ROOT"
       fi
