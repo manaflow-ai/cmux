@@ -237,11 +237,29 @@ is not a trust identity. Project-local packs never inherit global trust. A
 changed manifest, commit, provider command, or declared origin requires a new
 decision.
 
-The prompt names the provider, intent, capability, path/origin, and action. A
-denied or unavailable capability is a typed failure visible to the caller; it
-does not fall back to a more privileged provider. The existing action trust
-store remains the persistence mechanism for command-backed actions until the
-provider registry has its own storage boundary.
+For a `stdio` provider, the grant is also bound to the executable that will
+actually run: its canonical path, file identity, SHA-256 of its bytes, and the
+resolved argument and environment allowlist are included in the approval
+record. PATH lookup is resolved before prompting and the selected executable is
+revalidated immediately before launch. Replacing the file, changing its
+contents, changing the selected PATH target, or changing its arguments creates
+a new fingerprint and requires a new decision. A provider cannot retain a
+previous grant by keeping the same command string.
+
+The prompt names the provider, intent, capability, path/origin, executable
+identity when applicable, and action. A denied or unavailable capability is a
+typed failure visible to the caller; it does not fall back to a more privileged
+provider. The existing action trust store remains the persistence mechanism for
+command-backed actions until the provider registry has its own storage boundary.
+
+Every provider request carries the approved registry revision and fingerprint.
+When a pack is disabled, removed, updated, or replaced, cmux publishes a new
+registry revision and revokes grants associated with the old fingerprint. The
+coordinator cancels in-flight requests, terminates stdio processes it owns,
+closes provider webviews, and refuses new network requests for the revoked
+revision. A provider may finish a read already returned to cmux, but it cannot
+start another operation from that snapshot. Reload therefore cannot leave a
+removed provider with a live command process or webview.
 
 ## Defaults commands
 
@@ -298,9 +316,9 @@ explicit command. Offline `list`, `show`, `diff`, and `doctor` work from the
 lock and cached manifest without network access.
 
 `doctor` checks schema compatibility, duplicate IDs, dependency cycles, path
-confinement, executable resolution, declared origins, capabilities, and lock
-integrity. It reports one stable diagnostic code per issue and never runs a
-provider as part of diagnosis.
+confinement, executable resolution and byte identity, declared origins,
+capabilities, and lock integrity. It reports one stable diagnostic code per
+issue and never runs a provider as part of diagnosis.
 
 ## Notes, Markdown, and Diff migration
 
