@@ -69,14 +69,13 @@ struct SidebarAccessibilityTreeTests {
         root.addSubview(projectView)
         let window = NSWindow(
             contentRect: root.bounds,
-            styleMask: [.titled, .closable],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
         window.contentView = root
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        window.orderFront(nil)
         defer {
             controller.dismantleContainerView(container)
             window.contentView = nil
@@ -108,7 +107,7 @@ struct SidebarAccessibilityTreeTests {
         try #require(projectWalk.cycle == nil, "Project accessibility children must not cycle: \(projectWalk.cycle ?? [])")
         try #require(
             projectContentRendered,
-            "The mounted project navigator must expose its file before the accessibility walk; rendered text: \(projectWalk.textValues.sorted()), active=\(NSApp.isActive), visible=\(window.isVisible), key=\(window.isKeyWindow), bounds=\(projectView.bounds), subviews=\(projectView.subviews.map { String(describing: type(of: $0)) })"
+            "The mounted project navigator must expose its file before the accessibility walk; rendered text: \(projectWalk.textValues.sorted()), accessibility nodes: \(projectWalk.visitedNodeTypes)"
         )
 
         let cell = try #require(
@@ -273,7 +272,6 @@ struct SidebarAccessibilityTreeTests {
     """
 }
 
-@MainActor
 private final class LegacyAccessibilityFixture: NSObject {
     let text: String?
     let children: [Any]
@@ -299,7 +297,6 @@ private final class LegacyAccessibilityFixture: NSObject {
     }
 }
 
-@MainActor
 private final class ModernAccessibilityFixture: NSObject {
     let text: String?
     let children: [Any]
