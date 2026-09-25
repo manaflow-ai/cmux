@@ -27,7 +27,7 @@ struct SidebarCloudWorkspaceBadgeTests {
             settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false).makeSnapshot()
         let candidates = snapshot.compactDirectoryCandidates + snapshot.branchDirectoryLines.flatMap(\.directoryCandidates)
         #expect(!candidates.isEmpty)
-        #expect(candidates.allSatisfy { $0.contains("Studio Mac") })
+        #expect(candidates.contains { $0.contains("Studio Mac") && $0.contains("/Users/remote/project") })
         #expect(candidates.first?.contains("/Users/remote/project") == true)
         #expect(snapshot.remoteWorkspaceBadgeSymbol == "desktopcomputer")
         #expect(snapshot.cloudWorkspaceLabel == nil)

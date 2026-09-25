@@ -76,10 +76,18 @@ struct CloudNativeLayoutProjectionTests {
         await coordinator.waitForIdle()
         if mixed {
             let localPane = try #require(viewer.bonsplitController.allPaneIds.first)
-            _ = try #require(viewer.newTerminalSurface(inPane: localPane, focus: false))
+            let localPanel = try #require(viewer.newTerminalSurface(inPane: localPane, focus: false))
+            let localResource = SurfaceResource(
+                id: .init(machine: .local, kind: .terminal, key: localPanel.id.uuidString),
+                title: "Local", detail: nil, lifecycle: .running, agent: nil,
+                remoteWorkspace: nil, remoteViews: nil, port: nil, url: nil
+            )
+            catalog.upsert(localResource)
+            catalog.record(.init(resource: localResource.id, workspaceID: viewer.id, panelID: localPanel.id))
         }
-        viewer.performRemoteTmuxMirrorMutation { _ = viewer.closePanel(second, force: true) }
-        catalog.endProjections(panelID: second, reason: reason)
+        let closingProjection = try #require(catalog.projection(forPanel: second))
+        coordinator.projectionDidEnd(closingProjection, reason: reason)
+        catalog.endProjections(panelID: second, reason: .replaced)
         await coordinator.waitForIdle()
         let shouldClose = reason == .paneClosed && !mixed
         #expect(closes == (shouldClose ? 1 : 0))
@@ -235,8 +243,9 @@ struct CloudNativeLayoutProjectionTests {
             "A failed write rolls the viewer back to the authoritative source layout")
         #expect(Set(viewer.panels.keys) == [first, second], "Layout reconciliation preserves terminal instances")
 
-        viewer.performRemoteTmuxMirrorMutation { _ = viewer.closePanel(second, force: true) }
-        catalog.endProjections(panelID: second)
+        let closingProjection = try #require(catalog.projection(forPanel: second))
+        coordinator.projectionDidEnd(closingProjection, reason: .paneClosed)
+        catalog.endProjections(panelID: second, reason: .replaced)
         await coordinator.waitForIdle()
         #expect(closeAttempts == 1)
         let restored = catalog.projections.filter { $0.workspaceID == viewer.id }
