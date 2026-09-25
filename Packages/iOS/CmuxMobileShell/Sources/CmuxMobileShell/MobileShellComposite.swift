@@ -6346,6 +6346,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let outcome: SecondaryMacEstablishmentOutcome?
         if allowsNewConnections {
+            // A replacement pairing on this device cannot dial until the
+            // retired owner's transport closes. That owner may have been
+            // retired without a retry (its refresh read the claimed row as
+            // revoked), so make its drain completion dial the replacement.
+            if let drain = secondaryMacDrainReservation(onDeviceOf: ownerKey),
+               drain.ownerKey != ownerKey,
+               drain.postDrainAction == .none {
+                drain.postDrainAction = .retry
+            }
             outcome = await establishSecondaryMacSubscription(
                 for: mac,
                 scope: scope,

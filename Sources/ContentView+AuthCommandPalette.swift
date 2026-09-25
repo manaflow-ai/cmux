@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCommandPalette
 import AppKit
 import Foundation

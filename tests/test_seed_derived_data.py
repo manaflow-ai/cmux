@@ -445,7 +445,7 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
 
 
 def evaluate(expression, context):
@@ -456,6 +456,8 @@ def evaluate(expression, context):
     which compares equal to ''. startsWith() and endsWith() compare case-insensitively.
     `<`, `>`, `<=` and `>=` compare as numbers, the way Actions coerces: null
     and '' are 0, and a string that is not a number never compares true.
+    `&&` and `||` short-circuit, as in Actions, so `x && fromJSON(x)` never
+    parses an empty x; fromJSON() and `[index]` read JSON arrays and objects.
     """
     text = expression.strip()
     if text.startswith("${{") and text.endswith("}}"):
@@ -468,6 +470,8 @@ def evaluate(expression, context):
         tokens.append(match.group(1))
         at = match.end()
     position = [0]
+    # How many enclosing operands are short-circuited: parsed, not evaluated.
+    skipped = [0]
 
     def peek():
         return tokens[position[0]] if position[0] < len(tokens) else None
@@ -477,7 +481,26 @@ def evaluate(expression, context):
         return tokens[position[0] - 1]
 
     def primary():
+        value = atom()
+        while peek() == "[":
+            take()
+            index = either()
+            if take() != "]":
+                raise ValueError("unbalanced brackets")
+            if isinstance(value, list) and isinstance(index, float):
+                value = value[int(index)] if 0 <= int(index) < len(value) else None
+            else:
+                value = value.get(str(index)) if isinstance(value, dict) else None
+        return value
+
+    def atom():
         token = take()
+        if token == "fromJSON" and peek() == "(":
+            take()
+            text = either()
+            if take() != ")":
+                raise ValueError("unbalanced parentheses")
+            return None if skipped[0] else json.loads(text)
         if token == "(":
             value = either()
             if take() != ")":
@@ -550,11 +573,18 @@ def evaluate(expression, context):
                 left = {">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b}[operator]
         return left
 
+    def operand(parse, skip):
+        skipped[0] += skip
+        try:
+            return parse()
+        finally:
+            skipped[0] -= skip
+
     def both():
         left = comparison()
         while peek() == "&&":
             take()
-            right = comparison()
+            right = operand(comparison, not left)
             left = right if left else left
         return left
 
@@ -562,7 +592,7 @@ def evaluate(expression, context):
         left = both()
         while peek() == "||":
             take()
-            right = both()
+            right = operand(both, bool(left))
             left = left if left else right
         return left
 
@@ -1057,8 +1087,43 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(shard, context), runner)
                 self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
 
+    def test_a_warm_admission_takes_the_warm_labels_on_attempt_one_only(self):
+        # pr_admission_runner names a root runner that kept a build of the
+        # run's merge base. Admission's attempt 1 asks for both labels; its
+        # consumers, and every retry, keep the root label.
+        macos = load("ci-macos.yml")["jobs"]
+        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
+        warm = json.dumps([root, "glaeda-warm-0123456789ab"])
+        owned_jobs = " admission shard-1 lag cli-product "
+        for attempt, actor, admission_runner, runner in (
+            ("1", "someone", warm, [root, "glaeda-warm-0123456789ab"]),
+            ("1", "someone", "", root),
+            ("2", "github-actions[bot]", warm, root),
+            ("2", "someone", warm, retry),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+                                     pr_root_runner=root, pr_admission_runner=admission_runner,
+                                     pr_owned_jobs=owned_jobs)
+            with self.subTest(attempt=attempt, actor=actor, admission_runner=admission_runner):
+                admission = macos["macos-compile-admission"]
+                self.assertEqual(evaluate(admission["runs-on"], context), runner)
+                product_runner = evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context)
+                self.assertEqual(product_runner, runner[0] if isinstance(runner, list) else runner)
+                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), product_runner)
+                context["needs"] = {"macos-compile-admission": {"outputs": {"runner": product_runner}}}
+                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                self.assertEqual(evaluate(shard, context), product_runner)
+
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}
+        # Short-circuited operands are never evaluated, and JSON is indexed.
+        self.assertEqual(evaluate("${{ vars.EMPTY && fromJSON(vars.EMPTY) || 'y' }}", context), "y")
+        self.assertEqual(evaluate("${{ vars.A || fromJSON(vars.EMPTY) }}", context), "a")
+        self.assertEqual(evaluate("${{ fromJSON('[\"x\",\"y\"]')[1] }}", context), "y")
+        self.assertEqual(evaluate("${{ fromJSON('[\"x\"]') }}", context), ["x"])
         self.assertEqual(evaluate("${{ vars.A && 'x' || 'y' }}", context), "x")
         self.assertEqual(evaluate("${{ vars.EMPTY && 'x' || 'y' }}", context), "y")
         self.assertEqual(evaluate("${{ vars.MISSING || vars.A }}", context), "a")
