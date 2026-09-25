@@ -177,6 +177,15 @@ import Testing
         #expect(!decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    @Test func presentationKeyTracksTodoControlsGate() {
+        let disabled = Self.presentationKey(todoControlsEnabled: false)
+        let enabled = Self.presentationKey(todoControlsEnabled: true)
+
+        #expect(!disabled.todoControlsEnabled)
+        #expect(enabled.todoControlsEnabled)
+        #expect(disabled != enabled)
+    }
+
     static func snapshot(
         presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey? = nil,
         title: String = "workspace",
@@ -234,6 +243,7 @@ import Testing
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
         showsAgentActivity: Bool = true,
+        todoControlsEnabled: Bool = false,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -249,6 +259,7 @@ import Testing
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
             showsAgentActivity: showsAgentActivity,
+            todoControlsEnabled: todoControlsEnabled,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }
