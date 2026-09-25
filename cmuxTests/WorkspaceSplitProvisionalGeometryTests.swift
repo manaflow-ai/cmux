@@ -48,6 +48,38 @@ struct WorkspaceSplitProvisionalGeometryTests {
         #expect(newPane.tabs.contains { $0.id == rootSplit.id.uuidString })
     }
 
+    @Test func rootSplitProjectsEveryExistingTerminalIntoTheShrunkenTree() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let firstSplit = try #require(fixture.workspace.newTerminalSplit(
+            from: fixture.sourcePanelId,
+            orientation: .vertical,
+            focus: false
+        ))
+        let sibling = try #require(fixture.workspace.terminalPanel(for: firstSplit.id))
+        let siblingAnchor = NSView(frame: fixture.anchor.frame)
+        fixture.window.contentView?.addSubview(siblingAnchor)
+        sibling.hostedView.setVisibleInUI(true)
+        TerminalWindowPortalRegistry.bind(hostedView: sibling.hostedView, to: siblingAnchor, visibleInUI: true)
+        try #require(TerminalWindowPortalRegistry.isPresented(sibling.hostedView))
+        defer {
+            TerminalWindowPortalRegistry.detach(hostedView: sibling.hostedView)
+            siblingAnchor.removeFromSuperview()
+        }
+
+        let beforeSource = fixture.sourceFrameInWindow()
+        let beforeSibling = sibling.hostedView.convert(sibling.hostedView.bounds, to: nil)
+        let oldTreeFrame = beforeSource.union(beforeSibling)
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: .right, focus: false))
+
+        let newPaneRegion = Fixture.newPaneRegion(of: oldTreeFrame, direction: .right)
+        let afterSource = fixture.sourceFrameInWindow()
+        let afterSibling = sibling.hostedView.convert(sibling.hostedView.bounds, to: nil)
+        #expect(!afterSource.intersects(newPaneRegion))
+        #expect(!afterSibling.intersects(newPaneRegion))
+        #expect(afterSibling.width < beforeSibling.width * 0.7)
+    }
+
     @Test(arguments: [SplitDirection.down, .up, .right, .left])
     func splitMovesSourceTerminalOutOfTheNewPaneInTheSameTransaction(direction: SplitDirection) throws {
         let fixture = try Fixture()
