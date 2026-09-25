@@ -14,6 +14,7 @@ struct FileExplorerNodeSorter {
         }
     }
 
+    /// Strict weak ordering for the configured key; date keys fall back to ``orderedByFallback(_:_:)`` when timestamps tie or are missing on both sides.
     private func isOrderedBefore(
         _ lhs: FileExplorerNode,
         _ rhs: FileExplorerNode
@@ -37,6 +38,7 @@ struct FileExplorerNodeSorter {
         }
     }
 
+    /// Orders two optional dates in `order`, placing a known date before a missing one. Returns `nil` when both are equal or both missing.
     private func orderedByDate(_ lhs: Date?, _ rhs: Date?, order: FileExplorerSortOrder) -> Bool? {
         switch (lhs, rhs) {
         case let (lhs?, rhs?) where lhs != rhs:
@@ -50,6 +52,7 @@ struct FileExplorerNodeSorter {
         }
     }
 
+    /// Tie-breaker for date sorts: folders first, then names A to Z regardless of the chosen order.
     private func orderedByFallback(_ lhs: FileExplorerNode, _ rhs: FileExplorerNode) -> Bool {
         if lhs.isDirectory != rhs.isDirectory {
             return lhs.isDirectory
@@ -57,6 +60,7 @@ struct FileExplorerNodeSorter {
         return orderedByName(lhs, rhs, order: .ascending)
     }
 
+    /// Case-insensitive name order in `order`, using the full path as a final tie-breaker so the result is deterministic.
     private func orderedByName(
         _ lhs: FileExplorerNode,
         _ rhs: FileExplorerNode,

@@ -171,6 +171,7 @@ struct FileExplorerEntry: Sendable {
     let creationDate: Date?
     let modificationDate: Date?
 
+    /// Creates an entry. Dates default to `nil` for providers that cannot report them; date sorts place those entries last.
     init(
         name: String,
         path: String,
@@ -198,6 +199,7 @@ final class FileExplorerNode: Identifiable {
     var error: String?
     var resourceContextID: UUID?
 
+    /// Creates a node for `path`, carrying the listing timestamps used by date sorts.
     init(
         name: String,
         path: String,
@@ -702,7 +704,13 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         return args
     }
 
-    private static func runSSHListCommand(
+    /// Lists `path` on the remote host with timestamps, falling back to the undated `ls` listing when the host lacks the needed tools. Runs off the caller's actor so building the command, parsing large listings, and the fallback round trip never occupy the main thread.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated private static func runSSHListCommand(
         path: String,
         connection: SSHFileExplorerConnection,
         showHidden: Bool
@@ -860,6 +868,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     /// unavailable.
     private static let birthTimeMinimumEpoch: TimeInterval = 100_000_000
 
+    /// Converts an epoch-seconds string from `stat` into a date, treating unparsable, non-positive, or below-`minimumEpoch` values as unknown.
     private static func dateFromEpochString(
         _ value: String,
         minimumEpoch: TimeInterval = 0
@@ -970,6 +979,7 @@ final class FileExplorerStore: ObservableObject {
     private let gitStatusProvider: GitStatusProvider
     private var gitStatusGeneration: UInt64 = 0
 
+    /// Creates the store. `sortDefaults` and `notificationCenter` are injectable so tests can isolate sort persistence.
     init(
         sortDefaults: UserDefaults = .standard,
         notificationCenter: NotificationCenter = .default,
@@ -1239,6 +1249,7 @@ final class FileExplorerStore: ObservableObject {
         expandedPaths.contains(node.path)
     }
 
+    /// Selects `key`. Switching from name to a date key starts in descending order so the newest entries come first.
     func setSortKey(_ key: FileExplorerSortKey) {
         let nextOrder: FileExplorerSortOrder = sortOptions.key == .name && key != .name
             ? .descending
@@ -1246,10 +1257,12 @@ final class FileExplorerStore: ObservableObject {
         setSortOptions(FileExplorerSortOptions(key: key, order: nextOrder))
     }
 
+    /// Changes the sort direction and keeps the current key.
     func setSortOrder(_ order: FileExplorerSortOrder) {
         setSortOptions(FileExplorerSortOptions(key: sortOptions.key, order: order))
     }
 
+    /// Applies and persists `options`, re-sorting every loaded level.
     func setSortOptions(_ options: FileExplorerSortOptions) {
         applySortOptions(options, persist: true)
     }
@@ -1411,10 +1424,12 @@ final class FileExplorerStore: ObservableObject {
         isRootLoading = false
     }
 
+    /// Adopts options written to `UserDefaults` elsewhere, such as a `cmux.json` reload or another explorer, without writing them back.
     private func applySortOptionsFromDefaults() {
         applySortOptions(sortSettings.resolvedOptions(), persist: false)
     }
 
+    /// Re-sorts loaded nodes and bumps ``sortRevision`` so the outline reloads; persists only when the change came from this store.
     private func applySortOptions(_ options: FileExplorerSortOptions, persist: Bool) {
         guard sortOptions != options else { return }; objectWillChange.send()
         sortOptions = options
@@ -1425,6 +1440,7 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
+    /// Reorders the root list and every cached child list in place. Nodes are reused, so selection, expansion, and `resourceContextID` are unaffected.
     private func resortLoadedNodes() {
         rootNodes = sortNodes(rootNodes)
         for node in nodesByPath.values {
@@ -1434,6 +1450,7 @@ final class FileExplorerStore: ObservableObject {
         }
     }
 
+    /// Sorts one sibling list with the current options.
     private func sortNodes(_ nodes: [FileExplorerNode]) -> [FileExplorerNode] {
         FileExplorerNodeSorter(options: sortOptions).sorted(nodes)
     }
@@ -1467,6 +1484,7 @@ final class FileExplorerStore: ObservableObject {
 }
 
 private extension Array where Element == FileExplorerNode {
+    /// Returns the nodes in the order `options` defines.
     func sorted(using options: FileExplorerSortOptions) -> [FileExplorerNode] {
         FileExplorerNodeSorter(options: options).sorted(self)
     }
