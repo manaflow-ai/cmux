@@ -220,7 +220,7 @@ Right-sidebar file explorer routing for file previews.
 
 ## diffViewer
 
-Built-in diff viewer settings. See [the detailed diff configuration](https://cmux.com/docs/configuration#diffviewdefaultlayout) for invocation overrides.
+Built-in diff viewer settings. See [the detailed diff configuration](https://cmux.com/docs/configuration#schema-diffViewer) for invocation overrides.
 
 | Key | Type | Default | Description |
 |---|---|---|---|

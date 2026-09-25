@@ -18,11 +18,14 @@ does not appear in the schema is not a license to add a guessed
 | `notes` | Project-scoped notes rendering | No `notes.*` or `templates.notes` setting is shipped yet. If the notes surface is Markdown, use the `markdown.*` defaults; otherwise wait for its schema section | Do not write an unknown key; re-check the schema when notes customization lands |
 
 The current schema intentionally exposes only the knobs listed above. Markdown
-theme, line-height, syntax-highlighter, anchor/image behavior, and Vim
-keybindings, plus file-preview backend selection, fallback policy, size limits,
-and video autoplay, do not have supported cmux settings yet. Explain that
-boundary and point to the schema or the templates follow-up instead of
-inventing a path.
+theme, line-height, syntax-highlighter, and anchor/image behavior, plus
+file-preview backend selection, fallback policy, size limits, and video
+autoplay, do not have dedicated cmux settings yet. Viewer navigation shortcuts
+are schema-backed under `shortcuts.bindings.diffViewerScroll*` and are shared by
+the Markdown and diff viewers; see the [shortcut action reference](../../cmux-settings/references/shortcut-actions.md)
+and [keyboard shortcut skill](../../cmux-keyboard-shortcuts/SKILL.md) before
+changing them. Explain the remaining boundary and point to the schema or the
+templates follow-up instead of inventing a path.
 
 ## Safe workflow
 
