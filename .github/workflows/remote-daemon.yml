@@ -21,6 +21,14 @@ on:
         required: false
         default: ""
         type: string
+      # Set only when pr_runner is persistent: the jobs of attempt 1 that take
+      # it, as " <key> <key> ". Every other job takes pr_retry_runner, so a
+      # run can use the owned machines that are free and overflow the rest
+      # (pr_runner_pool.py, CI_PR_POOL_OWNED_SPLIT).
+      pr_owned_jobs:
+        required: false
+        default: ""
+        type: string
   push:
     branches: [main]
     paths:
@@ -94,7 +102,7 @@ jobs:
     # Plain `go test` with no Xcode or GUI: any Mac will do. Follow the same
     # lanes as the other pull-request macOS jobs instead of pinning the
     # contended macOS 26 pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 1 && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && ((github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' remote-daemon ')) && inputs.pr_retry_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

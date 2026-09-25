@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Move a pull request CI run off a busy persistent macOS pool.
 
-pr_runner_pool.py puts every macOS job of a run on one pool. When that pool is
-owned (a `glaeda-<class>-xcode-<version>` label, pr_runner_pool.persistent),
-GitHub never re-routes a queued job: it waits for that pool however long the
-pool stays busy. ci-owned-pool-rescue.yml starts this script when a CI run is
+pr_runner_pool.py picks one pool per run. When that pool is owned (a
+`glaeda-<class>-xcode-<version>` label, pr_runner_pool.persistent), the jobs
+it names in `owned_jobs` take it and the rest take retry_runner (Blacksmith).
+GitHub never re-routes a queued job: one on the owned pool waits for it
+however long the pool stays busy. ci-owned-pool-rescue.yml starts this script when a CI run is
 requested, from the default branch, with Actions write.
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
@@ -17,9 +18,7 @@ after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
 pull request head has not moved, cancels the run, waits for it to finish, and
 re-runs it. The re-run is attempt 2, and pr_runner_pool.py never gives a
 retry attempt a persistent pool, so every macOS job of the re-run lands on
-Blacksmith together. A run is never split
-across pools, because app-host products only load under the Xcode that linked
-them (#14163); that is why the whole run is re-run, not one job.
+Blacksmith together.
 
 An owned runner can also refuse a job it was handed: glaeda's job-started
 hook exits 1 when the host is busy (its lock is held), and the job fails
@@ -31,8 +30,9 @@ its runner setup step failed or no workflow step succeeded, counts as refused
 not moved, cancels the run if it is still going, and re-runs its failed jobs.
 That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
 retry_runner, the Blacksmith pool the picker named, and what already passed
-(compile admission, say) is kept. That splits the run across machines, which
-is sound only because both sides run the same Xcode: retry_runner is a macOS
+(compile admission, say) is kept. A run on an owned pool is split across pools
+anyway (per-job placement, CI_PR_POOL_OWNED_SPLIT), which is
+sound only because both sides run the same Xcode: retry_runner is a macOS
 26 pool on the lane's pin, the pin the owned label names, and on 2026-09-24
 both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run

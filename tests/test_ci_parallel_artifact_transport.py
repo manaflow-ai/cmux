@@ -128,9 +128,11 @@ class WorkflowWiringTests(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW)["jobs"]
         # Same permissions: the R2 transport needs id-token to mint its token.
         self.assertEqual(jobs["cli-product-tests"]["permissions"], jobs["app-host-unit-tests"]["permissions"])
+        # The two routes differ only by the job's owned_jobs key (#14318).
         self.assertEqual(
-            step_block(block, "Verify GitHub-hosted route"),
-            step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route"),
+            step_block(block, "Verify GitHub-hosted route").replace("' cli-product '", "KEY"),
+            step_block(job_block("app-host-unit-tests"), "Verify GitHub-hosted route")
+            .replace("format(' shard-{0} ', matrix.shard)", "KEY"),
         )
 
     def test_layer_transport_prefers_parallel_reads_and_keeps_the_stream_fallback(self):

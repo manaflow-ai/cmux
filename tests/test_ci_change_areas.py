@@ -4251,11 +4251,22 @@ def app_host_product_consumers(workflow: dict) -> dict[str, dict]:
     }
 
 
-# A re-run of failed shards on a run the picker put on an owned pool moves to
-# the Blacksmith pool it named on the same Xcode (pr_runner_pool.py).
-PRODUCT_RUNNER_OUTPUT = (
-    "${{ github.run_attempt > 1 && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}"
-)
+# On a run the picker put on an owned pool, a consumer it did not place there
+# (every GUI job), and any re-run of failed jobs, takes the Blacksmith pool it
+# named on the lane's Xcode, which is the Xcode the owned label names
+# (pr_runner_pool.py). Each consumer tests its own owned_jobs key.
+PRODUCT_RUNNER_KEYS = {
+    "app-host-unit-tests": "format(' shard-{0} ', matrix.shard)",
+    "cli-product-tests": "' cli-product '",
+}
+
+
+def product_runner_output(key: str) -> str:
+    return ("${{ (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
+            "&& inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}")
+
+
+PRODUCT_RUNNER_OUTPUT = product_runner_output(PRODUCT_RUNNER_KEYS["app-host-unit-tests"])
 PRODUCT_XCODE_OUTPUT = "${{ needs.macos-compile-admission.outputs.xcode_app }}"
 
 
@@ -4279,11 +4290,15 @@ def product_consumer_route_violations(workflow: dict) -> list[str]:
     for name, job in app_host_product_consumers(workflow).items():
         runs_on = job.get("runs-on", "")
         xcode = (job.get("env") or {}).get("CMUX_CI_XCODE_APP")
-        if runs_on == PRODUCT_RUNNER_OUTPUT and xcode == PRODUCT_XCODE_OUTPUT:
+        if name in PRODUCT_RUNNER_KEYS and runs_on == product_runner_output(PRODUCT_RUNNER_KEYS[name]) \
+                and xcode == PRODUCT_XCODE_OUTPUT:
             continue
         if (
             name == "tests-build-and-lag"
-            and runs_on.replace("vars.MACOS_RUNNER_DISPLAY", "vars.MACOS_RUNNER_15") == producer["runs-on"]
+            # Its own owned_jobs key, so it never follows admission's placement.
+            and "' lag '" in runs_on
+            and runs_on.replace("vars.MACOS_RUNNER_DISPLAY", "vars.MACOS_RUNNER_15").replace(
+                "' lag '", "' admission '") == producer["runs-on"]
             and xcode == producer["env"]["CMUX_CI_XCODE_APP"]
         ):
             continue
@@ -4428,7 +4443,10 @@ def test_compile_admission_runs_changed_suites_that_need_no_worker() -> None:
         assert outputs(["Sources/Workspace.swift"])["unit_in_admission"] == "false"
 
     ci = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
-    assert ci["jobs"]["changes"]["outputs"]["unit_in_admission"] == "${{ steps.suite.outputs.unit_in_admission }}"
+    # A compile admission on an owned Mac holds glaeda's compile token, not the
+    # gui token, so a persistent pick moves the changed suites to shard 8.
+    assert ci["jobs"]["changes"]["outputs"]["unit_in_admission"] == (
+        "${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}")
     assert ci["jobs"]["macos"]["with"]["unit_in_admission"] == "${{ needs.changes.outputs.unit_in_admission }}"
 
     workflow = yaml.safe_load(MACOS_WORKFLOW.read_text(encoding="utf-8"))
