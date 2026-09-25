@@ -95,12 +95,16 @@ describe("appearanceBackgroundColor", () => {
       customProperties: {
         "--cmux-diff-accent": "#ff4fd8",
         "--cmux-diff-error": "#ff3355",
+        "--cmux-diff-private-selector": "#123456",
+        "--cmux-diff-renamed-light": "not-a-color",
       },
-    } as any));
+    }));
 
     const style = dom.window.document.documentElement.style;
     expect(style.getPropertyValue("--cmux-diff-accent")).toBe("#ff4fd8");
     expect(style.getPropertyValue("--cmux-diff-error")).toBe("#ff3355");
+    expect(style.getPropertyValue("--cmux-diff-private-selector")).toBe("");
+    expect(style.getPropertyValue("--cmux-diff-renamed-light")).toBe("");
   });
 
   test("keeps the page surface transparent for opaque themes", () => {

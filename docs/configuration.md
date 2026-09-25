@@ -311,6 +311,23 @@ Default: `unified`.
 
 The toolbar layout toggle persists the last user choice for future generated diff viewers. Passing `cmux diff --layout split` or `cmux diff --layout unified` overrides both the saved toolbar choice and this default for that invocation.
 
+### `diffViewer.cssVariables`
+
+Overrides the documented diff viewer chrome colors without patching or rebuilding cmux. Values must be six-digit hex colors. The supported properties are `--cmux-diff-accent`, `--cmux-diff-error`, `--cmux-diff-renamed-light`, `--cmux-diff-renamed-dark`, `--cmux-diff-addition-fg-light`, `--cmux-diff-addition-fg-dark`, `--cmux-diff-deletion-fg-light`, and `--cmux-diff-deletion-fg-dark`.
+
+```json
+{
+  "diffViewer": {
+    "cssVariables": {
+      "--cmux-diff-accent": "#ff4fd8",
+      "--cmux-diff-error": "#ff3355"
+    }
+  }
+}
+```
+
+The values are applied to newly opened diff viewers and take precedence over the built-in webview palette. Run `cmux reload-config` after editing `cmux.json`.
+
 ## `sidebar.beta.workspaceTodos.checklistStyle`
 
 Workspace todos are always available. Status is inferred from live signals (agent needs input / agent running / open PR / merged PRs / dirty tree) and can be pinned manually from the glyph's status popover, the row's context menu (Status submenu, Mark as Done), the command palette, or `cmux workspace status set <lane|auto>`; checklists are managed from the row, the workspace todo pane (`cmux todo open`), `cmux todo ...`, or by agents over the control socket.
