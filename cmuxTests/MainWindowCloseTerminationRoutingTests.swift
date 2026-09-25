@@ -81,7 +81,27 @@ private func evaluateCloseOutsideXCTest(
     defer { ApplicationTerminateSpy.uninstall() }
 
     let shouldClose = try body()
+    // The quit path hands NSApp.terminate to a later main-queue turn (#10788).
+    // Drain it while the spy is still installed so the real terminate never runs.
+    drainMainQueue()
     return (shouldClose, ApplicationTerminateSpy.callCount)
+}
+
+@MainActor
+private func drainMainQueue() {
+    let deadline = Date(timeIntervalSinceNow: 1.0)
+    var drained = false
+    DispatchQueue.main.async {
+        drained = true
+    }
+    while !drained {
+        if Date() >= deadline {
+            Issue.record("Timed out draining main queue")
+            return
+        }
+        let sliceDeadline = min(deadline, Date(timeIntervalSinceNow: 0.001))
+        _ = RunLoop.main.run(mode: .default, before: sliceDeadline)
+    }
 }
 
 @MainActor
