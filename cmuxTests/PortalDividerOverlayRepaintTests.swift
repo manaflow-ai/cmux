@@ -125,6 +125,9 @@ extension TerminalWindowPortalLifecycleTests {
         fixture.portal.detachHostedView(withId: ObjectIdentifier(fixture.hostedView))
         XCTAssertNil(fixture.hostedView.superview)
         XCTAssertGreaterThan(fixture.overlay.repaintRequestCount, before)
+        let afterRemoval = fixture.overlay.repaintRequestCount
+        fixture.overlay.refreshIfGeometryChanged()
+        XCTAssertEqual(fixture.overlay.repaintRequestCount, afterRemoval)
     }
 
     @MainActor
@@ -137,6 +140,9 @@ extension TerminalWindowPortalLifecycleTests {
         fixture.portal.hideEntry(forHostedId: ObjectIdentifier(fixture.hostedView))
         XCTAssertNil(fixture.hostedView.superview)
         XCTAssertGreaterThan(fixture.overlay.repaintRequestCount, before)
+        let afterRemoval = fixture.overlay.repaintRequestCount
+        fixture.overlay.refreshIfGeometryChanged()
+        XCTAssertEqual(fixture.overlay.repaintRequestCount, afterRemoval)
     }
 
     // MARK: - Fixture

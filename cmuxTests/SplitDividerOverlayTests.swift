@@ -56,4 +56,47 @@ struct SplitDividerOverlayTests {
         divider.refreshIfGeometryChanged()
         #expect(divider.repaintRequestCount == before + 1)
     }
+
+    @Test(arguments: [false, true])
+    func colorOnlyUpdatesInvalidateOnce(backgroundChanges: Bool) throws {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = try #require(window.contentView)
+        let split = MutableColorSplitView(frame: root.bounds)
+        split.wantsLayer = true
+        split.layer?.backgroundColor = NSColor.white.cgColor
+        split.color = NSColor.red.withAlphaComponent(backgroundChanges ? 0.5 : 1)
+        split.addArrangedSubview(NSView())
+        split.addArrangedSubview(NSView())
+        root.addSubview(split)
+        let overlay = SplitDividerOverlayView(frame: root.bounds)
+        root.addSubview(overlay)
+
+        // Seed the colors through the real draw traversal, even with no occluding terminal.
+        let image = NSImage(size: root.bounds.size)
+        image.lockFocus()
+        overlay.draw(overlay.bounds)
+        image.unlockFocus()
+        let before = overlay.repaintRequestCount
+        if backgroundChanges {
+            split.layer?.backgroundColor = NSColor.black.cgColor
+        } else {
+            split.color = .blue
+        }
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(overlay.repaintRequestCount == before + 1)
+        NotificationCenter.default.post(name: NSWindow.didUpdateNotification, object: window)
+        #expect(overlay.repaintRequestCount == before + 1)
+    }
+}
+
+@MainActor
+private final class MutableColorSplitView: NSSplitView {
+    var color: NSColor = .red
+    override var dividerColor: NSColor { color }
 }
