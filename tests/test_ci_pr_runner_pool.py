@@ -1769,7 +1769,8 @@ class Wiring(unittest.TestCase):
 
     def test_a_rerun_of_failed_shards_leaves_the_owned_pool(self):
         shards = self.workflow("ci-macos.yml")["jobs"]["app-host-unit-tests"]
-        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, "
+        self.assertEqual(shards["runs-on"], "${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')"
+                                            "[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
                                             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
@@ -1898,9 +1899,14 @@ SIGNING_WORKFLOWS = ("ios-testflight.yml", "ios-app-store.yml", "ios-appstore-up
 IOS_SLOTS = {MINI: 40, ROOT_MINI: 10, IOS_SIM: 2}
 
 
+# test-ios.yml's per-job Xcode pin: only on an owned Mac, and never for a fork's pull request.
+IOS_XCODE_PIN = ("${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || "
+                 "github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}")
+
+
 def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_owned="1", owned="1",
               slots=None, ios_version="", device_family="", upload="", called="", ios_since=0, measure=None,
-              swift_package="", seed_cache=""):
+              swift_package="", seed_cache="", fork=False):
     calls = []
 
     def measured():
@@ -1914,7 +1920,7 @@ def ios_route(snap=None, *, lane="test-ios", requested="auto", variable="", ios_
         owned_slots=json.dumps(IOS_SLOTS if slots is None else slots),
         pr_xcode_app=PR_XCODE, order="", max_queued="",
         ios_version=ios_version, device_family=device_family, upload=upload, called=called,
-        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW)
+        swift_package=swift_package, seed_cache=seed_cache, measure=measured, now=NOW, fork=fork)
     return route, len(calls)
 
 
@@ -2096,6 +2102,11 @@ class IOSRouting(unittest.TestCase):
         self.assertTrue(ios_route(sim_fleet(), device_family="iphone", ios_since=1)[0].persistent)
         self.assertTrue(ios_route(sim_fleet(), device_family="iphone",
                                   slots={**IOS_SLOTS, IOS_SIM: 3}, ios_since=2)[0].persistent)
+
+    def test_a_fork_pull_request_never_routes_or_reads(self):
+        for requested in ("", "auto", "owned"):
+            route, calls = ios_route(sim_fleet(), requested=requested, fork=True)
+            self.assertEqual((route.label, route.persistent, calls), (SMALL, False, 0))
 
     def test_no_simulator_slots_entry_never_routes_or_reads(self):
         route, calls = ios_route(sim_fleet(), slots={MINI: 40, ROOT_MINI: 10})
@@ -2306,7 +2317,7 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(step["env"]["SWIFT_PACKAGE"], "${{ inputs.swift_package }}")
         self.assertEqual(step["env"]["SEED_CACHE"], "${{ inputs.seed_cache }}")
         self.assertIn('--seed-cache "$SEED_CACHE"', step["run"])
-        pin = "${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}"
+        pin = IOS_XCODE_PIN
         for name in ("mobile-core-package", "ios-simulator-build", "ios-simulator"):
             self.assertEqual(jobs[name]["env"]["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
