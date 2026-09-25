@@ -214,6 +214,31 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # A trusted seed Mac keeps the seeds it builds and adopts, so the next
+      # seed job on it clones its lane's last seed instead of downloading it
+      # back from R2 (mini-6 and cmux15 seed jobs spent p50 856 s and 512 s
+      # at about 1.9 busy cores on 2026-09-25, cmuxterm-hq#661 Workstream 7).
+      # The same per-root layout owned admission uses (seed_caches), and only
+      # with room: prune_local keeps each root's newest two whatever the disk
+      # says, and mini-6's hook refuses jobs below 150 GiB free.
+      - name: Keep seeds on a trusted Mac
+        if: matrix.pool == vars.CI_SEED_TRUSTED_POOL
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          state=/Users/Shared/cmux-build-fleet/ci
+          cache="$state/seeds"
+          if [ -n "$CMUX_SEED_ROOT" ] && [ "$CMUX_SEED_ROOT" != 1 ]; then
+            cache="$state/cmux-ci-$CMUX_SEED_ROOT/seeds"
+          fi
+          free_gib=$(df -g / | awk 'NR==2 {print $4}')
+          if [ "${free_gib:-0}" -ge 200 ]; then
+            echo "CMUX_SEED_LOCAL_CACHE=$cache" >> "$GITHUB_ENV"
+            echo "Keeping seeds in $cache ($free_gib GiB free)"
+          else
+            echo "Not keeping seeds on this Mac: $free_gib GiB free, under 200"
+          fi
+
       - name: Compute seed key
         id: key
         run: |
@@ -387,6 +412,15 @@ jobs:
           backend: r2
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
           key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
+
+      # Before the product steps below rewrite Build/Products: the copy must
+      # be the seed exactly as saved. An APFS clone, so seconds.
+      - name: Keep the seed on this Mac
+        if: steps.bound.outputs.save == 'true' && env.CMUX_SEED_LOCAL_CACHE != ''
+        continue-on-error: true
+        env:
+          SEED_KEY: ${{ steps.key.outputs.scoped }}${{ github.sha }}
+        run: python3 scripts/ci/seed_derived_data.py keep "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_KEY"
 
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
