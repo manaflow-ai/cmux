@@ -4,7 +4,9 @@ import SwiftUI
 import UIKit
 
 /// TextKit measures the same attributed text it displays, reserving room on
-/// the last visible line for an accessible, inline expansion button.
+/// the last visible line for an accessible, inline expansion button. Taps on
+/// rendered Markdown links open through SwiftUI's `openURL`, the same path
+/// the Feed's other Markdown text uses.
 struct AgentFeedInlineText: UIViewRepresentable {
     let text: String
     let hasMoreText: Bool
@@ -15,6 +17,7 @@ struct AgentFeedInlineText: UIViewRepresentable {
     var color: UIColor = .label
     let open: @MainActor () -> Void
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.openURL) private var openURL
 
     func makeUIView(context: Context) -> AgentFeedInlineTextView {
         AgentFeedInlineTextView()
@@ -24,7 +27,7 @@ struct AgentFeedInlineText: UIViewRepresentable {
         _ = dynamicTypeSize
         view.configure(text: text, hasMoreText: hasMoreText, lineLimit: lineLimit,
                        itemID: itemID, textStyle: textStyle, monospaced: monospaced,
-                       color: color, open: open)
+                       color: color, open: open, openURL: { openURL($0) })
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: AgentFeedInlineTextView,
@@ -43,6 +46,7 @@ final class AgentFeedInlineTextView: UIView {
     private var font = UIFont.preferredFont(forTextStyle: .subheadline)
     private var textColor = UIColor.label
     private var open: (@MainActor () -> Void)?
+    private var openURL: (@MainActor (URL) -> Void)?
     private var measuredWidth: CGFloat = -1
     private var measuredSize: CGSize = .zero
     private var linkRange: NSRange?
@@ -62,18 +66,23 @@ final class AgentFeedInlineTextView: UIView {
         moreButton.accessibilityLabel = moreTitle
         moreButton.addTarget(self, action: #selector(expand), for: .touchUpInside)
         addSubview(moreButton)
+        // The text view stays non-interactive so row gestures (context menu,
+        // swipe actions) keep working; this recognizer begins only on a link.
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleLinkTap(_:))))
     }
 
     required init?(coder: NSCoder) { nil }
 
     func configure(text: String, hasMoreText: Bool, lineLimit: Int, itemID: String,
                    textStyle: UIFont.TextStyle, monospaced: Bool, color: UIColor,
-                   open: @escaping @MainActor () -> Void) {
+                   open: @escaping @MainActor () -> Void,
+                   openURL: @escaping @MainActor (URL) -> Void = { _ in }) {
         let preferred = UIFont.preferredFont(forTextStyle: textStyle, compatibleWith: traitCollection)
         let nextFont = monospaced
             ? UIFont.monospacedSystemFont(ofSize: preferred.pointSize, weight: .regular)
             : preferred
         self.open = open
+        self.openURL = openURL
         moreButton.accessibilityIdentifier = "MobileAgentFeedFullText-\(itemID)"
         guard source != text || self.hasMoreText != hasMoreText || self.lineLimit != lineLimit
                 || font != nextFont || textColor != color else { return }
@@ -267,5 +276,46 @@ final class AgentFeedInlineTextView: UIView {
     }
 
     @objc private func expand() { open?() }
+
+    /// The Markdown link destination drawn at `point`, in this view's
+    /// coordinates, or nil when the point is not on link text.
+    func link(at point: CGPoint) -> URL? {
+        guard let attributed = textView.attributedText, attributed.length > 0 else { return nil }
+        let layout = textView.layoutManager
+        let container = textView.textContainer
+        layout.ensureLayout(for: container)
+        let local = convert(point, to: textView)
+        let glyph = layout.glyphIndex(for: local, in: container)
+        // glyphIndex clamps to the nearest glyph; require a hit on it.
+        let glyphRect = layout.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: container)
+        guard glyphRect.insetBy(dx: -4, dy: -4).contains(local) else { return nil }
+        let index = layout.characterIndexForGlyph(at: glyph)
+        guard index < attributed.length else { return nil }
+        if let linkRange, NSLocationInRange(index, linkRange) { return nil }
+        switch attributed.attribute(.link, at: index, effectiveRange: nil) {
+        case let url as URL: return url
+        case let string as String: return URL(string: string)
+        default: return nil
+        }
+    }
+
+    /// Opens the link at `point`. Returns whether a link was opened.
+    @discardableResult
+    func activateLink(at point: CGPoint) -> Bool {
+        guard let url = link(at: point) else { return false }
+        openURL?(url)
+        return true
+    }
+
+    @objc private func handleLinkTap(_ recognizer: UITapGestureRecognizer) {
+        activateLink(at: recognizer.location(in: self))
+    }
+
+    override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard recognizer.view === self, recognizer is UITapGestureRecognizer else {
+            return super.gestureRecognizerShouldBegin(recognizer)
+        }
+        return link(at: recognizer.location(in: self)) != nil
+    }
 }
 #endif
