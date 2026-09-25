@@ -392,6 +392,92 @@ final class HostSettingsActions: SettingsHostActions {
         TerminalNotificationStore.shared.refreshAuthorizationStatus()
     }
 
+    // MARK: - Local session persistence
+
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary] {
+        let data = try await runLocalTmuxCLI(arguments: ["local-tmux", "list", "--json"])
+        do {
+            return try LocalTmuxSessionListDecoder().decode(data)
+        } catch {
+            hostSettingsLogger.error("Bundled local-tmux CLI returned invalid session data")
+            throw LocalTmuxSettingsActionError.invalidResponse
+        }
+    }
+
+    func startLocalTmuxSession(name: String) async throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workspace = AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace else {
+            throw LocalTmuxSettingsActionError.unavailable
+        }
+        let workspaceID = workspace.id
+        let cwd = workspace.currentDirectory
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        _ = try await runLocalTmuxCLI(arguments: Self.localTmuxStartArguments(
+            name: trimmedName,
+            workspaceID: workspaceID,
+            cwd: cwd,
+            socketPath: socketPath
+        ))
+    }
+
+    nonisolated static func localTmuxStartArguments(
+        name: String,
+        workspaceID: UUID,
+        cwd: String,
+        socketPath: String
+    ) -> [String] {
+        ["--socket", socketPath, "local-tmux", "start", "--name", name,
+         "--workspace", workspaceID.uuidString, "--cwd", cwd, "--json"]
+    }
+
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        var arguments = ["--socket", socketPath, "local-tmux", "attach"]
+        switch session.selector {
+        case .managed(let id, _):
+            arguments.append(contentsOf: ["--id", id.uuidString])
+        case .unmanaged(let name):
+            // A tmux session name may start with "-", so pass it as a flag value.
+            arguments.append(contentsOf: ["--name", name])
+        }
+        arguments.append("--json")
+        _ = try await runLocalTmuxCLI(arguments: arguments)
+    }
+
+    private func runLocalTmuxCLI(arguments: [String]) async throws -> Data {
+        guard let cliURL = CLIForwardingLaunchRouter.bundledCLIURL() else {
+            throw LocalTmuxSettingsActionError.cliMissing
+        }
+
+        return try await Self.runLocalTmuxCLI(executableURL: cliURL, arguments: arguments)
+    }
+
+    nonisolated static func runLocalTmuxCLI(
+        executableURL cliURL: URL,
+        arguments: [String],
+        runner: any CommandRunning = CommandRunner()
+    ) async throws -> Data {
+        try Task.checkCancellation()
+        let result = await runner.run(
+            directory: cliURL.deletingLastPathComponent().path,
+            executable: cliURL.path,
+            arguments: arguments,
+            timeout: 30
+        )
+        try Task.checkCancellation()
+        guard result.executionError == nil, !result.timedOut, result.exitStatus == 0 else {
+            if let diagnostics = result.stderr, !diagnostics.isEmpty {
+                hostSettingsLogger.error("Bundled local-tmux CLI failed: \(diagnostics, privacy: .private)")
+            }
+            throw LocalTmuxSettingsActionError.commandFailed
+        }
+        return Data((result.stdout ?? "").utf8)
+    }
+
     // MARK: - Right sidebar tabs
 
     func rightSidebarTabs() -> [RightSidebarTabSettingsItem] {
