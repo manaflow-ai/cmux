@@ -65,6 +65,10 @@ struct CloudTreeNativeDragOwnershipTests {
                 #expect(record.dragID == writer.dragID)
                 let expectedResources = try #require(node.dragGroup?.resources)
                 #expect(record.resourceIDs == expectedResources)
+                // A provisional writer is still owned by the pasteboard after
+                // the local reference is cleared. Clearing that external owner
+                // is the boundary that makes ARC deallocation observable.
+                pasteboard.clearContents()
                 return writer.dragID
             }()
             writer = nil
