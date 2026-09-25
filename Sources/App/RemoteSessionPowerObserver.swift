@@ -18,7 +18,11 @@ extension TerminalSurface: TerminalWakeRefreshable {}
 final class TerminalWakeRefreshScheduler {
     private let scheduler: MainActorDeferredActionScheduler
 
-    init(scheduler: MainActorDeferredActionScheduler = MainActorDeferredActionScheduler()) {
+    init() {
+        self.scheduler = MainActorDeferredActionScheduler()
+    }
+
+    init(scheduler: MainActorDeferredActionScheduler) {
         self.scheduler = scheduler
     }
 
