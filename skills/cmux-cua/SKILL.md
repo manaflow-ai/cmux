@@ -292,6 +292,7 @@ Settings → cmux Computer Use.
   MCP tool after the helper runtime is healthy.
 - Never hand-edit `docs/.../cmux-cua/mcp-tools.mdx` in the fork — it is
   generated from the Rust tool descriptions.
-- cmux-side UX lives in `Sources/App/ComputerUse*.swift`,
+- The runtime service, helper lifecycle, capture and daemon admission live in
+  `Packages/macOS/CmuxComputerUse/`. cmux-side UX lives in `Sources/App/ComputerUse*.swift`,
   `Packages/macOS/CmuxSettingsUI/.../Sections/ComputerUseSection.swift`, and the
   two wrappers under `Resources/bin/`.
