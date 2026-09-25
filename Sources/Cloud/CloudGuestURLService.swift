@@ -116,7 +116,8 @@ final class CloudGuestURLService {
                                               sourcePanelId: context.sourcePanelId, workingDirectory: nil, focus: false)
             opened = coordinator.open(context)
             if let externalURL {
-                opened = BrowserExternalAppOpener().open(externalURL, activates: false)
+                opened = await BrowserExternalAppOpener()
+                    .openAwaitingCompletion(externalURL, activates: false)
             }
         }
         guard self.generation == generation, !Task.isCancelled else { return }

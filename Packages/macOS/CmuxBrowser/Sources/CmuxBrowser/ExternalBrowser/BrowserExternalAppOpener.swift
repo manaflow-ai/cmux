@@ -14,21 +14,33 @@ public struct BrowserExternalAppOpener {
     /// Opens a URL through the system handler and controls whether it activates the handler.
     public typealias OpenWithSystemDefault = @MainActor (URL, Bool) -> Bool
 
+    /// Opens a URL through a resolved application and reports completion success.
+    public typealias OpenWithApplicationAwaitingCompletion = @MainActor (URL, URL, Bool) async -> Bool
+
+    /// Opens a URL through the system handler and reports completion success.
+    public typealias OpenWithSystemDefaultAwaitingCompletion = @MainActor (URL, Bool) async -> Bool
+
     private let defaults: UserDefaults
     private let openWithApplication: OpenWithApplication
     private let resolveApplication: ResolveApplication
     private let openWithSystemDefault: OpenWithSystemDefault
+    private let openWithApplicationAwaitingCompletion: OpenWithApplicationAwaitingCompletion
+    private let openWithSystemDefaultAwaitingCompletion: OpenWithSystemDefaultAwaitingCompletion
 
     init(
         defaults: UserDefaults = .standard,
         openWithApplication: @escaping OpenWithApplication = Self.openWithApplication,
         resolveApplication: @escaping ResolveApplication = Self.resolveApplication,
-        openWithSystemDefault: @escaping OpenWithSystemDefault = Self.openWithSystemDefault
+        openWithSystemDefault: @escaping OpenWithSystemDefault = Self.openWithSystemDefault,
+        openWithApplicationAwaitingCompletion: @escaping OpenWithApplicationAwaitingCompletion = Self.openWithApplicationAwaitingCompletion,
+        openWithSystemDefaultAwaitingCompletion: @escaping OpenWithSystemDefaultAwaitingCompletion = Self.openWithSystemDefaultAwaitingCompletion
     ) {
         self.defaults = defaults
         self.openWithApplication = openWithApplication
         self.resolveApplication = resolveApplication
         self.openWithSystemDefault = openWithSystemDefault
+        self.openWithApplicationAwaitingCompletion = openWithApplicationAwaitingCompletion
+        self.openWithSystemDefaultAwaitingCompletion = openWithSystemDefaultAwaitingCompletion
     }
 
     /// Creates an opener that reads the browser choice from the supplied defaults.
@@ -39,7 +51,9 @@ public struct BrowserExternalAppOpener {
             defaults: defaults,
             openWithApplication: Self.openWithApplication,
             resolveApplication: Self.resolveApplication,
-            openWithSystemDefault: Self.openWithSystemDefault
+            openWithSystemDefault: Self.openWithSystemDefault,
+            openWithApplicationAwaitingCompletion: Self.openWithApplicationAwaitingCompletion,
+            openWithSystemDefaultAwaitingCompletion: Self.openWithSystemDefaultAwaitingCompletion
         )
     }
 
@@ -62,6 +76,25 @@ public struct BrowserExternalAppOpener {
             return openWithSystemDefault(url, activates)
         }
         return openWithApplication(url, applicationURL, activates)
+    }
+
+    /// Opens a URL and waits for Launch Services to confirm delivery.
+    ///
+    /// - Parameters:
+    ///   - url: The destination URL.
+    ///   - activates: Whether the target application may become active.
+    /// - Returns: Whether Launch Services reported a running application.
+    public func openAwaitingCompletion(_ url: URL, activates: Bool = true) async -> Bool {
+        // Keep non-web URLs with their own Launch Services handlers, just as
+        // the synchronous API does.
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return await openWithSystemDefaultAwaitingCompletion(url, activates)
+        }
+        guard let identifier = BrowserExternalApplicationSettings(defaults: defaults).applicationIdentifier,
+              let applicationURL = resolveApplication(identifier) else {
+            return await openWithSystemDefaultAwaitingCompletion(url, activates)
+        }
+        return await openWithApplicationAwaitingCompletion(url, applicationURL, activates)
     }
 
     private static let openWithApplication: OpenWithApplication = { url, applicationURL, activates in
@@ -91,6 +124,30 @@ public struct BrowserExternalAppOpener {
             return true
         } catch {
             return false
+        }
+    }
+
+    private static let openWithApplicationAwaitingCompletion: OpenWithApplicationAwaitingCompletion = { url, applicationURL, activates in
+        await withCheckedContinuation { continuation in
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = activates
+            NSWorkspace.shared.open(
+                [url],
+                withApplicationAt: applicationURL,
+                configuration: configuration
+            ) { application, _ in
+                continuation.resume(returning: application != nil)
+            }
+        }
+    }
+
+    private static let openWithSystemDefaultAwaitingCompletion: OpenWithSystemDefaultAwaitingCompletion = { url, activates in
+        await withCheckedContinuation { continuation in
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = activates
+            NSWorkspace.shared.open(url, configuration: configuration) { application, _ in
+                continuation.resume(returning: application != nil)
+            }
         }
     }
 
