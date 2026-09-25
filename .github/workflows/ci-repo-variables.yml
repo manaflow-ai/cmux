@@ -37,9 +37,7 @@ concurrency:
 jobs:
   check:
     name: Check repository variables
-    # GitHub-hosted: a two-second check every 15 minutes should not queue
-    # behind CI for a Blacksmith runner.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read

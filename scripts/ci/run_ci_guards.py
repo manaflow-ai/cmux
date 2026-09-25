@@ -56,8 +56,17 @@ FAST_GROUPS = ("ci",)
 # profile). They run in CI; a macOS run skips them and says so.
 LINUX_ONLY_STEPS = {
     "Validate CMUX workload profile contract",
-    "Run canonical CMUX CI guard profile",
     "Validate the scheduled main full-suite run",
+}
+# Linux-only wrappers whose payload is portable: off Linux, run the payload.
+# The workload profile runner refuses macOS, but ci-guard.sh's commands (the
+# self-hosted runner policy among them) run anywhere; only its `stage` timing
+# markers need the runner.
+PORTABLE_SUBSTITUTES = {
+    "Run canonical CMUX CI guard profile": (
+        "bash -c \"$(sed -e '/^stage /d' -e 's|^root=.*|root=\\\"$PWD\\\"|' "
+        "scripts/ci/workloads/ci-guard.sh)\""
+    ),
 }
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
@@ -252,6 +261,8 @@ def run_steps(
                 step_env["PATH"] = os.pathsep.join(list(reversed(extra_path)) + [step_env["PATH"]])
             step_env.update(step.env)
             cwd = ROOT / step.working_directory if step.working_directory else ROOT
+            if sys.platform != "linux" and step.name in PORTABLE_SUBSTITUTES:
+                step = dataclasses.replace(step, run=PORTABLE_SUBSTITUTES[step.name])
             returncode, output = run_step(step, cwd, step_env, temp_path / "step.log")
             results.append(StepResult(unit, step, returncode == 0, time.monotonic() - started, output))
             if returncode != 0 and not keep_going:
@@ -350,7 +361,7 @@ def main(argv: list[str]) -> int:
     step_names = {
         str(s.get("name")) for job in GUARD_JOBS for s in workflow["jobs"][job]["steps"]
     }
-    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS) - step_names
+    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
     if stale:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
         return 2

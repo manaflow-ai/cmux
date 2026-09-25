@@ -34,10 +34,12 @@ concurrency:
 jobs:
   fast-guards:
     name: CI fast guards
-    # GitHub-hosted on purpose: it starts in seconds. The routed `changes` job
-    # on the Blacksmith pool waited a median 7 s but a p90 of 99 s and up to
-    # 305 s before it could even route the guards (28 merged PRs, 2026-09-25).
-    runs-on: ubuntu-24.04
+    # GitHub-hosted on purpose, like the CLA policy guard: it must start in
+    # seconds and no repository variable may move it onto a queued pool. The
+    # routed `changes` job on the Blacksmith pool waited a median 7 s but a
+    # p90 of 99 s and up to 305 s before it could even route the guards
+    # (28 merged PRs, 2026-09-25).
+    runs-on: ubuntu-24.04 # github-hosted-required: the fast guard answers within a minute of a push
     timeout-minutes: 5
     permissions:
       contents: read

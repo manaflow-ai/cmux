@@ -73,6 +73,7 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         }
         self.assertLessEqual(run_ci_guards.DEPENDENCY_STEPS, names)
         self.assertLessEqual(run_ci_guards.LINUX_ONLY_STEPS, names)
+        self.assertLessEqual(set(run_ci_guards.PORTABLE_SUBSTITUTES), names)
 
     def test_expressions_are_resolved(self) -> None:
         for unit in self.units:
@@ -113,6 +114,26 @@ class StepsFinish(unittest.TestCase):
             code, output = run_ci_guards.run_step(step, Path(temp), {"PATH": "/usr/bin:/bin"}, Path(temp) / "log")
         self.assertEqual(code, 3)
         self.assertIn("nope", output)
+
+
+class PortableSubstitutes(unittest.TestCase):
+    def test_the_ci_guard_payload_runs_without_the_profile_runner(self) -> None:
+        # The substitute must run ci-guard.sh's commands, not skip them: it
+        # carries the self-hosted runner policy, which a macOS run would
+        # otherwise never see. Point it at a stub payload to prove it runs.
+        with tempfile.TemporaryDirectory() as temp:
+            workloads = Path(temp) / "scripts/ci/workloads"
+            workloads.mkdir(parents=True)
+            (workloads / "ci-guard.sh").write_text(
+                'root="$(nope)"\nstage() { exit 9; }\ncd "$root"\nstage start test\necho ran-in-$(basename "$root")\nexit 4\n'
+            )
+            step = run_ci_guards.Step(
+                name="x", run=run_ci_guards.PORTABLE_SUBSTITUTES["Run canonical CMUX CI guard profile"],
+                env={}, working_directory=None,
+            )
+            code, output = run_ci_guards.run_step(step, Path(temp), {"PATH": "/usr/bin:/bin"}, Path(temp) / "log")
+        self.assertEqual(code, 4, output)
+        self.assertIn("ran-in-" + Path(temp).name, output)
 
 
 class FastWorkflowReportsOnEveryPullRequest(unittest.TestCase):
