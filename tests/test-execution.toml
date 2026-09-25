@@ -738,6 +738,10 @@ path = "tests/test_check_ghostty_zig_workflows.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ensure_ghosttykit_zig.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_actionlint_covers_every_workflow.py"
 lane = "linux-guard"
 

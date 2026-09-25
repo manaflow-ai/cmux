@@ -743,6 +743,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: ./tests/test_ghostty_zig_version_sync.sh
 
+      - name: Validate GhosttyKit source-build Zig requirement
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ensure_ghosttykit_zig.py
+
       - name: Validate bundled-resource incremental outputs
         if: ${{ matrix.group == 'quality-runtime' }}
         run: ./tests/test_build_app_bundled_resources.sh
