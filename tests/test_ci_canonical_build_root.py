@@ -375,19 +375,30 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
             "#!/usr/bin/env python3\n"
             "import os,sys,json\n"
             "with open(os.environ['CALLS'], 'a') as f:\n"
-            " f.write(json.dumps({'args': sys.argv[1:], 'mode': os.environ.get('FileSystemMode')})+'\\n')\n"
-            "if '-version' in sys.argv: print('Xcode 26.3')\n")
+            " f.write(json.dumps({'args': sys.argv[1:], 'mode': os.environ.get('FileSystemMode'), 'env': dict(os.environ)})+'\\n')\n"
+            "if '-version' in sys.argv: print('Xcode 26.3')\n"
+            "if '-resolvePackageDependencies' in sys.argv:\n"
+            " import pathlib\n"
+            " p=pathlib.Path(sys.argv[sys.argv.index('-clonedSourcePackagesDirPath')+1])\n"
+            " for a in ['sparkle/Sparkle/Sparkle.xcframework','sentry-cocoa/Sentry/Sentry.xcframework']: (p/'artifacts'/a).mkdir(parents=True,exist_ok=True)\n")
         (bin_dir / "xcodebuild").chmod(0o755)
         workspace = base / "checkout"
         (workspace / ".git").mkdir(parents=True)
         root = base / "canonical"
         root.mkdir()
         env = dict(os.environ, PATH=f"{bin_dir}:" + os.environ["PATH"], CALLS=str(calls),
-                   CMUX_CI_CANONICAL_ROOT=str(root))
+                   CMUX_CI_SWIFTPM_KEEP_ENV="CALLS",
+                   CMUX_CI_CANONICAL_ROOT=str(root),
+                   # A caller's per-step noise, its tools and its settings.
+                   GITHUB_RUN_ID="12345", HOME=str(base / "home"), CI="true",
+                   CMUX_SKIP_ZIG_BUILD="1", CARGO_HOME=str(base / "cargo"),
+                   CARGO_REGISTRIES_X_TOKEN="secret")
         env.pop("FileSystemMode", None)
+        self.caller_env = env
         derived = str(root / "derived-data-compile-admission")
         fingerprints = []
         for args in [("canonical-fingerprint", derived),
+                     ("canonical-resolve", derived, str(workspace / ".ci-source-packages")),
                      ("canonical-build", derived, str(workspace / ".ci-source-packages"), str(root / "cas"))]:
             result = subprocess.run([str(SCRIPT), *args], cwd=workspace, env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -412,6 +423,74 @@ class SeededBuildFileSystemModeTests(unittest.TestCase):
             capture_output=True, text=True, check=True,
         ).stdout[:32]
         self.assertNotEqual(fingerprint, old)
+
+
+class BuildEnvironmentTests(SeededBuildFileSystemModeTests):
+    """Every scheme build reuses the manifests the resolve evaluated.
+
+    SwiftPM keys each evaluated Package.swift on xcodebuild's whole
+    environment, so a build under the caller's environment re-evaluated all
+    of them: 18 to 44 s on the first scheme of every admission. The script
+    phases still get the caller's PATH, HOME and settings, as build settings.
+    """
+
+    def test_builds_share_the_resolves_environment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            records, _ = self.run_recipe(Path(tmp))
+        resolves = [r for r in records if "-resolvePackageDependencies" in r["args"]]
+        builds = [r for r in records if "build-for-testing" in r["args"]]
+        self.assertEqual(len(resolves), 1)
+        self.assertTrue(builds)
+        resolve_env = resolves[0]["env"]
+        self.assertNotIn("GITHUB_RUN_ID", resolve_env)
+        self.assertEqual(resolve_env.get("FileSystemMode"), "checksum-only")
+        for record in builds:
+            self.assertEqual(record["env"], resolve_env, record["args"])
+
+    def test_script_phases_get_the_callers_path_home_and_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            records, _ = self.run_recipe(Path(tmp))
+            caller = self.caller_env
+        builds = [r for r in records if "build-for-testing" in r["args"]]
+        self.assertTrue(builds)
+        for record in builds:
+            args = record["args"]
+            for name in ("HOME", "CI", "CMUX_SKIP_ZIG_BUILD", "CARGO_HOME"):
+                self.assertIn(f"{name}={caller[name]}", args)
+            self.assertIn(f"CMUX_CALLER_PATH={caller['PATH']}", args)
+            self.assertFalse(any(a.startswith("GITHUB_RUN_ID=") for a in args))
+            self.assertFalse(any(a.startswith("CARGO_REGISTRIES_X_TOKEN=") for a in args))
+
+
+class BuildPhaseCallerPathTests(unittest.TestCase):
+    HELPER = ROOT / "scripts" / "build-phase-caller-path.sh"
+
+    def path_after(self, path: str, caller: str | None) -> str:
+        env = {"PATH": path}
+        if caller is not None:
+            env["CMUX_CALLER_PATH"] = caller
+        return subprocess.run(
+            ["/bin/bash", "-c", f'. "{self.HELPER}"; printf %s "$PATH"'],
+            env=env, capture_output=True, text=True, check=True,
+        ).stdout
+
+    def test_the_callers_path_follows_xcodes_tool_directories(self):
+        xcode = "/X/Toolchains/usr/bin:/X/usr/bin"
+        self.assertEqual(
+            self.path_after(f"{xcode}:/usr/bin:/bin:/usr/sbin:/sbin", "/home/.cargo/bin:/usr/bin:/bin"),
+            f"{xcode}:/home/.cargo/bin:/usr/bin:/bin",
+        )
+
+    def test_without_a_caller_path_nothing_changes(self):
+        path = "/X/usr/bin:/opt/homebrew/bin:/usr/bin:/bin"
+        self.assertEqual(self.path_after(path, None), path)
+
+    def test_every_tool_building_script_phase_sources_it(self):
+        for script in ("build-command-palette-nucleo-ffi.sh", "build-diff-sidecar.sh",
+                       "build-wireguard-go.sh", "build-app-bundled-resources.sh"):
+            with self.subTest(script=script):
+                text = (ROOT / "scripts" / script).read_text()
+                self.assertIn("/build-phase-caller-path.sh\"", text)
 
 
 if __name__ == "__main__":
