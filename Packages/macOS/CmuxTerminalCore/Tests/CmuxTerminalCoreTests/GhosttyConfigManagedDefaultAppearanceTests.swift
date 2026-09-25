@@ -297,6 +297,19 @@ import Testing
         }
     }
 
+    @Test func backgroundOverridePreservesManagedThemeBaseWhenAdaptiveDefaultIsEnabled() throws {
+        try loadResolvedConfig(
+            userConfig: "background = #000000\n",
+            adaptiveDefaultThemeEnabled: true
+        ) { config in
+            #expect(config.theme == nil)
+            #expect(config.backgroundColor.hexString() == "#000000")
+            #expect(config.foregroundColor.hexString() == "#445566")
+            #expect(config.palette[1]?.hexString() == "#C0FFEE")
+            #expect(config.cursorColor.hexString() == "#778899")
+        }
+    }
+
     @Test func backgroundOverrideKeepsGhosttyBaseWhenAdaptiveDefaultIsEnabled() throws {
         try loadResolvedConfig(
             userConfig: "background = #000000\n",
