@@ -202,6 +202,8 @@ struct SidebarWorkspaceTableRowConfiguration {
             groupId: groupId,
             isPinned: isPinned,
             environment: environment,
+            workspace: workspace,
+            rebuild: rebuild,
             unreadRebuild: unreadRebuild
         )
     }

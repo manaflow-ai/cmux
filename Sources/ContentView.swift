@@ -12747,7 +12747,15 @@ struct VerticalTabsSidebar: View, Equatable {
             isPinned: input.workspace.isPinned,
             environment: environment,
             workspace: tab,
-            rebuild: { model },
+            rebuild: { [model, tab, settings = input.settings, showsAgentActivity = input.showsAgentActivity] in
+                var fresh = model
+                fresh.snapshot = SidebarWorkspaceSnapshotFactory(
+                    workspace: tab,
+                    settings: settings,
+                    showsAgentActivity: showsAgentActivity
+                ).makeSnapshot()
+                return fresh
+            },
             unreadRebuild: {
                 [model, workspaceId = tab.id,
                  showsNotificationMessage = input.settings.showsNotificationMessage] snapshot in
@@ -15204,6 +15212,9 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             applyColor: { hex, workspaceIds in
                 tabManager.applyWorkspaceColor(hex, toWorkspaceIds: workspaceIds)
+                for workspaceId in workspaceIds {
+                    scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+                }
             },
             applyTodoStatus: { status, workspaceIds in
                 let workspaces = workspaceIds.compactMap { workspaceId in
