@@ -36,24 +36,6 @@ struct WorkspaceRemoteRelayCommandRewriter: RemoteRelayCommandRewriting {
         return commandLine
     }
 
-    static func authenticatesRemoteResumeParameters(
-        _ params: [String: Any],
-        remoteRelayTokenHex: String?
-    ) -> Bool {
-        guard let remoteRelayTokenHex,
-              let authenticationCode = params[authenticationCodeKey] as? String,
-              let payload = authenticationPayload(params),
-              let relayToken = hexData(remoteRelayTokenHex),
-              let receivedCode = hexData(authenticationCode) else {
-            return false
-        }
-        return HMAC<SHA256>.isValidAuthenticationCode(
-            receivedCode,
-            authenticating: payload,
-            using: SymmetricKey(data: relayToken)
-        )
-    }
-
     /// Verifies the relay-wide request MAC over the canonical envelope.  The
     /// caller supplies the decoded envelope fields so socket ingress and the
     /// relay rewriter share exactly one signing format.

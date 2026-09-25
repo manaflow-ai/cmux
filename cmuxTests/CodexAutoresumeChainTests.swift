@@ -57,7 +57,6 @@ struct CodexAutoresumeChainTests {
                 panelId: panelID,
                 snapshot: snapshot,
                 manualResumeAvailable: true,
-                willRunStartupCommand: false,
                 willRunStartupInput: true,
                 resumeWorkingDirectory: snapshot.workingDirectory
             )
