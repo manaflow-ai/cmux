@@ -606,7 +606,7 @@ jobs:
         # state under one Xcode install, so Xcode mtimes cannot differ.
         run: |
           python3 scripts/ci/pr_runner_pool.py
-          printf 'runner=glaeda-std-xcode-26.6\nxcode_app=\npersistent=true\nretry_runner=blacksmith-12vcpu-macos-26\n' >> "$GITHUB_OUTPUT"
+          printf 'runner=blacksmith-12vcpu-macos-26\nxcode_app=\npersistent=false\nretry_runner=blacksmith-12vcpu-macos-26\n' >> "$GITHUB_OUTPUT"
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
       # it stays busy. This marker tells ci-owned-pool-rescue.yml, running from
