@@ -6775,14 +6775,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyCode: event.keyCode
             ) ?? event
         }
-        // Ghostty's translated event is used for claimed Option-as-Alt input.
-        // Dead keys are an exception: AppKit must receive the original Option
-        // event or it cannot enter the pending composition state (Option+E,
-        // followed by E, would otherwise be silently swallowed).
-        let textInputEvent = KeyboardLayout.isDeadKey(
-            forKeyCode: event.keyCode,
-            modifierFlags: event.modifierFlags
-        ) ? event : translationEvent
+        let textInputEvent = KeyboardLayout.textInputEvent(
+            for: event,
+            translatedEvent: translationEvent,
+            config: GhosttyApp.shared.config
+        )
 
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []

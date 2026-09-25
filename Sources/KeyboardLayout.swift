@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import GhosttyKit
 
 class KeyboardLayout {
     private enum ModifierTranslationMode {
@@ -61,9 +62,24 @@ class KeyboardLayout {
         return nil
     }
 
+    /// Selects the event AppKit should interpret for terminal text input.
+    ///
+    /// Ghostty's auto-detected Option-as-Alt mode must not suppress AppKit's
+    /// dead-key state. An explicit `macos-option-as-alt` value remains claimed
+    /// by Ghostty, so readline and Emacs keep receiving their Meta chords.
+    static func textInputEvent(
+        for event: NSEvent,
+        translatedEvent: NSEvent,
+        config: ghostty_config_t?
+    ) -> NSEvent {
+        guard !isOptionAsAltExplicitlyConfigured(in: config),
+              isDeadKey(forKeyCode: event.keyCode, modifierFlags: event.modifierFlags) else {
+            return translatedEvent
+        }
+        return event
+    }
+
     /// Returns whether the key starts a dead-key composition in the active layout.
-    /// This deliberately ignores the Option-as-Alt translation used by Ghostty:
-    /// AppKit must see the original event so the composition can be completed.
     static func isDeadKey(
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags
@@ -84,6 +100,13 @@ class KeyboardLayout {
             UInt32(LMGetKbdType()), 0, &deadKeyState, chars.count, &length, &chars
         )
         return status == noErr && deadKeyState != 0
+    }
+
+    private static func isOptionAsAltExplicitlyConfigured(in config: ghostty_config_t?) -> Bool {
+        guard let config else { return false }
+        var value: UnsafePointer<Int8>?
+        let key = "macos-option-as-alt"
+        return ghostty_config_get(config, &value, key, UInt(key.utf8.count))
     }
 
     /// Translate a physical keyCode using the current input source exactly as
