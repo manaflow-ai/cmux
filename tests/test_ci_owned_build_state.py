@@ -272,13 +272,28 @@ class Wiring(unittest.TestCase):
         import product_input_identity as identity
         self.assertIn("Choose this job's canonical build root", identity.NON_PRODUCT_RECIPE_STEPS)
 
-    def test_consumers_run_the_product_at_the_root_it_was_compiled_at(self):
-        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
-        self.assertEqual(self.job["outputs"]["canonical_root"], "${{ steps.build-slot.outputs.root }}")
-        for name in ("app-host-unit-tests", "cli-product-tests", "tests-build-and-lag"):
-            self.assertEqual(workflow["jobs"][name]["env"]["CMUX_CI_CANONICAL_ROOT"],
-                             "${{ needs.macos-compile-admission.outputs.canonical_root || '/private/tmp/cmux-ci' }}",
-                             name)
+    def test_consumers_alias_their_checkout_at_the_producers_root(self):
+        # The receipt's checkout is <root>/src at the producer, and the
+        # product's #filePath strings point there, whatever this runner's root.
+        import os
+        import subprocess
+        script = (ROOT / "scripts/ci/restore-app-host-test-product.sh").read_text()
+        start = script.index('producer_checkout="$(')
+        end = script.index("esac", start) + len("esac")
+        for checkout, root in (("/private/tmp/cmux-ci-2/src", "/private/tmp/cmux-ci-2"),
+                               ("/private/tmp/cmux-ci/src", "/private/tmp/cmux-ci"),
+                               ("/Users/runner/work/cmux/cmux", "mine"),
+                               ("/private/tmp/cmux-ci-x/src", "mine")):
+            with tempfile.TemporaryDirectory() as tmp:
+                receipt = Path(tmp, "Build/Products/cmux-test-products.json")
+                receipt.parent.mkdir(parents=True)
+                receipt.write_text(json.dumps({"checkout": checkout}))
+                result = subprocess.run(
+                    ["bash", "-c", "set -euo pipefail\n" + script[start:end] + '\necho "$CMUX_CI_CANONICAL_ROOT"'],
+                    env={"PATH": os.environ["PATH"], "CMUX_DERIVED_DATA_PATH": tmp, "CMUX_CI_CANONICAL_ROOT": "mine"},
+                    capture_output=True, text=True, check=True)
+                self.assertEqual(result.stdout.strip(), root, checkout)
+        self.assertLess(start, script.index('scripts/ci/canonical-build-root.sh --runtime-source "$PWD"'))
 
     def test_only_a_successful_compile_is_kept_as_xcode_left_it(self):
         index = self.names.index

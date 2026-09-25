@@ -94,4 +94,23 @@ test -f "$products/PackageFrameworks/CmuxAgentJournal_27B6EF8727F6C277_PackagePr
 python3 scripts/ci/app_host_test_products.py restore "$CMUX_DERIVED_DATA_PATH"
 # Tests also read fixtures via compiled #filePath; manifest relocation alone
 # cannot repair those strings when the product was built at the canonical root.
+# The receipt records the checkout the product was stamped from, <root>/src.
+# That is /private/tmp/cmux-ci, or /private/tmp/cmux-ci-<n> for an owned Mac's
+# second compile slot, and the #filePath strings point there, so alias this
+# checkout at the producer's root rather than this runner's own.
+producer_checkout="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("checkout", ""))' \
+  "$CMUX_DERIVED_DATA_PATH/Build/Products/cmux-test-products.json")"
+case "$producer_checkout" in
+  /private/tmp/cmux-ci/src|/private/tmp/cmux-ci-[0-9]/src|/private/tmp/cmux-ci-[0-9][0-9]/src)
+    export CMUX_CI_CANONICAL_ROOT="${producer_checkout%/src}"
+    ;;
+esac
+# On an owned Mac several jobs share the canonical roots, and the alias below
+# replaces <root>/src. glaeda's helper holds that root's lock for the rest of
+# this job (released when it ends), so a consumer never swaps the tree of a
+# compile running there. Ephemeral runners have no helper and no neighbours.
+root_lock=/Users/Shared/cmux-build-fleet/bin/glaeda-canonical-root
+if [ -x "$root_lock" ]; then
+  "$root_lock" take "${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}" --wait 1800 >/dev/null
+fi
 scripts/ci/canonical-build-root.sh --runtime-source "$PWD"
