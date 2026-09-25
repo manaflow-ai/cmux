@@ -18,7 +18,7 @@ extension TerminalController {
               let app = AppDelegate.shared else {
             return .failed
         }
-        if surfaceID == nil, routing.hasWindowIDParam, routing.windowID == nil {
+        if routing.hasWindowIDParam, routing.windowID == nil {
             return .surfaceNotFound
         }
         let routedTabManager = resolveTabManager(routing: routing)
