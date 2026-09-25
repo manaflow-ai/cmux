@@ -593,6 +593,41 @@ class E2E(unittest.TestCase):
         self.assertNotIn("rerun-failed", api.calls)
 
 
+IOS_SIM = "glaeda-ios-sim"
+
+
+class IOSDispatch(unittest.TestCase):
+    """test-ios.yml and ios-screenshots.yml dispatches are watched like an E2E run."""
+
+    def test_ios_dispatches_are_targets(self):
+        for path in (".github/workflows/test-ios.yml", ".github/workflows/ios-screenshots.yml"):
+            target = rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux")
+            self.assertEqual((target.pr_number, target.e2e, target.picker_job, target.path),
+                             (0, True, "runner", path))
+            self.assertIsInstance(rescue.target_from_event(e2e_event(path=path, run_attempt=2),
+                                                           "manaflow-ai/cmux"), str)
+        # Signing and streamed validation never take an owned Mac, so they are never watched.
+        for path in (".github/workflows/ios-testflight.yml", ".github/workflows/ios-streamed-validate.yml"):
+            self.assertIsInstance(rescue.target_from_event(e2e_event(path=path), "manaflow-ai/cmux"), str)
+
+    def test_a_job_waiting_for_the_simulator_label_moves_to_blacksmith(self):
+        # No idle mini carries glaeda-ios-sim yet: the job queues on the owned
+        # labels and is re-run on retry_runs_on after the budget.
+        def jobs(seconds):
+            found = [e2e_runner()(seconds)]
+            if seconds >= 40:
+                found.append(job("ios-simulator-build", labels=[MINI, IOS_SIM], created=40))
+            return found
+        clock = Clock()
+        api = FakeAPI(clock, jobs, marker=True)
+        code, summary = run_main(api, clock, payload=e2e_event(path=".github/workflows/test-ios.yml"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("pull", api.calls)
+        self.assertEqual(api.calls[-2:], ["rerun-failed", "jobs:2"])
+        self.assertIn("a dispatch of .github/workflows/test-ios.yml", summary)
+        self.assertIn(f"queued on {MINI}", summary)
+
+
 class Workflow(unittest.TestCase):
     def setUp(self):
         self.text = (ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(encoding="utf-8")
@@ -607,11 +642,14 @@ class Workflow(unittest.TestCase):
 
     def test_runs_whenever_owned_pools_are_on(self):
         self.assertEqual(self.doc[True]["workflow_run"],
-                         {"workflows": ["CI", "E2E test with video recording"], "types": ["requested"]})
+                         {"workflows": ["CI", "E2E test with video recording", "iOS simulator tests",
+                                        "iOS App Store screenshots"], "types": ["requested"]})
         condition = self.doc["jobs"]["rescue"]["if"]
         for part in ("vars.CI_PR_POOL_OWNED == '1'", "(vars.CI_OWNED_POOL_RESCUE || '1') != '0'",
                      "(github.event.workflow_run.event == 'pull_request' || "
-                     "github.event.workflow_run.path == '.github/workflows/test-e2e.yml' && "
+                     "(github.event.workflow_run.path == '.github/workflows/test-e2e.yml' || "
+                     "github.event.workflow_run.path == '.github/workflows/test-ios.yml' || "
+                     "github.event.workflow_run.path == '.github/workflows/ios-screenshots.yml') && "
                      "github.event.workflow_run.event == 'workflow_dispatch')",
                      "github.event.workflow_run.head_repository.full_name == github.repository",
                      "github.event.workflow_run.run_attempt == 1"):
