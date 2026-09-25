@@ -325,7 +325,8 @@ class WarmKeys(Fixture):
         # From the second root, its own seeds are left out too.
         second_seeds = second / "seeds"
         name = self.seed(C, fingerprint="fp2").name
-        (self.seeds / name).rename(second_seeds.mkdir() or second_seeds / name)
+        second_seeds.mkdir()
+        (self.seeds / name).rename(second_seeds / name)
         with unittest.mock.patch.dict(os.environ, {"CMUX_SEED_LOCAL_CACHE": str(second_seeds)}):
             self.assertEqual(state.warm_keys(second, "r", "p", "fp2")["keys"], ["a" * 12, "pr-7"])
 

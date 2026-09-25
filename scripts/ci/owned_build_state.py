@@ -131,6 +131,9 @@ by STATE_VERSION only. Seeds are left out once the mini has a second root
 fingerprint, and the hook routes by stamps only, so a routed admission lands
 on its runner's own root (or any free one), not on the root that listed the
 seed. A seed key recorded against the runner would send it there to miss.
+A second root counts once its store directory exists: one whose store was
+never created still lists seeds, and a store left behind after a mini goes back to
+one root keeps them out, which costs affinity but never a wrong route.
 
 Clones are APFS clones: the canonical root (/private/tmp/cmux-ci) and STORE
 sit on the same volume, so nothing is copied. Kept state is replaced by
