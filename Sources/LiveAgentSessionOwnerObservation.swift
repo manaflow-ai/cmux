@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -29,15 +30,14 @@ struct LiveAgentSessionOwnerObservation: Sendable {
             startSeconds: startSeconds,
             startMicroseconds: startMicroseconds
         )
-        guard processIdentityProvider(processID) == recordedIdentity,
-              let process = processArgumentsProvider(processID),
-              validator.currentProcess(
-                  process,
-                  matches: snapshot,
-                  hermesSessionValidation: .currentHookRecord
-              ) else {
-            return nil
+        guard processIdentityProvider(processID) == recordedIdentity else { return nil }
+        if snapshot.kind != .codex {
+            guard let process = processArgumentsProvider(processID),
+                  validator.currentProcess(
+                      process, matches: snapshot, hermesSessionValidation: .currentHookRecord
+                  ) else { return nil }
         }
+        guard processIdentityProvider(processID) == recordedIdentity else { return nil }
         return Self(owner: LiveAgentSessionOwner(
             kind: snapshot.kind.rawValue,
             sessionID: snapshot.sessionId,

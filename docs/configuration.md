@@ -75,7 +75,7 @@ Controls when cmux asks before quitting:
 - `dirty-only`: show it only when a workspace has a terminal or panel that reports close confirmation is needed.
 - `never`: quit immediately.
 
-Default: `always` for stable and nightly builds. DEV builds always behave as `never`, regardless of the file setting, so tagged development builds can be replaced without a full-screen quit dialog.
+Default: `always` for stable, nightly, and RC builds. DEV builds always behave as `never`, regardless of the file setting, so tagged development builds can be replaced without a full-screen quit dialog.
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
@@ -121,11 +121,9 @@ cmux uses a complete, de-duplicated descendant process tree. An incomplete
 listing is treated as unavailable and cannot authorize hibernation. Relative
 percentages (warning at 50% and critical at 70% of installed physical memory,
 with an optional 20%/10% available-memory corroboration) decide only when to
-show the warning and when to offer the idle-only pass. They are signals, not a
-memory ceiling or a limit on cmux.
+offer the idle-only pass. They are signals, not a memory ceiling or a limit on cmux.
 
-At warning or critical aggregate pressure, cmux posts a localized visible
-notification. While the same complete pressure remains through the existing
+While the same complete pressure remains through the existing
 confirmation window, cmux considers every currently eligible idle, non-visible
 agent through the ordinary lossless Agent Hibernation lifecycle. The scheduled
 routine pass retains its oldest-activity ordering; the pressure pass considers
@@ -171,9 +169,9 @@ Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected wo
 
 ## New Cloud Workspace shortcut and the plus-button menu
 
-Cmd+Y creates a workspace on the starred default Cloud machine. Cmd+Shift+Y opens the New Machine flow to provision a new machine and attach its first workspace. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
+Cmd+Shift+Y creates a workspace on the machine that owns the most recently selected Cloud workspace. If no valid Cloud workspace is remembered, it uses the first machine in the current right-hand Cloud sidebar order, including pins and manual reordering. Cmd+Y opens the New Machine flow to provision a machine deliberately. Rebind or unbind these shortcuts from Settings > Keyboard Shortcuts or with `shortcuts.bindings.newCloudWorkspace` and `shortcuts.bindings.newCloudMachine`. Both are inert unless Cloud Machines is enabled and the account is signed in.
 
-When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Y), `cmux.newCloudMachine` (Cmd+Shift+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
+When `ui.newWorkspace.contextMenu` is not set, the plus-button menu lists `cmux.newWorkspace` (Cmd+N), `cmux.newCloudWorkspace` (Cmd+Shift+Y), `cmux.newCloudMachine` (Cmd+Y), `cmux.newTerminal` (Cmd+T), and `cmux.newBrowser` (Cmd+Shift+L). Each row shows its current shortcut, so a rebind in Settings or `cmux.json` appears the next time the menu opens; unbound and chord shortcuts show no hint. Cloud rows appear only when Cloud Machines is enabled. A configured menu keeps your order and still shows hints for built-in rows and for actions with a `shortcut`.
 
 ## `terminal.textBoxSubmitActions`
 
@@ -251,7 +249,10 @@ instead and inserts what the command prints.
 - `hostPattern`: an fnmatch glob matched against the ssh destination (`user@` and
   IPv6 brackets stripped, then lowercased) — the same glob style as a single
   `ssh_config` `Host` pattern (`*`, `?`; no pattern lists or `!` negation). Omit
-  it, or set it to `null`, for a catch-all.
+  it, or set it to `null`, for a catch-all. When the session carries a `HostName`
+  ssh option (for example a connection through a ProxyCommand broker dialled as
+  `localhost`), a rule also matches that resolved host, so a pattern written
+  against either the alias or the real host works.
 - `command`: run through `/bin/sh -c`, **once per file**. It receives the file and
   endpoint on its environment: `CMUX_UPLOAD_LOCAL_PATH`, `CMUX_UPLOAD_REMOTE_PATH`
   (the `/tmp/cmux-drop-<uuid>` path cmux picked), `CMUX_UPLOAD_DESTINATION`,

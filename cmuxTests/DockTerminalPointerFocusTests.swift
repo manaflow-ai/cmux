@@ -163,12 +163,13 @@ struct DockTerminalPointerFocusTests {
 
         let mainSurfaceView = try #require(waitForSurfaceView(in: mainPanel.hostedView))
         let surfaceView = try #require(waitForSurfaceView(in: secondPanel.hostedView))
-        #expect(window.makeFirstResponder(mainSurfaceView))
         appDelegate.noteMainPanelKeyboardFocusIntent(
             workspaceId: mainWorkspace.id,
             panelId: mainPanel.id,
             in: window
         )
+        try #require(window.makeFirstResponder(mainSurfaceView))
+        #expect(window.firstResponder === mainSurfaceView)
 
         let pointInWindow = surfaceView.convert(NSPoint(x: 24, y: 24), to: nil)
         surfaceView.mouseDown(with: try mouseDownEvent(at: pointInWindow, window: window))
@@ -194,12 +195,13 @@ struct DockTerminalPointerFocusTests {
         }
         #expect(ghostty_surface_mouse_captured(runtimeSurface))
         dock.focusPanel(firstPanel.id)
-        _ = window.makeFirstResponder(mainSurfaceView)
         appDelegate.noteMainPanelKeyboardFocusIntent(
             workspaceId: mainWorkspace.id,
             panelId: mainPanel.id,
             in: window
         )
+        try #require(window.makeFirstResponder(mainSurfaceView))
+        #expect(window.firstResponder === mainSurfaceView)
         #expect(notificationStore.markWindowDockSurfaceUnread(
             windowId: windowId,
             surfaceId: secondPanel.id
@@ -219,6 +221,19 @@ struct DockTerminalPointerFocusTests {
     }
 
     fileprivate func exerciseDockSelectionAndRestoration() throws {
+        let defaults = UserDefaults.standard
+        let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+        let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
+        defaults.set(true, forKey: dockEnabledKey)
+        defer {
+            if let previousDockEnabled {
+                defaults.set(previousDockEnabled, forKey: dockEnabledKey)
+            } else {
+                defaults.removeObject(forKey: dockEnabledKey)
+            }
+        }
+        try #require(RightSidebarMode.dock.isAvailable())
+
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
         let manager = TabManager(autoWelcomeIfNeeded: false)
@@ -319,20 +334,23 @@ struct DockTerminalPointerFocusTests {
 
         let mainSurfaceView = try #require(waitForSurfaceView(in: mainPanel.hostedView))
         let bottomSurfaceView = try #require(waitForSurfaceView(in: bottomPanel.hostedView))
-        #expect(window.makeFirstResponder(mainSurfaceView))
         appDelegate.noteMainPanelKeyboardFocusIntent(
             workspaceId: mainWorkspace.id,
             panelId: mainPanel.id,
             in: window
         )
+        try #require(window.makeFirstResponder(mainSurfaceView))
+        #expect(window.firstResponder === mainSurfaceView)
 
         dock.focusPanelFromDockInteraction(bottomPanel.id, window: window)
 
+        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+        #expect(focusController.intent == .rightSidebar(mode: .dock))
         #expect(dock.focusedPanelId == bottomPanel.id)
         #expect(window.firstResponder === bottomSurfaceView)
 
         #expect(window.makeFirstResponder(nil))
-        let focusController = try #require(appDelegate.keyboardFocusCoordinator(for: window))
+        #expect(focusController.intent == .rightSidebar(mode: .dock))
         #expect(focusController.restoreTargetAfterWindowBecameKey())
 
         #expect(dock.focusedPanelId == bottomPanel.id)

@@ -75,6 +75,32 @@ struct MobileWhatsNewRemoteAnnouncement: Codable, Identifiable {
         var detail: String
     }
 
+    struct LocalizedContent: Codable {
+        var title: String
+        var releaseLabel: String?
+        var features: [Feature]
+    }
+
+    /// Complete translated content. Base fields remain an English fallback
+    /// for older clients and unsupported languages; identity and targeting
+    /// never vary by language.
+    var localizations: [String: LocalizedContent]? = nil
+
+    func localized(for preferredLanguages: [String]) -> Self {
+        guard let localizations else { return self }
+        let languages = Bundle.preferredLocalizations(
+            from: localizations.keys.sorted(),
+            forPreferences: preferredLanguages + ["en"]
+        )
+        guard let language = languages.first,
+              let content = localizations[language] else { return self }
+        var result = self
+        result.title = content.title
+        result.releaseLabel = content.releaseLabel
+        result.features = content.features
+        return result
+    }
+
     var id: String
     var minVersion: String
     var maxVersion: String
@@ -92,8 +118,10 @@ struct MobileWhatsNewRemoteAnnouncement: Codable, Identifiable {
 
 /// Dotted-numeric ("1.0.4"-style) version comparison; missing components are
 /// zero and non-numeric components compare as zero.
-enum MobileAppVersionCompare {
-    static func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
+struct MobileAppVersionCompare: Sendable {
+    init() {}
+
+    func compare(_ lhs: String, _ rhs: String) -> ComparisonResult {
         let lhsParts = components(of: lhs)
         let rhsParts = components(of: rhs)
         for index in 0..<max(lhsParts.count, rhsParts.count) {
@@ -105,16 +133,17 @@ enum MobileAppVersionCompare {
         return .orderedSame
     }
 
-    static func version(
+    func version(
         _ version: String,
         isWithinMin minVersion: String,
-        max maxVersion: String
+        max maxVersion: String?
     ) -> Bool {
-        compare(version, minVersion) != .orderedAscending
-            && compare(version, maxVersion) != .orderedDescending
+        guard compare(version, minVersion) != .orderedAscending else { return false }
+        guard let maxVersion else { return true }
+        return compare(version, maxVersion) != .orderedDescending
     }
 
-    private static func components(of version: String) -> [Int] {
+    private func components(of version: String) -> [Int] {
         version.split(separator: ".").map { Int($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
     }
 }

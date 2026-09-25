@@ -7,16 +7,10 @@ import CmuxMobileSupport
 import Foundation
 import SwiftUI
 
-/// Comprehensive per-computer detail + debug sheet, pushed from the Computers
-/// screen. This is a single detail view (not a recycled list row), so it holds
-/// the `@Bindable store` directly and pulls everything for one `macDeviceID`.
-///
-/// It deliberately separates the two facts the user needs to debug a connection:
-/// the PHONE's live connection to the Mac (can my phone reach it?) and the
-/// Durable Object presence (does the Mac say it is alive?), plus the exact routes
-/// the phone would dial. A "online via presence but phone not connected" split
-/// then points straight at a route/tailscale problem.
+/// Per-computer connection settings, appearance, and saved routes.
+/// This detail holds its store directly and addresses one Mac and build tag.
 struct MacComputerDetailView: View {
+    @Environment(MobileMacListAuthState.self) private var listAuthState: MobileMacListAuthState?
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
     let instanceTag: String?
@@ -42,13 +36,6 @@ struct MacComputerDetailView: View {
     /// while the persist + store reload reconcile the authoritative value.
     @State private var pendingConnectionMethod: MobileConnectionMethod?
 
-    /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
-    /// (kind + endpoint), not `route.id`: a stable id like `tailscale` can keep
-    /// its id while its host/port is refreshed, so id-keying would show a stale
-    /// result under a changed endpoint. Signature-keying drops the stale row.
-    @State private var pingResults: [String: CmxRoutePingResult] = [:]
-    /// True while a ping pass is in flight (drives the spinner + disables Ping).
-    @State private var isPinging = false
     @State private var editName = ""
     @State private var customColorPick = Color.blue
     @State private var customEmoji = ""
@@ -56,16 +43,13 @@ struct MacComputerDetailView: View {
     @State private var pendingCustomName: String?
     @State private var pendingCustomColor: String?
     @State private var pendingCustomIcon: String?
-    @State private var pendingLastRouteRemoval: CmxAttachRoute?
-    /// Drives the Forget confirmation; Forget is the only deletion path for a
-    /// Computer whose remaining route is the permanent Iroh identity.
     @State private var showsForgetComputer = false
     /// Presents the revoke-failure alert so a failed Forget is never silent.
     @State private var forgetComputerFailed = false
     /// Keep-awake status read failed for THIS Mac; drives the inline Retry.
     @State private var caffeineStatusLoadFailed = false
     @State private var caffeineStatusRetryID = 0
-    /// Iroh-scoped per-Mac networking (private addresses + connection check),
+    /// Iroh-scoped per-Mac private addresses,
     /// moved here from the app-wide Networking screen. `nil` until the
     /// environment controller exists and the model loads.
     @Environment(\.irohSettingsController) private var irohSettingsController
@@ -100,12 +84,6 @@ struct MacComputerDetailView: View {
             rowInstanceTag: instanceTag
         )
     }
-    private var presence: PresenceMap.DeviceSummary? {
-        store.presenceSummary(
-            for: macDeviceID,
-            instanceTag: pairedMac?.instanceTag
-        )
-    }
     private var isForeground: Bool {
         MobilePairedMac.pairingID(
             macDeviceID: store.connectedMacDeviceID ?? "",
@@ -125,7 +103,7 @@ struct MacComputerDetailView: View {
     }
     var body: some View {
         Form {
-            if MobileMacListAuthState.shared.hasSnapshot,
+            if (listAuthState?.hasSnapshot == true),
                let listAuthEntry,
                listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
@@ -134,18 +112,11 @@ struct MacComputerDetailView: View {
             appearanceSection
             connectionSection
             macPowerSection
-            presenceSection
             routesSection
             // Iroh-scoped per-Mac networking. Hidden for Tailscale/Direct
             // Computers, whose methods never dial Iroh paths.
             if selectedMethod == .automatic, let irohSettingsModel {
                 privateAddressesSection(irohSettingsModel)
-                MobileIrohConnectionCheckSection(
-                    report: irohSettingsModel.connectionCheck,
-                    relayURLs: irohSettingsModel.connectionCheckRelayURLs,
-                    isRunning: irohSettingsModel.isRunningConnectionCheck,
-                    run: irohSettingsModel.runConnectionCheck
-                )
             }
             identitySection
             actionsSection
@@ -191,45 +162,6 @@ struct MacComputerDetailView: View {
             Text(L10n.string(
                 "mobile.connections.direct.addMessage",
                 defaultValue: "A numeric IP and port where this computer is reachable, like 192.168.1.20:64000 or [fd00::5]:64000. A port is required."
-            ))
-        }
-        .confirmationDialog(
-            L10n.string(
-                "mobile.connections.route.deleteComputer.title",
-                defaultValue: "Delete this computer?"
-            ),
-            isPresented: Binding(
-                get: { pendingLastRouteRemoval != nil },
-                set: { if !$0 { pendingLastRouteRemoval = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button(
-                L10n.string(
-                    "mobile.connections.route.deleteComputer.confirm",
-                    defaultValue: "Delete Computer"
-                ),
-                role: .destructive
-            ) {
-                guard let route = pendingLastRouteRemoval else { return }
-                pendingLastRouteRemoval = nil
-                Task {
-                    let removed = await store.removeRoute(
-                        route,
-                        macDeviceID: macDeviceID,
-                        instanceTag: instanceTag,
-                        deleteComputerIfLastRoute: true
-                    )
-                    if removed { dismiss() }
-                }
-            }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                pendingLastRouteRemoval = nil
-            }
-        } message: {
-            Text(L10n.string(
-                "mobile.connections.route.deleteComputer.message",
-                defaultValue: "This is the last route. Deleting it will delete this computer record. You can reconnect later by pairing this computer again."
             ))
         }
         .confirmationDialog(
@@ -514,7 +446,7 @@ struct MacComputerDetailView: View {
     }
 
     private var listAuthEntry: MobileMacListAuthState.Entry? {
-        MobileMacListAuthState.shared.compatibilityEntry(
+        listAuthState?.compatibilityEntry(
             pairingID: MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag),
             routes: pairedMac?.routes ?? []
         )
@@ -1068,47 +1000,6 @@ struct MacComputerDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private var presenceSection: some View {
-        Section {
-            if let presence {
-                LabeledContent(L10n.string("mobile.computers.field.reported", defaultValue: "Reports"),
-                               value: presence.online
-                                ? L10n.string("mobile.deviceTree.online", defaultValue: "Online")
-                                : L10n.string("mobile.deviceTree.offline", defaultValue: "Offline"))
-                if let buildLabel = presence.buildLabel {
-                    LabeledContent(
-                        L10n.string("mobile.computers.field.build", defaultValue: "Build"),
-                        value: buildLabel)
-                }
-                LabeledContent(L10n.string("mobile.computers.field.lastSeen", defaultValue: "Last seen"),
-                               value: presence.lastSeenAt.formatted(.relative(presentation: .named)))
-            } else if connectionStatus == .connected {
-                // No server heartbeat, but the phone is connected to this Mac right
-                // now — so it IS online; the live connection is the liveness truth.
-                // Lead with that instead of a bare "unknown"/"no heartbeat" that
-                // contradicts the green Connection section. The clarifier explains
-                // why there's no server record (presence heartbeat is currently a
-                // dev-only feature; stable Macs don't announce it yet).
-                LabeledContent(
-                    L10n.string("mobile.computers.field.reported", defaultValue: "Reports"),
-                    value: L10n.string("mobile.deviceTree.online", defaultValue: "Online"))
-                LabeledContent(
-                    L10n.string("mobile.computers.field.source", defaultValue: "Source"),
-                    value: L10n.string(
-                        "mobile.computers.presenceViaConnection",
-                        defaultValue: "this phone's connection (no server heartbeat)"))
-            } else {
-                LabeledContent(L10n.string("mobile.computers.field.reported", defaultValue: "Reports"),
-                               value: L10n.string("mobile.computers.presenceUnknown", defaultValue: "unknown"))
-            }
-        } header: {
-            Text(L10n.string("mobile.computers.section.presence", defaultValue: "Presence (from server)"))
-        } footer: {
-            Text(Self.presenceFooter())
-        }
-    }
-
     /// The presence-section footer, gated per distribution channel: team
     /// builds name the DEV-only rollout precisely, while the public App Store
     /// app explains the same missing-heartbeat case without internal
@@ -1135,160 +1026,81 @@ struct MacComputerDetailView: View {
             let routes = prioritized.filter { $0.kind == focusedRouteKind }
                 + prioritized.filter { $0.kind != focusedRouteKind }
             if routes.isEmpty {
-                Text(L10n.string("mobile.computers.noRoute", defaultValue: "no route"))
+                Text(L10n.string("mobile.computers.routes.empty", defaultValue: "No saved routes"))
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(routes, id: \.id) { route in
                     routeRow(route)
                 }
-                if routes.contains(where: { $0.kind == .tailscale }) {
-                    Button {
-                        presentTailscalePairing(.tailscaleReplacement)
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.connections.tailscale.replace",
-                                defaultValue: "Replace Tailscale Connection"
-                            ),
-                            systemImage: "qrcode.viewfinder"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileComputerReplaceTailscaleConnectionButton")
-                }
-                Button {
-                    pingAllRoutes(routes)
-                } label: {
-                    Label {
-                        Text(isPinging
-                            ? L10n.string("mobile.computers.pinging", defaultValue: "Pinging…")
-                            : L10n.string("mobile.computers.ping", defaultValue: "Ping"))
-                    } icon: {
-                        if isPinging {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "wave.3.right")
-                        }
-                    }
-                }
-                .disabled(isPinging)
-                .accessibilityIdentifier("MobileComputerPingButton")
             }
+            Button {
+                presentTailscalePairing(
+                    routes.contains(where: { $0.kind == .tailscale })
+                        ? .tailscaleReplacement : .tailscaleSetup
+                )
+            } label: {
+                Label(
+                    L10n.string(
+                        "mobile.computers.routes.scanTailscale",
+                        defaultValue: "Scan Mobile Pairing Code"
+                    ),
+                    systemImage: "qrcode.viewfinder"
+                )
+            }
+            .accessibilityIdentifier("MobileComputerReplaceTailscaleConnectionButton")
         } header: {
-            Text(L10n.string("mobile.computers.section.routes", defaultValue: "Routes the phone can dial"))
-        } footer: {
-            Text(L10n.string(
-                "mobile.computers.pingFooter",
-                defaultValue: "Ping opens a direct connection to each route to check if this phone can reach the Mac right now. It works even when a workspace shows Disconnected, which usually means the live stream dropped, not that the Mac is offline."))
+            Text(L10n.string("mobile.computers.section.savedRoutes", defaultValue: "Routes"))
         }
     }
 
-    /// One route: kind + endpoint, with its latest ping status underneath.
+    /// Saved route information with a separate removal control.
     @ViewBuilder
     private func routeRow(_ route: CmxAttachRoute) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(route.kind.mobileConnectionMethodName)
                     .font(.callout)
-                Spacer(minLength: 8)
-                Text(endpointText(route.endpoint))
-                    .font(.callout.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                if route.kind != .iroh {
-                    Button {
-                        removeRoute(route)
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
-                    .accessibilityLabel(
-                        L10n.string(
-                            "mobile.connections.route.remove",
-                            defaultValue: "Remove route"
-                        )
-                    )
-                    .accessibilityIdentifier("MobileComputerRemoveRoute-\(route.id)")
+                if case .hostPort = route.endpoint {
+                    Text(endpointText(route.endpoint))
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
             }
-            pingStatusLine(for: route)
+            Spacer(minLength: 0)
+            if route.kind != .iroh {
+                Button {
+                    removeRoute(route)
+                } label: {
+                    Image(systemName: "trash")
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(.red)
+                .accessibilityLabel(
+                    L10n.string(
+                        "mobile.connections.route.remove",
+                        defaultValue: "Remove route"
+                    )
+                )
+                .accessibilityIdentifier("MobileComputerRemoveRoute-\(route.id)")
+            }
         }
     }
 
     private func removeRoute(_ route: CmxAttachRoute) {
-        guard pairedMac?.routes.count == 1 else {
-            Task {
-                await store.removeRoute(
-                    route,
-                    macDeviceID: macDeviceID,
-                    instanceTag: instanceTag
-                )
-            }
-            return
+        Task {
+            await store.removeRoute(
+                route,
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
         }
-        pendingLastRouteRemoval = route
     }
 
     private func presentTailscalePairing(_ presentation: PairingPresentation) {
         tailscalePairingPresentation = presentation
         showsAddTailscaleConnection = true
-    }
-
-    /// The per-route ping status sub-line: nothing before the first ping, a
-    /// spinner while in flight, then the classified result with a tinted icon.
-    /// A stable per-endpoint key: route kind + the host/port it dials. Used to
-    /// match a ping result to the row it was measured for, so a refreshed
-    /// endpoint (same id, new host/port) does not inherit a stale result.
-    private func routeSignature(_ route: CmxAttachRoute) -> String {
-        "\(route.kind.rawValue)|\(endpointText(route.endpoint))"
-    }
-
-    @ViewBuilder
-    private func pingStatusLine(for route: CmxAttachRoute) -> some View {
-        if let result = pingResults[routeSignature(route)] {
-            Label {
-                Text(result.pingLabel)
-                    .font(.caption)
-                    .foregroundStyle(result.pingColor)
-            } icon: {
-                Image(systemName: result.pingSymbol)
-                    .font(.caption)
-                    .foregroundStyle(result.pingColor)
-            }
-            .accessibilityIdentifier("MobileComputerPingResult-\(route.id)")
-        } else if isPinging {
-            Label {
-                Text(L10n.string("mobile.computers.pinging", defaultValue: "Pinging…"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } icon: {
-                ProgressView().controlSize(.mini)
-            }
-        }
-    }
-
-    /// Probe every route in parallel and record each outcome as it lands, so
-    /// fast routes show a result while slow ones are still resolving.
-    private func pingAllRoutes(_ routes: [CmxAttachRoute]) {
-        guard !routes.isEmpty, !isPinging else { return }
-        isPinging = true
-        pingResults = [:]
-        let store = store
-        let signatures = Dictionary(
-            routes.map { (routeSignature($0), $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        Task {
-            await withTaskGroup(of: (String, CmxRoutePingResult).self) { group in
-                for (signature, route) in signatures {
-                    group.addTask { (signature, await store.pingRoute(route)) }
-                }
-                for await (signature, result) in group {
-                    pingResults[signature] = result
-                }
-            }
-            isPinging = false
-        }
     }
 
     @ViewBuilder
@@ -1302,29 +1114,12 @@ struct MacComputerDetailView: View {
                 LabeledContent(L10n.string("mobile.computers.field.pairedSince", defaultValue: "Paired since"),
                                value: createdAt.formatted(.dateTime.month().day().year()))
             }
-            if let lastSeenAt = pairedMac?.lastSeenAt {
-                LabeledContent(L10n.string("mobile.computers.field.routeUpdated", defaultValue: "Route updated"),
-                               value: lastSeenAt.formatted(.relative(presentation: .named)))
-            }
         }
     }
 
     @ViewBuilder
     private var actionsSection: some View {
         Section {
-            Button {
-                // Use the shared reconnect action for this exact computer so
-                // an already-connected Mac also refreshes its terminal output.
-                Task {
-                    await store.reconnectToMac(
-                        macDeviceID: macDeviceID,
-                        instanceTag: instanceTag
-                    )
-                }
-            } label: {
-                Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
-            }
-            .accessibilityIdentifier("MobileComputerReconnect")
             // Iroh is the permanent identity route and is deliberately not
             // removable row-by-row, so route deletion alone can never delete
             // an Iroh-paired Computer. Forget is that record's one deletion

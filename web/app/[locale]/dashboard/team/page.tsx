@@ -1,8 +1,9 @@
-import { AccountSettings } from "@stackframe/stack";
+import { AccountSettings } from "@hexclave/next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { loadDashboardSection } from "@/app/lib/dashboard-auth";
 import { isStackConfigured } from "@/app/lib/stack";
+import { IsolatedErrorBoundary, SectionUnavailable } from "@/app/components/error-boundary";
 import { DashboardAuthRecovery } from "../components/dashboard-auth-recovery";
 import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 
@@ -34,5 +35,9 @@ async function TeamSettingsSection({ locale }: { locale: string }) {
   if (section.kind === "unavailable") {
     return <DashboardAuthRecovery locale={locale} returnPath={RETURN_PATH} />;
   }
-  return <AccountSettings />;
+  return (
+    <IsolatedErrorBoundary name="dashboard-account-settings" fallback={<SectionUnavailable />}>
+      <AccountSettings />
+    </IsolatedErrorBoundary>
+  );
 }

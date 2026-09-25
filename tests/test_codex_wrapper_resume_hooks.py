@@ -123,6 +123,10 @@ exit 1
         env["FAKE_CMUX_LOG"] = str(cmux_log)
         env["FAKE_SOCKET_STATE"] = socket_state
         env["FAKE_INJECT_ARGS_AVAILABLE"] = "1" if inject_args_available else "0"
+        # Keep this hook-only fixture independent of any ambient cmux CUA
+        # installation on the developer or CI machine.
+        env["CMUX_COMPUTER_USE_APP_ENABLED"] = "0"
+        env["CMUX_COMPUTER_USE_MCP_DISABLED"] = "1"
         if hooks_disabled:
             env["CMUX_CODEX_HOOKS_DISABLED"] = "1"
         else:
@@ -154,6 +158,12 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
+# cmux-launched Codex always disables the native `computer_use` provider before
+# any other argument (Resources/bin/cmux-codex-wrapper), including when hook
+# injection fails, so cmux-cua stays the only Computer Use provider.
+NATIVE_COMPUTER_USE_POLICY = ["--disable", "computer_use"]
+
+
 def assert_session_entrypoint_is_instrumented(
     *,
     socket_state: str,
@@ -161,6 +171,7 @@ def assert_session_entrypoint_is_instrumented(
     label: str,
     failures: list[str],
     restore_token: str | None = None,
+    expect_synthetic_resume: bool = False,
 ) -> None:
     code, real_argv, cmux_log, observed_env, stderr = run_wrapper(
         socket_state=socket_state,
@@ -169,22 +180,26 @@ def assert_session_entrypoint_is_instrumented(
     )
     expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
     expect(stderr == "", f"{label}: wrapper wrote unexpected stderr: {stderr!r}", failures)
-    expect(real_argv[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
+    expect(real_argv[:len(NATIVE_COMPUTER_USE_POLICY)] == NATIVE_COMPUTER_USE_POLICY,
+           f"{label}: missing native Computer Use policy prefix: {real_argv}", failures)
+    hook_args = real_argv[len(NATIVE_COMPUTER_USE_POLICY):]
+    expect(hook_args[:3] == ["--enable", "hooks", "--dangerously-bypass-hook-trust"],
            f"{label}: missing injected hook prefix: {real_argv}", failures)
     expect(any(arg.startswith("hooks.SessionStart=") for arg in real_argv),
            f"{label}: missing SessionStart hook: {real_argv}", failures)
     expect(any(arg.startswith("hooks.Stop=") for arg in real_argv),
            f"{label}: missing Stop hook: {real_argv}", failures)
-    expect(real_argv[-len(argv):] == argv if argv else len(real_argv) == 7,
+    expect(real_argv[-len(argv):] == argv if argv else len(hook_args) == 7,
            f"{label}: original argv was not preserved: {real_argv}", failures)
     expect(any("hooks codex inject-args" in line for line in cmux_log),
            f"{label}: wrapper never requested local hook args: {cmux_log}", failures)
     expect(not any("ping" in line for line in cmux_log),
            f"{label}: transient socket health must not decide session instrumentation: {cmux_log}", failures)
+    synthetic_resume = any("hooks enqueue codex session-start" in line for line in cmux_log)
+    expect(synthetic_resume == expect_synthetic_resume,
+           f"{label}: synthetic resume SessionStart mismatch: {cmux_log}", failures)
     expect(not any("hooks codex session-start" in line for line in cmux_log),
-           f"{label}: wrapper must not synthesize SessionStart from argv: {cmux_log}", failures)
-    expect(not any("session-start" in line for line in cmux_log),
-           f"{label}: wrapper must not enqueue synthetic SessionStart: {cmux_log}", failures)
+           f"{label}: wrapper must use the queued SessionStart path: {cmux_log}", failures)
     expect(observed_env.get("CMUX_CODEX_PID") not in {None, "", "__UNSET__"},
            f"{label}: missing Codex process identity: {observed_env}", failures)
     expect(observed_env.get("CMUX_AGENT_LAUNCH_KIND") == "codex",
@@ -216,6 +231,7 @@ def test_every_resume_route_is_instrumented(failures: list[str]) -> None:
                 label=f"{route}/{socket_state}",
                 failures=failures,
                 restore_token=restore_token,
+                expect_synthetic_resume=route == "explicit-id",
             )
 
 
@@ -226,6 +242,7 @@ def test_direct_fork_is_instrumented(failures: list[str]) -> None:
             argv=["fork", SESSION_ID],
             label=f"fork/{socket_state}",
             failures=failures,
+            expect_synthetic_resume=False,
         )
 
 
@@ -261,6 +278,7 @@ def test_restore_tokens_do_not_gate_instrumentation(failures: list[str]) -> None
             label=f"restore-token-{token}/stale",
             failures=failures,
             restore_token=token,
+            expect_synthetic_resume=True,
         )
 
 
@@ -271,7 +289,8 @@ def test_injection_failure_preserves_cmux_context(failures: list[str]) -> None:
         inject_args_available=False,
     )
     expect(code == 0, f"inject-failure: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["resume"], f"inject-failure: original argv changed: {real_argv}", failures)
+    expect(real_argv == [*NATIVE_COMPUTER_USE_POLICY, "resume"],
+           f"inject-failure: original argv changed: {real_argv}", failures)
     expect(any("hooks codex inject-args" in line for line in cmux_log),
            f"inject-failure: injection was never attempted: {cmux_log}", failures)
     expect(observed_env.get("CMUX_SURFACE_ID") == "11111111-1111-1111-1111-111111111111",

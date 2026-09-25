@@ -78,6 +78,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 3.3 Error Surfacing
 - `DONE` remote errors are surfaced in sidebar status + logs + notifications.
 - `DONE` reconnect retry count/time is included in surfaced error text (for example, `retry 1 in 4s`).
+- `DONE` a session that cannot become ready parks in bounded time and says so in the terminal (issue #12813). Parking is the session's single terminal transition: bootstrap and reachability park through their retry policies, and a session that bootstraps over SSH parks if no proxy endpoint is published within 60 s of its first daemon `hello` (the reverse-relay restart loop and the escalate-and-rebootstrap cycle have no bound of their own). Parking releases every `ssh-pty-attach --wait` waiting on the session with the same detail the sidebar shows; the attach prints it and exits instead of rejoining its wrapper's retry loop. Managed Cloud VM sessions are not deadlined. A launching attach does not repaint a parked workspace as connecting.
 
 ### 3.4 Removed Temporary Behavior
 - `DONE` removed remote listening-port probe loop and per-port SSH `-L` mirroring.
@@ -150,7 +151,7 @@ Recompute effective size on:
 | M-008 | WebView proxy auto-wiring for remote workspaces | DONE | Workspace-scoped `WKWebsiteDataStore.proxyConfigurations` wiring is active |
 | M-009 | PTY resize coordinator (`smallest screen wins`) | DONE | Daemon session RPC now tracks attachments and applies min cols/rows semantics with unit tests |
 | M-010 | Resize + proxy reconnect e2e test suites | DONE | `tests_v2/test_ssh_remote_docker_forwarding.py` validates HTTP/websocket egress plus SOCKS pipelined-payload handling; `tests_v2/test_ssh_remote_docker_reconnect.py` verifies reconnect recovery and repeats SOCKS pipelined-payload checks after host restart; `tests_v2/test_ssh_remote_proxy_bind_conflict.py` validates structured `proxy_unavailable` bind-conflict surfacing and `local_proxy_port` status retention under bind conflict; `tests_v2/test_ssh_remote_daemon_resize_stdio.py` validates session resize semantics over real stdio RPC process boundaries; `tests_v2/test_ssh_remote_cli_metadata.py` validates `workspace.remote.configure` numeric-string compatibility, explicit `null` clear semantics (including `workspace.remote.status` reflection), strict `port`/`local_proxy_port` validation (bounds/type), case-insensitive SSH option override precedence for StrictHostKeyChecking/control-socket keys, and `local_proxy_port` payload echo for deterministic bind-conflict test hook behavior |
-| M-011 | Detachable persistent `cmux ssh` PTY sessions | IN PROGRESS | Persistent remote daemon slots keep PTY sessions alive across local surface close and app relaunch; coverage includes Go daemon auth/reattach tests, Swift restore tests, CLI contract tests, and `tests_v2/test_ssh_remote_detachable_pty.py` |
+| M-011 | Detachable persistent `cmux ssh` PTY sessions | IN PROGRESS | Persistent remote daemon slots keep PTY sessions alive across local surface close and app relaunch; coverage includes Go daemon auth/reattach tests, Swift restore tests, and CLI contract tests |
 
 ## 7. Acceptance Test Matrix (With Status)
 
@@ -244,7 +245,13 @@ Before declaring browser proxying complete:
 3. `workspace.remote.configure.terminal_profile` accepts `shell` (default) or `tmux`; `terminal_tmux_session` carries the validated named session and defaults to `main` for tmux profiles.
 4. `workspace.remote.status.remote` reports `terminal_transport`, `terminal_profile`, and `terminal_tmux_session`; the separate `transport` field continues to report the management/control transport.
 
-### 10.4 SSH Docker E2E Harness Knobs
+### 10.4 `workspace.remote.pty_bridge` Parked Sessions
+1. When the workspace's remote session is parked, `workspace.remote.pty_bridge` fails with code `remote_session_parked` (with or without `wait_for_ready`), immediately rather than after its readiness timeout. This includes a workspace that has no session controller and cannot create one until the user reconnects (a reconnect whose previous-connection cleanup failed, or a rejected ControlMaster adoption).
+2. The error `message` is the app-localized, user-facing reason and next step. It is prose and may contain phrases such as "timed out"; clients must classify on the code, never on the wording, and should show the message verbatim.
+3. `cmux ssh-pty-attach` maps the code to a terminal exit status (1), so the persistent attach wrapper stops retrying. It leaves the remote PTY session and its lifecycle untouched, because a session can park while its persistent remote PTY is still running and Reconnect must be able to reattach to it.
+4. Transient states keep their existing codes and retry behavior (`remote_pty_error` with "remote daemon is not ready" / "remote connection is not active").
+
+### 10.5 SSH Docker E2E Harness Knobs
 1. `CMUX_SSH_TEST_DOCKER_HOST` sets the SSH destination host/IP used by docker-backed SSH fixtures (default `127.0.0.1`).
 2. `CMUX_SSH_TEST_DOCKER_BIND_ADDR` sets the bind address used in fixture container publish mappings (default `127.0.0.1`).
 3. Defaults preserve loopback behavior on a single host; override both when docker runs on a different host (for example VM -> host OrbStack).

@@ -1,19 +1,47 @@
 import { transferAccount } from "../../../../../../services/coderouter/accounts";
 import { resolveCodeRouterRequestContext } from "../../../../../../services/coderouter/requestContext";
 import { authorizedSubrouterTeams } from "../../../../../../services/subrouter/routeHelpers";
-import type { AuthedUser } from "../../../../../../services/vms/auth";
+import {
+  isSubrouterAuthorizationError,
+  verifySubrouterRequest,
+  withSubrouterAuthorizationDeadline,
+  type AuthedUser,
+} from "../../../../../../services/vms/auth";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type TransferDependencies = {
   readonly resolve: typeof resolveCodeRouterRequestContext;
-  readonly listTeams: (user: AuthedUser) => ReturnType<typeof authorizedSubrouterTeams> | Promise<ReturnType<typeof authorizedSubrouterTeams>>;
+  readonly listTeams: (
+    user: AuthedUser,
+    request: Request,
+    destinationTeamId: string,
+  ) => ReturnType<typeof authorizedSubrouterTeams> | Promise<ReturnType<typeof authorizedSubrouterTeams>>;
   readonly transfer: typeof transferAccount;
 };
 
+/**
+ * The caller's teams, with the requested destination resolved. The source
+ * request's identity lists only its selected and requested team, so a team
+ * the caller belongs to is usually absent from `user.teams`. Re-verify the
+ * same credentials with an exact Stack lookup of the destination and trust
+ * the result only for the same user.
+ */
+export async function transferDestinationTeams(
+  user: AuthedUser,
+  request: Request,
+  destinationTeamId: string,
+  verify: typeof verifySubrouterRequest = verifySubrouterRequest,
+): Promise<ReturnType<typeof authorizedSubrouterTeams>> {
+  if (!destinationTeamId || destinationTeamId === user.id) return authorizedSubrouterTeams(user);
+  const verified = await withSubrouterAuthorizationDeadline((signal) =>
+    verify(request, signal, { requestedTeamId: destinationTeamId, allowCookie: true }));
+  return verified?.id === user.id ? authorizedSubrouterTeams(verified) : [];
+}
+
 const defaultTransferDependencies: TransferDependencies = {
   resolve: resolveCodeRouterRequestContext,
-  listTeams: authorizedSubrouterTeams,
+  listTeams: transferDestinationTeams,
   transfer: transferAccount,
 };
 
@@ -46,7 +74,17 @@ export function makeCoderouterTransferHandler(
         typeof (body as { destinationTeamId?: unknown }).destinationTeamId === "string"
       ? (body as { destinationTeamId: string }).destinationTeamId.trim()
       : "";
-    const destination = (await dependencies.listTeams(resolved.value.user)).find(
+    let teams: Awaited<ReturnType<TransferDependencies["listTeams"]>>;
+    try {
+      teams = await dependencies.listTeams(resolved.value.user, request, destinationTeamId);
+    } catch (error) {
+      if (!isSubrouterAuthorizationError(error)) throw error;
+      return Response.json(
+        { error: "authorization_unavailable", retryable: true },
+        { status: 503, headers: { "retry-after": "5" } },
+      );
+    }
+    const destination = teams.find(
       (team) => team.teamId === destinationTeamId && team.manageAccounts,
     );
     if (!destination || destinationTeamId === resolved.value.team.teamId) {

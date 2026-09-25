@@ -1,7 +1,7 @@
+import CmuxCloud
 import CryptoKit
 import CmuxIrxTransport
 import Foundation
-import Security
 
 struct MobileHostV2Configuration: Sendable {
     let baseURL: URL
@@ -12,16 +12,28 @@ struct MobileHostV2Configuration: Sendable {
     let stateDirectory: URL
 
     @MainActor
-    static func current() throws -> Self {
-        let values = ProcessInfo.processInfo.environment
-        let defaults = UserDefaults.standard
-        let namespace = Bundle.main.bundleIdentifier ?? "dev.cmux"
+    static func current(
+        values: [String: String] = ProcessInfo.processInfo.environment,
+        defaults: UserDefaults = .standard,
+        bundle: Bundle = .main
+    ) throws -> Self {
+        let namespace = bundle.bundleIdentifier ?? "dev.cmux"
+        func configuredValue(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
         for key in ["CMUX_IROH_V2_ENVIRONMENT", "CMUX_IROH_V2_BASE_URL", "CMUX_IROH_V2_FORCE_RELAY"] {
-            if let value = values[key] { defaults.set(value, forKey: "cmux.iroh.v2.config." + key) }
+            if let value = configuredValue(values[key]) {
+                defaults.set(value, forKey: "cmux.iroh.v2.config." + key)
+            }
         }
         func override(_ key: String) -> String? {
-            values[key] ?? defaults.string(forKey: "cmux.iroh.v2.config." + key)
-                ?? Bundle.main.object(forInfoDictionaryKey: key) as? String
+            // Xcode expands unset Info.plist build settings to empty strings.
+            // They are absent overrides, not an environment or Worker URL.
+            configuredValue(values[key])
+                ?? configuredValue(defaults.string(forKey: "cmux.iroh.v2.config." + key))
+                ?? configuredValue(bundle.object(forInfoDictionaryKey: key) as? String)
         }
         #if DEBUG
         let fallback = "development"
@@ -33,7 +45,8 @@ struct MobileHostV2Configuration: Sendable {
         switch environment {
         case "production": origin = "https://cmux-iroh-v2.debussy.workers.dev"
         case "staging": origin = "https://cmux-iroh-v2-staging.debussy.workers.dev"
-        default: origin = "https://cmux-iroh-v2-development.debussy.workers.dev"
+        case "development": origin = "https://cmux-iroh-v2-development.debussy.workers.dev"
+        default: throw V2ControlFailure.scopeMismatch
         }
         guard let url = URL(string: override("CMUX_IROH_V2_BASE_URL") ?? origin),
               url.scheme == "https", url.host != nil, url.user == nil, url.password == nil,
@@ -49,10 +62,14 @@ struct MobileHostV2Configuration: Sendable {
 actor MobileHostV2Installation {
     private let configuration: MobileHostV2Configuration
     private let keys: V2IdentityKeyStore
+    private let installationIDs: V2InstallationIDStore
 
     init(configuration: MobileHostV2Configuration) {
         self.configuration = configuration
         keys = V2IdentityKeyStore(applicationNamespace: configuration.namespace)
+        installationIDs = V2InstallationIDStore(
+            applicationNamespace: configuration.namespace
+        )
     }
 
     func deviceID() throws -> String {
@@ -68,30 +85,7 @@ actor MobileHostV2Installation {
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         return value
         #else
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: configuration.namespace + ".cmux-iroh-v2.installation",
-            kSecAttrAccount as String: "device-id"]
-        var read = query
-        read[kSecReturnData as String] = true
-        read[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(read as CFDictionary, &result)
-        if status == errSecSuccess, let data = result as? Data,
-           let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil { return value }
-        guard status == errSecItemNotFound else { throw V2ControlFailure.persistenceFailed }
-        let value = UUID().uuidString.lowercased()
-        var create = query
-        create[kSecValueData as String] = Data(value.utf8)
-        create[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let added = SecItemAdd(create as CFDictionary, nil)
-        if added == errSecDuplicateItem {
-            guard SecItemCopyMatching(read as CFDictionary, &result) == errSecSuccess,
-                  let data = result as? Data, let stored = String(data: data, encoding: .utf8),
-                  UUID(uuidString: stored) != nil else { throw V2ControlFailure.persistenceFailed }
-            return stored
-        }
-        guard added == errSecSuccess else { throw V2ControlFailure.persistenceFailed }
-        return value
+        return try installationIDs.loadOrCreate()
         #endif
     }
 

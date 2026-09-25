@@ -1,7 +1,9 @@
 import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
+@testable import CmuxMobileHost
 import CmuxMobileRPC
+import CmuxSettings
 import Darwin
 import Foundation
 @preconcurrency import Network
@@ -15,6 +17,40 @@ import Testing
 
 @MainActor
 extension MobileHostAuthorizationTests {
+    @Test func testIrohAdmissionRejectsRequestsAfterAuthorizationExpires() async throws {
+        let transport = MobileHostFramedTestTransport()
+        let handled = MobileHostConnectionRequestRecorder()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            firstFrameTimeoutNanoseconds: 0,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            isAuthorizationCurrent: { false },
+            handleRequest: { request in
+                await handled.record(request)
+                return .ok(["handled": true])
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+        let request = Data(#"{"id":"expired","method":"workspace.list","params":{}}"#.utf8)
+        await transport.enqueue(try MobileSyncFrameCodec.encodeFrame(request))
+
+        var responseBuffer = await transport.waitForSentBuffer()
+        let responsePayload = try #require(MobileSyncFrameCodec.decodeFrames(from: &responseBuffer).first)
+        let response = try #require(JSONSerialization.jsonObject(with: responsePayload) as? [String: Any])
+        let error = try #require(response["error"] as? [String: Any])
+        #expect(response["ok"] as? Bool == false)
+        #expect(error["code"] as? String == "admission_expired")
+        #expect(await handled.recordedMethods().isEmpty)
+
+        await transport.finishReceiving()
+        await runTask.value
+    }
+
+    // V2InboundAdmissionAuthorityTests covers the current directory lease and identity contract.
+
     @Test func testPairingPayloadDefaultsCanDiscloseOnlyIrohIdentity() throws {
         let store = MobileAttachTicketStore()
         let endpointID = String(repeating: "a", count: 64)
@@ -188,7 +224,6 @@ struct IrohTailscaleVersionSkewMacGateTests {
             id: UUID(),
             transport: transport,
             firstFrameTimeoutNanoseconds: 0,
-            idleTimeoutNanoseconds: 0,
             authorizeRequest: { request in
                 await MobileHostService.connectionAuthorizationError(
                     for: request,
@@ -251,6 +286,57 @@ struct IrohTailscaleVersionSkewMacGateTests {
         #expect(host == "100.71.210.41")
         #expect(port == 58_465)
         #expect(host != "127.0.0.1")
+    }
+
+    // IROH v2 (#12326) retired the separate legacy TCP listener. Shipped iOS
+    // builds now reach the Mac through the legacy `cmux/mobile/1` dialect on
+    // the same v2 endpoint, gated by the same pairing opt-in. These two tests
+    // keep the original guarantee: on Stable, either the current or the
+    // historical setting starts Iroh and keeps the legacy dialect reachable.
+    @Test func testStableExplicitSettingStartsIrohAndLegacyCompatibilityListener() throws {
+        try assertStablePairingStartsIrohAndLegacyDialect(
+            suffix: "Current",
+            key: MobileHostService.listeningEnabledDefaultsKey
+        )
+    }
+
+    @Test func testStableHistoricalSettingStartsIrohAndLegacyCompatibilityListener() throws {
+        try assertStablePairingStartsIrohAndLegacyDialect(
+            suffix: "Historical",
+            key: "cmuxMobilePairingHostEnabled"
+        )
+    }
+
+    private func assertStablePairingStartsIrohAndLegacyDialect(
+        suffix: String,
+        key: String
+    ) throws {
+        let suiteName = "IrohTailscaleVersionSkewMacGateTests.\(suffix).\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: key)
+
+        #expect(MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable))
+        let runtime = MobileHostIrxRuntime(
+            managedDevicePolicy: ManagedDevicePolicy(
+                defaults: defaults,
+                releaseDomainDefaults: nil,
+                forcedObject: { _, _ in nil }
+            ),
+            pairingEnabled: {
+                MobileHostService.isListeningEnabled(defaults: defaults, buildFlavor: .stable)
+            }
+        )
+        let shippedLegacyALPN = Data("cmux/mobile/1".utf8)
+
+        #expect(runtime.isNetworkingAllowed)
+        #expect(MobileHostIrxLegacyDialectServer.legacyALPN == shippedLegacyALPN)
+        #expect(MobileHostIrxRuntime.endpointAdditionalALPNs.contains(shippedLegacyALPN))
+        #expect(runtime.acceptsLegacyDialect(alpn: shippedLegacyALPN))
+        #expect(!runtime.acceptsLegacyDialect(alpn: Data("cmux/mobile/2".utf8)))
+
+        defaults.set(false, forKey: key)
+        #expect(!runtime.acceptsLegacyDialect(alpn: shippedLegacyALPN))
     }
 
     private func irohAdmissionContext() throws -> MobileHostConnectionAuthorizationContext {
@@ -567,7 +653,13 @@ extension MobileHostAuthorizationTests {
     @Test func testIrohApplicationLaneQuotasReserveArtifactCapacity() {
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentTerminalLaneCount == 4)
         #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentArtifactLaneCount == 1)
-        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount == 5)
+        #expect(MobileHostIrohApplicationLaneRouter.maximumConcurrentSimulatorStreamLaneCount == 2)
+        #expect(
+            MobileHostIrohApplicationLaneRouter.maximumConcurrentLaneCount
+                == MobileHostIrohApplicationLaneRouter.maximumConcurrentTerminalLaneCount
+                    + MobileHostIrohApplicationLaneRouter.maximumConcurrentArtifactLaneCount
+                    + MobileHostIrohApplicationLaneRouter.maximumConcurrentSimulatorStreamLaneCount
+        )
 
         var quota = MobileHostIrohApplicationLaneQuota()
         let terminalIDs = (0..<5).map { _ in UUID() }
@@ -582,8 +674,18 @@ extension MobileHostAuthorizationTests {
         #expect(didReserveArtifact)
         let didReserveSecondArtifact = quota.reserve(UUID(), laneClass: .artifact)
         #expect(!didReserveSecondArtifact)
+        let simulatorStreamIDs = (0..<3).map { _ in UUID() }
+        for id in simulatorStreamIDs.prefix(2) {
+            let didReserve = quota.reserve(id, laneClass: .simulatorStream)
+            #expect(didReserve)
+        }
+        let didReserveThirdSimulatorStream = quota.reserve(
+            simulatorStreamIDs[2], laneClass: .simulatorStream
+        )
+        #expect(!didReserveThirdSimulatorStream)
         #expect(quota.terminalCount == 4)
         #expect(quota.artifactCount == 1)
+        #expect(quota.simulatorStreamCount == 2)
 
         quota.release(terminalIDs[0])
         let didReuseTerminalCredit = quota.reserve(terminalIDs[4], laneClass: .terminal)
@@ -591,6 +693,11 @@ extension MobileHostAuthorizationTests {
         quota.release(artifactID)
         let didReuseArtifactCredit = quota.reserve(UUID(), laneClass: .artifact)
         #expect(didReuseArtifactCredit)
+        quota.release(simulatorStreamIDs[0])
+        let didReuseSimulatorStreamCredit = quota.reserve(
+            simulatorStreamIDs[2], laneClass: .simulatorStream
+        )
+        #expect(didReuseSimulatorStreamCredit)
     }
 
     private func irohPeer(

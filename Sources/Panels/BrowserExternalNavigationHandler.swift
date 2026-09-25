@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxBrowser
 import CmuxCore
 import CmuxSettings
 import Foundation

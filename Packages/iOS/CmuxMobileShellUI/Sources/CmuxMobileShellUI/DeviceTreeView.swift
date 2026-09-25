@@ -30,9 +30,6 @@ struct DeviceTreeView: View {
     /// Live app routes dismiss through the root modal owner. Standalone hosts
     /// leave this nil and retain the environment dismissal fallback.
     var dismissAction: (() -> Void)? = nil
-    @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
-        MobileConnectionMethodStore?
-
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
     /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/hideMac``
@@ -200,10 +197,7 @@ struct DeviceTreeView: View {
     }
 
     private var emptyDescription: String {
-        if connectionMethodStore?.method == .tailscale {
-            return MobilePairingScannerSheet.emptyStateGuidanceText
-        }
-        return showAddDevice != nil
+        let description = showAddDevice != nil
             ? L10n.string(
                 "mobile.v2.connections.empty",
                 defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
@@ -212,6 +206,7 @@ struct DeviceTreeView: View {
                 "mobile.v2.devices.emptyDescription",
                 defaultValue: "On your Mac, turn on Enable iOS pairing in cmux Settings. Select the same team on both devices and keep cmux running. Only Macs you own or have permission to connect to appear here."
             )
+        return "\(description) \(MobilePairingCopy().emptyWorkspaceMessage)"
     }
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
@@ -244,9 +239,9 @@ struct DeviceTreeView: View {
         // These are independent account-scoped reads. Start them together so
         // the slower registry request cannot delay the paired-Mac list, while
         // each loader's generation gate keeps stale results from publishing.
-        async let pairedMacs: Void = store.loadPairedMacs()
+        async let pairedMacs: Bool = store.loadPairedMacs()
         async let registryDevices: Void = store.loadRegistryDevices()
-        await pairedMacs
+        _ = await pairedMacs
         await registryDevices
     }
 }

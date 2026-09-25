@@ -50,6 +50,10 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         ((TerminalPanel) -> Void)?
     @ObservationIgnored var onTerminalPanelRemoved:
         ((TerminalPanel) -> Void)?
+    // Mutated on the main actor; deinit removes tokens after all actor use ends.
+    @ObservationIgnored nonisolated(unsafe) var paneColorObserverTokens: [NSObjectProtocol] = []
+    @ObservationIgnored var pendingPaneColorRefreshes: Set<Int> = []
+    @ObservationIgnored let paneColorsSource: ((TerminalPanel) -> RemoteTmuxPaneColors?)?
 
     /// The window's BASE pane layout (tmux's full tree even while a pane is
     /// zoomed). Drives panel lifecycle and the sizing structure fold.
@@ -73,8 +77,8 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     private(set) var activePaneId: Int?
     @ObservationIgnored var pendingControlPaneFocusRequest: PendingControlPaneFocusRequest?
     @ObservationIgnored var pendingCreatedPaneFocusRequests: [PendingCreatedPaneFocusRequest] = []
-    /// Display title for this mirrored tmux window; every inner surface/tab title
-    /// derives from this tmux window name, never from pane-border labels.
+    /// Display title for this mirrored tmux window; inner surfaces use it unless
+    /// tmux reports a pane title that differs from both host defaults.
     private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
 
     /// Only the visible tab's mirror writes after its initial claim. Hidden
@@ -222,6 +226,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// connection on every reconcile so the view reads stored state, never
     /// the connection. Rendered on the strip above each pane.
     private(set) var paneHeaderLabels: [Int: String] = [:]
+    /// Raw pane-title metadata copied from the connection on every reconcile.
+    /// Only titles that differ from tmux's host defaults are projected onto tabs.
+    @ObservationIgnored var paneTitleMetadataByPane: [Int: RemoteTmuxPaneTitleMetadata] = [:]
 
     /// The render constants the view actually uses, updated ONLY on event
     /// paths (applied-resize reports, client-size pushes) and read by the
@@ -270,9 +277,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// of the output-parity check in `rearmIfOutputMissedPlan()` and of the
     /// chrome-parity probe in ``handleSizingSample``.
     @ObservationIgnored var lastPlannedOuterSizes: [Int: CGSize] = [:]
-    /// Output-parity re-arm state: how many bounded recovery passes this
-    /// input fixed point has spent, and which fixed point they belong to
-    /// (the counter resets when the completed inputs change). Tracked apart
+    /// Output-parity re-arm state: how many bounded recovery passes the current
+    /// mismatch has spent, and which input fixed point they belong to. The
+    /// counter resets when output parity returns or completed inputs change. Tracked apart
     /// from `lastCompletedSizingInputs` because a re-arm nils that field —
     /// folding the two together would reset the counter on every re-arm and
     /// unbound the loop.
@@ -298,6 +305,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         controlPaneID: @escaping (Int) -> PaneID? = { _ in nil },
         onControlSurfaceChanged: ((Int, UUID?) -> Void)? = nil,
         onPaneSurfaceProgress: ((Int) -> Void)? = nil,
+        paneColorsSource: ((TerminalPanel) -> RemoteTmuxPaneColors?)? = nil,
         makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
     ) {
         self.windowId = windowId
@@ -310,13 +318,19 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         self.controlPaneID = controlPaneID
         self.onControlSurfaceChanged = onControlSurfaceChanged
         self.onPaneSurfaceProgress = onPaneSurfaceProgress
+        self.paneColorsSource = paneColorsSource
         self.layout = layout
         let initialConfiguration = workspaceBonsplitController?.configuration
             ?? BonsplitConfiguration(appearance: appearance)
         self.bonsplitController = Self.makeController(configuration: initialConfiguration)
         configureBonsplitController()
         observeWorkspaceBonsplitConfiguration()
+        observePaneColors()
         reconcile(layout: layout)
+    }
+
+    deinit {
+        paneColorObserverTokens.forEach(NotificationCenter.default.removeObserver)
     }
 
     /// All tmux pane ids currently in the window, depth-first left→right.
@@ -376,6 +390,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             // dereferenced by a later Core Animation commit.
             panel.surface.onManualSizeApplied = nil
             panel.surface.onRuntimeReady = nil
+            removePaneColorsIfOwned(paneId: paneId)
             onControlSurfaceChanged?(paneId, nil)
             panel.close()
             connection?.unsubscribePanePath(paneId: paneId)
@@ -401,11 +416,26 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if layout != newLayout { layout = newLayout }
         let labels = (connection?.paneHeaderLabels ?? [:]).filter { livePaneIds.contains($0.key) }
         if labels != paneHeaderLabels { paneHeaderLabels = labels }
+        var paneTitleMetadata: [Int: RemoteTmuxPaneTitleMetadata] = [:]
+        paneTitleMetadata.reserveCapacity(livePaneIDsInOrder.count)
+        for paneId in livePaneIDsInOrder {
+            if let metadata = connection?.paneTitleMetadataByPane[paneId] {
+                paneTitleMetadata[paneId] = metadata
+            }
+        }
+        if paneTitleMetadata != paneTitleMetadataByPane {
+            paneTitleMetadataByPane = paneTitleMetadata
+        }
         let titleRowPlacement = connection?.windowTitleRowPlacements[windowId]
         if tmuxTitleRowPlacement != titleRowPlacement {
             tmuxTitleRowPlacement = titleRowPlacement
         }
         reconcileBonsplitTree(from: previousRenderedLayout, to: renderedLayout)
+        // The pane set just changed, and one pane versus several is what decides whether the
+        // per-pane tab bars say anything. Derived here rather than at split/close call sites
+        // because tmux can change the pane count without either — a pane exiting on its own,
+        // or a `kill-pane` from another client — and every one of those arrives as a layout.
+        updatePaneTabBarVisibilityForPaneCount()
         // Pin every pane's grid to the fresh assignment HERE, not only in
         // the sizing pass: the pass is visibility-gated, so a hidden
         // window's pins would otherwise freeze at its last-visible
@@ -460,6 +490,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             self?.handlePaneSurfaceProgress()
         }
         surface.onRuntimeReady = { [weak self, weak surface] in
+            self?.reportPaneColors(paneId: paneId)
             if let sample = surface?.rawSizingSample() {
                 self?.handleSizingSample(sample, paneId: paneId)
             }
@@ -470,6 +501,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if let sample = surface.rawSizingSample() {
             handleSizingSample(sample, paneId: paneId)
         }
+        reportPaneColors(paneId: paneId)
         if needsSeed { connection?.seedPane(paneId: paneId) }
     }
 
@@ -550,6 +582,11 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     func teardown() {
         guard !isTornDown else { return }
         isTornDown = true
+        for token in paneColorObserverTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+        paneColorObserverTokens.removeAll()
+        pendingPaneColorRefreshes.removeAll()
         isVisibleForSizing = false
         sizingPassScheduled = false
         lastCompletedSizingInputs = nil
@@ -567,6 +604,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         // which unsubscribes per removed pane. Without this, a control connection that
         // outlives the tab keeps streaming pane_current_path updates into a dead mirror.
         for paneId in panelsByPaneId.keys {
+            removePaneColorsIfOwned(paneId: paneId)
             activeConnection?.unsubscribePanePath(paneId: paneId)
             activeConnection?.unsubscribePaneReflow(paneId: paneId)
             activeConnection?.unsubscribePaneHeader(paneId: paneId)
@@ -587,6 +625,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         paneIdByBonsplitPane.removeAll()
         paneIdByTabId.removeAll()
         cwdByPaneId.removeAll()
+        paneTitleMetadataByPane.removeAll()
         lastRenderedGrids.removeAll()
         activePaneId = nil
         connection = nil

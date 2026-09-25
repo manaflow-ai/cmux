@@ -36,7 +36,7 @@ public struct IrxClientSession: Sendable {
 }
 
 /// THE single reconnect owner for one Mac peer (iOS side). Every trigger -
-/// app recovery, foreground, network change, keepalive death, explicit retry -
+/// app recovery, foreground, network change, native closure, explicit retry -
 /// is an input; automatic triggers JOIN the in-flight dial, explicit intent
 /// replaces it. Transport failures retry on a capped backoff that resets on
 /// success; denials and supersession park the engine until an explicit
@@ -53,8 +53,8 @@ public actor IrxPeerEngine {
         public init(
             initialBackoff: Duration = .milliseconds(400),
             maxBackoff: Duration = .seconds(5),
-            keepaliveInterval: Duration = IrxProtocol.keepaliveInterval,
-            keepaliveDeadline: Duration = IrxProtocol.keepaliveDeadline,
+            keepaliveInterval: Duration = IrxProtocol().keepaliveInterval,
+            keepaliveDeadline: Duration = IrxProtocol().keepaliveDeadline,
             foregroundProbeDeadline: Duration = .milliseconds(400)
         ) {
             self.initialBackoff = initialBackoff
@@ -295,9 +295,9 @@ public actor IrxPeerEngine {
         if hasConnectionIntent { foregroundKick() }
     }
 
-    /// Retains an open session only after a fresh bounded liveness check. Each
-    /// unsuccessful attempt uses a live stream. Known native closure bypasses
-    /// probing; age of the last pong never forces replacement.
+    /// Samples the existing session on a fresh probe deadline after suspension.
+    /// An unanswered probe leaves the native connection in place; application
+    /// owners repair their streams without replacing the admitted session.
     public func foregroundKick() {
         guard applicationActive, foregroundTask == nil, hasConnectionIntent, parkedCode == nil else { return }
         let generation = activityGeneration
@@ -310,19 +310,26 @@ public actor IrxPeerEngine {
     private func recoverOnForeground(generation: UInt64) async {
         let started = clockNow()
         if let previous = session {
-            for _ in 0..<IrxProtocol.keepaliveStrikeLimit {
-                guard foregroundIsCurrent(generation), session?.admit.session == previous.admit.session else { return }
-                if await previous.connection.isConnectionClosed() { break }
-                let alive = await previous.connection.probeLiveness(deadline: config.foregroundProbeDeadline)
-                guard foregroundIsCurrent(generation), session?.admit.session == previous.admit.session else { return }
-                if alive {
-                    record("foreground-session-retained", ["session": previous.admit.session,
-                        "elapsed": String(describing: started.duration(to: clockNow()))])
-                    return
-                }
+            guard foregroundIsCurrent(generation) else { return }
+            let probeAnswered: Bool
+            if await previous.connection.isConnectionClosed() {
+                probeAnswered = false
+            } else {
+                probeAnswered = await previous.connection.probeLiveness(deadline: config.foregroundProbeDeadline)
             }
             guard foregroundIsCurrent(generation), session?.admit.session == previous.admit.session else { return }
-            _ = try? await ensureSession(explicit: true, trigger: "foreground-probe-failed")
+            let nativeClosed = await previous.connection.isConnectionClosed()
+            guard foregroundIsCurrent(generation), session?.admit.session == previous.admit.session else { return }
+            if !nativeClosed {
+                record("foreground-session-retained", ["session": previous.admit.session,
+                    "probe_answered": String(probeAnswered),
+                    "elapsed": String(describing: started.duration(to: clockNow()))])
+                return
+            }
+            // Use the same reason classification as the native watcher. A
+            // terminal peer close must stay parked even if foreground wins
+            // the race to observe it.
+            await sessionDied(previous, viaKeepalive: false)
         } else {
             guard foregroundIsCurrent(generation) else { return }
             // Foreground can bring a local transport retry forward, while a
@@ -346,8 +353,8 @@ public actor IrxPeerEngine {
     }
 
     /// Event-driven relay race: fresh discovery just revealed a different
-    /// home relay for this peer. An admitted session passing keepalives is
-    /// never touched. An in-flight dial (aimed at the stale relay, where it
+    /// home relay for this peer. An admitted session is never touched. An
+    /// in-flight dial (aimed at the stale relay, where it
     /// would sit out a silent black-hole timeout) is cancelled and replaced
     /// immediately; a pending backoff redial is pulled forward. Parked
     /// denials stay parked: authorization state is not a routing question.

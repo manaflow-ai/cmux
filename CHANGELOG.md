@@ -2,6 +2,50 @@
 
 All notable changes to cmux are documented here.
 
+## [0.64.25] - 2026-09-17
+
+### Changed
+- The persistent "Terminal is not rendering" banner no longer covers terminal panes; render-health recovery, logs, and socket fields are unchanged ([#12738](https://github.com/manaflow-ai/cmux/pull/12738)).
+
+### Fixed
+- SSH workspaces connect again in released builds: the app ships a checksum-verified `cmuxd-remote` for macOS and Linux, and the release pipeline rejects a build whose daemon manifest and assets disagree ([#12720](https://github.com/manaflow-ai/cmux/pull/12720)) -- thanks @john-agi for the report!
+- An SSH terminal no longer sits at `Last login` forever when its remote session cannot become ready: the session parks within 60 seconds, the pane and sidebar show the same actionable error, and Reconnect works afterwards ([#12851](https://github.com/manaflow-ai/cmux/pull/12851)).
+- SSH terminals stay in raw input mode across attach and reconnect instead of falling back to echoing, line-buffered input, and a remote daemon whose version does not match the app is rejected before it touches the terminal ([#12726](https://github.com/manaflow-ai/cmux/pull/12726)).
+- Splits and new terminals in an SSH workspace open in the focused pane's remote directory instead of the remote home directory ([#12054](https://github.com/manaflow-ai/cmux/pull/12054)) -- thanks @zhiyuanzhai for the report!
+- Agents resumed with `cmux restore` or `cmux fork` receive terminal resizes again, so their layout no longer garbles after a restore or pane resize ([#12796](https://github.com/manaflow-ai/cmux/pull/12796)) -- thanks @rizkidarmawan21 for the report!
+- Images dropped or pasted into a terminal stay on disk until cmux quits so Claude Code and Codex can read them, and a copied image that also carries a source URL pastes as an image ([#12752](https://github.com/manaflow-ai/cmux/pull/12752)) -- thanks @mgayaud-meridian for the report!
+- With System appearance, a terminal no longer reloads its dark theme after macOS switches to light ([#12811](https://github.com/manaflow-ai/cmux/pull/12811)), and Light applies the light palette when the Ghostty config sets only non-color options such as a font, keybinding, or opacity ([#12812](https://github.com/manaflow-ai/cmux/pull/12812)).
+
+### Thanks to 5 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@john-agi](https://github.com/john-agi)
+- [@mgayaud-meridian](https://github.com/mgayaud-meridian)
+- [@rizkidarmawan21](https://github.com/rizkidarmawan21)
+- [@zhiyuanzhai](https://github.com/zhiyuanzhai)
+
+## [0.64.24] - 2026-09-15
+
+### Added
+- IROH v2 Cloud connectivity now uses the Cloudflare control plane with durable pairing, relay renewal, direct-only routes, and recovery that stays alive through stalls and traffic bursts ([#12326](https://github.com/manaflow-ai/cmux/pull/12326), [#12411](https://github.com/manaflow-ai/cmux/pull/12411)) -- thanks @azooz2003-bit!
+- Cloud file transfers use private SCP, and iOS Computer details can delete non-IROH routes without losing the computer ([`5f0ce77`](https://github.com/manaflow-ai/cmux/commit/5f0ce77cab82ad60496175b222ec50a0b749085f), [#12691](https://github.com/manaflow-ai/cmux/pull/12691)) -- thanks @azooz2003-bit!
+
+### Changed
+- Cloud Desktop restores authenticated transport, saved splits, and noVNC recovery; Cloud folder drags use the sidebar insertion line and persist across refreshes ([#12633](https://github.com/manaflow-ai/cmux/pull/12633), [#12589](https://github.com/manaflow-ai/cmux/pull/12589)).
+- Browser feature-flag evaluations reuse complete results for five minutes, while Computer Use onboarding and preference notifications avoid startup deadlocks ([#12611](https://github.com/manaflow-ai/cmux/pull/12611), [`3a617be`](https://github.com/manaflow-ai/cmux/commit/3a617be7cd)).
+- The Cloud guest CLI accepts `workspace close --workspace ... --focus false`, and CLI authorization can switch browser accounts without losing the login code ([#12470](https://github.com/manaflow-ai/cmux/pull/12470), [#12679](https://github.com/manaflow-ai/cmux/pull/12679)).
+
+### Fixed
+- Codex `--yolo` no longer calls a missing resume helper or recursively injects restore commands after repeated resumes ([#12659](https://github.com/manaflow-ai/cmux/pull/12659), [#12697](https://github.com/manaflow-ai/cmux/pull/12697)).
+- Terminal panes publish their final size after pane and window geometry settles, preventing transient dimensions from corrupting TUI output ([#12662](https://github.com/manaflow-ai/cmux/pull/12662)).
+- Runaway memory guardrails default to off for new configurations, and internal memory-pressure diagnostics no longer create user notifications ([#12658](https://github.com/manaflow-ai/cmux/pull/12658), [#12667](https://github.com/manaflow-ai/cmux/pull/12667)).
+
+### Thanks to 3 contributors!
+
+- [@azooz2003-bit](https://github.com/azooz2003-bit)
+- [@austinywang](https://github.com/austinywang)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+
 ## [0.64.23] - 2026-09-14
 
 ### Added

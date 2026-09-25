@@ -4,6 +4,13 @@ import CmuxMobileShellModel
 import Foundation
 
 extension MobileIrxRuntimeComposition {
+    private struct DetachedRuntime: Sendable {
+        let control: V2ControlService?
+        let endpointSupervisor: IrxEndpointSupervisor?
+        let directEndpointSupervisor: IrxEndpointSupervisor?
+        let engines: [IrxPeerEngine]
+    }
+
     /// Observes account/team authority for the lifetime of the app.
     public func configure(auth: AuthCoordinator) async {
         guard authTask == nil else { return }
@@ -24,7 +31,8 @@ extension MobileIrxRuntimeComposition {
         epoch &+= 1
         let currentEpoch = epoch
         activeScope = scope
-        await clearCurrentRuntime()
+        let detached = await detachCurrentRuntime()
+        scheduleShutdown(of: detached)
         guard epoch == currentEpoch, let scope else { return }
         provisionTask = Task { [weak self] in
             var delay: TimeInterval = 1
@@ -57,6 +65,8 @@ extension MobileIrxRuntimeComposition {
             deviceID: deviceID, environment: configuration.environment,
             projectID: configuration.projectID, teamID: scope.teamID, userID: scope.session.accountID)
         let key = try await installation.key(identity: tuple)
+        let stateStore = V2FileStateStore(rootDirectory: configuration.stateDirectory,
+            fileManager: FileManager(), identityKey: key)
         // A corrupt disposable cache is recoverable through a signed v2 setup;
         // the identity seed and Stack authentication are never erased.
         let restored = try? await stateStore.load(identity: tuple)
@@ -64,7 +74,8 @@ extension MobileIrxRuntimeComposition {
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
         let supervisor = IrxEndpointSupervisor(configuration: IrxEndpointConfiguration(
             identity: identity, pathMode: forceRelayOnly ? .relayOnly : .automatic,
-            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal)
+            initialRemoteBiStreams: 0, initialRemoteUniStreams: 0), journal: journal,
+            diagnosticLog: diagnosticLog)
         self.identity = identity
         endpointSupervisor = supervisor
         cache = restored ?? V2CachedState(identity: tuple)
@@ -131,6 +142,15 @@ extension MobileIrxRuntimeComposition {
 
     func apply(_ snapshot: V2ControlSnapshot, scope: AuthenticatedTeamScope, epoch currentEpoch: UInt64) async {
         guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
+        let status = String(describing: snapshot.status)
+        let failure = snapshot.failure?.diagnosticCode ?? "none"
+        let state = status + ":" + failure
+        if state != lastLoggedControlState {
+            lastLoggedControlState = state
+            journal.record("v2-control", "state-changed", ["status": status, "failure": failure,
+                "environment": configuration.environment, "host": configuration.baseURL.host ?? "",
+                "project": configuration.projectID])
+        }
         // The service publishes its empty initial state before reading the same cache.
         guard snapshot.cache.device != nil || cache?.device == nil || snapshot.cache.authorityRevoked else { return }
         let previousCredentials = cache?.relayCredentials
@@ -141,7 +161,7 @@ extension MobileIrxRuntimeComposition {
         lastFailure = snapshot.failure.map { String(describing: $0) }
         publish()
         if snapshot.cache.authorityRevoked {
-            await MainActor.run { MobileMacListAuthState.shared.clear() }
+            await MainActor.run { self.macListAuthState.clear() }
             guard (try? await assertScope(scope, epoch: currentEpoch)) != nil else { return }
             let engines = Array(enginesByPeer.values)
             let supervisor = endpointSupervisor
@@ -198,6 +218,7 @@ extension MobileIrxRuntimeComposition {
     func recordEndpointReady(cached: Bool) {
         journal.record("v2-lifecycle", "endpoint-ready", ["cached": String(cached),
             "launchMs": String(Int(Date().timeIntervalSince(launchTime) * 1000))])
+        publish()
     }
 
     /// Retains healthy IROH sessions while the operating system suspends this process.
@@ -238,10 +259,11 @@ extension MobileIrxRuntimeComposition {
         guard activeScope == captured else { return }
         epoch &+= 1
         activeScope = nil
-        await clearCurrentRuntime()
+        let detached = await detachCurrentRuntime()
+        scheduleShutdown(of: detached)
     }
 
-    func clearCurrentRuntime() async {
+    private func detachCurrentRuntime() async -> DetachedRuntime {
         provisionTask?.cancel(); provisionTask = nil
         controlTask?.cancel(); controlTask = nil
         foregroundTask?.cancel(); foregroundTask = nil
@@ -251,13 +273,28 @@ extension MobileIrxRuntimeComposition {
         let oldDirectSupervisor = directEndpointSupervisor
         let oldEngines = Array(enginesByPeer.values)
         control = nil; endpointSupervisor = nil; directEndpointSupervisor = nil; identity = nil; cache = nil
+        lastLoggedControlState = nil
+        lastFailure = nil
         enginesByPeer.removeAll(); dialIntentByPeer.removeAll(); activeDialIntentByPeer.removeAll()
         expectedDeviceIDByPeer.removeAll(); controlLaneClaims.removeAll(); claimedEventSessions.removeAll()
         publish()
-        await MainActor.run { MobileMacListAuthState.shared.clear() }
-        await oldControl?.stop()
-        for engine in oldEngines { await engine.stop() }
-        await oldSupervisor?.deactivate()
-        await oldDirectSupervisor?.deactivate()
+        await MainActor.run { self.macListAuthState.clear() }
+        return DetachedRuntime(
+            control: oldControl,
+            endpointSupervisor: oldSupervisor,
+            directEndpointSupervisor: oldDirectSupervisor,
+            engines: oldEngines
+        )
+    }
+
+    private func scheduleShutdown(of runtime: DetachedRuntime) {
+        Task {
+            await runtime.control?.stop()
+            for engine in runtime.engines {
+                await engine.stop()
+            }
+            await runtime.endpointSupervisor?.deactivate()
+            await runtime.directEndpointSupervisor?.deactivate()
+        }
     }
 }
