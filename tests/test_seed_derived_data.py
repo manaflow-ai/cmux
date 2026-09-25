@@ -1372,5 +1372,18 @@ class Wiring(unittest.TestCase):
         self.assertEqual(offenders, [], "an unset variable is null, which equals '0'; give it a default first")
 
 
+class LocalKeep(unittest.TestCase):
+    def test_keeps_eight_seeds_with_room_and_two_on_a_short_disk(self):
+        import collections
+        usage = collections.namedtuple("usage", "total used free")
+        with unittest.mock.patch.object(seed.shutil, "disk_usage", return_value=usage(0, 0, 200 * 1024**3)):
+            self.assertEqual(seed.local_keep(Path("/")), seed.LOCAL_KEEP)
+        with unittest.mock.patch.object(seed.shutil, "disk_usage", return_value=usage(0, 0, 50 * 1024**3)):
+            self.assertEqual(seed.local_keep(Path("/")), seed.LOCAL_KEEP_LOW_DISK)
+        with unittest.mock.patch.object(seed.shutil, "disk_usage", side_effect=OSError("gone")):
+            self.assertEqual(seed.local_keep(Path("/")), seed.LOCAL_KEEP_LOW_DISK)
+        self.assertGreater(seed.LOCAL_KEEP, seed.LOCAL_KEEP_LOW_DISK)
+
+
 if __name__ == "__main__":
     unittest.main()
