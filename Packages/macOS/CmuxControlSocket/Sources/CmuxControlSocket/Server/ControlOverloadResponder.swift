@@ -1,5 +1,5 @@
 internal import Darwin
-public import Foundation
+internal import Foundation
 internal import os
 
 /// Why the server could not admit an accepted connection to a command job.
