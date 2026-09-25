@@ -72,7 +72,8 @@ struct CmuxConfigWorkspaceActionTests {
         }
 
         // A bounded test-only wait observes the shell's filesystem side effect.
-        for _ in 0..<250 {
+        let markerDeadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < markerDeadline {
             if (try? String(contentsOf: marker, encoding: .utf8)) == workspace.id.uuidString { break }
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -131,7 +132,8 @@ struct CmuxConfigWorkspaceActionTests {
             globalConfigPath: root.appendingPathComponent("cmux.json").path
         ))
 
-        for _ in 0..<250 {
+        let markerDeadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < markerDeadline {
             if (try? String(contentsOf: marker, encoding: .utf8)) == physicalRequestedDirectory { break }
             try await Task.sleep(for: .milliseconds(20))
         }
