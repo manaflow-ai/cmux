@@ -6,6 +6,15 @@ import CmuxPanes
 @MainActor
 struct BrowserActionDispatcher {
     let appDelegate: AppDelegate
+    private let openExternalURL: (URL) -> Bool
+
+    init(
+        appDelegate: AppDelegate,
+        openExternalURL: @escaping (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) {
+        self.appDelegate = appDelegate
+        self.openExternalURL = openExternalURL
+    }
 
     @discardableResult
     func perform(
@@ -29,7 +38,9 @@ struct BrowserActionDispatcher {
             panel.reload()
             return true
         case .openInDefaultBrowser:
-            return openInDefaultBrowser(panel)
+            return openInDefaultBrowser(panel, target: target, closeTab: false)
+        case .openInDefaultBrowserAndClose:
+            return openInDefaultBrowser(panel, target: target, closeTab: true)
         case .focusAddressBar:
             guard panel.chromeVisibility.allowsAddressBarFocus else {
                 return true
@@ -85,14 +96,30 @@ struct BrowserActionDispatcher {
         }
     }
 
-    private func openInDefaultBrowser(_ panel: BrowserPanel) -> Bool {
-        guard let rawURL = panel.preferredURLStringForOmnibar(),
-              let url = URL(string: rawURL),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            return false
+    private func openInDefaultBrowser(
+        _ panel: BrowserPanel,
+        target: BrowserActionTarget,
+        closeTab: Bool
+    ) -> Bool {
+        guard let url = panel.externalBrowserURL,
+              openExternalURL(url) else { return false }
+        guard closeTab else { return true }
+        // Resolve the captured owner again after the OS handoff. Never close a
+        // newly focused tab or use Workspace.closePanel's focus fallback.
+        guard appDelegate.browserPanel(resolving: target) === panel else {
+            return true
         }
-        return NSWorkspace.shared.open(url)
+        switch target.host {
+        case .workspace:
+            guard let workspace = appDelegate.workspace(resolving: target),
+                  let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+                return true
+            }
+            return workspace.requestCloseTab(tabId, force: true)
+        case .workspaceDock, .windowDock:
+            return appDelegate.dock(resolving: target)?
+                .closePanel(panel.id, force: true) ?? false
+        }
     }
 
     private func toggleReactGrab(

@@ -2,6 +2,18 @@ import Foundation
 import CmuxCore
 
 extension BrowserPanel {
+    /// The displayed web page, excluding blank tabs and app-only URL schemes.
+    var externalBrowserURL: URL? {
+        guard let rawURL = preferredURLStringForOmnibar(),
+              let url = URL(string: rawURL),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = url.host, !host.isEmpty else {
+            return nil
+        }
+        return url
+    }
+
     static func restorableDisplayURL(
         liveURL: URL?,
         currentURL: URL?,

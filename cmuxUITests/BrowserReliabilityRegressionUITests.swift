@@ -8,13 +8,21 @@ import Foundation
 final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
 
     func testExternalBrowserToolbarRejectsBlankPageAndClosesHandedOffTab() throws {
+        try verifyExternalBrowserHandoff(usePalette: false)
+    }
+
+    func testExternalBrowserPaletteClosesHandedOffTab() throws {
+        try verifyExternalBrowserHandoff(usePalette: true)
+    }
+
+    private func verifyExternalBrowserHandoff(usePalette: Bool) throws {
         let app = try launchApp()
         let surfaceID = try openBrowserSurface()
         let button = app.buttons["BrowserOpenExternallyAndCloseButton"].firstMatch
         XCTAssertTrue(button.waitForExistence(timeout: 10))
         XCTAssertFalse(button.isEnabled, "A blank tab has no page to hand off")
 
-        let server = try BrowserRecoveryHTTPServer()
+        let server = try BrowserRecoveryHTTPServer(requestPath: "/external-handoff")
         try server.start()
         defer { server.stop() }
         let url = "http://127.0.0.1:\(server.port)/external-handoff"
@@ -28,9 +36,36 @@ final class BrowserReliabilityRegressionUITests: BrowserFixtureSocketTestCase {
         try server.releaseResponse()
         let response = try XCTUnwrap(finishPendingSocketRequest(navigation))
         XCTAssertEqual(response["ok"] as? Bool, true)
-        XCTAssertTrue(button.isEnabled)
+        let enabled = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "enabled == true"), object: button
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 5), .completed)
 
-        button.click()
+        if usePalette {
+            app.typeKey("p", modifierFlags: [.command, .shift])
+            let search = app.textFields["CommandPaletteSearchField"].firstMatch
+            XCTAssertTrue(search.waitForExistence(timeout: 5))
+            search.click()
+            search.typeText("Open in Default Browser and Close Tab")
+            let context = try socketResult(method: "workspace.current", params: [:])
+            let windowID = try XCTUnwrap(context["window_id"] as? String)
+            let selectedCommand = XCTNSPredicateExpectation(
+                predicate: NSPredicate { [weak self] _, _ in
+                    let envelope = self?.socketEnvelope(
+                        method: "debug.command_palette.results",
+                        params: ["window_id": windowID, "limit": 1]
+                    )
+                    let result = envelope?["result"] as? [String: Any]
+                    let rows = result?["results"] as? [[String: Any]]
+                    return rows?.first?["command_id"] as? String == "palette.browserOpenDefaultAndClose"
+                },
+                object: nil
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [selectedCommand], timeout: 5), .completed)
+            app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        } else {
+            button.click()
+        }
         let closed = XCTNSPredicateExpectation(
             predicate: NSPredicate { [weak self] _, _ in
                 let response = self?.socketEnvelope(
