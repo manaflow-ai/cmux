@@ -190,6 +190,7 @@ class DriftReportingOverVariables(unittest.TestCase):
 
 
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
+NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -202,15 +203,14 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # The report is passed an explicit list rather than toJSON(vars), which
         # would print every repository variable in a public step log. A list
         # can fall behind; this is what keeps it complete.
-        # A *_RUNNERS variable lists runner machine names (e.g.
-        # CI_SEED_KEEP_LOCAL_RUNNERS), not a runs-on label, so the label report
-        # would only flag it as fleet drift.
+        # These hold runner names matched against runner.name, not a runs-on
+        # label, so the label policy does not apply to them.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
             read |= {
                 name
                 for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
-                if not name.endswith("_RUNNERS")
+                if name not in NON_LABEL_RUNNER_VARIABLES
             }
         self.assertTrue(read)
         missing = read - reported_runner_variables()
