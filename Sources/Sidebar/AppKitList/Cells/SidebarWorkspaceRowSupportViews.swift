@@ -564,7 +564,42 @@ final class SidebarRowPullRequestLine: NSView {
         case .merged: statusText = String(localized: "sidebar.pullRequest.statusMerged", defaultValue: "merged")
         case .closed: statusText = String(localized: "sidebar.pullRequest.statusClosed", defaultValue: "closed")
         }
-        statusLabel.stringValue = statusText
+        var detailTexts = [statusText]
+        if let checks = display.deliveryStatus?.checks {
+            let checkText: String?
+            switch checks.state {
+            case .success:
+                checkText = String(localized: "sidebar.pullRequest.ciPassed", defaultValue: "CI passed")
+            case .failure:
+                checkText = String(localized: "sidebar.pullRequest.ciFailed", defaultValue: "CI failed")
+            case .pending:
+                checkText = String(localized: "sidebar.pullRequest.ciPending", defaultValue: "CI pending")
+            case .neutral, .unknown:
+                checkText = nil
+            }
+            if let checkText {
+                detailTexts.append(checkText)
+            }
+        }
+        if let deployment = display.deliveryStatus?.deployment {
+            let stateText: String?
+            switch deployment.state {
+            case .live:
+                stateText = String(localized: "sidebar.pullRequest.deploymentLive", defaultValue: "live")
+            case .failure:
+                stateText = String(localized: "sidebar.pullRequest.deploymentFailed", defaultValue: "failed")
+            case .pending:
+                stateText = String(localized: "sidebar.pullRequest.deploymentPending", defaultValue: "pending")
+            case .inactive:
+                stateText = String(localized: "sidebar.pullRequest.deploymentInactive", defaultValue: "inactive")
+            case .unknown:
+                stateText = nil
+            }
+            if let stateText {
+                detailTexts.append("\(deployment.name) \(stateText)")
+            }
+        }
+        statusLabel.stringValue = detailTexts.joined(separator: " · ")
         statusLabel.font = font
         statusLabel.textColor = color
         alphaValue = display.isStale ? 0.5 : 1

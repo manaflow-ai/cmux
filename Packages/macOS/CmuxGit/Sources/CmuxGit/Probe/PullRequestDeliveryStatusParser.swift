@@ -2,23 +2,145 @@ public import Foundation
 
 /// Decodes GitHub check-run and commit-status payloads into a small UI value.
 public struct PullRequestDeliveryStatusParser: Sendable {
+    private struct CheckRunsPayload: Decodable {
+        let checkRuns: [CheckRun]
+
+        enum CodingKeys: String, CodingKey {
+            case checkRuns = "check_runs"
+        }
+    }
+
+    private struct CheckRun: Decodable {
+        let name: String
+        let status: String
+        let conclusion: String?
+    }
+
+    private struct CommitStatusPayload: Decodable {
+        let statuses: [CommitStatus]
+    }
+
+    private struct CommitStatus: Decodable {
+        let context: String
+        let state: String
+        let targetURL: String?
+
+        enum CodingKeys: String, CodingKey {
+            case context
+            case state
+            case targetURL = "target_url"
+        }
+    }
+
+    private struct Counts {
+        var passed = 0
+        var failed = 0
+        var pending = 0
+
+        var total: Int { passed + failed + pending }
+
+        var state: PullRequestCheckState {
+            if failed > 0 { return .failure }
+            if pending > 0 { return .pending }
+            if passed > 0 { return .success }
+            return .neutral
+        }
+    }
+
     /// Creates a parser.
     public init() {}
 
     /// Parses the payloads returned by GitHub's check-runs and commit-status APIs.
     ///
-    /// The first implementation intentionally reports an unknown state; the
-    /// follow-up repair commit supplies the provider decoding and aggregation.
+    /// Deployment providers commonly publish a commit status whose context
+    /// contains `deploy`, `preview`, or a provider name such as `Vercel`. Those
+    /// statuses are kept separate from the build/test aggregate so the sidebar
+    /// can show both facts without provider-specific integrations.
     public func parse(checkRunsData: Data, commitStatusData: Data) -> PullRequestDeliveryStatus {
-        PullRequestDeliveryStatus(
-            checks: PullRequestCheckSummary(
-                state: .unknown,
-                passedCount: 0,
-                failedCount: 0,
-                pendingCount: 0,
-                totalCount: 0
-            ),
-            deployment: nil
+        let checkRuns = (try? JSONDecoder().decode(CheckRunsPayload.self, from: checkRunsData))?.checkRuns ?? []
+        let statuses = (try? JSONDecoder().decode(CommitStatusPayload.self, from: commitStatusData))?.statuses ?? []
+
+        var counts = Counts()
+        for run in checkRuns {
+            if run.status.lowercased() != "completed" {
+                counts.pending += 1
+            } else if Self.failedConclusions.contains(run.conclusion?.lowercased() ?? "") {
+                counts.failed += 1
+            } else if run.conclusion?.lowercased() == "success" {
+                counts.passed += 1
+            } else {
+                // Neutral, skipped, and cancelled runs are not failures, but
+                // remain part of the aggregate total.
+                counts.passed += 1
+            }
+        }
+
+        var deployment: PullRequestDeploymentSummary?
+        for status in statuses {
+            if Self.isDeploymentContext(status.context) {
+                let next = PullRequestDeploymentSummary(
+                    name: status.context,
+                    state: Self.deploymentState(for: status.state),
+                    url: status.targetURL.flatMap(URL.init(string:))
+                )
+                if deployment == nil || Self.deploymentPriority(next.state) > Self.deploymentPriority(deployment!.state) {
+                    deployment = next
+                }
+            } else if checkRuns.isEmpty {
+                switch status.state.lowercased() {
+                case "success": counts.passed += 1
+                case "failure", "error": counts.failed += 1
+                case "pending": counts.pending += 1
+                default: counts.passed += 1
+                }
+            }
+        }
+
+        let checks: PullRequestCheckSummary? = counts.total == 0
+            ? nil
+            : PullRequestCheckSummary(
+                state: counts.state,
+                passedCount: counts.passed,
+                failedCount: counts.failed,
+                pendingCount: counts.pending,
+                totalCount: counts.total
+            )
+        return PullRequestDeliveryStatus(
+            checks: checks,
+            deployment: deployment
         )
+    }
+
+    private static let failedConclusions: Set<String> = [
+        "failure", "timed_out", "cancelled", "action_required", "stale"
+    ]
+
+    private static func isDeploymentContext(_ context: String) -> Bool {
+        let value = context.lowercased()
+        return value.contains("deploy")
+            || value.contains("preview")
+            || value.contains("vercel")
+            || value.contains("netlify")
+            || value.contains("render")
+    }
+
+    private static func deploymentState(for rawValue: String) -> PullRequestDeploymentState {
+        switch rawValue.lowercased() {
+        case "success": return .live
+        case "failure", "error": return .failure
+        case "pending": return .pending
+        case "inactive": return .inactive
+        default: return .unknown
+        }
+    }
+
+    private static func deploymentPriority(_ state: PullRequestDeploymentState) -> Int {
+        switch state {
+        case .failure: return 4
+        case .pending: return 3
+        case .live: return 2
+        case .inactive: return 1
+        case .unknown: return 0
+        }
     }
 }
