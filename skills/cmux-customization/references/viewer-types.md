@@ -14,7 +14,7 @@ does not appear in the schema is not a license to add a guessed
 | `diff` | New-viewer layout and one-invocation layout override | `diffViewer.defaultLayout`; `cmux diff --layout unified|split` overrides it for one invocation | `cmux-settings validate`; `cmux reload-config` |
 | `filePreview` | Whether a file opens in cmux, whether Markdown uses the rendered viewer, where double-click routes, and text-editor rendering | `app.openSupportedFilesInCmux`, `app.openMarkdownInCmuxViewer`, `app.preferredEditor`, `fileExplorer.doubleClickAction`, and `fileEditor.*`; generic Quick Look media has no additional cmux template knobs | `cmux-settings validate`; `cmux reload-config` |
 | `rightSidebarTool` | Which tool is shown, tab order, and Dock commands | `cmux right-sidebar set <mode>`, Settings > Sidebar > right-sidebar tabs, and `.cmux/dock.json` or `~/.config/cmux/dock.json` | `cmux right-sidebar mode`; parse Dock JSON; `cmux reload-config` for JSON changes |
-| `html` | Local HTML content and browser chrome | Treat `cmux open` for `.html` as an embedded browser surface; use `browser.*` for cmux routing and edit the HTML/CSS for page content | `cmux-settings validate` for JSON changes; `cmux reload-config` |
+| `html` | Local HTML content and browser chrome | Treat `cmux open` for `.html` as an embedded browser surface; use applicable `browser.*` presentation settings (such as theme and default zoom) and edit the HTML/CSS for page content. Local HTML opening bypasses host routing lists. | `cmux-settings validate` for JSON changes; `cmux reload-config` |
 | `notes` | Project-scoped notes rendering | No `notes.*` or `templates.notes` setting is shipped yet. If the notes surface is Markdown, use the `markdown.*` defaults; otherwise wait for its schema section | Do not write an unknown key; re-check the schema when notes customization lands |
 
 ## Safe workflow
@@ -42,7 +42,9 @@ cmux right-sidebar mode
 cmux reload-config
 ```
 
-The shared templates proposal may add per-viewer CSS or layout overrides later.
-When that happens, add the new viewer and its schema-backed keys to this matrix
-and to `cmux-settings/references/all-keys.md` together; until then, fail closed
-on unknown viewer names and knob names.
+The shared templates proposal in [#4516](https://github.com/manaflow-ai/cmux/issues/4516)
+and its implementation PR [#14749](https://github.com/manaflow-ai/cmux/pull/14749)
+may add per-viewer CSS or layout overrides later. Once those schema-backed keys
+land on `main`, add the new viewer paths to this matrix and
+`cmux-settings/references/all-keys.md` together; until then, fail closed on
+unknown viewer names and knob names.

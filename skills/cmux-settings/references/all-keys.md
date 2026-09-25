@@ -189,7 +189,7 @@ Embedded browser settings from Settings > Browser.
 
 ## markdown
 
-Built-in Markdown viewer settings from Settings > Markdown.
+Built-in Markdown viewer settings from Settings > App.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
