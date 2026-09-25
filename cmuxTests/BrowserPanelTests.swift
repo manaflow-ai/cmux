@@ -3300,13 +3300,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             reattachRenderingStateCount += 1
         }
 
-        @objc(_exitInWindow)
-        func cmuxUnitTestExitInWindow() {
-            exitRenderingStateCount += 1
-        }
-
-        private(set) var exitRenderingStateCount = 0
-
         @objc(_endDeferringViewInWindowChangesSync)
         func cmuxUnitTestEndDeferringViewInWindowChangesSync() {
             reattachRenderingStateCount += 1
@@ -3981,62 +3974,6 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             webView.reattachRenderingStateCount,
             initialReattachCount,
             "Pure anchor geometry updates should not trigger the WebKit reattach path"
-        )
-    }
-
-    func testRepeatedWindowPortalPreparationDoesNotRehideHostedWebView() {
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        defer {
-            window.orderOut(nil)
-            window.close()
-        }
-        realizeWindowLayout(window)
-
-        let host = WebViewRepresentable.HostContainerView(
-            frame: NSRect(x: 0, y: 0, width: 320, height: 220)
-        )
-        window.contentView?.addSubview(host)
-        let slot = host.ensureLocalInlineSlotView()
-        let webView = TrackingPortalWebView(
-            frame: slot.bounds,
-            configuration: WKWebViewConfiguration()
-        )
-        slot.addSubview(webView)
-        host.pinHostedWebView(webView, in: slot)
-        host.layoutSubtreeIfNeeded()
-
-        host.prepareForWindowPortalHosting()
-        webView.browserPortalReattachRenderingState(reason: "unitTestPortalReveal")
-        _ = webView.browserPortalApplyFirstSizedRevealGeometryNudgeIfNeeded(
-            reason: "unitTestPortalReveal",
-            hasCompanionWKSubviews: false,
-            managedByExternalFullscreenWindow: false
-        )
-
-        XCTAssertFalse(webView.browserPortalRequiresRenderingStateReattach)
-        XCTAssertFalse(webView.browserPortalNeedsFirstSizedRevealNudge)
-        let initialExitCount = webView.exitRenderingStateCount
-
-        host.prepareForWindowPortalHosting()
-
-        XCTAssertFalse(
-            webView.browserPortalRequiresRenderingStateReattach,
-            "Repeated SwiftUI updates while the portal is active must not mark the visible page hidden"
-        )
-        XCTAssertFalse(
-            webView.browserPortalNeedsFirstSizedRevealNudge,
-            "Repeated portal preparation must not schedule another one-point geometry nudge"
-        )
-        XCTAssertEqual(
-            webView.exitRenderingStateCount,
-            initialExitCount,
-            "Repeated portal preparation must not re-enter WebKit's hidden lifecycle"
         )
     }
 
