@@ -61,7 +61,13 @@ struct AgentSessionAutoResumeSwiftTests {
             " \(AgentRestoreLaunch.cliStartupExecutableToken) restore \(kind) \(checkpointID)\n"
         let bootstrapTitle = bootstrapInput.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        #expect(restoredPanel.surface.debugInitialInputForTesting() == bootstrapInput)
+        #expect(!restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        let startupCommand = try #require(restoredPanel.surface.debugInitialCommand())
+        let scriptPath = try #require(
+            TerminalStartupWorkingDirectoryPrefix.shellWordRanges(startupCommand).last?.value
+        )
+        let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        #expect(script.contains(bootstrapInput.trimmingCharacters(in: .whitespacesAndNewlines)))
         #expect(restored.panelTitle(panelId: restoredPanelID) == persistedTitle)
         #expect(restored.title == persistedTitle)
         #expect(restored.processTitle == persistedTitle)

@@ -97,7 +97,7 @@ struct AgentRestoreIssue12775Tests {
         )
         #expect(!terminal.surface.isAwaitingStartupRestoreAdmission)
         #expect(workspace.deferredAgentResumeRestoresByPanelId[panelID] == nil)
-        #expect(terminal.surface.debugInitialInputForTesting()?.contains(sessionID) == true)
+        #expect(!terminal.surface.debugInitialInputMetadata().hasInitialInput)
     }
 
     @Test("A recorded owner that exits after the scan is released by generation revalidation")
