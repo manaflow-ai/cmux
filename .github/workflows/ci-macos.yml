@@ -579,6 +579,9 @@ jobs:
       - name: Compile app-host test product
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true'
+        # CANARY: swift-driver explains each incremental decision.
+        env:
+          CMUX_CI_EXTRA_SWIFT_FLAGS: -driver-show-incremental
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
