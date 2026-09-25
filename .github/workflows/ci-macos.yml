@@ -486,9 +486,11 @@ jobs:
         # `warm`: the SwiftPM cache restore and the seed are skipped, and the
         # compile rebuilds only what changed since the last job on this Mac. Any
         # mismatch, miss or failure falls back to the ephemeral flow below.
+        # Main's full-suite dispatch may run here too (pr_runner_pool.py), and
+        # the main commit it keeps is what the next pull requests merge onto.
         # scripts/ci/owned_build_state.py has the rules; nothing is uploaded.
         id: owned-state
-        if: steps.reuse-products.outputs.hit != 'true' && github.event_name == 'pull_request' && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
+        if: steps.reuse-products.outputs.hit != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-')
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -511,7 +513,8 @@ jobs:
         timeout-minutes: 3
         env:
           SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.owned-state.outputs.fingerprint }}-
-          MERGED_ONTO: ${{ inputs.source_parent1 || github.event.pull_request.base.sha }}
+          # Like the seed adoption below: a main dispatch starts at its own commit.
+          MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
           MAX_DISTANCE: ${{ vars.CI_OWNED_PREFER_SEED }}
           CMUX_SEED_LOCAL_CACHE: ${{ env.CMUX_OWNED_STATE_ROOT }}/seeds
           GH_TOKEN: ${{ github.token }}

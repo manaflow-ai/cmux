@@ -110,6 +110,7 @@ jobs:
           PR_POOL_OVERFLOW: ${{ vars.CI_PR_POOL_OVERFLOW }}
           PR_POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           PR_POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+          PR_POOL_QUEUE_ROUNDS: ${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}
           # Owned pools on: read each candidate run's owned-pool marker for the
           # peak it declared. Not copied into the snapshot; forks never use them.
           PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}

@@ -29,7 +29,8 @@ extension FileExplorerPanelView.Coordinator {
 
     func openNode(in outlineView: NSOutlineView, at row: Int) {
         guard row >= 0,
-              let node = outlineView.item(atRow: row) as? FileExplorerNode else { return }
+              let node = outlineView.item(atRow: row) as? FileExplorerNode,
+              node.resourceContextID == nil || node.resourceContextID == store.resourceContextID else { return }
 
         if node.isDirectory {
             if outlineView.isItemExpanded(node) {

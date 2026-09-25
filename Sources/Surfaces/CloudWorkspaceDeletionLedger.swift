@@ -27,10 +27,10 @@ final class CloudWorkspaceDeletionLedger {
 
     /// Concurrent workspace deletes share a terminal close while either request
     /// is pending. Completed terminal receipts disappear when the lane drains.
-    func closeTerminal(_ id: SurfaceResourceID, provider: any SurfaceProvider) async throws {
+    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String?, provider: any SurfaceProvider) async throws {
         let key = TerminalKey(resource: id, provider: ObjectIdentifier(provider))
         if let existing = terminalTasks[key] { return try await existing.value }
-        let task = Task { @MainActor in try await provider.closeTerminal(id) }
+        let task = Task { @MainActor in try await provider.closeTerminal(id, remoteWorkspaceID: remoteWorkspaceID) }
         terminalTasks[key] = task
         try await task.value
     }

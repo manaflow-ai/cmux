@@ -330,6 +330,55 @@ struct DevicesCloudTreeBuilderTests {
         #expect(emptyState == state)
     }
 
+    @Test("Discovering another Mac keeps this Mac's opt-in controls available", arguments: [false, true])
+    func populatedDevicesRetainControls(incomingEnabled: Bool) throws {
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(studio, name: "Studio", online: true, linkState: .connected)],
+            resources: [], projections: []
+        )
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false,
+            source: .cloudWithDevicesSection,
+            devicesSection: .init(discoveryEnabled: true, incomingAccessEnabled: incomingEnabled)
+        )
+        let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
+        #expect(section.children.contains { if case .device = $0.kind { true } else { false } })
+        let controls = try #require(section.children.first { if case .devicesEmpty = $0.kind { true } else { false } })
+        guard case .devicesEmpty(let state) = controls.kind else { return }
+        #expect(state.count == 1)
+        #expect(state.incomingAccessEnabled == incomingEnabled)
+    }
+
+    @MainActor
+    @Test("Device controls span the row and their options menu stays visible", arguments: [220.0, 380.0])
+    func deviceControlsFillRow(width: Double) throws {
+        let fixture = CloudSidebarOrderingFixture()
+        defer { fixture.close() }
+        fixture.window.setContentSize(NSSize(width: width, height: 620))
+        let nodes = CloudTreeNodeBuilder.nodes(
+            machines: [], snapshot: .empty, localWorkspaces: [], includeLocalMachine: false,
+            source: .cloudWithDevicesSection,
+            devicesSection: .init(discoveryEnabled: false, incomingAccessEnabled: false)
+        )
+        fixture.coordinator.apply(nodes: nodes)
+        let outline = try #require(fixture.coordinator.outlineView)
+        outline.expandItem(nil, expandChildren: true)
+        fixture.container.layoutSubtreeIfNeeded()
+        let section = try #require(nodes.first { $0.id == CloudTreeNodeBuilder.devicesSectionNodeID })
+        let controls = try #require(section.children.first)
+        let row = outline.row(forItem: controls)
+        let cellFrame = outline.frameOfCell(atColumn: 0, row: row)
+        #expect(cellFrame.width > 0)
+        #expect(cellFrame.minX == outline.rect(ofRow: row).minX)
+        #expect(cellFrame.maxX == outline.rect(ofRow: row).maxX)
+        let header = try #require(outline.view(atColumn: 0, row: outline.row(forItem: section), makeIfNecessary: true) as? CloudTreeCellView)
+        header.setHovered(true)
+        header.setHovered(false)
+        let menu = try #require(header.subviews.first { $0 is CloudTreeRowControlsHostingView })
+        #expect(!menu.isHidden)
+        #expect(menu.alphaValue == 1)
+    }
+
     @Test("An empty My Devices section remains visible beneath the Cloud Machines section")
     func emptyDevicesSectionRemainsVisible() throws {
         let nodes = CloudTreeNodeBuilder.nodes(
