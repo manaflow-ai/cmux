@@ -8101,48 +8101,58 @@ struct CMUXCLI {
             subArgs = [first]
         } else {
             if let first = args.first, first.hasPrefix("-") {
-                throw CLIError(message: "view open: unknown flag '\(first)'. Usage: \(usage)")
+                throw CLIError(message: String(
+                    format: String(localized: "cli.view.error.unknownFlag", defaultValue: "view open: unknown flag '%1$@'. Usage: %2$@"),
+                    first, usage
+                ))
             } else if let first = args.first, looksLikePath(first) || first.contains(".") {
                 subArgs = args
             } else if let first = args.first {
-                throw CLIError(message: "Unknown view subcommand: \(first). Usage: \(usage)")
+                throw CLIError(message: String(
+                    format: String(localized: "cli.view.error.unknownSubcommand", defaultValue: "Unknown view subcommand: %1$@. Usage: %2$@"),
+                    first, usage
+                ))
             } else {
                 subArgs = []
             }
         }
 
         guard let rawPath = subArgs.first, !rawPath.isEmpty else {
-            throw CLIError(message: "view open requires a file path. Usage: \(usage)")
+            throw CLIError(message: String(
+                format: String(localized: "cli.view.error.missingPath", defaultValue: "view open requires a file path. Usage: %@"),
+                usage
+            ))
         }
         let trailingArgs = Array(subArgs.dropFirst())
         if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
-            throw CLIError(message: "view open: unknown flag '\(unknownFlag)'. Usage: \(usage)")
+            throw CLIError(message: String(
+                format: String(localized: "cli.view.error.unknownFlag", defaultValue: "view open: unknown flag '%1$@'. Usage: %2$@"),
+                unknownFlag, usage
+            ))
         }
         if let extraArg = trailingArgs.first {
-            throw CLIError(message: "view open: unexpected argument '\(extraArg)'. Usage: \(usage)")
+            throw CLIError(message: String(
+                format: String(localized: "cli.view.error.unexpectedArgument", defaultValue: "view open: unexpected argument '%1$@'. Usage: %2$@"),
+                extraArg, usage
+            ))
         }
 
         let absolutePath = resolvePath(rawPath)
 
         // Build params. `file.open` routes .md to the rendered viewer and every
         // other file type to the file preview panel.
+        // Resolve the route first so a bare surface index is looked up in the
+        // requested window and workspace, not the current ones.
         var params: [String: Any] = ["path": absolutePath]
-        if let surfaceRaw = surfaceOpt {
-            if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
-                params["surface_id"] = surface
-            }
-        }
+        let windowId = try normalizeWindowHandle(windowOpt, client: client)
+        if let windowId { params["window_id"] = windowId }
         let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-        if let workspaceRaw {
-            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
-                params["workspace_id"] = workspace
-            }
-        }
-        if let windowRaw = windowOpt {
-            if let window = try normalizeWindowHandle(windowRaw, client: client) {
-                params["window_id"] = window
-            }
-        }
+        let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowId)
+        if let workspaceId { params["workspace_id"] = workspaceId }
+        let surfaceId = try normalizeSurfaceHandle(
+            surfaceOpt, client: client, workspaceHandle: workspaceId, windowHandle: windowId
+        )
+        if let surfaceId { params["surface_id"] = surfaceId }
         try applyFocusOption(focusOpt, defaultValue: true, to: &params)
 
         let payload = try client.sendV2(method: "file.open", params: params)
@@ -20407,17 +20417,13 @@ struct CMUXCLI {
             Usage: cmux view open <path> [options]
                    cmux view <path>       (shorthand for 'open')
 
-            Open any file in a viewer panel. Markdown files (.md, .markdown, .mkd,
-            .mdx) render in the formatted markdown viewer; every other file type
-            opens in the file preview panel. Useful for inspecting a config, an
-            .env, a log, or a text file next to an agent without asking the agent
-            to open it.
+            \(String(localized: "cli.view.help.description", defaultValue: "Open any file in a viewer panel. Markdown files (.md, .markdown, .mkd, .mdx) render in the formatted markdown viewer; every other file type opens in the file preview panel. Useful for inspecting a config, an .env, a log, or a text file next to an agent without asking the agent to open it."))
 
             Options:
-              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref|index>     Source surface whose pane receives the file (default: focused surface)
-              --window <id|ref|index>      Target window
-              --focus <true|false>         Focus the opened panel (default: true)
+              --workspace <id|ref|index>   \(String(localized: "cli.view.help.workspace", defaultValue: "Target workspace (default: $CMUX_WORKSPACE_ID)"))
+              --surface <id|ref|index>     \(String(localized: "cli.view.help.surface", defaultValue: "Source surface whose pane receives the file (default: focused surface)"))
+              --window <id|ref|index>      \(String(localized: "cli.view.help.window", defaultValue: "Target window"))
+              --focus <true|false>         \(String(localized: "cli.view.help.focus", defaultValue: "Focus the opened panel (default: true)"))
 
             Examples:
               cmux view .env
@@ -41389,6 +41395,7 @@ export default CMUXSessionRestore;
           display-message [-p|--print] <text>
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
+          view [open] <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] (\(String(localized: "cli.view.help.summary", defaultValue: "open any file in a viewer panel; markdown renders formatted")))
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>] (open patch input or git source in a browser split)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...

@@ -528577,6 +528577,596 @@
           }
         }
       }
+    },
+    "cli.view.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: unknown flag '%1$@'. Usage: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: 不明なフラグ '%1$@'。使い方: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: unbekannte Option „%1$@“. Verwendung: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open : option inconnue « %1$@ ». Utilisation : %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: خيار غير معروف '%1$@'. الاستخدام: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: opción desconocida '%1$@'. Uso: %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open：未知的旗標「%1$@」。用法：%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open：未知的标志“%1$@”。用法：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: 알 수 없는 플래그 '%1$@'. 사용법: %2$@"
+          }
+        }
+      }
+    },
+    "cli.view.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown view subcommand: %1$@. Usage: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な view サブコマンド: %1$@。使い方: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter view-Unterbefehl: %1$@. Verwendung: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-commande view inconnue : %1$@. Utilisation : %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر فرعي غير معروف لـ view: %1$@. الاستخدام: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcomando de view desconocido: %1$@. Uso: %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 view 子命令：%1$@。用法：%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 view 子命令：%1$@。用法：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 view 하위 명령: %1$@. 사용법: %2$@"
+          }
+        }
+      }
+    },
+    "cli.view.error.missingPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open requires a file path. Usage: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open にはファイルパスが必要です。使い方: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open benötigt einen Dateipfad. Verwendung: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open nécessite un chemin de fichier. Utilisation : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب view open مسار ملف. الاستخدام: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open requiere una ruta de archivo. Uso: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open 需要檔案路徑。用法：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open 需要文件路径。用法：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open에는 파일 경로가 필요합니다. 사용법: %@"
+          }
+        }
+      }
+    },
+    "cli.view.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: unexpected argument '%1$@'. Usage: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: 予期しない引数 '%1$@'。使い方: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: unerwartetes Argument „%1$@“. Verwendung: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open : argument inattendu « %1$@ ». Utilisation : %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: وسيطة غير متوقعة '%1$@'. الاستخدام: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: argumento inesperado '%1$@'. Uso: %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open：非預期的引數「%1$@」。用法：%2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open：意外的参数“%1$@”。用法：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "view open: 예상치 못한 인수 '%1$@'. 사용법: %2$@"
+          }
+        }
+      }
+    },
+    "cli.view.help.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open any file in a viewer panel. Markdown files (.md, .markdown, .mkd, .mdx) render in the formatted markdown viewer; every other file type opens in the file preview panel. Useful for inspecting a config, an .env, a log, or a text file next to an agent without asking the agent to open it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意のファイルをビューアパネルで開きます。Markdown ファイル（.md、.markdown、.mkd、.mdx）は整形された Markdown ビューアで表示され、その他のファイルはファイルプレビューパネルで開きます。エージェントに開いてもらわずに、設定、.env、ログ、テキストファイルをエージェントの隣で確認するのに便利です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet eine beliebige Datei in einem Anzeigebereich. Markdown-Dateien (.md, .markdown, .mkd, .mdx) werden im formatierten Markdown-Viewer dargestellt; alle anderen Dateitypen öffnen sich in der Dateivorschau. Praktisch, um eine Konfiguration, eine .env, ein Log oder eine Textdatei neben einem Agenten anzusehen, ohne den Agenten zu bitten, sie zu öffnen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvre n'importe quel fichier dans un panneau de visualisation. Les fichiers Markdown (.md, .markdown, .mkd, .mdx) s'affichent dans la visionneuse Markdown formatée ; tous les autres types s'ouvrent dans l'aperçu de fichier. Pratique pour consulter une configuration, un .env, un journal ou un fichier texte à côté d'un agent sans lui demander de l'ouvrir."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح أي ملف في لوحة عرض. تُعرض ملفات Markdown (.md و.markdown و.mkd و.mdx) في عارض Markdown المنسق، وتُفتح جميع أنواع الملفات الأخرى في لوحة معاينة الملفات. مفيد لفحص ملف إعدادات أو ‎.env أو سجل أو ملف نصي بجوار وكيل دون أن تطلب من الوكيل فتحه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre cualquier archivo en un panel de visualización. Los archivos Markdown (.md, .markdown, .mkd, .mdx) se muestran en el visor de Markdown con formato; el resto de tipos se abre en el panel de vista previa de archivos. Útil para revisar una configuración, un .env, un registro o un archivo de texto junto a un agente sin pedirle que lo abra."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在檢視面板中開啟任何檔案。Markdown 檔案（.md、.markdown、.mkd、.mdx）會以格式化的 Markdown 檢視器呈現；其他檔案類型則在檔案預覽面板中開啟。適合在代理程式旁檢視設定檔、.env、記錄或文字檔，而不必請代理程式開啟。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在查看器面板中打开任意文件。Markdown 文件（.md、.markdown、.mkd、.mdx）会在格式化的 Markdown 查看器中渲染；其他文件类型则在文件预览面板中打开。适合在代理旁查看配置文件、.env、日志或文本文件，而无需让代理打开它。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아무 파일이나 뷰어 패널에서 엽니다. Markdown 파일(.md, .markdown, .mkd, .mdx)은 서식이 적용된 Markdown 뷰어에 표시되고, 다른 모든 파일 형식은 파일 미리보기 패널에서 열립니다. 에이전트에게 열어 달라고 하지 않고도 에이전트 옆에서 설정, .env, 로그 또는 텍스트 파일을 확인할 때 유용합니다."
+          }
+        }
+      }
+    },
+    "cli.view.help.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target workspace (default: $CMUX_WORKSPACE_ID)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象のワークスペース（既定: $CMUX_WORKSPACE_ID）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziel-Workspace (Standard: $CMUX_WORKSPACE_ID)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace de travail cible (par défaut : $CMUX_WORKSPACE_ID)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة العمل المستهدفة (الافتراضي: $CMUX_WORKSPACE_ID)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espacio de trabajo de destino (predeterminado: $CMUX_WORKSPACE_ID)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標工作區（預設：$CMUX_WORKSPACE_ID）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标工作区（默认：$CMUX_WORKSPACE_ID）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 워크스페이스 (기본값: $CMUX_WORKSPACE_ID)"
+          }
+        }
+      }
+    },
+    "cli.view.help.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source surface whose pane receives the file (default: focused surface)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを受け取るペインを持つソースサーフェス（既定: フォーカス中のサーフェス）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quell-Surface, dessen Bereich die Datei erhält (Standard: fokussiertes Surface)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surface source dont le volet reçoit le fichier (par défaut : surface active)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السطح المصدر الذي تستقبل لوحته الملف (الافتراضي: السطح المُركّز)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superficie de origen cuyo panel recibe el archivo (predeterminado: superficie enfocada)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接收檔案的窗格所屬的來源 surface（預設：目前聚焦的 surface）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接收文件的窗格所属的源 surface（默认：当前聚焦的 surface）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일을 받을 패인이 속한 소스 서피스 (기본값: 포커스된 서피스)"
+          }
+        }
+      }
+    },
+    "cli.view.help.window": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target window"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対象のウインドウ"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zielfenster"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fenêtre cible"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النافذة المستهدفة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ventana de destino"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目標視窗"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目标窗口"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대상 창"
+          }
+        }
+      }
+    },
+    "cli.view.help.focus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus the opened panel (default: true)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いたパネルにフォーカス（既定: true）"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geöffneten Bereich fokussieren (Standard: true)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Donner le focus au panneau ouvert (par défaut : true)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التركيز على اللوحة المفتوحة (الافتراضي: true)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfocar el panel abierto (predeterminado: true)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦開啟的面板（預設：true）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聚焦打开的面板（默认：true）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 패널에 포커스 (기본값: true)"
+          }
+        }
+      }
+    },
+    "cli.view.help.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "open any file in a viewer panel; markdown renders formatted"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意のファイルをビューアパネルで開く。Markdown は整形表示"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "beliebige Datei in einem Anzeigebereich öffnen; Markdown wird formatiert dargestellt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ouvrir n'importe quel fichier dans un panneau de visualisation ; le Markdown est formaté"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح أي ملف في لوحة عرض؛ يُعرض Markdown منسقًا"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "abrir cualquier archivo en un panel de visualización; Markdown se muestra con formato"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在檢視面板中開啟任何檔案；Markdown 會格式化呈現"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在查看器面板中打开任意文件；Markdown 会格式化渲染"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아무 파일이나 뷰어 패널에서 열기; Markdown은 서식이 적용되어 표시됨"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

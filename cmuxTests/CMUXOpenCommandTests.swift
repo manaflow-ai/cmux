@@ -629,6 +629,71 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(params["focus"] as? Bool, false)
     }
 
+    func testViewCommandResolvesSurfaceIndexInRequestedWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("view-route")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("notes.txt")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "notes\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "surface.list":
+                // Index 1 exists in both workspaces, so only the workspace
+                // scope decides which surface the CLI picks.
+                let surfaceID = params["workspace_id"] as? String == "workspace:2"
+                    ? "surface-in-workspace-2"
+                    : "surface-in-current-workspace"
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["index": 1, "id": surfaceID]]]
+                )
+            case "file.open":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surface_id": "surface-id", "pane_id": "pane-id", "path": fileURL.path]
+                )
+            default:
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["view", "open", fileURL.path, "--surface", "1", "--workspace", "workspace:2"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let fileOpen = try XCTUnwrap(
+            state.commands.compactMap { Self.v2Payload(from: $0) }.first { $0["method"] as? String == "file.open" }
+        )
+        let params = try XCTUnwrap(fileOpen["params"] as? [String: Any])
+        XCTAssertEqual(params["workspace_id"] as? String, "workspace:2")
+        XCTAssertEqual(params["surface_id"] as? String, "surface-in-workspace-2")
+    }
+
     func testDiffCommandGeneratesCodeViewAndOpensBrowserSplit() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("diff-open")
