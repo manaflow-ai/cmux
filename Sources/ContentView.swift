@@ -11990,6 +11990,11 @@ struct VerticalTabsSidebar: View, Equatable {
                 refreshWorkspaceSnapshots()
             }
         }
+        .onChange(of: featureFlags.isSidebarSummarySnapshotsEnabled) { _, _ in
+            if isPresented {
+                refreshWorkspaceSnapshots()
+            }
+        }
         .onDisappear {
             workspaceSnapshotRefreshCoalescer.cancel()
             workspaceSummaryRefreshCoalescer.cancel()
@@ -12984,6 +12989,10 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func scheduleWorkspaceSummaryRefresh(workspaceId: UUID) {
+        guard featureFlags.isSidebarSummarySnapshotsEnabled else {
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+            return
+        }
         workspaceSummaryRefreshCoalescer.schedule(workspaceId: workspaceId) { workspaceIds in
             refreshWorkspaceSummarySnapshots(workspaceIds: workspaceIds)
         }
@@ -13037,12 +13046,17 @@ struct VerticalTabsSidebar: View, Equatable {
             let cached = featureFlags.isAppKitSidebarListEnabled
                 ? appKitRowSnapshotCache.value(for: workspaceId)
                 : next[workspaceId]
-            guard let cached else { continue }
-            let snapshot = SidebarWorkspaceSnapshotFactory(
+            let factory = SidebarWorkspaceSnapshotFactory(
                 workspace: workspace,
                 settings: settings,
                 showsAgentActivity: showsAgentActivity
-            ).makeSummarySnapshot(from: cached)
+            )
+            let snapshot = cached.map { factory.makeSummarySnapshot(from: $0) }
+                ?? makeWorkspaceSnapshot(
+                    workspace: workspace,
+                    settings: settings,
+                    showsAgentActivity: showsAgentActivity
+                )
             if featureFlags.isAppKitSidebarListEnabled {
                 guard appKitRowSnapshotCache.value(for: workspaceId) != snapshot else {
                     continue
@@ -13064,6 +13078,12 @@ struct VerticalTabsSidebar: View, Equatable {
         workspaceSnapshotRefreshCoalescer.cancel()
         workspaceSummaryRefreshCoalescer.cancel()
         let tabs = tabManager.tabs
+        if featureFlags.isAppKitSidebarListEnabled {
+            // AppKit renders from its row cache. Use the shared keyed path so
+            // a rollout change also publishes pending details to that cache.
+            refreshWorkspaceSnapshots(workspaceIds: Set(tabs.map(\.id)))
+            return
+        }
         let liveIds = Set(tabs.map(\.id))
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity

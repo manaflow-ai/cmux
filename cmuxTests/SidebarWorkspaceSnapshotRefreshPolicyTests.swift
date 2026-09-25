@@ -142,6 +142,54 @@ import Testing
         #expect(factory.makeSummarySnapshot(from: initial) == factory.makeSnapshot())
     }
 
+    @Test @MainActor
+    func summaryRefreshMatchesFullSnapshotForImmediateFields() throws {
+        let workspace = Workspace(workingDirectory: "/tmp/sidebar-summary-immediate")
+        let suiteName = "sidebar-summary-immediate-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false
+        )
+        let initial = factory.makeSnapshot()
+        workspace.setCustomTitle("Renamed workspace")
+        workspace.customDescription = "Updated description"
+        workspace.isPinned = true
+        workspace.isMuted = true
+        workspace.customColor = "#123456"
+        workspace.todoState.statusOverride = WorkspaceTaskStatusOverride(
+            status: .done, inferredAtOverride: initial.taskStatusInput.inferred
+        )
+
+        #expect(factory.makeSummarySnapshot(from: initial) == factory.makeSnapshot())
+        workspace.todoState.statusHidden = true
+        #expect(factory.makeSummarySnapshot(from: initial) == factory.makeSnapshot())
+    }
+
+    @Test @MainActor
+    func summaryRolloutDefaultsOffAndFollowsLiveRemoteChanges() throws {
+        let suiteName = "sidebar-summary-flag-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let definition = CmuxFeatureFlags.sidebarSummarySnapshotsFlag
+        var remote: Bool?
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { $0 == definition.key ? remote : nil }
+        )
+        #expect(!flags.isSidebarSummarySnapshotsEnabled)
+        flags.setOverride(true, for: definition)
+        #expect(flags.isSidebarSummarySnapshotsEnabled)
+        remote = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isSidebarSummarySnapshotsEnabled)
+        remote = true
+        flags.applyLoadedFlags()
+        #expect(flags.isSidebarSummarySnapshotsEnabled)
+    }
+
     @Test func contextMenuPinChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
         let current = Self.snapshot(
             title: "lmao",

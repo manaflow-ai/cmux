@@ -86,6 +86,21 @@ final class CmuxFeatureFlags {
         defaultWhenUnavailable: CmuxFeatureFlags.appKitSidebarListDefault
     )
 
+    // FLAG(key: sidebar-summary-snapshots-experiment, owner: austinywang,
+    //      reviewBy: 2026-11-01, defaultWhenUnavailable: false)
+    static let sidebarSummarySnapshotsFlag = CmuxFeatureFlagDefinition(
+        key: "sidebar-summary-snapshots-experiment",
+        title: String(
+            localized: "featureFlags.sidebarSummarySnapshots.title",
+            defaultValue: "Sidebar summary updates"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.sidebarSummarySnapshots.description",
+            defaultValue: "Updates workspace titles without rebuilding branch, directory, and pull request details."
+        ),
+        defaultWhenUnavailable: false
+    )
+
     // FLAG(key: mobile-workspace-changes-enabled-release, owner: lawrencecchen,
     //      reviewBy: 2026-10-01, defaultWhenUnavailable: false)
     // Serves the iOS diff viewer: advertises workspace.changes.v1 to phones
@@ -305,6 +320,7 @@ final class CmuxFeatureFlags {
             CmuxFeatureFlags.mobileTaskComposerFlag,
             CmuxFeatureFlags.goPlanFlag,
             CmuxFeatureFlags.cloudMachinesFlag,
+            CmuxFeatureFlags.sidebarSummarySnapshotsFlag,
         ]
     }()
 
@@ -339,6 +355,10 @@ final class CmuxFeatureFlags {
     }
     var isAppKitSidebarListEnabled: Bool {
         effectiveValue(for: Self.appKitSidebarListFlag)
+    }
+
+    var isSidebarSummarySnapshotsEnabled: Bool {
+        effectiveValue(for: Self.sidebarSummarySnapshotsFlag)
     }
 
     var isMobileWorkspaceChangesEnabled: Bool {
