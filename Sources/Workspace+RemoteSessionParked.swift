@@ -12,6 +12,20 @@ extension Workspace {
         remoteControllerConnectionState == .error || remoteControllerConnectionState == .suspended
     }
 
+    /// Whether no controller or transition can make this remote session ready
+    /// without an explicit Reconnect. This also covers a deliberate
+    /// Disconnect after its cleanup transition has completed.
+    var remoteSessionIsWaitingForReconnect: Bool {
+        guard remoteSessionController == nil,
+              remoteSessionTransitionTask == nil else {
+            return false
+        }
+        return remoteControllerIsParked ||
+            remoteConnectionState == .error ||
+            (remoteControllerConnectionState == .disconnected &&
+                remoteConnectionState == .disconnected)
+    }
+
     /// The user-facing reason when no remote session controller exists and
     /// none will be created until the user reconnects; `nil` while one exists
     /// or a transition that may still create one is in flight.
@@ -25,9 +39,7 @@ extension Workspace {
         // before any configuration or controller state is recorded; only the
         // presented state says `.error`. Without a controller, that is just
         // as final as a parked controller state.
-        guard remoteSessionController == nil,
-              remoteSessionTransitionTask == nil,
-              remoteControllerIsParked || remoteConnectionState == .error else {
+        guard remoteSessionIsWaitingForReconnect else {
             return nil
         }
         for candidate in [remoteControllerConnectionDetail, remoteConnectionDetail] {
