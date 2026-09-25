@@ -178,15 +178,23 @@ an undeclared asset is never opened even when it exists in the pack. A pack
 with no such assets may omit `files`. Legacy packs remain valid, but they have
 no provider assets until a versioned manifest declares them.
 
-For installed packs, the declared tree is the manifest plus the files in
-`files`. The content fingerprint is deterministic: sort normalized path bytes
-lexicographically, then hash length-prefixed records containing each path,
-the file type `regular`, the byte length, and the SHA-256 of its bytes. The
-manifest record is always included. A checkout's `.git` directory and
-unlisted files are outside the declared tree and cannot be used as provider
-assets. Before every provider read or launch, cmux revalidates the path set
-and recomputes these records; a changed, missing, newly added, or replaced
-file fails closed and revokes the associated trust decision.
+For both local and installed provider packs, the declared tree is
+`cmux.pack.json` plus the files in `files`; the manifest must not be listed a
+second time. Hash raw file bytes, including the manifest's whitespace and JSONC
+comments. Formatting changes therefore require renewed trust. Paths must be
+Unicode NFC and must not collide under the host filesystem's name comparison.
+Sort their UTF-8 bytes lexicographically. Each record is an unsigned 64-bit
+big-endian path-byte length, the path bytes, the type byte `0x01` (regular file),
+an unsigned 64-bit big-endian content length, and the raw 32-byte SHA-256 of the
+content. The tree digest is SHA-256 of the UTF-8 prefix `cmux.pack-tree.v1`, one
+NUL byte, and the concatenated records.
+
+A checkout's `.git` directory and unlisted files are outside the declared tree
+and cannot be used as provider assets. Before every provider read or launch,
+cmux revalidates the declared path set and recomputes these records; a changed
+declaration or a changed, missing, or replaced declared file fails closed and
+revokes the associated trust decision. Adding an unlisted file does not change
+the digest or grant access to it.
 
 Routes use either the legacy string form (provider ID only) or this object
 form:
@@ -352,12 +360,11 @@ user's trust decision.
 | `readGlobalConfig` | Read files under the global config root | always prompt |
 | `writeGlobalConfig` | Modify global config or installed packs | always prompt |
 
-The trust key is the SHA-256 fingerprint of the canonical manifest bytes, the
-complete content digest of every declared pack file, the resolved pack root,
-the installed Git commit when one exists, the project root (or global scope),
-and the capability/path/origin scope. A path or display name alone is not a
-trust identity. Project-local packs never inherit global trust, and a global
-pack gets a separate decision for each project root it accesses. A changed
+The trust key is the SHA-256 fingerprint of the declared-tree digest, the
+resolved pack root, the installed Git commit when one exists, the project root
+(or global scope), and the capability/path/origin scope. A path or display name
+alone is not a trust identity. Project-local packs never inherit global trust,
+and a global pack gets a separate decision for each project root it accesses. A changed
 manifest, any declared pack file, commit, provider command, or declared origin
 requires a new decision.
 
