@@ -124,6 +124,8 @@ PATH_OWNERS = {
     # route, so the ci group's router tests observe an edit to it even though
     # no guard step names it in a `run:`.
     "scripts/ci/select_package_tests.py": frozenset(("ci",)),
+    # test_ci_delta_since_green.py imports it; ci.yml runs the base copy.
+    "scripts/ci/delta_since_green.py": frozenset(("ci",)),
     "scripts/ci/swift_incremental_diagnostics.py": frozenset(("preflight",)),
     "scripts/ci/test_execution_registry.py": frozenset(("preflight",)),
     "skills/cmux-cloud-vm/SKILL.md": frozenset(("preflight",)),
