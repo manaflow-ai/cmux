@@ -52,11 +52,22 @@ extension CMUXCLI {
     }
     func agentHookSessionHasDurableResumeEvidence(
         kind: String,
-        launchCommand: AgentHookLaunchCommandRecord?
+        launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool? = nil,
+        transcriptPath: String? = nil
     ) -> Bool {
+        if isRestorable == false {
+            return false
+        }
         guard normalizedHookValue(launchCommand?.source)?.lowercased() != "rejected" else { return false }
+        guard let launchCommand else {
+            // A kind-only fallback is not evidence that the original process
+            // accepted a resumable session. Preserve an explicit capability
+            // bit or a hook-provided transcript as the only positive signals
+            // when argv disappeared with the process.
+            return isRestorable == true || normalizedHookValue(transcriptPath) != nil
+        }
         guard kind == "codex" else { return true }
-        guard let launchCommand else { return true }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil {
             return true
         }
