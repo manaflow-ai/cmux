@@ -103,5 +103,6 @@ public protocol AgentFooterStatePublishing: AnyObject, Sendable {
     func retire(surfaceID: UUID)
 
     /// Balances a tee lease after its callback context is released.
+    @MainActor
     func release(_ lease: AgentFooterStateStore.Lease)
 }
