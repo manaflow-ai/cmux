@@ -230,9 +230,15 @@ def resolve(
     measure: Callable[[], IOSLoad],
     now: dt.datetime,
     log: Callable[[str], None] = lambda message: None,
+    fork: bool = False,
 ) -> Route:
     """The route for one run, from its inputs and variables. Raises ValueError on a refused request."""
     config = LANES[lane]
+    if fork:
+        # A fork's pull request: never an owned Mac (they keep build state
+        # between jobs), and never a variable that could name one.
+        log(f"a fork pull request; staying on {SMALL_RUNNER}")
+        return ephemeral(SMALL_RUNNER)
     requested = (requested or "").strip()
     default = (variable or "").strip() or SMALL_RUNNER
     if requested and requested not in ("auto", OWNED_CHOICE):
@@ -329,6 +335,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--lane", required=True, choices=sorted(LANES))
     parser.add_argument("--requested", default="", help="the workflow's runner input")
+    parser.add_argument("--fork", default="", help="'true' for a pull request from a fork")
     parser.add_argument("--variable", default="", help="the lane's runner variable")
     parser.add_argument("--ios-owned", default="", help=f"vars.{IOS_OWNED_VARIABLE}")
     parser.add_argument("--owned", default="", help=f"vars.{pr_runner_pool.OWNED_VARIABLE}")
@@ -370,7 +377,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             ios_version=args.ios_version, device_family=args.device_family,
             swift_package=args.swift_package, upload=args.upload, called=args.called,
             seed_cache=args.seed_cache,
-            measure=measure, now=now, log=log,
+            measure=measure, now=now, log=log, fork=args.fork.strip() == "true",
         )
     except ValueError as error:
         print(f"::error::{error}", file=sys.stderr)
