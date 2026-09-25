@@ -85,6 +85,12 @@ extension CMUXCLI {
                 environment[key] = value
             }
         }
+        // A relayed hook can be replayed through a local socket. Its surface
+        // scope is already admitted; local PID inference or resolution would
+        // move the ordering barrier into an unrelated terminal's lane.
+        if !client.isRelayBacked, processEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1" {
+            return environment
+        }
         let pidEnvironmentKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
         if environment[pidEnvironmentKey].flatMap(Int.init).map({ $0 > 0 }) != true,
            let inferredPID = inferredAgentPID() {

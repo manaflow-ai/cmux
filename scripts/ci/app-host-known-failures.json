@@ -35,14 +35,6 @@
       "classification": "host/display dependency",
       "issue": 13948
     },
-    "CloudDesktopOpenActionTests/capturesClickDestination(hasRemoteView:menu:)": {
-      "classification": "timeout/hang",
-      "issue": 13879
-    },
-    "CloudNativeLayoutProjectionTests/nativeMirrorTabInsertionHonorsTheSourceOrder()": {
-      "classification": "product bug",
-      "issue": 13998
-    },
     "SidebarHiddenPresentationTests/visibilityToggleKeepsAppKitTableContainerMounted()": {
       "classification": "product bug",
       "issue": 13931
@@ -50,14 +42,6 @@
     "TerminalNotificationDirectInteractionTests/testKeyDownRecoveryDoesNotReplayFocusAfterResponderMovesAway()": {
       "classification": "host/display dependency",
       "issue": 13948
-    },
-    "WorkspaceTerminalFocusRecoverySwiftTests/automaticApplyDoesNotBypassHiddenTinyFirstResponderDeferral()": {
-      "classification": "unknown",
-      "issue": 13988
-    },
-    "WorkspaceTerminalFocusRecoverySwiftTests/findTerminalRestorePreservesHiddenTinyFirstResponderDeferral()": {
-      "classification": "unknown",
-      "issue": 13988
     },
     "WorkspaceTerminalFocusRecoveryTests/testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction()": {
       "classification": "host/display dependency",
