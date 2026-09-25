@@ -9,13 +9,13 @@ uses the process ancestry of the caller, so a program launched inside a cmux
 terminal is trusted even when it later starts another process or leaves the
 terminal's original process group. `automation` allows external local clients
 running as the same macOS user, including `cmux` commands from Terminal.
-`password` requires a configured socket password and the `--password` flag (or
-`CMUX_SOCKET_PASSWORD`). Use `password` or `cmuxOnly` when untrusted code may
+`password` requires socket authentication. The CLI reads the saved socket
+password, or you can supply `--password` or `CMUX_SOCKET_PASSWORD`. Use `password` or `cmuxOnly` when untrusted code may
 run inside a cmux terminal. `allowAll` also grants access to other local macOS
 users and is unsafe on a shared Mac.
 
 For an SSH workspace from an external terminal without changing socket access,
-run `open ssh://host` (or `open ssh://user@host`). cmux asks for confirmation
+run `open -a cmux ssh://host` (or `open -a cmux ssh://user@host`). cmux asks for confirmation
 and starts the workspace through its external-link handler, so this path does
 not require control-socket access.
 

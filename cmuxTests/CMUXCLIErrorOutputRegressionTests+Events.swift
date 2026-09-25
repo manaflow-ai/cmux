@@ -102,6 +102,8 @@ extension CMUXCLIErrorOutputRegressionTests {
     @Test(arguments: [["ping"], ["capabilities"], ["ssh", "--no-focus", "example.invalid"]])
     func testSocketAccessDeniedExplainsExternalSSHWorkflow(arguments: [String]) throws {
         let cliPath = try bundledCLIPath()
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
         let socketPath = "/tmp/cmux-v2-access-denied-\(UUID().uuidString).sock"
         let responder = try UnixSocketResponder(
             path: socketPath,
@@ -114,7 +116,8 @@ extension CMUXCLIErrorOutputRegressionTests {
             arguments: arguments,
             environment: [
                 "PATH": "/usr/bin:/bin",
-                "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
+                "HOME": home.path,
+                "CFFIXED_USER_HOME": home.path,
                 "CMUX_SOCKET_PATH": socketPath,
                 "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
@@ -122,7 +125,10 @@ extension CMUXCLIErrorOutputRegressionTests {
             timeout: 5
         )
 
-        let expectedMessage = "cmux blocked this command before it ran. Run it from a cmux terminal, choose Automation mode in Settings > Automation > Socket Control Mode, or use an SSH link such as open -a cmux ssh://host from an external terminal."
+        let expectedMessage = String(
+            localized: "cli.socket.error.connectionDenied",
+            defaultValue: "cmux blocked this command before it ran. Run it from a cmux terminal, choose Automation mode in Settings > Automation > Socket Control Mode, or use an SSH link such as open -a cmux ssh://host from an external terminal."
+        )
         #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
         #expect(result.status == 1, Comment(rawValue: result.diagnostics))
         #expect(result.stdout.isEmpty, Comment(rawValue: result.diagnostics))

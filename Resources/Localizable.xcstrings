@@ -553502,121 +553502,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "حظر cmux هذا الأمر قبل تشغيله. شغّله من طرفية cmux، أو اختر وضع الأتمتة في الإعدادات > الأتمتة > وضع التحكم بالمقبس. لاستخدام SSH من طرفية خارجية، استخدم رابط SSH مثل open ssh://host."
+            "value": "حظر cmux هذا الأمر قبل تشغيله. شغّله من طرفية cmux، أو اختر وضع الأتمتة في الإعدادات > الأتمتة > وضع التحكم بالمقبس. لاستخدام SSH من طرفية خارجية، استخدم رابط SSH مثل open -a cmux ssh://host."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux je blokirao ovu naredbu prije njenog pokretanja. Pokrenite je iz cmux terminala ili odaberite Režim automatizacije u Postavke > Automatizacija > Režim kontrole utičnice. Za SSH iz vanjskog terminala koristite SSH vezu kao što je open ssh://host."
+            "value": "cmux je blokirao ovu naredbu prije njenog pokretanja. Pokrenite je iz cmux terminala ili odaberite Režim automatizacije u Postavke > Automatizacija > Režim kontrole utičnice. Za SSH iz vanjskog terminala koristite SSH vezu kao što je open -a cmux ssh://host."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux blokerede denne kommando, før den blev kørt. Kør den fra en cmux-terminal, eller vælg Automatiseringstilstand under Indstillinger > Automatisering > Socket-kontroltilstand. Brug et SSH-link som open ssh://host til SSH fra en ekstern terminal."
+            "value": "cmux blokerede denne kommando, før den blev kørt. Kør den fra en cmux-terminal, eller vælg Automatiseringstilstand under Indstillinger > Automatisering > Socket-kontroltilstand. Brug et SSH-link som open -a cmux ssh://host til SSH fra en ekstern terminal."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux hat diesen Befehl blockiert, bevor er ausgeführt wurde. Führen Sie ihn in einem cmux-Terminal aus oder wählen Sie unter Einstellungen > Automatisierung > Socket-Steuerungsmodus den Automatisierungsmodus. Verwenden Sie für SSH aus einem externen Terminal einen SSH-Link wie open ssh://host."
+            "value": "cmux hat diesen Befehl blockiert, bevor er ausgeführt wurde. Führen Sie ihn in einem cmux-Terminal aus oder wählen Sie unter Einstellungen > Automatisierung > Socket-Steuerungsmodus den Automatisierungsmodus. Verwenden Sie für SSH aus einem externen Terminal einen SSH-Link wie open -a cmux ssh://host."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux blocked this command before it ran. Run it from a cmux terminal, choose Automation mode in Settings > Automation > Socket Control Mode, or use an SSH link such as open ssh://host from an external terminal."
+            "value": "cmux blocked this command before it ran. Run it from a cmux terminal, choose Automation mode in Settings > Automation > Socket Control Mode, or use an SSH link such as open -a cmux ssh://host from an external terminal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux bloqueó este comando antes de ejecutarlo. Ejecútalo desde un terminal de cmux o elige el modo Automatización en Ajustes > Automatización > Modo de control del socket. Para usar SSH desde un terminal externo, usa un enlace SSH como open ssh://host."
+            "value": "cmux bloqueó este comando antes de ejecutarlo. Ejecútalo desde un terminal de cmux o elige el modo Automatización en Ajustes > Automatización > Modo de control del socket. Para usar SSH desde un terminal externo, usa un enlace SSH como open -a cmux ssh://host."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux a bloqué cette commande avant son exécution. Exécutez-la depuis un terminal cmux ou choisissez le mode Automatisation dans Réglages > Automatisation > Mode de contrôle du socket. Pour utiliser SSH depuis un terminal externe, utilisez un lien SSH tel que open ssh://host."
+            "value": "cmux a bloqué cette commande avant son exécution. Exécutez-la depuis un terminal cmux ou choisissez le mode Automatisation dans Réglages > Automatisation > Mode de contrôle du socket. Pour utiliser SSH depuis un terminal externe, utilisez un lien SSH tel que open -a cmux ssh://host."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ha bloccato questo comando prima di eseguirlo. Eseguilo da un terminale cmux oppure scegli la modalità Automazione in Impostazioni > Automazione > Modalità controllo socket. Per usare SSH da un terminale esterno, usa un link SSH come open ssh://host."
+            "value": "cmux ha bloccato questo comando prima di eseguirlo. Eseguilo da un terminale cmux oppure scegli la modalità Automazione in Impostazioni > Automazione > Modalità controllo socket. Per usare SSH da un terminale esterno, usa un link SSH come open -a cmux ssh://host."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はコマンドを実行する前にブロックしました。cmux ターミナルから実行するか、「設定」>「自動化」>「ソケット制御モード」で「自動化モード」を選択してください。外部ターミナルから SSH を使う場合は、open ssh://host のような SSH リンクを使用できます。"
+            "value": "cmux はコマンドを実行する前にブロックしました。cmux ターミナルから実行するか、「設定」>「自動化」>「ソケット制御モード」で「自動化モード」を選択してください。外部ターミナルから SSH を使う場合は、open -a cmux ssh://host のような SSH リンクを使用できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux បានទប់ស្កាត់ពាក្យបញ្ជានេះ មុនពេលដំណើរការ។ សូមដំណើរការវាពីស្ថានីយ cmux ឬជ្រើសរើសរបៀបស្វ័យប្រវត្តិកម្មនៅ ការកំណត់ > ស្វ័យប្រវត្តិកម្ម > របៀបគ្រប់គ្រង socket។ សម្រាប់ SSH ពីស្ថានីយខាងក្រៅ សូមប្រើតំណ SSH ដូចជា open ssh://host។"
+            "value": "cmux បានទប់ស្កាត់ពាក្យបញ្ជានេះ មុនពេលដំណើរការ។ សូមដំណើរការវាពីស្ថានីយ cmux ឬជ្រើសរើសរបៀបស្វ័យប្រវត្តិកម្មនៅ ការកំណត់ > ស្វ័យប្រវត្តិកម្ម > របៀបគ្រប់គ្រង socket។ សម្រាប់ SSH ពីស្ថានីយខាងក្រៅ សូមប្រើតំណ SSH ដូចជា open -a cmux ssh://host។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 이 명령을 실행하기 전에 차단했습니다. cmux 터미널에서 실행하거나 설정 > 자동화 > 소켓 제어 모드에서 자동화 모드를 선택하세요. 외부 터미널에서 SSH를 사용하려면 open ssh://host와 같은 SSH 링크를 사용하세요."
+            "value": "cmux가 이 명령을 실행하기 전에 차단했습니다. cmux 터미널에서 실행하거나 설정 > 자동화 > 소켓 제어 모드에서 자동화 모드를 선택하세요. 외부 터미널에서 SSH를 사용하려면 open -a cmux ssh://host와 같은 SSH 링크를 사용하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux blokkerte denne kommandoen før den ble kjørt. Kjør den fra en cmux-terminal, eller velg Automatiseringsmodus under Innstillinger > Automatisering > Socket-kontrollmodus. Bruk en SSH-lenke som open ssh://host for SSH fra en ekstern terminal."
+            "value": "cmux blokkerte denne kommandoen før den ble kjørt. Kjør den fra en cmux-terminal, eller velg Automatiseringsmodus under Innstillinger > Automatisering > Socket-kontrollmodus. Bruk en SSH-lenke som open -a cmux ssh://host for SSH fra en ekstern terminal."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux zablokował to polecenie przed jego uruchomieniem. Uruchom je z terminala cmux albo wybierz Tryb automatyzacji w Ustawienia > Automatyzacja > Tryb sterowania gniazdem. Aby użyć SSH z zewnętrznego terminala, użyj łącza SSH takiego jak open ssh://host."
+            "value": "cmux zablokował to polecenie przed jego uruchomieniem. Uruchom je z terminala cmux albo wybierz Tryb automatyzacji w Ustawienia > Automatyzacja > Tryb sterowania gniazdem. Aby użyć SSH z zewnętrznego terminala, użyj łącza SSH takiego jak open -a cmux ssh://host."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux bloqueou este comando antes de executá-lo. Execute-o em um terminal do cmux ou escolha o modo Automação em Ajustes > Automação > Modo de Controle do Socket. Para usar SSH em um terminal externo, use um link SSH como open ssh://host."
+            "value": "O cmux bloqueou este comando antes de executá-lo. Execute-o em um terminal do cmux ou escolha o modo Automação em Ajustes > Automação > Modo de Controle do Socket. Para usar SSH em um terminal externo, use um link SSH como open -a cmux ssh://host."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux заблокировал эту команду до её запуска. Запустите её из терминала cmux или выберите режим автоматизации в разделе «Настройки» > «Автоматизация» > «Режим управления сокетом». Для SSH из внешнего терминала используйте SSH-ссылку, например open ssh://host."
+            "value": "cmux заблокировал эту команду до её запуска. Запустите её из терминала cmux или выберите режим автоматизации в разделе «Настройки» > «Автоматизация» > «Режим управления сокетом». Для SSH из внешнего терминала используйте SSH-ссылку, например open -a cmux ssh://host."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux บล็อกคำสั่งนี้ก่อนที่จะเรียกใช้ เรียกใช้จากเทอร์มินัล cmux หรือเลือกโหมดระบบอัตโนมัติที่ การตั้งค่า > ระบบอัตโนมัติ > โหมดควบคุมซ็อกเก็ต หากต้องการใช้ SSH จากเทอร์มินัลภายนอก ให้ใช้ลิงก์ SSH เช่น open ssh://host"
+            "value": "cmux บล็อกคำสั่งนี้ก่อนที่จะเรียกใช้ เรียกใช้จากเทอร์มินัล cmux หรือเลือกโหมดระบบอัตโนมัติที่ การตั้งค่า > ระบบอัตโนมัติ > โหมดควบคุมซ็อกเก็ต หากต้องการใช้ SSH จากเทอร์มินัลภายนอก ให้ใช้ลิงก์ SSH เช่น open -a cmux ssh://host"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux bu komutu çalıştırılmadan önce engelledi. Komutu bir cmux terminalinden çalıştırın veya Ayarlar > Otomasyon > Soket Kontrol Modu bölümünde Otomasyon modunu seçin. Harici bir terminalden SSH kullanmak için open ssh://host gibi bir SSH bağlantısı kullanın."
+            "value": "cmux bu komutu çalıştırılmadan önce engelledi. Komutu bir cmux terminalinden çalıştırın veya Ayarlar > Otomasyon > Soket Kontrol Modu bölümünde Otomasyon modunu seçin. Harici bir terminalden SSH kullanmak için open -a cmux ssh://host gibi bir SSH bağlantısı kullanın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux заблокував цю команду до її запуску. Запустіть її з термінала cmux або виберіть режим автоматизації в Налаштуваннях > Автоматизація > Режим керування сокетом. Щоб використовувати SSH із зовнішнього термінала, скористайтеся посиланням SSH, наприклад open ssh://host."
+            "value": "cmux заблокував цю команду до її запуску. Запустіть її з термінала cmux або виберіть режим автоматизації в Налаштуваннях > Автоматизація > Режим керування сокетом. Щоб використовувати SSH із зовнішнього термінала, скористайтеся посиланням SSH, наприклад open -a cmux ssh://host."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 在运行此命令前将其阻止。请在 cmux 终端中运行，或在“设置”>“自动化”>“套接字控制模式”中选择“自动化模式”。要从外部终端使用 SSH，请使用类似 open ssh://host 的 SSH 链接。"
+            "value": "cmux 在运行此命令前将其阻止。请在 cmux 终端中运行，或在“设置”>“自动化”>“套接字控制模式”中选择“自动化模式”。要从外部终端使用 SSH，请使用类似 open -a cmux ssh://host 的 SSH 链接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 在執行此命令前將其封鎖。請在 cmux 終端機中執行，或在「設定」>「自動化」>「Socket 控制模式」中選擇「自動化模式」。若要從外部終端機使用 SSH，請使用類似 open ssh://host 的 SSH 連結。"
+            "value": "cmux 在執行此命令前將其封鎖。請在 cmux 終端機中執行，或在「設定」>「自動化」>「Socket 控制模式」中選擇「自動化模式」。若要從外部終端機使用 SSH，請使用類似 open -a cmux ssh://host 的 SSH 連結。"
           }
         }
       }

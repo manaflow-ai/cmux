@@ -3309,6 +3309,7 @@ final class SocketClient {
             response.removeLast()
         }
         operationCompleted = true
+        try checkSocketAccessDenied(response)
         return response
     }
 
