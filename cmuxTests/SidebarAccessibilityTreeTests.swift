@@ -8,6 +8,28 @@ import Testing
 @MainActor
 struct SidebarAccessibilityTreeTests {
     @Test
+    func treeWalkReadsLegacyAttributeText() {
+        let child = LegacyAccessibilityFixture(text: "Legacy file.swift")
+        let root = LegacyAccessibilityFixture(children: [child])
+        var walk = SidebarAccessibilityTreeWalk()
+        walk.visit(root)
+        #expect(walk.cycle == nil)
+        #expect(walk.visited.contains(ObjectIdentifier(child)))
+        #expect(walk.textValues.contains("Legacy file.swift"))
+    }
+
+    @Test
+    func treeWalkReadsModernChildrenWithoutRequiringAnAppKitElementSubclass() {
+        let child = ModernAccessibilityFixture(text: "Modern file.swift")
+        let root = ModernAccessibilityFixture(children: [child])
+        var walk = SidebarAccessibilityTreeWalk()
+        walk.visit(root)
+        #expect(walk.cycle == nil)
+        #expect(walk.visited.contains(ObjectIdentifier(child)))
+        #expect(walk.textValues.contains("Modern file.swift"))
+    }
+
+    @Test
     func mountedSidebarAndProjectPanelAccessibilityWalkIsAcyclic() async throws {
         let url = try #require(URL(string: "https://example.com/context"))
         let model = SidebarWorkspaceRowSuspensionTests.makeModel(
@@ -249,4 +271,47 @@ struct SidebarAccessibilityTreeTests {
         rootObject = P0;
     }
     """
+}
+
+@MainActor
+private final class LegacyAccessibilityFixture: NSObject {
+    let text: String?
+    let children: [Any]
+
+    init(text: String? = nil, children: [Any] = []) {
+        self.text = text
+        self.children = children
+        super.init()
+    }
+
+    override func accessibilityIsIgnored() -> Bool { false }
+
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        [.children, .value]
+    }
+
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        switch attribute {
+        case .children: return children
+        case .value: return text
+        default: return nil
+        }
+    }
+}
+
+@MainActor
+private final class ModernAccessibilityFixture: NSObject {
+    let text: String?
+    let children: [Any]
+
+    init(text: String? = nil, children: [Any] = []) {
+        self.text = text
+        self.children = children
+        super.init()
+    }
+
+    override func accessibilityIsIgnored() -> Bool { false }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? { nil }
+    @objc func accessibilityChildren() -> [Any]? { children }
+    @objc func accessibilityValue() -> Any? { text }
 }
