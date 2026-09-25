@@ -11,10 +11,10 @@ struct ComputerUseHelperStagingTransactionTests {
         let installed = directory.appendingPathComponent("cmux Computer Use.app")
         let staging = ComputerUseHelperStaging()
         try fixture.makeReadOnly(fixture.bundle)
-        #expect(staging.install(nested: fixture.bundle, destination: installed, directory: directory) == installed)
+        #expect(try staging.installVerified(nested: fixture.bundle, destination: installed, directory: directory) == installed)
         try Data("updated executable".utf8).write(to: fixture.executable)
 
-        #expect(staging.install(nested: fixture.bundle, destination: installed, directory: directory) == installed)
+        #expect(try staging.installVerified(nested: fixture.bundle, destination: installed, directory: directory) == installed)
 
         #expect(staging.isCurrent(nested: fixture.bundle, destination: installed))
         #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).filter {
@@ -105,7 +105,7 @@ struct ComputerUseHelperStagingTransactionTests {
         let directory = fixture.root.appendingPathComponent("installed")
         let installed = directory.appendingPathComponent("cmux Computer Use.app")
         let staging = ComputerUseHelperStaging()
-        #expect(staging.install(nested: fixture.bundle, destination: installed, directory: directory) == installed)
+        #expect(try staging.installVerified(nested: fixture.bundle, destination: installed, directory: directory) == installed)
         try FileManager.default.setAttributes([.immutable: true], ofItemAtPath: installed.path)
         defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: installed.path) }
         try Data("new generation".utf8).write(to: fixture.executable)

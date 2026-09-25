@@ -77,29 +77,34 @@ struct ComputerUseHelperStaging {
         directory: URL
     ) -> URL? {
         do {
-            return try ComputerUseHelperDirectory(fileManager: fileManager)
-                .withExclusiveAccess(to: directory, createIfMissing: true) {
-                    try Task.checkCancellation()
-                    _ = reapWithoutLease(in: directory)
-                    let temporary = directory.appendingPathComponent(Self.stagingName, isDirectory: true)
-                    // Never allocate another name when a prior cleanup failed.
-                    guard removeStagedBundle(at: temporary) else { return nil }
-                    defer { _ = removeStagedBundle(at: temporary) }
-                    try fileManager.copyItem(at: nested, to: temporary)
-                    try releaseCopiedHelperFromQuarantine(at: temporary)
-                    try Task.checkCancellation()
-                    guard isCurrent(nested: nested, destination: temporary) else {
-                        throw CocoaError(.fileReadCorruptFile)
-                    }
-                    try publish(temporary: temporary, destination: destination)
-                    return destination
-                }
+            return try installVerified(nested: nested, destination: destination, directory: directory)
         } catch is CancellationError {
             return nil
         } catch {
             helperStagingLogger.error("Computer Use helper install failed (code \((error as NSError).code))")
             return nil
         }
+    }
+
+    /// Performs the transaction while preserving the filesystem error for callers.
+    nonisolated func installVerified(nested: URL, destination: URL, directory: URL) throws -> URL {
+        try ComputerUseHelperDirectory(fileManager: fileManager)
+            .withExclusiveAccess(to: directory, createIfMissing: true) {
+                try Task.checkCancellation()
+                _ = reapWithoutLease(in: directory)
+                let temporary = directory.appendingPathComponent(Self.stagingName, isDirectory: true)
+                // Never allocate another name when a prior cleanup failed.
+                guard removeStagedBundle(at: temporary) else { throw CocoaError(.fileWriteNoPermission) }
+                defer { _ = removeStagedBundle(at: temporary) }
+                try fileManager.copyItem(at: nested, to: temporary)
+                try releaseCopiedHelperFromQuarantine(at: temporary)
+                try Task.checkCancellation()
+                guard isCurrent(nested: nested, destination: temporary) else {
+                    throw CocoaError(.fileReadCorruptFile)
+                }
+                try publish(temporary: temporary, destination: destination)
+                return destination
+            }
     }
 
     /// Removes orphaned hidden staging bundles in the helper directory.
