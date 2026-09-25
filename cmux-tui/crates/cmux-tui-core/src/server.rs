@@ -13922,11 +13922,13 @@ mod tests {
         mux.reserve_cloud_initial_workspace().unwrap();
         let writer = test_writer();
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-        let first = handle_command(&mux, client, Command::CloudBootstrap { welcome: false }, &writer)
-            .unwrap();
+        let first =
+            handle_command(&mux, client, Command::CloudBootstrap { welcome: false }, &writer)
+                .unwrap();
         assert!(first["created_path"]["terminal_id"].as_str().is_some());
-        let replay = handle_command(&mux, client, Command::CloudBootstrap { welcome: false }, &writer)
-            .unwrap();
+        let replay =
+            handle_command(&mux, client, Command::CloudBootstrap { welcome: false }, &writer)
+                .unwrap();
         assert_eq!(first["created_path"], replay["created_path"]);
         assert_eq!(mux.with_state(|state| state.surfaces.len()), 1);
     }
