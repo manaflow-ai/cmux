@@ -42,7 +42,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         .tabManagerUnavailable
     }
     func controlFocusWindow(id: UUID) -> Bool { false }
-    func controlCreateWindowAndActivate() -> UUID? { nil }
+    func controlCreateWindowAndActivate(title: String?) -> UUID? { nil }
     func controlCloseWindow(id: UUID) -> Bool { false }
     func controlAvailableDisplays() -> [ControlDisplayInfo] { [] }
     func controlWindowExists(id: UUID) -> Bool { false }

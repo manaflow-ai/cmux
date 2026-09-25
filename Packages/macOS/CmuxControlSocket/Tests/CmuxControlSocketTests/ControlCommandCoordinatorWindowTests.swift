@@ -33,8 +33,6 @@ private final class FakeControlCommandContext: ControlCommandContext {
         return focusResult
     }
 
-    func controlCreateWindowAndActivate() -> UUID? { createResult }
-
     func controlCreateWindowAndActivate(title: String?) -> UUID? {
         createdTitle = title
         return createResult
