@@ -2,43 +2,126 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
-    /// Scans Claude's JSONL transcript without loading the full file, so a
-    /// resumed session keeps its `/rename` ownership even when the record is
-    /// older than the bounded auto-name tail window.
-    func claudeTranscriptContainsCustomTitle(path: String) -> Bool {
+    enum ClaudeTranscriptTitleScanResult: Equatable {
+        case found
+        case notFound
+        case incomplete
+    }
+
+    /// Maximum bytes inspected by the legacy resumed-session title scan.
+    /// Larger transcripts remain pending so auto-naming cannot overwrite a
+    /// title that may be outside the bounded window.
+    static let claudeTitleScanMaxBytes = 8 * 1024 * 1024
+
+    /// Maximum JSONL record carried between bounded read chunks.
+    static let claudeTitleScanMaxPendingBytes = 1 * 1024 * 1024
+
+    /// Scans a bounded prefix of Claude's JSONL transcript without loading the
+    /// full file. An incomplete result keeps title ownership unresolved.
+    func claudeTranscriptTitleScan(path: String) -> ClaudeTranscriptTitleScanResult {
         let expandedPath = NSString(string: path).expandingTildeInPath
         guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: expandedPath)) else {
-            return false
+            return .incomplete
         }
         defer { try? handle.close() }
 
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: expandedPath)[.size] as? NSNumber)
+            .map { $0.intValue } ?? Self.claudeTitleScanMaxBytes + 1
+        let bytesToScan = min(fileSize, Self.claudeTitleScanMaxBytes)
+        let scanIsComplete = fileSize <= Self.claudeTitleScanMaxBytes
         let engine = AutoNamingEngine()
         var pending = Data()
-        while true {
+        var bytesRead = 0
+        while bytesRead < bytesToScan {
             let chunk: Data?
             do {
-                chunk = try handle.read(upToCount: 64 * 1024)
+                chunk = try handle.read(upToCount: min(64 * 1024, bytesToScan - bytesRead))
             } catch {
-                break
+                return .incomplete
             }
             guard let chunk, !chunk.isEmpty else {
-                break
+                return .incomplete
             }
+            bytesRead += chunk.count
             pending.append(chunk)
+            guard pending.count <= Self.claudeTitleScanMaxPendingBytes else {
+                return .incomplete
+            }
             while let newline = pending.firstIndex(of: 0x0A) {
                 let line = Data(pending.prefix(upTo: newline))
                 pending.removeSubrange(...newline)
                 if let text = String(data: line, encoding: .utf8),
                    engine.containsClaudeCustomTitle(inTranscriptLines: [text]) {
-                    return true
+                    return .found
                 }
             }
         }
-        guard !pending.isEmpty,
-              let text = String(data: pending, encoding: .utf8) else {
-            return false
+        guard scanIsComplete else {
+            return .incomplete
         }
-        return engine.containsClaudeCustomTitle(inTranscriptLines: [text])
+        if !pending.isEmpty,
+           let text = String(data: pending, encoding: .utf8),
+           engine.containsClaudeCustomTitle(inTranscriptLines: [text]) {
+            return .found
+        }
+        return .notFound
+    }
+
+    /// Starts the legacy transcript scan outside the synchronous SessionStart
+    /// hook. Auto-naming remains paused until this process records its result.
+    func spawnDetachedClaudeTitleScan(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        transcriptPath: String,
+        env: [String: String],
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        let selfPath: String = {
+            if let first = ProcessInfo.processInfo.arguments.first,
+               first.hasPrefix("/"),
+               FileManager.default.isExecutableFile(atPath: first) {
+                return first
+            }
+            if let bundled = normalizedHookValue(env["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            return "cmux"
+        }()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "\"$0\" hooks claude scan-title --session \"$1\" --workspace \"$2\" --surface \"$3\" --transcript \"$4\" </dev/null >/dev/null 2>&1 &",
+            selfPath,
+            sessionId,
+            workspaceId,
+            surfaceId,
+            transcriptPath
+        ]
+        var spawnEnv = env
+        spawnEnv["CMUX_CLAUDE_HOOK_STATE_PATH"] = agentHookStatePath(
+            sessionStoreSuffix: "claude",
+            env: env
+        )
+        process.environment = spawnEnv
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            telemetry.breadcrumb("claude-hook.title-scan.spawn-failed")
+            return
+        }
+        if ((try? waitForProcessExit(process, timeout: 2)) ?? false) == false {
+            process.terminate()
+            if ((try? waitForProcessExit(process, timeout: 1)) ?? false) == false {
+                kill(process.processIdentifier, SIGKILL)
+                _ = try? waitForProcessExit(process, timeout: 1)
+            }
+        }
     }
 
     /// Drives one auto-naming pass for a Claude session at turn end.
@@ -55,6 +138,10 @@ extension CMUXCLI {
         if mappedSession?.autoNameUserOwned == true
             || (try? sessionStore.isAutoNamingUserOwned(sessionId: sessionId)) == true {
             telemetry.breadcrumb("claude-hook.auto-name.user-owned")
+            return
+        }
+        if (try? sessionStore.isAutoNamingTitleScanPending(sessionId: sessionId)) == true {
+            telemetry.breadcrumb("claude-hook.auto-name.title-scan-pending")
             return
         }
         let env = ProcessInfo.processInfo.environment

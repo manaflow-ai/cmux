@@ -274,6 +274,9 @@ struct ClaudeHookSessionRecord: Codable {
     /// Sticky provenance marker for a title explicitly chosen by the user or
     /// the agent's native rename command. Optional for older state files.
     var autoNameUserOwned: Bool?
+    /// True while a resumed session's legacy transcript title scan is pending.
+    /// Optional for stores written before the bounded background scan existed.
+    var autoNameTitleScanPending: Bool?
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
@@ -1042,8 +1045,53 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             record.autoNameUserOwned = true
+            record.autoNameTitleScanPending = nil
             record.updatedAt = now
             state.sessions[normalized] = record
+        }
+    }
+
+    /// Marks a resumed session as waiting for its bounded legacy transcript scan.
+    func beginAutoNamingTitleScan(sessionId: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized],
+                  record.autoNameUserOwned != true else { return }
+            record.autoNameTitleScanPending = true
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
+    /// Completes a legacy transcript scan, retaining the pending marker when
+    /// the bounded scan could not safely inspect the entire file.
+    func finishAutoNamingTitleScan(
+        sessionId: String,
+        foundCustomTitle: Bool,
+        scanCompleted: Bool
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            if foundCustomTitle {
+                record.autoNameUserOwned = true
+                record.autoNameTitleScanPending = nil
+            } else if scanCompleted {
+                record.autoNameTitleScanPending = nil
+            }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
+    /// Returns whether a resumed session is still waiting for title provenance.
+    func isAutoNamingTitleScanPending(sessionId: String) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState(deadline: nil, persist: false) { state in
+            state.sessions[normalized]?.autoNameTitleScanPending == true
         }
     }
 
@@ -27682,13 +27730,20 @@ struct CMUXCLI {
                 return
             }
             if let acceptedSessionId,
-               let transcriptPath = hookTranscriptPath,
-               claudeTranscriptContainsCustomTitle(path: transcriptPath) {
-                try? sessionStore.markAutoNamingUserOwned(
-                    sessionId: acceptedSessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId
-                )
+               let transcriptPath = hookTranscriptPath {
+                do {
+                    try sessionStore.beginAutoNamingTitleScan(sessionId: acceptedSessionId)
+                    spawnDetachedClaudeTitleScan(
+                        sessionId: acceptedSessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        transcriptPath: transcriptPath,
+                        env: ProcessInfo.processInfo.environment,
+                        telemetry: telemetry
+                    )
+                } catch {
+                    telemetry.breadcrumb("claude-hook.title-scan.persist-failed")
+                }
             }
             if let acceptedSessionId {
                 publishAgentSurfaceResumeBinding(
@@ -28102,11 +28157,19 @@ struct CMUXCLI {
                 )
                 let prompt = parsedInput.rawObject?["prompt"] as? String
                 if AutoNamingEngine().isClaudeRenamePrompt(prompt) {
-                    try? sessionStore.markAutoNamingUserOwned(
-                        sessionId: sessionId,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId
-                    )
+                    // Keep auto-naming paused if the ownership write itself
+                    // hits a transient store error; the pending marker is
+                    // cleared only after the durable ownership write succeeds.
+                    do {
+                        try sessionStore.beginAutoNamingTitleScan(sessionId: sessionId)
+                        try sessionStore.markAutoNamingUserOwned(
+                            sessionId: sessionId,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId
+                        )
+                    } catch {
+                        telemetry.breadcrumb("claude-hook.auto-name.user-owned.persist-failed")
+                    }
                 }
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -28142,6 +28205,23 @@ struct CMUXCLI {
                 value: "Running",
                 icon: "bolt.fill",
                 color: "#4C8DFF"
+            )
+            printClaudeHookAck()
+
+        case "scan-title":
+            telemetry.breadcrumb("claude-hook.title-scan")
+            guard let sessionId = optionValue(hookArgs, name: "--session"),
+                  let workspaceId = optionValue(hookArgs, name: "--workspace"),
+                  let surfaceId = optionValue(hookArgs, name: "--surface"),
+                  let transcriptPath = optionValue(hookArgs, name: "--transcript") else {
+                printClaudeHookAck()
+                return
+            }
+            let result = claudeTranscriptTitleScan(path: transcriptPath)
+            try? sessionStore.finishAutoNamingTitleScan(
+                sessionId: sessionId,
+                foundCustomTitle: result == .found,
+                scanCompleted: result != .incomplete
             )
             printClaudeHookAck()
 
