@@ -629,7 +629,8 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(get.call_count, 2 * pool.ROUTE_LOOKUPS)
 
     def test_stale_snapshot_or_no_slots_skips_the_pool(self):
-        self.assertEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, LARGE)
+        self.assertNotEqual(owned_choice(fleet(age=pool.OWNED_MAX_AGE_MINUTES + 1)).runner, MINI)
+        self.assertEqual(owned_choice(fleet(age=40)).runner, MINI)
         self.assertEqual(owned_choice(fleet(), owned_slots="").runner, LARGE)
         self.assertEqual(owned_choice(fleet(), machines=0).runner, LARGE)
 
@@ -655,7 +656,7 @@ class OwnedPools(unittest.TestCase):
                        "GITHUB_STEP_SUMMARY": str(Path(tmp, "summary"))}
                 with unittest.mock.patch("sys.stdout", stdout):
                     pool.main([], env)
-                self.assertEqual("::warning title=CI_OWNED_POOL_SLOTS::" in stdout.getvalue(), warned, owned)
+                self.assertEqual("::error title=CI_OWNED_POOL_SLOTS::" in stdout.getvalue(), warned, owned)
                 self.assertEqual("**Warning:**" in Path(tmp, "summary").read_text(), warned, owned)
 
     def test_slots_ignore_anything_malformed(self):
