@@ -147,13 +147,13 @@ class ReuseProducts(TestProductHandoff):
         base = [
             f"100644 blob {'1' * 40}\tSources/App.swift",
             f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
-            f"100644 blob {'3' * 40}\tscripts/ci/persistent_mac_route.py",
+            f"100644 blob {'3' * 40}\tscripts/ci/pr_runner_pool.py",
             f"100644 blob {'4' * 40}\t.github/workflows/ci-macos.yml",
         ]
         admission_only = [
             f"100644 blob {'1' * 40}\tSources/App.swift",
             f"100644 blob {'2' * 40}\tscripts/ci/compile-app-host-test-product.sh",
-            f"100644 blob {'5' * 40}\tscripts/ci/persistent_mac_route.py",
+            f"100644 blob {'5' * 40}\tscripts/ci/pr_runner_pool.py",
             f"100644 blob {'6' * 40}\t.github/workflows/ci-macos.yml",
         ]
         base_identity = identity.identity_from_tree_lines(base, workflow)
@@ -211,8 +211,8 @@ class ReuseProducts(TestProductHandoff):
         )
 
         unclassified_job_key = mutate_admission(
-            "    timeout-minutes: 75\n",
-            "    timeout-minutes: 75\n    container: future-image\n",
+            "    permissions:\n",
+            "    container: future-image\n    permissions:\n",
         )
         with self.assertRaisesRegex(ValueError, "unclassified.*container"):
             identity.identity_from_tree_lines(base, unclassified_job_key)
@@ -269,7 +269,7 @@ class ReuseProducts(TestProductHandoff):
         )
 
         self.assertFalse(identity.reaches_product(".github/workflows/ci-macos.yml"))
-        self.assertFalse(identity.reaches_product("scripts/ci/persistent_mac_route.py"))
+        self.assertFalse(identity.reaches_product("scripts/ci/pr_runner_pool.py"))
         for path in (
             "workers/presence/src/index.ts",
             "config/iroh/managed-relay-catalog.json",
@@ -371,7 +371,7 @@ class ReuseProducts(TestProductHandoff):
         workflow = (root / ".github/workflows/ci-macos.yml").read_text()
         e2e_workflow = (root / ".github/workflows/test-e2e.yml").read_text()
         source = f"100644 blob {'1' * 40}\tSources/App.swift"
-        helper = "scripts/ci/e2e_warm_derived_data.py"
+        helper = "scripts/ci/seed_derived_data.py"
         base = identity.identity_from_tree_lines([source, f"100644 blob {'2' * 40}\t{helper}"], workflow, e2e_workflow)
         edited = identity.identity_from_tree_lines([source, f"100644 blob {'3' * 40}\t{helper}"], workflow, e2e_workflow)
 
@@ -1239,7 +1239,8 @@ class ReuseProducts(TestProductHandoff):
     def use_main_push_producer(self):
         self.api.run.update(self.main_push_run(), head_sha="abc123")
         self.api.job = {
-            "name": "seed",
+            # A matrix over pools: GitHub names it "seed (<pool>)".
+            "name": "seed (blacksmith-12vcpu-macos-26)",
             "conclusion": "success",
             "status": "completed",
             "steps": [{
@@ -1554,6 +1555,46 @@ class ReuseProducts(TestProductHandoff):
         self.api.artifact['digest'] = 'sha256:' + hashlib.sha256(self.api.archive.read_bytes()).hexdigest()
         self.assertFalse(self.restore_reuse())
         self.assertFalse((self.producer.parent / 'escape').exists())
+
+
+class GateDeclinedProducer(unittest.TestCase):
+    """A compile admission the fast Linux gate declined still published."""
+
+    def job(self, conclusion, *steps):
+        return {
+            "status": "completed",
+            "conclusion": conclusion,
+            "steps": [{"name": name, "conclusion": result} for name, result in steps],
+        }
+
+    def test_a_job_that_failed_only_at_the_gate_step_counts(self):
+        declined = self.job(
+            "failure",
+            ("Compile app-host test product", "success"),
+            (reuse.GATE_DECLINE_STEP, "failure"),
+            ("Run changed app-host suites", "skipped"),
+        )
+        self.assertTrue(reuse.compile_job_admitted(declined))
+        self.assertTrue(reuse.compile_job_admitted(self.job("success")))
+
+    def test_any_other_failure_does_not(self):
+        for label, job in (
+            ("compile failed", self.job(
+                "failure", ("Compile app-host test product", "failure"),
+                (reuse.GATE_DECLINE_STEP, "skipped"))),
+            ("changed suites failed", self.job(
+                "failure", (reuse.GATE_DECLINE_STEP, "success"),
+                ("Run changed app-host suites", "failure"))),
+            ("no steps listed", {"status": "completed", "conclusion": "failure"}),
+            ("cancelled", self.job("cancelled", (reuse.GATE_DECLINE_STEP, "failure"))),
+            ("still running", {**self.job("success"), "status": "in_progress"}),
+        ):
+            with self.subTest(label):
+                self.assertFalse(reuse.compile_job_admitted(job))
+
+    def test_the_step_name_matches_the_workflow(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        self.assertIn(f"      - name: {reuse.GATE_DECLINE_STEP}\n", workflow)
 
 
 class ContractParity(unittest.TestCase):

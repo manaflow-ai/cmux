@@ -11,7 +11,7 @@ Schema: `https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.s
 
 ## Helper script
 
-Use the bundled helper for every read/write. It strips JSONC comments, validates the complete proposed document with `cmux config validate` before writing, and writes atomically only after semantic validation passes.
+Use the bundled helper for every read/write. It strips JSONC comments, validates the complete proposed document with `cmux config validate` before writing, and writes atomically unless the change adds a validation issue. Issues the file already had, such as a key from a newer cmux, don't block an unrelated change; run `validate` to see them.
 
 ```bash
 skills/cmux-settings/scripts/cmux-settings <subcommand>            # from a cmux checkout
@@ -51,7 +51,7 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 3. Read back and `cmux-settings validate`.
 4. Tell the user it auto-reloaded, and that `cmux-settings unset <key>` reverts it.
 
-`set` and `unset` print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing.
+`set` and `unset` print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing. An `invalid_config` refusal adds `issues`, the path and message of each problem the change would add.
 
 ## Reversible changes
 
@@ -65,7 +65,7 @@ cmux-settings undo ~/private/menu-bar-undo.json
 ```
 
 - `--expect-revision` refuses the write if the file changed since the preview.
-- `--receipt` creates a new mode-0600 file and never overwrites one. It holds config values, so keep it private.
+- `--receipt` creates a new mode-0600 file and never overwrites one; an existing file returns `receipt_exists`, and a path that can't be created returns `receipt_unwritable`, before anything is written. It holds config values, so keep it private.
 - `undo` restores the prior value, or the prior absence, only while the path on the same resolved file still holds the value the receipt installed. If the user or another tool changed it since, `undo` returns `undo_conflict` and leaves the newer choice alone.
 - Plain `unset` is an unconditional reset, not an undo.
 

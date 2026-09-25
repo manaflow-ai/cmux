@@ -13,12 +13,6 @@ struct TerminalTabAgentIconResolver {
                 || definition.directBasenames.contains(normalized)
         }?.assetName
     }
-
-    func titleStatusKey(from title: String) -> String? {
-        let token = title.split(whereSeparator: { $0.isWhitespace }).first.map(String.init)?.lowercased()
-        guard let token else { return nil }
-        return assetName(forStatusKey: token) == nil ? nil : token
-    }
 }
 
 extension Workspace {

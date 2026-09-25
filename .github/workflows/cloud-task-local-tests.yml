@@ -3,10 +3,12 @@ name: Cloud task-local lifecycle
 on:
   pull_request:
     paths:
-      - Sources/Cloud/CloudOperation*.swift
-      - Sources/Cloud/CloudTelemetry*.swift
-      - Sources/Cloud/CloudRemoteOperationStep.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Operations/CloudOperation*.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Telemetry/CloudTelemetry*.swift
+      - Packages/macOS/CmuxCloud/Sources/CmuxCloud/Operations/CloudRemoteOperationStep.swift
       - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
       - tests/cloud_task_local/**
       - tests/test_cloud_task_local_lifecycle.py
       - .github/workflows/cloud-task-local-tests.yml
@@ -21,7 +23,7 @@ concurrency:
 
 jobs:
   lifecycle:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 5
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}

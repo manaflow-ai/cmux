@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The mutation half of ``DeviceSurfaceProvider``: every verb the Cloud tree,
@@ -105,8 +106,18 @@ extension DeviceSurfaceProvider {
     }
 
     func closeTerminal(_ id: SurfaceResourceID) async throws {
-        guard link.isConnected else { throw DeviceLinkError.notConnected }
-        _ = try await link.request("mobile.terminal.close", params: ["surface_id": id.key])
+        try await closeTerminal(id, remoteWorkspaceID: nil)
+    }
+
+    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String?) async throws {
+        guard id.machine == machine, link.isConnected else { throw DeviceLinkError.notConnected }
+        // Batch deletion supplies its workspace; individual closes use the
+        // mirror's index. The owner's RPC checks membership again atomically.
+        guard let workspaceID = remoteWorkspaceID ?? terminalWorkspaceIDs[id.key.lowercased()],
+              UUID(uuidString: workspaceID) != nil else {
+            throw SurfaceCatalogError.unknownResource(id)
+        }
+        try await layoutSync.closeTerminal(surfaceID: id.key, remoteWorkspaceID: workspaceID)
         for (panelID, session) in sessions where session.remoteSurfaceID.uuidString.lowercased() == id.key.lowercased() {
             session.stop()
             sessions[panelID] = nil

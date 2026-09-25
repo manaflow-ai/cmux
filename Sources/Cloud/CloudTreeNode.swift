@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxCore
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
 /// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace
@@ -64,7 +66,7 @@ final class CloudTreeNode: NSObject {
         case devicesSection(CloudTreeDevicesSection)
         /// The collapsible Cloud Machines section header.
         case cloudMachinesSection
-        /// Empty My Devices state with independent discovery actions.
+        /// My Devices guidance and independent discovery actions, also shown with peers.
         case devicesEmpty(CloudTreeDevicesSection)
         /// Port discovery is demand-driven when the user opens the Ports group.
         var refreshesOnExpansion: Bool { switch self { case .portsGroup, .displaysPool: true; default: false } }
@@ -194,7 +196,10 @@ final class CloudTreeNode: NSObject {
         case .device(let row): return row.searchableTitle
         case .devicesSection: return String(localized: "cloudTree.group.devices", defaultValue: "My Devices")
         case .cloudMachinesSection: return String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines")
-        case .devicesEmpty: return String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+        case .devicesEmpty(let section):
+            return section.count == 0
+                ? String(localized: "devices.empty.title", defaultValue: "No other Macs yet")
+                : String(localized: "devices.manage", defaultValue: "Manage My Devices")
         }
     }
 

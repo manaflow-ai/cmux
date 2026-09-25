@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxMobileHost
 import Foundation
 import CMUXMobileCore
 import CmuxCore
@@ -2995,7 +2997,7 @@ final class BrowserPanel: Panel, ObservableObject {
             websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         )
 
-        let webView = CmuxWebView(frame: .zero, configuration: config)
+        let webView = CmuxWebView(frame: .zero, configuration: config, host: CmuxWebViewAppHost())
         webView.allowsBackForwardNavigationGestures = true
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
@@ -3992,7 +3994,7 @@ final class BrowserPanel: Panel, ObservableObject {
         windowProvider: (() -> NSWindow?)? = nil,
         completion: @escaping (NSApplication.ModalResponse) -> Void,
         cancel: @escaping () -> Void
-    ) -> @MainActor () -> Void {
+    ) -> @MainActor @Sendable () -> Void {
         let promptID = UUID()
         activeInteractiveBrowserPromptIDs.insert(promptID)
         let trackedCompletion: (NSApplication.ModalResponse) -> Void = { [weak self] response in
@@ -4003,7 +4005,7 @@ final class BrowserPanel: Panel, ObservableObject {
             guard self?.activeInteractiveBrowserPromptIDs.remove(promptID) != nil else { return }
             cancel()
         }
-        let dismiss: @MainActor () -> Void = { [weak self, weak alert] in
+        let dismiss: @MainActor @Sendable () -> Void = { [weak self, weak alert] in
             guard let self else { return }
             if let index = self.pendingInteractiveBrowserPrompts.firstIndex(where: { $0.id == promptID }) {
                 self.pendingInteractiveBrowserPrompts.remove(at: index)
@@ -4411,10 +4413,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let model = cloudAccess.model,
            let cloudURL = restoreURL ?? cloudAccess.remoteURL,
            cloudAccess.owns(cloudURL) {
-            cloudAccess.configure(model: model, url: cloudURL)
-            if let readyURL = cloudAccess.nextURL() {
-                _ = navigate(to: readyURL)
-            }
+            configureCloudBrowser(model: model, url: cloudURL)
         } else if shouldRestoreURL, let restoreURL {
             navigateWithoutInsecureHTTPPrompt(
                 to: restoreURL,
@@ -7209,7 +7208,7 @@ extension BrowserPanel {
 
     private func performDiffViewerFindActionOrFallback(
         _ action: CmuxWebView.DiffViewerFindAction,
-        fallback: @escaping @MainActor () -> Void
+        fallback: @escaping @MainActor @Sendable () -> Void
     ) {
         guard let cmuxWebView = webView as? CmuxWebView else {
             fallback()
@@ -8264,7 +8263,7 @@ private extension NSObject {
 /// Handles WKDownload lifecycle by saving to a temp file synchronously (no UI
 /// during WebKit callbacks), then moving the finished file to the user's
 /// Downloads folder unless the browser save-panel setting is enabled.
-class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
+class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFilenameOverriding {
     private nonisolated static let maxDownloadDestinationCollisionRetries = 100
 
     private struct DownloadState: Sendable {

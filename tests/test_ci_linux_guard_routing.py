@@ -188,7 +188,7 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "new-area/input",
             ".github/workflows/ci-guards.yml",
             "scripts/ci/workflow_guard_groups.py",
-            "tests/test_ci_release_guard_structure.py",
+            "tests/test_ci_guard_workflow_structure.py",
         ):
             with self.subTest(changed=changed):
                 _, groups = route_decision([changed])
@@ -384,6 +384,13 @@ class LinuxGuardRoutingTests(unittest.TestCase):
         })
         self.assertEqual(groups, ("preflight", "ci", "quality-determinism"))
 
+    def test_host_free_cli_test_sources_reach_the_determinism_lints(self):
+        for path in ("cmuxTests/ProbeTests.swift", "cmuxCLITests/ProbeTests.swift",
+                     "cmuxCLITestSupport/ProbeSupport.swift"):
+            with self.subTest(path=path):
+                _, groups = route_decision([path], macos="true")
+                self.assertIn("quality-determinism", groups)
+
     def test_native_edit_keeps_source_contracts_without_history_or_cli_guards(self):
         outputs = route(["Sources/Settings.swift", "CLAUDE.md"], macos="true")
         self.assertEqual(outputs, {
@@ -431,16 +438,14 @@ class LinuxGuardRoutingTests(unittest.TestCase):
             "ghosttykit_release": "true",
         })
 
-    def test_persistent_mac_control_plane_runs_only_its_own_guard_lane(self):
+    def test_owned_mac_control_plane_runs_only_its_own_guard_lane(self):
         expected = {
             name: "true" if name == "linux_guard_tests" else "false" for name in JOBS
         }
         expected_groups = {
-            "scripts/ci/persistent_mac_route.py": ("preflight",),
             "scripts/ci/build_graph_health.py": ("preflight",),
             "tests/test_build_graph_health.py": ("preflight", "quality-determinism"),
             "scripts/ci/swift_incremental_diagnostics.py": ("preflight",),
-            "tests/test_ci_persistent_mac_compile.py": ("preflight", "quality-determinism"),
             "tests/test_swift_incremental_diagnostics.py": ("preflight", "quality-determinism"),
             # cmux.ci.guard runs it too, so the ci leg observes it.
             "tests/test_ci_self_hosted_guard.sh": ("preflight", "ci", "quality-determinism"),

@@ -175,6 +175,8 @@ STUB
 chmod +x "$TMP_DIR/bin/xcodebuild"
 export STUB_RESOLVE_ATTEMPTS="$TMP_DIR/resolve-attempts.txt"
 export STUB_XCODEBUILD_ARGS="$TMP_DIR/args.txt"
+# swiftpm-manifest-cache.sh runs resolves under a fixed environment.
+export CMUX_CI_SWIFTPM_KEEP_ENV="STUB_RESOLVE_ATTEMPTS STUB_XCODEBUILD_ARGS STUB_SKIP_UPDATES_FAILS STUB_RESOLVE_FAILS_UNTIL STUB_RESOLVE_ARTIFACTS_FROM STUB_XCODE_VERSION"
 
 run_script() {
   (cd "$TMP_DIR/work" && PATH="$TMP_DIR/bin:$PATH" "$SCRIPT" "$@")
@@ -195,9 +197,17 @@ for expected in \
   cmux \
   cmux-unit \
   cmux-numeric-locale \
+  cmux-cli-tests \
   build-for-testing \
   -showBuildTimingSummary \
-  COMPILATION_CACHE_ENABLE_CACHING=YES \
+  'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_COMPILATION_CACHE_cmuxTests=NO \
+  'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO \
+  'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))' \
+  CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately \
+  'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_INSTALL_MODULE_cmuxTests=NO \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \
   "$TMP_DIR/packages"; do
@@ -206,8 +216,8 @@ for expected in \
     exit 1
   fi
 done
-if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 3 ] || [ ! -d "$TMP_DIR/cas" ]; then
-  echo "FAIL: the build must run all three schemes against an existing CAS directory"
+if [ "$(grep -c '^---$' "$STUB_XCODEBUILD_ARGS")" -ne 4 ] || [ ! -d "$TMP_DIR/cas" ]; then
+  echo "FAIL: the build must run all four schemes against an existing CAS directory"
   exit 1
 fi
 # `build` compiles no test files: the cmux-unit scheme marks cmuxTests
@@ -216,7 +226,21 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles all three schemes for testing with the compilation cache on"
+echo "PASS: the build compiles all four schemes for testing, with the compilation cache on and the module emitted outside cmuxTests"
+if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
+  exit 1
+fi
+for newer in 26.6 26.6.1 27.0; do
+  : > "$STUB_XCODEBUILD_ARGS"
+  STUB_XCODE_VERSION="$newer" run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+  if grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS" \
+    || ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmuxTests=NO "$STUB_XCODEBUILD_ARGS"; then
+    echo "FAIL: on Xcode $newer the app target must keep the compilation cache"
+    exit 1
+  fi
+done
+echo "PASS: the app target builds without the compilation cache only before Xcode 26.6"
 if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log" \
   || grep -Fq 'build output for cmux-unit' "$TMP_DIR/derived/cmux-build.log"; then
   echo "FAIL: the warning-budget log must retain only app/UI build output"
@@ -304,3 +328,29 @@ if run_script bogus >/dev/null 2>&1 || run_script build only-one-arg >/dev/null 
   exit 1
 fi
 echo "PASS: the script rejects bad usage"
+
+# scripts/test-unit.sh, the local test-compile wrapper, builds cmuxTests the
+# way CI does: no Swift module producer or installer, with target-scoped settings.
+cmuxtests_module_values() {
+  sed -n -E "s/^$1_(INTEGRATED_DRIVER|SWIFT_FLAGS|INSTALL_MODULE)_cmuxTests=(.*)$/\\1=\\2/p" "$2" | sort -u
+}
+: > "$STUB_XCODEBUILD_ARGS"
+run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+ci_values="$(cmuxtests_module_values CMUX_CI "$STUB_XCODEBUILD_ARGS")"
+: > "$STUB_XCODEBUILD_ARGS"
+PATH="$TMP_DIR/bin:$PATH" "$ROOT_DIR/scripts/test-unit.sh" build-for-testing >/dev/null
+local_values="$(cmuxtests_module_values CMUX_TEST "$STUB_XCODEBUILD_ARGS")"
+if [ -z "$ci_values" ] || [ "$ci_values" != "$local_values" ] \
+  || ! grep -Fxq 'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_TEST_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)' "$STUB_XCODEBUILD_ARGS" \
+  || ! grep -Fxq 'SWIFT_INSTALL_MODULE=$(CMUX_TEST_INSTALL_MODULE_$(TARGET_NAME):default=YES)' "$STUB_XCODEBUILD_ARGS" \
+  || ! grep -Fxq 'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_TEST_SWIFT_FLAGS_$(TARGET_NAME))' "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: scripts/test-unit.sh must build cmuxTests without a Swift module, like CI"
+  exit 1
+fi
+: > "$STUB_XCODEBUILD_ARGS"
+CMUX_TEST_EMIT_MODULE=1 PATH="$TMP_DIR/bin:$PATH" "$ROOT_DIR/scripts/test-unit.sh" build-for-testing >/dev/null
+if grep -q 'cmuxTests=' "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: CMUX_TEST_EMIT_MODULE=1 must keep the cmuxTests module"
+  exit 1
+fi
+echo "PASS: scripts/test-unit.sh builds cmuxTests without a Swift module, like CI, unless CMUX_TEST_EMIT_MODULE=1"

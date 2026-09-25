@@ -1,9 +1,8 @@
+import CmuxCloud
 import CmuxCloudMachines
+import CmuxSurfaceCatalogModel
 import Foundation
 import SwiftUI
-extension Notification.Name {
-    static let cmuxCloudVMAccessDidEnd = Notification.Name("cmux.cloudVM.accessDidEnd")
-}
 
 /// Loads the machine fleet for the right-sidebar Machines tab. Refreshes on
 /// demand plus a slow poll while the panel is visible; machine mutations go

@@ -16,8 +16,6 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 CI_MACOS_FILE="$ROOT_DIR/.github/workflows/ci-macos.yml"
 CI_WEB_FILE="$ROOT_DIR/.github/workflows/ci-web.yml"
-PERSISTENT_COMPILE_FILE="$ROOT_DIR/.github/workflows/persistent-macos-compile.yml"
-PERSISTENT_ROUTER_FILE="$ROOT_DIR/.github/workflows/persistent-macos-router.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
 E2E_FILE="$ROOT_DIR/.github/workflows/test-e2e.yml"
@@ -46,8 +44,11 @@ check_macos_runner() {
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && /runs-on:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     # A product consumer inherits the compile admission pool, which this
-    # check covers on its own.
-    in_job && /runs-on:[[:space:]]*\$\{\{ needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    # check covers on its own, or, on a re-run or when the picker did not
+    # place this shard on the owned pool, the Blacksmith pool the pull
+    # request picker named for a run on an owned pool (pr_retry_runner), or
+    # on attempt 2 of a refused owned shard, the owned pool once more.
+    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 2 && github\.triggering_actor == .github-actions\[bot\]. && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && \(inputs\.pr_root_runner \|\| inputs\.pr_refused_retry_runner\) \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -89,7 +90,7 @@ check_release_build_runner_disk_capacity() {
   # paid-overflow gate appearing here, which does not belong: MACOS_RUNNER_26
   # is the free macOS 26 pool and is read ungated everywhere. See
   # docs/ci-runners.md for why the gate must not grow to cover it.
-  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
+  if ! awk -v release_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}" '
     /^  release-build:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
     in_job && index($0, release_runner) { saw_release_runner=1 }
@@ -135,7 +136,7 @@ check_e2e_runner_fallbacks() {
     in_on && /^  [A-Za-z0-9_-]+:/ { saw_other_trigger=1 }
     END { exit !(saw_dispatch && !saw_other_trigger) }
   ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only before it may expose the self-hosted Tart canary"
+    echo "FAIL: test-e2e.yml must remain workflow_dispatch-only"
     exit 1
   fi
 
@@ -158,41 +159,6 @@ check_e2e_runner_fallbacks() {
     exit 1
   fi
 
-  if ! awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-canary$/ { canary_options++ }
-    in_options && /^          - tart-dual$/ { dual_options++ }
-    in_options && /^          - tart-small$/ { small_options++ }
-    END { exit !(canary_options == 1 && dual_options == 1 && small_options == 1) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must expose tart-canary, tart-dual, and tart-small exactly once under workflow_dispatch.inputs.runner.options"
-    exit 1
-  fi
-
-  if ! awk '
-    /^[[:space:]]*- name: Validate Tart canary identity$/ { in_tart_step=1; next }
-    in_tart_step && /^      - / { in_tart_step=0; in_runner_reject=0; in_marker_reject=0 }
-    in_tart_step && /startsWith\(needs\.runner\.outputs\.label, '\''tart-'\''\)/ { saw_effective_runner=1 }
-    in_tart_step && /REQUESTED_RUNNER: \$\{\{ needs\.runner\.outputs\.label \}\}/ { saw_requested_runner=1 }
-    in_tart_step && /RUNNER_CONTEXT_NAME: \$\{\{ runner\.name \}\}/ { saw_runner_context=1 }
-    in_tart_step && /tart-cmux-\*/ { saw_runner_pattern=1 }
-    in_tart_step && /^[[:space:]]*\*\)$/ { in_runner_reject=1 }
-    in_runner_reject && /::error::\$REQUESTED_RUNNER resolved to unexpected runner/ { saw_runner_reject=1 }
-    in_runner_reject && /^[[:space:]]*exit 1$/ { saw_runner_exit=1 }
-    in_runner_reject && /^[[:space:]]*;;$/ { in_runner_reject=0 }
-    in_tart_step && /test -f \/etc\/cmux-tart-ci \|\| \{/ { saw_vm_marker=1; in_marker_reject=1 }
-    in_marker_reject && /::error::\$REQUESTED_RUNNER runner is missing the immutable VM identity marker/ { saw_marker_reject=1 }
-    in_marker_reject && /^[[:space:]]*exit 1$/ { saw_marker_exit=1 }
-    in_marker_reject && /^[[:space:]]*}$/ { in_marker_reject=0 }
-    END { exit !(saw_effective_runner && saw_requested_runner && saw_runner_context && saw_runner_pattern && saw_runner_reject && saw_runner_exit && saw_vm_marker && saw_marker_reject && saw_marker_exit) }
-  ' "$E2E_FILE"; then
-    echo "FAIL: test-e2e.yml must validate the effective Tart runner name and immutable VM marker, failing closed for either mismatch"
-    exit 1
-  fi
-
   # Compilation caching is an optional optimization. Its failure must not
   # suppress setup/test failures or make successful tests depend on the cache
   # service. Keep the exception confined to these cache operations.
@@ -209,11 +175,15 @@ allowed = {
     ("build", "compilation-cache-bound", "Bound E2E compilation cache", ""),
     ("build", "revision-on-main", "Check the selected revision against main", ""),
     ("build", "reuse", "Reuse a compiled product instead of building one", ""),
-    ("build", "warm", "Adopt main's DerivedData", ""),
-    ("build", "record-inputs", "Record build input times", ""),
-    ("build", "warm-package", "Package DerivedData for later builds", ""),
-    ("build", None, "Publish DerivedData for later builds", "actions/upload-artifact"),
+    ("build", None, "Start the DerivedData seed download", ""),
+    ("build", "seed", "Adopt the DerivedData seed", ""),
+    ("build", None, "Forget the adopted-build inode override", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # The owned-pool rescue marker: without it the run is only not watched.
+    ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
+    ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
+    # Its dispatch: without it the run is only not watched.
+    ("owned-pool-watch", None, "Dispatch the persistent pool rescue", ""),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
@@ -226,10 +196,9 @@ for job_id, job in document["jobs"].items():
             raise SystemExit(f"FAIL: {step.get('name')} must not mask E2E setup or test failures")
 PYTHON
 
-  # The Tart identity gate, the run name and the SwiftPM cache key all decide
-  # things about "the runner this job uses". If any of them reads a different
-  # repository variable than runs-on, the gate can be skipped on a Tart VM, or
-  # demanded on a runner that is not one.
+  # The run name and the SwiftPM cache key both decide things about "the
+  # runner this job uses". If either reads a different repository variable
+  # than runs-on, it describes a runner the job does not use.
   runner_vars="$(grep -oE "vars\.MACOS_RUNNER_[A-Z0-9_]+" "$E2E_FILE" | sort -u)"
   if [ "$(printf '%s\n' "$runner_vars" | grep -c .)" -ne 1 ]; then
     echo "FAIL: test-e2e.yml must select its runner from one variable, found:"
@@ -237,28 +206,25 @@ PYTHON
     exit 1
   fi
 
-  echo "PASS: test-e2e.yml exposes supported Tart runner choices and duplicate-queue cancellation"
+  echo "PASS: test-e2e.yml is dispatch-only, cancels duplicate queued runs, and reads one runner variable"
 }
 
-check_ios_tart_canary() {
-  if ! grep -Eq '^[[:space:]]+- tart-ios$' "$IOS_FILE"; then
-    echo "FAIL: test-ios.yml must expose the Tart iOS canary runner"
+check_ios_runner_routing() {
+  # The runner job (scripts/ci/ios_runner_pool.py) resolves the dispatch
+  # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
+  # every macOS job reads its answer, and a re-run attempt its retry answer.
+  # mobile-core-package needs no simulator, so it reads package_runs_on.
+  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 2 ]] ||
+     [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
+    echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi
-  if [[ "$(grep -c 'tart-ios resolved to unexpected runner' "$IOS_FILE")" -ne 3 ]] ||
-     [[ "$(grep -c 'tart-ios runner is missing the immutable VM identity marker' "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must fail closed on Tart identity mismatch"
+  if ! grep -Fq 'RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}' "$IOS_FILE" ||
+     ! grep -Fq 'REQUESTED_RUNNER: ${{ inputs.runner }}' "$IOS_FILE"; then
+    echo "FAIL: test-ios.yml's runner job must read the runner input, MACOS_RUNNER_TESTS and MACOS_RUNNER_IOS"
     exit 1
   fi
-  if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner) }}" "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must honor the dispatch runner override"
-    exit 1
-  fi
-  if [[ "$(grep -Fc "startsWith(github.repository_owner != 'manaflow-ai' && 'macos-26' || ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26') || inputs.runner), 'tart-')" "$IOS_FILE")" -ne 3 ]]; then
-    echo "FAIL: all macOS iOS test jobs must validate Tart identity for explicit and repo-variable routing"
-    exit 1
-  fi
-  echo "PASS: test-ios.yml exposes the guarded Tart iOS canary"
+  echo "PASS: test-ios.yml routes every macOS job through the runner job"
 }
 
 check_xcode_selection() {
@@ -306,7 +272,7 @@ check_release_build_disk_cleanup() {
 }
 
 check_release_helper_artifact_from_package_lane() {
-  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
@@ -1168,14 +1134,25 @@ check_no_bare_github_hosted_runners() {
 
 check_no_self_hosted_fleet_runners() {
   # Required jobs route through repository variables. Forbid hardcoded fleet
-  # labels so Tart cutover and paid-provider fallback remain configuration
-  # changes and a physical host label cannot bypass the isolated VM pool.
+  # labels so paid-provider fallback remains a configuration change and a
+  # physical host label cannot bypass the routing rules. tart-* labels (the
+  # retired Tart VM fleet) are refused everywhere, dispatch dropdowns included.
   # Allowed macOS labels (none carried by any fleet runner):
   #   blacksmith-{6,12}vcpu-macos-{15,26,latest}, warp-macos-15-arm64-6x,
   # NOTE: reload-build.yml is the dev-build offload path (workflow_dispatch,
   # not required CI) and intentionally targets the fleet via a free-form input;
   # this guard only inspects runner-selection lines, not its input description.
-  local fleet='macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
+  # Owned pool labels (glaeda-std-xcode-26.6) are fleet labels too, so no
+  # workflow names one and no MACOS_RUNNER_* variable may hold one. They reach
+  # a job only as scripts/ci/pr_runner_pool.py's output for a same-repository
+  # pull request run, and only once CI_PR_POOL_OWNED is 1; `owned` is that
+  # label shape, which runner_label_policy.py accepts in CI_PR_POOL_ORDER.
+  # check_owned_pools_route_through_picker holds the other half. The one
+  # exception is test-e2e.yml's dispatch-only runner dropdown, which may offer
+  # an owned label exactly: E2E is never a required
+  # check, and its runner job hands the label on (e2e_runner_pool.py).
+  local owned='glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*'
+  local fleet='glaeda-|macos-26|warp-macos-26-arm64-6x|cmux-aws-macos|cmux-macos|cmux-local-macos|cmux-persistent-compile|cmux-persistent-macos-compile|macfleet|tart-[a-z0-9-]+|(^|[^a-z0-9-])mac4([^a-z0-9]|$)|(^|[^a-z0-9-])mac-mini([^a-z0-9]|$)|slot-[0-9]|xcode-[0-9]+-[0-9]|(^|[^a-z0-9-])cmux([^a-z0-9-]|$)'
   local allowed='blacksmith-(6|12)vcpu-macos-(15|26|latest)|warp-macos-15-arm64-6x'
   # A fork running CI in its own repository has no fleet, so its hosted
   # branch may name GitHub's macos-26 image. Only this exact short-circuit is
@@ -1198,9 +1175,23 @@ check_no_self_hosted_fleet_runners() {
                '- cmux-aws-macos-15' '- cmux-macos-26' '- self-hosted' '- macOS' '- ARM64' \
                'runs-on: [self-hosted, macOS, ARM64]' \
                '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' \
-               '      group: cmux-persistent-compile'; do
-    if ! printf '%s\n' "$probe" | grep -Eq "($forbidden)"; then
+               '      group: cmux-persistent-compile' '- cmux-persistent-macos-compile' \
+               '- glaeda-std-xcode-26.6' "runs-on: \${{ vars.X || 'glaeda-light-xcode-26.6' }}" 'runs-on: glaeda-xl-xcode-26' \
+               '- GLAEDA-std-xcode-26.6' '- Tart-canary'; do
+    if ! printf '%s\n' "$probe" | grep -Eiq "($fleet)" && ! printf '%s\n' "$probe" | grep -Eq "($selfhosted)"; then
       echo "FAIL: fleet-runner guard self-test missed a known fleet/self-hosted label: $probe"
+      exit 1
+    fi
+  done
+  for probe in glaeda-std-xcode-26.6 glaeda-light-xcode-26.6 glaeda-xl-xcode-26; do
+    if ! [[ "$probe" =~ ^($owned)$ ]] || ! printf '%s\n' "$probe" | grep -Eq "($fleet)"; then
+      echo "FAIL: owned pool pattern must match, and the fleet pattern refuse, the owned label: $probe"
+      exit 1
+    fi
+  done
+  for probe in glaeda-std-xcode glaeda-mini-xcode-26.6 blacksmith-6vcpu-macos-26; do
+    if [[ "$probe" =~ ^($owned)$ ]]; then
+      echo "FAIL: owned pool pattern matched a label that is not an owned pool: $probe"
       exit 1
     fi
   done
@@ -1234,35 +1225,14 @@ check_no_self_hosted_fleet_runners() {
     exit 1
   fi
 
-  local e2e_tart_option_line e2e_tart_dual_option_line e2e_tart_small_option_line e2e_tart_tahoe_option_line ios_tart_option_line
-  e2e_tart_option_line="$(awk '
+  local e2e_owned_option_lines
+  e2e_owned_option_lines="$(awk '
     /^      runner:$/ { in_runner=1; next }
     in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
     in_runner && /^        options:$/ { in_options=1; next }
     in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-canary$/ { print FNR }
+    in_options && /^          - glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*$/ { print FNR }
   ' "$E2E_FILE")"
-  e2e_tart_dual_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-dual$/ { print FNR }
-  ' "$E2E_FILE")"
-  e2e_tart_small_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-small$/ { print FNR }
-  ' "$E2E_FILE")"
-  ios_tart_option_line="$(awk '
-    /^      runner:$/ { in_runner=1; next }
-    in_runner && /^      [A-Za-z0-9_-]+:/ { in_runner=0; in_options=0 }
-    in_runner && /^        options:$/ { in_options=1; next }
-    in_options && /^        [A-Za-z0-9_-]+:/ { in_options=0 }
-    in_options && /^          - tart-ios$/ { print FNR }
-  ' "$IOS_FILE")"
 
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -1274,24 +1244,16 @@ check_no_self_hosted_fleet_runners() {
   while IFS= read -r line; do
     content="${line#*:*:}"
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
-    if [[ "$line" == "$PERSISTENT_COMPILE_FILE:"* ]] && \
-       { [[ "$content" == '      group: cmux-persistent-compile' ]] || \
-         [[ "$content" == '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' ]]; }; then
-      continue
-    fi
-    printf '%s\n' "$content_without_allowed" | grep -Eq "($forbidden)" || continue
-    if [[ -n "$e2e_tart_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$e2e_tart_dual_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_dual_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$e2e_tart_small_option_line" ]] && [[ "$line" == "$E2E_FILE:$e2e_tart_small_option_line:"* ]]; then
-      continue
-    fi
-    if [[ -n "$ios_tart_option_line" ]] && [[ "$line" == "$IOS_FILE:$ios_tart_option_line:"* ]]; then
-      continue
-    fi
+    # GitHub matches runner labels without regard to case, so a fleet label
+    # is refused in any case; the bare self-hosted labels stay case-sensitive
+    # (see selfhosted above).
+    { printf '%s\n' "$content_without_allowed" | grep -Eiq "($fleet)" ||
+      printf '%s\n' "$content_without_allowed" | grep -Eq "($selfhosted)"; } || continue
+    local owned_line owned_option=0
+    for owned_line in $e2e_owned_option_lines; do
+      [[ "$line" == "$E2E_FILE:$owned_line:"* ]] && owned_option=1
+    done
+    [[ "$owned_option" == 1 ]] && continue
     hits+="$line"$'\n'
   done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]]os:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$)" "$ROOT_DIR/.github/workflows")
   if [[ -n "$hits" ]]; then
@@ -1301,353 +1263,150 @@ check_no_self_hosted_fleet_runners() {
     echo "$hits"
     exit 1
   fi
-  echo "PASS: required jobs stay on cloud runners; only the isolated persistent compile producer may target the owned Mac"
+  echo "PASS: required jobs stay on cloud runners; no workflow names a mini directly"
 }
 
-check_persistent_compile_lane() {
-  if [ ! -f "$PERSISTENT_COMPILE_FILE" ]; then
-    echo "FAIL: persistent macOS compile workflow is missing"
-    exit 1
-  fi
-  local triggers
-  triggers="$(awk '
-    /^on:$/ { in_on=1; next }
-    in_on && /^[^[:space:]#]/ { in_on=0 }
-    in_on && /^  [A-Za-z0-9_-]+:/ {
-      key=$1
-      sub(/:$/, "", key)
-      print key
-    }
-  ' "$PERSISTENT_COMPILE_FILE")"
-  if [ "$triggers" != "workflow_dispatch" ]; then
-    echo "FAIL: persistent macOS compile workflow must have workflow_dispatch as its only trigger"
-    printf 'triggers=%s\n' "$triggers"
-    exit 1
-  fi
-  if ! grep -Fqx 'permissions: {}' "$PERSISTENT_COMPILE_FILE"; then
-    echo "FAIL: persistent macOS compile workflow must default to empty GitHub token permissions"
-    exit 1
-  fi
-  if [ "$(grep -Fxc '      group: cmux-persistent-compile' "$PERSISTENT_COMPILE_FILE")" -ne 1 ] || \
-     [ "$(grep -Fxc '      labels: [self-hosted, macOS, ARM64, cmux-persistent-macos-compile]' "$PERSISTENT_COMPILE_FILE")" -ne 1 ]; then
-    echo "FAIL: persistent compile producer must use the dedicated workflow-restricted runner group and label"
-    exit 1
-  fi
-  if grep -Eq 'secrets\.|secrets\[' "$PERSISTENT_COMPILE_FILE"; then
-    echo "FAIL: persistent compile producer must not reference repository secrets"
-    exit 1
-  fi
-  if grep -Fq 'actions/checkout@' "$PERSISTENT_COMPILE_FILE"; then
-    echo "FAIL: persistent compile producer must fetch public source explicitly instead of receiving checkout credentials"
-    exit 1
-  fi
-  if ! awk '
-    /^  compile:$/ { in_job=1; next }
-    in_job && /^  [A-Za-z0-9_-]+:$/ { in_job=0 }
-    in_job && /^    permissions: \{\}$/ { permissions=1 }
-    in_job && /^      group: cmux-persistent-compile$/ { group=1 }
-    in_job && /^      labels: \[self-hosted, macOS, ARM64, cmux-persistent-macos-compile\]$/ { runner=1 }
-    END { exit !(permissions && group && runner) }
-  ' "$PERSISTENT_COMPILE_FILE"; then
-    echo "FAIL: owned-Mac compile job must have empty GitHub token permissions and the dedicated runner group/label"
-    exit 1
-  fi
-  if ! grep -Eq '^      GLAEDA_REF: [a-f0-9]{40}$' "$PERSISTENT_COMPILE_FILE"; then
-    echo "FAIL: persistent compile producer must pin Glaeda to an exact commit"
-    exit 1
-  fi
-  if ! grep -Fq 'CI_PERSISTENT_MAC_COMPILE' "$CI_FILE" || \
-     ! grep -Fq 'AUTHOR_ASSOCIATION:' "$CI_FILE" || \
-     ! grep -Fq 'HEAD_REPOSITORY:' "$CI_FILE"; then
-    echo "FAIL: CI must retain the reversible selector and trust/repository routing inputs"
-    exit 1
-  fi
-  if grep -Fq "needs.persistent-mac-compile-route.result == 'success'" "$CI_FILE"; then
-    echo "FAIL: macOS compile admission must run hosted fallback when the persistent route job itself fails"
-    exit 1
-  fi
-  echo "PASS: persistent compile producer is dispatch-only, credential-minimized, pinned, and cohort-gated"
-}
-
-# Print a job's CMUX_CI_XCODE_APP / CMUX_CI_REQUIRED_MACOS_SDK_MAJOR pins, so the
-# owned Mac and the hosted job that revalidates its product can be compared.
-#
-# The hosted job routes its pin through the pull-request lane, so its value is a
-# `github.event_name == 'pull_request' && (PR) || (default)` conditional, while
-# the dispatch-only producer names the pull-request branch directly. Only the
-# hosted side is reduced to that branch before comparison.
-#
-# The producer is deliberately NOT normalized. persistent-macos-compile.yml is
-# workflow_dispatch-only, so `github.event_name == 'pull_request'` is never true
-# there: reducing it to its pull-request branch would compare a string it can
-# never evaluate, and a producer pinned to `... || CMUX_CI_XCODE_APP_MACOS_26`
-# would match a hosted job revalidating against 26.3 while resolving to 26.5 on
-# every dispatch. That is exactly the wasted owned-Mac allocation invariant 3
-# exists to prevent, so the producer must name the lane directly and is checked
-# for that literal shape below.
-persistent_compile_toolchain_pin() {
-  local file="$1" job="$2"
-  awk -v want="  ${job}:" '
-    $0 == want { in_job=1; next }
-    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
-    in_job && /^    env:$/ { in_env=1; next }
-    in_env && /^    [A-Za-z0-9_-]+:/ { exit }
-    in_env && /^      (CMUX_CI_XCODE_APP|CMUX_CI_REQUIRED_MACOS_SDK_MAJOR):/ {
-      line=$0
-      sub(/^      /, "", line)
-      print line
-    }
-  ' "$file" | python3 -c '
+check_owned_pools_route_through_picker() {
+  # An owned pool label never appears in workflow text (the fleet pattern
+  # refuses it), so the only way one reaches runs-on is the value
+  # pr_runner_pool.py writes for a pull request run or main's full-suite
+  # dispatch: it hands owned labels only to same-repository heads (and to a
+  # workflow_dispatch on refs/heads/main, which runs main's own code) on a
+  # first attempt, and only once CI_PR_POOL_OWNED is 1. ci-macos.yml reads
+  # the pick for both through the inputs below. This check keeps that the
+  # only way. The picker's
+  # runner output feeds exactly the macos_pr_runner output and the rescue
+  # marker; macos_pr_runner reaches a job only as a `pr_runner` input written
+  # exactly one way, or inside a runs-on branch that a pull_request condition
+  # guards. Parsed as YAML, so a block scalar or a second output is seen too.
+  local violations
+  violations="$(python3 - "$ROOT_DIR/.github/workflows" <<'PYTHON'
 import re
 import sys
+from pathlib import Path
 
-PR_LANE = re.compile(
-    r"\$\{\{\s*github\.event_name == .pull_request.\s*&&\s*\((?P<pr>.+?)\)\s*\|\|.+?\}\}"
+import yaml
+
+PICKED = "steps.macos-pool.outputs.runner"
+RETRY_PICKED = "steps.macos-pool.outputs.retry_runner"
+OUTPUT = "needs.changes.outputs.macos_pr_runner"
+RETRY_OUTPUT = "needs.changes.outputs.macos_pr_retry_runner"
+REFUSED_PICKED = "steps.macos-pool.outputs.refused_retry_runner"
+REFUSED_OUTPUT = "needs.changes.outputs.macos_pr_refused_retry_runner"
+SHARD_PICKED = "steps.macos-pool.outputs.shard_runner"
+SHARD_OUTPUT = "needs.changes.outputs.macos_pr_shard_runner"
+ROOT_PICKED = "steps.macos-pool.outputs.root_runner"
+ROOT_OUTPUT = "needs.changes.outputs.macos_pr_root_runner"
+ADMISSION_PICKED = "steps.macos-pool.outputs.admission_runner"
+ADMISSION_OUTPUT = "needs.changes.outputs.macos_pr_admission_runner"
+SIDE_PICKED = "steps.macos-pool.outputs.side_runner"
+SIDE_OUTPUT = "needs.changes.outputs.macos_pr_side_runner"
+PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
+# Each input the picked pools reach a reusable workflow through, and its value.
+INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
+          "pr_refused_retry_runner": "${{ " + REFUSED_OUTPUT + " }}",
+          "pr_shard_runner": "${{ " + SHARD_OUTPUT + " }}",
+          "pr_root_runner": "${{ " + ROOT_OUTPUT + " }}",
+          "pr_admission_runner": "${{ " + ADMISSION_OUTPUT + " }}",
+          "pr_side_runner": "${{ " + SIDE_OUTPUT + " }}"}
+MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
+          "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
+# The runs-on branches that may read the picked pool, each behind its
+# pull_request condition; a fork head keeps only a Blacksmith pick.
+GUARDED = (
+    "github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
+    " && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner"
+    " || 'blacksmith-6vcpu-macos-15')",
+    "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR"
+    " || 'blacksmith-6vcpu-macos-15')",
+    # A side lane: the side label of the pool first, when the picker named one.
+    "github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_side_runner"
+    " || needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15')",
+    # Attempt 2 of a refused owned job: the owned pool once more.
+    "github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    " ' claude-wrapper ') && (needs.changes.outputs.macos_pr_side_runner"
+    " || needs.changes.outputs.macos_pr_refused_retry_runner)",
+    # A re-run of failed jobs on an owned-pool run, or a job the picker did not
+    # place on the owned pool: the Blacksmith pool the picker named for it.
+    "github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs,"
+    " ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner",
 )
 
-normalize = len(sys.argv) > 1 and sys.argv[1] == "--pr-lane"
-for line in sys.stdin:
-    if normalize:
-        line = PR_LANE.sub(lambda m: "${{ " + m.group("pr").strip() + " }}", line)
-    sys.stdout.write(line)
-' ${3:+--pr-lane} | sort
-}
 
-check_persistent_compile_owned_mac_occupancy() {
-  # The owned Mac is one runner behind one workflow-restricted group, so its
-  # capacity is bounded by how long a single job may hold it. Three invariants
-  # keep that bound real; none of them is enforced anywhere else.
-  local concurrency_block group_line
-  concurrency_block="$(awk '
-    /^concurrency:/ { in_block=1; next }
-    in_block && /^[^[:space:]#]/ { exit }
-    in_block && NF { print }
-  ' "$PERSISTENT_COMPILE_FILE")"
-  if [ -z "$concurrency_block" ]; then
-    echo "FAIL: persistent compile producer must declare a top-level concurrency group"
-    echo "      Without one, every push to a pull request queues another owned-Mac run."
-    exit 1
-  fi
+def strings(node, path):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from strings(value, path + (str(key),))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from strings(value, path + (str(index),))
+    elif isinstance(node, str):
+        yield path, node
 
-  # 1. One in-flight producer per pull request. Keyed on anything coarser and
-  #    two PRs serialize behind each other; keyed on anything finer (the run id,
-  #    the head sha) and a six-push burst parks six compiles on one machine,
-  #    each of which the hosted job has already given up waiting for.
-  group_line="$(printf '%s\n' "$concurrency_block" | awk '/^[[:space:]]+group:/ { print; exit }')"
-  if ! printf '%s\n' "$group_line" | grep -Fq 'inputs.pr_number'; then
-    echo "FAIL: persistent compile producer concurrency group must be keyed on inputs.pr_number"
-    printf 'group=%s\n' "$group_line"
-    exit 1
-  fi
-  if ! printf '%s\n' "$concurrency_block" | grep -Eq '^[[:space:]]+cancel-in-progress:[[:space:]]*true[[:space:]]*$'; then
-    echo "FAIL: persistent compile producer must cancel a superseded run for the same pull request"
-    echo "      A stale compile holds the owned Mac while the hosted job it was for has already fallen back."
-    exit 1
-  fi
 
-  # 2. A bounded compile. The workflow default is 360 minutes; a wedged
-  #    xcodebuild would hold the only owned runner for six hours, during which
-  #    every routed PR reports producer_not_ready and compiles hosted anyway.
-  local timeout
-  timeout="$(awk '
-    /^  compile:$/ { in_job=1; next }
-    in_job && /^  [A-Za-z0-9_-]+:/ { exit }
-    in_job && /^    timeout-minutes:[[:space:]]*[0-9]+[[:space:]]*$/ {
-      line=$0
-      sub(/^[^0-9]*/, "", line)
-      sub(/[^0-9]*$/, "", line)
-      print line
-      exit
-    }
-  ' "$PERSISTENT_COMPILE_FILE")"
-  if [ -z "$timeout" ]; then
-    echo "FAIL: persistent compile producer's compile job must set an explicit timeout-minutes"
+violations = []
+for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
+    workflow = yaml.safe_load(file.read_text(encoding="utf-8")) or {}
+    for path, value in strings(workflow, ()):
+        where = f"{file.name}:{'.'.join(path)}"
+        if PICKED in value:
+            allowed = (file.name == "ci.yml" and (
+                path == ("jobs", "changes", "outputs", "macos_pr_runner") and value == "${{ " + PICKED + " }}"
+                or path[:3] == ("jobs", "changes", "steps") and path[-2:] == ("env", "POOL")
+                and value == "${{ " + PICKED + " }}"
+                or path[:3] == ("jobs", "changes", "steps") and path[-2:] == ("with", "name") and value == MARKER))
+            if not allowed:
+                violations.append(f"{where}: reads the picker's runner outside macos_pr_runner and the rescue marker")
+        if RETRY_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_retry_runner")
+                and value == "${{ " + RETRY_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's retry runner outside macos_pr_retry_runner")
+        if SHARD_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_shard_runner")
+                and value == "${{ " + SHARD_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's shard runner outside macos_pr_shard_runner")
+        if REFUSED_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_refused_retry_runner")
+                and value == "${{ " + REFUSED_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's refused retry runner outside macos_pr_refused_retry_runner")
+        if ROOT_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_root_runner")
+                and value == "${{ " + ROOT_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's root runner outside macos_pr_root_runner")
+        if ADMISSION_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_admission_runner")
+                and value == "${{ " + ADMISSION_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's admission runner outside macos_pr_admission_runner")
+        if SIDE_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_side_runner")
+                and value == "${{ " + SIDE_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's side runner outside macos_pr_side_runner")
+        if len(path) >= 3 and path[-2] == "with" and path[-1] in INPUTS:
+            if value != INPUTS[path[-1]] or file.name != "ci.yml":
+                violations.append(f"{where}: {path[-1]} must be exactly {INPUTS[path[-1]]}")
+            continue
+        if OUTPUT not in value and RETRY_OUTPUT not in value and REFUSED_OUTPUT not in value \
+                and SHARD_OUTPUT not in value and ROOT_OUTPUT not in value and ADMISSION_OUTPUT not in value \
+                and SIDE_OUTPUT not in value:
+            continue
+        if path[-1:] == ("runs-on",):
+            rest = value
+            for branch in GUARDED:
+                rest = rest.replace(branch, "")
+            if OUTPUT not in rest and RETRY_OUTPUT not in rest and REFUSED_OUTPUT not in rest \
+                    and SHARD_OUTPUT not in rest and ROOT_OUTPUT not in rest and ADMISSION_OUTPUT not in rest \
+                    and SIDE_OUTPUT not in rest:
+                continue
+        violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
+print("\n".join(violations))
+PYTHON
+)"
+  if [ -n "$violations" ]; then
+    echo "FAIL: the picked pull request pool must reach jobs only through pr_runner_pool.py's checked route"
+    echo "$violations"
     exit 1
   fi
-  # The hosted observer gives up after CI_PERSISTENT_MAC_EXECUTION_SECONDS
-  # (480s default, 600s ceiling); a producer allowed to run far past that only
-  # occupies the machine. 45 leaves headroom for a cold-reset compile.
-  if [ "$timeout" -lt 1 ] || [ "$timeout" -gt 45 ]; then
-    echo "FAIL: persistent compile timeout-minutes must be between 1 and 45, got $timeout"
-    echo "      An unbounded compile holds the single owned runner long after the hosted job stopped waiting."
-    exit 1
-  fi
-
-  # 3. The producer builds with the same toolchain the hosted job revalidates
-  #    against. Drift is not a correctness hole -- hosted revalidation refuses
-  #    an Xcode/SDK mismatch -- but every producer run then burns an owned-Mac
-  #    allocation to produce an artifact that is certain to be rejected.
-  local producer_pin hosted_pin
-  producer_pin="$(persistent_compile_toolchain_pin "$PERSISTENT_COMPILE_FILE" compile)"
-  hosted_pin="$(persistent_compile_toolchain_pin "$CI_MACOS_FILE" macos-compile-admission --pr-lane)"
-  if [ "$(printf '%s\n' "$producer_pin" | grep -c .)" -ne 2 ]; then
-    echo "FAIL: could not read both toolchain pins from the persistent compile producer"
-    printf 'producer=%s\n' "$producer_pin"
-    exit 1
-  fi
-  # The producer names the lane directly; anything else (a conditional, or a
-  # different default) would survive the equality below while resolving to a
-  # toolchain the hosted job rejects.
-  if [ "$producer_pin" != "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: \"26\"
-CMUX_CI_XCODE_APP: \${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}" ]; then
-    echo "FAIL: the owned-Mac producer must pin the pull-request lane directly"
-    echo "      persistent-macos-compile.yml is workflow_dispatch-only, so a conditional"
-    echo "      on github.event_name there never takes its pull-request branch."
-    printf 'producer:\n%s\n' "$producer_pin"
-    exit 1
-  fi
-  if [ "$(printf '%s\n' "$hosted_pin" | grep -c .)" -ne 2 ]; then
-    echo "FAIL: could not read both toolchain pins from macos-compile-admission"
-    printf 'hosted=%s\n' "$hosted_pin"
-    exit 1
-  fi
-  if [ "$producer_pin" != "$hosted_pin" ]; then
-    echo "FAIL: owned-Mac producer and hosted macOS compile admission pin different toolchains."
-    echo "      Hosted revalidation rejects the mismatch, so every producer run is wasted owned-Mac time."
-    printf 'producer:\n%s\nhosted:\n%s\n' "$producer_pin" "$hosted_pin"
-    exit 1
-  fi
-
-  echo "PASS: owned-Mac occupancy is bounded to one timed compile per pull request on the hosted toolchain"
-}
-
-check_persistent_compile_router() {
-  if [ ! -f "$PERSISTENT_ROUTER_FILE" ]; then
-    echo "FAIL: default-branch persistent Mac router workflow is missing"
-    exit 1
-  fi
-
-  local trigger_block expected_trigger
-  trigger_block="$(awk '
-    /^on:$/ { in_on=1; next }
-    in_on && /^[^[:space:]]/ { exit }
-    in_on && NF { print }
-  ' "$PERSISTENT_ROUTER_FILE")"
-  expected_trigger=$'  workflow_run:\n    workflows: [CI]\n    types: [requested]'
-  if [ "$trigger_block" != "$expected_trigger" ]; then
-    echo "FAIL: persistent Mac router must contain only workflow_run(requested) for CI"
-    exit 1
-  fi
-
-  if [ "$(grep -Fxc 'permissions: {}' "$PERSISTENT_ROUTER_FILE")" -ne 1 ]; then
-    echo "FAIL: persistent Mac router must have exactly one empty top-level permissions mapping"
-    exit 1
-  fi
-
-  local route_permissions expected_permissions
-  route_permissions="$(awk '
-    /^  route:$/ { in_route=1; next }
-    in_route && /^  [A-Za-z0-9_-]+:$/ { exit }
-    in_route && /^    permissions:$/ { in_permissions=1; next }
-    in_permissions && /^      [A-Za-z0-9_-]+:/ {
-      line=$0
-      sub(/^      /, "", line)
-      print line
-      next
-    }
-    in_permissions { exit }
-  ' "$PERSISTENT_ROUTER_FILE")"
-  expected_permissions=$'actions: write\ncontents: read\npull-requests: read'
-  if [ "$route_permissions" != "$expected_permissions" ]; then
-    echo "FAIL: default-branch router permissions must be exactly Actions write, contents read, and pull-requests read"
-    exit 1
-  fi
-
-  local checkout_with expected_checkout_with
-  checkout_with="$(awk '
-    /^      - name: Checkout trusted router$/ { in_step=1; next }
-    in_step && /^      - name:/ { exit }
-    in_step && /^        with:$/ { in_with=1; next }
-    in_with && /^          [A-Za-z0-9_-]+:/ {
-      line=$0
-      sub(/^          /, "", line)
-      print line
-      next
-    }
-    in_with && /^        [A-Za-z0-9_-]+:/ { exit }
-  ' "$PERSISTENT_ROUTER_FILE")"
-  expected_checkout_with=$'ref: main\npersist-credentials: false'
-  if [ "$checkout_with" != "$expected_checkout_with" ]; then
-    echo "FAIL: trusted router checkout must pin main and disable persisted credentials"
-    exit 1
-  fi
-
-  local admission_block admission_permissions expected_admission_permissions observer_step
-  if grep -Fq '^  persistent-mac-compile-route:' "$CI_FILE"; then
-    echo "FAIL: required CI must not serialize macOS admission behind a standalone persistent route job"
-    exit 1
-  fi
-
-  admission_block="$(awk '
-    /^  macos-compile-admission:$/ { in_job=1; print; next }
-    in_job && /^  [A-Za-z0-9_-]+:$/ { exit }
-    in_job { print }
-  ' "$CI_MACOS_FILE")"
-  if [ -z "$admission_block" ]; then
-    echo "FAIL: macOS compile admission job is missing"
-    exit 1
-  fi
-
-  admission_permissions="$(printf '%s\n' "$admission_block" | awk '
-    !finished && /^    permissions:$/ { in_permissions=1; next }
-    in_permissions && /^      [A-Za-z0-9_-]+:/ {
-      line=$0
-      sub(/^      /, "", line)
-      print line
-      next
-    }
-    in_permissions {
-      # Keep consuming the block after the permissions stanza. Exiting awk
-      # early can SIGPIPE the upstream printf while pipefail is active.
-      in_permissions=0
-      finished=1
-    }
-  ')"
-  expected_admission_permissions=$'contents: read\nactions: read\npull-requests: read'
-  if [ "$admission_permissions" != "$expected_admission_permissions" ]; then
-    echo "FAIL: macOS admission permissions must be contents read, Actions read, and pull-requests read"
-    printf 'permissions=%s\n' "$admission_permissions"
-    exit 1
-  fi
-  if grep -Eq '^[[:space:]]*permissions:[[:space:]]*write-all|^[[:space:]]*actions:[[:space:]]*write' <<<"$admission_block"; then
-    echo "FAIL: PR-side persistent observation must not receive Actions write authority"
-    exit 1
-  fi
-  if grep -Fq -- '- persistent-mac-compile-route' <<<"$admission_block"; then
-    echo "FAIL: macOS admission must not depend on a persistent route job"
-    exit 1
-  fi
-
-  observer_step="$(printf '%s\n' "$admission_block" | awk '
-    !finished && /^      - name: Observe persistent Mac compile candidate$/ { in_step=1; print; next }
-    in_step && /^      - name:/ {
-      # Keep consuming the block after the step ends. Exiting awk early can
-      # SIGPIPE the upstream printf while pipefail is active.
-      in_step=0
-      finished=1
-      next
-    }
-    in_step { print }
-  ')"
-  if [ -z "$observer_step" ]; then
-    echo "FAIL: macOS admission ready-only persistent observer step is missing"
-    exit 1
-  fi
-  if [ "$(printf '%s\n' "$observer_step" | grep -Fxc '            --observe-only \')" -ne 1 ] || \
-     [ "$(printf '%s\n' "$observer_step" | grep -Fxc '            --ready-only \')" -ne 1 ]; then
-    echo "FAIL: hosted admission must invoke the persistent route helper exactly once in observe-only ready-only mode"
-    exit 1
-  fi
-  if [ "$(printf '%s\n' "$observer_step" | grep -Fc 'scripts/ci/persistent_mac_route.py')" -ne 1 ]; then
-    echo "FAIL: hosted admission observer must contain exactly one route-helper invocation"
-    exit 1
-  fi
-  if grep -Eq -- '--(queue|execution)-seconds' <<<"$observer_step"; then
-    echo "FAIL: ready-only hosted observation must not carry wait budgets"
-    exit 1
-  fi
-
-  echo "PASS: persistent dispatch/cancel authority is isolated to the exact default-branch router contract"
+  echo "PASS: owned pool labels reach jobs only through the pull request pool picker"
 }
 
 check_cla_guard_runner
@@ -1655,9 +1414,7 @@ check_cla_guard_runner
 # ci-macos.yml jobs
 check_no_bare_github_hosted_runners
 check_no_self_hosted_fleet_runners
-check_persistent_compile_lane
-check_persistent_compile_owned_mac_occupancy
-check_persistent_compile_router
+check_owned_pools_route_through_picker
 check_macos_runner "$CI_MACOS_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_MACOS_FILE" "macos-compile-admission"
 check_macos_runner "$CI_MACOS_FILE" "tests-build-and-lag"
@@ -1674,7 +1431,7 @@ check_macos_runner "$COMPAT_FILE" "compat-tests"
 # test-e2e.yml is manual, so keep the supported GUI runner choices but cancel
 # duplicate queued runs for the same ref/filter/runner.
 check_e2e_runner_fallbacks
-check_ios_tart_canary
+check_ios_runner_routing
 
 check_xcode_selection
 check_release_build_signal
@@ -1877,6 +1634,12 @@ EXEMPT = {
         "builds the SDK 15 Ghostty helper; stays on MACOS_RUNNER_DUAL_XCODE",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
         "same job's SDK 15 release-helper pin",
+    ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):
+        "a Linux job; pr_runner_pool.py hands this pin on only to a run it routes to the macOS 15 pool",
+    ("seed-derived-data.yml", "decide", "XCODE_APP_MACOS_15"):
+        "a Linux job; seed_decide.py fingerprints the macOS 15 pool's seed under the Xcode that pool seeds with",
+    ("seed-swiftpm-manifests.yml", "seed", "CMUX_CI_XCODE_APP"):
+        "seeds the manifest cache for the Xcode pr_runner_pool.py hands to runs it routes to the macOS 15 pool",
 }
 
 PINNED = ("CMUX_CI_XCODE_APP_MACOS_15", "CMUX_CI_HELPER_XCODE_APP_MACOS_15")
@@ -1943,6 +1706,15 @@ from pathlib import Path
 import yaml
 
 
+# Attempt 1 of compile admission may take the warm labels in
+# pr_admission_runner, a JSON array; the env restates the first, the root label.
+WARM_RUNS_ON = "fromJSON(inputs.pr_admission_runner)"
+
+
+def restated(value):
+    return value.replace(WARM_RUNS_ON + "[0]", WARM_RUNS_ON)
+
+
 def mismatched_identities(document):
     for job_id, job in document.get("jobs", {}).items():
         runs_on = job.get("runs-on")
@@ -1950,7 +1722,7 @@ def mismatched_identities(document):
         scopes.extend((f"step {index}", step) for index, step in enumerate(job.get("steps", [])))
         for scope, owner in scopes:
             for key, value in (owner.get("env") or {}).items():
-                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and value != runs_on:
+                if isinstance(value, str) and "vars.MACOS_RUNNER" in value and restated(value) != runs_on:
                     yield f"{job_id}/{scope}: {key}\n  env value {value}\n  runs-on   {runs_on}"
 
 
