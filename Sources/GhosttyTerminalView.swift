@@ -5750,18 +5750,48 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghostty_surface_has_selection(surface)
     }
 
+    /// Whether `event` is the key equivalent AppKit matches against the
+    /// standard Edit ▸ Copy menu item for the active keyboard layout.
+    ///
+    /// `layoutCharacterProvider` is injectable so layout-specific routing can
+    /// be covered without installing the layout on the test host.
+    static func isStandardCopyMenuKeyEquivalent(
+        _ event: NSEvent,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> Bool {
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        guard event.type == .keyDown, normalizedFlags == [.command] else {
+            return false
+        }
+
+        // AppKit resolves menu key equivalents through the layout's Command
+        // table, so Command-swapped layouts ("Dvorak - QWERTY ⌘") match a
+        // different character than `charactersIgnoringModifiers` reports: the
+        // physical C key reports the Dvorak "j" while the menu matched "c".
+        // Resolving the same way AppKit did keeps this guard aligned with the
+        // Copy item that actually declined the chord.
+        if let commandAwareCharacter = layoutCharacterProvider(event.keyCode, normalizedFlags),
+           !commandAwareCharacter.isEmpty,
+           commandAwareCharacter.allSatisfy(\.isASCII) {
+            return commandAwareCharacter == "c"
+        }
+
+        let rawCharacters = (event.charactersIgnoringModifiers ?? "").lowercased()
+        let resolved = rawCharacters.allSatisfy(\.isASCII)
+            ? rawCharacters
+            : (layoutCharacterProvider(event.keyCode, []) ?? rawCharacters)
+        return resolved == "c"
+    }
+
     /// Keep the standard Copy shortcut a native no-op when AppKit disables
     /// Copy. Replaying this menu miss into Ghostty lets the failed Copy binding
     /// enter its terminal-input path, which moves scrollback to the bottom when
     /// `scroll-to-bottom=keystroke` is enabled even if the terminal program
     /// does not visibly echo that input.
     func consumeUnavailableCopyMenuAction(_ event: NSEvent) -> Bool {
-        let normalizedFlags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        guard event.type == .keyDown,
-              normalizedFlags == [.command],
-              KeyboardLayout.normalizedCharacters(for: event) == "c" else {
+        guard Self.isStandardCopyMenuKeyEquivalent(event) else {
             return false
         }
         guard let surface = ensureSurfaceReadyForInput(),
@@ -9415,6 +9445,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
+        // Captured before the transfer starts; see the note in
+        // handleCustomDropUploadIfMatched about reattached views. The hosted
+        // view is captured for the same reason: the indicator must end on the
+        // view it began on.
+        let originSurfaceId = terminalSurface?.id
+        let originHostedView = terminalSurface?.hostedView
+
         TerminalImageTransferPlanner.execute(
             plan: plan,
             operation: operation,
@@ -9445,14 +9482,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     }
                 )
             },
-            insertText: { [weak self] text in
+            insertText: { [weak self, weak originHostedView] text in
                 let send = {
                     if let operation {
-                        self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                        (originHostedView ?? self?.terminalSurface?.hostedView)?
+                            .endImageTransferIndicator(for: operation)
                     }
                     if let self {
                         _ = self.deliverUploadResultText(
                             text,
+                            originSurfaceId: originSurfaceId,
                             onCompleted: onTextCompletion
                         )
                     } else {
@@ -9465,18 +9504,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     DispatchQueue.main.async(execute: send)
                 }
             },
-            onFailure: { [weak self] error in
+            onFailure: { [weak self, weak originHostedView] error in
                 if let operation {
-                    self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
+                    (originHostedView ?? self?.terminalSurface?.hostedView)?
+                        .endImageTransferIndicator(for: operation)
                 }
                 DispatchQueue.main.async {
                     if ManagedFileTransferPolicy.isRefusal(error) {
                         ManagedFileTransferPolicy.presentRefusal()
                     } else {
-                        NSSound.beep()
+                        let outcome = TerminalUploadFailureNotification.post(
+                            error: error,
+                            surfaceId: originSurfaceId
+                        )
+                        if outcome == .unavailable { NSSound.beep() }
                     }
 #if DEBUG
-                    cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(self?.terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+                    cmuxDebugLog("terminal.remoteDropUpload.failed surface=\(originSurfaceId?.uuidString.prefix(5) ?? "nil")")
 #endif
                 }
             }
