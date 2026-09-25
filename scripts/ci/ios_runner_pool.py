@@ -46,8 +46,11 @@ entry the lane never takes the fleet on its own. What is taken comes from the
 queue janitor's snapshot, which counts every queued or running job carrying
 the label and each run's capability marker (queue_janitor.capability_marker),
 plus every test-ios.yml and ios-screenshots.yml run created since the snapshot
-and still in flight, charged MAX_SIM_JOBS each wherever it went. Both err
-toward Blacksmith.
+and still in flight, charged the simulator jobs its title says it needs
+(charged_sim_jobs()): none for a Swift package run or one dispatched to a named
+Blacksmith pool, one for a single device family, else MAX_SIM_JOBS. A run
+whose title does not parse, or that is still `auto` wherever it went, is
+charged in full. Both err toward Blacksmith.
 
 Labels. ios-simulator-build and ios-simulator need the iOS runtime, and
 screenshots too, so they ask for the owned pool label and SIM_LABEL together
@@ -130,7 +133,8 @@ MAX_SIM_JOBS = 2
 @dataclasses.dataclass(frozen=True)
 class IOSLoad:
     pool: e2e_runner_pool.PoolLoad | None
-    # test-ios.yml and ios-screenshots.yml runs created since the snapshot and in flight.
+    # Simulator jobs charged to test-ios.yml and ios-screenshots.yml runs created
+    # since the snapshot and still in flight (charged_sim_jobs()).
     ios_since: int = 0
 
 
@@ -203,7 +207,7 @@ def sim_free(load: IOSLoad, capacity: int) -> int:
     """SIM_LABEL machines free: capacity less what the snapshot saw and the iOS runs since."""
     entry: Mapping[str, Any] = ((load.pool.snapshot if load.pool else {}).get("pools") or {}).get(SIM_LABEL) or {}
     taken = max(int(entry.get("running") or 0) + int(entry.get("queued") or 0), int(entry.get("committed") or 0))
-    return capacity - taken - load.ios_since * MAX_SIM_JOBS
+    return capacity - taken - load.ios_since
 
 
 def resolve(
@@ -291,9 +295,32 @@ def resolve(
     return Route(choice.runner, retry_label(default), True)
 
 
+# test-ios.yml's run-name: "iOS tests · REF · PACKAGE|simulator · FILTER · FAMILY · iOS VERSION · on RUNNER".
+TITLE_PREFIX = "iOS tests · "
+TITLE_SEPARATOR = " · "
+
+
+def charged_sim_jobs(run: Mapping[str, Any]) -> int:
+    """The simulator jobs an in-flight iOS run may hold, read from its title; in full when unsure."""
+    title = str(run.get("display_title") or "")
+    fields = title.split(TITLE_SEPARATOR)
+    if not title.startswith(TITLE_PREFIX) or len(fields) != 7 or not fields[6].startswith("on "):
+        return MAX_SIM_JOBS
+    runner = fields[6][len("on "):].strip()
+    if runner not in ("", "auto", OWNED_CHOICE):
+        # Dispatched to a named pool (Blacksmith, Tart): never an owned simulator.
+        return 0
+    package = "" if fields[2] == "simulator" else fields[2]
+    return sim_jobs("test-ios", fields[4], package)
+
+
 def ios_runs_since(client: Any, since: str, *, exclude_run_id: int | None) -> int:
-    """In-flight test-ios.yml and ios-screenshots.yml runs created at or after `since` (two requests)."""
-    return sum(1 for workflow in IOS_WORKFLOWS for run in client.runs_since(workflow, since)
+    """Simulator jobs of in-flight test-ios.yml and ios-screenshots.yml runs created at or after `since`.
+
+    Two requests. Each run is charged charged_sim_jobs(); ios-screenshots.yml
+    titles never parse, so a capture is charged in full.
+    """
+    return sum(charged_sim_jobs(run) for workflow in IOS_WORKFLOWS for run in client.runs_since(workflow, since)
                if run.get("id") != exclude_run_id and run.get("status") != "completed")
 
 
