@@ -16,6 +16,15 @@ public struct CloudWorkspaceProjectionPlan {
                 resource: projection.resource, remoteWorkspaceID: projection.remoteWorkspaceID,
                 remoteTabID: projection.remoteTabID
             )
+            // A local preview has no daemon tab but retains the bound remote
+            // workspace as its local-view provenance. It satisfies its desired
+            // workspace row and is never retired by the graph. A projection whose
+            // coordinates were cleared by an authoritative remote deletion has
+            // neither coordinate and must still be retired.
+            if projection.isLocalWorkspaceView && projection.remoteWorkspaceID != nil {
+                seen.insert(placement)
+                continue
+            }
             if !wanted.contains(placement) || !seen.insert(placement).inserted { obsolete.append(projection) }
         }
         var missingSeen = Set<SurfaceResourcePlacement>()

@@ -102,6 +102,10 @@ OWNED_VARIABLE = pr_runner_pool.OWNED_VARIABLE
 SLOTS_VARIABLE = pr_runner_pool.SLOTS_VARIABLE
 PR_XCODE_VARIABLE = pr_runner_pool.PR_XCODE_VARIABLE
 OWNED_UI_VARIABLE = "CI_E2E_OWNED_UI"
+# The isolated Tart VM runners (tart-canary, tart-dual, tart-small). A request for
+# one runs as auto unless this variable is 1 (resolve()).
+TART_PREFIX = "tart-"
+TART_FLEET_VARIABLE = "CI_TART_FLEET"
 
 # The whole API budget of one decision; see the module docstring.
 MAX_API_CALLS = 4
@@ -304,9 +308,17 @@ def resolve(
     pr_xcode_app: str | None = None,
     test_filter: str | None = None,
     owned_ui: str | None = None,
+    tart_fleet: str | None = "1",
 ) -> str:
-    """The runner label for a workflow run, from its inputs and variables."""
+    """The runner label for a workflow run, from its inputs and variables.
+
+    A `tart-*` request runs as `auto` unless `tart_fleet` (vars.CI_TART_FLEET)
+    is 1: with the Tart VMs offline such a job queues forever (2026-09-25).
+    """
     requested = (requested or "").strip()
+    if requested.startswith(TART_PREFIX) and (tart_fleet or "").strip() != "1":
+        log(f"{requested} requested, but {TART_FLEET_VARIABLE} is not 1 (the Tart VMs are offline); running as auto")
+        requested = "auto"
     if requested and requested != "auto":
         return requested
     if (owned or "").strip() == "1" and not owned_target(test_filter, owned_ui):
@@ -359,6 +371,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         overflow=args.overflow, order=args.order, max_queued=args.max_queued,
         owned=args.owned, owned_slots=args.owned_slots, pr_xcode_app=args.pr_xcode_app,
         test_filter=args.test_filter, owned_ui=args.owned_ui,
+        tart_fleet=env.get("TART_FLEET", ""),
         measure=measure, now=now,
         log=lambda message: print(message, file=sys.stderr),
     ))

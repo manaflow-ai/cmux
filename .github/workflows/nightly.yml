@@ -1873,7 +1873,10 @@ jobs:
           # Every rc/** branch shares the rc tag and those branches diverge,
           # so only the nightly tag requires a fast-forward.
           # The helper retries only transient API/network failures and reads the
-          # ref back before this job can report publication complete.
+          # ref back before this job can report publication complete. GitHub
+          # still refuses some moves across workflow-file changes with a 403;
+          # everything is published by then and a lagging tag only makes the
+          # next decide build more, so the helper warns instead of failing.
           python3 scripts/ci/update-release-tag.py \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$CHANNEL_RELEASE_TAG" \

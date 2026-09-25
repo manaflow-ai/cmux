@@ -372,6 +372,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
 
+      - name: Validate the owned Mac warm labels
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_warm_labels.py
+
       - name: Validate CI health report
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_health_report.py
@@ -447,6 +451,10 @@ jobs:
       - name: Validate create-dmg version pinning
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_create_dmg_pinned.sh
+
+      - name: Validate Homebrew cask macOS dependency syntax
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_ci_homebrew_cask_macos_dependency.sh
 
       - name: Validate app bundle license compliance
         if: ${{ matrix.group == 'release-notary' }}

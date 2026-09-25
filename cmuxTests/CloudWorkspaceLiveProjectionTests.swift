@@ -383,4 +383,80 @@ struct CloudWorkspaceLiveProjectionTests {
         catalog.replaceResources([], on: machine, info: provider.info, from: provider)
         #expect(catalog.projectionRecords(forWorkspace: firstWorkspace).isEmpty)
     }
+
+    /// A bound workspace whose real `Workspace` answers ownership checks, so `project`
+    /// and `restore` take the production validation path.
+    private func boundWorkspaceFixture(closed: @escaping @MainActor (SurfaceProjection) -> Void = { _ in })
+        -> (workspace: Workspace, catalog: SurfaceCatalog, placement: CloudPlacementCoordinator, coordinator: CloudWorkspaceProjectionCoordinator) {
+        let workspace = Workspace()
+        let binding = WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a")
+        workspace.cloudVMBinding = binding
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(
+            bindings: { [workspace.id: binding] }, close: closed
+        ))
+        let placement = CloudPlacementCoordinator(binding: { $0 == workspace.id ? binding : nil })
+        let catalog = SurfaceCatalog(
+            cloudWorkspaceRenameService: CloudWorkspaceRenameService(
+                environment: CloudWorkspaceRenameEnvironment(workspace: { $0 == workspace.id ? workspace : nil })
+            ),
+            cloudPlacementCoordinator: placement,
+            cloudWorkspaceProjectionCoordinator: coordinator
+        )
+        return (workspace, catalog, placement, coordinator)
+    }
+
+    @Test("Opening the Desktop in a bound Cloud workspace keeps a pane that registered itself while materializing")
+    func openedDesktopRegisteredDuringMaterializationSurvivesReconciliation() async throws {
+        var closed: [SurfaceProjection] = []
+        let fixture = boundWorkspaceFixture(closed: { closed.append($0) })
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let provider = CloudPlacementTestProvider(machine: machine)
+        let desktop = CmuxTuiSnapshotParser.display(machine: machine)
+        // Only the browser pane binds its resource while being configured; the
+        // coordinator's own terminal materialization keeps its daemon tab.
+        provider.registerDuringMaterialization = { projection in
+            guard projection.resource == desktop.id else { return }
+            catalog.record(projection)
+        }
+        catalog.register(provider)
+        install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [desktop])
+        await fixture.coordinator.waitForIdle()
+        let opened = try await catalog.project(
+            desktop.id, into: .workspace(id: fixture.workspace.id, placement: .split),
+            focus: false, reuseExisting: true
+        )
+        #expect(!opened.reused, "The operation created this pane; it did not reuse another view")
+        await fixture.placement.waitForPendingMutations()
+        fixture.coordinator.request(machine: machine, catalog: catalog)
+        await fixture.coordinator.waitForIdle()
+        let current = try #require(catalog.projection(forPanel: opened.projection.panelID))
+        #expect(current.remoteWorkspaceID == "a")
+        #expect(current.remoteTabID == nil)
+        #expect(closed.isEmpty && fixture.coordinator.failures.isEmpty)
+    }
+
+    @Test("A restored Desktop or port record without provenance joins its bound workspace", arguments: [false, true])
+    func restoredLocalPreviewJoinsBoundWorkspace(isPort: Bool) async throws {
+        let fixture = boundWorkspaceFixture()
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+        let preview = isPort
+            ? CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 6969)
+            : CmuxTuiSnapshotParser.display(machine: machine)
+        install(try graph(["first": "a"], revision: 1), catalog: catalog, extraResources: [preview])
+        await fixture.coordinator.waitForIdle()
+        let panelID = UUID()
+        catalog.restore([SurfaceProjectionRecord(panelID: panelID, resource: preview.id)], workspaceID: fixture.workspace.id)
+        let restored = try #require(catalog.projection(forPanel: panelID))
+        #expect(restored.remoteWorkspaceID == "a")
+        #expect(restored.remoteTabID == nil)
+        let group = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "a")
+        let plan = CloudWorkspaceProjectionPlan(
+            desired: group.placements,
+            existing: catalog.projections.filter { $0.workspaceID == fixture.workspace.id }
+        )
+        #expect(plan.obsolete.isEmpty, "A local preview with its bound workspace is not obsolete")
+    }
 }

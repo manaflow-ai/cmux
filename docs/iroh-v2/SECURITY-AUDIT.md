@@ -132,8 +132,8 @@ Drizzle's TypeScript loader. Pinning the transitive copy to `0.28.1` matches the
 version already used by Wrangler. `bun audit` then reports no advisories; the
 Drizzle loader transform, Worker check and workerd tests pass.
 
-The pinned Iroh FFI release is `1.0.2-cmux.7.ios17.2`, source
-`8da966cad36377e4e55569f80dcde1be91d30a5b`. Querying its 483 registry lockfile
+The pinned Iroh FFI release is `1.0.2-cmux.7.ios17.3`, source
+`af08f0e1b9bb3ddb839210b175738d5761fea686`. Querying its 483 registry lockfile
 entries against OSV identified three patchable advisories:
 
 | Package | Fix in [iroh-ffi #16](https://github.com/manaflow-ai/iroh-ffi/pull/16) | Reachability qualification |

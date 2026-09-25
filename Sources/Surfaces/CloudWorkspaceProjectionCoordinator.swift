@@ -125,6 +125,9 @@ final class CloudWorkspaceProjectionCoordinator {
                     return
                 }
                 for projection in plan.obsolete {
+#if DEBUG
+                    cmuxDebugLog("cloudWorkspace.projection.obsolete workspace=\(workspaceID) panel=\(projection.panelID) resource=\(projection.resource.rawValue) remoteWorkspace=\(projection.remoteWorkspaceID ?? "nil") tab=\(projection.remoteTabID ?? "nil") desired=\(desired.count)")
+#endif
                     environment.close(projection)
                     catalog.endProjections(panelID: projection.panelID, reason: .replaced)
                 }

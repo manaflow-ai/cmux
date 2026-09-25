@@ -9,12 +9,21 @@ final class AgentRestoreEvidenceSubscription: @unchecked Sendable {
     private let continuation: AsyncStream<Void>.Continuation
     private let sources: [any DispatchSourceProtocol]
 
-    init(process: AgentPIDProcessIdentity?, paths: [String], deadline: DispatchTime = .now() + .seconds(8)) {
+    convenience init(process: AgentPIDProcessIdentity?, paths: [String], deadline: DispatchTime = .now() + .seconds(8)) {
+        self.init(processes: process.map { [$0] } ?? [], paths: paths, deadline: deadline)
+    }
+
+    init(
+        processes: [AgentPIDProcessIdentity],
+        paths: [String],
+        deadline: DispatchTime = .now() + .seconds(8)
+    ) {
         let (events, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         self.events = events
         self.continuation = continuation
         var sources: [any DispatchSourceProtocol] = []
-        if let process {
+        var subscribedPIDs = Set<pid_t>()
+        for process in processes where subscribedPIDs.insert(process.pid).inserted {
             let source = DispatchSource.makeProcessSource(
                 identifier: process.pid, eventMask: .exit, queue: .global(qos: .utility)
             )

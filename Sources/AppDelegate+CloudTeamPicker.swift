@@ -1,5 +1,6 @@
 import CmuxCloud
 import AppKit
+import CmuxCloud
 
 extension AppDelegate {
     @MainActor

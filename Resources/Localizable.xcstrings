@@ -30593,6 +30593,256 @@
         }
       }
     },
+    "agentRestore.writerLock.candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possible owners: %1$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mögliche Besitzer: %1$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propriétaires possibles : %1$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المالكون المحتملون: %1$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posibles propietarios: %1$@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能的擁有者：%1$@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可能的所有者：%1$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가능한 소유자: %1$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有者の候補: %1$@。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mogući vlasnici: %1$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mulige ejere: %1$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possibili proprietari: %1$@."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម្ចាស់ដែលអាចមាន៖ %1$@។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mulige eiere: %1$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Możliwi właściciele: %1$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Possíveis proprietários: %1$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Возможные владельцы: %1$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เจ้าของที่เป็นไปได้: %1$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olası sahipler: %1$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Можливі власники: %1$@."
+          }
+        }
+      }
+    },
+    "agentRestore.writerLock.held": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This conversation is in use by another process. Continue there or close it normally, then retry restoring it here."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Unterhaltung wird von einem anderen Prozess verwendet. Setzen Sie sie dort fort oder schließen Sie sie regulär und versuchen Sie dann erneut, sie hier wiederherzustellen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette conversation est utilisée par un autre processus. Continuez là-bas ou fermez-la normalement, puis réessayez de la restaurer ici."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم عملية أخرى هذه المحادثة. تابع هناك أو أغلقها بالطريقة المعتادة، ثم أعد محاولة استعادتها هنا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro proceso está usando esta conversación. Continúa allí o ciérrala normalmente y vuelve a intentar restaurarla aquí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個程序正在使用此對話。請在該處繼續，或正常關閉後再嘗試於此處還原。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个进程正在使用此对话。请在该处继续，或正常关闭后再尝试在此处恢复。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 프로세스가 이 대화를 사용 중입니다. 해당 프로세스에서 계속하거나 정상적으로 닫은 후 여기에서 다시 복원하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のプロセスがこの会話を使用しています。そちらで続けるか、通常の手順で閉じてから、ここでの復元を再試行してください。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor koristi drugi proces. Nastavite tamo ili ga zatvorite na uobičajen način, a zatim ponovo pokušajte vratiti razgovor ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtale bruges af en anden proces. Fortsæt dér, eller luk den på normal vis, og prøv derefter at gendanne den her igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa conversazione è in uso da un altro processo. Continua lì oppure chiudila normalmente, quindi riprova a ripristinarla qui."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសន្ទនានេះកំពុងត្រូវបានប្រើដោយដំណើរការមួយផ្សេងទៀត។ បន្តនៅទីនោះ ឬបិទវាតាមធម្មតា រួចព្យាយាមស្ដារវានៅទីនេះម្ដងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne samtalen brukes av en annen prosess. Fortsett der, eller lukk den på vanlig måte, og prøv deretter å gjenopprette den her igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta rozmowa jest używana przez inny proces. Kontynuuj tam lub zamknij ją w zwykły sposób, a następnie spróbuj ponownie ją tutaj przywrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conversa está em uso por outro processo. Continue lá ou feche-a normalmente e tente restaurá-la aqui novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот разговор используется другим процессом. Продолжите там или закройте его обычным способом, затем попробуйте восстановить его здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การสนทนานี้กำลังใช้งานอยู่ในอีกกระบวนการหนึ่ง ให้ดำเนินการต่อที่นั่นหรือปิดตามปกติ แล้วลองกู้คืนการสนทนาที่นี่อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu konuşma başka bir işlem tarafından kullanılıyor. Orada devam edin veya normal şekilde kapatın, ardından burada geri yüklemeyi yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цю розмову використовує інший процес. Продовжте там або закрийте її звичайним способом, а потім спробуйте відновити її тут."
+          }
+        }
+      }
+    },
     "agentSession.bridge.error.invalidProvider": {
       "extractionState": "manual",
       "localizations": {
@@ -554915,6 +555165,131 @@
           }
         }
       }
+    },
+    "devices.options.hint": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Change these options in the ⋯ menu next to My Devices."
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Promijenite ove opcije u meniju ⋯ pored Mojih uređaja."
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Skift disse indstillinger i menuen ⋯ ved siden af Mine enheder."
+                }
+            },
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "غيّر هذه الخيارات من قائمة ⋯ بجوار «أجهزتي»."
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Diese Optionen kannst du im Menü ⋯ neben „Meine Geräte“ ändern."
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Cambia estas opciones en el menú ⋯ junto a «Mis dispositivos»."
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Modifiez ces options dans le menu ⋯ à côté de « Mes appareils »."
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Modifica queste opzioni nel menu ⋯ accanto a I miei dispositivi."
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "「マイデバイス」の横にある ⋯ メニューでこれらのオプションを変更できます。"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "내 기기 옆의 ⋯ 메뉴에서 이 옵션을 변경하세요."
+                }
+            },
+            "km": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "ផ្លាស់ប្តូរជម្រើសទាំងនេះក្នុងម៉ឺនុយ ⋯ នៅជាប់ឧបករណ៍របស់ខ្ញុំ។"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Endre disse alternativene i ⋯-menyen ved siden av Mine enheter."
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Zmień te opcje w menu ⋯ obok Moje urządzenia."
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Altere estas opções no menu ⋯ ao lado de Meus dispositivos."
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Измените эти параметры в меню ⋯ рядом с «Мои устройства»."
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "เปลี่ยนตัวเลือกเหล่านี้ในเมนู ⋯ ถัดจากอุปกรณ์ของฉัน"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Bu seçenekleri Cihazlarım'ın yanındaki ⋯ menüsünden değiştirin."
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "Змініть ці параметри в меню ⋯ поруч із «Мої пристрої»."
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "在“我的设备”旁的 ⋯ 菜单中更改这些选项。"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "在「我的裝置」旁的 ⋯ 選單中更改這些選項。"
+                }
+            }
+        }
     }
   },
   "version": "1.0"

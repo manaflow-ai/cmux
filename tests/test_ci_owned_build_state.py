@@ -401,7 +401,8 @@ class WorkflowCommandLines(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         steps = workflow["jobs"]["macos-compile-admission"]["steps"]
         calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
-        self.assertEqual(len(calls), 6)
+        # check, prefer, adopt, record, keep, warm-keys (skipped until the script has it), save.
+        self.assertEqual(len(calls), 7)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / "derived").mkdir()
@@ -439,6 +440,9 @@ class Wiring(unittest.TestCase):
     def test_state_steps_run_only_on_an_owned_runner(self):
         self.assertIn(OWNED, self.by_id["owned-state"]["if"])
         self.assertIn("github.event_name == 'pull_request'", self.by_id["owned-state"]["if"])
+        # Main's full-suite dispatch may be placed on an owned Mac too (pr_runner_pool.py).
+        self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'",
+                      self.by_id["owned-state"]["if"])
         # Every other state step follows owned-state.
         self.assertIn("steps.owned-state.outcome != 'skipped'", self.step("Keep this owned Mac's build state")["if"])
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", self.step("Keep this owned Mac's DerivedData")["if"])
@@ -481,7 +485,8 @@ class Wiring(unittest.TestCase):
         for name in ("Reuse this owned Mac's build state", "Prefer a near seed over this owned Mac's DerivedData",
                      "Adopt this owned Mac's DerivedData",
                      "Record this owned Mac's build inputs", "Keep this owned Mac's DerivedData",
-                     "Keep this owned Mac's build state"):
+                     "Keep this owned Mac's build state", "List the commits this owned Mac starts from warm",
+                     "Upload the owned Mac's warm keys"):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():
