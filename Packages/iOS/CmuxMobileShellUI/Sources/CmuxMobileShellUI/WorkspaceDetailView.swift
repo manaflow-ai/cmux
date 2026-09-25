@@ -936,6 +936,7 @@ struct WorkspaceDetailView: View {
                 browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
                 supportsBrowserStream: store.supportsBrowserStream(inWorkspace: workspace.id),
                 activeBrowserStreamPanelID: activeBrowserStream?.id,
+                onDeviceBrowserStreamPanelID: activeBrowser?.linkedStreamPanelID,
                 simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
                 supportsSimulatorStream: store.supportsSimulatorStream,
                 activeSimulatorStreamPanelID: activeSimulatorStream?.id,
