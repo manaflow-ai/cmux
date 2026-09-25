@@ -101,6 +101,21 @@ struct CloudTerminalCreationRequestTests {
         #expect(await runner.commands.first?.params["welcome"] as? Bool == false)
     }
 
+    @Test("A cancellation after durable bootstrap still returns its adopted receipt")
+    func cancellationAfterBootstrapKeepsStarterIdentity() async throws {
+        let request = CloudTerminalCreationRequest(opensMachine: true)
+        let runner = CreationReceiptRunner(
+            responses: [.success(try initialWorkspaceReceipt())],
+            cancelAfterResponse: true
+        )
+        let created = try #require(try await request.prepareInitialWorkspace(
+            using: runner, machineID: "vm_test", welcomeEligible: true
+        ))
+        #expect(Task.isCancelled)
+        #expect(created.terminalID == "term_first")
+        #expect(request.initialWorkspaceReceipt == created)
+    }
+
     @Test
     func firstAttemptNeedsNoReceiptLookupOrAdditiveFlag() async throws {
         let request = CloudTerminalCreationRequest()
@@ -263,13 +278,21 @@ struct CloudTerminalCreationRequestTests {
 
 private actor CreationReceiptRunner: CloudTuiCommandRunning {
     private var responses: [Result<Data, CloudMachineLink.LinkError>]
+    private let cancelAfterResponse: Bool
     private(set) var commands: [CloudTuiRequest] = []
 
-    init(responses: [Result<Data, CloudMachineLink.LinkError>]) { self.responses = responses }
+    init(responses: [Result<Data, CloudMachineLink.LinkError>], cancelAfterResponse: Bool = false) {
+        self.responses = responses
+        self.cancelAfterResponse = cancelAfterResponse
+    }
 
     func runTuiCommand(arguments: CloudTuiRequest, deadline: Duration) async throws -> Data {
         commands.append(arguments)
         guard !responses.isEmpty else { throw CloudMachineLink.LinkError.timedOut }
-        return try responses.removeFirst().get()
+        let response = try responses.removeFirst().get()
+        if cancelAfterResponse {
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
+        return response
     }
 }

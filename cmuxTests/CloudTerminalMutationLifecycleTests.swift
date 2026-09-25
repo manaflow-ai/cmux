@@ -12,6 +12,33 @@ import Testing
 @MainActor
 @Suite("Cloud terminal mutation lifecycle", .timeLimit(.minutes(1)))
 struct CloudTerminalMutationLifecycleTests {
+    @Test("A durable creation turn returns its receipt after caller cancellation")
+    func durableTurnRetainsResponseAfterCancellation() async throws {
+        let queue = CloudTerminalMutationQueue()
+        let task = queue.run(honorCancellationAfterOperation: false) {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return Data("durable-receipt".utf8)
+        }
+        #expect(try await task.value == Data("durable-receipt".utf8))
+        await queue.waitForIdle()
+    }
+
+    @Test("A durable bootstrap adopts its response after lifecycle retirement")
+    func durableBootstrapSkipsPostResponseLifecycleFence() async throws {
+        let transport = CloudTerminalMutationTestTransport()
+        var valid = true
+        let runner = CloudTerminalMutationCommandRunner(
+            base: transport, validateAfterResponse: false
+        ) {
+            guard valid else { throw CancellationError() }
+        }
+        let task = Task { try await runner.runTuiCommand(arguments: CloudTuiRequest("cloud-first-workspace"), deadline: .seconds(30)) }
+        try #require(await transport.started.result == true)
+        valid = false
+        transport.release(Data("durable-receipt".utf8))
+        #expect(try await task.value == Data("durable-receipt".utf8))
+    }
+
     @Test("Cancelling all turns keeps their predecessor chain until active work drains")
     func cancellationDoesNotReleaseSuccessorsEarly() async throws {
         let queue = CloudTerminalMutationQueue()

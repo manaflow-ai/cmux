@@ -22,6 +22,10 @@ final class CloudTerminalCreationRequest {
     private var initialWorkspaceRequest: CloudTuiRequest?
     private var initialWorkspaceUnavailable = false
     private(set) var usesMachineStarter = false
+    /// Durable first-workspace results are retained before any cancellation
+    /// fence so the owning operation can adopt the terminal it did not start.
+    private(set) var initialWorkspaceReceipt: CmuxTuiSnapshotParser.CreatedTerminalPath?
+    private(set) var recordedInitialTerminal: SurfaceResource?
 
     init(id: UUID = UUID(), remoteWorkspaceID: String? = nil, commandOverride: [String]? = nil, restoring: Bool = false, opensMachine: Bool = false, suppressWelcome: Bool = false, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.id = id
@@ -72,7 +76,6 @@ final class CloudTerminalCreationRequest {
             }
             throw error
         }
-        try Task.checkCancellation()
         guard var object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               object["created_path"] != nil else { throw CloudDiagnosticFailure.response }
         if object["occupied"] as? Bool == true { throw CloudDiagnosticFailure.placement }
@@ -87,7 +90,15 @@ final class CloudTerminalCreationRequest {
             throw CloudDiagnosticFailure.placement
         }
         usesMachineStarter = true
+        initialWorkspaceReceipt = created
         return created
+    }
+
+    /// Records the local resource representation before a lifecycle check can
+    /// cancel the request. The daemon owns this starter receipt; this value is
+    /// only the app-side adoption record used for cleanup/retry bookkeeping.
+    func recordInitialTerminal(_ resource: SurfaceResource) {
+        recordedInitialTerminal = resource
     }
 
     /// Returns an existing terminal, or authorizes exactly one mutation attempt.

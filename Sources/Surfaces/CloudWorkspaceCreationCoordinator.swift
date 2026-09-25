@@ -53,6 +53,17 @@ final class CloudWorkspaceCreationCoordinator {
             return try await run(operation, name: name, focus: focus, existingWorkspace: existingWorkspace,
                                  existingTerminal: existingTerminal, catalog: catalog)
         } catch {
+            // A daemon starter can commit immediately before this task is
+            // cancelled. The provider records its local representation before
+            // the lifecycle fence; adopt it here so the operation retains a
+            // durable identity even though the caller receives cancellation.
+            if operation.terminal == nil,
+               let recorded = operation.terminalRequest.recordedInitialTerminal {
+                operation.terminal = recorded
+                // The daemon's first-workspace receipt is machine-owned. A
+                // cancelled local attachment must not terminate that starter.
+                operation.ownsRemoteTerminal = false
+            }
             let canRetainForRetry = !(error is CancellationError)
                 && !Task.isCancelled
                 && operations[operation.id] === operation
