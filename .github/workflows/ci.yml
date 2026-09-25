@@ -602,7 +602,10 @@ jobs:
           RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
           RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
-        run: python3 scripts/ci/pr_runner_pool.py
+        # CANARY (do not merge): pin the seeded 12 vCPU macOS 26 pool.
+        run: |
+          python3 scripts/ci/pr_runner_pool.py
+          printf 'runner=blacksmith-12vcpu-macos-26\nxcode_app=\npersistent=false\nretry_runner=blacksmith-12vcpu-macos-26\n' >> "$GITHUB_OUTPUT"
 
       # A job queued on a persistent pool (owned Macs) waits for it however long
       # it stays busy. This marker tells ci-owned-pool-rescue.yml, running from
