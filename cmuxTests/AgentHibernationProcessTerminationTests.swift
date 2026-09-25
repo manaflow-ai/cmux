@@ -551,7 +551,9 @@ struct AgentHibernationProcessTerminationTests {
             AgentHibernationController.validatedScopedProcessTerminations(
                 for: scope,
                 processIdentityProvider: { identities[$0] },
-                processGroupProvider: { pid_t($0 + 1_000) }
+                processGroupProvider: { pid_t($0 + 1_000) },
+                // Fixture PIDs must not read an unrelated runner process's TTY.
+                processTTYDeviceProvider: { $0 == 202 ? 123 : nil }
             )
         )
 
@@ -560,7 +562,8 @@ struct AgentHibernationProcessTerminationTests {
                 .init(
                     processID: 202,
                     processIdentity: secondIdentity,
-                    processGroupID: 1_202
+                    processGroupID: 1_202,
+                    ttyDevice: 123
                 ),
                 .init(
                     processID: 101,
