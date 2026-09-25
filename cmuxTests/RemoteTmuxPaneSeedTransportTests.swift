@@ -1368,8 +1368,7 @@ import Testing
             workspace: workspace
         )
         defer { sessionMirror.detachObserver() }
-        let panelID = try #require(sessionMirror.panelIdByPane[7])
-        let panel = try #require(workspace.panels[panelID] as? TerminalPanel)
+        let panel = try #require(sessionMirror.windowMirrorByWindowId[1]?.panel(forPane: 7))
         let terminal = try hostedTerminal(panel.surface)
         defer { terminal.window.orderOut(nil) }
         await waitForLiveSurface(terminal.surface)
