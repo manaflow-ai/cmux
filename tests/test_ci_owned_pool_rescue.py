@@ -265,8 +265,9 @@ class Refusal(unittest.TestCase):
         self.assertIn("no job of this attempt asked for a persistent pool", summary)
 
     def test_one_deadline_covers_both_attempts(self):
-        # A refusal found near the end of the watch is left alone rather than
-        # cancelled by a job that may be killed before it can re-run.
+        # A refusal found near the end of the watch is still rescued: the job
+        # keeps time past the watch, under its own timeout, for the cancel to
+        # settle and the re-run.
         late = rescue.WATCH_LIMIT_SECONDS - 150
 
         def jobs(seconds):
@@ -282,9 +283,10 @@ class Refusal(unittest.TestCase):
         clock = Clock()
         api = FakeAPI(clock, jobs, marker=True)
         _, summary = run_main(api, clock)
-        self.assertNotIn("cancel", api.calls)
-        self.assertNotIn("rerun-failed", api.calls)
-        self.assertIn("too little of the watch left", summary)
+        self.assertIn("cancel", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("too little of the watch left", summary)
+        self.assertLess(clock.seconds, rescue.WATCH_LIMIT_SECONDS + rescue.RESCUE_GRACE_SECONDS)
         # And attempt 2 inherits what is left, not a fresh hour.
         clock = Clock()
         waiting = [job("macos / macOS compile admission", labels=[MINI], created=0, status="in_progress",
@@ -466,12 +468,23 @@ class Rescuing(unittest.TestCase):
         run_main(api, clock)
         self.assertGreaterEqual(api.cancelled_at, 300 + 90)
 
-    def test_force_cancel_then_give_up_without_rerun(self):
+    def test_a_slow_cancel_is_waited_out_and_re_run(self):
+        # Run 36074561333: a Mac mid-compile took over 5 minutes to settle
+        # after a force-cancel, and a 180 s wait left the run cancelled for good.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, settles_after=330)
+        code, _ = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertGreaterEqual(api.calls.count("force-cancel"), 1)
+        self.assertIn("rerun", api.calls)
+
+    def test_force_cancel_again_then_give_up_only_at_the_wait_limit(self):
         clock = Clock()
         api = FakeAPI(clock, persistent_run(), marker=True, settles_after=10_000)
         code, summary = run_main(api, clock)
         self.assertEqual(code, 1)
-        self.assertEqual(api.calls.count("force-cancel"), 1)
+        self.assertGreater(api.calls.count("force-cancel"), 1)
+        self.assertGreaterEqual(clock.seconds - api.cancelled_at, rescue.CANCEL_WAIT_SECONDS)
         self.assertNotIn("rerun", api.calls)
         self.assertIn("did not finish", summary)
 
@@ -594,9 +607,12 @@ class Workflow(unittest.TestCase):
             self.assertIs(step.get("continue-on-error"), True, name)
 
     def test_job_timeout_covers_the_watch_and_the_cancel_wait(self):
+        self.assertEqual(self.doc["jobs"]["rescue"]["timeout-minutes"] * 60, rescue.JOB_TIMEOUT_SECONDS)
         watch = max(rescue.WATCH_LIMIT_SECONDS, rescue.E2E_WATCH_LIMIT_SECONDS)
-        limit = (watch + rescue.CANCEL_WAIT_SECONDS + rescue.FIRST_LOOK_SECONDS) / 60
-        self.assertGreater(self.doc["jobs"]["rescue"]["timeout-minutes"], limit)
+        # A cancel starts only with CANCEL_WAIT + RERUN_MARGIN left of the grace.
+        self.assertGreater(rescue.RESCUE_GRACE_SECONDS, rescue.CANCEL_WAIT_SECONDS + rescue.RERUN_MARGIN_SECONDS)
+        self.assertLessEqual(watch + rescue.RESCUE_GRACE_SECONDS,
+                             rescue.JOB_TIMEOUT_SECONDS - rescue.JOB_TIMEOUT_MARGIN_SECONDS)
 
 
 if __name__ == "__main__":

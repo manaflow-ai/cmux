@@ -123,8 +123,21 @@ E2E_WATCH_LIMIT_SECONDS = 150 * 60
 READ_ATTEMPTS = 3
 READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
-CANCEL_WAIT_SECONDS = 180
+# A cancelled run is only useful re-run: giving up leaves the pull request's
+# run cancelled for good. A Mac job mid-compile has taken over 5 minutes to
+# settle after a force-cancel (run 36074561333, 2026-09-24), so wait long, and
+# force-cancel again while waiting.
+CANCEL_WAIT_SECONDS = 20 * 60
 FORCE_CANCEL_AFTER_SECONDS = 90
+FORCE_CANCEL_AGAIN_SECONDS = 5 * 60
+# A rescue may run this long past the watch's end, so a refusal found late
+# in the watch still gets its cancel settled and its re-run.
+RESCUE_GRACE_SECONDS = 25 * 60
+# Kept back from the job timeout for checkout and the summary.
+JOB_TIMEOUT_MARGIN_SECONDS = 5 * 60
+# ci-owned-pool-rescue.yml's timeout-minutes: the longest watch (an E2E
+# run's), its rescue grace, and the margin.
+JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEOUT_MARGIN_SECONDS
 # Time kept back after a cancel settles, for the re-run request itself.
 RERUN_MARGIN_SECONDS = 60
 # A refused job fails in seconds; a real failure of the first step after
@@ -473,7 +486,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
-    forced = False
+    forced_at: float | None = None
     while True:
         sleep(10)
         run = read(lambda: api.run(target.run_id), sleep, log)
@@ -482,10 +495,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if run.get("status") == "completed":
             break
         waited = (now() - started).total_seconds()
-        if not forced and waited >= FORCE_CANCEL_AFTER_SECONDS:
+        if (forced_at is None and waited >= FORCE_CANCEL_AFTER_SECONDS) or \
+                (forced_at is not None and waited - forced_at >= FORCE_CANCEL_AGAIN_SECONDS):
             api.force_cancel(target.run_id)
-            forced = True
-            log(f"force-cancelled run {target.run_id}")
+            forced_at = waited
+            log(f"force-cancelled run {target.run_id} ({round(waited)}s after cancel)")
         if waited >= CANCEL_WAIT_SECONDS:
             raise Aborted(f"run {target.run_id} did not finish {CANCEL_WAIT_SECONDS}s after cancel; not re-run")
     # A push during the cancel starts the new head's run; re-running the old
@@ -535,9 +549,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
     subject = "an E2E dispatch" if target.e2e else f"pull request #{target.pr_number}"
     log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")
-    # One deadline for every attempt this job watches, with room left under
-    # the workflow's timeout for a cancel to settle and a re-run.
-    deadline = clock() + dt.timedelta(seconds=target.watch_limit)
+    # One watch deadline for every attempt this job watches. A rescue may run
+    # past it, within the job's own timeout, so a cancel is never started
+    # without the time to settle and re-run.
+    started = clock()
+    deadline = started + dt.timedelta(seconds=target.watch_limit)
+    rescue_deadline = deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS)
     try:
         outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
                                 deadline=deadline)
@@ -549,7 +566,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             # An E2E run always keeps what passed (see the module docstring).
             failed_only = outcome == "refused" or target.attempt > 1 or target.e2e
             result = rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only,
-                            deadline=deadline, refused=(outcome == "refused") if target.e2e else None)
+                            deadline=rescue_deadline, refused=(outcome == "refused") if target.e2e else None)
             log(result)
             if not (failed_only and result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
                 return finish("done")
