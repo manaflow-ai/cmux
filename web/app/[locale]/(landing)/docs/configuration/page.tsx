@@ -140,6 +140,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "startCommand": "cmux-chat"
   // },
 
+  // "remote": {
+  //   "sshServerAliveInterval": 60,
+  //   "sshServerAliveCountMax": 5
+  // },
+
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
