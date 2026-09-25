@@ -52,6 +52,9 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
+    /// What closing a workspace asks first; `nil` result closes at once.
+    /// Defaults to the Mac question.
+    var closeConfirmation: (MobileWorkspacePreview.ID) -> MobileWorkspaceCloseConfirmation? = { _ in .macWorkspace }
     let setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let renameRequest: ((MobileWorkspacePreview.ID) -> Void)?

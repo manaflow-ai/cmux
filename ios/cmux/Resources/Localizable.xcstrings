@@ -98123,6 +98123,301 @@
         }
       }
     },
+    "mobile.ssh.close.confirmTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End “%1$@” on %2$@?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%1$@“ auf %2$@ beenden?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer « %1$@ » sur %2$@ ?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد إنهاء ”%1$@“ على %2$@؟"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Finalizar “%1$@” en %2$@?"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要在 %2$@ 上結束「%1$@」嗎？"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要在 %2$@ 上结束“%1$@”吗？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@에서 ‘%1$@’을(를) 종료하시겠습니까?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ で「%1$@」を終了しますか？"
+          }
+        }
+      }
+    },
+    "mobile.ssh.close.tmux.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This closes the tmux session and stops everything running in it, including anything open on other devices."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dadurch wird die tmux-Sitzung geschlossen und alles darin Laufende beendet, auch was auf anderen Geräten geöffnet ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La session tmux sera fermée et tout ce qui s’y exécute sera arrêté, y compris ce qui est ouvert sur d’autres appareils."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيؤدي هذا إلى إغلاق جلسة tmux وإيقاف كل ما يعمل فيها، بما في ذلك أي شيء مفتوح على أجهزة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se cerrará la sesión de tmux y se detendrá todo lo que se ejecute en ella, incluido lo que esté abierto en otros dispositivos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會關閉該 tmux 工作階段並停止其中執行的所有內容，包括在其他裝置上開啟的內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会关闭该 tmux 会话并停止其中运行的所有内容，包括在其他设备上打开的内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 세션이 닫히고 그 안에서 실행 중인 모든 항목이 중지됩니다. 다른 기기에서 열려 있는 항목도 포함됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux セッションを閉じ、その中で実行中のものをすべて停止します。ほかのデバイスで開いているものも含まれます。"
+          }
+        }
+      }
+    },
+    "mobile.ssh.close.tmux.confirmAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End Session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung beenden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminer la session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إنهاء الجلسة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finalizar sesión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "結束工作階段"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "结束会话"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 종료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを終了"
+          }
+        }
+      }
+    },
+    "mobile.ssh.close.cmuxTUI.confirmMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This closes the workspace and its terminals and stops everything running in them, including anything open on other devices."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dadurch werden der Arbeitsbereich und seine Terminals geschlossen und alles darin Laufende beendet, auch was auf anderen Geräten geöffnet ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’espace de travail et ses terminaux seront fermés et tout ce qui s’y exécute sera arrêté, y compris ce qui est ouvert sur d’autres appareils."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيؤدي هذا إلى إغلاق مساحة العمل ووحدات الطرفية الخاصة بها وإيقاف كل ما يعمل فيها، بما في ذلك أي شيء مفتوح على أجهزة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se cerrarán el espacio de trabajo y sus terminales, y se detendrá todo lo que se ejecute en ellos, incluido lo que esté abierto en otros dispositivos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這會關閉該工作區及其終端機，並停止其中執行的所有內容，包括在其他裝置上開啟的內容。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这会关闭该工作区及其终端，并停止其中运行的所有内容，包括在其他设备上打开的内容。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간과 해당 터미널이 닫히고 그 안에서 실행 중인 모든 항목이 중지됩니다. 다른 기기에서 열려 있는 항목도 포함됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースとそのターミナルを閉じ、その中で実行中のものをすべて停止します。ほかのデバイスで開いているものも含まれます。"
+          }
+        }
+      }
+    },
+    "mobile.ssh.close.cmuxTUI.confirmAction": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich schließen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer l’espace de travail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق مساحة العمل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar espacio de trabajo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉工作區"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭工作区"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 닫기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
     "mobile.ssh.error.cmuxTUIUnsupported": {
       "extractionState": "manual",
       "localizations": {

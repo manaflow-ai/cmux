@@ -209,6 +209,7 @@ extension WorkspaceListView {
             } : nil,
             selectWorkspace: { id in _ = selectWorkspaceFromList(id) },
             closeWorkspace: closeWorkspace,
+            closeConfirmation: { workspaceCloseConfirmation(for: $0) },
             setUnread: setUnread,
             setPinned: setPinned,
             renameRequest: requestWorkspaceRename,

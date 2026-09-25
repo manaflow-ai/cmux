@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxMobileDiagnostics
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -957,7 +958,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         waitsForContextMenuDismissal: Bool,
         contextMenuIdentifier: String? = nil
     ) {
-        guard configuration.closeWorkspace != nil else { return }
+        guard let closeWorkspace = configuration.closeWorkspace else { return }
+        guard configuration.closeConfirmation(workspace.id) != nil else {
+            // Nothing to ask (an SSH shell): close in one tap.
+            closeWorkspace(workspace.id)
+            return
+        }
         if waitsForContextMenuDismissal {
             pendingContextMenuWorkspaceClose = (
                 workspace,
@@ -987,10 +993,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     ) {
         guard
             let tableViewController,
-            let closeWorkspace = configuration.closeWorkspace
+            let closeWorkspace = configuration.closeWorkspace,
+            let confirmation = configuration.closeConfirmation(workspace.id)
         else { return }
         tableViewController.presentWorkspaceCloseConfirmation(
             workspaceID: workspace.id,
+            confirmation: confirmation,
             sourceView: sourceView
         ) {
             closeWorkspace(workspace.id)

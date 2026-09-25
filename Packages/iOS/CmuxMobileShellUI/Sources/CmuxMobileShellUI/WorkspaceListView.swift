@@ -186,6 +186,10 @@ struct WorkspaceListView: View {
     /// Stored at list scope so reusable rows do not own transient presentation
     /// state while `List` is recycling swipe-action rows.
     @State var workspacePendingCloseID: MobileWorkspacePreview.ID?
+    /// The question for ``workspacePendingCloseID``, resolved once when the
+    /// close is requested so the sheet's copy stays put while the list
+    /// refreshes underneath it.
+    @State var workspacePendingCloseConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     /// The workspace whose UIKit context-menu rename action is presenting the
     /// list-scoped rename alert.
     @State var workspacePendingRenameID: MobileWorkspacePreview.ID?
@@ -775,15 +779,12 @@ struct WorkspaceListView: View {
             }
         }
         .confirmationDialog(
-            L10n.string("mobile.workspace.delete.confirmTitle", defaultValue: "Delete Workspace?"),
+            workspacePendingCloseConfirmation.title,
             isPresented: workspaceCloseConfirmationIsPresented,
             titleVisibility: .visible
         ) {
             if closeWorkspace != nil, let workspaceID = workspacePendingCloseID {
-                Button(
-                    L10n.string("mobile.workspace.delete.confirmAction", defaultValue: "Delete"),
-                    role: .destructive
-                ) {
+                Button(workspacePendingCloseConfirmation.actionTitle, role: .destructive) {
                     confirmCloseWorkspace()
                 }
                 .accessibilityIdentifier("MobileWorkspaceDeleteConfirmButton-\(workspaceID.rawValue)")
@@ -792,12 +793,7 @@ struct WorkspaceListView: View {
                 workspacePendingCloseID = nil
             }
         } message: {
-            Text(
-                L10n.string(
-                    "mobile.workspace.delete.confirmMessage",
-                    defaultValue: "This will close the workspace on your Mac."
-                )
-            )
+            Text(workspacePendingCloseConfirmation.message)
         }
         .confirmationDialog(
             workspaceGroupDestructiveDialogTitle,
@@ -1116,6 +1112,7 @@ struct WorkspaceListView: View {
             } : nil,
             closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
+            closeConfirmation: workspacePendingCloseConfirmation,
             confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
                 confirmCloseWorkspace()
             } : nil

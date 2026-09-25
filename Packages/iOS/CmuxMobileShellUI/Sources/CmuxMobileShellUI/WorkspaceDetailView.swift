@@ -66,6 +66,9 @@ struct WorkspaceDetailView: View {
 #endif
     /// Drives the destructive close-workspace confirmation dialog.
     @State var isConfirmingClose = false
+    /// The question that dialog asks, resolved from the store when the close
+    /// is requested.
+    @State var closeConfirmation: MobileWorkspaceCloseConfirmation = .macWorkspace
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -291,6 +294,7 @@ struct WorkspaceDetailView: View {
                 visibleArtifactCount = 0
             }
             .closeWorkspaceConfirmation(
+                closeConfirmation,
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
@@ -340,6 +344,7 @@ struct WorkspaceDetailView: View {
         #else
         content
             .closeWorkspaceConfirmation(
+                closeConfirmation,
                 isPresented: $isConfirmingClose,
                 confirm: confirmCloseWorkspaceFromMenu
             )
@@ -1129,10 +1134,17 @@ struct WorkspaceDetailView: View {
         createWorkspace()
     }
 
-    /// Arms the close-workspace confirmation. The actual close runs only after
-    /// the user confirms, matching the workspace list's destructive-action UX.
+    /// Arms the close-workspace confirmation the store's rule asks for (the
+    /// same one the workspace list's swipe and context menu use). The close
+    /// runs only after the user confirms, or at once when the rule asks
+    /// nothing (an SSH shell).
     private func requestCloseWorkspaceFromMenu() {
         dismissTerminalKeyboardForChrome()
+        guard let confirmation = store.workspaceCloseConfirmation(id: workspace.id) else {
+            closeWorkspace?(workspace.id)
+            return
+        }
+        closeConfirmation = confirmation
         isConfirmingClose = true
     }
 
