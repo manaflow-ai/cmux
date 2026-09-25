@@ -22,8 +22,8 @@ struct ReviewCandidate {
         _ = try Self.git(repository, ["read-tree", head], index: index)
         // Disable every configured filter, including process filters. Merely clearing
         // inherited GIT_* variables does not neutralize repository-local configuration.
-        let filterKeys = (try? Self.git(repository, ["config", "--null", "--name-only", "--get-regexp", "^filter\\."])) ?? ""
-        let filters = Set(filterKeys.split(separator: "\0").compactMap { key -> String? in
+        let filterKeys = (try? Self.git(repository, ["config", "--name-only", "--get-regexp", "^filter\\."])) ?? ""
+        let filters = Set(filterKeys.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).compactMap { key -> String? in
             guard let suffix = key.lastIndex(of: ".") else { return nil }
             return String(key[..<suffix])
         })
