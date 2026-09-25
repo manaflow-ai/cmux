@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -89,14 +90,16 @@ struct CloudSidebarConsistencyTests {
 
     @Test("Opening a captured sidebar row uses current membership and current workspace name")
     func openingStaleRow() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         install(try state(tabs: ["a"]), in: catalog)
         let captured = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_main")
         install(try state(revision: 2, name: "Renamed", tabs: ["b", "c"]), in: catalog)
         var titles: [String] = []
-        let workspaceID = UUID()
+        let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
             create: { title in titles.append(title); return (workspaceID, nil) },
             paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
@@ -111,12 +114,14 @@ struct CloudSidebarConsistencyTests {
 
     @Test("Opening a tab selection does not expand it to the entire Cloud workspace")
     func selectedTabsRemainASelection() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         catalog.register(CloudPlacementTestProvider(machine: machine))
         install(try state(), in: catalog)
         let all = try catalog.remoteWorkspaceGroup(machine: machine, workspaceID: "ws_main")
         let selection = SurfaceResourceGroup(title: "Selection", placements: [all.placements[0]], remoteWorkspaceID: "ws_main")
-        let workspaceID = UUID()
+        let workspaceID = live.id()
         let host = SurfaceCatalog.NewWorkspaceHost(
             create: { _ in (workspaceID, nil) }, paneLookup: { _, _ in "pane" }, closeStarter: { _, _ in }
         )
@@ -224,6 +229,26 @@ struct CloudSidebarConsistencyTests {
         catalog.reconcileCloudRemoteState(machine: machine, state: graph)
         #expect(workspace.effectiveCustomTitleSource == .user)
         #expect(workspace.panelCustomTitleSources[panelID] == .user)
+    }
+
+    @Test("Supported Cloud providers resolve their bundled marks")
+    func supportedCloudProviderMarks() {
+        let expected = [
+            "claude": "AgentIcons/Claude", "codex": "AgentIcons/Codex",
+            "opencode": "AgentIcons/OpenCode", "pi": "AgentIcons/Pi",
+            "amp": "AgentIcons/Amp", "cursor": "AgentIcons/Cursor",
+            "gemini": "AgentIcons/Gemini", "kiro": "AgentIcons/Kiro",
+            "copilot": "AgentIcons/Copilot", "codebuddy": "AgentIcons/CodeBuddy",
+            "factory": "AgentIcons/Factory", "qoder": "AgentIcons/Qoder",
+            "kimi": "AgentIcons/Kimi", "ollama": "AgentIcons/Ollama"
+        ]
+        for (provider, asset) in expected {
+            let badge = SurfaceAgentBadge(state: "working", source: "hook", agent: provider)
+            #expect(badge.agent == provider)
+            #expect(CmuxTaskManagerCodingAgentDefinition.builtIns.first(where: { $0.id == provider })?.assetName == asset)
+        }
+        #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "codex") == "AgentIcons/Codex")
+        #expect(TerminalTabAgentIconResolver().assetName(forStatusKey: "gemini") == "AgentIcons/Gemini")
     }
 
     @Test("A bound native tab receives canonical names, process titles, and ignores delayed graph callbacks", arguments: [false, true])

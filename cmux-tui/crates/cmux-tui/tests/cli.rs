@@ -4051,6 +4051,164 @@ fn plugin_install_use_and_list_work_against_local_git_repo() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn agent_plugin_install_use_and_remove_work_against_local_git_repo() {
+    let dir = unique_temp_dir("agent-plugin-install");
+    let source = dir.join("source");
+    // Keep the fixture executable out of git. The manager must build the
+    // staged checkout before it verifies the agent command.
+    fs::create_dir_all(&source).unwrap();
+    fs::write(
+        source.join("cmux-plugin.toml"),
+        r#"
+            [plugin]
+            name = "agent-fixture"
+            kind = "agent"
+            version = "0.1.0"
+            description = "Fixture agent detector"
+
+            [run]
+            command = ["bin/agent"]
+
+            [build]
+            command = ["/bin/sh", "build.sh"]
+        "#,
+    )
+    .unwrap();
+    fs::write(
+        source.join("build.sh"),
+        concat!(
+            "#!/bin/sh\n",
+            "mkdir -p bin\n",
+            "cat > bin/agent <<'EOF'\n",
+            "#!/bin/sh\n",
+            "exit 0\n",
+            "EOF\n",
+            "chmod 755 bin/agent\n"
+        ),
+    )
+    .unwrap();
+    git(&source, &["init"]);
+    git(&source, &["add", "."]);
+    git(
+        &source,
+        &[
+            "-c",
+            "user.name=cmux",
+            "-c",
+            "user.email=cmux@example.invalid",
+            "commit",
+            "-m",
+            "fixture",
+        ],
+    );
+
+    let data_home = dir.join("data");
+    let config_path = dir.join("config").join("mux.json");
+    fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    fs::write(&config_path, r#"{"future":{"keep":true},"agents":{"other":true}}"#).unwrap();
+    let missing_socket = dir.join("missing.sock");
+    let url = format!("file://{}", source.display());
+
+    let install = plugin_cli(
+        &data_home,
+        &config_path,
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "agent",
+            "plugin",
+            "install",
+            &url,
+        ],
+    );
+    assert_success(&install);
+    let installed = json_output(&install);
+    assert_eq!(installed["plugin"]["name"].as_str(), Some("agent-fixture"));
+    assert_eq!(installed["plugin"]["active"].as_bool(), Some(false));
+    assert!(installed["plugin"]["id"].as_str().unwrap().starts_with("agent_plugin_"));
+    assert_eq!(installed["plugin"]["enabled"].as_bool(), Some(true));
+
+    let installed_dir =
+        data_home.join("cmux").join("mux-plugins").join("agent").join("agent-fixture");
+    assert!(installed_dir.join("cmux-plugin.toml").is_file());
+    assert!(installed_dir.join("bin/agent").is_file());
+
+    let use_plugin = plugin_cli(
+        &data_home,
+        &config_path,
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "agent",
+            "plugin",
+            "use",
+            "agent-fixture",
+        ],
+    );
+    assert_success(&use_plugin);
+    let used = json_output(&use_plugin);
+    assert_eq!(used["plugin"]["name"].as_str(), Some("agent-fixture"));
+    assert_eq!(used["plugin"]["active"].as_bool(), Some(true));
+    let plugin_id = used["plugin"]["id"].as_str().unwrap().to_string();
+
+    let written: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert_eq!(written["future"]["keep"].as_bool(), Some(true));
+    assert_eq!(written["agents"]["other"].as_bool(), Some(true));
+    assert_eq!(written["agents"]["plugin"]["id"].as_str(), Some(plugin_id.as_str()));
+    let canonical_dir = fs::canonicalize(&installed_dir).unwrap();
+    assert_eq!(written["agents"]["plugin"]["cwd"].as_str(), Some(canonical_dir.to_str().unwrap()));
+    assert_eq!(
+        written["agents"]["plugin"]["command"][0].as_str(),
+        Some(canonical_dir.join("bin/agent").to_str().unwrap())
+    );
+    assert!(
+        written["agents"]["plugin"]["revision"]
+            .as_str()
+            .is_some_and(|value| { value.starts_with("sha256-") })
+    );
+
+    let list = plugin_cli(&data_home, &config_path, &["--json", "agent", "plugin", "list"]);
+    assert_success(&list);
+    let listed = json_output(&list);
+    assert_eq!(listed[0]["name"].as_str(), Some("agent-fixture"));
+    assert_eq!(listed[0]["active"].as_bool(), Some(true));
+
+    let builtin = plugin_cli(
+        &data_home,
+        &config_path,
+        &[
+            "--json",
+            "--socket",
+            missing_socket.to_str().unwrap(),
+            "agent",
+            "plugin",
+            "use",
+            "--builtin",
+        ],
+    );
+    assert_success(&builtin);
+    let written: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+    assert!(written["agents"].get("plugin").is_none());
+    assert_eq!(written["future"]["keep"].as_bool(), Some(true));
+
+    let remove = plugin_cli(
+        &data_home,
+        &config_path,
+        &["--json", "agent", "plugin", "remove", "agent-fixture"],
+    );
+    assert_success(&remove);
+    assert_eq!(json_output(&remove)["plugin"]["enabled"].as_bool(), Some(false));
+    assert!(!installed_dir.exists());
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut last = String::new();
@@ -4069,8 +4227,13 @@ fn wait_for_screen(server: &HeadlessServer, terminal: &str, marker: &str) -> Str
 fn plugin_cli(data_home: &PathBuf, config_path: &PathBuf, args: &[&str]) -> Output {
     Command::new(bin())
         .args(args)
+        // Keep plugin builds and their Git subprocesses away from the real
+        // home directory. The config parent is created by each test and is
+        // unique to that test invocation.
+        .env("HOME", config_path.parent().expect("plugin config has a parent"))
         .env("XDG_DATA_HOME", data_home)
         .env("CMUX_MUX_CONFIG", config_path)
+        .env_remove("CMUX_TUI_CONFIG")
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap()
@@ -4251,6 +4414,7 @@ fn create_live_terminal_host_record(root: &std::path::Path) -> fs::File {
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
+        supports_terminal_metadata: false,
     };
     let record_path = record.record_path(root);
     let live_path = record_path.with_extension(format!("{incarnation}-{host_start_nonce}.live"));
@@ -4300,8 +4464,27 @@ fn write_wg_hub_config(dir: &std::path::Path, mode: u32) -> PathBuf {
 #[cfg(unix)]
 #[test]
 fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
+    use base64::Engine;
+
     let dir = TestTempDir::create("wg-hub");
-    let config = write_wg_hub_config(dir.path(), 0o600);
+    let runtime =
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap();
+    let (contents, peer) = runtime.block_on(async {
+        let cmux_wg::testing::LoopbackPair { client, server, server_socket, .. } =
+            cmux_wg::testing::loopback_pair().await.unwrap();
+        let peer = cmux_wg::WgNet::start(server, server_socket).await.unwrap();
+        let encoder = base64::engine::general_purpose::STANDARD;
+        let contents = format!(
+            "[Interface]\nPrivateKey = {}\nAddress = 10.200.0.1/32\nMTU = 1200\n\n[Peer]\nPublicKey = {}\nAllowedIPs = 10.200.0.0/24, fdcc::/64\nEndpoint = {}\nPersistentKeepalive = 5\n",
+            encoder.encode(client.private_key.as_ref()),
+            encoder.encode(client.peer_public_key),
+            client.endpoint.unwrap(),
+        );
+        (contents, peer)
+    });
+    let config = dir.path().join("wg.conf");
+    fs::write(&config, contents).unwrap();
+    fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
     let socket = dir.path().join("hub").join("wg.sock");
     let mut child = Command::new(bin())
         .args(["wg", "hub", "--config"])
@@ -4325,7 +4508,7 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(ready["event"], "hub-ready", "{line}");
     assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");
-    assert_eq!(ready["routes"], serde_json::json!(["10.0.0.0/8", "fd00::/8"]), "{line}");
+    assert_eq!(ready["routes"], serde_json::json!(["10.200.0.0/24", "fdcc::/64"]), "{line}");
 
     let socket_meta = fs::metadata(&socket).unwrap();
     assert!(socket_meta.file_type().is_socket());
@@ -4356,6 +4539,7 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     };
     assert!(status.success(), "hub exited unsuccessfully after SIGTERM: {status}");
     assert!(!socket.exists(), "hub must remove its socket on exit");
+    runtime.block_on(peer.shutdown());
 }
 
 #[cfg(unix)]

@@ -182,27 +182,14 @@ struct WorkspaceContentView: View {
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
 
-    static func panelVisibleInUI(
-        isWorkspaceVisible: Bool,
-        paneHasSelectedTab: Bool,
-        isSelectedInPane: Bool,
-        isFocused: Bool
-    ) -> Bool {
-        // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible only when
-        // the pane has no selected tab to report; if another tab is selected, a
-        // stale focused terminal must not keep its portal view visible.
-        return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
-            isWorkspaceVisible: isWorkspaceVisible,
-            paneHasSelectedTab: paneHasSelectedTab,
-            isSelectedInPane: isSelectedInPane,
-            isFocused: isFocused
-        )
-    }
-
     var body: some View {
 #if DEBUG
-        let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
+        let _ = {
+            if minimalModeInvalidationProbe.shouldTraceBodyChanges?() == true {
+                Self._printChanges()
+            }
+            minimalModeInvalidationProbe.workspaceContentBody?()
+        }()
 #endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
@@ -431,11 +418,20 @@ struct WorkspaceContentView: View {
                 bonsplitView
             }
         }
+        .overlay {
+            if workspace.isManagedCloudVMWorkspace {
+                CloudSurfaceDropGate(workspaceID: workspace.id, isActive: isWorkspaceInputActive)
+            }
+        }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
         // A workspace is a page: accept the parent proposal instead of
         // contributing a hidden child's content-derived ideal to its ZStack.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .modifier(CloudPaneCreationFailurePresentation(failureStore: workspace.cloudPaneCreationFailureStore))
+        .modifier(CloudPaneCreationFailurePresentation(
+            failureStore: workspace.cloudPaneCreationFailureStore,
+            isWorkspaceVisible: isWorkspaceVisible,
+            sourceView: workspace.cloudPaneCreationFailureSourceView
+        ))
     }
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds

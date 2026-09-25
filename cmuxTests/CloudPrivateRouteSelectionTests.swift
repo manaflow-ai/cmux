@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxCloudTui
 import Foundation
 import Testing
 
@@ -8,6 +10,15 @@ import Testing
 #endif
 
 struct CloudPrivateRouteSelectionTests {
+    @Test("Known device identities open one browser carrier without a redundant sidebar link")
+    func browserProxyOnlyNeedsPreparationForFirstUse() {
+        #expect(CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: nil))
+        #expect(!CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker
+        ))
+        #expect(!CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: "stored-device"))
+    }
+
     private func manager() -> CloudMachineLinkManager {
         CloudMachineLinkManager(
             paths: CloudTuiClientPaths(home: URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")),

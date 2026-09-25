@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -65,7 +66,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     func testStoredCustomSidebarModeFallsBackToFilesWhenBetaDisabled() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
-            let customSidebarsKey = "customSidebars.beta.enabled"
+            let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
             let previous = defaults.object(forKey: customSidebarsKey)
             defaults.set(false, forKey: customSidebarsKey)
             defer {
@@ -88,7 +89,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     func testStoredCustomSidebarModePersistsWhenAvailable() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
-            let customSidebarsKey = "customSidebars.beta.enabled"
+            let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
             let previous = defaults.object(forKey: customSidebarsKey)
             defaults.set(true, forKey: customSidebarsKey)
             defer {

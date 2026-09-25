@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { CliAuthConfirmationState } from "@stackframe/stack";
+import type { CliAuthConfirmationState } from "@hexclave/next";
 import React from "react";
 import en from "../messages/en.json";
 import ja from "../messages/ja.json";
@@ -11,14 +11,15 @@ let user: {
   selectedTeam: { displayName: string } | null;
 } | null;
 
-mock.module("@stackframe/stack", () => ({
+mock.module("@hexclave/next", () => ({
   useCliAuthConfirmation: () => auth,
   useUser: () => user,
-  MessageCard: ({ title, children, primaryButtonText }: {
+  MessageCard: ({ title, children, primaryButtonText, secondaryButtonText }: {
     title: string;
     children: React.ReactNode;
     primaryButtonText?: string;
-  }) => <main><h1>{title}</h1>{children}{primaryButtonText && <button type="button">{primaryButtonText}</button>}</main>,
+    secondaryButtonText?: string;
+  }) => <main><h1>{title}</h1>{children}{secondaryButtonText && <button type="button">{secondaryButtonText}</button>}{primaryButtonText && <button type="button">{primaryButtonText}</button>}</main>,
 }));
 
 const { CliAuthConfirmation } = await import("../app/handler/cli-auth-confirmation");
@@ -52,6 +53,30 @@ describe("CLI authorization account identity", () => {
     const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
     expect(html).toContain("alex@example.com");
     expect(html.indexOf("alex@example.com")).toBeLessThan(html.indexOf('<button type="button">Authorize</button>'));
+  });
+
+  test("offers a different-account sign-in that preserves the CLI login code", () => {
+    const html = renderToStaticMarkup(<CliAuthConfirmation identityMessages={en.cliAuthIdentity} />);
+    expect(html).toContain("<button type=\"button\">Use a different account</button>");
+  });
+
+  test("builds a different-account sign-in that preserves the CLI login code", async () => {
+    const { cliAuthSwitchAccountHref } = await import("../app/handler/cli-auth-confirmation");
+    const switchURL = new URL(cliAuthSwitchAccountHref("test-login-code"), "https://cmux.test");
+    expect(switchURL.pathname).toBe("/handler/sign-out-and-sign-in");
+
+    const signInURL = new URL(
+      switchURL.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test",
+    );
+    expect(signInURL.pathname).toBe("/handler/sign-in");
+
+    const confirmationURL = new URL(
+      signInURL.searchParams.get("after_auth_return_to")!,
+      "https://cmux.test",
+    );
+    expect(confirmationURL.pathname).toBe("/handler/cli-auth-confirm");
+    expect(confirmationURL.searchParams.get("login_code")).toBe("test-login-code");
   });
 
   test("uses the current session account when it changes", () => {

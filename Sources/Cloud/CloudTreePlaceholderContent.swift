@@ -1,23 +1,33 @@
+import CmuxCloud
+import CmuxFoundation
 import SwiftUI
 
 struct CloudTreePlaceholderContent: View {
     let placeholder: CloudTreePlaceholder
     let style: CloudTreeStyle
 
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
+
     var body: some View {
-        HStack(alignment: .center, spacing: style.iconGap) {
+        HStack(alignment: .center, spacing: GlobalFontMagnification.scaledSize(style.iconGap, percent: magnification)) {
             Group {
                 switch placeholder.style {
                 case .connecting:
                     ProgressView().controlSize(.mini)
                 case .error:
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                        .foregroundStyle(.secondary)
+                    CmuxSystemSymbolImage(
+                        systemName: "exclamationmark.triangle",
+                        pointSize: max(style.iconSize, 9),
+                        weight: .regular,
+                        tint: Color(nsColor: .secondaryLabelColor)
+                    )
                 case .dimmed:
-                    Image(systemName: "moon.zzz")
-                        .font(.system(size: max(style.iconSize, 9), weight: .regular))
-                        .foregroundStyle(.tertiary)
+                    CmuxSystemSymbolImage(
+                        systemName: "moon.zzz",
+                        pointSize: max(style.iconSize, 9),
+                        weight: .regular,
+                        tint: Color(nsColor: .tertiaryLabelColor)
+                    )
                 }
             }
             .frame(width: max(style.iconSlot, 12))
@@ -28,6 +38,6 @@ struct CloudTreePlaceholderContent: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+        .padding(.trailing, style.rowGrid.trailingPadding)
     }
 }
