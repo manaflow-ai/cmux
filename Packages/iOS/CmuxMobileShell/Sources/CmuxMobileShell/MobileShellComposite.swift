@@ -1108,6 +1108,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Durable outbox for phone→Mac dismissals.
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
+    /// Account-scoped identities whose revoke completed locally but whose Mac
+    /// has not published its replacement directory binding yet.
+    let forgottenMacRecoveryDefaults: UserDefaults
     private let multiMacAggregationDefaults: UserDefaults
     let hiddenMacStore: any PairedMacHiddenStoring
     let clientID: String
@@ -1920,6 +1923,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
+        self.forgottenMacRecoveryDefaults = pairingHintDefaults
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.hiddenMacStore = hiddenMacStore
         self.analytics = analytics
@@ -3676,10 +3680,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     @ObservationIgnored private var pairedMacLoadCompletedRefreshGeneration: [
         PairedMacLoadKey: UInt64
     ] = [:]
+    struct ForgottenMacRecoveryRerun: Sendable {
+        let scope: MobileShellScopeSnapshot
+        let refreshDirectory: Bool
+    }
     /// Visible representative id to all stored ids for that logical paired Mac.
     public private(set) var pairedMacAliasIDsByRepresentativeID: [String: [String]] = [:]
     /// Cached device-local hidden ids keyed by signed-in account/team scope.
     @ObservationIgnored var hiddenMacDeviceIDsByScope: [String: Set<String>] = [:]
+    @ObservationIgnored var forgottenMacRecoveryInFlightScope: MobileShellScopeSnapshot?
+    @ObservationIgnored var forgottenMacRecoveryRerun: ForgottenMacRecoveryRerun?
+    @ObservationIgnored var forgottenMacRecoveryIDsRememberedDuringInFlight: [String: Set<String>] = [:]
     /// Row-backed hidden entries for the current account/team.
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
     /// True when the current account/team scope has at least one hidden computer.
@@ -3985,6 +3996,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 directoryObservationTask = Task { @MainActor [weak self] in
                     for await _ in discovery.directoryUpdates() {
                         guard let self, !Task.isCancelled, self.isSignedIn else { return }
+                        if let scope = await self.currentScopeSnapshot() {
+                            await self.recoverForgottenMacsFromDirectory(
+                                scope: scope,
+                                refreshDirectory: false
+                            )
+                        }
                         await self.loadRegistryDevices()
                         if self.connectionState == .connected {
                             self.scheduleSecondaryAggregation(discoverLivePeers: true)
