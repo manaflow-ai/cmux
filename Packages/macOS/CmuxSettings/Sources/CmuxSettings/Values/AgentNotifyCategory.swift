@@ -15,4 +15,3 @@ public enum AgentNotifyCategory: String, Sendable {
         }
     }
 }
-
