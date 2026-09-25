@@ -484,6 +484,29 @@ jobs:
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
           python3 scripts/ci/owned_build_state.py check "$CMUX_OWNED_STATE_ROOT" "$fingerprint" "$PWD" "${CMUX_OWNED_PACKAGE_STORE:-}"
 
+      # A warm Mac's kept DerivedData is the previous pull request's build, so
+      # its compile also undoes that diff (365-428 s on 2026-09-25), while a
+      # seed a few commits behind compiled in 50-160 s. With
+      # CI_OWNED_PREFER_SEED set, adopt the seed instead when it rebuilds
+      # fewer inputs: `local` compares only with a seed this Mac keeps (no
+      # download), a number N also takes a downloaded seed at most N commits
+      # behind. owned_build_state.py `prefer` has the rules; unset, nothing
+      # changes. If the seed then misses, the kept DerivedData is adopted.
+      - name: Prefer a near seed over this owned Mac's DerivedData
+        id: prefer-seed
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm == 'true' && vars.CI_OWNED_PREFER_SEED != '' && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          SEED_PREFIX: admission-derived-data-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.owned-state.outputs.fingerprint }}-
+          MERGED_ONTO: ${{ inputs.source_parent1 || github.event.pull_request.base.sha }}
+          MAX_DISTANCE: ${{ vars.CI_OWNED_PREFER_SEED }}
+          CMUX_SEED_LOCAL_CACHE: ${{ env.CMUX_OWNED_STATE_ROOT }}/seeds
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci/owned_build_state.py prefer "$CMUX_OWNED_STATE_ROOT" "$PWD" \
+            "$SEED_PREFIX" "$MERGED_ONTO" "$MAX_DISTANCE"
+
       - name: Cache GhosttyKit.xcframework
         if: steps.reuse-products.outputs.hit != 'true'
         id: cache-ghosttykit-admission
@@ -548,7 +571,7 @@ jobs:
       # seed" below reuses the seed this step picked and waits for it; if this
       # step fails, adopt picks and downloads itself.
       - name: Start the DerivedData seed download
-        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        if: steps.reuse-products.outputs.hit != 'true' && (steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true') && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
         # Picking the seed probes the bucket before the download detaches; a
         # hung CDN must not hold up the resolve. adopt then picks for itself.
@@ -561,6 +584,11 @@ jobs:
           # itself, whose own seed may already exist, else its parent's.
           MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
           GH_TOKEN: ${{ github.token }}
+          # A seed an owned Mac keeps is cloned, not downloaded (prefer-seed
+          # above), and it is the one prefer-seed compared.
+          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
+          CMUX_SEED_EXACT: ${{ steps.prefer-seed.outputs.local == 'true' && steps.prefer-seed.outputs.seed_key || '' }}
+          CMUX_SEED_DISTANCE: ${{ steps.prefer-seed.outputs.seed_distance }}
         run: |
           python3 scripts/ci/seed_derived_data.py start \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$SEED_PREFIX" "$MERGED_ONTO"
@@ -635,7 +663,7 @@ jobs:
       # them costs compile time.
       - name: Adopt the nightly DerivedData seed
         id: seed-derived-data
-        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm != 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        if: steps.reuse-products.outputs.hit != 'true' && (steps.owned-state.outputs.warm != 'true' || steps.prefer-seed.outputs.prefer == 'true') && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (vars.CI_ADMISSION_SEED_DERIVED_DATA || '1') != '0' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
         timeout-minutes: 8
         env:
@@ -646,6 +674,9 @@ jobs:
           # itself, whose own seed may already exist, else its parent's.
           MERGED_ONTO: ${{ github.event_name == 'pull_request' && (inputs.source_parent1 || github.event.pull_request.base.sha) || github.sha }}
           GH_TOKEN: ${{ github.token }}
+          CMUX_SEED_LOCAL_CACHE: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && vars.CI_OWNED_PREFER_SEED != '' && format('{0}/seeds', env.CMUX_OWNED_STATE_ROOT) || '' }}
+          CMUX_SEED_EXACT: ${{ steps.prefer-seed.outputs.local == 'true' && steps.prefer-seed.outputs.seed_key || '' }}
+          CMUX_SEED_DISTANCE: ${{ steps.prefer-seed.outputs.seed_distance }}
         run: |
           python3 scripts/ci/seed_derived_data.py adopt \
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
@@ -653,7 +684,7 @@ jobs:
 
       - name: Adopt this owned Mac's DerivedData
         id: owned-adopt
-        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm == 'true'
+        if: steps.reuse-products.outputs.hit != 'true' && steps.owned-state.outputs.warm == 'true' && (steps.prefer-seed.outputs.prefer != 'true' || steps.seed-derived-data.outputs.hit != 'true')
         continue-on-error: true
         run: python3 scripts/ci/owned_build_state.py adopt "$CMUX_OWNED_STATE_ROOT" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_CI_CANONICAL_SRC"
 
@@ -783,6 +814,9 @@ jobs:
             echo "cmux CLI binary missing from this admission build" >&2
             exit 1
           fi
+          # The first launch of a new executable pays a one-time system check on
+          # the owned Macs; take it here, before the tests' short timeouts.
+          "$CLI_BIN" --help >/dev/null 2>&1 || true
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_config_doctor.py
@@ -1349,19 +1383,21 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
-      # Global search owns a seventh consumer because its serialized container
-      # takes about eight minutes; it skips the broad batches entirely. The
-      # remaining strict groups share workers with broad batches, so reserve
-      # their measured wall time when packing those six workers.
+      # Strict groups share workers with the broad batches, so each worker
+      # that runs one reserves that group's measured wall time (median step
+      # time over 24 hours of green runs) when the batches are packed. Global
+      # search once took about eight minutes and had worker 7 to itself; it
+      # now takes about 90 seconds, so worker 7 runs broad batches too.
       CMUX_APP_HOST_GLOBAL_SEARCH_SHARD: "7"
       CMUX_APP_HOST_CLI_REGRESSION_SHARD: "4"
       CMUX_APP_HOST_FOCUSED_REGRESSION_B_SHARD: "5"
       CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "6"
-      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=235 5=213 6=235"
+      CMUX_APP_HOST_RESERVED_WALL_SECONDS: "4=226 5=110 6=210 7=90"
       # Four-way packing now exceeds the app-host's memory budget as the suite
       # grows: a shard can crash around 1,000 UI tests and poison the remaining
-      # selectors. Six-way packing keeps each broad shard near 13 minutes of
-      # measured work; allow focused gates and one app-host restart headroom.
+      # selectors. Seven workers of two batches each keep a batch near three
+      # minutes of measured work; allow focused gates and one app-host restart
+      # headroom.
       CMUX_UNIT_TEST_TIMEOUT_SECONDS: "1800"
       # The broad shard can spend several minutes in XCTest's post-suite
       # teardown while native UI processes drain. Allow that quiet period
@@ -2067,7 +2103,6 @@ jobs:
           done
 
       - name: Run unit tests
-        if: ${{ matrix.shard != fromJSON(env.CMUX_APP_HOST_GLOBAL_SEARCH_SHARD) }}
         run: scripts/ci/run-app-host-unit-batches.sh
 
       - name: Run bundled Ghostty theme picker helper regression

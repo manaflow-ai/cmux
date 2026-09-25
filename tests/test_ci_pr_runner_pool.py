@@ -800,6 +800,8 @@ class OwnedPools(unittest.TestCase):
         self.assertTrue(any(LIGHT in p and "'3'" in p for p in problems))
         self.assertEqual(pool.slot_problems(""), [])
         self.assertEqual(pool.slot_problems('{"%s": 11}' % MINI), [])
+        for side in ("side-std", "glaeda-side-std-xcode-26.6"):
+            self.assertIn("names side runners", pool.slot_problems('{"%s": 11, "%s": 4}' % (MINI, side))[0])
         self.assertIn("not JSON", pool.slot_problems("nope")[0])
         self.assertIn("not a JSON object", pool.slot_problems("[1]")[0])
 

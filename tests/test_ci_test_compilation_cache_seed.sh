@@ -206,6 +206,8 @@ for expected in \
   CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO \
   'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))' \
   CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately \
+  'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_INSTALL_MODULE_cmuxTests=NO \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \
   "$TMP_DIR/packages"; do
@@ -328,9 +330,9 @@ fi
 echo "PASS: the script rejects bad usage"
 
 # scripts/test-unit.sh, the local test-compile wrapper, builds cmuxTests the
-# way CI does: no Swift module, through the same two cmuxTests-only settings.
+# way CI does: no Swift module producer or installer, with target-scoped settings.
 cmuxtests_module_values() {
-  sed -n -E "s/^$1_(INTEGRATED_DRIVER|SWIFT_FLAGS)_cmuxTests=(.*)$/\\1=\\2/p" "$2" | sort -u
+  sed -n -E "s/^$1_(INTEGRATED_DRIVER|SWIFT_FLAGS|INSTALL_MODULE)_cmuxTests=(.*)$/\\1=\\2/p" "$2" | sort -u
 }
 : > "$STUB_XCODEBUILD_ARGS"
 run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
@@ -340,6 +342,7 @@ PATH="$TMP_DIR/bin:$PATH" "$ROOT_DIR/scripts/test-unit.sh" build-for-testing >/d
 local_values="$(cmuxtests_module_values CMUX_TEST "$STUB_XCODEBUILD_ARGS")"
 if [ -z "$ci_values" ] || [ "$ci_values" != "$local_values" ] \
   || ! grep -Fxq 'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_TEST_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)' "$STUB_XCODEBUILD_ARGS" \
+  || ! grep -Fxq 'SWIFT_INSTALL_MODULE=$(CMUX_TEST_INSTALL_MODULE_$(TARGET_NAME):default=YES)' "$STUB_XCODEBUILD_ARGS" \
   || ! grep -Fxq 'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_TEST_SWIFT_FLAGS_$(TARGET_NAME))' "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: scripts/test-unit.sh must build cmuxTests without a Swift module, like CI"
   exit 1
