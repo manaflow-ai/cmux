@@ -76,12 +76,17 @@ jobs:
       unit_strict_steps: ${{ steps.suite.outputs.unit_strict_steps }}
       # Only ever true for a changed-suites run the diff selected, which never
       # takes the canary drop above.
-      unit_in_admission: ${{ steps.suite.outputs.unit_in_admission }}
+      # A compile admission on an owned Mac never runs app-host suites: glaeda
+      # gives it the compile token, not the gui token, so the suites would
+      # collide with a GUI shard on the same mini. The changed suites run on
+      # the one shard (shard 8) instead, owned or Blacksmith (pr_runner_pool.py).
+      unit_in_admission: ${{ steps.macos-pool.outputs.persistent != 'true' && steps.suite.outputs.unit_in_admission || 'false' }}
       coverage_gap: ${{ steps.suite.outputs.coverage_gap }}
       compile_admitted: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'true' || steps.admitted.outputs.compile_admitted }}
       source_parent1: ${{ steps.source-identity.outputs.parent1 }}
       # The macOS pool every pull-request macOS job in this run uses, chosen
-      # once so a run is never split across pools (see pr_runner_pool.py).
+      # once so a Blacksmith run is never split across pools. On an owned pool
+      # only the jobs in macos_pr_owned_jobs take it (see pr_runner_pool.py).
       # Empty keeps each job's own MACOS_RUNNER_PR fallback: every event but a
       # pull request, and any uncertainty.
       macos_pr_runner: ${{ steps.macos-pool.outputs.runner }}
@@ -90,6 +95,9 @@ jobs:
       # a re-run of failed jobs takes, since it reuses these outputs and must
       # not queue on the owned pool unwatched.
       macos_pr_retry_runner: ${{ steps.macos-pool.outputs.retry_runner }}
+      # Set only when the pool is persistent: the jobs of attempt 1 that take
+      # it (" admission shard-1 ... "); every other job takes the retry runner.
+      macos_pr_owned_jobs: ${{ steps.macos-pool.outputs.owned_jobs }}
     permissions:
       actions: read
       contents: read
@@ -590,6 +598,11 @@ jobs:
           # Xcode whose version names their label (glaeda-std-xcode-26.6).
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          # 1 lets a run take the owned machines that are free and send its
+          # other jobs to Blacksmith, instead of all or nothing (off unless 1).
+          POOL_OWNED_SPLIT: ${{ vars.CI_PR_POOL_OWNED_SPLIT }}
+          # 0 keeps GUI jobs (app-host shards, tests-build-and-lag) off them.
+          POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
           CMUX_CI_XCODE_APP_PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
           # Handed to the macOS 15 pool's jobs only when the run lands there.
           CMUX_CI_XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
@@ -599,6 +612,7 @@ jobs:
           RUN_FULL_SUITE: ${{ steps.suite.outputs.full_suite }}
           RUN_UNIT_SUITE: ${{ steps.suite.outputs.unit_suite }}
           RUN_UNIT_IN_ADMISSION: ${{ steps.suite.outputs.unit_in_admission }}
+          RUN_UNIT_SELECTORS: ${{ steps.suite.outputs.unit_selectors }}
           RUN_CLAUDE_WRAPPER: ${{ steps.standalone.outputs.claude_wrapper }}
           RUN_CLI: ${{ steps.detect.outputs.cli }}
           RUN_REMOTE_DAEMON: ${{ steps.standalone.outputs.remote_daemon }}
@@ -911,6 +925,7 @@ jobs:
     with:
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
+      pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
   cli:
@@ -920,6 +935,7 @@ jobs:
     with:
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
+      pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
 
   web:
@@ -936,7 +952,7 @@ jobs:
     name: Claude wrapper regressions
     needs: [changes, static-preflight]
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.static-preflight.result == 'success' && (needs.changes.outputs.claude_wrapper == 'true' || (needs.changes.outputs.macos == 'true' && needs.changes.outputs.full_suite == 'true')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && github.run_attempt > 1 && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(needs.changes.outputs.macos_pr_runner, 'blacksmith-') && needs.changes.outputs.macos_pr_runner || 'blacksmith-6vcpu-macos-15') || github.event_name == 'pull_request' && (github.run_attempt > 1 || !contains(needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ')) && needs.changes.outputs.macos_pr_retry_runner || github.event_name == 'pull_request' && (needs.changes.outputs.macos_pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 10
     steps:
       - name: Checkout wrapper and test inputs
@@ -1071,6 +1087,7 @@ jobs:
       release_archs: ${{ inputs.release_archs }}
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
+      pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
 
   tests:

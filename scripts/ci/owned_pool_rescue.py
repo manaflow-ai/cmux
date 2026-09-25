@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Move a pull request CI run off a busy persistent macOS pool.
 
-pr_runner_pool.py puts every macOS job of a run on one pool. When that pool is
-owned (a `glaeda-<class>-xcode-<version>` label, pr_runner_pool.persistent),
-GitHub never re-routes a queued job: it waits for that pool however long the
-pool stays busy. ci-owned-pool-rescue.yml starts this script when a CI run is
+pr_runner_pool.py picks one pool per run. When that pool is owned (a
+`glaeda-<class>-xcode-<version>` label, pr_runner_pool.persistent), the jobs
+it names in `owned_jobs` take it and the rest take retry_runner (Blacksmith).
+GitHub never re-routes a queued job: one on the owned pool waits for it
+however long the pool stays busy. ci-owned-pool-rescue.yml starts this script when a CI run is
 requested, from the default branch, with Actions write.
 
 The script waits for ci.yml's `changes` job, which runs the picker. When the
@@ -17,9 +18,7 @@ after the budget (CI_OWNED_POOL_RESCUE_SECONDS, 90 by default), it confirms the
 pull request head has not moved, cancels the run, waits for it to finish, and
 re-runs it. The re-run is attempt 2, and pr_runner_pool.py never gives a
 retry attempt a persistent pool, so every macOS job of the re-run lands on
-Blacksmith together. A run is never split
-across pools, because app-host products only load under the Xcode that linked
-them (#14163); that is why the whole run is re-run, not one job.
+Blacksmith together.
 
 An owned runner can also refuse a job it was handed: glaeda's job-started
 hook exits 1 when the host is busy (its lock is held), and the job fails
@@ -31,8 +30,9 @@ its runner setup step failed or no workflow step succeeded, counts as refused
 not moved, cancels the run if it is still going, and re-runs its failed jobs.
 That attempt 2 reuses attempt 1's outputs, so every macOS job in it takes
 retry_runner, the Blacksmith pool the picker named, and what already passed
-(compile admission, say) is kept. That splits the run across machines, which
-is sound only because both sides run the same Xcode: retry_runner is a macOS
+(compile admission, say) is kept. A run on an owned pool is split across pools
+anyway (per-job placement, CI_PR_POOL_OWNED_SPLIT), which is
+sound only because both sides run the same Xcode: retry_runner is a macOS
 26 pool on the lane's pin, the pin the owned label names, and on 2026-09-24
 both the minis and Blacksmith's 6vcpu and 12vcpu macOS 26 images reported
 Xcode 26.6 build 17F113. If those builds ever differ, re-run the whole run
@@ -123,8 +123,21 @@ E2E_WATCH_LIMIT_SECONDS = 150 * 60
 READ_ATTEMPTS = 3
 READ_RETRY_SECONDS = 10
 MARKER_PREFIX = "macos-pool-persistent"
-CANCEL_WAIT_SECONDS = 180
+# A cancelled run is only useful re-run: giving up leaves the pull request's
+# run cancelled for good. A Mac job mid-compile has taken over 5 minutes to
+# settle after a force-cancel (run 36074561333, 2026-09-24), so wait long, and
+# force-cancel again while waiting.
+CANCEL_WAIT_SECONDS = 20 * 60
 FORCE_CANCEL_AFTER_SECONDS = 90
+FORCE_CANCEL_AGAIN_SECONDS = 5 * 60
+# A rescue may run this long past the watch's end, so a refusal found late
+# in the watch still gets its cancel settled and its re-run.
+RESCUE_GRACE_SECONDS = 25 * 60
+# Kept back from the job timeout for checkout and the summary.
+JOB_TIMEOUT_MARGIN_SECONDS = 5 * 60
+# ci-owned-pool-rescue.yml's timeout-minutes: the longest watch (an E2E
+# run's), its rescue grace, and the margin.
+JOB_TIMEOUT_SECONDS = E2E_WATCH_LIMIT_SECONDS + RESCUE_GRACE_SECONDS + JOB_TIMEOUT_MARGIN_SECONDS
 # Time kept back after a cancel settles, for the re-run request itself.
 RERUN_MARGIN_SECONDS = 60
 # A refused job fails in seconds; a real failure of the first step after
@@ -464,7 +477,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             (deadline - now()).total_seconds() < CANCEL_WAIT_SECONDS + RERUN_MARGIN_SECONDS:
         # A job killed between the cancel and the re-run would leave the
         # pull request's run cancelled for good; leave it as GitHub has it.
-        return "not rescued: too little of the watch left to cancel and re-run"
+        return "not rescued: too little of the job left to cancel and re-run"
     if run.get("status") == "completed":
         if not (failed_only if refused is None else refused):
             return "not rescued: the run already finished"
@@ -473,7 +486,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
-    forced = False
+    forced_at: float | None = None
     while True:
         sleep(10)
         run = read(lambda: api.run(target.run_id), sleep, log)
@@ -482,10 +495,16 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if run.get("status") == "completed":
             break
         waited = (now() - started).total_seconds()
-        if not forced and waited >= FORCE_CANCEL_AFTER_SECONDS:
-            api.force_cancel(target.run_id)
-            forced = True
-            log(f"force-cancelled run {target.run_id}")
+        if (forced_at is None and waited >= FORCE_CANCEL_AFTER_SECONDS) or \
+                (forced_at is not None and waited - forced_at >= FORCE_CANCEL_AGAIN_SECONDS):
+            forced_at = waited
+            try:
+                api.force_cancel(target.run_id)
+                log(f"force-cancelled run {target.run_id} ({round(waited)}s after cancel)")
+            except urllib.error.HTTPError as error:
+                # Most likely the run settled since the read; the next read
+                # sees it. Aborting here would leave it cancelled for good.
+                log(f"force-cancel of run {target.run_id} refused ({error.code}); still waiting")
         if waited >= CANCEL_WAIT_SECONDS:
             raise Aborted(f"run {target.run_id} did not finish {CANCEL_WAIT_SECONDS}s after cancel; not re-run")
     # A push during the cancel starts the new head's run; re-running the old
@@ -535,9 +554,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository)
     subject = "an E2E dispatch" if target.e2e else f"pull request #{target.pr_number}"
     log(f"watching run {target.run_id} of {subject} (budget {seconds}s)")
-    # One deadline for every attempt this job watches, with room left under
-    # the workflow's timeout for a cancel to settle and a re-run.
-    deadline = clock() + dt.timedelta(seconds=target.watch_limit)
+    # One watch deadline for every attempt this job watches. A rescue may run
+    # past it, within the job's own timeout, so a cancel is never started
+    # without the time to settle and re-run.
+    started = clock()
+    deadline = started + dt.timedelta(seconds=target.watch_limit)
+    rescue_deadline = deadline + dt.timedelta(seconds=RESCUE_GRACE_SECONDS)
     try:
         outcome, reason = watch(client, target, budget_seconds=seconds, now=clock, sleep=sleep, log=log,
                                 deadline=deadline)
@@ -549,7 +571,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             # An E2E run always keeps what passed (see the module docstring).
             failed_only = outcome == "refused" or target.attempt > 1 or target.e2e
             result = rescue(client, target, now=clock, sleep=sleep, log=log, failed_only=failed_only,
-                            deadline=deadline, refused=(outcome == "refused") if target.e2e else None)
+                            deadline=rescue_deadline, refused=(outcome == "refused") if target.e2e else None)
             log(result)
             if not (failed_only and result.startswith("re-ran") and target.attempt + 1 <= LAST_OWNED_ATTEMPT):
                 return finish("done")

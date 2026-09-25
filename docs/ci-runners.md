@@ -134,7 +134,7 @@ linked it. The run takes the first pool in `CI_PR_POOL_ORDER` that has a
 machine free for it and no queued release or nightly job, so a full pool
 rolls over to the next one every time, the macOS 15 pool included. A pool's
 capacity is what it ran at most while jobs queued behind it
-(`POOL_CAPACITIES`): 4 for 12vcpu, 10 for each 6vcpu pool. At 23:16Z on
+(`POOL_CAPACITIES`): 5 for 12vcpu, 10 for each 6vcpu pool. At 23:16Z on
 2026-09-24, counted at 10, 12vcpu ran 3 with 18 queued while macOS 15 ran 1
 of 10. When every pool is full, the run takes the shortest queue in rounds
 (queued jobs over capacity). The macOS 15 pool counts one round more
