@@ -8,6 +8,17 @@ struct SocketMainActorHopTimeout: Error {
     let retryable: Bool
 }
 
+/// State a socket command task carries across its suspensions. The
+/// connection task, not the thread it happens to resume on, owns it: a task
+/// may continue on any thread after an `await`, so the thread-local stack the
+/// synchronous lanes read is only ever written inside a lane body, from here.
+enum SocketCommandTaskPolicy {
+    /// The focus-allowance stack of the enclosing
+    /// ``TerminalController/withSocketCommandPolicyAsync(commandKey:isV2:params:_:)``
+    /// scopes, innermost last.
+    @TaskLocal static var focusAllowanceStack: [Bool] = []
+}
+
 /// The two execution lanes a socket connection task may hop onto, each kept
 /// from parking the task (or a cooperative-pool thread) forever:
 ///
@@ -67,14 +78,14 @@ extension TerminalController {
 
     /// Async main-actor hop used only by socket tasks. It suspends the caller,
     /// never parks an I/O thread behind the run loop, and gives up after the
-    /// hop deadline.
+    /// hop deadline. The body runs under the command task's focus policy.
     ///
     /// - Throws: ``SocketMainActorHopTimeout`` when the deadline elapses;
     ///   `CancellationError` when the connection task is cancelled.
     nonisolated func v2MainAsync<T: Sendable>(
         _ body: @escaping @MainActor @Sendable () -> T
     ) async throws -> T {
-        let policyStack = Self.currentSocketCommandFocusAllowanceStack()
+        let policyStack = SocketCommandTaskPolicy.focusAllowanceStack
         let outcome = await Self.socketMainActorHop.run(
             schedule: { job in
                 Task { @MainActor in job() }
@@ -101,13 +112,13 @@ extension TerminalController {
     }
 
     /// Runs a legacy synchronous worker body on the blocking worker lane and
-    /// suspends the connection task until it returns. The thread-local focus
-    /// allowance stack and the automation task-locals are re-bound on the
-    /// worker thread, exactly as they were on the calling task.
+    /// suspends the connection task until it returns. The command task's
+    /// focus policy and the automation task-locals are re-bound on the
+    /// worker thread, exactly as they are on the calling task.
     nonisolated func runSocketWorkerBlockingBody<T: Sendable>(
         _ body: @escaping @Sendable () -> T
     ) async -> T {
-        let policyStack = Self.currentSocketCommandFocusAllowanceStack()
+        let policyStack = SocketCommandTaskPolicy.focusAllowanceStack
         let focusAllowed = CmuxAutomationInvocationContext.focusAllowed
         let eventOrigin = CmuxAutomationInvocationContext.eventOrigin
         return await withCheckedContinuation { continuation in
@@ -125,8 +136,10 @@ extension TerminalController {
     }
 
     /// Applies the focus/command policy across an async socket operation. The
-    /// stack is captured by ``v2MainAsync`` before its suspension, so the main
-    /// actor observes the same focus allowance as the legacy synchronous lane.
+    /// decision is bound to the command task for the scope of `body`, so it
+    /// survives every suspension, and each lane hop (``v2MainAsync``,
+    /// ``runSocketWorkerBlockingBody``) copies it into the thread-local stack
+    /// its synchronous body reads. Nothing is written to the calling thread.
     nonisolated func withSocketCommandPolicyAsync<T: Sendable>(
         commandKey: String,
         isV2: Bool,
@@ -139,15 +152,11 @@ extension TerminalController {
             isV2: isV2,
             params: foundationParams
         )
-        var stack = Self.currentSocketCommandFocusAllowanceStack()
+        var stack = SocketCommandTaskPolicy.focusAllowanceStack
         stack.append(allowsFocusMutation)
-        Self.setCurrentSocketCommandFocusAllowanceStack(stack)
-        defer {
-            var restored = Self.currentSocketCommandFocusAllowanceStack()
-            if !restored.isEmpty { _ = restored.popLast() }
-            Self.setCurrentSocketCommandFocusAllowanceStack(restored)
+        return try await SocketCommandTaskPolicy.$focusAllowanceStack.withValue(stack) {
+            try await body()
         }
-        return try await body()
     }
 
     // MARK: - Timeout replies
