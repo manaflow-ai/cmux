@@ -6,24 +6,55 @@ import SwiftUI
 import UIKit
 
 /// One immutable artifact snapshot rendered in the terminal gallery.
-struct TerminalArtifactGalleryItemView: View {
-    enum Layout {
+struct TerminalArtifactGalleryItemView: View, Equatable {
+    enum Layout: Equatable {
         case list
         case grid
     }
 
-    let artifact: TerminalArtifactGalleryDisplayItem
-    let layout: Layout
-    let loader: ChatArtifactLoader
-    let open: () -> Void
-    /// Reports a completed "Copy path" so the host confirms it (rows stay
-    /// below the snapshot boundary and never hold the toast center).
-    var onCopiedPath: () -> Void = {}
+    let value: TerminalArtifactGalleryItemValue
+    let actions: TerminalArtifactGalleryItemActions
+
+    init(
+        artifact: TerminalArtifactGalleryDisplayItem,
+        layout: Layout,
+        loader: ChatArtifactLoader,
+        scope: TerminalArtifactFilesSheet.Scope,
+        swipeOrder: ChatArtifactGallerySwipeOrder,
+        open: @escaping (
+            String,
+            TerminalArtifactFilesSheet.Scope,
+            ChatArtifactGallerySwipeOrder
+        ) -> Void,
+        onCopiedPath: @escaping () -> Void = {}
+    ) {
+        value = TerminalArtifactGalleryItemValue(
+            artifact: artifact,
+            layout: layout,
+            loaderScope: loader.scope,
+            loaderSupportsArtifacts: loader.supportsArtifacts,
+            loaderSupportsDirectoryBrowsing: loader.supportsDirectoryBrowsing,
+            openScope: scope,
+            swipeOrder: swipeOrder
+        )
+        actions = TerminalArtifactGalleryItemActions(
+            loader: loader,
+            open: open,
+            copiedPath: onCopiedPath
+        )
+    }
+
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.value == rhs.value
+    }
+
+    private var artifact: TerminalArtifactGalleryDisplayItem { value.artifact }
+    private var layout: Layout { value.layout }
 
     @State private var thumbnail: ChatArtifactThumbnail?
     @State private var fileActionPresentation: ChatArtifactFileActionPresentation?
     @State private var isFileActionRunning = false
-    @State private var showsFileActionError = false
+    @State private var fileActionFailure: ChatArtifactError?
     @ScaledMetric(relativeTo: .subheadline) private var gridNameMinHeight: CGFloat = 38
     @ScaledMetric(relativeTo: .caption2) private var gridMetadataMinHeight: CGFloat = 28
     @ScaledMetric(relativeTo: .body) private var gridSymbolSize: CGFloat = 48
@@ -61,7 +92,7 @@ struct TerminalArtifactGalleryItemView: View {
             }
             Button {
                 UIPasteboard.general.string = artifact.path
-                onCopiedPath()
+                actions.copiedPath()
             } label: {
                 Label(
                     String(
@@ -88,24 +119,16 @@ struct TerminalArtifactGalleryItemView: View {
         }
         .chatArtifactFileActionPresentation($fileActionPresentation)
         .alert(
-            String(
-                localized: "terminal.artifact.gallery.action_failed.title",
-                defaultValue: "Couldn't complete action",
-                bundle: .module
-            ),
-            isPresented: $showsFileActionError
+            fileActionFailurePresentation.title,
+            isPresented: fileActionFailureBinding
         ) {
             Button(String(localized: "terminal.artifact.gallery.ok", defaultValue: "OK", bundle: .module)) {}
         } message: {
-            Text(String(
-                localized: "terminal.artifact.gallery.action_failed.message",
-                defaultValue: "Check the connection to your Mac and try again.",
-                bundle: .module
-            ))
+            Text(fileActionFailurePresentation.message)
         }
         .task(id: "\(artifact.path)#\(Self.thumbnailDimension)") {
             guard artifact.kind == .image, artifact.exists else { return }
-            thumbnail = try? await loader.thumbnail(
+            thumbnail = try? await actions.loader.thumbnail(
                 path: artifact.path,
                 maxDimension: Self.thumbnailDimension,
                 modifiedAt: artifact.modifiedAt,
@@ -121,17 +144,37 @@ struct TerminalArtifactGalleryItemView: View {
             do {
                 let fileURL = try await ChatArtifactFileActionStore.applicationDefault.materialize(
                     path: artifact.path,
-                    loader: loader
+                    loader: actions.loader
                 )
                 try Task.checkCancellation()
                 fileActionPresentation = .share(fileURL)
             } catch is CancellationError {
                 // The row disappeared while its file was being prepared.
             } catch {
-                showsFileActionError = true
+                fileActionFailure = (error as? ChatArtifactError) ?? .loadFailed
             }
             isFileActionRunning = false
         }
+    }
+
+    private var fileActionFailureBinding: Binding<Bool> {
+        Binding(
+            get: { fileActionFailure != nil },
+            set: { isPresented in
+                if !isPresented { fileActionFailure = nil }
+            }
+        )
+    }
+
+    private var fileActionFailurePresentation: ChatArtifactFailurePresentation {
+        ChatArtifactFailurePresentation(
+            error: fileActionFailure ?? .loadFailed,
+            scope: value.openScope == .session ? .chat : .terminal
+        )
+    }
+
+    private func open() {
+        actions.open(artifact.path, value.openScope, value.swipeOrder)
     }
 
     private var listContent: some View {

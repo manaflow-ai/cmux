@@ -1,4 +1,5 @@
 import Foundation
+import CmuxTerminalCore
 
 /// Title and description ownership: which of the process title, the custom
 /// title, and the custom description a workspace presents, who set them, and
@@ -7,13 +8,32 @@ import Foundation
 extension Workspace {
     // MARK: - Title Management
 
-    /// Who set a custom title. Auto-naming (AI-generated titles) must never
-    /// overwrite a user-set title; this enum carries that distinction for
-    /// workspace and panel custom titles, and round-trips through session
-    /// persistence.
+    /// Who set a custom title. Auto-naming must not overwrite a user or remote
+    /// title. A remote daemon observation is authoritative for a cloud-bound
+    /// projection and may replace a local title after another client changes the
+    /// daemon name. The separate source lets reconciliation avoid a write loop.
     enum CustomTitleSource: String, Codable, Sendable {
         case user
         case auto
+        case remote
+
+        /// Session manifests are also read by older cmux builds. Those builds
+        /// know `user` and `auto`, but not `remote`. Decode unknown values as
+        /// user-owned so a newer source can never make an older title unsafe
+        /// to overwrite. New session snapshots carry a separate compatibility
+        /// marker when the source is remote and encode this field as `user`.
+        init(from decoder: any Decoder) throws {
+            let value = try decoder.singleValueContainer().decode(String.self)
+            self = Self(rawValue: value) ?? .user
+        }
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.singleValueContainer()
+            // `remote` is represented by the optional snapshot marker. Keeping
+            // this enum value in the old vocabulary makes downgrade restores
+            // safe instead of making the whole manifest unreadable.
+            try container.encode(self == .remote ? Self.user.rawValue : rawValue)
+        }
     }
 
     var hasCustomTitle: Bool {
@@ -33,11 +53,15 @@ extension Workspace {
     }
 
     func applyProcessTitle(_ title: String) {
-        if processTitle != title {
-            processTitle = title
+        guard let stableTitle = AutomaticTerminalTitle(title)?.value else {
+            return
         }
-        guard customTitle == nil else { return }
-        guard self.title != title else { return }
+        applyResolvedProcessTitle(stableTitle)
+    }
+
+    private func applyResolvedProcessTitle(_ title: String) {
+        if processTitle != title { processTitle = title }
+        guard customTitle == nil, self.title != title else { return }
 #if DEBUG
         cmuxDebugLog(
             "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
@@ -46,6 +70,49 @@ extension Workspace {
         )
 #endif
         applyAutomaticTitle(title)
+    }
+
+    /// Restores the workspace title after panel metadata has been rebuilt.
+    ///
+    /// The snapshot process title remains the compatibility fallback, but a
+    /// successfully restored focused panel is the authoritative source for a
+    /// local workspace's automatic title. This prevents a restored terminal's
+    /// startup command from replacing friendlier panel metadata persisted in
+    /// the same snapshot.
+    func restoreTitleState(
+        from snapshot: SessionWorkspaceSnapshot,
+        restoredPanelIds: [UUID: UUID]
+    ) {
+        applyProcessTitle(snapshot.processTitle)
+        if let persistedPanelId = snapshot.focusedPanelId,
+           let restoredPanelId = restoredPanelIds[persistedPanelId] {
+            applyFocusedPanelTitle(panelId: restoredPanelId, requiresFocus: false)
+        }
+        setCustomTitle(snapshot.customTitle, source: snapshot.effectiveCustomTitleSource ?? .user)
+    }
+
+    /// Reconciles a local workspace's automatic title with the resolved title
+    /// of its focused panel. Resolved panel titles include intentional surface
+    /// names, so later raw OSC title events cannot replace a friendly surface
+    /// name with the serialized command that launched a resumed agent.
+    @discardableResult
+    func applyFocusedPanelTitle(panelId: UUID, requiresFocus: Bool = true) -> Bool {
+        guard !isRemoteTmuxMirror,
+              !requiresFocus || focusedPanelId == panelId,
+              let resolvedTitle = panelTitle(panelId: panelId)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !resolvedTitle.isEmpty else {
+            return false
+        }
+        let previousProcessTitle = processTitle
+        let previousTitle = title
+        // A custom panel name is authored metadata even when it supplies the
+        // workspace's automatic display tier. Preserve it and non-terminal titles.
+        if panelCustomTitles[panelId] != nil || panels[panelId]?.panelType != .terminal {
+            applyResolvedProcessTitle(resolvedTitle)
+        } else {
+            applyProcessTitle(resolvedTitle)
+        }
+        return processTitle != previousProcessTitle || title != previousTitle
     }
 
     /// The single write path for automatic (non-user) workspace titles.
@@ -62,8 +129,16 @@ extension Workspace {
 
     @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let remote = cloudProjectedResource(forPanel: panelId).flatMap { $0.kind == .terminal ? $0 : nil }
+        let candidate = remote?.cloudProcessDisplayTitle ?? title
+        let admitted = panels[panelId]?.panelType == .terminal
+            ? AutomaticTerminalTitle(candidate)?.value : candidate
+        guard let admitted else { return false }
+        let trimmed = admitted.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
+        guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: trimmed) else {
+            return false
+        }
         var didMutate = false
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
@@ -74,7 +149,7 @@ extension Workspace {
             didMutatePanelTitle = true
         }
 
-        if didMutatePanelTitle,
+        if !isRemoteTmuxMirror,
            let tabId = surfaceIdFromPanelId(panelId),
            let panel = panels[panelId],
            let existing = bonsplitController.tab(tabId) {
@@ -88,18 +163,18 @@ extension Workspace {
                     title: titleUpdate,
                     hasCustomTitle: hasCustomTitle
                 )
+                didMutate = true
             }
         }
 
-        if !isRemoteTmuxMirror, panels.count == 1, customTitle == nil {
-            if self.title != trimmed {
-                applyAutomaticTitle(trimmed)
-                didMutate = true
-                didMutateWorkspaceTitle = true
-            }
-            if processTitle != trimmed {
-                processTitle = trimmed
-            }
+        if !isRemoteTmuxMirror {
+            syncTerminalTabAgentIconAsset(forPanelId: panelId)
+        }
+
+        let previousWorkspaceTitle = self.title
+        if applyFocusedPanelTitle(panelId: panelId) {
+            didMutate = true
+            didMutateWorkspaceTitle = self.title != previousWorkspaceTitle
         }
 
 #if DEBUG
@@ -126,14 +201,15 @@ extension Workspace {
 
     /// Sets, replaces, or clears (empty/nil `title`) the workspace custom title.
     ///
-    /// `.auto` writes are rejected when a user-set title exists, and `.auto`
-    /// never clears. Returns whether the write landed.
+    /// `.auto` writes are rejected when a user or remote title exists, and
+    /// `.auto` never clears. `.remote` is the cloud daemon's canonical value and
+    /// may replace a local title. Returns whether the write landed.
     @discardableResult
     func setCustomTitle(_ title: String?, source: CustomTitleSource = .user) -> Bool {
         let trimmed = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if source == .auto {
             guard !trimmed.isEmpty else { return false }
-            if hasCustomTitle, (customTitleSource ?? .user) == .user { return false }
+            if hasCustomTitle, (customTitleSource ?? .user) != .auto { return false }
         }
         if trimmed.isEmpty {
             if customTitle != nil {
@@ -176,6 +252,8 @@ extension Workspace {
             "normalized=\"\(debugWorkspaceDescriptionPreview(normalizedDescription))\""
         )
 #endif
+        guard customDescription != normalizedDescription else { return }
+        bumpCustomDescriptionRevision()
         customDescription = normalizedDescription
     }
 }

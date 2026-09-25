@@ -54,6 +54,12 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Returns: The respawn strings.
     func controlSurfaceRespawnStrings() -> ControlSurfaceRespawnStrings
 
+    /// Returns the app-localized generic surface-not-found message for close
+    /// failures whose explicit `surface_id` cannot be parsed or resolved.
+    ///
+    /// - Returns: The localized surface-not-found message.
+    func controlSurfaceNotFoundMessage() -> String
+
     // MARK: - focus / split / respawn / create / close
 
     /// Focuses a surface for `surface.focus`.
@@ -108,10 +114,13 @@ public protocol ControlSurfaceContext: AnyObject {
     /// - Parameters:
     ///   - routing: The routing selectors.
     ///   - surfaceID: The explicit `surface_id`, or `nil` for the focused surface.
+    ///   - hasSurfaceIDParam: Whether a `surface_id` param was present at all, so
+    ///     an unresolvable explicit ref cannot fall back to the focused surface.
     /// - Returns: The close resolution.
     func controlSurfaceClose(
         routing: ControlRoutingSelectors,
-        surfaceID: UUID?
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool
     ) -> ControlSurfaceCloseResolution
 
     // MARK: - move / reorder
@@ -179,8 +188,9 @@ public protocol ControlSurfaceContext: AnyObject {
     ) -> ControlSurfaceTriggerFlashResolution
 
     /// The app-bundle-resolved localized terminal-input error strings, shared by
-    /// `surface.send_text` and `surface.send_key`. The app resolves each
-    /// `String(localized:)` so the package never binds them to the wrong bundle.
+    /// terminal creation, `surface.send_text`, and `surface.send_key`. The app
+    /// resolves each `String(localized:)` so the package never binds them to the
+    /// wrong bundle.
     /// `nonisolated`: a pure, thread-safe bundle lookup, called by the
     /// worker-lane send bodies' off-main reply shaping.
     ///
@@ -228,9 +238,18 @@ public protocol ControlSurfaceContext: AnyObject {
 
     // MARK: - resume.set / get / clear
 
+    /// The app-bundle-resolved localized validation strings for
+    /// `surface.resume.*` commands.
+    ///
+    /// - Returns: The surface-resume strings.
+    func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings
+
     /// Sets a resume binding for `surface.resume.set`. The app resolves the
-    /// target, runs the (possibly blocking, app-bundle-localized) approval flow,
-    /// and stores the binding.
+    /// target, applies any stored approval, and stores the binding. It must not
+    /// present approval UI: a modal here parks the command on the main actor and
+    /// stops the socket from answering (#13369). A binding that still needs a
+    /// person's approval is stored without resume trust and reported through
+    /// ``ControlSurfaceResumeSnapshot/approvalRequired``.
     ///
     /// - Parameters:
     ///   - routing: The routing selectors (with the surface-resume precedence).
@@ -243,7 +262,8 @@ public protocol ControlSurfaceContext: AnyObject {
         inputs: ControlSurfaceResumeSetInputs
     ) -> ControlSurfaceResumeResolution
 
-    /// Reads the resume binding for `surface.resume.get`.
+    /// Reads the resume binding for the surface resume get command, optionally claiming
+    /// one binding generation for an imminent restore launch.
     ///
     /// - Parameter routing: The routing selectors (with the surface-resume
     ///   precedence).
@@ -251,7 +271,10 @@ public protocol ControlSurfaceContext: AnyObject {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution
 
     /// Clears the resume binding for `surface.resume.clear`, honoring the optional
@@ -261,13 +284,18 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - routing: The routing selectors (with the surface-resume precedence).
     ///   - expectedCheckpointID: The optional expected checkpoint guard.
     ///   - expectedSource: The optional expected source guard.
+    ///   - expectedUpdatedAt: The optional expected binding-generation timestamp.
+    ///   - agentSessionEnded: Whether a managed hook is clearing the binding as
+    ///     part of authoritative session teardown.
     /// - Returns: The resume resolution.
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
-        expectedSource: String?
+        expectedSource: String?,
+        expectedUpdatedAt: Double?,
+        agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution
 
     // MARK: - report_tty / report_pwd / report_shell_state / ports_kick
@@ -278,11 +306,17 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - workspaceID: The target workspace.
     ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` to resolve.
     ///   - ttyName: The reported (trimmed, non-empty) TTY name.
+    ///   - authenticatedRemoteWorkspaceID: Relay-authenticated origin, when remote.
+    ///   - terminalLifecycleID: Runtime lifecycle carried by a remote report.
+    ///   - attemptID: Attach attempt carried by a remote report.
     /// - Returns: The report resolution.
     func controlSurfaceReportTTY(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        ttyName: String
+        ttyName: String,
+        authenticatedRemoteWorkspaceID: UUID?,
+        terminalLifecycleID: UUID?,
+        attemptID: UUID?
     ) -> ControlSurfaceReportTTYResolution
 
     /// Records a reported current working directory for `surface.report_pwd`.
@@ -353,13 +387,22 @@ public protocol ControlSurfaceContext: AnyObject {
     ///   - workspaceID: The target workspace.
     ///   - requestedSurfaceID: The explicit `surface_id`, or `nil` for the
     ///     workspace-wide async path.
+    ///   - terminalLifecycleID: The reporting terminal process generation, or
+    ///     `nil` for backward-compatible callers.
     ///   - stateRawValue: The parsed activity state's raw value.
     /// - Returns: The report-shell-state resolution.
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
-        stateRawValue: String
+        terminalLifecycleID: UUID?,
+        stateRawValue: String,
+        remoteRelayOwnerWorkspaceID: UUID?,
+        remoteRelayConnectionID: UUID?
     ) -> ControlSurfaceReportShellStateResolution
+
+    /// Returns the app-bundle-localized v2 error for a malformed terminal
+    /// lifecycle token.
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String
 
     /// Kicks the port scanner for `surface.ports_kick`.
     ///

@@ -176,79 +176,113 @@ private func cmuxInjectedCodexHookArgumentPrefixEnd(_ args: [String]) -> Int? {
     } else {
         return nil
     }
-    if index < args.count, args[index] == "--dangerously-bypass-hook-trust" {
-        index += 1
+    guard index < args.count, args[index] == "--dangerously-bypass-hook-trust" else {
+        return nil
     }
+    index += 1
 
-    var strippedHookConfig = false
-    while index < args.count {
-        let arg = args[index]
-        if isCmuxInjectedCodexHookConfigOption(arg) {
-            strippedHookConfig = true
-            index += 1
-            continue
+    // New wrappers prepend the current complete ordered block in one operation.
+    // Exact compatibility schemas keep saved commands replayable across
+    // upgrades. Requiring one registered structure distinguishes cmux
+    // injection from later user hook config.
+    for schema in CodexHookInjectionSchema.recognized {
+        var candidateIndex = index
+        var matches = true
+        for event in schema.events {
+            guard let config = codexHookConfigValue(in: args, at: candidateIndex),
+                  isCmuxInjectedCodexHookConfigValue(config.value, event: event)
+            else {
+                matches = false
+                break
+            }
+            candidateIndex = config.nextIndex
         }
-        if (arg == "-c" || arg == "--config"),
-           index + 1 < args.count,
-           isCmuxInjectedCodexHookConfigValue(args[index + 1]) {
-            strippedHookConfig = true
-            index += 2
-            continue
+        if matches {
+            return candidateIndex
         }
-        break
     }
-    return strippedHookConfig ? index : nil
+    return nil
 }
 
-private func isCmuxInjectedCodexHookConfigOption(_ arg: String) -> Bool {
-    for prefix in ["-c=", "--config="] where arg.hasPrefix(prefix) {
-        return isCmuxInjectedCodexHookConfigValue(String(arg.dropFirst(prefix.count)))
+private func codexHookConfigValue(
+    in args: [String],
+    at index: Int
+) -> (value: String, nextIndex: Int)? {
+    guard index < args.count else { return nil }
+    let argument = args[index]
+    for prefix in ["-c=", "--config="] where argument.hasPrefix(prefix) {
+        return (String(argument.dropFirst(prefix.count)), index + 1)
     }
-    return false
+    guard (argument == "-c" || argument == "--config"), index + 1 < args.count else {
+        return nil
+    }
+    return (args[index + 1], index + 2)
 }
 
-private func isCmuxInjectedCodexHookConfigValue(_ value: String) -> Bool {
+private func isCmuxInjectedCodexHookConfigValue(
+    _ value: String,
+    event: CodexHookInjectionEvent
+) -> Bool {
     guard let equals = value.firstIndex(of: "=") else { return false }
     let key = String(value[..<equals])
-    guard key.hasPrefix("hooks.") else { return false }
-    let eventName = String(key.dropFirst("hooks.".count))
-    guard let event = codexWrapperInjectedHookEvents[eventName] else { return false }
+    guard key == "hooks.\(event.agentEvent)" else { return false }
 
     let body = String(value[value.index(after: equals)...])
     let prefix = "[{hooks=[{type=\"command\",command='''"
-    guard let suffix = event.timeoutMs
-        .map({ "''',timeout=\($0)}]}]" })
-        .first(where: { body.hasSuffix($0) }) else {
-        return false
-    }
+    let suffix = "''',timeout=\(event.timeoutMs)}]}]"
     guard body.hasPrefix(prefix), body.hasSuffix(suffix) else { return false }
     let command = String(body.dropFirst(prefix.count).dropLast(suffix.count))
     return isCmuxCodexHookCommand(command, subcommand: event.cmuxSubcommand)
 }
 
-private let codexWrapperInjectedHookEvents: [String: (cmuxSubcommand: String, timeoutMs: [Int])] = [
-    "SessionStart": ("session-start", [10000]),
-    "UserPromptSubmit": ("prompt-submit", [10000]),
-    "Stop": ("stop", [10000]),
-    "SessionStop": ("stop", [10000]),
-    "PreToolUse": ("pre-tool-use", [120000, 10000]),
-    "PostToolUse": ("post-tool-use", [10000]),
-    "PermissionRequest": ("notification", [120000]),
-    "Notification": ("notification", [10000]),
-]
-
 private func isCmuxCodexHookCommand(_ command: String, subcommand: String) -> Bool {
-    let normalized = command.replacingOccurrences(of: "\\", with: "/")
+    let scriptFilename = cmuxCodexHookScriptFilename(from: command)
     let subcommands = [subcommand] + (codexWrapperInjectedHookSubcommandAliases[subcommand] ?? [])
     for candidate in subcommands {
-        if normalized.contains("/.cmux/hooks/cmux-codex-hook-\(candidate).sh") {
+        if let scriptFilename,
+           CodexHookScriptName(filename: scriptFilename)?.subcommand == candidate {
             return true
         }
-        if command.contains("cmux-codex-hook") && command.contains("hooks codex \(candidate)") {
+        if !command.contains("\\"),
+           command.contains("cmux-codex-hook"),
+           command.contains("hooks codex \(candidate)")
+            || command.contains("hooks enqueue codex \(candidate)") {
             return true
         }
     }
     return false
+}
+
+private func cmuxCodexHookScriptFilename(from command: String) -> String? {
+    guard let scriptPath = CodexHookScriptName.scriptPath(fromShellCommand: command) else {
+        return nil
+    }
+
+    let url = URL(fileURLWithPath: scriptPath, isDirectory: false).standardizedFileURL
+    // A generated command is the complete executable path. Canonical shell
+    // quoting already proves that boundary whitespace belongs to the path; the
+    // legacy bare form still needs conservative validation because it cannot
+    // distinguish a complete path token from a malformed command.
+    guard url.path == scriptPath else { return nil }
+    if !command.hasPrefix("'"),
+       scriptPath.unicodeScalars.contains(where: {
+           CharacterSet.controlCharacters.contains($0)
+       }) {
+        return nil
+    }
+    if !command.hasPrefix("'"),
+       !url.pathComponents.allSatisfy({
+           $0 == $0.trimmingCharacters(in: .whitespaces)
+       }) {
+        return nil
+    }
+    let directoryComponents = url.deletingLastPathComponent().pathComponents
+    guard directoryComponents.count >= 2,
+          Array(directoryComponents.suffix(2)) == [".cmux", "hooks"]
+    else {
+        return nil
+    }
+    return url.lastPathComponent
 }
 
 private let codexWrapperInjectedHookSubcommandAliases: [String: [String]] = [

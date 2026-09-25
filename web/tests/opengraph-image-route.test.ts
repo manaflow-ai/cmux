@@ -3,17 +3,19 @@ import { readFile } from "fs/promises";
 import { NextRequest } from "next/server";
 import { join } from "path";
 import sharp from "sharp";
-import {
-  dynamic as localizedImageDynamic,
-  GET,
-} from "../app/[locale]/opengraph-image/route";
+import { GET } from "../app/[locale]/opengraph-image/route";
+import { GET as getBrowserImage } from "../app/browser-opengraph-image/route";
 import {
   openGraphLocaleFonts,
   openGraphTaglineFallbackFont,
 } from "../app/lib/open-graph-font-config";
-import { dynamic as defaultImageDynamic } from "../app/opengraph-image/route";
+import { GET as getDefaultImage } from "../app/opengraph-image/route";
 import { articleSchema } from "../app/[locale]/components/json-ld";
-import { openGraphImage, openGraphImageTagline } from "../i18n/seo";
+import {
+  browserOpenGraphImage,
+  openGraphImage,
+  openGraphImageTagline,
+} from "../i18n/seo";
 import { routing } from "../i18n/routing";
 import middleware from "../proxy";
 import { fontSupportsCodePoint } from "./font-cmap";
@@ -52,7 +54,12 @@ describe("Open Graph image discovery", () => {
   });
 
   test("bypasses locale middleware for both default endpoint forms", () => {
-    for (const path of ["/opengraph-image", "/opengraph-image/"]) {
+    for (const path of [
+      "/opengraph-image",
+      "/opengraph-image/",
+      "/browser-opengraph-image",
+      "/browser-opengraph-image/",
+    ]) {
       const response = middleware(new NextRequest(`https://cmux.com${path}`));
 
       expect(response.headers.get("x-middleware-rewrite")).toBeNull();
@@ -60,10 +67,30 @@ describe("Open Graph image discovery", () => {
     }
   });
 
-  test("caches both immutable image routes", () => {
-    expect(defaultImageDynamic).toBe("force-static");
-    expect(localizedImageDynamic).toBe("force-static");
+  test("caches every immutable image route", async () => {
+    const responses = await Promise.all([
+      getDefaultImage(),
+      renderLocaleOpenGraphImage("ja"),
+      getBrowserImage(),
+    ]);
+
+    for (const response of responses) {
+      expect(response.headers.get("cache-control")).toBe(
+        "public, max-age=0, s-maxage=31536000, immutable",
+      );
+    }
   });
+
+  test("serves a platform-neutral browser social card", async () => {
+    const advertisedUrl = browserOpenGraphImage("cmux Browser").url;
+    const response = await getBrowserImage();
+    const body = new Uint8Array(await response.arrayBuffer());
+
+    expect(advertisedUrl).toBe("https://cmux.com/browser-opengraph-image");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect([...body.slice(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  }, 10_000);
 
   for (const locale of routing.locales) {
     test(
@@ -179,8 +206,18 @@ describe("Open Graph image discovery", () => {
       headline: "Introducing cmux Fork",
       description: "Fork an agent conversation.",
       datePublished: "2026-07-14T00:00:00Z",
+      authorType: "Person",
+      authorName: "Lawrence Chen",
+      authorUrl: "https://x.com/lawrencecchen",
+      authorImage: "/avatars/lawrencecchen.jpg",
     });
 
     expect(article.image).toBe("https://cmux.com/ja/opengraph-image");
+    expect(article.author).toEqual({
+      "@type": "Person",
+      name: "Lawrence Chen",
+      url: "https://x.com/lawrencecchen",
+      image: "https://cmux.com/avatars/lawrencecchen.jpg",
+    });
   });
 });

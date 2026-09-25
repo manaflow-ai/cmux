@@ -385,6 +385,11 @@ import Testing
         await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
 
         harness.model.setState(.checking(.init(cancel: {})))
+        let freshPrompt = ChoiceBox()
+        harness.model.setState(updateAvailable("0.64.16", replyingInto: freshPrompt))
+        await waitUntil("fresh prompt to be accepted") { freshPrompt.choice == .install }
+
+        // Sparkle answers the accepted install with a terminal that never starts a download.
         harness.model.setState(.notFound(.init(acknowledgement: {
             didAcknowledgeNotFound = true
         })))
@@ -393,6 +398,29 @@ import Testing
             errorCode(for: harness.model.state) == UpdateStateModel.installDidNotStartCode
         }
         #expect(didAcknowledgeNotFound)
+    }
+
+    /// Regression (issue #9262): "Attempt Update" while already on the latest version must show
+    /// the normal up-to-date result, not a red "check your internet connection" error.
+    @Test func upToDateAttemptShowsNoUpdateAvailableInsteadOfError() async {
+        let harness = Harness()
+        let stalePrompt = ChoiceBox()
+
+        harness.model.setState(updateAvailable("0.64.15", replyingInto: stalePrompt))
+        harness.controller.attemptUpdate()
+        harness.finishSparkleCycle()
+        await waitUntil("fresh check to start") { harness.updater.checkForUpdatesCallCount == 1 }
+
+        harness.model.setState(.checking(.init(cancel: {})))
+        harness.model.setState(.notFound(.init(acknowledgement: {})))
+
+        // Give any erroneous reaction a chance to replace the state.
+        for _ in 0..<2_000 { await Task.yield() }
+
+        guard case .notFound = harness.model.state else {
+            Issue.record("up-to-date attempt replaced notFound with: \(harness.model.state)")
+            return
+        }
     }
 
     /// If the live prompt is still visible but already answered before the queued confirm
@@ -457,5 +485,51 @@ import Testing
             return false
         }
         #expect(laterPrompt.choice == nil)
+    }
+
+    /// A found-update callback can arrive while the minimum checking display delay is pending.
+    /// Cancelling that still-visible checking state must answer the buffered Sparkle prompt before
+    /// the transition is discarded, so the finished cycle permits a retry.
+    @Test func cancellingDelayedUpdateFoundDismissesPromptAndAllowsRetry() async {
+        let harness = Harness()
+        let prompt = PromptReplyChoiceBox()
+
+        harness.controller.checkForUpdates()
+        harness.controller.driver.showUserInitiatedUpdateCheck(cancellation: {
+            harness.updater.sessionInProgress = false
+        })
+        let item = SUAppcastItem(dictionary: [
+            "title": "cmux 0.64.17",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": [
+                "url": "https://example.com/cmux.zip",
+                "length": "1024",
+                "sparkle:version": "0.64.17",
+                "sparkle:shortVersionString": "0.64.17",
+            ],
+        ])!
+
+        // Sparkle owns this state, but UpdateDriver only needs the appcast item and reply here.
+        let sparkleState = unsafeBitCast(NSNull(), to: SPUUserUpdateState.self)
+        harness.controller.driver.showUpdateFound(
+            with: item,
+            state: sparkleState,
+            reply: { choice in
+                MainActor.assumeIsolated { prompt.append(choice) }
+            }
+        )
+        guard case .checking(let checking) = harness.model.state else {
+            Issue.record("found update should remain behind the minimum checking delay")
+            return
+        }
+
+        checking.cancel()
+        checking.cancel()
+        #expect(prompt.choices == [.dismiss], "the buffered Sparkle reply must be consumed once")
+
+        harness.finishSparkleCycle()
+        harness.controller.checkForUpdates()
+        await waitUntil("replacement check to start") { harness.updater.checkForUpdatesCallCount == 2 }
+        #expect(harness.updater.sessionInProgress)
     }
 }

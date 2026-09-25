@@ -1,4 +1,5 @@
 import CmuxMobilePairedMac
+import CmuxMobileShellModel
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -38,6 +39,60 @@ import Testing
         )
         #expect(store.selectedWorkspaceID == createdWorkspace.id)
         #expect(createdWorkspace.terminals.first?.isReady == true)
+    }
+
+    @Test func submitTaskComposerSendsSelectedWorkspaceGroup() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            macScopedWorkspaceMutations: true,
+            hostCapabilities: [
+                "workspace.task_create.v1",
+                "workspace.create_in_group.v1",
+            ]
+        )
+        let groupID: MobileWorkspaceGroupPreview.ID = "test-mac\u{1F}nightly\u{1F}group-a"
+        store.workspaceGroups = [
+            MobileWorkspaceGroupPreview(
+                id: groupID,
+                remoteGroupID: "group-a",
+                macDeviceID: "test-mac",
+                macInstanceTag: "nightly",
+                name: "Group A",
+                anchorWorkspaceID: .init(rawValue: RoutingHostRouter.workspaceID)
+            ),
+        ]
+        let result = await store.submitTaskComposer(
+            macDeviceID: "test-mac",
+            spec: MobileWorkspaceCreateSpec(
+                title: "Grouped task",
+                workspaceGroupID: groupID,
+                operationID: UUID()
+            )
+        )
+
+        guard case .success = result else {
+            return #expect(Bool(false), "grouped task create should succeed, got (String(describing: result))")
+        }
+        #expect(await router.recordedWorkspaceCreates().first?.groupID == "group-a")
+    }
+
+    @Test func workspaceCreateRejectsConflictingExplicitAndSpecGroups() async throws {
+        let router = RoutingHostRouter()
+        let store = try await makeRoutingConnectedStore(
+            router: router,
+            macScopedWorkspaceMutations: true
+        )
+
+        let result = await store.createWorkspaceRequest(
+            inGroup: "group-a",
+            spec: MobileWorkspaceCreateSpec(workspaceGroupID: "group-b")
+        )
+
+        guard case .failure(.rejected) = result else {
+            return #expect(Bool(false), "conflicting group destinations must be rejected")
+        }
+        #expect(await router.recordedWorkspaceCreateCount() == 0)
     }
 
     @Test func taskComposerRejectsResponseWithoutCreatedWorkspaceID() async throws {
@@ -175,6 +230,7 @@ import Testing
             blockedTeams: []
         )
         let unsupportedRouter = RoutingHostRouter()
+        await unsupportedRouter.setHostCapabilities([])
         let unsupportedStore = try await makeRoutingConnectedStore(
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
@@ -192,11 +248,15 @@ import Testing
         )
 
         guard case .failure(.unsupported) = unsupported else {
-            return #expect(Bool(false), "promoted old Mac should fail closed")
+            return #expect(
+                Bool(false),
+                "promoted old Mac should fail closed, got \(String(describing: unsupported))"
+            )
         }
         #expect(await unsupportedRouter.recordedWorkspaceCreateCount() == 0)
 
         let currentRouter = RoutingHostRouter()
+        await currentRouter.setHostCapabilities(["workspace.task_create.v1"])
         let currentStore = try await makeRoutingConnectedStore(
             router: RoutingHostRouter(),
             pairedMacStore: pairedStore
@@ -229,6 +289,7 @@ import Testing
             pairedMacStore: pairedStore
         )
         let targetRouter = RoutingHostRouter()
+        await targetRouter.setHostCapabilities([])
         try installSecondaryClient(
             on: store,
             macDeviceID: "secondary-old",
@@ -244,7 +305,10 @@ import Testing
         )
 
         guard case .failure(.unsupported) = result else {
-            return #expect(Bool(false), "old Mac should fail before the create boundary")
+            return #expect(
+                Bool(false),
+                "old Mac should fail before the create boundary, got \(String(describing: result))"
+            )
         }
         #expect(boundaryCallCount == 0)
         #expect(await targetRouter.recordedWorkspaceCreateCount() == 0)
@@ -317,15 +381,17 @@ import Testing
 
         #expect(pinnedContext.isCurrent(
             macDeviceID: store.foregroundMacDeviceID,
+            instanceTag: store.activeMacInstanceTag,
             client: store.remoteClient,
             generation: store.connectionGeneration
         ))
 
-        store.bumpConnectionGenerationForTesting()
+        store.connectionGeneration = UUID()
         try installFreshRemoteClient(on: store, router: ambientRouter)
 
         #expect(!pinnedContext.isCurrent(
             macDeviceID: store.foregroundMacDeviceID,
+            instanceTag: store.activeMacInstanceTag,
             client: store.remoteClient,
             generation: store.connectionGeneration
         ))

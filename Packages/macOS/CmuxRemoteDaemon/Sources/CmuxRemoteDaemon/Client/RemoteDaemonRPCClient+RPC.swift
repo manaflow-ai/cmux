@@ -159,9 +159,11 @@ extension RemoteDaemonRPCClient {
             let returnedToken = (result["attachment_token"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 ?? clientAttachmentToken
+            let replayByteCount = max(0, (result["replay_bytes"] as? Int) ?? 0)
             return RemotePTYBridgeAttachment(
                 attachmentID: returnedAttachmentID,
-                token: returnedToken
+                token: returnedToken,
+                replayByteCount: replayByteCount
             )
         } catch {
             unregisterPTY(
@@ -276,20 +278,12 @@ extension RemoteDaemonRPCClient {
 
     func call(method: String, params: [String: Any], timeout: TimeInterval) throws -> [String: Any] {
         let pendingCall = pendingCalls.register()
-        let requestID = pendingCall.id
-
         let payload: Data
         do {
-            payload = try Self.encodeJSON([
-                "id": requestID,
-                "method": method,
-                "params": params,
-            ])
+            payload = try encodeDaemonCallPayload(id: pendingCall.id, method: method, params: params)
         } catch {
             pendingCalls.remove(pendingCall)
-            throw NSError(domain: "cmux.remote.daemon.rpc", code: 10, userInfo: [
-                NSLocalizedDescriptionKey: "failed to encode daemon RPC request \(method): \(error.localizedDescription)",
-            ])
+            throw error
         }
 
         do {
@@ -301,10 +295,69 @@ extension RemoteDaemonRPCClient {
             throw error
         }
 
+        return try waitForCall(
+            pendingCall,
+            method: method,
+            params: params,
+            timeout: timeout
+        )
+    }
+
+    /// Sends an RPC only when the transport has no unanswered application
+    /// calls. Admission happens inside `writeQueue`, so a probe that wins is
+    /// written before any later call, while any earlier call makes the probe
+    /// defer without competing for liveness ownership.
+    func callIfIdle(
+        method: String,
+        params: [String: Any],
+        timeout: TimeInterval,
+        onAdmitted: () -> Void
+    ) throws -> [String: Any]? {
+        var admittedCall: RemoteDaemonPendingCallRegistry.PendingCall?
+
+        try writeQueue.sync {
+            guard let pendingCall = pendingCalls.registerIfIdle() else { return }
+            do {
+                let payload = try encodeDaemonCallPayload(id: pendingCall.id, method: method, params: params)
+                onAdmitted()
+                try writePayload(payload)
+                admittedCall = pendingCall
+            } catch {
+                pendingCalls.remove(pendingCall)
+                throw error
+            }
+        }
+
+        guard let admittedCall else { return nil }
+        return try waitForCall(
+            admittedCall,
+            method: method,
+            params: params,
+            timeout: timeout
+        )
+    }
+
+    private func waitForCall(
+        _ pendingCall: RemoteDaemonPendingCallRegistry.PendingCall,
+        method: String,
+        params: [String: Any],
+        timeout: TimeInterval
+    ) throws -> [String: Any] {
         let response: [String: Any]
         switch pendingCalls.wait(for: pendingCall, timeout: timeout) {
         case .timedOut:
-            stop(suppressTerminationCallback: false)
+            // pty.attach is dispatched independently by the daemon because
+            // PTY allocation can block inside the operating system. Its
+            // deadline removes only this pending call; it is not evidence
+            // that the shared transport or existing PTY subscriptions died.
+            if method == "pty.attach" {
+                sendPTYAttachCancellation(
+                    requestID: pendingCall.id,
+                    attachParams: params
+                )
+            } else {
+                stop(suppressTerminationCallback: false)
+            }
             throw NSError(domain: "cmux.remote.daemon.rpc", code: 11, userInfo: [
                 NSLocalizedDescriptionKey: "daemon RPC timeout waiting for \(method) response",
             ])
@@ -330,6 +383,7 @@ extension RemoteDaemonRPCClient {
         let message = (errorObject["message"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "daemon RPC call failed"
         throw NSError(domain: "cmux.remote.daemon.rpc", code: 14, userInfo: [
             NSLocalizedDescriptionKey: "\(method) failed (\(code)): \(message)",
+            Self.rpcErrorCodeUserInfoKey: code,
         ])
     }
 
@@ -398,5 +452,19 @@ extension RemoteDaemonRPCClient {
 
     static func encodeJSON(_ object: [String: Any]) throws -> Data {
         try JSONSerialization.data(withJSONObject: object, options: [])
+    }
+}
+
+private func encodeDaemonCallPayload(id: Int, method: String, params: [String: Any]) throws -> Data {
+    do {
+        return try RemoteDaemonRPCClient.encodeJSON([
+            "id": id,
+            "method": method,
+            "params": params,
+        ])
+    } catch {
+        throw NSError(domain: "cmux.remote.daemon.rpc", code: 10, userInfo: [
+            NSLocalizedDescriptionKey: "failed to encode daemon RPC request \(method): \(error.localizedDescription)",
+        ])
     }
 }

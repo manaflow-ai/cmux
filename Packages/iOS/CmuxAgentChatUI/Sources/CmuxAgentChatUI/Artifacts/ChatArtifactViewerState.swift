@@ -2,7 +2,7 @@ import CmuxAgentChat
 import Foundation
 
 /// Renderable states for one stat-driven artifact path.
-enum ChatArtifactViewerState: Equatable {
+enum ChatArtifactViewerState: Equatable, Sendable {
     case loading
     case folder
     case image(data: Data)
@@ -12,9 +12,5 @@ enum ChatArtifactViewerState: Equatable {
     case text
     case markdown
     case binary(stat: ChatArtifactStat)
-    case tooLarge(actualSize: Int64?, limit: Int64)
-    case unsupportedMedia
-    case fileMissing
-    case macUnreachable
-    case forbidden
+    case failure(error: ChatArtifactError, actualSize: Int64?)
 }

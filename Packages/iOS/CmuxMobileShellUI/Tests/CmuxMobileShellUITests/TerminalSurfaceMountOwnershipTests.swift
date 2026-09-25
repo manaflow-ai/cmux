@@ -20,6 +20,7 @@ struct TerminalSurfaceMountOwnershipTests {
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: false,
+            terminalFolderTapEnabled: false,
             terminalFilesChipEnabled: false,
             sessionArtifactCountEnabled: false,
             visibleArtifactCount: 0,
@@ -58,6 +59,7 @@ struct TerminalSurfaceMountOwnershipTests {
             surfaceID: surfaceID,
             store: store,
             artifactFilesEnabled: false,
+            terminalFolderTapEnabled: false,
             terminalFilesChipEnabled: false,
             sessionArtifactCountEnabled: false,
             visibleArtifactCount: 0,
@@ -104,7 +106,7 @@ struct TerminalSurfaceMountOwnershipTests {
         }
         #expect(mounted)
         let firstToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
-        #expect(store.viewportReportGenerationsBySurfaceID[surfaceID] == 1)
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
         #expect(store.reportedViewportSizesByTerminalKey.values.contains(
             MobileTerminalViewportSize(columns: 72, rows: 61)
         ))
@@ -114,6 +116,14 @@ struct TerminalSurfaceMountOwnershipTests {
             store.terminalOutputStreamTokensBySurfaceID[surfaceID] == nil
         }
         #expect(unmounted)
+        // Losing a UIKit window stops the output consumer but keeps the sticky
+        // viewport lease. Releasing it here manufactured clear→apply resize
+        // pairs during transient SwiftUI remounts and fed #13474's SIGWINCH
+        // replay loop.
+        #expect(store.terminalViewportGeneration(for: surfaceID) == 1)
+        #expect(store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
 
         host.view.addSubview(surfaceView)
         for _ in 0..<20 {
@@ -136,6 +146,79 @@ struct TerminalSurfaceMountOwnershipTests {
             return token != firstToken
         }
         #expect(remounted)
+
+        // Presentation ownership, unlike temporary window attachment, releases
+        // the sticky viewport lease and its generation-fenced Mac report.
+        coordinator.setTerminalPresentationActive(false)
+        #expect(!store.reportedViewportSizesByTerminalKey.values.contains(
+            MobileTerminalViewportSize(columns: 72, rows: 61)
+        ))
+    }
+
+    @MainActor
+    @Test("a terminated output stream is reclaimed while the surface remains mounted")
+    func terminatedOutputStreamIsReclaimedWhileSurfaceRemainsMounted() async throws {
+        let store = MobileShellComposite.preview()
+        let workspace = try #require(store.workspaces.first { !$0.terminals.isEmpty })
+        let terminal = try #require(workspace.terminals.first)
+        let surfaceID = terminal.id.rawValue
+        let coordinator = GhosttySurfaceRepresentable.Coordinator(
+            workspaceID: workspace.id.rawValue,
+            surfaceID: surfaceID,
+            store: store,
+            artifactFilesEnabled: false,
+            terminalFolderTapEnabled: false,
+            terminalFilesChipEnabled: false,
+            sessionArtifactCountEnabled: false,
+            visibleArtifactCount: 0,
+            onArtifactFilesRequested: { _ in },
+            onArtifactPathTapped: { _ in },
+            onVisibleArtifactCountChanged: { _ in },
+            onArtifactGalleryRefreshSignal: { _ in }
+        )
+        let surfaceView = GhosttySurfaceView(
+            runtime: try GhosttyRuntime.shared(),
+            delegate: coordinator
+        )
+        let host = UIViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        coordinator.attach(surfaceView: surfaceView)
+        defer {
+            surfaceView.removeFromSuperview()
+            coordinator.detach()
+            surfaceView.prepareForDismantle()
+            window.isHidden = true
+        }
+
+        surfaceView.frame = host.view.bounds
+        host.view.addSubview(surfaceView)
+        coordinator.ghosttySurfaceView(
+            surfaceView,
+            didResize: TerminalGridSize(
+                columns: 72,
+                rows: 61,
+                pixelWidth: 1_296,
+                pixelHeight: 2_135
+            ),
+            reportID: 1
+        )
+        let mounted = await waitUntil {
+            store.terminalOutputStreamTokensBySurfaceID[surfaceID] != nil
+        }
+        #expect(mounted)
+        let firstToken = try #require(store.terminalOutputStreamTokensBySurfaceID[surfaceID])
+
+        store.terminalByteContinuationsBySurfaceID[surfaceID]?.finish()
+
+        let reclaimed = await waitUntil {
+            guard let token = store.terminalOutputStreamTokensBySurfaceID[surfaceID] else {
+                return false
+            }
+            return token != firstToken
+        }
+        #expect(reclaimed)
     }
 
     @MainActor

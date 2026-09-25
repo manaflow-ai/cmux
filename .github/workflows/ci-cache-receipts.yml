@@ -1,0 +1,57 @@
+name: CI cache receipt contract
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/cache-restore/action.yml
+      - .github/actions/cache-save/action.yml
+      - .github/workflows/ci.yml
+      - .github/workflows/ci-macos.yml
+      - .github/workflows/nightly.yml
+      - .github/workflows/ci-cache-receipts.yml
+      - scripts/ci/cache_restore_receipt.py
+      - scripts/check-test-determinism.py
+      - tests/test_ci_cache_restore_receipt.py
+      - tests/test_ci_pull_request_caches_are_read_only.py
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/cache-restore/action.yml
+      - .github/actions/cache-save/action.yml
+      - .github/workflows/ci.yml
+      - .github/workflows/ci-macos.yml
+      - .github/workflows/nightly.yml
+      - .github/workflows/ci-cache-receipts.yml
+      - scripts/ci/cache_restore_receipt.py
+      - scripts/check-test-determinism.py
+      - tests/test_ci_cache_restore_receipt.py
+      - tests/test_ci_pull_request_caches_are_read_only.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cache-receipts-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  receipt-contract:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Prepare receipt-test Python
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/cache-receipt-venv"
+          "$RUNNER_TEMP/cache-receipt-venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            PyYAML==6.0.3
+          echo "CACHE_RECEIPT_PYTHON=$RUNNER_TEMP/cache-receipt-venv/bin/python" >> "$GITHUB_ENV"
+      - run: |
+          "$CACHE_RECEIPT_PYTHON" tests/test_ci_cache_restore_receipt.py
+      - run: |
+          "$CACHE_RECEIPT_PYTHON" scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_receipt.py --strict

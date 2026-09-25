@@ -295,12 +295,108 @@ struct ChatArtifactGalleryTests {
 
         let response = TerminalArtifactScanResponse.sessionCount(
             sessionID: "session-1",
-            sessionArtifacts: records
+            sessionArtifacts: records,
+            galleryRowTotal: 2
         )
 
         #expect(response.artifacts.isEmpty)
         #expect(response.sessionID == "session-1")
         #expect(response.sessionArtifactTotal == 3)
+        #expect(response.galleryRowTotal == 2)
+    }
+
+    @Test("row eligibility applies missing-file and directory flags")
+    func rowEligibilityFlags() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gallery-eligibility-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("folder", isDirectory: true)
+        let file = root.appendingPathComponent("report.txt")
+        let missing = root.appendingPathComponent("missing.txt")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        #expect(FileManager.default.createFile(atPath: file.path, contents: Data("ok".utf8)))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let references = [
+            ChatArtifactIndexedReference(path: file.path, provenance: .created, lastReferencedSeq: 3),
+            ChatArtifactIndexedReference(path: directory.path, provenance: .attached, lastReferencedSeq: 2),
+            ChatArtifactIndexedReference(path: missing.path, provenance: .referenced, lastReferencedSeq: 1),
+        ]
+        let eligibility = ChatArtifactGalleryRowEligibility()
+
+        #expect(eligibility.rows(
+            references,
+            includeDirectories: false,
+            includeMissing: false
+        ).map(\.path) == [file.path])
+        #expect(eligibility.rows(
+            references,
+            includeDirectories: false,
+            includeMissing: true
+        ).map(\.path) == [file.path, missing.path])
+        #expect(eligibility.rows(
+            references,
+            includeDirectories: true,
+            includeMissing: false
+        ).map(\.path) == [file.path, directory.path])
+    }
+
+    @Test("default gallery pages and authoritative row count share eligibility")
+    func defaultGalleryPagesMatchAuthoritativeCount() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-gallery-count-\(UUID().uuidString)", isDirectory: true)
+        let directory = root.appendingPathComponent("folder", isDirectory: true)
+        let created = root.appendingPathComponent("created.txt")
+        let attached = root.appendingPathComponent("attached.png")
+        let missing = root.appendingPathComponent("missing.md")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        #expect(FileManager.default.createFile(atPath: created.path, contents: Data()))
+        #expect(FileManager.default.createFile(atPath: attached.path, contents: Data()))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let danglingLink = root.appendingPathComponent("dangling-link")
+        try FileManager.default.createSymbolicLink(
+            at: danglingLink,
+            withDestinationURL: root.appendingPathComponent("no-such-target")
+        )
+        let snapshot = [
+            ChatArtifactIndexedReference(path: created.path, provenance: .created, lastReferencedSeq: 5),
+            ChatArtifactIndexedReference(path: attached.path, provenance: .attached, lastReferencedSeq: 4),
+            ChatArtifactIndexedReference(path: directory.path, provenance: .referenced, lastReferencedSeq: 3),
+            ChatArtifactIndexedReference(path: missing.path, provenance: .referenced, lastReferencedSeq: 2),
+            // A dangling symlink: attributesOfItem observes the link itself,
+            // so count and rows must both treat it as an existing entry.
+            ChatArtifactIndexedReference(path: danglingLink.path, provenance: .referenced, lastReferencedSeq: 1),
+        ]
+        let builder = ChatArtifactGalleryBuilder()
+        let eligibility = ChatArtifactGalleryRowEligibility()
+
+        for includeDirectories in [false, true] {
+            for includeMissing in [false, true] {
+                var cursor: ChatArtifactGalleryCursor?
+                var renderedRowCount = 0
+                repeat {
+                    let page = builder.page(
+                        sessionID: "session",
+                        items: snapshot,
+                        generation: "generation",
+                        cursor: cursor,
+                        pageSize: 2,
+                        query: nil,
+                        includeDirectories: includeDirectories
+                    )
+                    renderedRowCount += (page.created + page.attached + page.referenced)
+                        .filter { includeMissing || $0.exists }
+                        .count
+                    cursor = page.nextCursor.flatMap(ChatArtifactGalleryCursor.init(token:))
+                } while cursor != nil
+
+                #expect(renderedRowCount == eligibility.defaultRowCount(
+                    snapshot,
+                    includeDirectories: includeDirectories,
+                    includeMissing: includeMissing
+                ))
+            }
+        }
     }
 
     @Test("written paths outrank attachments and references while last seq advances")

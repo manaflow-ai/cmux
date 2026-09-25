@@ -1,3 +1,4 @@
+public import CMUXMobileCore
 public import SwiftUI
 
 #if os(iOS)
@@ -14,12 +15,15 @@ public extension View {
     /// window level, so they float over sheets and full-screen covers while
     /// every touch outside the toast falls through to the app untouched.
     @ViewBuilder
-    func toastHost(_ center: ToastCenter) -> some View {
+    func toastHost(
+        _ center: ToastCenter,
+        haptics: MobileHapticFeedback = MobileHapticFeedback()
+    ) -> some View {
         #if os(iOS)
-        background(ToastWindowMounter(center: center))
+        background(ToastWindowMounter(center: center, haptics: haptics))
             .environment(center)
         #else
-        overlay(ToastOverlayRoot(center: center))
+        overlay(ToastOverlayRoot(center: center, haptics: haptics))
             .environment(center)
         #endif
     }
@@ -31,9 +35,10 @@ public extension View {
 /// to the coordinator, which owns the overlay window.
 private struct ToastWindowMounter: UIViewRepresentable {
     let center: ToastCenter
+    let haptics: MobileHapticFeedback
 
     func makeCoordinator() -> ToastWindowCoordinator {
-        ToastWindowCoordinator(center: center)
+        ToastWindowCoordinator(center: center, haptics: haptics)
     }
 
     func makeUIView(context: Context) -> ToastWindowAnchorView {
@@ -68,6 +73,7 @@ private final class ToastWindowAnchorView: UIView {
 @MainActor
 final class ToastWindowCoordinator {
     private let center: ToastCenter
+    private let haptics: MobileHapticFeedback
     private let chrome = ToastHostChrome()
     private var window: ToastPassthroughWindow?
     private var keyboardObserver: (any NSObjectProtocol)?
@@ -75,8 +81,9 @@ final class ToastWindowCoordinator {
     private var debugTrigger: ToastDebugTrigger?
     #endif
 
-    init(center: ToastCenter) {
+    init(center: ToastCenter, haptics: MobileHapticFeedback) {
         self.center = center
+        self.haptics = haptics
         observeKeyboard()
         #if DEBUG
         debugTrigger = ToastDebugTrigger(center: center)
@@ -93,7 +100,9 @@ final class ToastWindowCoordinator {
 
     private func installWindow(in scene: UIWindowScene) {
         window?.isHidden = true
-        let host = UIHostingController(rootView: ToastOverlayRoot(center: center, chrome: chrome))
+        let host = UIHostingController(
+            rootView: ToastOverlayRoot(center: center, chrome: chrome, haptics: haptics)
+        )
         host.view.backgroundColor = .clear
         // Keyboard avoidance is handled explicitly through `chrome`; opting
         // out here keeps the hosting view's own safe-area math deterministic.

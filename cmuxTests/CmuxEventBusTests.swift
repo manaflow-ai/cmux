@@ -283,7 +283,12 @@ final class CmuxEventBusTests: XCTestCase {
         let growth = after > before ? after - before : 0
         XCTAssertLessThan(
             growth,
-            UInt64(32 * 1_024 * 1_024),
+            // JSONSerialization and Foundation's allocator can retain a
+            // thread-local high-water mark after the autorelease pool drains;
+            // the bus invariant is the bounded retained snapshot below. Keep
+            // enough headroom for that allocator cache while still detecting
+            // an unbounded response retention.
+            UInt64(64 * 1_024 * 1_024),
             "publishV2 retained \(growth) bytes after \(iterations) large surface.read_text responses on one socket worker thread"
         )
         XCTAssertTrue(CmuxEventBus.shared.retainedSnapshot().isEmpty)
@@ -495,6 +500,31 @@ final class CmuxEventBusTests: XCTestCase {
 
         let line = try XCTUnwrap(CmuxEventBus.encodeLine(["payload": payload]))
         XCTAssertFalse(line.contains("secret"))
+    }
+
+    func testPublishWorkstreamEventPreservesSurfaceId() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 4)
+        let event = WorkstreamEvent(
+            sessionId: "session",
+            hookEventName: .stop,
+            source: "codex",
+            workspaceId: "workspace",
+            surfaceId: "surface"
+        )
+
+        bus.publishWorkstreamEvent(event, phase: "received")
+
+        let published = bus.retainedSnapshot()
+        XCTAssertEqual(published.count, 2)
+        XCTAssertEqual(published.compactMap { $0["name"] as? String }, [
+            "agent.hook.Stop",
+            "feed.item.received",
+        ])
+        for publishedEvent in published {
+            XCTAssertEqual(publishedEvent["surface_id"] as? String, "surface")
+            let payload = try XCTUnwrap(publishedEvent["payload"] as? [String: Any])
+            XCTAssertEqual(payload["surface_id"] as? String, "surface")
+        }
     }
 
     func testPublishAppendsDurableEventLog() throws {

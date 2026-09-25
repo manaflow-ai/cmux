@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -121,7 +122,7 @@ import Testing
         full: true
     ))
     let firstBarrierToken = store.beginTerminalReplayBarrier(surfaceID: surfaceID)
-    store.requestTerminalReplay(surfaceID: surfaceID, replayBarrierToken: firstBarrierToken)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach, replayBarrierToken: firstBarrierToken)
     await router.waitForCount(of: "mobile.terminal.replay", atLeast: 2)
     let firstReplayChunk = try #require(await iterator.next())
 

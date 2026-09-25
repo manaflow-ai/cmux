@@ -9,23 +9,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let timedOut: Bool
     }
 
-    final class MockSocketServerState: @unchecked Sendable {
-        private let lock = NSLock()
-        private(set) var commands: [String] = []
 
-        func append(_ command: String) {
-            lock.lock()
-            commands.append(command)
-            lock.unlock()
-        }
-
-        func snapshot() -> [String] {
-            lock.lock()
-            let value = commands
-            lock.unlock()
-            return value
-        }
-    }
 
     struct LoopbackTCPListener {
         let fd: Int32
@@ -183,7 +167,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return handled
     }
 
-    func startBridgeReadyThenCloseServer(listenerFD: Int32) -> XCTestExpectation {
+    func startBridgeReadyThenCloseServer(
+        listenerFD: Int32,
+        replay: Data = Data(),
+        liveOutput: Data = Data(),
+        beforeClose: (@Sendable () -> Void)? = nil
+    ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready close server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
@@ -210,9 +199,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 pending.append(buffer, count: count)
             }
 
-            let payload: [String: Any] = ["type": "ready", "attachment_token": "attach-token"]
+            let payload: [String: Any] = [
+                "type": "ready",
+                "attachment_token": "attach-token",
+                "replay_bytes": replay.count,
+            ]
             guard var data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
             data.append(0x0A)
+            data.append(contentsOf: replay)
+            data.append(contentsOf: liveOutput)
             data.withUnsafeBytes { rawBuffer in
                 guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
                 var remaining = rawBuffer.count
@@ -229,11 +224,60 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     }
                 }
             }
+            beforeClose?()
         }
         return handled
     }
 
-    func startBridgeReadyThenResetAfterClientEOFServer(listenerFD: Int32) -> XCTestExpectation {
+    func startBridgeReadySendingReplayServer(
+        listenerFD: Int32,
+        replay: Data
+    ) -> XCTestExpectation {
+        let handled = expectation(description: "pty bridge replay server handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { handled.fulfill() }
+
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+
+            let payload: [String: Any] = [
+                "type": "ready",
+                "attachment_token": "attach-token",
+                "replay_bytes": replay.count,
+            ]
+            guard var status = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+                return
+            }
+            status.append(0x0A)
+            Self.writeAll(fd: clientFD, data: status)
+            Self.writeAll(fd: clientFD, data: replay)
+        }
+        return handled
+    }
+
+    func startBridgeReadyThenResetAfterClientEOFServer(
+        listenerFD: Int32,
+        waitBeforeClientEOF: [DispatchSemaphore] = []
+    ) -> XCTestExpectation {
         let handled = expectation(description: "pty bridge ready reset server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
@@ -278,6 +322,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         return
                     }
                 }
+            }
+
+            for semaphore in waitBeforeClientEOF {
+                guard semaphore.wait(timeout: .now() + 5) == .success else { return }
             }
 
             while true {
@@ -364,77 +412,56 @@ extension CLINotifyProcessIntegrationRegressionTests {
         standardInput: String? = nil,
         timeout: TimeInterval
     ) -> ProcessRunResult {
-        let process = Process()
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        let stdinPipe = standardInput == nil ? nil : Pipe()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-        process.arguments = arguments
-        process.environment = environment
-        process.standardInput = stdinPipe ?? FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        Self.runProcess(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: processTimeout(timeout)
+        )
+    }
 
-        do {
-            try process.run()
-        } catch {
-            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
-        }
-        if let standardInput, let stdinPipe {
-            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
-            try? stdinPipe.fileHandleForWriting.close()
-        }
+    static func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
+        // Implementation lives in CLIHookProcessRunner so the hook helpers that
+        // only need the built CLI can compile into the product-level test
+        // bundle, which does not have this app-host suite.
+        let result = CLIHookProcessRunner.run(
+            executablePath: executablePath,
+            arguments: arguments,
+            environment: environment,
+            standardInput: standardInput,
+            timeout: timeout
+        )
+        return ProcessRunResult(
+            status: result.status,
+            stdout: result.stdout,
+            stderr: result.stderr,
+            timedOut: result.timedOut
+        )
+    }
 
-        let outputLock = NSLock()
-        var stdoutData = Data()
-        var stderrData = Data()
-        let outputGroup = DispatchGroup()
-
-        outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stdoutData = data
-            outputLock.unlock()
-            outputGroup.leave()
-        }
-
-        outputGroup.enter()
-        DispatchQueue.global(qos: .utility).async {
-            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            outputLock.lock()
-            stderrData = data
-            outputLock.unlock()
-            outputGroup.leave()
-        }
-
-        let exitSignal = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            exitSignal.signal()
-        }
-
-        let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut
-        if timedOut {
-            process.terminate()
-            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
-                kill(process.processIdentifier, SIGKILL)
-                _ = exitSignal.wait(timeout: .now() + 1)
+    private static func writeAll(fd: Int32, data: Data) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var remaining = rawBuffer.count
+            var cursor = base
+            while remaining > 0 {
+                let written = Darwin.write(fd, cursor, remaining)
+                if written > 0 {
+                    remaining -= written
+                    cursor = cursor.advanced(by: written)
+                } else if written < 0, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
             }
         }
-        _ = outputGroup.wait(timeout: .now() + 2)
-
-        outputLock.lock()
-        let finalStdoutData = stdoutData
-        let finalStderrData = stderrData
-        outputLock.unlock()
-        let stdout = String(data: finalStdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: finalStderrData, encoding: .utf8) ?? ""
-        return ProcessRunResult(
-            status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: stdout,
-            stderr: stderr,
-            timedOut: timedOut
-        )
     }
 }

@@ -27,6 +27,8 @@ struct RemoteInitialCommandBootstrapFailureTests {
         try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
+
         try writeExecutable(
             to: bin.appendingPathComponent("bash"),
             body: """
@@ -57,6 +59,7 @@ struct RemoteInitialCommandBootstrapFailureTests {
             "HOME": home.path,
             "PATH": "\(bin.path):/usr/bin:/bin",
             "SHELL": bin.appendingPathComponent("bash").path,
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
         ]) { _, new in new }
 
         let failedDecode = try runShell(script, environment: environment)
@@ -103,6 +106,8 @@ struct RemoteInitialCommandBootstrapFailureTests {
         try fileManager.createDirectory(at: cmuxBin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
+
         try writeFailingThenWorkingBase64(to: cmuxBin.appendingPathComponent("base64"))
         let script = RemoteInteractiveShellBootstrapBuilder.script(
             remoteRelayPort: 0,
@@ -115,6 +120,7 @@ struct RemoteInitialCommandBootstrapFailureTests {
             "PATH": "\(bin.path):/usr/bin:/bin",
             "SHELL": fish,
             "XDG_CONFIG_HOME": home.appendingPathComponent(".config").path,
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
         ]) { _, new in new }
 
         let failedDecode = try runShell(script, environment: environment)
@@ -145,6 +151,8 @@ struct RemoteInitialCommandBootstrapFailureTests {
         try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
+        let persistentPTYExecHelper = try writePersistentPTYExecHelper(to: bin)
+
         try writeExecutable(
             to: unsupportedShell,
             body: """
@@ -166,6 +174,7 @@ struct RemoteInitialCommandBootstrapFailureTests {
             "HOME": home.path,
             "PATH": "\(bin.path):/usr/bin:/bin",
             "SHELL": unsupportedShell.path,
+            "CMUX_PERSISTENT_PTY_EXEC_HELPER": persistentPTYExecHelper.path,
         ]) { _, new in new }
 
         let unsupported = try runShell(script, environment: unsupportedEnvironment)
@@ -214,6 +223,25 @@ struct RemoteInitialCommandBootstrapFailureTests {
     private func writeExecutable(to url: URL, body: String) throws {
         try body.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
+    }
+
+    private func writePersistentPTYExecHelper(to directory: URL) throws -> URL {
+        let url = directory.appendingPathComponent("persistent-pty-exec-helper")
+        try writeExecutable(
+            to: url,
+            body: """
+            #!/bin/sh
+            [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+            shift
+            executable="${1:-}"
+            [ -n "$executable" ] || exit 2
+            shift
+            [ "${1:-}" = "$executable" ] || exit 2
+            shift
+            exec "$executable" "$@"
+            """
+        )
+        return url
     }
 
     private func initialCommandMarkerCount(home: URL) throws -> Int {

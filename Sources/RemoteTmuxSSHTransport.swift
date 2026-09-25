@@ -294,12 +294,9 @@ actor RemoteTmuxSSHTransport {
     /// returns as soon as the kills land (well under `timeout`). Kills to the SAME host
     /// serialize on that host's transport actor; different hosts run in parallel.
     ///
-    /// CAVEAT: `runProcess` is not cancellation-aware, so on a HUNG connection the
-    /// abandoned kill child can outlive `timeout` (the structured group still awaits
-    /// it). The hard bound on the user-visible app-quit is therefore the CALLER's
-    /// watchdog (``AppDelegate``'s deferred-terminate reply fires regardless), not this
-    /// `timeout`. The orphaned `ssh` is reaped by the OS on app exit; the kill is
-    /// best-effort (it can't land on a dead connection anyway).
+    /// `runProcess` force-stops its child when task cancellation follows the
+    /// timeout, so the structured group also finishes within this boundary.
+    /// The remote kill remains best-effort when the connection itself is dead.
     nonisolated static func killSessions(
         _ jobs: [(transport: RemoteTmuxSSHTransport, target: String)],
         timeout: Duration
@@ -436,6 +433,9 @@ actor RemoteTmuxSSHTransport {
                     }
                     do {
                         try process.run()
+                        if Task.isCancelled {
+                            cancellation.cancel()
+                        }
                     } catch {
                         // The process never started, so the handler will not fire; resume
                         // exactly once here with the launch failure.

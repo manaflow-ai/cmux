@@ -36,7 +36,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 return true
             }
@@ -60,7 +60,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 return false
             }
@@ -93,7 +93,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 return true
             }
@@ -157,7 +157,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 markSwitchStarted()
                 return await withCheckedContinuation { continuation in
@@ -237,7 +237,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 markSwitchStarted()
                 return await withCheckedContinuation { continuation in
@@ -253,8 +253,8 @@ import Testing
         let pendingSwitchTask = view.handleMacTitlePickerSelection(.machine("mac-b"))
         await waitForSwitchStart()
 
-        #expect(view.macTitlePickerSelection.wrappedValue == .machine("mac-b"))
-        view.macTitlePickerSelection.wrappedValue = .all
+        #expect(view.currentMacTitlePickerSelection == .machine("mac-b"))
+        view.handleMacTitlePickerSelection(.all)
         await waitForCancelStart()
 
         #expect(requestedSwitches == ["mac-b"])
@@ -320,7 +320,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 if macDeviceID == "mac-b" {
                     markSwitchStarted()
@@ -413,7 +413,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 if macDeviceID == "mac-b" {
                     markFirstSwitchStarted()
@@ -490,7 +490,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { macDeviceID in
+            switchMac: { macDeviceID, _ in
                 requestedSwitches.append(macDeviceID)
                 markSwitchStarted()
                 return await withCheckedContinuation { continuation in
@@ -576,7 +576,7 @@ import Testing
                 get: { selected },
                 set: { selected = $0 }
             ),
-            switchMac: { _ in
+            switchMac: { _, _ in
                 markSwitchStarted()
                 return await withCheckedContinuation { continuation in
                     switchContinuation = continuation
@@ -945,6 +945,57 @@ import Testing
         #expect(groupSearch.filteredWorkspaces.map(\.id) == [studioWorkspace.id])
     }
 
+    @Test func allComputersKeepsEveryMacWorkspaceGroupVisible() async {
+        let store = await shellStore(
+            pairedMacs: [
+                pairedMac(id: "mac-a", name: "Mac A", lastSeenAt: 20, isActive: true),
+                pairedMac(id: "mac-b", name: "Mac B", lastSeenAt: 10),
+            ],
+            connectionState: .connected
+        )
+        var foregroundAnchor = workspace(id: "foreground-anchor", macDeviceID: "mac-a")
+        foregroundAnchor.groupID = "foreground-group"
+        var secondaryAnchor = workspace(id: "secondary-anchor", macDeviceID: "mac-b")
+        secondaryAnchor.groupID = "secondary-group"
+        store.setWorkspaceStatesForTesting([
+            "mac-a": MacWorkspaceState(
+                macDeviceID: "mac-a",
+                displayName: "Mac A",
+                workspaces: [foregroundAnchor],
+                groups: [MobileWorkspaceGroupPreview(
+                    id: "foreground-group",
+                    name: "Foreground Group",
+                    anchorWorkspaceID: foregroundAnchor.id
+                )],
+                status: .connected
+            ),
+            "mac-b": MacWorkspaceState(
+                macDeviceID: "mac-b",
+                displayName: "Mac B",
+                workspaces: [secondaryAnchor],
+                groups: [MobileWorkspaceGroupPreview(
+                    id: "secondary-group",
+                    name: "Secondary Group",
+                    anchorWorkspaceID: secondaryAnchor.id
+                )],
+                status: .connected
+            ),
+        ], foregroundMacDeviceID: "mac-a")
+        let view = workspaceListView(
+            workspaces: store.workspaces,
+            groups: store.workspaceGroups,
+            store: store
+        )
+        let headerNames = view.displayedGroupedListItems.compactMap { item -> String? in
+            guard case .groupHeader(let group, _) = item else { return nil }
+            return group.name
+        }
+
+        #expect(view.visibleMacSelection == .all)
+        #expect(view.rendersGroupedSections)
+        #expect(headerNames == ["Foreground Group", "Secondary Group"])
+    }
+
     private func workspaceListView(
         workspaces: [MobileWorkspacePreview],
         groups: [MobileWorkspaceGroupPreview] = [],
@@ -952,7 +1003,7 @@ import Testing
         store: CMUXMobileShellStore,
         selectWorkspace: @escaping (MobileWorkspacePreview.ID) -> Void = { _ in },
         macSelection: Binding<WorkspaceMacSelection>? = nil,
-        switchMac: (@MainActor (String) async -> Bool)? = nil,
+        switchMac: (@MainActor (String, String?) async -> Bool)? = nil,
         cancelMacSwitch: (@MainActor (Bool) async -> Void)? = nil
     ) -> WorkspaceListView {
         WorkspaceListView(
@@ -969,6 +1020,7 @@ import Testing
             switchMac: switchMac,
             cancelMacSwitch: cancelMacSwitch,
             store: store,
+            filterState: WorkspaceListFilterState(),
             searchText: searchText
         )
     }
@@ -995,7 +1047,8 @@ import Testing
             identityProvider: WorkspaceMacSelectionIdentityProvider(userID: "user-1"),
             teamIDProvider: { "team-a" },
             pairingHintDefaults: defaults,
-            multiMacAggregationDefaults: defaults
+            multiMacAggregationDefaults: defaults,
+            groupCollapseStore: MobileWorkspaceGroupCollapseStore(defaults: defaults)
         )
         await store.loadPairedMacs()
         return store
