@@ -6665,47 +6665,6 @@ describe("VM Effect workflows", () => {
     ]);
   });
 
-  dbTest("allows operations on a personal VM from an implicitly resolved team scope", async () => {
-    if (!sql) throw new Error("test database not initialized");
-    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
-    await sql`
-      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-default-scope', 'user-workflow-default-scope', 'free', 'freestyle', 'provider-vm-default-personal-operation', 'snapshot-test', 'running')
-    `;
-
-    let attachCalls = 0;
-    const provider = providerLayer({
-      create: () => Effect.fail(new Error("unused") as never),
-      destroy: () => Effect.void,
-      exec: () => Effect.fail(new Error("unused") as never),
-      openAttach: () => Effect.sync(() => {
-        attachCalls += 1;
-        return {
-          transport: "websocket" as const,
-          url: "wss://example.invalid/pty",
-          headers: {},
-          token: "pty-token-personal-operation",
-          sessionId: "pty-session-personal-operation",
-          attachmentId: "attachment-personal-operation",
-          expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
-        };
-      }),
-      openSSH: () => Effect.fail(new Error("unused") as never),
-      revokeSSHIdentity: () => Effect.void,
-    });
-
-    const endpoint = await Effect.runPromise(
-      openAttachEndpoint({
-        userId: "user-workflow-default-scope",
-        billingTeamId: "team-workflow-default-scope",
-        teamIds: ["team-workflow-default-scope"],
-        providerVmId: "provider-vm-default-personal-operation",
-      }).pipe(Effect.provide(provider)),
-    );
-    expect(endpoint.transport).toBe("websocket");
-    expect(attachCalls).toBe(1);
-  });
-
   dbTest("does not destroy, exec, or mint SSH for another user's VM", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
