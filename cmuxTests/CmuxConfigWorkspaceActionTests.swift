@@ -93,12 +93,13 @@ struct CmuxConfigWorkspaceActionTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let marker = requestedDirectory.appendingPathComponent("result")
+        let physicalRequestedDirectory = requestedDirectory.resolvingSymlinksInPath().path
         let config = try decode("""
         {
           "actions": {
             "quiet": {
               "type": "command", "target": "background",
-              "command": "printf '%s' \\\"$PWD\\\" > result"
+              "command": "printf '%s' \\\"$(pwd -P)\\\" > result"
             }
           }
         }
@@ -116,6 +117,8 @@ struct CmuxConfigWorkspaceActionTests {
             workingDirectory: requestedDirectory.path,
             autoRefreshMetadata: false
         ))
+        #expect(workspace.focusedPanelId == terminal.id)
+        #expect(terminal.requestedWorkingDirectory == requestedDirectory.path)
         workspace.panelDirectories.removeValue(forKey: terminal.id)
         workspace.currentDirectory = fallbackDirectory.path
 
@@ -129,10 +132,10 @@ struct CmuxConfigWorkspaceActionTests {
         ))
 
         for _ in 0..<250 {
-            if (try? String(contentsOf: marker, encoding: .utf8)) == requestedDirectory.path { break }
+            if (try? String(contentsOf: marker, encoding: .utf8)) == physicalRequestedDirectory { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(try String(contentsOf: marker, encoding: .utf8) == requestedDirectory.path)
+        #expect(try String(contentsOf: marker, encoding: .utf8) == physicalRequestedDirectory)
     }
 
     private func decode(_ json: String) throws -> CmuxConfigFile {
