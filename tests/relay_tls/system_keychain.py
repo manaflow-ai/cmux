@@ -81,21 +81,10 @@ def build_client(directory, output, diagnostics):
     lockfile = ROOT / "Packages/Shared/CmuxIrohTransport/Package.resolved"
     pins = json.loads(lockfile.read_text())["pins"]
     pin = next(pin for pin in pins if pin["identity"] == "iroh-ffi")
-    state = pin["state"]
-    version = state.get("version")
-    if version is not None:
-        dependency = f'.package(url: {json.dumps(pin["location"])}, exact: {json.dumps(version)})'
-        description = version
-    else:
-        revision = state.get("revision")
-        if not revision:
-            raise RuntimeError("Iroh lockfile pin has neither a version nor a revision")
-        dependency = f'.package(url: {json.dumps(pin["location"])}, revision: {json.dumps(revision)})'
-        description = f"revision {revision}"
     (directory / "Package.swift").write_text(f'''// swift-tools-version: 6.0
 import PackageDescription
 let package = Package(name: "RelayTLSClient", platforms: [.macOS(.v14)],
-    dependencies: [{dependency}],
+    dependencies: [.package(url: "{pin['location']}", exact: "{pin['state']['version']}")],
     targets: [.executableTarget(name: "RelayTLSClient",
         dependencies: [.product(name: "IrohLib", package: "iroh-ffi")], path: "Sources")])
 ''')
@@ -103,7 +92,7 @@ let package = Package(name: "RelayTLSClient", platforms: [.macOS(.v14)],
     sources.mkdir()
     shutil.copyfile(lockfile, directory / "Package.resolved")
     shutil.copyfile(Path(__file__).with_name("RelayTLSClient.swift"), sources / "RelayTLSClient.swift")
-    print(f"Building pinned Iroh {description}", flush=True)
+    print(f"Building pinned Iroh {pin['state']['version']}", flush=True)
     with (output / "build.log").open("w") as log:
         flags = ["-Xswiftc", "-DRELAY_TLS_DIAGNOSTICS"] if diagnostics else []
         build = subprocess.run(["swift", "build", "--package-path", str(directory), *flags],
