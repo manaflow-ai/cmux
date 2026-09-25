@@ -172,6 +172,96 @@ class SelectorTests(unittest.TestCase):
         self.assertIn("Sources/Feed/Gone.swift deleted", selection.untraceable)
 
 
+def change(path: str, removed: list[str], added: list[str]) -> str:
+    """A `git diff -U0` hunk that replaces `removed` lines with `added` ones."""
+    body = "".join(f"-{line}\n" for line in removed) + "".join(f"+{line}\n" for line in added)
+    return f"--- a/{path}\n+++ b/{path}\n@@ -1,{len(removed)} +1,{len(added)} @@\n{body}"
+
+
+CLI_OUTPUT_TESTS = """\
+import XCTest
+
+final class CLIWorkspaceRefTests: XCTestCase {
+    func testMissingRef() {
+        XCTAssertEqual(runCLI(["select-workspace", "workspace:9"]), "Workspace ref not found: workspace:9")
+    }
+}
+"""
+
+
+class LiteralTests(unittest.TestCase):
+    """Tests that drive the CLI or socket assert on text, never on Swift names."""
+
+    def test_a_changed_cli_literal_selects_the_suite_that_asserts_on_it(self) -> None:
+        path = "CLI/cmux.swift"
+        diff = change(
+            path,
+            ['        throw CLIError(message: "Workspace ref not found: \\(ref)")'],
+            ['        throw CLIError(message: "No workspace matches \\(ref)")'],
+        )
+        files = fixture(**{"cmuxTests/CLIWorkspaceRefTests.swift": CLI_OUTPUT_TESTS})
+        selection = rti.select(files, diff)
+        self.assertEqual(selection.app_files, [path])
+        self.assertEqual(selection.suites, {"CLIWorkspaceRefTests"})
+        [seed] = selection.reached
+        self.assertEqual((seed.name, seed.how), ("Workspace ref not found:", "string"))
+        data = rti.report(selection, {})
+        self.assertEqual(data["budgeted"]["kept_names"], ['"Workspace ref not found:"'])
+
+    def test_app_source_literals_are_followed_as_well(self) -> None:
+        diff = change(
+            "Sources/Feed/FeedCoordinator.swift",
+            ['        return "feed.refresh_badge"'],
+            ['        return "feed.badge_refresh"'],
+        )
+        files = fixture(**{
+            "cmuxTests/FeedSocketTests.swift": (
+                "final class FeedSocketTests: XCTestCase {\n"
+                '    func testMethod() { XCTAssertEqual(send("feed.refresh_badge"), "OK") }\n'
+                "}\n"
+            ),
+        })
+        self.assertIn("FeedSocketTests", rti.select(files, diff).suites)
+
+    def test_a_literal_on_both_sides_of_the_diff_only_moved(self) -> None:
+        line = '        print("Workspace ref not found: \\(ref)")'
+        diff = change("CLI/cmux.swift", [line], ["    " + line])
+        files = fixture(**{"cmuxTests/CLIWorkspaceRefTests.swift": CLI_OUTPUT_TESTS})
+        self.assertEqual(rti.select(files, diff).suites, set())
+
+    def test_short_text_comments_and_interpolations_are_not_searched(self) -> None:
+        self.assertEqual(rti.literal_pieces('let flag = "--json"'), set())
+        self.assertEqual(rti.literal_pieces('// "Workspace ref not found"'), set())
+        self.assertEqual(
+            rti.literal_pieces('fail("Workspace ref not found: \\(ref) (use --window)")'),
+            {"Workspace ref not found:", "(use --window)"},
+        )
+        # Kept as the Swift source spells it, so a test's escaped copy matches.
+        self.assertEqual(rti.literal_pieces('say("reply \\"hello there\\"")'), {'reply \\"hello there\\"'})
+
+    def test_a_literal_many_tests_contain_is_dropped_as_hot(self) -> None:
+        diff = change("CLI/cmux.swift", ['    let key = "workspace_id_value"'], [])
+        files = fixture()
+        for index in range(rti.HOT_TEST_FILES + 1):
+            files[f"cmuxTests/Ref{index}Tests.swift"] = (
+                f"final class Ref{index}Tests: XCTestCase {{\n"
+                '    func testKey() { _ = "workspace_id_value" }\n'
+                "}\n"
+            )
+        selection = rti.select(files, diff)
+        self.assertEqual(selection.suites, set())
+        self.assertEqual(
+            [(seed.name, reason) for seed, reason in selection.dropped],
+            [("workspace_id_value", f"hot: {rti.HOT_TEST_FILES + 1} test files")],
+        )
+
+    def test_text_no_test_contains_is_left_out_of_the_report(self) -> None:
+        diff = change("CLI/cmux.swift", ['    log("an internal log line nobody asserts")'], [])
+        selection = rti.select(fixture(), diff)
+        self.assertEqual((selection.reached, selection.dropped), ({}, []))
+        self.assertEqual(selection.app_files, ["CLI/cmux.swift"])
+
+
 class BudgetTests(unittest.TestCase):
     def test_over_budget_keeps_the_most_specific_names_that_fit(self) -> None:
         narrow = rti.Seed("refreshFeed", "FeedCoordinator", "member")
@@ -352,8 +442,9 @@ class WorkflowGuardTests(unittest.TestCase):
         # Its changed-file list is its own, not a file another job wrote.
         self.assertNotIn("/tmp/cmux-ci-", self.job)
         self.assertIn('git diff --no-renames --name-only "$base" HEAD', self.report)
-        self.assertIn("^(Sources/|Packages/(macOS|Shared)/[^/]+/Sources/)", self.report)
-        self.assertIn("-- Sources Packages/macOS Packages/Shared", self.report)
+        # CLI/ too: its string literals are what the CLI suites assert on.
+        self.assertIn("^(Sources/|CLI/|Packages/(macOS|Shared)/[^/]+/Sources/)", self.report)
+        self.assertIn("-- Sources Packages/macOS Packages/Shared CLI >", self.report)
 
     def test_the_selector_runs_from_the_trusted_base_revision(self) -> None:
         # The pull request's own copy never runs: it is read out of the merge
