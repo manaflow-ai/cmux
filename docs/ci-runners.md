@@ -24,7 +24,7 @@ gh variable list --repo manaflow-ai/cmux
 | `MACOS_RUNNER_15` | the macOS 15 default: `macos-compile-admission`, non-PR `app-host-unit-tests`, nightly helper and test-cache jobs, `iroh-release-gate.yml` streamed validation | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_PR` | **pull-request** macOS jobs in `ci-macos.yml` (the app-host shards and `tests-build-and-lag` follow `macos-compile-admission`), `terminal-hang-diagnostics.yml`, `ci.yml` (`claude-wrapper`) and `nightly.yml` (`refresh-test-compilation-cache`) | unset (see "Lanes" below) | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_TESTS` | test-only lanes that pick their Xcode by SDK and sign nothing: `test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml` (`auto`) and the `iroh-v2.yml` client | unset (see "Lanes" below) | each lane's own variable or Blacksmith label: `blacksmith-6vcpu-macos-26` for `test-e2e.yml`, `blacksmith-6vcpu-macos-15` for `test-macos-suite.yml`, `MACOS_RUNNER_IOS` for `test-ios.yml` and `iroh-v2.yml` |
-| `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
+| `MACOS_RUNNER_DUAL_XCODE` | `swift-package-tests` (SDK 15 release helper, then SDK 26 package tests) on **every** event, pull requests included, except attempt 1 of a pull request run whose picker placed it on an owned Mac (no helper build in that run; see "Pull request pool preference") | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
 | `MACOS_RUNNER_26` | the macOS 26 image: compatibility jobs, `release.yml` and nightly sign/notarize, the disk-heavy `release-build` universal app, and the nightly compilation-cache warmer | `blacksmith-6vcpu-macos-26` | `blacksmith-6vcpu-macos-26` |
 | `MACOS_RUNNER_26_LARGE` | the larger macOS 26 machine: changed-revision universal Nightly app builds | `blacksmith-12vcpu-macos-26` | `blacksmith-12vcpu-macos-26` |
 | `MACOS_RUNNER_DISPLAY` | macOS GUI, XCUITest, and virtual-display tests (`tests-build-and-lag`) | `blacksmith-6vcpu-macos-15` | `blacksmith-6vcpu-macos-15` |
@@ -190,7 +190,8 @@ Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
 running on that label. A pull request run puts several macOS jobs on its pool
 at once, each on its own machine, so a run takes the owned pool only when its
 own peak fits there by the expected wait above. The picker runs after the suite choice and counts
-that peak from the run's routing: the Claude wrapper and remote daemon lanes,
+that peak from the run's routing: the Claude wrapper and remote daemon lanes
+(and swift-package-tests when the run builds no Release helper, below),
 beside the larger of compile admission alone or what follows it (a full
 suite's seven app-host shards, tests-build-and-lag and cli-product-tests, 11
 jobs in all; a changed-suites run's one shard; a CLI
@@ -351,8 +352,18 @@ on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
 janitor also lists the artifacts of each in-flight attempt-1, same-repository
 pull request CI run or main full-suite dispatch (one request per run, more only past 100 artifacts) to
 read its marker's peak into `committed`. A run's other macOS jobs do not rule
-it out: `swift-package-tests` always runs on Blacksmith beside a full suite on
-an owned pool.
+it out: `swift-package-tests` runs on Blacksmith beside a full suite on an
+owned pool whenever that suite also builds the Release helper.
+
+`swift-package-tests` is an owned side lane (`swift-package` in `owned_jobs`)
+only in a run that builds no Release Ghostty helper: a package change under
+the compile-only policy, or a full suite with `release_build` false. The
+helper needs an SDK 15 Xcode that only Blacksmith's macOS 15 image carries
+(the minis have Xcode 26.6 alone), so a full suite with `release_build`
+keeps it there (`pr_runner_pool.package_lane_owned()`). On the owned label it
+takes the lane's Xcode (`CMUX_CI_XCODE_APP` restates the runs-on condition);
+every other attempt keeps the macOS 15 pool and pin. glaeda classes the job
+id as light, so it never holds a root runner.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -406,7 +417,8 @@ gh variable set CMUX_CI_XCODE_APP_PR --repo manaflow-ai/cmux -b /Applications/Xc
 Unsetting both returns the lane to `blacksmith-6vcpu-macos-15` and Xcode 26.3.
 
 `swift-package-tests` deliberately does **not** resolve through
-`MACOS_RUNNER_PR`. It builds the Release Ghostty CLI helper against an
+`MACOS_RUNNER_PR` (the owned side lane above is the one exception, and it
+never runs the helper steps). It builds the Release Ghostty CLI helper against an
 SDK 15 Xcode -- it pins `CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=15` for that step
 and then asserts `HELPER_SDK_VERSION == 15.*` -- and only the `macos-15`
 image carries an SDK 15 Xcode. That pin dates from Zig 0.15.2, whose MachO
@@ -547,6 +559,34 @@ runs while the variable is set and re-runs a job that waits past
 relay-tls `system-keychain` (it changes the System keychain trust store),
 plain-paste-worker (macOS 15 only) and app-host-test-rerun (a fixed canonical
 root) stay on Blacksmith. Clear the variable to send every side lane back.
+
+### Which macOS jobs may take an owned Mac
+
+Owned minis run macOS 26 with Xcode 26.6 only, run same-repository pull
+request code, and keep their home directory and caches between jobs. So a job
+stays on Blacksmith when it signs, notarizes, uploads or publishes (anything
+with signing, store or release secrets, or whose output ships or seeds a
+shared cache), when it runs fork code, or when it needs an OS or Xcode the
+minis lack. Everything else routes through a picker, with Blacksmith as the
+overflow and ci-owned-pool-rescue.yml as the way off a busy or refusing mini.
+
+| Jobs | Route | Why |
+| --- | --- | --- |
+| `ci-macos.yml` compile admission, app-host shards, `tests-build-and-lag`, `cli-product-tests` | owned via `pr_runner_pool.py` (root label), pull requests and main's full-suite dispatch | canonical-root jobs |
+| `ci.yml` `claude-wrapper`, `remote-daemon.yml` macOS tests | owned side lane via the picker | light |
+| `ci-macos.yml` `swift-package-tests` | owned side lane via the picker when the run builds no Release helper; else Blacksmith macOS 15 | the helper needs an SDK 15 Xcode |
+| the seven side-lane workflows above | `CI_SIDE_LANE_RUNNER` on attempt 1 of a pull request | light; other events stay on Blacksmith |
+| `test-e2e.yml` (and `dispatch-focused-test.py`) | owned via `e2e_runner_pool.py`; UI runs with `CI_E2E_OWNED_UI=1` | root jobs; Blacksmith when no root runner is free |
+| `test-ios.yml`, `ios-screenshots.yml` | owned via `ios_runner_pool.py` behind `CI_IOS_OWNED=1` | needs the `glaeda-ios-sim` label (an iOS 26.x simulator runtime) |
+| `app-host-test-rerun.yml` `rerun` | Blacksmith | restores a product into a fixed canonical root; needs a root route and a glaeda class first |
+| `cmux-tui.yml` macOS `lint`, `test`, `cdp-browser-smoke` | Blacksmith | could move; glaeda classes unknown ids as compile (root), and these ids are generic |
+| `ci-macos.yml` `release-build` | `MACOS_RUNNER_26` | could move; needs a picker key and a glaeda class |
+| low-volume dispatches: `test-macos-suite`, `tmux-corpus`, `perf-activation`, command palette benchmarks, `iroh-release-gate` version skew | Blacksmith or the caller's runner input | a few runs a week; benchmarks want a quiet machine |
+| `relay-tls` `system-keychain` | Blacksmith | edits the System keychain trust store |
+| `plain-paste-worker`, `ci-macos-compat`, `seed-swiftpm-manifests`, release and nightly Ghostty helpers | Blacksmith macOS 15 / 14 | an OS or SDK the minis lack |
+| `release.yml`, nightly sign/notarize, `ios-testflight`, `ios-app-store`, `ios-appstore-upload` | Blacksmith | signing and store secrets |
+| nightly app and compilation caches, `seed-derived-data` Blacksmith pools, `build-ghosttykit`, `cmux-tui-build-package` (artifacts, nightly, release), `relay-publish-npm` | Blacksmith | publish, or write a cache other runs trust, with R2 or release secrets |
+| `ios-streamed-validate`, `iroh-release-gate` simulator E2E | Blacksmith | secrets in the job, fixed ports, GUI session changes |
 
 ## Retired: Tart VM fleet
 
