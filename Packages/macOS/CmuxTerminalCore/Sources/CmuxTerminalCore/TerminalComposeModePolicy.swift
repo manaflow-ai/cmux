@@ -22,13 +22,15 @@ public struct TerminalComposeModePolicy: Sendable {
     /// - Parameters:
     ///   - isEnabled: Whether the global Compose Mode preference is enabled.
     ///   - ownsTextBox: Whether Compose Mode activated the panel's TextBox.
+    ///   - isTextBoxActive: Whether the panel already has a manually activated TextBox.
     /// - Returns: The side effect needed to reconcile the panel with the preference.
     public func transition(
         isEnabled: Bool,
-        ownsTextBox: Bool
+        ownsTextBox: Bool,
+        isTextBoxActive: Bool
     ) -> TerminalComposeModeTransition {
         switch (isEnabled, ownsTextBox) {
-        case (true, false):
+        case (true, false) where !isTextBoxActive:
             return .activate
         case (false, true):
             return .deactivate

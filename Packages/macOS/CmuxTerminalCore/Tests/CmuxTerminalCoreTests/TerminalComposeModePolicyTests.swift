@@ -10,7 +10,8 @@ struct TerminalComposeModePolicyTests {
         #expect(
             policy.transition(
                 isEnabled: true,
-                ownsTextBox: false
+                ownsTextBox: false,
+                isTextBoxActive: false
             ) == .activate
         )
     }
@@ -20,7 +21,8 @@ struct TerminalComposeModePolicyTests {
         #expect(
             policy.transition(
                 isEnabled: false,
-                ownsTextBox: true
+                ownsTextBox: true,
+                isTextBoxActive: true
             ) == .deactivate
         )
     }
@@ -30,7 +32,8 @@ struct TerminalComposeModePolicyTests {
         #expect(
             policy.transition(
                 isEnabled: false,
-                ownsTextBox: false
+                ownsTextBox: false,
+                isTextBoxActive: true
             ) == .unchanged
         )
     }
@@ -40,7 +43,19 @@ struct TerminalComposeModePolicyTests {
         #expect(
             policy.transition(
                 isEnabled: true,
-                ownsTextBox: true
+                ownsTextBox: true,
+                isTextBoxActive: true
+            ) == .unchanged
+        )
+    }
+
+    @Test("enabling compose mode does not take over a manual composer")
+    func enablingPreservesManualComposer() {
+        #expect(
+            policy.transition(
+                isEnabled: true,
+                ownsTextBox: false,
+                isTextBoxActive: true
             ) == .unchanged
         )
     }

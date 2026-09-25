@@ -264,7 +264,8 @@ final class TerminalPanel: Panel, ObservableObject {
     func applyComposeMode(_ enabled: Bool) {
         switch TerminalComposeModePolicy().transition(
             isEnabled: enabled,
-            ownsTextBox: composeModeOwnsTextBox
+            ownsTextBox: composeModeOwnsTextBox,
+            isTextBoxActive: isTextBoxActive
         ) {
         case .activate:
             composeModeOwnsTextBox = true
