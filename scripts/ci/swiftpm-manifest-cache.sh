@@ -65,7 +65,9 @@ key() {
 # name the runner account (runner on Blacksmith, cmux on the glaeda minis), so
 # keeping them split one seed into one per account, and SwiftPM finds the same
 # ~/Library/Caches through the user database without them. TMPDIR is dropped
-# so Foundation picks the per-user default. CMUX_CI_SWIFTPM_KEEP_ENV names
+# so Foundation picks the per-user default. FileSystemMode is kept because
+# compile-app-host-test-product.sh sets it on the resolve and on every build,
+# and they must share one environment. CMUX_CI_SWIFTPM_KEEP_ENV names
 # extra variables to keep, for tests whose xcodebuild stub is configured
 # through the environment.
 run() {
@@ -78,7 +80,7 @@ run() {
   )
   local name
   # shellcheck disable=SC2086 # a space-separated list of names
-  for name in DEVELOPER_DIR http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
+  for name in DEVELOPER_DIR FileSystemMode http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY ${CMUX_CI_SWIFTPM_KEEP_ENV:-}; do
     [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
     if [ -n "${!name:-}" ]; then
       vars+=("$name=${!name}")
