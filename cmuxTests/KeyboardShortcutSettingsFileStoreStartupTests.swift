@@ -823,6 +823,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testWorkspaceTabBarVisibilityHonorsSettingOutsideMinimalMode() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "cmux.tests.tabBarVisibility.\(UUID().uuidString)"))
         defaults.set(PaneTabBarVisibility.multipleTabs.rawValue, forKey: AppCatalogSection().tabBarVisibility.userDefaultsKey)
