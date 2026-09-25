@@ -3099,6 +3099,7 @@
 		B804A0170000000000000017 /* SidebarWorkspaceTableViewportAnchor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B0170000000000000017 /* SidebarWorkspaceTableViewportAnchor.swift */; };
 		603C12E917E3C4877809CAD9 /* SidebarWorkspaceTaskStatusGlyph.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55E01DE5B078B38299582BB0 /* SidebarWorkspaceTaskStatusGlyph.swift */; };
 		A12481500000000000000001 /* SidebarWorkspaceTaskStatusSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12481500000000000000002 /* SidebarWorkspaceTaskStatusSnapshot.swift */; };
+		F8CC78470D3F36D47EA34E60 /* SidebarWorkspaceTodoFlagRefreshTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91914A7DDEFA0149D1F014CA /* SidebarWorkspaceTodoFlagRefreshTests.swift */; };
 		ADA26B5F30224634707004CC /* SidebarWorkspaceTodoPopoverHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AEAD128139F57CB0E5BD39E /* SidebarWorkspaceTodoPopoverHost.swift */; };
 		C9A57601C9A57601C9A57601 /* SidebarWorkspaceTopDropIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57602C9A57602C9A57602 /* SidebarWorkspaceTopDropIndicator.swift */; };
 		A6AC73330000000000000001 /* SidebarWorkspaceTrailingStatusSlot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC73330000000000000002 /* SidebarWorkspaceTrailingStatusSlot.swift */; };
@@ -7105,6 +7106,7 @@
 		B804B0170000000000000017 /* SidebarWorkspaceTableViewportAnchor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarWorkspaceTableViewportAnchor.swift; sourceTree = "<group>"; };
 		55E01DE5B078B38299582BB0 /* SidebarWorkspaceTaskStatusGlyph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceTaskStatusGlyph.swift; sourceTree = "<group>"; };
 		A12481500000000000000002 /* SidebarWorkspaceTaskStatusSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceTaskStatusSnapshot.swift; sourceTree = "<group>"; };
+		91914A7DDEFA0149D1F014CA /* SidebarWorkspaceTodoFlagRefreshTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarWorkspaceTodoFlagRefreshTests.swift"; sourceTree = "<group>"; };
 		4AEAD128139F57CB0E5BD39E /* SidebarWorkspaceTodoPopoverHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarWorkspaceTodoPopoverHost.swift"; sourceTree = "<group>"; };
 		C9A57602C9A57602C9A57602 /* SidebarWorkspaceTopDropIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceTopDropIndicator.swift; sourceTree = "<group>"; };
 		A6AC73330000000000000002 /* SidebarWorkspaceTrailingStatusSlot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarWorkspaceTrailingStatusSlot.swift; sourceTree = "<group>"; };
@@ -12244,6 +12246,7 @@
 				E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */,
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
+				91914A7DDEFA0149D1F014CA /* SidebarWorkspaceTodoFlagRefreshTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16677,6 +16680,7 @@
 				961200010000000000000001 /* SidebarWorkspaceSwitchLayoutFaultTests.swift in Sources */,
 				B8624C030000000000000003 /* SidebarWorkspaceTableSuspensionTests.swift in Sources */,
 				B804C0010000000000000001 /* SidebarWorkspaceTableTests.swift in Sources */,
+				F8CC78470D3F36D47EA34E60 /* SidebarWorkspaceTodoFlagRefreshTests.swift in Sources */,
 				C51A720000000000000000B1 /* SimulatorPanelIntegrationTests.swift in Sources */,
 				C51A760000000000000000D1 /* SimulatorPanelThemeTests.swift in Sources */,
 				A7984AE10000000000000001 /* SocketACLReloadRegressionTests+Connections.swift in Sources */,

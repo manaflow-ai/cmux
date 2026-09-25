@@ -3,6 +3,7 @@ import AppKit
 import CmuxSidebar
 import CmuxNotifications
 import CmuxUpdater
+import CmuxSettingsUI
 import SwiftUI
 
 #if canImport(cmux_DEV)
@@ -96,7 +97,12 @@ final class SidebarLazyLayoutScaleTests {
     }
 
     @MainActor
-    static func mountSidebar(workspaceCount: Int, includeGroups: Bool = true) async throws -> Harness {
+    static func mountSidebar(
+        workspaceCount: Int,
+        includeGroups: Bool = true,
+        featureFlags suppliedFeatureFlags: CmuxFeatureFlags? = nil,
+        settingsRuntime: SettingsRuntime? = nil
+    ) async throws -> Harness {
         _ = NSApplication.shared
 
         // Hermetic defaults: VerticalTabsSidebar picks between the workspace
@@ -114,11 +120,13 @@ final class SidebarLazyLayoutScaleTests {
         )
         // This suite measures SwiftUI lazy row bodies and pointer ownership.
         // Keep that implementation explicit now that AppKit is the default.
-        let featureFlags = CmuxFeatureFlags(
+        let featureFlags = suppliedFeatureFlags ?? CmuxFeatureFlags(
             defaults: defaults,
             remoteFlagValueProvider: { _ in nil }
         )
-        featureFlags.setOverride(false, for: CmuxFeatureFlags.appKitSidebarListFlag)
+        if suppliedFeatureFlags == nil {
+            featureFlags.setOverride(false, for: CmuxFeatureFlags.appKitSidebarListFlag)
+        }
 
         let tabManager = TabManager()
         while tabManager.tabs.count < workspaceCount {
@@ -211,6 +219,7 @@ final class SidebarLazyLayoutScaleTests {
             )
         )
         .defaultAppStorage(defaults)
+        .environment(\.settingsRuntime, settingsRuntime)
 
         let window = InjectableMouseLocationWindow(
             contentRect: NSRect(x: 0, y: 0, width: 280, height: 640),
