@@ -1614,6 +1614,13 @@ import Testing
             of: "mobile.host.status",
             atLeast: 1
         ))
+        // Different app tags coexist. Revoke the original row before
+        // installing its replacement so this actually invalidates the dial.
+        try await pairedStore.remove(
+            macDeviceID: "mac-targeted",
+            stackUserID: "user-1",
+            teamID: "team-1"
+        )
         try await pairedStore.upsert(
             macDeviceID: "mac-targeted",
             displayName: "Replacement Mac",
@@ -4514,6 +4521,7 @@ import Testing
         let feedFetchesBeforeResume = await router.count(
             of: "notification.feed.list"
         )
+        let refreshGenerationBeforeResume = subscription.workspaceRefreshGeneration
 
         await shell.resumeSecondarySubscriptionAfterAbortedPromotion(
             subscription
@@ -4524,6 +4532,13 @@ import Testing
         ))
         #expect(try await pollUntil {
             subscription.deferredRefreshTask != nil
+        })
+        // Resume also schedules presence aggregation, which enqueues a refresh
+        // for this Mac. Let it coalesce onto the deferred refresh first. If it
+        // lands after the deferred fetch starts, it supersedes that fetch and
+        // a fifth workspace.list replaces the scripted snapshot.
+        #expect(try await pollUntil {
+            subscription.workspaceRefreshGeneration > refreshGenerationBeforeResume
         })
         for _ in 0 ..< 16 { await Task.yield() }
         clock.advance(by: .milliseconds(500))

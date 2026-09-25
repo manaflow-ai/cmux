@@ -259,21 +259,27 @@ Claude wrapper lanes always do. A root count above its pool's is an error.
 With 8 std minis and 2 light ones:
 `{"std": 32, "light": 4, "root-std": 8, "root-light": 2}`.
 
-Warm affinity (`CI_OWNED_WARM_LABELS=1`, off by default): an owned Mac keeps
-compile admission's DerivedData, and admission uploads the main commits that
-build starts from cheaply (`owned_build_state.py warm-keys`). When the CI run
-completes, `ci-owned-warm-labels.yml` (from main, with the route App's
-administration: write) labels the runner that ran admission
-`glaeda-warm-<sha12>` for each, at most 4, and removes those labels from the
-other runners of its root pool, so one runner per pool carries each commit.
+Warm affinity (`CI_OWNED_WARM=1`, off by default): an owned Mac keeps
+compile admission's DerivedData, stamped with the merge base and the pull
+request it built, and admission uploads the keys its mini starts from cheaply
+(`owned_build_state.py warm-keys`: the merge base's sha12 and `pr-<n>` of
+every canonical root, then kept seeds on a mini with one root, at most 8) as the `owned-warm-keys`
+artifact. The queue janitor folds new ones into its snapshot's `warm`
+(`owned_warm_state.py`): for each root runner, the keys of its newest
+admission, with the runner taken from the jobs API rather than the artifact.
 With live runners, the picker sends a run's admission to
-`["<root label>", "glaeda-warm-<merge base sha12>"]` when an idle root runner
-carries that label (the `admission_runner` output, attempt 1 only); otherwise
-admission takes the root label as before. The picker also reads the variable, so
-turning it off ignores labels already set. v1 matches the merge base exactly;
-it does not rank runners by commit distance. A warm runner taken between the
-pick and the queue leaves admission waiting, and the rescue moves it to
-Blacksmith like any other stuck owned job.
+`["<root label>", "glaeda-runner-<runner name>"]` when an idle root runner is
+warm for the merge base, or failing that for the same pull request (a
+re-push), and carries that static label, which glaeda-cmux-runner gives every
+root runner at install (the `admission_runner` output, attempt 1 only);
+otherwise admission takes the root label as before. A job's root follows the
+free token, not the runner, so glaeda's job-started hook gives such an
+admission the root whose stamp is warm for it. No job writes a runner label,
+so the routing App needs only the organization permission "Self-hosted
+runners: Read-only"; without it the picker cannot list live runners and
+never routes by warmth. Keys match exactly; runners are not ranked by commit
+distance. A warm runner taken between the pick and the queue leaves
+admission waiting, and the rescue moves it to Blacksmith like any other stuck owned job.
 
 An owned pool is persistent, which needs one more rule because GitHub never
 re-routes a queued job: one queued there waits for that pool however long it
