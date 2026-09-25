@@ -1437,5 +1437,4 @@ final class SurfaceCatalog {
     /// one hop, so the sidebar rebuilds once instead of once per mutation.
     var changeNotificationPending = false; var pendingChangedMachines: Set<SurfaceMachineID> = []; var pendingGlobalChange = false
 
-
 }
