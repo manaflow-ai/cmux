@@ -175,8 +175,12 @@ DEFAULT_ORDER = (LARGE_RUNNER, DEFAULT_RUNNER, MACOS_15_RUNNER)
 # their POOLS pin is "" (the lane's own), which is the Xcode that label names.
 RUN_CLASSES = ("std", "light")
 # `glaeda-root-...` is the one runner per mini that may take a root job (ROOT_JOBS).
-OWNED_LABEL = re.compile(r"glaeda-(?:root-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# `glaeda-side-...` are the other runners: the light side-lane workflows take it
+# (vars.CI_SIDE_LANE_RUNNER, owned_pool_rescue.SIDE_WORKFLOW_PATHS). No picker
+# routes to it, but its jobs hold its pool's machines.
+OWNED_LABEL = re.compile(r"glaeda-(?:root-|side-)?(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 ROOT_PREFIX = "glaeda-root-"
+SIDE_PREFIX = "glaeda-side-"
 XCODE_APP = re.compile(r"/Xcode_([0-9]+(?:\.[0-9]+)*)\.app/?")
 PR_XCODE_VARIABLE = "CMUX_CI_XCODE_APP_PR"
 OWNED_VARIABLE = "CI_PR_POOL_OWNED"
@@ -274,15 +278,16 @@ def persistent(label: str) -> bool:
 
 def root_label(label: str) -> str:
     """The root runners' label for an owned pool label, or "" for any other label."""
-    if not persistent(label) or label.startswith(ROOT_PREFIX):
+    if not persistent(label) or label.startswith((ROOT_PREFIX, SIDE_PREFIX)):
         return ""
     return ROOT_PREFIX + label.removeprefix("glaeda-")
 
 
 def pool_label(label: str) -> str:
-    """The owned pool a root label's runners belong to; any other label unchanged."""
-    if persistent(label) and label.startswith(ROOT_PREFIX):
-        return "glaeda-" + label.removeprefix(ROOT_PREFIX)
+    """The owned pool a root or side label's runners belong to; any other label unchanged."""
+    for prefix in (ROOT_PREFIX, SIDE_PREFIX):
+        if persistent(label) and label.startswith(prefix):
+            return "glaeda-" + label.removeprefix(prefix)
     return label
 
 
