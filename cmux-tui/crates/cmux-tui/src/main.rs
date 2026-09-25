@@ -1532,7 +1532,40 @@ fn main() {
     client_log::flush_for_exit();
 }
 
+/// Cloud snapshot template settings, set by the Cloud VM boot supervisor for
+/// this daemon only (see SurfaceOptions::adopt_template_terminal).
+struct CloudTemplateEnv {
+    adopt: bool,
+    bound_file: Option<PathBuf>,
+    workspace_name: Option<String>,
+}
+
+static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
+
+/// Read the Cloud template settings and remove them from this process's
+/// environment, so no terminal host, shell, agent, or plugin it spawns
+/// inherits them. Must run before any thread starts.
+fn take_cloud_template_env() {
+    const KEYS: [&str; 3] = [
+        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
+        "CMUX_TUI_TEMPLATE_BOUND_FILE",
+        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
+    ];
+    let settings = CloudTemplateEnv {
+        adopt: std::env::var(KEYS[0]).is_ok_and(|value| value == "1"),
+        bound_file: std::env::var_os(KEYS[1]).filter(|value| !value.is_empty()).map(PathBuf::from),
+        workspace_name: std::env::var(KEYS[2]).ok().filter(|value| !value.is_empty()),
+    };
+    for key in KEYS {
+        // SAFETY: called first in run_main, before this process starts any
+        // thread, so no other thread can read the environment concurrently.
+        unsafe { std::env::remove_var(key) };
+    }
+    let _ = CLOUD_TEMPLATE_ENV.set(settings);
+}
+
 fn run_main() {
+    take_cloud_template_env();
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
@@ -2059,6 +2092,13 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        // Set by the Cloud VM boot supervisor on a snapshot clone; see
+        // SurfaceOptions::adopt_template_terminal.
+        if let Some(template) = CLOUD_TEMPLATE_ENV.get() {
+            surface_options.adopt_template_terminal = template.adopt;
+            surface_options.template_bound_file = template.bound_file.clone();
+            surface_options.template_workspace_name = template.workspace_name.clone();
+        }
     }
     let provider_management_pending = provider_management_listener.is_some();
     let mux =

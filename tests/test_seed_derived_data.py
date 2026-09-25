@@ -130,6 +130,60 @@ class SeedDerivedData(unittest.TestCase):
         self.assertIn("hit=false", output.read_text())
         self.assertTrue((self.derived / "from-resolve").exists())
 
+    def test_an_owned_mac_keeps_the_seed_and_clones_it_next_time(self):
+        """Minis download a seed at about a third of Blacksmith's speed, so an
+        owned Mac keeps the seeds it adopted and clones an exact key instead."""
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        self.publish_seed()
+        first = self.adopt("hit")
+        key = first["key"]
+        self.assertEqual((first["hit"], first["local"]), ("true", "true"))
+        self.assertTrue((cache / key / seed.MANIFEST).is_file())
+        self.assertEqual(seed.cached(key), cache / key)
+        # The next job: a fresh DerivedData from resolve, and no download at all.
+        import shutil
+        shutil.rmtree(self.derived)
+        self.derived.mkdir()
+        (self.derived / "from-resolve").write_text("resolve")
+        os.environ["FAKE_MODE"] = "fail"
+        with mock.patch.object(seed.sys, "platform", "linux"):
+            second = seed.adopt(self.source, self.derived, key, "admission-derived-data-v1-x-")
+        self.assertEqual((second["hit"], second["key"], second["local"]), ("true", key, "local"))
+        self.assertEqual((self.derived / "Build/App.o").read_text(), "object")
+        self.assertFalse((self.derived / "from-resolve").exists())
+        # The kept copy is untouched by the build that follows.
+        (self.derived / "Build/App.o").write_text("rebuilt")
+        self.assertEqual((cache / key / "Build/App.o").read_text(), "object")
+
+    def test_start_downloads_nothing_for_a_kept_seed(self):
+        cache = self.root / "seeds"
+        (cache / "p-j6-base").mkdir(parents=True)
+        (cache / "p-j6-base" / seed.MANIFEST).write_text("{}")
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        os.environ["FAKE_CALLS"] = str(self.root / "calls")
+        seed.start(self.derived, "p-j6-base", "p-j6-", "base", 0)
+        self.assertFalse(self.derived.with_name(self.derived.name + ".seed.ticket").exists())
+        self.assertFalse((self.root / "calls").exists())
+        # Without the cache it downloads as before.
+        del os.environ["CMUX_SEED_LOCAL_CACHE"]
+        self.assertIsNone(seed.cached("p-j6-base"))
+
+    def test_the_local_cache_keeps_only_the_newest_seeds(self):
+        cache = self.root / "seeds"
+        os.environ["CMUX_SEED_LOCAL_CACHE"] = str(cache)
+        (self.derived / seed.MANIFEST).parent.mkdir(parents=True, exist_ok=True)
+        (self.derived / seed.MANIFEST).write_text("{}")
+        for index, key in enumerate(("k-1", "k-2", "k-3")):
+            seed.stash(self.derived, key)
+            os.utime(cache / key, (1000 + index, 1000 + index))
+        seed.stash(self.derived, "k-4")
+        self.assertEqual(sorted(p.name for p in cache.iterdir()), ["k-3", "k-4"])
+        # Never a path outside the cache, whatever the key.
+        seed.stash(self.derived, "../escape")
+        self.assertFalse((self.root / "escape").exists())
+        self.assertIsNone(seed.cached("../k-3"))
+
     def start_then_adopt(self, mode, start_args=None):
         """Download in the background, as compile admission does while it resolves."""
         os.environ["FAKE_MODE"] = mode
@@ -287,6 +341,22 @@ class SeedDerivedData(unittest.TestCase):
             published.clear()
             self.assertEqual(seed.locate("p-", "c4"), ("p-j6-c4", None))
 
+    def test_adopt_falls_back_to_a_j14_seed_and_a_j14_runner_prefers_it(self):
+        self.assertIn(14, seed.SEEDED_JOB_WIDTHS)
+        published = set()
+        exists = lambda key: key in published  # noqa: E731
+        with mock.patch.object(seed, "lineage", return_value=["c4", "c3"]), \
+                mock.patch.object(seed, "seed_exists", side_effect=exists):
+            published.update({"p-j12-c4", "p-j14-c3"})
+            os.environ["CMUX_SEED_SWIFT_JOBS"] = "14"
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j14-c3", 1))
+            published.discard("p-j14-c3")
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j12-c4", 0))
+            published.clear()
+            published.add("p-j14-c4")
+            os.environ["CMUX_SEED_SWIFT_JOBS"] = "6"
+            self.assertEqual(seed.locate("p-", "c4"), ("p-j14-c4", 0))
+
     def test_seed_probe_names_itself_and_treats_any_error_as_a_miss(self):
         os.environ["CI_CACHE_R2_PUBLIC_URL"] = "https://cache.example/"
         os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"] = "macOS", "ARM64"
@@ -375,7 +445,7 @@ def named(step_list, name):
     return matches[0], step_list[matches[0]]
 
 
-TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
+TOKEN = re.compile(r"\s*(\|\||&&|==|!=|>=|<=|>|<|!|\(|\)|\[|\]|,|'(?:[^']|'')*'|[0-9]+(?:\.[0-9]+)?|[A-Za-z_][A-Za-z0-9_.-]*)")
 
 
 def evaluate(expression, context):
@@ -386,6 +456,8 @@ def evaluate(expression, context):
     which compares equal to ''. startsWith() and endsWith() compare case-insensitively.
     `<`, `>`, `<=` and `>=` compare as numbers, the way Actions coerces: null
     and '' are 0, and a string that is not a number never compares true.
+    `&&` and `||` short-circuit, as in Actions, so `x && fromJSON(x)` never
+    parses an empty x; fromJSON() and `[index]` read JSON arrays and objects.
     """
     text = expression.strip()
     if text.startswith("${{") and text.endswith("}}"):
@@ -398,6 +470,8 @@ def evaluate(expression, context):
         tokens.append(match.group(1))
         at = match.end()
     position = [0]
+    # How many enclosing operands are short-circuited: parsed, not evaluated.
+    skipped = [0]
 
     def peek():
         return tokens[position[0]] if position[0] < len(tokens) else None
@@ -407,7 +481,26 @@ def evaluate(expression, context):
         return tokens[position[0] - 1]
 
     def primary():
+        value = atom()
+        while peek() == "[":
+            take()
+            index = either()
+            if take() != "]":
+                raise ValueError("unbalanced brackets")
+            if isinstance(value, list) and isinstance(index, float):
+                value = value[int(index)] if 0 <= int(index) < len(value) else None
+            else:
+                value = value.get(str(index)) if isinstance(value, dict) else None
+        return value
+
+    def atom():
         token = take()
+        if token == "fromJSON" and peek() == "(":
+            take()
+            text = either()
+            if take() != ")":
+                raise ValueError("unbalanced parentheses")
+            return None if skipped[0] else json.loads(text)
         if token == "(":
             value = either()
             if take() != ")":
@@ -480,11 +573,18 @@ def evaluate(expression, context):
                 left = {">": a > b, "<": a < b, ">=": a >= b, "<=": a <= b}[operator]
         return left
 
+    def operand(parse, skip):
+        skipped[0] += skip
+        try:
+            return parse()
+        finally:
+            skipped[0] -= skip
+
     def both():
         left = comparison()
         while peek() == "&&":
             take()
-            right = comparison()
+            right = operand(comparison, not left)
             left = right if left else left
         return left
 
@@ -492,7 +592,7 @@ def evaluate(expression, context):
         left = both()
         while peek() == "||":
             take()
-            right = both()
+            right = operand(both, bool(left))
             left = left if left else right
         return left
 
@@ -660,6 +760,39 @@ class Wiring(unittest.TestCase):
         self.assertTrue(runs_on.rstrip("} ").endswith(f"{larger} || {fallback}"), runs_on)
         self.assertTrue(own.rstrip("} ").endswith(f"'macos-26' || {fallback}"), own)
         self.assertIn(fallback, admission)
+
+    def test_the_trusted_pool_seeds_j14_only_on_a_main_push_with_the_lane_xcode(self):
+        """Owned std minis compile at -j14 (cmuxterm-hq#590). Their seed comes
+        from a trusted-only owned runner whose hook admits only a push to main,
+        so the pool joins only then, and only once CI_SEED_TRUSTED_POOL names
+        it. It compiles with the lane's Xcode, as owned admission does."""
+        decide = load("seed-derived-data.yml")["jobs"]["decide"]["steps"]
+        inputs = next(step for step in decide if step.get("id") == "inputs")
+        trusted = inputs["env"]["SEED_TRUSTED_POOL"]
+        self.assertIn('"$SEED_TRUSTED_POOL"', inputs["run"])
+        label = "glaeda-trusted-std-xcode-26.6"
+
+        def context(event_name, ref="refs/heads/main", **variables):
+            ctx = github_context(event_name, ref, **variables)
+            ctx["github"]["repository"] = "manaflow-ai/cmux"
+            return ctx
+
+        self.assertEqual(evaluate(trusted, context("push")), "")
+        self.assertEqual(evaluate(trusted, context("push", CI_SEED_TRUSTED_POOL=label)), label)
+        # The hook refuses these, so the pool must not queue a job there.
+        self.assertEqual(evaluate(trusted, context("workflow_dispatch", CI_SEED_TRUSTED_POOL=label)), "")
+        self.assertEqual(evaluate(trusted, context("push", "refs/heads/other", CI_SEED_TRUSTED_POOL=label)), "")
+        fork = context("push", CI_SEED_TRUSTED_POOL=label)
+        fork["github"]["repository"] = "someone/cmux"
+        self.assertEqual(evaluate(trusted, fork), "")
+
+        job = load("seed-derived-data.yml")["jobs"]["seed"]
+        ctx = context("push", CI_SEED_TRUSTED_POOL=label)
+        ctx["matrix"] = {"pool": label}
+        self.assertEqual(evaluate(job["env"]["CMUX_CI_XCODE_APP"], ctx), "/Applications/Xcode-pr.app")
+        self.assertEqual(evaluate(job["environment"], ctx), "ci-cache-writer")
+        # Never the product publisher.
+        self.assertNotIn("TRUSTED", seed_pools()[0])
 
     def test_the_macos_15_pool_seeds_with_the_xcode_an_overflowed_run_compiles_with(self):
         import sys as _sys
@@ -922,8 +1055,75 @@ class Wiring(unittest.TestCase):
             with self.subTest(retry=retry, shard=shard):
                 self.assertEqual(evaluate(shards["runs-on"], context), runner)
 
+    def test_root_jobs_take_the_root_label_when_the_picker_names_one(self):
+        # glaeda refuses a canonical-root job on a mini whose root is taken, so
+        # a placed root job takes the root label, on attempt 1 and on the
+        # rescue's attempt 2. Without pr_root_runner nothing changes.
+        macos = load("ci-macos.yml")["jobs"]
+        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
+        for attempt, actor, owned_jobs, root_runner, runner in (
+            ("1", "someone", " admission shard-1 lag cli-product ", root, root),
+            ("1", "someone", " admission shard-1 lag cli-product ", "", mini),
+            ("1", "someone", " cli-pipe ", root, retry),
+            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", root, root),
+            ("2", "github-actions[bot]", " admission shard-1 lag cli-product ", "", mini),
+            ("2", "someone", " admission shard-1 lag cli-product ", root, retry),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+                                     pr_root_runner=root_runner, pr_owned_jobs=owned_jobs)
+            with self.subTest(attempt=attempt, actor=actor, owned_jobs=owned_jobs, root_runner=root_runner):
+                admission = evaluate(macos["macos-compile-admission"]["runs-on"], context)
+                self.assertEqual(admission, runner)
+                self.assertEqual(evaluate(macos["macos-compile-admission"]["env"]["CMUX_PRODUCT_RUNNER"], context),
+                                 runner)
+                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), runner)
+                # The shards and cli-product-tests follow admission on attempt 1.
+                context["needs"] = {"macos-compile-admission": {"outputs": {"runner": admission}}}
+                # The evaluator has no format(): matrix shard 1 stands in.
+                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                self.assertEqual(evaluate(shard, context), runner)
+                self.assertEqual(evaluate(macos["cli-product-tests"]["runs-on"], context), runner)
+
+    def test_a_warm_admission_takes_the_warm_labels_on_attempt_one_only(self):
+        # pr_admission_runner names a root runner that kept a build of the
+        # run's merge base. Admission's attempt 1 asks for both labels; its
+        # consumers, and every retry, keep the root label.
+        macos = load("ci-macos.yml")["jobs"]
+        root, mini, retry = "glaeda-root-std-xcode-26.6", "glaeda-std-xcode-26.6", "blacksmith-12vcpu-macos-26"
+        warm = json.dumps([root, "glaeda-warm-0123456789ab"])
+        owned_jobs = " admission shard-1 lag cli-product "
+        for attempt, actor, admission_runner, runner in (
+            ("1", "someone", warm, [root, "glaeda-warm-0123456789ab"]),
+            ("1", "someone", "", root),
+            ("2", "github-actions[bot]", warm, root),
+            ("2", "someone", warm, retry),
+        ):
+            context = github_context("pull_request", ref="refs/pull/1/merge")
+            context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                     event={"pull_request": {"head": {"repo": {"full_name": "manaflow-ai/cmux"}}}})
+            context["inputs"].update(pr_runner=mini, pr_retry_runner=retry, pr_refused_retry_runner=mini,
+                                     pr_root_runner=root, pr_admission_runner=admission_runner,
+                                     pr_owned_jobs=owned_jobs)
+            with self.subTest(attempt=attempt, actor=actor, admission_runner=admission_runner):
+                admission = macos["macos-compile-admission"]
+                self.assertEqual(evaluate(admission["runs-on"], context), runner)
+                product_runner = evaluate(admission["env"]["CMUX_PRODUCT_RUNNER"], context)
+                self.assertEqual(product_runner, runner[0] if isinstance(runner, list) else runner)
+                self.assertEqual(evaluate(macos["tests-build-and-lag"]["runs-on"], context), product_runner)
+                context["needs"] = {"macos-compile-admission": {"outputs": {"runner": product_runner}}}
+                shard = macos["app-host-unit-tests"]["runs-on"].replace("format(' shard-{0} ', matrix.shard)", "' shard-1 '")
+                self.assertEqual(evaluate(shard, context), product_runner)
+
     def test_the_expression_evaluator_follows_actions_semantics(self):
         context = {"vars": {"A": "a", "EMPTY": ""}}
+        # Short-circuited operands are never evaluated, and JSON is indexed.
+        self.assertEqual(evaluate("${{ vars.EMPTY && fromJSON(vars.EMPTY) || 'y' }}", context), "y")
+        self.assertEqual(evaluate("${{ vars.A || fromJSON(vars.EMPTY) }}", context), "a")
+        self.assertEqual(evaluate("${{ fromJSON('[\"x\",\"y\"]')[1] }}", context), "y")
+        self.assertEqual(evaluate("${{ fromJSON('[\"x\"]') }}", context), ["x"])
         self.assertEqual(evaluate("${{ vars.A && 'x' || 'y' }}", context), "x")
         self.assertEqual(evaluate("${{ vars.EMPTY && 'x' || 'y' }}", context), "y")
         self.assertEqual(evaluate("${{ vars.MISSING || vars.A }}", context), "a")

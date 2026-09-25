@@ -17091,7 +17091,6 @@ struct CMUXCLI {
             return
         }
 
-
         if subcommand == "find" {
             let sid = try requireSurface()
             guard let locator = subArgs.first?.lowercased() else {
@@ -39270,7 +39269,7 @@ export default CMUXSessionRestore;
     /// leaves ``feedAttentionSendReserveSeconds`` of the shared deadline for
     /// the essential send — a stalled probe degrades to ambient addressing,
     /// never to a starved notification.
-    private func resolvedAttentionDeliveryTarget(
+    func resolvedAttentionDeliveryTarget(
         workspaceId: String?,
         surfaceId: String?,
         client: SocketClient,
@@ -39358,13 +39357,6 @@ export default CMUXSessionRestore;
                 probe.close()
                 return nil
             }
-        }
-
-        // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
-        // Also matches the graceful-fallback pattern of the other hooks.
-        guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
-            print("{}")
-            return
         }
 
         let commandEvent = optionValue(commandArgs, name: "--event")
@@ -39616,21 +39608,37 @@ export default CMUXSessionRestore;
                 return
             }
         }
-
+        let claimedWorkspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
+        let claimedSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+            ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
+        // Telemetry must not wait for a routing response. Carry its scope to
+        // the host, where Computer Use checks live local ownership before
+        // presenting setup. Blocking decisions resolve their target first.
+        if isActionable, validatedCodexFeedTarget == nil,
+           let activeClient = client ?? makeLifecycleProbeClient(),
+           let target = resolvedFeedDeliveryTarget(
+               workspaceId: claimedWorkspaceId,
+               surfaceId: claimedSurfaceId,
+               agentPid: agentPid,
+               relayOrigin: env[agentHookRelayOriginEnvironmentKey] == "1",
+               client: activeClient,
+               deadline: Date.now.addingTimeInterval(
+                   Self.feedAttentionSendReserveSeconds
+                       + Self.feedAttentionProbeTimeoutCapSeconds
+               )
+           ) { validatedCodexFeedTarget = target }
+        guard !isActionable || validatedCodexFeedTarget != nil else { print("{}"); return }
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
         ]
-        if agentPid > 0 {
-            eventDict["_ppid"] = agentPid
-        }
-        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
+        if agentPid > 0 { eventDict["_ppid"] = agentPid }
+        if let workspaceId = validatedCodexFeedTarget?.workspaceId ?? claimedWorkspaceId {
             eventDict["workspace_id"] = workspaceId
         }
-        if let validatedCodexFeedTarget {
-            eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
-            eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId
+        if let surfaceId = validatedCodexFeedTarget?.surfaceId ?? claimedSurfaceId {
+            eventDict["surface_id"] = surfaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]

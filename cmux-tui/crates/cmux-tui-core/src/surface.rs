@@ -165,6 +165,23 @@ pub struct SurfaceOptions {
     /// Durable per-terminal host records. When set, PTYs are created in a
     /// dedicated process and this surface becomes an adoptable mirror.
     pub terminal_host_root: Option<PathBuf>,
+    /// Adopt a live terminal host found under `terminal_host_root` into a
+    /// fresh registry (one with no workspaces) instead of terminating it.
+    ///
+    /// Cloud VM snapshots keep the first terminal's host process, and its
+    /// already-initialized shell, running while the daemon is parked and
+    /// every per-machine file (machine id, receipt pepper, session registry,
+    /// remote identity) is wiped. A clone's daemon then creates all of those
+    /// fresh and imports the warm host as its first terminal, so no identity
+    /// is shared between clones while the shell survives the snapshot.
+    pub adopt_template_terminal: bool,
+    /// Where to publish the adopted template terminal's new session and
+    /// terminal ids (`KEY=value` lines) once adoption commits.
+    pub template_bound_file: Option<PathBuf>,
+    /// Name of the workspace created for the adopted template terminal. The
+    /// template's own registry was wiped with the snapshot, so its name is
+    /// not recoverable from the host record. `None` uses the default name.
+    pub template_workspace_name: Option<String>,
 }
 
 /// Default TERM for child shells.
@@ -217,6 +234,9 @@ impl Default for SurfaceOptions {
             browser_max_capture_megapixels: crate::browser::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS,
             browser_capture_scale: None,
             terminal_host_root: None,
+            adopt_template_terminal: false,
+            template_bound_file: None,
+            template_workspace_name: None,
         }
     }
 }

@@ -3631,19 +3631,6 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(Effect.catchAll(() => Effect.void));
-    // Backfill: machines created before address recording learn their private
-    // address on first attach, so "Copy IP Address" appears for them too.
-    const learned = endpoint.networkAddresses;
-    if (learned && repo.mergeProviderMetadata) {
-      const metadata = vm.providerMetadata ?? {};
-      const patch = {
-        ...(learned.ipv4 && metadata["networkIpv4"] !== learned.ipv4 ? { networkIpv4: learned.ipv4 } : {}),
-        ...(learned.ipv6 && metadata["networkIpv6"] !== learned.ipv6 ? { networkIpv6: learned.ipv6 } : {}),
-      };
-      if (Object.keys(patch).length) {
-        yield* repo.mergeProviderMetadata({ id: vm.id, patch }).pipe(Effect.catchAll(() => Effect.void));
-      }
-    }
     return endpoint;
   });
 }
