@@ -3,6 +3,7 @@
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+import CmuxCloud
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
 import Foundation
