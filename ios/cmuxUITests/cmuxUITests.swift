@@ -7628,6 +7628,12 @@ final class cmuxUITests: XCTestCase {
     private func assertWorkspaceToolbarTitlePresentation(in app: XCUIApplication) {
         let title = workspaceTitleElement(in: app)
         let back = app.buttons["MobileWorkspaceBackButton"]
+        XCTAssertEqual(
+            title.frame.height,
+            36,
+            accuracy: 1,
+            "The title must use the native compact toolbar height"
+        )
         XCTAssertLessThanOrEqual(title.frame.width, 200,
                                  "The title must retain the base capsule width in landscape")
         XCTAssertLessThanOrEqual(title.frame.minX - back.frame.maxX, 44,

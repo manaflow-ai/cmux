@@ -52,7 +52,7 @@ final class WorkspaceNavigationTitleView: UIView {
         // can reduce it further to fit its actual button groups.
         return CGSize(
             width: min(Self.preferredContentWidth, max(0, content.width)) + 2 * Self.horizontalInset,
-            height: 44
+            height: 36
         )
     }
 

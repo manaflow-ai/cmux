@@ -9,9 +9,10 @@ final class WorkspaceNavigationBarController: UIViewController {
     private let titleCapsule = WorkspaceNavigationTitleView()
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
     private var leadingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
+    private var titleGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroups: [UIBarButtonItemGroup] = []
-    private var trailingGroupLandscape: Bool?
+    private var titleItem: UIBarButtonItem?
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
 
@@ -50,9 +51,14 @@ final class WorkspaceNavigationBarController: UIViewController {
         loadViewIfNeeded()
         titleCapsule.update(content: AnyView(title
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
             .environment(\.self, environment)))
         titleCapsule.frame.size = titleCapsule.intrinsicContentSize
+        if titleItem == nil {
+            let item = UIBarButtonItem(customView: titleCapsule)
+            titleItem = item
+            titleGroup = UIBarButtonItemGroup(barButtonItems: [item], representativeItem: nil)
+        }
 
         for value in leadingItems + trailingItems {
             let itemWidth = WorkspaceNavigationControlView.width(for: value.id)
@@ -65,8 +71,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             } else {
                 let customView = WorkspaceNavigationControlView(
                     content: content,
-                    width: itemWidth,
-                    centersLandscapeMenu: value.id == .terminals
+                    width: itemWidth
                 )
                 controls[value.id] = HostedControl(
                     button: UIBarButtonItem(customView: customView), view: customView
@@ -83,7 +88,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         let nextTrailingIDs = trailingItems.map(\.id)
         if trailingIDs != nextTrailingIDs {
             trailingIDs = nextTrailingIDs
-            trailingGroupLandscape = nil
+            trailingGroups = makeTrailingGroups(for: nextTrailingIDs)
         }
         let visibleIDs = Set((leadingItems + trailingItems).map(\.id))
         controls = controls.filter { visibleIDs.contains($0.key) }
@@ -105,15 +110,16 @@ final class WorkspaceNavigationBarController: UIViewController {
         }
         let item = target.navigationItem
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
-        let isLandscape = target.view.bounds.width > target.view.bounds.height
-        if trailingGroupLandscape != isLandscape {
-            trailingGroups = makeTrailingGroups(for: trailingIDs, isLandscape: isLandscape)
-            trailingGroupLandscape = isLandscape
-        }
         item.style = .browser
         item.largeTitleDisplayMode = .never
-        if item.titleView !== titleCapsule {
-            item.titleView = titleCapsule
+        item.titleView = nil
+        // `centerItemGroups` is UIKit's center toolbar region. Using it keeps
+        // the title in the same layout contract as the leading and trailing
+        // bar-item groups instead of treating `titleView` as a SwiftUI
+        // `.principal` replacement.
+        let desiredCenterGroups = titleGroup.barButtonItems.isEmpty ? [] : [titleGroup]
+        if !item.centerItemGroups.elementsEqual(desiredCenterGroups, by: { $0 === $1 }) {
+            item.centerItemGroups = desiredCenterGroups
         }
         let desiredLeadingGroups = leadingGroup.barButtonItems.isEmpty ? [] : [leadingGroup]
         if !item.leadingItemGroups.elementsEqual(desiredLeadingGroups, by: { $0 === $1 }) {
@@ -129,39 +135,34 @@ final class WorkspaceNavigationBarController: UIViewController {
     }
 
     private func makeTrailingGroups(
-        for ids: [WorkspaceNavigationBar.Item.ID],
-        isLandscape: Bool
+        for ids: [WorkspaceNavigationBar.Item.ID]
     ) -> [UIBarButtonItemGroup] {
         let warning = ids.first(where: { $0 == .alternateScreen }).flatMap { controls[$0]?.button }
-        let overflow = ids.first(where: { $0 == .overflow }).flatMap { controls[$0]?.button }
-        let collapsible = ids.filter { $0 != .alternateScreen }.compactMap { controls[$0]?.button }
-        for item in collapsible {
-            item.isHidden = false
+        let representative = ids.first(where: { $0 == .overflow }).flatMap { controls[$0]?.button }
+        let collapsible = ids
+            .filter { $0 != .alternateScreen && $0 != .overflow }
+            .compactMap { controls[$0]?.button }
+        var groups: [UIBarButtonItemGroup] = []
+        if let warning {
+            groups.append(UIBarButtonItemGroup(barButtonItems: [warning], representativeItem: nil))
         }
-        overflow?.isHidden = true
-        if let warning, !isLandscape, let overflow {
-            overflow.isHidden = false
-            for item in collapsible where item !== overflow {
-                item.isHidden = true
-            }
-            return [UIBarButtonItemGroup(barButtonItems: [warning, overflow], representativeItem: nil)]
+        if !collapsible.isEmpty {
+            // UIKit swaps this representative item for the group when the
+            // actual navigation-bar space is insufficient. The overflow
+            // decision therefore follows the bar's layout, not orientation.
+            groups.append(UIBarButtonItemGroup(
+                barButtonItems: collapsible,
+                representativeItem: representative
+            ))
         }
-        let items = ([warning].compactMap { $0 } + collapsible.filter { $0 !== overflow })
-        guard !items.isEmpty else { return [] }
-        let group = UIBarButtonItemGroup(barButtonItems: items, representativeItem: nil)
-        if warning != nil, !isLandscape {
-            for item in collapsible {
-                item.isHidden = true
-            }
-            group.alwaysAvailable = true
-        }
-        return [group]
+        return groups
     }
 
     func restoreConfiguration() {
         guard let owner, let originalItem else { return }
         let item = owner.navigationItem
-        if item.titleView === titleCapsule {
+        if item.centerItemGroups.elementsEqual([titleGroup], by: { $0 === $1 }) {
+            item.centerItemGroups = originalItem.centerGroups
             item.titleView = originalItem.titleView
             item.style = originalItem.style
             item.largeTitleDisplayMode = originalItem.largeTitleDisplayMode
@@ -189,6 +190,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         let titleView: UIView?
         let style: UINavigationItem.ItemStyle
         let largeTitleDisplayMode: UINavigationItem.LargeTitleDisplayMode
+        let centerGroups: [UIBarButtonItemGroup]
         let leadingGroups: [UIBarButtonItemGroup]
         let trailingGroups: [UIBarButtonItemGroup]
         let trailingGroup: UIBarButtonItemGroup?
@@ -198,6 +200,7 @@ final class WorkspaceNavigationBarController: UIViewController {
             titleView = item.titleView
             style = item.style
             largeTitleDisplayMode = item.largeTitleDisplayMode
+            centerGroups = item.centerItemGroups
             leadingGroups = item.leadingItemGroups
             trailingGroups = item.trailingItemGroups
             trailingGroup = item.pinnedTrailingGroup
