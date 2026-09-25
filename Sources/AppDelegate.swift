@@ -5977,12 +5977,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID,
         tabManager: TabManager
     ) {
-        if tabManager.selectedTab?.isRemoteTmuxMirror == true
-            || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil {
-            _ = performNewWorkspaceAction(
-                tabManager: tabManager,
-                debugSource: "sidebar.emptyArea.remote"
-            )
+        // Remote targets and a configured `ui.newWorkspace.action` go through
+        // the shared empty-area path; the plain local case keeps the
+        // owning-window route below.
+        if sidebarEmptyAreaUsesRemoteNewWorkspaceRouting(tabManager: tabManager)
+            || sidebarEmptyAreaHasConfiguredNewWorkspaceAction(tabManager: tabManager) {
+            performSidebarEmptyAreaNewWorkspaceAction(tabManager: tabManager)
         } else if addWorkspace(
             windowId: windowId,
             bringToFront: false,
@@ -8254,26 +8254,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    /// Empty-area double-click in the sidebar. Routes through the shared
-    /// new-workspace action path so a configured `ui.newWorkspace.action`
-    /// applies here exactly as it does for the `+` button and File → New
-    /// Workspace; without one, the plain workspace still lands after the last
-    /// row, which is what clicking below every row asks for.
+    /// Empty-area double-click in the sidebar. A configured
+    /// `ui.newWorkspace.action` applies here exactly as it does for the `+`
+    /// button and File > New Workspace; without one, a plain workspace lands
+    /// after the last row, which is what clicking below every row asks for.
     @discardableResult
     func performSidebarEmptyAreaNewWorkspaceAction(tabManager: TabManager) -> Bool {
-        // A remote-tmux mirror creates a new tmux session rather than a local
-        // workspace, and that session's placement is the remote server's to
-        // decide, so the end-of-list override does not apply there. Gate on the
-        // SELECTED workspace, not `tabs.contains`: a dedicated remote window can
-        // be polluted with a dragged-in local workspace (move targets don't
-        // exclude dedicated windows), and `contains` would then misroute a local
-        // empty-area double-click into spawning an unwanted tmux session.
-        let isRemoteTmuxMirror = tabManager.selectedTab?.isRemoteTmuxMirror == true
-        return performNewWorkspaceAction(
-            tabManager: tabManager,
-            placementOverride: isRemoteTmuxMirror ? nil : .end,
-            debugSource: isRemoteTmuxMirror ? "sidebar.emptyArea.remoteTmux" : "sidebar.emptyArea"
-        )
+        // A remote-tmux mirror or remote Mac creates its workspace on the
+        // remote side, which decides placement, so the end-of-list override
+        // does not apply there. Gate on the SELECTED workspace, not
+        // `tabs.contains`: a dedicated remote window can be polluted with a
+        // dragged-in local workspace (move targets don't exclude dedicated
+        // windows), and `contains` would then misroute a local empty-area
+        // double-click into spawning an unwanted tmux session.
+        if sidebarEmptyAreaUsesRemoteNewWorkspaceRouting(tabManager: tabManager) {
+            return performNewWorkspaceAction(
+                tabManager: tabManager,
+                debugSource: "sidebar.emptyArea.remote"
+            )
+        }
+        if sidebarEmptyAreaHasConfiguredNewWorkspaceAction(tabManager: tabManager) {
+            return performNewWorkspaceAction(
+                tabManager: tabManager,
+                placementOverride: .end,
+                debugSource: "sidebar.emptyArea"
+            )
+        }
+        return tabManager.addWorkspaceIfActive(placementOverride: .end) != nil
+    }
+
+    /// Whether a sidebar empty-area creation targets a remote-tmux mirror or a
+    /// remote Mac, whose new workspaces are placed by the remote side.
+    private func sidebarEmptyAreaUsesRemoteNewWorkspaceRouting(tabManager: TabManager) -> Bool {
+        tabManager.selectedTab?.isRemoteTmuxMirror == true
+            || tabManager.selectedWorkspace?.deviceMachineForNewWorkspace != nil
+    }
+
+    /// Whether the window owning `tabManager` has a `ui.newWorkspace.action`.
+    private func sidebarEmptyAreaHasConfiguredNewWorkspaceAction(tabManager: TabManager) -> Bool {
+        mainWindowContext(for: tabManager)?.cmuxConfigStore?.resolvedNewWorkspaceAction() != nil
     }
 
     /// Creates a new workspace whose initial surface is a browser pane in its
