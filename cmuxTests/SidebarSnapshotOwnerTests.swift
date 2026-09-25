@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNotifications
+import CmuxSidebar
 import CmuxUpdater
 import Observation
 import SwiftUI
@@ -75,6 +76,9 @@ struct SidebarSnapshotOwnerTests {
             featureFlags: flags,
             sidebarUnread: SidebarUnreadModel(),
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
+            statusIconImageLoader: SidebarStatusIconImageLoader(
+                fileReader: SidebarStatusIconFileReader()
+            ),
             windowId: UUID(),
             onSendFeedback: {}, onToggleSidebar: {}, onNewTab: {},
             observedWindowReference: WeakWindowReference(),
