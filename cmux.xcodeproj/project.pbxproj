@@ -2074,6 +2074,7 @@
 		C1175700000000000000003E /* KimiHookConfigLocationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11757000000000000000025 /* KimiHookConfigLocationTests.swift */; };
 		858200000000000000000002 /* KimiRestorableAgentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 858200000000000000000001 /* KimiRestorableAgentTests.swift */; };
 		8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */; };
+		9517A95F3E08757DE2F27253 /* KiroVaultSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3BB449CDAE7F268A13D8F29 /* KiroVaultSessionTests.swift */; };
 		87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */; };
 		9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */; };
 		A11CE0060000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A11CE0050000000000000001 /* LICENSE */; };
@@ -6036,6 +6037,7 @@
 		C11757000000000000000025 /* KimiHookConfigLocationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiHookConfigLocationTests.swift; sourceTree = "<group>"; };
 		858200000000000000000001 /* KimiRestorableAgentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiRestorableAgentTests.swift; sourceTree = "<group>"; };
 		8582A1000000000000000001 /* KimiResumeReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KimiResumeReviewRegressionTests.swift; sourceTree = "<group>"; };
+		D3BB449CDAE7F268A13D8F29 /* KiroVaultSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KiroVaultSessionTests.swift"; sourceTree = "<group>"; };
 		F2EE0C080FF0FCCE8A8CA930 /* LastSurfaceClosePreferenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastSurfaceClosePreferenceTests.swift; sourceTree = "<group>"; };
 		9492CAFE0000000000000001 /* LastTerminalChildExitRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LastTerminalChildExitRecoveryTests.swift; sourceTree = "<group>"; };
 		A11CE0050000000000000001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = SOURCE_ROOT; };
@@ -12076,6 +12078,7 @@
 				E97B65696F71CE797D211070 /* ScrollbackTestTerminal.swift */,
 				B5C6895DE9644DD1B59FDCE2 /* SidebarWorkspaceDragDelegateTests.swift */,
 				F5C553AF2050E7E6D7CD62EC /* VMSSHTransportFallbackTests.swift */,
+				D3BB449CDAE7F268A13D8F29 /* KiroVaultSessionTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -16170,6 +16173,7 @@
 				C34670040000000000000001 /* KeyboardShortcutTestSettingsIsolation.swift in Sources */,
 				858200000000000000000002 /* KimiRestorableAgentTests.swift in Sources */,
 				8582A1000000000000000002 /* KimiResumeReviewRegressionTests.swift in Sources */,
+				9517A95F3E08757DE2F27253 /* KiroVaultSessionTests.swift in Sources */,
 				87C609D63F03597AC12C8B0A /* LastSurfaceClosePreferenceTests.swift in Sources */,
 				9492CAFE0000000000000002 /* LastTerminalChildExitRecoveryTests.swift in Sources */,
 				DB326399C791DD70E9D6997A /* LiveWorkspaceFixture.swift in Sources */,
