@@ -9,15 +9,15 @@ nonisolated private let helperStagingLogger = Logger(
 
 /// Owns the standalone helper's staged-copy transaction and orphan cleanup.
 ///
-/// A copied app bundle can preserve read-only directory modes from the nested
-/// bundle. Cleanup therefore makes only the staging tree's directories
-/// owner-writable before removing it. Published bundles are moved within the
-/// same parent directory so the final rename is atomic when no previous bundle
-/// exists, and a previous bundle is retained under the same reapable name until
-/// the replacement has been published.
+/// One fixed scratch slot bounds disk use even when removal fails. Publication
+/// exchanges the complete directories atomically, so the installed path always
+/// names the old or new generation. A process lease excludes active installs
+/// from both startup and scheduled cleanup.
 struct ComputerUseHelperStaging {
     nonisolated private static let stagingPrefix = ".cmux Computer Use."
     nonisolated private static let appSuffix = ".app"
+
+    nonisolated static let stagingName = ".cmux Computer Use.staging.app"
 
     private let fileManager: FileManager
 
@@ -66,53 +66,62 @@ struct ComputerUseHelperStaging {
 
     /// Installs a verified helper copy, returning nil after any failed step.
     ///
-    /// The temporary bundle is always removed on a thrown error or
-    /// cancellation. The source and staged trees are compared before the
-    /// staged directory is renamed into the destination path.
+    /// Failure and cancellation run writable-tree cleanup before returning.
+    /// If the filesystem refuses removal, the fixed slot blocks further copies
+    /// until cleanup succeeds. The old installed generation survives a failed
+    /// atomic publication.
     @discardableResult
     nonisolated func install(
         nested: URL,
         destination: URL,
         directory: URL
     ) -> URL? {
-        let temporary = directory.appendingPathComponent(
-            "\(Self.stagingPrefix)\(UUID().uuidString)\(Self.appSuffix)",
-            isDirectory: true
-        )
         do {
-            guard !Task.isCancelled else { return nil }
-            try fileManager.createDirectory(
-                at: directory,
-                withIntermediateDirectories: true
-            )
-            _ = reapOrphanedBundles(in: directory)
-            defer { _ = removeStagedBundle(at: temporary) }
-            try fileManager.copyItem(at: nested, to: temporary)
-            try releaseCopiedHelperFromQuarantine(at: temporary)
-            guard !Task.isCancelled, isCurrent(nested: nested, destination: temporary) else {
-                return nil
-            }
-            try publish(temporary: temporary, destination: destination, directory: directory)
-            return destination
+            return try ComputerUseHelperDirectory(fileManager: fileManager)
+                .withExclusiveAccess(to: directory, createIfMissing: true) {
+                    try Task.checkCancellation()
+                    _ = reapWithoutLease(in: directory)
+                    let temporary = directory.appendingPathComponent(Self.stagingName, isDirectory: true)
+                    // Never allocate another name when a prior cleanup failed.
+                    guard removeStagedBundle(at: temporary) else { return nil }
+                    defer { _ = removeStagedBundle(at: temporary) }
+                    try fileManager.copyItem(at: nested, to: temporary)
+                    try releaseCopiedHelperFromQuarantine(at: temporary)
+                    try Task.checkCancellation()
+                    guard isCurrent(nested: nested, destination: temporary) else {
+                        throw CocoaError(.fileReadCorruptFile)
+                    }
+                    try publish(temporary: temporary, destination: destination)
+                    return destination
+                }
         } catch is CancellationError {
             return nil
         } catch {
+            helperStagingLogger.error("Computer Use helper install failed (code \((error as NSError).code))")
             return nil
         }
     }
 
     /// Removes orphaned hidden staging bundles in the helper directory.
     ///
-    /// Only UUID-shaped directories with the exact cmux staging prefix are
+    /// Only the fixed scratch slot and legacy UUID-shaped directories are
     /// considered. Symbolic links and the published `cmux Computer Use.app`
     /// destination are left untouched.
     @discardableResult
     nonisolated func reapOrphanedBundles(in directory: URL) -> Int {
-        guard !Task.isCancelled,
-              isDirectoryWithoutFollowingSymlinks(directory)
-        else {
+        do {
+            return try ComputerUseHelperDirectory(fileManager: fileManager)
+                .withExclusiveAccess(to: directory, createIfMissing: false) {
+                    reapWithoutLease(in: directory)
+                }
+        } catch {
             return 0
         }
+    }
+
+    /// Visits legacy orphans only while holding the install/reaper lease.
+    private nonisolated func reapWithoutLease(in directory: URL) -> Int {
+        guard !Task.isCancelled else { return 0 }
         guard let entries = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [],
@@ -123,8 +132,8 @@ struct ComputerUseHelperStaging {
 
         var removedCount = 0
         for entry in entries {
-            guard !Task.isCancelled,
-                  isStagingBundleName(entry.lastPathComponent),
+            guard !Task.isCancelled else { break }
+            guard isStagingBundleName(entry.lastPathComponent),
                   isDirectoryWithoutFollowingSymlinks(entry)
             else {
                 continue
@@ -151,41 +160,23 @@ struct ComputerUseHelperStaging {
         return report
     }
 
-    /// Publishes a staged directory and rolls back an existing generation if the rename fails.
-    private nonisolated func publish(
-        temporary: URL,
-        destination: URL,
-        directory: URL
-    ) throws {
-        guard !Task.isCancelled else { throw CancellationError() }
-        let previous = directory.appendingPathComponent(
-            "\(Self.stagingPrefix)\(UUID().uuidString)\(Self.appSuffix)",
-            isDirectory: true
-        )
-        var movedPrevious = false
-        if fileManager.fileExists(atPath: destination.path) {
-            try fileManager.moveItem(at: destination, to: previous)
-            movedPrevious = true
+    /// Atomically publishes the candidate; on failure the old generation stays installed.
+    private nonisolated func publish(temporary: URL, destination: URL) throws {
+        try Task.checkCancellation()
+        let exists = modeBits(at: destination) != nil
+        let flags = UInt32(exists ? RENAME_SWAP : RENAME_EXCL)
+        guard renameatx_np(AT_FDCWD, temporary.path, AT_FDCWD, destination.path, flags) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
-        do {
-            guard !Task.isCancelled else { throw CancellationError() }
-            try fileManager.moveItem(at: temporary, to: destination)
-        } catch {
-            if movedPrevious {
-                try? fileManager.moveItem(at: previous, to: destination)
-            }
-            throw error
-        }
-        if movedPrevious {
-            _ = removeStagedBundle(at: previous)
-        }
+        // After a swap, the old installed tree occupies the same fixed scratch
+        // slot. Deferred cleanup or the next pass removes it, even after exit.
     }
 
     /// Makes a staging tree removable and deletes it, logging only a safe bundle name and error code.
     private nonisolated func removeStagedBundle(at url: URL) -> Bool {
-        guard fileManager.fileExists(atPath: url.path) else { return true }
-        makeDirectoriesWritable(at: url)
+        guard modeBits(at: url) != nil else { return true }
         do {
+            try makeDirectoriesWritable(at: url)
             try fileManager.removeItem(at: url)
             return true
         } catch {
@@ -198,29 +189,32 @@ struct ComputerUseHelperStaging {
     }
 
     /// Restores owner write and search permission on every directory in a staging tree.
-    private nonisolated func makeDirectoriesWritable(at root: URL) {
-        var entries = [root]
-        if let enumerator = fileManager.enumerator(
-            at: root,
-            includingPropertiesForKeys: [],
-            options: []
-        ) {
-            for case let entry as URL in enumerator {
-                entries.append(entry)
+    private nonisolated func makeDirectoriesWritable(at root: URL) throws {
+        guard let mode = modeBits(at: root), mode & mode_t(S_IFMT) == mode_t(S_IFDIR) else {
+            return
+        }
+        // Open without following links before changing permissions. Repair the
+        // parent before listing its children, without following any links.
+        let descriptor = Darwin.open(root.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        defer { Darwin.close(descriptor) }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0, metadata.st_uid == geteuid() else {
+            throw POSIXError(.EPERM)
+        }
+        if metadata.st_mode & 0o700 != 0o700 {
+            guard fchmod(descriptor, (metadata.st_mode & 0o777) | 0o700) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
         }
-        for entry in entries {
-            guard let mode = modeBits(at: entry), mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
-            else {
-                continue
-            }
-            let permissions = mode & mode_t(0o777)
-            _ = chmod(entry.path, permissions | mode_t(0o700))
+        for name in try fileManager.contentsOfDirectory(atPath: root.path) {
+            try makeDirectoriesWritable(at: root.appendingPathComponent(name))
         }
     }
 
     /// Returns whether a name is an exact UUID-shaped hidden staging bundle name.
     private nonisolated func isStagingBundleName(_ name: String) -> Bool {
+        if name == Self.stagingName { return true }
         guard name.hasPrefix(Self.stagingPrefix), name.hasSuffix(Self.appSuffix) else {
             return false
         }
@@ -253,11 +247,16 @@ struct ComputerUseHelperStaging {
 
     /// Lists regular files used to verify a copied helper bundle.
     private nonisolated func helperBundleRelativeFilePaths(at root: URL) -> Set<String>? {
+        var enumerationFailed = false
         guard
             let enumerator = fileManager.enumerator(
                 at: root,
                 includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
+                options: [],
+                errorHandler: { _, _ in
+                    enumerationFailed = true
+                    return false
+                }
             )
         else {
             return nil
@@ -274,6 +273,6 @@ struct ComputerUseHelperStaging {
             let relativePath = String(fileURL.path.dropFirst(root.path.count + 1))
             paths.insert(relativePath)
         }
-        return paths
+        return enumerationFailed ? nil : paths
     }
 }
