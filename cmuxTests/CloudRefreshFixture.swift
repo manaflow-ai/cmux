@@ -22,7 +22,8 @@ struct CloudRefreshFixture {
         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
         authClient: (any AuthClient)? = nil,
         isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
-        isCloudEnabled: @escaping @Sendable () -> Bool = { true }
+        isCloudEnabled: @escaping @Sendable () -> Bool = { true },
+        awaitBootstrap: Bool = true
     ) async throws -> Self {
         let defaults = try #require(UserDefaults(suiteName: "CloudRefreshFixture.\(UUID())"))
         let auth = AuthCoordinator(
@@ -42,8 +43,10 @@ struct CloudRefreshFixture {
             )
         )
         auth.start()
-        await auth.awaitBootstrapped()
-        try #require(auth.isAuthenticated)
+        if awaitBootstrap {
+            await auth.awaitBootstrapped()
+            try #require(auth.isAuthenticated)
+        }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CloudRefreshURLProtocol.self]
         let session = URLSession(configuration: configuration)

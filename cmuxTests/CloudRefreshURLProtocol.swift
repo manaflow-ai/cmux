@@ -15,6 +15,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     static func waitUntilStarted(_ count: Int = 1) async { await responses.waitUntilStarted(count) }
     static func currentStopCount() async -> Int { await responses.stopCount }
     static func waitUntilStopped(after baseline: Int) async { await responses.waitUntilStopped(after: baseline) }
+    static func lastTeamID() async -> String? { await responses.lastTeamID }
     static func reset() async { await responses.reset() }
     static func requestCounts() async -> [String: Int] { await responses.counts }
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -24,6 +25,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
 
     private actor Responses {
         private(set) var counts: [String: Int] = [:]
+        private(set) var lastTeamID: String?
         private var tasks: [UUID: Task<Void, Never>] = [:]
         private var behavior = Behavior.normal
         private var held = false
@@ -53,6 +55,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             for task in tasks.values { task.cancel() }
             tasks.removeAll()
             counts.removeAll()
+            lastTeamID = nil
             behavior = .normal
             stoppedRequests.removeAll()
             stopCount = 0
@@ -61,6 +64,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             let key = source.requestID
             guard !stoppedRequests.contains(key) else { return }
             let path = source.request.url!.path
+            lastTeamID = source.request.value(forHTTPHeaderField: "X-Cmux-Team-Id")
             counts[path, default: 0] += 1
             let count = counts.values.reduce(0, +)
             let ready = startWaiters.filter { $0.0 <= count }

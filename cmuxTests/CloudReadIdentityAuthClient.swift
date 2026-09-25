@@ -8,6 +8,10 @@ actor CloudReadIdentityAuthClient: AuthClient {
     private var holdsProbe = false
     private var probe: CheckedContinuation<Void, Never>?
     private var probeWaiters: [CheckedContinuation<Void, Never>] = []
+    private var holdsTeamList = false
+    private var teamListRequested = false
+    private var teamListProbe: CheckedContinuation<Void, Never>?
+    private var teamListWaiters: [CheckedContinuation<Void, Never>] = []
 
     func holdValidationProbe() { holdsProbe = true }
     func waitUntilValidationProbe() async {
@@ -18,6 +22,16 @@ actor CloudReadIdentityAuthClient: AuthClient {
         holdsProbe = false
         probe?.resume()
         probe = nil
+    }
+    func holdTeamList() { holdsTeamList = true }
+    func waitUntilTeamListRequested() async {
+        if teamListRequested { return }
+        await withCheckedContinuation { teamListWaiters.append($0) }
+    }
+    func releaseTeamList() {
+        holdsTeamList = false
+        teamListProbe?.resume()
+        teamListProbe = nil
     }
     func accessToken() async -> String? {
         if holdsProbe {
@@ -37,6 +51,15 @@ actor CloudReadIdentityAuthClient: AuthClient {
         accountID.map { CMUXAuthUser(id: $0, primaryEmail: "\($0)@example.test", displayName: "Fixture") }
     }
     func listTeams() async throws -> [CMUXAuthTeam] {
+        if holdsTeamList {
+            teamListRequested = true
+            await withCheckedContinuation { continuation in
+                teamListProbe = continuation
+                let waiters = teamListWaiters
+                teamListWaiters.removeAll()
+                for waiter in waiters { waiter.resume() }
+            }
+        }
         [CMUXAuthTeam(id: "selected", displayName: "Selected")]
     }
     func setSelectedTeam(id: String?) async throws {}
