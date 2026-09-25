@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxSidebar
 import CmuxWorkspaces
 import CoreGraphics
 import Foundation
@@ -71,6 +72,87 @@ struct WorkspaceTodoSidebarModelTests {
         let names = WorkspaceTaskStatus.allCases.map(\.displayName)
         #expect(names.allSatisfy { !$0.isEmpty })
         #expect(Set(names).count == names.count)
+    }
+
+    // MARK: - Live status signals
+
+    @MainActor
+    @Test
+    func liveSignalOwnerPublishesDistinctTransitions() async {
+        let owner = WorkspaceTaskStatusSignalOwner()
+        var changes = owner.changes().makeAsyncIterator()
+        #expect(await changes.next() == WorkspaceTaskStatusSignals())
+
+        let panelId = UUID()
+        let openPR = SidebarPullRequestState(
+            number: 42,
+            label: "owner/repo",
+            url: URL(string: "https://github.com/owner/repo/pull/42")!,
+            status: .open,
+            branch: "feature"
+        )
+        let reviewTransition = owner.setPanelPullRequest(openPR, panelId: panelId)
+        #expect(reviewTransition.previousStatus == .todo)
+        #expect(reviewTransition.currentStatus == .review)
+        #expect(await changes.next() == reviewTransition.current)
+
+        let duplicate = owner.setPanelPullRequest(openPR, panelId: panelId)
+        #expect(!duplicate.didChange)
+
+        let mergedPR = SidebarPullRequestState(
+            number: openPR.number,
+            label: openPR.label,
+            url: openPR.url,
+            status: .merged,
+            branch: openPR.branch
+        )
+        let doneTransition = owner.setPanelPullRequest(mergedPR, panelId: panelId)
+        #expect(doneTransition.previousStatus == .review)
+        #expect(doneTransition.currentStatus == .done)
+        #expect(await changes.next() == doneTransition.current)
+    }
+
+    @MainActor
+    @Test
+    func liveStatusUsesStructuredSignalsAfterSidebarMetadataIsHiddenAndExpiresOverride() {
+        let workspace = Workspace()
+        let panelId = UUID()
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "feature", isDirty: true)
+        #expect(workspace.inferredTaskStatus == .working)
+        workspace.clearSidebarGitMetadata()
+        #expect(workspace.inferredTaskStatus == .working)
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 42,
+            label: "owner/repo",
+            url: URL(string: "https://github.com/owner/repo/pull/42")!,
+            status: .open,
+            branch: "feature"
+        )
+        #expect(workspace.inferredTaskStatus == .review)
+
+        workspace.setTaskStatusOverride(.done)
+        workspace.clearSidebarPullRequestMetadata()
+        #expect(workspace.inferredTaskStatus == .review)
+        #expect(workspace.todoState.statusOverride != nil)
+
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 42,
+            label: "owner/repo",
+            url: URL(string: "https://github.com/owner/repo/pull/42")!,
+            status: .merged,
+            branch: "feature"
+        )
+        #expect(workspace.inferredTaskStatus == .done)
+        #expect(workspace.todoState.statusOverride == nil)
+    }
+
+    @Test
+    func checklistToggleCannotBeConfiguredAsAGlobalChord() {
+        #expect(!KeyboardShortcutSettings.Action.toggleChecklistItemComplete.allowsChordShortcut)
+        #expect(!ShortcutAction.toggleChecklistItemComplete.allowsChordShortcut)
     }
 
     // MARK: - Minimal todo visibility
