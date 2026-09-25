@@ -12,6 +12,26 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Prompt teardown of SIGHUP-ignoring launchers
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/230
+- Commits:
+  - `f48511fda` (test: bound teardown for SIGHUP-ignoring launchers)
+  - `9b048945d` (fix(termio): escalate SIGHUP-ignoring launchers promptly)
+- File: `src/termio/Exec.zig`
+- Summary: macOS `/usr/bin/login` ignores SIGHUP while it hands a new PTY to
+  its shell. Teardown now detects that disposition and escalates only that
+  process group to SIGTERM immediately, then SIGKILL after a short bound. The
+  foreground shell group keeps the existing 12-second SIGHUP grace used by
+  shutdown hooks.
+- Verification: the fork regression requires a SIGHUP-ignoring leader to reap
+  in under 500 ms with a one-second SIGHUP grace. The test is skipped on
+  non-Darwin targets because the process-disposition query is macOS-specific;
+  hosted macOS Ghostty tests provide the behavioral proof.
+- Conflict note: preserve the per-process-group phase and do not collapse the
+  launcher and foreground groups back into one shared deadline. Doing so
+  reintroduces the startup close stall or cuts off shell shutdown hooks.
+
 ### Cloud restore replay trailing rows
 
 - Commit: `a3e9304c5d19c8667f58a342830f774579c74472`
@@ -25,9 +45,8 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `a3e9304c5d`, a cmux-only replay fix on
-top of `c5c31ce819`, the upstream Ghostty merge commit for PR #218 after the
-embedded-environment lifetime fix from PR #227 was merged. The replay fix
+The submodule pinned by this branch is `9b048945d`, the prompt-teardown fix
+described above on top of the cmux-only replay fix `a3e9304c5d`. The replay fix
 preserves physical blank rows until cursor/state restoration completes, so a
 restored Cloud grid cannot regain stale history rows. The base SHA preserves
 cmux's Cloud loopback link-detection changes while adding the localhost-port
