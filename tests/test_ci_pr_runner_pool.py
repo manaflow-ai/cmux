@@ -659,6 +659,12 @@ class OwnedPools(unittest.TestCase):
                              ["permission-organization-self-hosted-runners"], "read")
             self.assert_repo_fallback_mint(late_steps, "read")
             self.assertEqual(late_steps[late_ids.index("place")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
+        ios = yaml.safe_load((WORKFLOWS / "test-ios.yml").read_text())["jobs"]["runner"]["steps"]
+        ios_ids = [step.get("id") for step in ios]
+        self.assertEqual(ios[ios_ids.index("route-token")]["with"]
+                         ["permission-organization-self-hosted-runners"], "read")
+        self.assert_repo_fallback_mint(ios, "read")
+        self.assertEqual(ios[ios_ids.index("pool")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
 
     def assert_repo_fallback_mint(self, steps, level):
         """A second mint, only when the first failed, with the repository permission alone."""
@@ -2705,7 +2711,7 @@ class IOSWiring(unittest.TestCase):
         self.assertIn("vars.GLAEDA_ROUTE_APP_ID != ''", mint["if"])
         self.assertTrue(mint["continue-on-error"])
         self.assertEqual(mint["with"]["permission-administration"], "read")
-        self.assertEqual(self.picker_step(runner)["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
+        self.assertEqual(self.picker_step(runner)["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
 
     def test_test_ios_macos_jobs_take_the_runner_jobs_pool(self):
         jobs = self.workflow("test-ios.yml")["jobs"]
