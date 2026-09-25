@@ -2364,7 +2364,9 @@ public actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
         retryTransientServiceUnavailable: Bool = false,
-        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil
+        allowedUnderManagedPolicy: Bool = false,
+        expectedTeamScope: AuthenticatedTeamScope? = nil,
+        queryItems: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
         let work = {
             let isSharedRead = method == "GET"
@@ -2376,7 +2378,8 @@ public actor VMClient {
             if !isSharedRead {
                 return try await self.requestMeasured(method, path: path, jsonBody: jsonBody, extraHeaders: extraHeaders,
                     timeoutSeconds: timeoutSeconds, retryTransientServiceUnavailable: retryTransientServiceUnavailable,
-                    allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope)
+                    allowedUnderManagedPolicy: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
+                    queryItems: queryItems)
             }
             try Task.checkCancellation()
             if let expectedTeamScope, !(await self.auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) {
@@ -2404,7 +2407,8 @@ public actor VMClient {
                         method,
                         path: path,
                         timeoutSeconds: timeoutSeconds,
-                        expectedTeamScope: expectedTeamScope
+                        expectedTeamScope: expectedTeamScope,
+                        queryItems: queryItems
                     )
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
                 }
@@ -2439,7 +2443,9 @@ public actor VMClient {
         extraHeaders: [String: String] = [:],
         timeoutSeconds: TimeInterval? = nil,
         retryTransientServiceUnavailable: Bool = false,
-        allowedUnderManagedPolicy: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil
+        allowedUnderManagedPolicy: Bool = false,
+        expectedTeamScope: AuthenticatedTeamScope? = nil,
+        queryItems: [URLQueryItem] = []
     ) async throws -> (Data, HTTPURLResponse) {
         try checkCloudAccess(allowedUnderManagedPolicy: allowedUnderManagedPolicy)
         let minted = VMRequestTraceContext.mint()
@@ -2478,6 +2484,7 @@ public actor VMClient {
                 timeoutSeconds: timeoutSeconds,
                 retryTransientServiceUnavailable: retryTransientServiceUnavailable,
                 allowedWhenCloudDisabled: allowedUnderManagedPolicy, expectedTeamScope: expectedTeamScope,
+                queryItems: queryItems,
                 onRetry: { retryCount += 1 }
             )
             record(.response(
@@ -2551,6 +2558,7 @@ public actor VMClient {
         timeoutSeconds: TimeInterval?,
         retryTransientServiceUnavailable: Bool,
         allowedWhenCloudDisabled: Bool, expectedTeamScope: AuthenticatedTeamScope?,
+        queryItems: [URLQueryItem],
         onRetry: () -> Void
     ) async throws -> (Data, HTTPURLResponse) {
         // Bind every control-plane request to the currently published auth
@@ -2579,6 +2587,7 @@ public actor VMClient {
             throw VMClientError.malformedResponse("bad vmAPIBaseURL")
         }
         url.path = (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path) + path
+        url.queryItems = queryItems.isEmpty ? nil : queryItems
         guard let resolved = url.url else {
             throw VMClientError.malformedResponse("could not build URL for \(path)")
         }

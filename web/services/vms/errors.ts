@@ -174,6 +174,14 @@ export class VmBillingError extends Data.TaggedError("VmBillingError")<{
   readonly cause: unknown;
 }> {}
 
+export class VmEnvProviderUnsupportedError extends Data.TaggedError("VmEnvProviderUnsupportedError")<{
+  readonly provider: ProviderId;
+}> {}
+
+export class VmEnvLayerOwnershipError extends Data.TaggedError("VmEnvLayerOwnershipError")<{
+  readonly snapshotId: string;
+}> {}
+
 /**
  * The caller asked for a session transport the machine's provider does not serve
  * (e.g. the legacy websocket/SSH attach on a machine that only runs the cmux-tui
@@ -241,6 +249,8 @@ export type VmWorkflowError =
   | VmGoShapeError
   | VmCreateCreditsInsufficientError
   | VmBillingError
+  | VmEnvProviderUnsupportedError
+  | VmEnvLayerOwnershipError
   | VmAttachTransportUnsupportedError
   | VmPrivateNetworkUnavailableError
   | VmTunnelNotFoundError
@@ -337,6 +347,14 @@ export function isVmBillingError(err: unknown): err is VmBillingError {
   return (err as { _tag?: string } | null)?._tag === "VmBillingError";
 }
 
+export function isVmEnvProviderUnsupportedError(err: unknown): err is VmEnvProviderUnsupportedError {
+  return (err as { _tag?: string } | null)?._tag === "VmEnvProviderUnsupportedError";
+}
+
+export function isVmEnvLayerOwnershipError(err: unknown): err is VmEnvLayerOwnershipError {
+  return (err as { _tag?: string } | null)?._tag === "VmEnvLayerOwnershipError";
+}
+
 export function isVmAttachTransportUnsupportedError(err: unknown): err is VmAttachTransportUnsupportedError {
   return (err as { _tag?: string } | null)?._tag === "VmAttachTransportUnsupportedError";
 }
@@ -390,6 +408,8 @@ const vmWorkflowErrorTagRecord = {
   VmGoShapeError: true,
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
+  VmEnvProviderUnsupportedError: true,
+  VmEnvLayerOwnershipError: true,
   VmAttachTransportUnsupportedError: true,
   VmPrivateNetworkUnavailableError: true,
   VmTunnelNotFoundError: true,

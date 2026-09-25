@@ -11,6 +11,7 @@ import {
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
+  cloudVmEnvLayers,
   cloudVmLeases,
   cloudVmNetworks,
   cloudVmAccessGrants,
@@ -63,6 +64,7 @@ import {
 } from "./machineSpec";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
+export type CloudVmEnvLayerRow = typeof cloudVmEnvLayers.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
 export type CloudVmBaseGenerationRow = typeof cloudVmBaseGenerations.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
@@ -553,6 +555,27 @@ export type VmRepositoryShape = {
   /** Endpoint leases issued to one signed-in user and still within their TTL. */
   readonly activeAccessLeasesForUser?: (userId: string) => Effect.Effect<CloudVmAccessLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
+  readonly findDeepestEnvLayer: (input: {
+    readonly billingTeamId: string;
+    readonly provider: ProviderId;
+    readonly chainHashes: readonly string[];
+  }) => Effect.Effect<CloudVmEnvLayerRow | null, VmDatabaseError>;
+  readonly insertEnvLayer: (input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly provider: ProviderId;
+    readonly baseImageId: string;
+    readonly chainHash: string;
+    readonly stepIndex: number;
+    readonly stepName?: string | null;
+    readonly specDigest: string;
+    readonly snapshotId: string;
+  }) => Effect.Effect<CloudVmEnvLayerRow, VmDatabaseError>;
+  readonly listEnvLayers: (input: {
+    readonly billingTeamId: string;
+    readonly provider?: ProviderId;
+    readonly specDigest?: string;
+  }) => Effect.Effect<CloudVmEnvLayerRow[], VmDatabaseError>;
   readonly recordUsageEvent: (input: VmUsageEventInput) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvents: (inputs: readonly VmUsageEventInput[]) => Effect.Effect<void, VmDatabaseError>;
 };
@@ -3387,6 +3410,118 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         imageId: input.imageId,
         metadata: input.metadata ?? {},
       })));
+    }),
+
+  findDeepestEnvLayer: (input) =>
+    dbEffect("findDeepestEnvLayer", async () => {
+      if (input.chainHashes.length === 0) return null;
+      const db = cloudDb();
+      const rows = await db
+        .select()
+        .from(cloudVmEnvLayers)
+        .where(
+          and(
+            eq(cloudVmEnvLayers.billingTeamId, input.billingTeamId),
+            eq(cloudVmEnvLayers.provider, input.provider),
+            inArray(cloudVmEnvLayers.chainHash, [...input.chainHashes]),
+            isNull(cloudVmEnvLayers.invalidatedAt),
+            // The snapshot ledger retains creation rows after deletion; a
+            // cached layer must not restore a deleted or deleting snapshot.
+            sql`not exists (
+              select 1 from ${cloudVmUsageEvents} as snapshot_deleted
+              where snapshot_deleted.event_type in ('vm.snapshot.delete_requested', 'vm.snapshot.deleted')
+                and snapshot_deleted.provider = ${cloudVmEnvLayers.provider}
+                and snapshot_deleted.metadata->>'snapshotId' = ${cloudVmEnvLayers.snapshotId}
+            )`,
+          ),
+        );
+      // Depth comes from the position of the hash in the caller's chain, not
+      // from the stored (client-supplied) stepIndex: a chain hash encodes its
+      // whole step prefix, so each hash has exactly one valid depth for this
+      // request. Rows whose stored index disagrees are skipped as corrupt so a
+      // stale or manual registration can never make resolve skip real steps.
+      const depthByHash = new Map(input.chainHashes.map((hash, index) => [hash, index]));
+      let deepest: CloudVmEnvLayerRow | null = null;
+      let deepestDepth = -1;
+      for (const row of rows) {
+        const depth = depthByHash.get(row.chainHash);
+        if (depth === undefined || row.stepIndex !== depth) continue;
+        if (depth > deepestDepth) {
+          deepest = row;
+          deepestDepth = depth;
+        }
+      }
+      if (!deepest) return null;
+      await db
+        .update(cloudVmEnvLayers)
+        .set({ lastUsedAt: new Date() })
+        .where(eq(cloudVmEnvLayers.id, deepest.id));
+      return deepest;
+    }),
+
+  insertEnvLayer: (input) =>
+    dbEffect("insertEnvLayer", async () => {
+      const db = cloudDb();
+      const values = {
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        provider: input.provider,
+        baseImageId: input.baseImageId,
+        chainHash: input.chainHash,
+        stepIndex: input.stepIndex,
+        stepName: input.stepName ?? null,
+        specDigest: input.specDigest,
+        snapshotId: input.snapshotId,
+      };
+      try {
+        const [inserted] = await db.insert(cloudVmEnvLayers).values(values).returning();
+        if (!inserted) throw new Error("insert returned no env layer row");
+        return inserted;
+      } catch (err) {
+        if (pgErrorCode(err) !== "23505") throw err;
+        // A concurrent build registered this layer first; refresh its snapshot
+        // pointer so the newest snapshot wins and return the surviving row.
+        // stepIndex and baseImageId are refreshed too so an honest re-build
+        // repairs a row whose stored depth the resolver would reject as
+        // corrupt (findDeepestEnvLayer skips index/position mismatches).
+        const [existing] = await db
+          .update(cloudVmEnvLayers)
+          .set({
+            snapshotId: input.snapshotId,
+            specDigest: input.specDigest,
+            stepIndex: input.stepIndex,
+            baseImageId: input.baseImageId,
+            stepName: input.stepName ?? null,
+            lastUsedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(cloudVmEnvLayers.billingTeamId, input.billingTeamId),
+              eq(cloudVmEnvLayers.provider, input.provider),
+              eq(cloudVmEnvLayers.chainHash, input.chainHash),
+              isNull(cloudVmEnvLayers.invalidatedAt),
+            ),
+          )
+          .returning();
+        if (!existing) throw err;
+        return existing;
+      }
+    }),
+
+  listEnvLayers: (input) =>
+    dbEffect("listEnvLayers", async () => {
+      const db = cloudDb();
+      const conditions = [
+        eq(cloudVmEnvLayers.billingTeamId, input.billingTeamId),
+        isNull(cloudVmEnvLayers.invalidatedAt),
+      ];
+      if (input.provider) conditions.push(eq(cloudVmEnvLayers.provider, input.provider));
+      if (input.specDigest) conditions.push(eq(cloudVmEnvLayers.specDigest, input.specDigest));
+      return await db
+        .select()
+        .from(cloudVmEnvLayers)
+        .where(and(...conditions))
+        .orderBy(desc(cloudVmEnvLayers.createdAt), asc(cloudVmEnvLayers.stepIndex));
     }),
 };
 
