@@ -1,5 +1,6 @@
 import CmuxCloudBannerCore
 import CmuxCloud
+import CmuxObservation
 import Foundation
 import Observation
 
@@ -30,6 +31,7 @@ final class CloudPortAccessModel {
     private let startBrowserProxy: (@MainActor () async throws -> CloudBrowserProxyEndpoint)?
     private var observation: Task<Void, Never>?
     private var operation: Task<Void, Never>?
+    @ObservationIgnored private var phaseTracking: ObservedValueTracking<Phase>?
     private var generation = 0
 
     init(
@@ -73,6 +75,15 @@ final class CloudPortAccessModel {
     }
 
     var usesBrowserProxy: Bool { route == .browserProxy }
+
+    func phaseChanges() -> AsyncStream<Phase> {
+        if let phaseTracking {
+            return phaseTracking.changes()
+        }
+        let tracking = ObservedValueTracking { [weak self] in self?.phase ?? .closed }
+        phaseTracking = tracking
+        return tracking.changes()
+    }
 
     func connectBrowser(force: Bool = false) {
         if force { retry() } else { connect() }

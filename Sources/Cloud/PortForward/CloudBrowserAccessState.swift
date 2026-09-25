@@ -27,8 +27,7 @@ final class CloudBrowserAccessState {
     private(set) var desktopConnected = false
     @ObservationIgnored private let connectionDeadline: MainActorDeferredActionScheduler
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
-    @ObservationIgnored private var routeTracking: ObservedValueTracking<CloudPortAccessModel.Phase>?
-    @ObservationIgnored private var routeTrackingSourceID: ObjectIdentifier?
+    @ObservationIgnored private weak var routeTrackingModel: CloudPortAccessModel?
     @ObservationIgnored private var routeTrackingTask: Task<Void, Never>?
     @ObservationIgnored private var routeObservationSuspended = false
     @ObservationIgnored private var preservingCommittedRoute = false
@@ -80,15 +79,13 @@ final class CloudBrowserAccessState {
             cancelRouteTracking()
             return
         }
-        let sourceID = ObjectIdentifier(model)
-        if routeTrackingSourceID != sourceID {
+        if routeTrackingModel !== model {
             cancelRouteTracking()
-            let tracking = ObservedValueTracking { [weak model] in model?.phase ?? .closed }
-            routeTracking = tracking
-            routeTrackingSourceID = sourceID
-            routeTrackingTask = Task { @MainActor [weak self, weak model, tracking] in
-                for await _ in tracking.changes() {
-                    guard let self, let model, self.model === model,
+            routeTrackingModel = model
+            routeTrackingTask = Task { @MainActor [weak self, weak model] in
+                guard let model else { return }
+                for await _ in model.phaseChanges() {
+                    guard let self, self.model === model,
                           !self.routeObservationSuspended else { continue }
                     self.evaluateRoute()
                 }
@@ -100,9 +97,7 @@ final class CloudBrowserAccessState {
     private func cancelRouteTracking() {
         routeTrackingTask?.cancel()
         routeTrackingTask = nil
-        routeTracking?.cancel()
-        routeTracking = nil
-        routeTrackingSourceID = nil
+        routeTrackingModel = nil
     }
 
     private func evaluateRoute() {

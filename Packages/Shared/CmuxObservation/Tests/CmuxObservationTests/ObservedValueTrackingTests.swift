@@ -33,6 +33,7 @@ struct ObservedValueTrackingTests {
         let model = TrackingModel()
         weak var weakProbe: Probe?
         var tracking: ObservedValueTracking<Int>?
+        var iterator: AsyncStream<Int>.Iterator?
         do {
             let probe = Probe()
             weakProbe = probe
@@ -40,8 +41,10 @@ struct ObservedValueTrackingTests {
                 _ = probe
                 return model.value
             }
+            iterator = tracking?.changes().makeAsyncIterator()
         }
         #expect(weakProbe != nil)
+        #expect(await iterator?.next() == 0)
         tracking?.cancel()
         tracking = nil
         #expect(weakProbe == nil)
