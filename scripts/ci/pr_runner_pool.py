@@ -169,10 +169,11 @@ COLD_ROUNDS = 1
 # Concurrent jobs each Blacksmith macOS pool ran at most while jobs queued
 # behind it, from the janitor's snapshots of 2026-09-24: 10 or 11 on each
 # 6vcpu pool, 3 to 5 on 12vcpu (it once showed 7) with 8 to 18 queued.
-# 12vcpu is counted at 4 so it fills first and rolls over when full, not
-# after 10 jobs that queue behind it.
+# 12vcpu is counted at 5, the most it ran in several snapshots with jobs
+# queued behind it, so it fills first and rolls over when full, not after
+# 10 jobs that queue behind it.
 POOL_CAPACITIES = {
-    "blacksmith-12vcpu-macos-26": 4,
+    "blacksmith-12vcpu-macos-26": 5,
     "blacksmith-6vcpu-macos-26": 10,
     "blacksmith-6vcpu-macos-15": 10,
 }
