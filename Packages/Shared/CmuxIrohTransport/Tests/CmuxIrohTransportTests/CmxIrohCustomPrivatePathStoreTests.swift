@@ -46,6 +46,61 @@ struct CmxIrohCustomPrivatePathStoreTests {
     }
 
     @Test
+    func siblingBuildPreferencesRemainIndependent() async throws {
+        let store = CmxIrohCustomPrivatePathStore(
+            store: CustomPrivatePathMemoryStore()
+        )
+        _ = try await store.upsert(
+            CmxIrohCustomPrivatePathDraft(
+                macDeviceID: macA,
+                instanceTag: "stable",
+                macDisplayName: "Work Mac",
+                addresses: ["10.0.0.8"],
+                isEnabled: true
+            ),
+            accountID: "account-a"
+        )
+        let saved = try await store.upsert(
+            CmxIrohCustomPrivatePathDraft(
+                macDeviceID: macA,
+                instanceTag: "nightly",
+                macDisplayName: "Work Mac",
+                addresses: ["10.0.0.9"],
+                isEnabled: true
+            ),
+            accountID: "account-a"
+        )
+
+        #expect(saved.configurations.count == 2)
+        #expect(await store.enabledPaths(
+            forMacDeviceID: macA,
+            instanceTag: "stable",
+            accountID: "account-a"
+        ).map(\.address.value) == ["10.0.0.8"])
+        #expect(await store.enabledPaths(
+            forMacDeviceID: macA,
+            instanceTag: "nightly",
+            accountID: "account-a"
+        ).map(\.address.value) == ["10.0.0.9"])
+
+        _ = try await store.remove(
+            macDeviceID: macA,
+            instanceTag: "stable",
+            accountID: "account-a"
+        )
+        #expect(await store.enabledPaths(
+            forMacDeviceID: macA,
+            instanceTag: "stable",
+            accountID: "account-a"
+        ).isEmpty)
+        #expect(await store.enabledPaths(
+            forMacDeviceID: macA,
+            instanceTag: "nightly",
+            accountID: "account-a"
+        ).map(\.address.value) == ["10.0.0.9"])
+    }
+
+    @Test
     func disabledAndRemovedPreferencesRevokeProfileAuthority() async throws {
         let store = CmxIrohCustomPrivatePathStore(
             store: CustomPrivatePathMemoryStore()
@@ -114,6 +169,30 @@ struct CmxIrohCustomPrivatePathStoreTests {
             forMacDeviceID: macA,
             accountID: "account-a"
         ).isEmpty)
+    }
+
+    @Test
+    func enabledPathsJoinOnlyToMatchingPublishedFamilyPorts() throws {
+        let profile = try CmxIrohNetworkProfileKey(
+            source: .customVPN,
+            profileID: opaqueProfileID("private-path")
+        )
+        let paths = try ["10.0.0.8", "fd00::8", "10.0.0.8"].map {
+            try CmxIrohCustomPrivatePathBootstrap(
+                address: CmxIrohCustomPrivateAddress($0),
+                networkProfile: profile
+            )
+        }
+        let ipv4Only = try CmxIrohDirectPorts(ipv4: 49152)
+
+        #expect(CmxIrohCustomPrivatePathBootstrap.dialAddresses(
+            paths,
+            directPorts: ipv4Only
+        ) == ["10.0.0.8:49152"])
+        #expect(CmxIrohCustomPrivatePathBootstrap.dialAddresses(
+            paths,
+            directPorts: try CmxIrohDirectPorts(ipv4: 49152, ipv6: 49153)
+        ) == ["10.0.0.8:49152", "[fd00::8]:49153"])
     }
 
     @Test

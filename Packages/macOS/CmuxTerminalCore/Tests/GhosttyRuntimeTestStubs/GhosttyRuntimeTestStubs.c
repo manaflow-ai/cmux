@@ -3,6 +3,7 @@
 #if defined(__APPLE__)
 #include <dlfcn.h>
 #endif
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -22,21 +23,23 @@ typedef struct {
 #if defined(__APPLE__)
 typedef int (*GhosttyInitFunction)(uintptr_t argc, char **argv);
 
-// Newer Ghostty archives can be pulled into the test bundle by libc symbols
-// before any Ghostty API is referenced. Initialize that real runtime before
-// Swift Testing starts. Dynamic lookup avoids a link-time reference when
-// SwiftPM leaves the archive unloaded and these stubs are the implementation.
 __attribute__((constructor))
 static void initialize_linked_ghostty_runtime(void) {
-    GhosttyInitFunction ghostty_init =
+    GhosttyInitFunction initialize =
         (GhosttyInitFunction)dlsym(RTLD_DEFAULT, "ghostty_init");
-    if (ghostty_init == NULL) return;
+    if (initialize == NULL) return;
 
     static char process_name[] = "CmuxTerminalCoreTests";
-    static char *argv[] = {process_name, NULL};
-    if (ghostty_init(1, argv) != 0) abort();
+    static char *arguments[] = {process_name, NULL};
+    if (initialize(1, arguments) != 0) abort();
 }
 #endif
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK int ghostty_init(uintptr_t argc, char **argv) {
+    (void)argc;
+    (void)argv;
+    return 0;
+}
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK void *ghostty_surface_new_with_scrollback_limit(
     void *app,
@@ -91,7 +94,64 @@ GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_config_load_string(
         return;
     }
 
+    if (strcasecmp(value, "white") == 0) {
+        config->foreground = (GhosttyRuntimeTestColor){255, 255, 255};
+        config->has_foreground = true;
+        return;
+    }
+
     config->diagnostics_count = 1;
+}
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_config_finalize(void *config) {
+    (void)config;
+}
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK GhosttyRuntimeTestString
+ghostty_config_serialize(const void *raw_config) {
+    const GhosttyRuntimeTestConfig *config = raw_config;
+    if (config == 0) {
+        return (GhosttyRuntimeTestString){0, 0, false};
+    }
+
+    const int length = snprintf(
+        0,
+        0,
+        "foreground=%u,%u,%u;has=%u;diagnostics=%u",
+        config->foreground.r,
+        config->foreground.g,
+        config->foreground.b,
+        config->has_foreground,
+        config->diagnostics_count
+    );
+    if (length < 0) {
+        return (GhosttyRuntimeTestString){0, 0, false};
+    }
+    char *serialized = malloc((size_t)length + 1);
+    if (serialized == 0) {
+        return (GhosttyRuntimeTestString){0, 0, false};
+    }
+    snprintf(
+        serialized,
+        (size_t)length + 1,
+        "foreground=%u,%u,%u;has=%u;diagnostics=%u",
+        config->foreground.r,
+        config->foreground.g,
+        config->foreground.b,
+        config->has_foreground,
+        config->diagnostics_count
+    );
+    return (GhosttyRuntimeTestString){
+        serialized,
+        (uintptr_t)length,
+        true,
+    };
+}
+
+GHOSTTY_RUNTIME_TEST_STUB_WEAK void ghostty_string_free(
+    GhosttyRuntimeTestString string
+) {
+    free((void *)string.ptr);
 }
 
 GHOSTTY_RUNTIME_TEST_STUB_WEAK bool ghostty_config_get(

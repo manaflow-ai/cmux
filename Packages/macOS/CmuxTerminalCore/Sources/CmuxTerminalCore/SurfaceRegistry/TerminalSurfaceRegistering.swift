@@ -107,10 +107,41 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
     func isRightSidebarDockSurface(id: UUID) -> Bool
 
     /// Re-records the focus placement for a live surface that moved between the
-    /// workspace area and the right-sidebar dock. No-op when the id is not
-    /// currently registered.
-    func updateFocusPlacement(id: UUID, _ placement: TerminalSurfaceFocusPlacement)
+    /// workspace area and the right-sidebar dock. No-op when that surface
+    /// registration is no longer present.
+    ///
+    /// - Parameters:
+    ///   - surface: The exact registered model whose placement changed.
+    ///   - placement: The surface's new focus-routing placement.
+    func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    )
+
+    /// Re-records the canonical registration's placement for callers that
+    /// only have a stable surface id.
+    ///
+    /// This compatibility requirement preserves the pre-lifecycle protocol
+    /// surface. New code should prefer the exact-registration overload above
+    /// so an outgoing duplicate-id model cannot update its replacement.
+    func updateFocusPlacement(
+        id: UUID,
+        _ placement: TerminalSurfaceFocusPlacement
+    )
 
     /// All live registered surfaces, ordered by id for stable iteration.
     func allSurfaces() -> [any TerminalSurfacing]
+}
+
+/// Compatibility defaults for the surface registry placement API.
+public extension TerminalSurfaceRegistering {
+    /// Bridges the exact-registration update to the legacy id-only method so
+    /// existing conformers remain source-compatible during the migration.
+    func updateFocusPlacement(
+        for surface: any TerminalSurfacing,
+        _ placement: TerminalSurfaceFocusPlacement
+    ) {
+        guard self.surface(id: surface.id) === surface else { return }
+        updateFocusPlacement(id: surface.id, placement)
+    }
 }

@@ -9,11 +9,16 @@ usage() {
   cat <<'EOF'
 Usage:
   ./scripts/verify-cmux-tui-hosted.sh --filter <rust-test-name>
+  ./scripts/verify-cmux-tui-hosted.sh --filter chatmux_relay
   ./scripts/verify-cmux-tui-hosted.sh --full
 
 --filter runs matching Rust tests on hosted Linux and macOS.
+The reserved `chatmux_relay` filter runs the complete `chatmux-relay` package;
+Cargo test names do not include their package name, so a plain test-name filter
+cannot select that crate.
 --full runs the cross-platform merge gate, including real Windows execution.
-Both modes build and download a macOS arm64 cmux-tui artifact from the exact pushed HEAD.
+Both modes build and download matching macOS arm64 cmux-tui and userland agent-plugin
+artifacts from the exact pushed HEAD.
 EOF
 }
 
@@ -156,6 +161,22 @@ done
 
 if [[ -z "$run_id" ]]; then
   echo "error: the dispatched workflow did not appear within 120 seconds" >&2
+  exit 1
+fi
+
+# The list query is only a discovery hint. Re-read the run before accepting it
+# so a branch/ref race cannot make us watch a run for a different revision.
+run_identity="$(gh run view --repo "$REPO" "$run_id" \
+  --json headSha,headBranch,event,displayTitle \
+  --jq '[.headSha, .headBranch, .event, .displayTitle] | @tsv')"
+IFS=$'\t' read -r run_head_sha run_head_branch run_event run_display_title <<< "$run_identity"
+if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
+      "$run_event" != "workflow_dispatch" || "$run_display_title" != "$run_title" ]]; then
+  echo "error: discovered workflow run identity changed; refusing non-exact run" >&2
+  printf 'expected: sha=%s branch=%s event=workflow_dispatch title=%s\n' \
+    "$commit" "$remote_branch" "$run_title" >&2
+  printf 'actual:   sha=%s branch=%s event=%s title=%s\n' \
+    "$run_head_sha" "$run_head_branch" "$run_event" "$run_display_title" >&2
   exit 1
 fi
 
@@ -311,17 +332,34 @@ gh run download \
   --name cmux-tui-aarch64-apple-darwin \
   --dir "$temp_dir"
 
+plugin_download_dir="$temp_dir/agent-plugin"
+mkdir -p "$plugin_download_dir"
+gh run download \
+  --repo "$REPO" \
+  "$run_id" \
+  --name cmux-agent-screen-detection-aarch64-apple-darwin \
+  --dir "$plugin_download_dir"
+
 downloaded_binary="$(find "$temp_dir" -type f -name cmux-tui-aarch64-apple-darwin -print | sed -n '1p')"
 if [[ -z "$downloaded_binary" ]]; then
   echo "error: the macOS arm64 artifact did not contain cmux-tui" >&2
   exit 1
 fi
 
+downloaded_plugin="$(find "$plugin_download_dir" -type f -name cmux-agent-screen-detection-aarch64-apple-darwin -print | sed -n '1p')"
+if [[ -z "$downloaded_plugin" ]]; then
+  echo "error: the macOS arm64 artifact did not contain the agent screen-detection plugin" >&2
+  exit 1
+fi
+
 artifact_dir="cmux-tui/target/hosted/$commit"
 artifact_binary="$artifact_dir/cmux-tui"
+artifact_plugin="$artifact_dir/cmux-agent-screen-detection"
 mkdir -p "$artifact_dir"
 install -m 0755 "$downloaded_binary" "$artifact_binary"
+install -m 0755 "$downloaded_plugin" "$artifact_plugin"
 
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
+echo "Artifact: $artifact_dir/cmux-agent-screen-detection"
 echo "Dogfood: $artifact_binary --session verify-${commit:0:8}"

@@ -29,6 +29,32 @@ python -m pip install cmux-sdk
 Do not publish SDK contents through `tui-publish-npm.yml` or
 `tui-publish-pypi.yml`.
 
+## Raw-binary manifest contract
+
+Release artifacts that are consumed as raw binaries must describe each file in
+the `runtimeByBinary` manifest. Do not infer compatibility from a package-wide
+Linux claim. Every file entry records its operating system, architecture, and
+libc explicitly, for example `os: linux`, `architecture: x86_64`, and
+`libc: glibc` or `libc: musl`. macOS entries use `os: macos` and their actual
+architecture and `libc: none`; Windows entries use `os: windows`, their actual
+architecture, and `libc: none`.
+
+The runtime matcher accepts compatibility aliases at the manifest boundary:
+`amd64` and `x64` map to `x86_64`, `arm64` maps to `aarch64`, and Linux
+`gnu`/`linux-gnu` map to `glibc` while `musl`/`linux-musl` map to `musl`.
+Emit the canonical values in new manifests, and retain aliases only when
+reading older manifests. A Linux raw binary with `libc: musl` must not be
+advertised as a glibc binary, and a `libc: glibc` entry must state its tested
+minimum where the binary requires one.
+
+The `manylinux` and `musllinux` wheel tags follow the Python Packaging
+Authority platform-tag specifications. They are package-specific claims for
+the PyPI wheel files, not defaults for raw release binaries. Preserve the
+existing package contract: the TUI PyPI Linux wheels contain static musl
+binaries and publish matching `manylinux` and `musllinux` tags. Do not add a
+global `glibc >= 2.28` requirement to this manifest; retain that requirement
+only for the package or runtime path that actually enforces it.
+
 All packages target mux protocol 12 and expose the same generated command and
 event catalogs. The release preflight rejects runtime inventory drift and stale
 generated layers for all four publish targets before it runs their shared

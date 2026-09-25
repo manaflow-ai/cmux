@@ -21,21 +21,20 @@ extension TerminalSurface {
     public func enqueueManualInputNamedKey(_ name: String) -> Bool {
         guard ioMode.usesManualIO, manualInputHandler != nil, let surface else { return false }
         let frame = TerminalManualInput.namedKey(name).manualIOData
-        return frame.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return false }
-            ghostty_surface_text_input(
-                surface,
-                baseAddress.assumingMemoryBound(to: CChar.self),
-                UInt(bytes.count)
-            )
-            return true
-        }
+        return remoteOutputLane.enqueueTextInput(frame, to: surface)
     }
 
-    /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
-    public func didReceiveExplicitInput() {
+    @discardableResult
+    public func didReceiveExplicitInput() -> Bool {
+        startupInputGate.cancel(generation: terminalLifecycleId)
+        var cancelledDeferredAdmission = false
+        if cancelsStartupRestoreAdmissionOnExplicitInput,
+           startupRestoreAdmissionPhase == .awaitingAdmission {
+            cancelledDeferredAdmission = cancelStartupRestoreAdmissionForExplicitInput()
+        }
         paneHost.terminalSurfaceDidReceiveExplicitInput()
+        return cancelledDeferredAdmission
     }
 
     /// Routes programmatic input through the view-owned clipboard sequencer.
@@ -86,48 +85,60 @@ extension TerminalSurface {
 
     /// Sends paste-style text to the surface, queueing on a cold surface.
     ///
+    /// - Parameter text: Literal UTF-8 text to paste.
     /// - Returns: Whether the text was delivered or queued.
     @MainActor
     @discardableResult
     public func sendText(_ text: String) -> Bool {
-        guard let data = text.data(using: .utf8), !data.isEmpty else { return true }
+        sendTextResult(text).accepted
+    }
+
+    /// Sends paste-style text and reports whether it was delivered or queued.
+    ///
+    /// Delivery means handed to the live terminal runtime, not consumed by its child process.
+    /// - Parameter text: Literal UTF-8 text to paste. Empty text succeeds without a write.
+    /// - Returns: The immediate delivery, queueing, or rejection outcome.
+    @MainActor
+    @discardableResult
+    public func sendTextResult(_ text: String) -> TextSendResult {
+        guard let data = text.data(using: .utf8), !data.isEmpty else { return .sent }
         didReceiveExplicitInput()
-        let accepted = sendTextAfterExplicitInput(data)
-        if accepted {
+        let result = sendTextAfterExplicitInput(data)
+        if result.accepted {
             hibernationRecorder.recordTerminalInput(
                 workspaceId: tabId,
                 panelId: id
             )
         }
-        return accepted
+        return result
     }
 
     @MainActor
-    private func sendTextAfterExplicitInput(_ data: Data) -> Bool {
+    private func sendTextAfterExplicitInput(_ data: Data) -> TextSendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: data.count,
             replay: { [weak self] in
                 _ = self?.sendTextAfterExplicitInput(data)
             }
         ) {
-            return true
+            return .queued
         }
         guard surface != nil else {
-            guard allowsRuntimeSurfaceCreation() else { return false }
+            guard allowsRuntimeSurfaceCreation() else { return .surfaceUnavailable }
             let queued = enqueuePendingSocketInput(.pasteText(data))
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
                 didAcceptExplicitInput()
             }
-            return queued
+            return queued ? .queued : .inputQueueFull
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendText") else {
-            return false
+            return .surfaceUnavailable
         }
-        guard !ghostty_surface_process_exited(liveSurface) else { return false }
+        guard !ghostty_surface_process_exited(liveSurface) else { return .processExited }
         writeTextData(data, to: liveSurface)
         didAcceptExplicitInput()
-        return true
+        return .sent
     }
 
     /// Sends raw key text as a single key event.
@@ -151,10 +162,28 @@ extension TerminalSurface {
         ) {
             return true
         }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return false }
+            let queued = enqueuePendingSocketInput(.keyText(text))
+            if queued {
+                requestInputDemandSurfaceStartIfNeeded()
+                didAcceptExplicitInput()
+            }
+            return queued
+        }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
+
+        return sendKeyText(text, to: liveSurface)
+    }
+
+    @MainActor
+    private func sendKeyText(
+        _ text: String,
+        to liveSurface: ghostty_surface_t
+    ) -> Bool {
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -243,8 +272,7 @@ extension TerminalSurface {
     /// The visible viewport text, or nil without a live surface.
     @MainActor
     public func visibleText() -> String? {
-        guard let surface = liveSurfaceForGhosttyAccess(reason: "visibleText") else { return nil }
-        return Self.readText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT)
+        readText(region: .viewport)
     }
 
     /// Send text with control characters (Return, Tab, etc.) delivered as key
@@ -274,11 +302,11 @@ extension TerminalSurface {
     }
 
     @MainActor
-    private func sendInputAfterExplicitInput(_ text: String) -> InputSendResult {
+    func sendInputAfterExplicitInput(_ text: String, recordsExplicitInput: Bool = true) -> InputSendResult {
         if deferInputDuringRuntimeClipboardRead(
             estimatedBytes: text.utf8.count,
             replay: { [weak self] in
-                _ = self?.sendInputAfterExplicitInput(text)
+                _ = self?.sendInputAfterExplicitInput(text, recordsExplicitInput: recordsExplicitInput)
             }
         ) {
             return .queued
@@ -288,7 +316,7 @@ extension TerminalSurface {
             let queued = enqueuePendingSocketInput(text)
             if queued {
                 requestInputDemandSurfaceStartIfNeeded()
-                didAcceptExplicitInput()
+                if recordsExplicitInput { didAcceptExplicitInput() }
             }
             return queued ? .queued : .inputQueueFull
         }
@@ -306,7 +334,7 @@ extension TerminalSurface {
                 validatedGeneration: &validatedGeneration
             ) || queuedInput
         }
-        didAcceptExplicitInput()
+        if recordsExplicitInput { didAcceptExplicitInput() }
         return queuedInput ? .queued : .sent
     }
 
@@ -437,6 +465,8 @@ extension TerminalSurface {
         guard start + 1 < scalars.count, scalars[start].value == 0x1B else { return nil }
 
         switch scalars[start + 1].value {
+        case 0x5B: // CSI terminal reports such as CPR/DA/DSR responses.
+            return TerminalInputReportParser(scalars: scalars, start: start).csiSequenceLength()
         case 0x5D: // OSC: ESC ] ... (BEL | ST)
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
         case 0x50, 0x5E, 0x5F: // DCS / PM / APC: ESC P/^/_ ... ST
@@ -643,8 +673,12 @@ extension TerminalSurface {
         manualIONoReflow = value
     }
 
-    /// Inject remote tmux `%output` into the terminal parser. If the Ghostty
-    /// runtime is not live yet, buffer a bounded tail and flush it on creation.
+    /// Enqueues remote tmux `%output` for the terminal parser.
+    ///
+    /// The native parser runs on the surface generation's FIFO output lane and
+    /// this method returns without waiting for Ghostty's renderer-state mutex.
+    /// If the runtime is not live yet, a bounded tail is buffered and flushed on
+    /// creation.
     @MainActor
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
@@ -656,8 +690,7 @@ extension TerminalSurface {
             return
         }
         flushPendingRemoteOutput(to: surface)
-        writeProcessOutputData(data, to: surface)
-        ghostty_surface_refresh(surface)
+        remoteOutputLane.enqueue(data, to: surface)
     }
 
     @MainActor
@@ -665,44 +698,7 @@ extension TerminalSurface {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
-        writeProcessOutputData(buffered, to: surface)
-    }
-
-    static func readText(
-        surface: ghostty_surface_t,
-        pointTag: ghostty_point_tag_e
-    ) -> String? {
-        let topLeft = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_TOP_LEFT,
-            x: 0,
-            y: 0
-        )
-        let bottomRight = ghostty_point_s(
-            tag: pointTag,
-            coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
-            x: 0,
-            y: 0
-        )
-        let selection = ghostty_selection_s(
-            top_left: topLeft,
-            bottom_right: bottomRight,
-            rectangle: false
-        )
-
-        var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else {
-            return nil
-        }
-        defer {
-            ghostty_surface_free_text(surface, &text)
-        }
-
-        guard let ptr = text.text, text.text_len > 0 else {
-            return ""
-        }
-        let rawData = Data(bytes: ptr, count: Int(text.text_len))
-        return String(decoding: rawData, as: UTF8.self)
+        remoteOutputLane.enqueue(buffered, to: surface)
     }
 
     private func keycodeForLetter(_ letter: Character) -> UInt32? {
@@ -973,6 +969,8 @@ extension TerminalSurface {
                 keycode: event.keycode,
                 mods: event.mods
             )
+        case .keyText(let text):
+            _ = sendKeyText(text, to: surface)
         }
         return false
     }

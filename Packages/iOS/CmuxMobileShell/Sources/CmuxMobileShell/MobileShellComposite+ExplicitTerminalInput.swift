@@ -1,4 +1,5 @@
 internal import CmuxMobileRPC
+public import CMUXMobileCore
 public import CmuxMobileShellModel
 internal import Foundation
 internal import OSLog
@@ -17,6 +18,7 @@ extension MobileShellComposite {
     /// - Returns: `true` when the workspace exists and its owning Mac has a live RPC client.
     public func canSendTerminalInput(to workspaceID: MobileWorkspacePreview.ID) -> Bool {
         guard workspaces.contains(where: { $0.id == workspaceID }) else { return false }
+        if demonstrationOwnsWorkspaceRow(workspaceID) { return true }
         return workspaceMutationTarget(for: workspaceID).client != nil
     }
 
@@ -40,23 +42,45 @@ extension MobileShellComposite {
               workspace(workspaceID, containsSurfaceID: terminalID.rawValue) else {
             return false
         }
+        if demonstrationOwnsSurface(terminalID.rawValue) {
+            return handleDemonstrationTerminalInput(text, surfaceID: terminalID.rawValue)
+        }
         let target = workspaceMutationTarget(for: workspaceID)
         guard let client = target.client else { return false }
+        let tracksInputSequence = supportedHostCapabilities.contains(MobileTerminalInputFrame.capability)
+        let inputSequence = terminalLatencyObserver.inputStarted(
+            surfaceID: terminalID.rawValue,
+            byteCount: text.utf8.count,
+            correlate: tracksInputSequence
+        )
+        let marker = inputSequence != 0 && tracksInputSequence
+            ? String(inputSequence)
+            : nil
 
         do {
+            var params: [String: Any] = [
+                "workspace_id": remoteWorkspaceID(for: workspaceID).rawValue,
+                "surface_id": terminalID.rawValue,
+                "text": text,
+                "client_id": clientID,
+            ]
+            params["input_sequence"] = marker
             _ = try await client.sendRequest(
                 MobileCoreRPCClient.requestData(
                     method: "terminal.input",
-                    params: [
-                        "workspace_id": remoteWorkspaceID(for: workspaceID).rawValue,
-                        "surface_id": terminalID.rawValue,
-                        "text": text,
-                        "client_id": clientID,
-                    ]
+                    params: params
                 )
+            )
+            terminalLatencyObserver.inputSent(
+                surfaceID: terminalID.rawValue,
+                sequence: inputSequence
             )
             return true
         } catch {
+            terminalLatencyObserver.inputFailed(
+                surfaceID: terminalID.rawValue,
+                sequence: inputSequence
+            )
             explicitTerminalInputLog.error(
                 "explicit terminal input failed workspace=\(workspaceID.rawValue, privacy: .private) surface=\(terminalID.rawValue, privacy: .private) error=\(String(describing: error), privacy: .private)"
             )

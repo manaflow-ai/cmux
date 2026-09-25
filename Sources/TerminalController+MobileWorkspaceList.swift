@@ -230,12 +230,15 @@ extension TerminalController {
                 panelId: terminal.id,
                 localFallback: mobileNonEmpty(terminal.directory) ?? mobileNonEmpty(terminal.requestedWorkingDirectory)
             )
+            let agent = workspace.mobileAgentStatus(forPanel: terminal.id)
             return [
                 "id": terminal.id.uuidString,
                 "title": workspace.panelTitle(panelId: terminal.id) ?? terminal.displayTitle,
                 "current_directory": v2OrNull(terminalDirectory),
                 "is_ready": terminal.surface.surface != nil,
-                "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id)
+                "is_focused": workspace.isFocusedTerminalInputSurface(terminal.id),
+                "agent_source": v2OrNull(agent?.source),
+                "agent_state": v2OrNull(agent?.state)
             ]
         }
         let simulatorEncoder = MobileSimulatorWireEncoder()
@@ -254,6 +257,7 @@ extension TerminalController {
                 "surface_id": surface.surfaceID,
                 "kind": surface.kind,
                 "title": surface.title,
+                "is_focused": surface.isFocused,
                 "file_path": v2OrNull(surface.filePath),
             ]
             if let todo = surface.todo {
@@ -263,6 +267,7 @@ extension TerminalController {
         }
 
         let store = notificationStore ?? AppDelegate.shared?.notificationStore
+        let unreadCount = store?.unreadCount(forTabId: workspace.id) ?? 0
         let latestNotification = store?.latestNotification(forTabId: workspace.id)
         let preview = Self.mobileWorkspacePreview(latestNotification: latestNotification)
         let description = MobileWorkspaceMetadataLimits.projection(
@@ -298,7 +303,11 @@ extension TerminalController {
             // Mirrors the Mac sidebar's workspace unread badge (notification
             // unread + manual/panel-derived/restored indicators) so the phone can
             // show an iMessage-style unread dot.
-            "has_unread": store?.workspaceIsUnread(forTabId: workspace.id) ?? false,
+            "has_unread": unreadCount > 0,
+            // The badge's exact number (same TerminalNotificationStore count the
+            // Mac sidebar renders). Kept alongside has_unread so released phones
+            // that only know the boolean keep working.
+            "unread_count": unreadCount,
             "terminals": terminals,
             "surfaces": surfaces,
             "simulators": simulators
@@ -476,19 +485,32 @@ extension TerminalController {
             memberIDsByGroup[groupId, default: []].append(workspace.id.uuidString)
         }
         return groups.map { group in
-            [
+            var payload: [String: Any] = [
                 "id": group.id.uuidString,
                 "name": group.name,
                 "is_collapsed": group.isCollapsed,
                 "is_pinned": group.isPinned,
                 "icon_symbol": mobileWorkspaceGroupEffectiveIconSymbol(
                     group,
-                    anchorCwd: currentDirectoryByWorkspaceID[group.anchorWorkspaceId] ?? nil,
+                    anchorCwd: group.liveAnchorWorkspaceId.flatMap {
+                        currentDirectoryByWorkspaceID[$0]
+                    },
                     configStore: configStore
                 ),
+                "is_empty": group.isEmpty,
+                // Keep the legacy required field present for older phones.
+                // New clients use `is_empty` and never treat this stable
+                // header identity as a live workspace capability.
                 "anchor_workspace_id": group.anchorWorkspaceId.uuidString,
-                "member_workspace_ids": memberIDsByGroup[group.id] ?? []
+                "member_workspace_ids": memberIDsByGroup[group.id] ?? [],
+                "anchor_workspace_provenance": group.anchorWorkspaceProvenance.rawValue,
+                "anchor_workspace_is_generated": group.isGeneratedAnchor,
             ]
+            if let externalID = group.externalID {
+                payload["external_id"] = externalID
+                payload["idempotency_key"] = externalID
+            }
+            return payload
         }
     }
 

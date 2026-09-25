@@ -23,6 +23,8 @@ public struct TerminalSection: View {
     @State private var sessionContentAlignment: DefaultsValueModel<SessionContentAlignment>
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
+    @State private var textEditingGestures: DefaultsValueModel<Bool>
+    @State private var adaptiveDefaultTheme: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
     @State private var hibernation: DefaultsValueModel<Bool>
     @State private var idleSeconds: DefaultsValueModel<Double>
@@ -49,6 +51,13 @@ public struct TerminalSection: View {
         _sessionContentAlignment = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.sessionContentAlignment))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
+        _textEditingGestures = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.textEditingGestures))
+        _adaptiveDefaultTheme = State(
+            initialValue: DefaultsValueModel(
+                store: defaultsStore,
+                key: catalog.terminal.adaptiveDefaultTheme
+            )
+        )
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
         _hibernation = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationEnabled))
         _idleSeconds = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.agentHibernationIdleSeconds))
@@ -64,6 +73,7 @@ public struct TerminalSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
             mainCard
+            LocalTmuxSettingsCard(hostActions: hostActions)
             resumeCommandsCard
         }
         .task { startObservingSettings() }
@@ -77,6 +87,8 @@ public struct TerminalSection: View {
             sessionContentAlignment,
             scrollBar,
             copyOnSelect,
+            textEditingGestures,
+            adaptiveDefaultTheme,
             autoResume,
             hibernation,
             idleSeconds,
@@ -250,6 +262,55 @@ public struct TerminalSection: View {
             }
             SettingsCardDivider()
             SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.app.theme", defaultValue: "Theme")
+            ) {
+                Button(
+                    String(localized: "settings.browser.import.choose", defaultValue: "Choose…")
+                ) {
+                    hostActions.openTerminalThemePicker()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsTerminalThemePickerButton")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.adaptiveDefaultTheme"),
+                String(
+                    localized: "settings.terminal.adaptiveDefaultTheme",
+                    defaultValue: "Adapt Default Theme to Appearance"
+                ),
+                subtitle: adaptiveDefaultTheme.current
+                    ? String(
+                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOn",
+                        defaultValue: "Use light and dark default terminal colors when no Ghostty theme or terminal colors are configured. Font and other settings are preserved."
+                    )
+                    : String(
+                        localized: "settings.terminal.adaptiveDefaultTheme.subtitleOff",
+                        defaultValue: "An untouched Ghostty config uses Ghostty's fixed built-in palette. Existing Ghostty settings, including light/dark theme pairs, are always preserved."
+                    )
+            ) {
+                Toggle(
+                    "",
+                    isOn: Binding(
+                        get: { adaptiveDefaultTheme.current },
+                        set: { enabled in
+                            adaptiveDefaultTheme.set(enabled) {
+                                @MainActor [hostActions] in
+                                hostActions.terminalAdaptiveDefaultThemeDidChange()
+                            }
+                        }
+                    )
+                )
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier(
+                    "SettingsTerminalAdaptiveDefaultThemeToggle"
+                )
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
                 configurationReview: .json("terminal.sessionContentMaxWidth"),
                 String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"),
                 subtitle: sessionContentWidthSubtitle,
@@ -365,6 +426,19 @@ public struct TerminalSection: View {
                     .labelsHidden()
                     .controlSize(.small)
                     .accessibilityIdentifier("SettingsTerminalCopyOnSelectToggle")
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.textEditingGestures"),
+                String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"),
+                subtitle: textEditingGestures.current
+                    ? String(localized: "settings.terminal.textEditingGestures.subtitleOn", defaultValue: "Command and Option arrow keys move by line and word, and the Command and Option delete keys kill by line and word. Applications receive these chords instead of the gesture, so turn this off before working in a full-screen TUI.")
+                    : String(localized: "settings.terminal.textEditingGestures.subtitleOff", defaultValue: "Command and Option key combinations reach the terminal unchanged.")
+            ) {
+                Toggle("", isOn: Binding(get: { textEditingGestures.current }, set: { textEditingGestures.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsTerminalTextEditingGesturesToggle")
             }
             SettingsCardDivider()
             SettingsCardRow(
