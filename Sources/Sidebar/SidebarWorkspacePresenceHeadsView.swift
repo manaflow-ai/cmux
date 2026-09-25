@@ -1,4 +1,5 @@
 import AppKit
+import CmuxWorkspacePresence
 import SwiftUI
 
 /// Renders the compact collaborator heads attached to a Cloud workspace row.
@@ -20,13 +21,15 @@ struct SidebarWorkspacePresenceHeadsView: View {
                 }
             }
             if layout.overflow > 0 {
-                Text("+\(layout.overflow)")
+                Text(verbatim: "+\(layout.overflow)")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
         }
         .frame(height: 20)
+        .fixedSize(horizontal: true, vertical: false)
+        .help(WorkspacePresencePolicy.names(participants))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(localized: "rightSidebar.presence.title", defaultValue: "Viewing this workspace"))
+        .accessibilityLabel(WorkspacePresencePolicy.accessibilityLabel(participants))
     }
 }

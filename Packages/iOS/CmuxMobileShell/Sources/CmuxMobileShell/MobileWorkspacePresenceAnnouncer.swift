@@ -13,7 +13,7 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
     private var accountID: String?
     private var generation: UInt64 = 0
 
-    deinit {}
+    deinit { runTask?.cancel() }
 
     /// Creates a lease publisher, or nil when the service origin is invalid.
     public init?(

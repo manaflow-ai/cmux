@@ -127,6 +127,9 @@ public final class WorkspacePresenceSession {
             connection = nil
             participants = []
             phase = .unavailable
+            for continuation in snapshotContinuations.values {
+                continuation.yield([])
+            }
             guard !Task.isCancelled, isCurrent() else { return }
             // Intentional bounded reconnect backoff; cancellation closes the old socket first.
             do { try await clock.sleep(for: .seconds(retryDelay)) } catch { return }

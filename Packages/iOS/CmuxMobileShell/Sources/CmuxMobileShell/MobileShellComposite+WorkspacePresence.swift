@@ -9,6 +9,7 @@ extension MobileShellComposite {
         }
         guard let ownerID = workspace.macDeviceID,
               let owner = UUID(uuidString: ownerID),
+              let instanceTag = workspace.macInstanceTag,
               let workspaceID = UUID(uuidString: workspace.rpcWorkspaceID.rawValue) else {
             clearWorkspacePresenceScope()
             return
@@ -16,7 +17,7 @@ extension MobileShellComposite {
         let scope = WorkspacePresenceScope(
             kind: .mac,
             ownerID: owner.uuidString,
-            instanceTag: workspace.macInstanceTag ?? "default",
+            instanceTag: instanceTag,
             workspaceID: workspaceID.uuidString
         )
         Task { [workspacePresenceAnnouncer] in

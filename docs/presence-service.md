@@ -150,21 +150,27 @@ therefore remove a viewer without requiring a separate leave mutation.
 
 The shared `CmuxWorkspacePresence` package owns scope validation, the wire
 snapshot, WebSocket transport, reconnect/backoff model, and injected-clock
-tests. The Mac controller follows the active workspace in the main window and
-publishes snapshots as compact collaborator heads directly on the matching
-Cloud workspace row in the Cloud tree. The iOS shell publishes the selected Mac
-or Cloud workspace through the same scope protocol. Signed-out or local-only
-workspaces show an explicit “Local only”/“Only you” state, so an empty list is
-not mistaken for a failed multiplayer connection. Device heartbeats and the
-device registry intentionally remain unchanged.
+tests. The Mac controller follows the foreground window's selected workspace,
+including a Cloud binding that arrives after selection. Mounted Cloud workspace
+rows subscribe passively through `WorkspacePresenceRoster`, so a collaborator's
+profile head appears on the right of the workspace they are viewing even when
+you have selected another workspace. Multiple windows share each room's
+connection; detached or hidden rows release it. Four heads fit in the stack,
+with an overflow count and all display names available through native row hover
+and VoiceOver. The iOS shell publishes its selected, host-owned Mac scope through
+the same protocol. Local-only rows, signed-out accounts, and unavailable rooms
+have no heads. The surface adds no tab, panel, or empty-state badge.
 
 The Worker adds only the append-only `WorkspacePresence` Durable Object class
 migration (`v3`); no Postgres columns or platform entitlements are involved.
 Profile names and HTTPS avatar URLs are read from the verified Stack user
 record, bounded before they enter a snapshot, and have no localization or
 persistence side effects. Focused package tests cover scope and snapshot
-validation; Worker tests cover room isolation, lease expiry/coalescing, strict
-view messages, and bounded profile projection.
+validation, independent row rosters, passive subscriptions, selection changes,
+inactivity, disconnect publication, account-generation replacement, and teardown.
+Native-row tests exercise hover/VoiceOver updates and cell reuse, plus compact
+overflow sizing. Worker tests cover room isolation, lease expiry/coalescing,
+strict view messages, and bounded profile projection.
 
 ## CI/CD
 

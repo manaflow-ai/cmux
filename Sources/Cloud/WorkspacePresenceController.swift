@@ -1,129 +1,125 @@
 import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxSurfaceCatalogModel
 import CmuxWorkspacePresence
 import Foundation
-import Observation
 
 extension Notification.Name {
     static let workspacePresenceDidChange = Notification.Name("cmux.workspacePresenceDidChange")
 }
 
-/// Owns one shared workspace-presence session for the Mac's active workspace.
-@MainActor @Observable
+/// Bridges foreground selection and mounted Cloud rows to workspace-scoped presence.
+@MainActor
 final class WorkspacePresenceController {
-    enum Phase: Equatable { case unavailable, connecting, available }
-    private(set) var phase: Phase = .unavailable
-    private(set) var activeScope: WorkspacePresenceScope?
-    private(set) var participants: [WorkspacePresenceParticipant] = []
     private var auth: AuthCoordinator?
-    private weak var selectedWorkspace: Workspace?
-    private var session: WorkspacePresenceSession?
-    private var task: Task<Void, Never>?
-    private var snapshotTask: Task<Void, Never>?
+    private var roster: WorkspacePresenceRoster?
     private var authTask: Task<Void, Never>?
-    private var observers: [NSObjectProtocol] = []
+    private var changesTask: Task<Void, Never>?
+    private var bindingTask: Task<Void, Never>?
+    private var lifecycleTasks: [Task<Void, Never>] = []
+    private var visibleWorkspaces: [UUID: (machineID: String, workspaceID: String)] = [:]
+    private weak var selectedWorkspace: Workspace?
 
-    // The controller is app-lifetime state. Its task closures capture the
-    // controller weakly, and the workspace socket is bounded by the Worker
-    // authentication lease if the app tears down without a final scope clear.
-    deinit {}
+    deinit {
+        authTask?.cancel()
+        changesTask?.cancel()
+        bindingTask?.cancel()
+        for task in lifecycleTasks { task.cancel() }
+    }
 
     func configure(auth: AuthCoordinator) {
         guard self.auth !== auth else { return }
         self.auth = auth
         authTask?.cancel()
+        changesTask?.cancel()
+        if let url = PresenceHeartbeatClient.resolvedServiceURL() {
+            let roster = WorkspacePresenceRoster(transport: WorkspacePresenceWebSocket(baseURL: url))
+            self.roster = roster
+            let changes = roster.changes()
+            changesTask = Task { @MainActor [weak self] in
+                for await scope in changes {
+                    guard let self, !Task.isCancelled else { return }
+                    NotificationCenter.default.post(name: .workspacePresenceDidChange, object: self, userInfo: ["scope": scope])
+                }
+            }
+        }
         authTask = Task { @MainActor [weak self, weak auth] in
             guard let auth else { return }
             for await _ in auth.authenticatedTeamScopes() {
                 guard let self, !Task.isCancelled else { return }
-                self.restartForAuth()
+                let identity = auth.authenticatedSessionIdentity
+                let teamID = auth.resolvedTeamID
+                let current: @MainActor () -> Bool = { [weak auth] in
+                    guard let auth, let identity else { return false }
+                    return auth.authenticatedSessionIdentity == identity && auth.resolvedTeamID == teamID
+                }
+                self.roster?.configure(accountID: identity?.accountID, teamID: teamID, accessToken: { [weak auth] in
+                    guard current(), let auth else { return nil }
+                    return try? await auth.currentTokens().accessToken
+                }, isCurrent: current)
+                self.refreshSelection()
+                // Every mounted cell must clear/rebind on account or team changes.
+                NotificationCenter.default.post(name: .workspacePresenceDidChange, object: self)
             }
         }
-        if observers.isEmpty {
-            observers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification, NSWindow.didBecomeMainNotification].map { name in
-                NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
-                    MainActor.assumeIsolated {
-                        if note.name == NSApplication.didResignActiveNotification { self?.session?.setViewing(false) }
-                        else if note.name == NSWindow.didBecomeMainNotification {
-                            self?.setActiveWorkspace(AppDelegate.shared?.tabManager?.selectedWorkspace)
-                        } else if self?.activeScope != nil { self?.session?.setViewing(true) }
+        if lifecycleTasks.isEmpty {
+            lifecycleTasks = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification,
+                              NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification].map { name in
+                let events = NotificationCenter.default.notifications(named: name).map { _ in () }
+                return Task { @MainActor [weak self] in
+                    for await _ in events {
+                        guard let self, !Task.isCancelled else { return }
+                        self.refreshSelection()
                     }
                 }
             }
         }
-        restartForAuth()
+        refreshSelection()
     }
 
-    func setActiveWorkspace(_ workspace: Workspace?) {
-        selectedWorkspace = workspace
-        setActiveScope(WorkspacePresenceScope.forWorkspace(workspace))
-    }
-
-    func setActiveScope(_ scope: WorkspacePresenceScope?) {
-        guard scope != activeScope else { session?.setViewing(scope != nil && NSApp.isActive); return }
-        activeScope = scope
-        task?.cancel(); snapshotTask?.cancel(); session?.stop(); task = nil; snapshotTask = nil; session = nil; participants = []
-        NotificationCenter.default.post(name: .workspacePresenceDidChange, object: self)
-        guard let scope, let auth, auth.isAuthenticated, let accountID = auth.currentUser?.id,
-              let baseURL = PresenceSettings.resolvedURL() else { phase = .unavailable; return }
-        let model = WorkspacePresenceSession(transport: WorkspacePresenceWebSocket(baseURL: baseURL))
-        session = model; phase = .connecting
-        let teamID = scope.teamID
-        snapshotTask = Task { @MainActor [weak self, weak auth, model] in
-            for await values in model.snapshots() {
-                guard let self, self.session === model else { return }
-                self.updateParticipants(values.map { participant in
-                    WorkspacePresenceParticipant(
-                        id: participant.id,
-                        displayName: participant.displayName,
-                        avatarURL: participant.avatarURL,
-                        lastSeenAt: self.participants.first(where: { $0.id == participant.id })?.lastSeenAt ?? Date()
-                    )
-                })
-                self.phase = model.phase == .available ? .available : .unavailable
-                if model.phase == .connecting { self.phase = .connecting }
-                guard auth?.isAuthenticated == true, auth?.currentUser?.id == accountID else { return }
+    func refreshSelection() {
+        let workspace = NSApp.mainWindow == nil ? nil : AppDelegate.shared?.tabManager?.selectedWorkspace
+        if workspace !== selectedWorkspace {
+            selectedWorkspace = workspace
+            bindingTask?.cancel()
+            bindingTask = nil
+            if let workspace {
+                let changes = workspace.cloudBindingState.changes()
+                bindingTask = Task { @MainActor [weak self, weak workspace] in
+                    for await _ in changes {
+                        guard let self, !Task.isCancelled, self.selectedWorkspace === workspace else { return }
+                        self.reconcile()
+                    }
+                }
             }
         }
-        task = Task { @MainActor [weak self, weak auth, model] in
-            await model.run(scope: scope,
-                            accessToken: {
-                                guard let auth, auth.isAuthenticated, auth.currentUser?.id == accountID else { return nil }
-                                return try? await auth.currentTokens().accessToken
-                            },
-                            isCurrent: {
-                                guard let auth, auth.isAuthenticated, auth.currentUser?.id == accountID,
-                                      self?.activeScope == scope else { return false }
-                                return teamID == nil || auth.resolvedTeamID == teamID
-                            })
-            guard let self, self.session === model else { return }
-            self.phase = model.phase == .available ? .available : .unavailable
+        reconcile()
+    }
+
+    func observeCloudWorkspace(machine: SurfaceMachineID?, workspaceID: String?, owner: UUID) {
+        if case .cloud(let machineID) = machine, let workspaceID {
+            if let previous = visibleWorkspaces[owner], previous.machineID == machineID, previous.workspaceID == workspaceID { return }
+            visibleWorkspaces[owner] = (machineID, workspaceID)
+        } else {
+            guard visibleWorkspaces.removeValue(forKey: owner) != nil else { return }
         }
-        model.setViewing(NSApp.isActive)
+        reconcile()
     }
 
-    func collaborators() -> [WorkspacePresenceParticipant] { participants.filter { $0.id != auth?.currentUser?.id } }
-
-    func collaborators(forCloudMachine machine: SurfaceMachineID, workspaceID: String) -> [WorkspacePresenceParticipant] {
-        guard case .cloud(let ownerID) = machine,
-              activeScope?.kind == .cloud,
-              activeScope?.ownerID == ownerID,
-              activeScope?.workspaceID == workspaceID else { return [] }
-        return collaborators()
+    func collaborators(forCloudMachine machine: SurfaceMachineID, workspaceID: String) -> [CmuxWorkspacePresence.WorkspacePresenceParticipant] {
+        guard case .cloud(let machineID) = machine,
+              let scope = cloudScope(machineID: machineID, workspaceID: workspaceID) else { return [] }
+        return roster?.collaborators(in: scope) ?? []
     }
 
-    private func updateParticipants(_ next: [WorkspacePresenceParticipant]) {
-        guard participants != next else { return }
-        participants = next
-        NotificationCenter.default.post(name: .workspacePresenceDidChange, object: self)
+    private func cloudScope(machineID: String, workspaceID: String) -> WorkspacePresenceScope? {
+        guard let teamID = auth?.resolvedTeamID else { return nil }
+        return WorkspacePresenceScope(kind: .cloud, ownerID: machineID, workspaceID: workspaceID, teamID: teamID)
     }
 
-    private func restartForAuth() {
-        setActiveScope(WorkspacePresenceScope.forWorkspace(selectedWorkspace))
+    private func reconcile() {
+        let observed = Set(visibleWorkspaces.values.compactMap { cloudScope(machineID: $0.machineID, workspaceID: $0.workspaceID) })
+        roster?.setWorkspaces(observed: observed, selected: WorkspacePresenceScope.forWorkspace(selectedWorkspace), isActive: NSApp.isActive)
     }
-}
-
-private extension PresenceSettings {
-    static func resolvedURL() -> URL? { PresenceHeartbeatClient.resolvedServiceURL() }
 }

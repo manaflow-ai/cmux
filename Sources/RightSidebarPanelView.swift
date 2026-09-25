@@ -195,7 +195,7 @@ struct RightSidebarPanelView: View {
             .frame(width: 0, height: 0)
         )
         .accessibilityIdentifier("RightSidebar")
-        .onAppear { AppDelegate.shared?.workspacePresenceController.setActiveWorkspace(AppDelegate.shared?.tabManager?.selectedWorkspace ?? tabManager.selectedWorkspace)
+        .onAppear {
             startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
@@ -210,7 +210,6 @@ struct RightSidebarPanelView: View {
             if visible { hasMountedRightSidebarContent = true }
             else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
         }
-        .onChange(of: tabManager.selectedTabId) { _, _ in AppDelegate.shared?.workspacePresenceController.setActiveWorkspace(AppDelegate.shared?.tabManager?.selectedWorkspace ?? tabManager.selectedWorkspace) }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
@@ -223,6 +222,7 @@ struct RightSidebarPanelView: View {
             refreshModeAvailabilityAndFocusIfNeeded()
         }
     }
+
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         return ZStack {
