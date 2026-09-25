@@ -1289,7 +1289,6 @@
       "metaTitle": "Konfiguracja",
       "schemaDescriptions": {
         "root": "Konfiguracja cmux. Globalny plik cmux.json obsługuje ustawienia aplikacji, skróty, akcje, niestandardowe polecenia, hooki powiadomień i układy obszarów roboczych. Plik .cmux/cmux.json lub cmux.json lokalny dla projektu obsługuje akcje, polecenia, hooki powiadomień, powiązania akcji interfejsu, nadpisania Agent Chat, agentów vault, nadpisania grup obszarów roboczych oraz konfigurację uruchamiania i przycisków obszaru roboczego.",
-        "rightSidebar": "Starsza oraz należąca do rozszerzeń konfiguracja prawego paska bocznego zachowywana w cmux.json.",
         "packs": {
           "description": "Lokalne pliki lub katalogi pakietów cmux wczytywane przed tą konfiguracją. Katalogi wskazują na cmux.pack.json. Użyj ciągu ścieżki lub obiektu z polem path.",
           "path": "Lokalna ścieżka pliku lub katalogu, względna wobec tego pliku konfiguracyjnego, jeśli nie jest bezwzględna."
@@ -1351,6 +1350,11 @@
         "fileExplorer": {
           "description": "Ustawienia eksploratora plików (drzewa plików) w prawym pasku bocznym.",
           "doubleClickAction": "Określa, co robi dwukrotne kliknięcie pliku w eksploratorze plików (albo naciśnięcie Return na wyniku wyszukiwania). `preview` otwiera wbudowany podgląd pliku cmux (domyślne i dotychczasowe zachowanie). `defaultEditor` otwiera plik w domyślnej aplikacji macOS dla tego typu pliku. `preferredEditor` otwiera za pomocą polecenia `app.preferredEditor`, a gdy nie jest ono ustawione, wraca do domyślnej aplikacji. Dotyczy tylko plików; katalogi zawsze się rozwijają/zwijają, a nielokalne (zdalne) eksploratory plików zawsze otwierają podgląd cmux."
+        },
+        "rightSidebar": {
+          "description": "Ustawienia elementów prawego paska bocznego.",
+          "showTitlebarToggle": "Zawsze pokazuj przycisk prawego paska bocznego na pasku tytułu okna, także gdy pasek jest ukryty.",
+          "showOpenAsPaneButton": "Pokaż przycisk Otwórz jako panel na pasku trybów prawego paska bocznego."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

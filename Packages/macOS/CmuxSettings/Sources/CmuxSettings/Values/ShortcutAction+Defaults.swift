@@ -107,7 +107,6 @@ extension ShortcutAction {
         case .nextSidebarTabInGroup, .prevSidebarTabInGroup: return nil
         case .focusHistoryBack: return ShortcutStroke(key: "[", command: true)
         case .focusHistoryForward: return ShortcutStroke(key: "]", command: true)
-        case .focusHistoryLast: return nil
         case .renameTab: return ShortcutStroke(key: "r", command: true)
         case .renameWorkspace: return ShortcutStroke(key: "r", command: true, shift: true)
         case .editWorkspaceDescription: return ShortcutStroke(key: "e", command: true, option: true)

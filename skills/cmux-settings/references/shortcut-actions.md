@@ -62,7 +62,6 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.focusDown`
 - `shortcuts.bindings.focusHistoryBack`
 - `shortcuts.bindings.focusHistoryForward`
-- `shortcuts.bindings.focusHistoryLast`
 - `shortcuts.bindings.focusLeft`
 - `shortcuts.bindings.focusNextPane`
 - `shortcuts.bindings.focusPreviousPane`

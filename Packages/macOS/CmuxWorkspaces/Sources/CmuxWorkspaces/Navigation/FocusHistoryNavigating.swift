@@ -54,11 +54,6 @@ public protocol FocusHistoryNavigating: AnyObject {
     /// Navigates one step forward; returns whether navigation happened.
     @discardableResult
     func navigateForward() -> Bool
-    /// Returns to the position focus most recently left; returns whether
-    /// navigation happened. A second call returns to the starting position,
-    /// so repeated calls toggle between the two most recent positions.
-    @discardableResult
-    func navigateToLastFocused() -> Bool
     /// Whether any back entry is navigable from the current position.
     var canNavigateBack: Bool { get }
     /// Whether any forward entry is navigable from the current position.

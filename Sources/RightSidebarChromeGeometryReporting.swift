@@ -4,6 +4,7 @@ import SwiftUI
 
 struct RightSidebarChromeGeometry: Equatable {
     var frame: CGRect
+    var windowHeight: CGFloat
     var isVisible: Bool
     var titlebarHeight: CGFloat
 }
@@ -39,6 +40,7 @@ enum RightSidebarChromeUITestRecorder {
             payload["rightSidebarModeBarMaxY"] = String(format: "%.3f", Double(geometry.frame.minY + geometry.titlebarHeight))
             payload["rightSidebarModeBarWidth"] = String(format: "%.3f", Double(geometry.frame.width))
             payload["rightSidebarModeBarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
+            payload["rightSidebarModeBarTopInset"] = String(format: "%.3f", Double(geometry.windowHeight - geometry.frame.maxY))
             payload["rightSidebarTitlebarHeight"] = String(format: "%.3f", Double(geometry.titlebarHeight))
         case .secondaryBar:
             payload["rightSidebarSecondaryBarMinY"] = String(format: "%.3f", Double(geometry.frame.minY))
@@ -138,7 +140,7 @@ final class RightSidebarChromeGeometryReportingView: NSView {
 
     func reportIfNeeded() {
         guard RightSidebarChromeUITestRecorder.shouldRecord(),
-              window != nil,
+              let window,
               bounds.width > 1,
               bounds.height > 1 else {
             return
@@ -148,6 +150,9 @@ final class RightSidebarChromeGeometryReportingView: NSView {
             role: role,
             geometry: RightSidebarChromeGeometry(
                 frame: convert(bounds, to: nil),
+                // Sample both sides of the inset in the same layout callback;
+                // a later XCTest window snapshot may reflect a different resize.
+                windowHeight: window.frame.height,
                 isVisible: isVisibleForReporting,
                 titlebarHeight: bounds.height
             )

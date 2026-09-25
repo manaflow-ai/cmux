@@ -103,10 +103,6 @@ struct SettingCatalogTests {
         #expect(ids.contains("browser.defaultZoomLevel"))
     }
 
-    @Test func equalizeSplitsOnCreateDefaultsOff() {
-        #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
-    }
-
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }

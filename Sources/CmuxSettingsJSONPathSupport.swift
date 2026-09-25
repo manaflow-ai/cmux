@@ -104,18 +104,6 @@ enum AutomationSettings {
     static let defaultPortRange = 10
 }
 
-struct SettingsFileBooleanMapping {
-    let jsonKey: String
-    let defaultsKey: String
-    let invalidPath: String?
-
-    init(jsonKey: String, defaultsKey: String, invalidPath: String? = nil) {
-        self.jsonKey = jsonKey
-        self.defaultsKey = defaultsKey
-        self.invalidPath = invalidPath
-    }
-}
-
 struct SettingsFileStringMapping {
     let jsonKey: String
     let defaultsKey: String
@@ -140,10 +128,6 @@ enum AppSettingsFileMapping {
         .init(
             jsonKey: "focusHistoryIncludesPanesAndTabs",
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
-        ),
-        .init(
-            jsonKey: "equalizeSplitsOnCreate",
-            defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
         ),
         .init(
             jsonKey: "openSupportedFilesInCmux",

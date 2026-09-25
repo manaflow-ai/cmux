@@ -1288,7 +1288,6 @@
       "metaTitle": "Configurazione",
       "schemaDescriptions": {
         "root": "Configurazione di cmux. Il file cmux.json globale supporta impostazioni dell’app, scorciatoie, azioni, comandi personalizzati, hook di notifica e layout degli spazi di lavoro. Un file .cmux/cmux.json o cmux.json locale al progetto supporta azioni, comandi, hook di notifica, collegamenti delle azioni dell’interfaccia, override di Agent Chat, agenti del vault, override dei gruppi di spazi di lavoro e configurazione di avvio e pulsanti degli spazi di lavoro.",
-        "rightSidebar": "Configurazione legacy e gestita dalle estensioni della barra laterale destra, conservata in cmux.json.",
         "packs": {
           "description": "File o directory di pacchetti cmux locali caricati prima di questa configurazione. Le directory vengono risolte in cmux.pack.json. Usa una stringa di percorso o un oggetto con un campo path.",
           "path": "Percorso di file o directory locale, relativo a questo file di configurazione se non assoluto."
@@ -1350,6 +1349,11 @@
         "fileExplorer": {
           "description": "Impostazioni dell’esplora file (albero dei file) nella barra laterale destra.",
           "doubleClickAction": "Definisce cosa succede quando fai doppio clic (o premi Return su un risultato di ricerca) su un file nell’esplora file. `preview` apre l’anteprima file integrata di cmux (comportamento predefinito e storico). `defaultEditor` apre il file con l’app macOS predefinita per quel tipo di file. `preferredEditor` apre con il comando `app.preferredEditor`, ricadendo sull’app predefinita quando non è impostato. Si applica solo ai file; le cartelle si espandono/chiudono sempre e gli esplora file non locali (remoti) aprono sempre l’anteprima di cmux."
+        },
+        "rightSidebar": {
+          "description": "Impostazioni dei controlli della barra laterale destra.",
+          "showTitlebarToggle": "Mantieni un pulsante persistente per la barra laterale destra nella barra del titolo, anche quando la barra è nascosta.",
+          "showOpenAsPaneButton": "Mostra il pulsante Apri come riquadro nella barra delle modalità della barra laterale destra."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

@@ -2531,7 +2531,6 @@
       "exampleConfig": "Example config",
       "schemaDescriptions": {
         "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
-        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
         "packs": {
           "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
           "path": "Local file or directory path, relative to this configuration file unless absolute."
@@ -2640,6 +2639,11 @@
         "fileExplorer": {
           "description": "Right-sidebar file explorer (file tree) settings.",
           "doubleClickAction": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview."
+        },
+        "rightSidebar": {
+          "description": "Right-sidebar chrome settings.",
+          "showTitlebarToggle": "Keep a persistent right-sidebar toggle in the window titlebar, including when the sidebar is hidden.",
+          "showOpenAsPaneButton": "Show the Open as Pane button in the right-sidebar mode bar."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."

@@ -528,11 +528,6 @@
           "default": false,
           "description": "When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only."
         },
-        "equalizeSplitsOnCreate": {
-          "type": "boolean",
-          "default": false,
-          "description": "When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from."
-        },
         "preferredEditor": {
           "type": "string",
           "default": "",
@@ -1757,6 +1752,27 @@
         }
       }
     },
+    "rightSidebar": {
+      "title": "rightSidebar",
+      "description": "Right-sidebar chrome settings.",
+      "descriptionKey": "schemaDescriptions.rightSidebar.description",
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "showTitlebarToggle": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.rightSidebar.showTitlebarToggle",
+          "description": "Keep a persistent right-sidebar toggle in the window titlebar, including when the sidebar is hidden."
+        },
+        "showOpenAsPaneButton": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.rightSidebar.showOpenAsPaneButton",
+          "description": "Show the Open as Pane button in the right-sidebar mode bar."
+        }
+      }
+    },
     "diffViewer": {
       "x-cmux-scopes": ["global"],
       "title": "diffViewer",
@@ -1772,13 +1788,6 @@
           "descriptionKey": "schemaDescriptions.diffViewer.defaultLayout"
         }
       }
-    },
-    "rightSidebar": {
-      "title": "rightSidebar",
-      "description": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
-      "descriptionKey": "schemaDescriptions.rightSidebar",
-      "type": "object",
-      "additionalProperties": true
     },
     "shortcuts": {
       "x-cmux-scopes": ["global"],
@@ -1853,7 +1862,6 @@
               "moveWorkspaceDown",
               "focusHistoryBack",
               "focusHistoryForward",
-              "focusHistoryLast",
               "selectWorkspaceByNumber",
               "renameTab",
               "renameWorkspace",

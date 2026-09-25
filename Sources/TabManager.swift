@@ -4328,12 +4328,6 @@ class TabManager: ObservableObject {
         focusHistoryNavigation.navigateForward()
     }
 
-    /// Toggles focus back to the position it most recently left.
-    @discardableResult
-    func navigateToLastFocused() -> Bool {
-        focusHistoryNavigation.navigateToLastFocused()
-    }
-
     var canNavigateBack: Bool {
         focusHistoryNavigation.canNavigateBack
     }
@@ -4371,7 +4365,7 @@ class TabManager: ObservableObject {
         remotePTYSessionID: String? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        guard let panel = tab.newTerminalSplit(
+        return tab.newTerminalSplit(
             from: surfaceId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
@@ -4382,12 +4376,7 @@ class TabManager: ObservableObject {
             startupEnvironment: startupEnvironment,
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID
-        ) else { return nil }
-        // An explicit divider position wins over equalize-on-create.
-        if initialDividerPosition == nil {
-            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
-        }
-        return panel.id
+        )?.id
     }
 
     /// Move focus in the specified direction
@@ -4465,7 +4454,7 @@ class TabManager: ObservableObject {
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
-        guard let panel = tab.newBrowserSplit(
+        return tab.newBrowserSplit(
             from: fromPanelId,
             orientation: orientation,
             insertFirst: insertFirst,
@@ -4473,12 +4462,7 @@ class TabManager: ObservableObject {
             preferredProfileID: preferredProfileID,
             focus: focus,
             initialDividerPosition: initialDividerPosition
-        ) else { return nil }
-        // An explicit divider position wins over equalize-on-create.
-        if initialDividerPosition == nil {
-            tab.equalizeSplitsAfterCreatingSplitIfEnabled(newPanelId: panel.id)
-        }
-        return panel.id
+        )?.id
     }
 
     /// Create a new browser surface in a pane

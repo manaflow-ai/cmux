@@ -1288,7 +1288,6 @@
       "metaTitle": "Konfiguration",
       "schemaDescriptions": {
         "root": "cmux-Konfiguration. Die globale cmux.json unterstützt App-Einstellungen, Tastenkürzel, Aktionen, benutzerdefinierte Befehle, Benachrichtigungs-Hooks und Workspace-Layouts. Eine projektlokale .cmux/cmux.json oder cmux.json unterstützt Aktionen, Befehle, Benachrichtigungs-Hooks, die Verknüpfung von UI-Aktionen, Agent-Chat-Überschreibungen, Vault-Agenten, Workspace-Gruppen-Überschreibungen sowie die Konfiguration von Workspace-Starts und -Schaltflächen.",
-        "rightSidebar": "Veraltete und von Erweiterungen verwaltete Konfiguration der rechten Seitenleiste, die in cmux.json beibehalten wird.",
         "packs": {
           "description": "Lokale cmux-Paketdateien oder Verzeichnisse, die vor dieser Konfiguration geladen werden. Verzeichnisse verweisen auf cmux.pack.json. Verwenden Sie eine Pfadzeichenfolge oder ein Objekt mit einem path-Feld.",
           "path": "Lokaler Datei- oder Verzeichnispfad, relativ zu dieser Konfigurationsdatei, sofern nicht absolut."
@@ -1350,6 +1349,11 @@
         "fileExplorer": {
           "description": "Einstellungen für den Datei-Explorer (Dateibaum) in der rechten Seitenleiste.",
           "doubleClickAction": "Legt fest, was ein Doppelklick auf eine Datei im Dateiexplorer bewirkt (oder Return bei einem Suchergebnis). `preview` öffnet die integrierte cmux-Dateivorschau (Standard und bisheriges Verhalten). `defaultEditor` öffnet die Datei mit der macOS-Standard-App für diesen Dateityp. `preferredEditor` öffnet mit dem Befehl `app.preferredEditor` und fällt auf die Standard-App zurück, wenn keiner gesetzt ist. Gilt nur für Dateien; Verzeichnisse werden immer ein-/ausgeklappt, und nicht-lokale (Remote-)Dateiexplorer öffnen immer die cmux-Vorschau."
+        },
+        "rightSidebar": {
+          "description": "Einstellungen für die rechte Seitenleisten-Chrome.",
+          "showTitlebarToggle": "Eine dauerhafte Umschaltfläche für die rechte Seitenleiste in der Fenstertitelleiste anzeigen, auch wenn die Seitenleiste ausgeblendet ist.",
+          "showOpenAsPaneButton": "Die Schaltfläche „Als Bereich öffnen“ in der Modusleiste der rechten Seitenleiste anzeigen."
         },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
