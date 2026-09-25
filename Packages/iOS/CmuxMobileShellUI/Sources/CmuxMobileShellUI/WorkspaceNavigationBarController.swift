@@ -56,12 +56,16 @@ final class WorkspaceNavigationBarController: UIViewController {
 
         for value in leadingItems + trailingItems {
             let itemWidth = WorkspaceNavigationControlView.width(for: value.id)
-            let content = AnyView(value.content
+            let content = AnyView(
+                ZStack {
+                    value.content
+                }
                 .buttonStyle(.plain)
                 .imageScale(.large)
                 .fixedSize()
                 .frame(width: itemWidth, height: 36)
-                .environment(\.self, environment))
+                .environment(\.self, environment)
+            )
             if let control = controls[value.id] {
                 control.view.update(content: content)
             } else {
