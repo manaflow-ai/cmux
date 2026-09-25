@@ -172,7 +172,9 @@ extension BrowserControlService {
                   }
                   return '';
                 };
-                const __nodes = Array.from(__cmuxQueryAll('*'));
+                const __nodes = Array.from(__cmuxQueryAll('*')).filter((el) => {
+                  return el !== document.documentElement && el !== document.body;
+                });
                 return __nodes.find((el) => {
                   const explicit = String(el.getAttribute('role') || '').toLowerCase();
                   const resolved = explicit || __implicitRole(el) || '';
