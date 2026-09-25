@@ -38,6 +38,7 @@ final class EmptyStateController: UITableViewController {
     private var measuredSize: CGSize?
     private let countLabel = UILabel()
     private var refreshCount = 0
+    private let measuresDisplayedCell = ProcessInfo.processInfo.arguments.contains("--measure-displayed-cell")
 
     override func loadView() {
         // Use the production table class, including disabled self-sizing
@@ -100,18 +101,23 @@ final class EmptyStateController: UITableViewController {
         // Match WorkspaceListTableCoordinator.measure, including its effectively
         // unlimited height proposal and low vertical fitting priority.
         let width = max(tableView.bounds.width, 1)
-        if let measuredSize, measuredSize.width == width { return measuredSize.height }
-        sizingCell.bounds = CGRect(x: 0, y: 0, width: width, height: 1)
-        sizingCell.contentView.bounds = sizingCell.bounds
-        sizingCell.setNeedsLayout()
-        sizingCell.layoutIfNeeded()
-        let fitted = sizingCell.contentView.systemLayoutSizeFitting(
+        if !measuresDisplayedCell, let measuredSize, measuredSize.width == width { return measuredSize.height }
+        // The constrained probe deliberately measures the displayed cell as
+        // well, preserving the measured SwiftUI view's layout state. This is a
+        // component reproducer, not the full coordinator's cell lifecycle.
+        let cell = measuresDisplayedCell ? emptyCell : sizingCell
+        cell.bounds = CGRect(x: 0, y: 0, width: width, height: 1)
+        cell.contentView.bounds = cell.bounds
+        cell.setNeedsLayout()
+        cell.layoutIfNeeded()
+        let fitted = cell.contentView.systemLayoutSizeFitting(
             CGSize(width: width, height: CGFloat.greatestFiniteMagnitude),
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel
         ).height
         let scale = max(tableView.traitCollection.displayScale, 1)
         let height = max(1, ceil(fitted * scale) / scale)
+        print("EMPTY_STATE_MEASURE displayed=\(measuresDisplayedCell) width=\(width) fitted=\(height)")
         measuredSize = CGSize(width: width, height: height)
         return height
     }

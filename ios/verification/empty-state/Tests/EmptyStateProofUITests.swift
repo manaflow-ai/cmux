@@ -15,6 +15,7 @@ final class EmptyStateProofUITests: XCTestCase {
     func testEmptyStateButtons() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments.append("--measure-displayed-cell")
         XCUIDevice.shared.orientation = .portrait
         app.launch()
         defer { app.terminate() }
