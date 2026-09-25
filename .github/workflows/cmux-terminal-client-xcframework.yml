@@ -2,9 +2,7 @@
 # simulator, and macOS, bundles them as CmuxTerminalClient.xcframework, and
 # attaches the zip plus its SwiftPM checksum to a GitHub release tagged
 # cmux-terminal-client-v<crate version>[+<short sha>]. The release publishes
-# only on manual dispatch; pull requests that change the client crate build
-# and upload the same bundle as a run artifact, so a PR can prove the archive
-# links before the release workflow exists on main. The Swift package at
+# only on manual dispatch. The Swift package at
 # Packages/Shared/CmuxTerminalClient pins one release by tag and checksum.
 # Nothing here touches files.cmux.com.
 name: cmux-terminal-client xcframework
@@ -17,28 +15,17 @@ on:
         required: false
         default: ""
         type: string
-      macos_runner:
-        description: "macOS runner label override"
-        required: false
-        default: ""
-        type: string
-  pull_request:
-    paths:
-      - ".github/workflows/cmux-terminal-client-xcframework.yml"
-      - "cmux-tui/crates/cmux-terminal-client/**"
 
 concurrency:
   group: cmux-terminal-client-xcframework-${{ github.ref }}
-  # A new push to a pull request supersedes its macOS compile; a dispatched
-  # release build is never cancelled.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions: {}
 
 jobs:
   build:
     name: build xcframework
-    runs-on: ${{ inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 90
     permissions:
       contents: read
@@ -58,6 +45,11 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.ref }}
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
 
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty
@@ -285,9 +277,8 @@ jobs:
 
   release:
     name: publish release
-    if: github.event_name == 'workflow_dispatch'
     needs: build
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: write
