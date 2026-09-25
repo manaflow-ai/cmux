@@ -64,9 +64,9 @@ struct ReviewCandidate {
             timeout: 30
         )
         guard result.status == 0, !result.timedOut else {
-            throw CLIError(message: String.localizedStringWithFormat(
-                CMUXDiffViewerLocalization.string("cli.review.error.source", defaultValue: "Unable to capture review source: %@"),
-                result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw CLIError(message: CMUXDiffViewerLocalization.string(
+                "cli.review.error.source",
+                defaultValue: "Unable to capture review source."
             ))
         }
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)

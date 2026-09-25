@@ -557194,55 +557194,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unable to capture review source: %@"
+            "value": "Unable to capture review source."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذر التقاط مصدر المراجعة: %@"
+            "value": "تعذر التقاط مصدر المراجعة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prüfungsquelle konnte nicht erfasst werden: %@"
+            "value": "Prüfungsquelle konnte nicht erfasst werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo capturar el código para la revisión: %@"
+            "value": "No se pudo capturar el código para la revisión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Impossible de capturer la source à examiner : %@"
+            "value": "Impossible de capturer la source à examiner."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "レビュー対象のソースを取得できません: %@"
+            "value": "レビュー対象のソースを取得できません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "검토 소스를 캡처할 수 없습니다: %@"
+            "value": "검토 소스를 캡처할 수 없습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "无法捕获审查源代码：%@"
+            "value": "无法捕获审查源代码。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法擷取審查原始碼：%@"
+            "value": "無法擷取審查原始碼。"
           }
         }
       }

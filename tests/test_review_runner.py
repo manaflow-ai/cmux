@@ -167,6 +167,14 @@ output.write_text(json.dumps(result))
             failures.append("review run unexpectedly succeeded after reviewer failure")
         if sorted(p.name for p in ledger.glob("*.json")) != before:
             failures.append("failed review published a receipt")
+
+        invalid_base = subprocess.run(
+            [cli_path, "review", "run", "--repo", str(repository), "--base", "missing-ref",
+             "--intent", "Update the value", "--reviewer", str(driver), "--json"],
+            env=environment, text=True, capture_output=True, timeout=30,
+        )
+        if invalid_base.returncode == 0 or "fatal:" in invalid_base.stderr.lower():
+            failures.append("Git diagnostics leaked through the review-source error")
     return failures
 
 
