@@ -114,6 +114,44 @@ final class DiffCommentStoreTests: XCTestCase {
         store.upsert(comment, repoRoot: "/tmp/repo-a")
         XCTAssertEqual(store.comments(repoRoot: "/tmp/repo-a").count, 1)
     }
+
+    func testLifecycleEventsPublishRedactedCommentMetadata() throws {
+        let (store, directory) = try makeStore()
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+            CmuxEventBus.shared.resetForTesting()
+        }
+        CmuxEventBus.shared.resetForTesting()
+
+        let repoRoot = "/tmp/example-repo"
+        let comment = makeComment(message: "secret review text")
+        store.upsert(comment, repoRoot: repoRoot)
+
+        var edited = comment
+        edited.message = "edited secret review text"
+        store.upsert(edited, repoRoot: repoRoot)
+        store.markConsumed(ids: [comment.id], repoRoot: repoRoot, at: Date(timeIntervalSince1970: 2_000))
+        XCTAssertTrue(store.delete(id: comment.id, repoRoot: repoRoot))
+
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        XCTAssertEqual(
+            events.compactMap { $0["name"] as? String },
+            ["comment.created", "comment.updated", "comment.consumed", "comment.deleted"]
+        )
+        for event in events {
+            let payload = try XCTUnwrap(event["payload"] as? [String: Any])
+            XCTAssertEqual(payload["repo_root"] as? String, repoRoot)
+            XCTAssertEqual(payload["comment_id"] as? String, comment.id.uuidString)
+            XCTAssertEqual(payload["file_path"] as? String, comment.filePath)
+            XCTAssertEqual(payload["start_line"] as? Int, comment.startLine)
+            XCTAssertEqual(payload["end_line"] as? Int, comment.endLine)
+            XCTAssertTrue(payload["message"] is NSNull)
+            XCTAssertEqual(payload["message_length"] as? Int, event["name"] as? String == "comment.created" ? 18 : 25)
+            XCTAssertEqual(payload["redacted_fields"] as? [String], ["message"])
+            let encoded = try XCTUnwrap(CmuxEventBus.encodeLine(event))
+            XCTAssertFalse(encoded.contains("secret review text"))
+        }
+    }
 }
 
 
