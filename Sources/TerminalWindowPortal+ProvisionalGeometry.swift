@@ -60,8 +60,13 @@ extension WindowTerminalPortal {
         let anchorFrameInWindow = entry.anchorView.flatMap { anchor -> NSRect? in
             anchor.window === window ? effectiveAnchorFrameInWindow(for: anchor) : nil
         }
+        let baseFrameInHost: NSRect = {
+            guard let previous = entry.provisionalGeometry,
+                  previous.transactionID == transactionID else { return hostedView.frame }
+            return previous.baseFrameInHost
+        }()
         entry.provisionalGeometry = ProvisionalPaneGeometry(
-            baseFrameInHost: entry.provisionalGeometry?.baseFrameInHost ?? hostedView.frame,
+            baseFrameInHost: baseFrameInHost,
             frameInHost: frameInHost,
             anchorFrameInWindow: anchorFrameInWindow,
             transactionID: transactionID
