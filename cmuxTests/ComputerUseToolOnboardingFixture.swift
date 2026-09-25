@@ -20,6 +20,7 @@ final class ComputerUseToolOnboardingFixture {
     let sessionID = "synthetic-computer-use-session"
     let runtime: ComputerUseRuntimeService
     let liveIndex: SharedLiveAgentIndex
+    let usesProductionPresenter: Bool
     var featureEnabled = true
     var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
 
@@ -39,7 +40,7 @@ final class ComputerUseToolOnboardingFixture {
             userDefaults: persistence.defaults,
             workspaceTitle: { _ in "Synthetic workspace" },
             featureEnabled: { [weak self] in self?.featureEnabled == true },
-            onboardingCoordinator: ComputerUseOnboardingCoordinator(
+            onboardingCoordinator: usesProductionPresenter ? nil : ComputerUseOnboardingCoordinator(
                 runtimeService: runtime,
                 presenter: { [weak self] in self?.presentations.append($0) }
             ),
@@ -49,7 +50,8 @@ final class ComputerUseToolOnboardingFixture {
         )
     }()
 
-    init(hasLiveSession: Bool = true) throws {
+    init(hasLiveSession: Bool = true, usesProductionPresenter: Bool = false) throws {
+        self.usesProductionPresenter = usesProductionPresenter
         persistence = try ComputerUseOnboardingFixture()
         // A fixture bundle with no helper prevents this test from ever launching
         // the test host's real helper or touching the user's TCC grants.
