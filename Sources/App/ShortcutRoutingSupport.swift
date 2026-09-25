@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import CmuxCommandPalette
 import Foundation
@@ -761,16 +762,7 @@ func startOrFocusTerminalSearch(
 /// Let AppKit own native Cmd+` window cycling so key-window changes do not
 /// re-enter our direct-to-menu shortcut path.
 func shouldRouteCommandEquivalentDirectlyToMainMenu(_ event: NSEvent) -> Bool {
-    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-    guard flags.contains(.command) else { return false }
-
-    let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
-    if event.keyCode == 50,
-       normalizedFlags == [.command] || normalizedFlags == [.command, .shift] {
-        return false
-    }
-
-    return true
+    event.cmuxRoutesDirectlyToMainMenu
 }
 
 private enum BrowserFindCommandEquivalent: CaseIterable {
@@ -803,12 +795,11 @@ private enum BrowserFindCommandEquivalent: CaseIterable {
 }
 
 func cmuxIsWebInspectorClassName(_ className: String) -> Bool {
-    className.contains("WKInspector") || className.contains("WebInspector")
+    className.cmuxNamesWebInspectorClass
 }
 
 func cmuxIsWebInspectorObject(_ object: NSObject) -> Bool {
-    cmuxIsWebInspectorClassName(String(describing: type(of: object))) ||
-        cmuxIsWebInspectorClassName(NSStringFromClass(type(of: object)))
+    object.cmuxBelongsToWebInspector
 }
 
 private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
@@ -864,21 +855,7 @@ private enum BrowserDocumentEditingCommandEquivalent: CaseIterable {
 }
 
 func cmuxIsLikelyWebInspectorResponder(_ responder: NSResponder?) -> Bool {
-    guard let responder else { return false }
-    if cmuxIsWebInspectorObject(responder) {
-        return true
-    }
-    guard let view = responder as? NSView else { return false }
-    var node: NSView? = view
-    var hops = 0
-    while let current = node, hops < 64 {
-        if cmuxIsWebInspectorObject(current) {
-            return true
-        }
-        node = current.superview
-        hops += 1
-    }
-    return false
+    responder?.cmuxIsInsideWebInspector ?? false
 }
 
 private func browserFindCommandEquivalent(

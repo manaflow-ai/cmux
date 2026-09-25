@@ -48,7 +48,7 @@ check_macos_runner() {
     # place this shard on the owned pool, the Blacksmith pool the pull
     # request picker named for a run on an owned pool (pr_retry_runner), or
     # on attempt 2 of a refused owned shard, the owned pool once more.
-    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 2 && github\.triggering_actor == .github-actions\[bot\]. && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && inputs\.pr_refused_retry_runner \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
+    in_job && /runs-on:[[:space:]]*\$\{\{ (github\.run_attempt == 2 && github\.triggering_actor == .github-actions\[bot\]. && contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\) && inputs\.pr_refused_retry_runner \|\| )?(\(github\.run_attempt > 1 \|\| !contains\(inputs\.pr_owned_jobs, format\(. shard-\{0\} ., matrix\.shard\)\)\) && inputs\.pr_retry_runner \|\| )?(inputs\.pr_shard_runner \|\| )?needs\.macos-compile-admission\.outputs\.runner \}\}/ { saw=1 }
     in_job && /os:.*(vars\.MACOS_RUNNER|blacksmith-[0-9]+vcpu-macos-|warp-macos-[0-9]+-arm64|depot-macos-)/ { saw=1 }
     END { exit !(saw) }
   ' "$file"; then
@@ -1367,10 +1367,13 @@ OUTPUT = "needs.changes.outputs.macos_pr_runner"
 RETRY_OUTPUT = "needs.changes.outputs.macos_pr_retry_runner"
 REFUSED_PICKED = "steps.macos-pool.outputs.refused_retry_runner"
 REFUSED_OUTPUT = "needs.changes.outputs.macos_pr_refused_retry_runner"
+SHARD_PICKED = "steps.macos-pool.outputs.shard_runner"
+SHARD_OUTPUT = "needs.changes.outputs.macos_pr_shard_runner"
 PASSED = "${{ needs.changes.outputs.macos_pr_runner }}"
 # Each input the picked pools reach a reusable workflow through, and its value.
 INPUTS = {"pr_runner": PASSED, "pr_retry_runner": "${{ " + RETRY_OUTPUT + " }}",
-          "pr_refused_retry_runner": "${{ " + REFUSED_OUTPUT + " }}"}
+          "pr_refused_retry_runner": "${{ " + REFUSED_OUTPUT + " }}",
+          "pr_shard_runner": "${{ " + SHARD_OUTPUT + " }}"}
 MARKER = ("macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}"
           "-${{ steps.macos-pool.outputs.jobs }}-${{ steps.macos-pool.outputs.runner }}")
 # The runs-on branches that may read the picked pool, each behind its
@@ -1419,6 +1422,10 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_retry_runner")
                 and value == "${{ " + RETRY_PICKED + " }}"):
             violations.append(f"{where}: reads the picker's retry runner outside macos_pr_retry_runner")
+        if SHARD_PICKED in value and not (
+                file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_shard_runner")
+                and value == "${{ " + SHARD_PICKED + " }}"):
+            violations.append(f"{where}: reads the picker's shard runner outside macos_pr_shard_runner")
         if REFUSED_PICKED in value and not (
                 file.name == "ci.yml" and path == ("jobs", "changes", "outputs", "macos_pr_refused_retry_runner")
                 and value == "${{ " + REFUSED_PICKED + " }}"):
@@ -1427,13 +1434,15 @@ for file in sorted(Path(sys.argv[1]).glob("*.y*ml")):
             if value != INPUTS[path[-1]] or file.name != "ci.yml":
                 violations.append(f"{where}: {path[-1]} must be exactly {INPUTS[path[-1]]}")
             continue
-        if OUTPUT not in value and RETRY_OUTPUT not in value and REFUSED_OUTPUT not in value:
+        if OUTPUT not in value and RETRY_OUTPUT not in value and REFUSED_OUTPUT not in value \
+                and SHARD_OUTPUT not in value:
             continue
         if path[-1:] == ("runs-on",):
             rest = value
             for branch in GUARDED:
                 rest = rest.replace(branch, "")
-            if OUTPUT not in rest and RETRY_OUTPUT not in rest and REFUSED_OUTPUT not in rest:
+            if OUTPUT not in rest and RETRY_OUTPUT not in rest and REFUSED_OUTPUT not in rest \
+                    and SHARD_OUTPUT not in rest:
                 continue
         violations.append(f"{where}: reads macos_pr_runner outside pr_runner or a pull_request runs-on branch")
 print("\n".join(violations))
@@ -1674,6 +1683,8 @@ EXEMPT = {
         "same job's SDK 15 release-helper pin",
     ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):
         "a Linux job; pr_runner_pool.py hands this pin on only to a run it routes to the macOS 15 pool",
+    ("seed-derived-data.yml", "decide", "XCODE_APP_MACOS_15"):
+        "a Linux job; seed_decide.py fingerprints the macOS 15 pool's seed under the Xcode that pool seeds with",
     ("seed-swiftpm-manifests.yml", "seed", "CMUX_CI_XCODE_APP"):
         "seeds the manifest cache for the Xcode pr_runner_pool.py hands to runs it routes to the macOS 15 pool",
 }

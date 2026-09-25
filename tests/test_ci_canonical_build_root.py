@@ -88,6 +88,18 @@ class CanonicalFingerprintTests(unittest.TestCase):
             with self.subTest(workspace=workspace, derived=derived):
                 self.assertNotEqual(self._fp(workspace, derived, root=root), canonical)
 
+    def test_a_second_compile_slot_gets_keys_of_its_own(self):
+        # An owned Mac's second compile slot builds at /private/tmp/cmux-ci-2:
+        # different absolute paths in every entry, so it must never adopt a
+        # seed or compilation cache keyed for the first slot's root.
+        first, second = "/private/tmp/cmux-ci", "/private/tmp/cmux-ci-2"
+        self.assertNotEqual(
+            self._fp(f"{first}/src", f"{first}/derived-data-compile-admission", root=first),
+            self._fp(f"{second}/src", f"{second}/derived-data-compile-admission", root=second))
+        # The default root adds no line, so every existing key is unchanged.
+        text = SCRIPT.read_text()
+        self.assertIn('if [ "$CANONICAL_BUILD_ROOT" != /private/tmp/cmux-ci ]; then', text)
+
     def test_purposes_stay_separate_under_the_canonical_root(self):
         # Two purposes are two directories, so their entries cannot hit each
         # other and they must not share a key.

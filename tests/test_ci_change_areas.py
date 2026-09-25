@@ -380,7 +380,9 @@ def test_routed_lane_names_the_packages_the_job_would_run() -> None:
     # A dependency pulls in its dependents, and nothing else.
     settings = module.swift_package_test_selection(["Packages/macOS/CmuxSettings/Package.swift"])
     assert "CmuxSettings" in settings and "CmuxSettingsUI" in settings
-    assert "CmuxBrowser" not in settings
+    # CmuxBrowser depends on CmuxSettings, so it is a dependent; CmuxGit is not.
+    assert "CmuxBrowser" in settings
+    assert "CmuxGit" not in settings
     assert module.swift_package_test_selection(["Sources/AppDelegate.swift"]) == ()
 
 
@@ -4435,10 +4437,13 @@ PRODUCT_RUNNER_KEYS = {
 
 
 def product_runner_output(key: str) -> str:
+    # The app-host shards may also take pr_shard_runner: another Blacksmith
+    # pool on admission's Xcode (pr_runner_pool.spread_shards).
+    shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
     return ("${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, " + key + ") "
             "&& inputs.pr_refused_retry_runner "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
-            "&& inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}")
+            "&& inputs.pr_retry_runner || " + shard + "needs.macos-compile-admission.outputs.runner }}")
 
 
 PRODUCT_RUNNER_OUTPUT = product_runner_output(PRODUCT_RUNNER_KEYS["app-host-unit-tests"])

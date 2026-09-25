@@ -283,7 +283,8 @@ class FailSafe(unittest.TestCase):
             finally:
                 sys.stdout = old
             self.assertEqual(out.read_text(), f"runner={LARGE}\nxcode_app=\npersistent=false\n"
-                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nrefused_retry_runner=\nowned_jobs=\n")
+                                              f"retry_runner=\njobs={pool.MAX_RUN_JOBS}\nshard_runner=\n"
+                                              f"refused_retry_runner=\nowned_jobs=\n")
             text = summary.read_text()
             self.assertIn(f"Pool: `{LARGE}`", text)
             self.assertIn(f"{SMALL}: 21 queued, 10 running", text)
@@ -459,6 +460,62 @@ def owned_choice(snap, *, owned="1", machines=11, **kwargs):
     # A compile-only run: admission beside the CLI pipe and remote daemon lanes.
     kwargs.setdefault("jobs", 3)
     return choose(snap, pins=OWNED_PINS, owned=owned, **kwargs)
+
+
+class ShardSpread(unittest.TestCase):
+    """A full suite's shards may leave admission's pool for another on its Xcode."""
+
+    def decide(self, snap, shards=pool.APP_HOST_SHARDS, **kwargs):
+        return pool.decide(snap, pool.Settings(), now=NOW, xcode_pins=PINS, shards=shards, **kwargs)
+
+    def test_shards_leave_a_small_12vcpu_pool_with_no_room_for_them(self):
+        # 12vcpu idle takes admission; its 5 machines cannot hold 7 shards
+        # beside it, while 6vcpu macOS 26 has 10 idle.
+        snap = backlog(small=0, large=0, old=0)
+        snap["pools"][SMALL]["running"] = 0
+        snap["pools"][LARGE]["running"] = 0
+        choice = self.decide(snap)
+        self.assertEqual((choice.runner, choice.shard_runner), (LARGE, SMALL))
+        self.assertIn("shards take", choice.reason)
+
+    def test_shards_stay_when_admissions_pool_has_the_shorter_queue(self):
+        snap = backlog(small=30, large=0, old=0)
+        snap["pools"][LARGE]["running"] = 0
+        self.assertEqual(self.decide(snap).shard_runner, "")
+
+    def test_never_to_another_xcode_or_an_owned_pool_and_not_without_shards(self):
+        snap = backlog(small=40, large=40, old=0)
+        snap["pools"][OLD]["running"] = 0
+        choice = self.decide(snap)
+        self.assertEqual(choice.runner, OLD)
+        self.assertEqual(choice.shard_runner, "")  # macOS 15 is on another Xcode
+        idle = backlog(small=0, large=0, old=0)
+        idle["pools"][SMALL]["running"] = 0
+        self.assertEqual(self.decide(idle, shards=1).shard_runner, "")
+        self.assertEqual(self.decide(idle, shards=0).shard_runner, "")
+        self.assertEqual(self.decide(idle, choose_from=(LARGE,)).shard_runner, SMALL)
+        mini = fleet(busy=0)
+        owned = pool.decide(mini, pool.Settings(order=(MINI, LARGE, SMALL, OLD)), now=NOW, xcode_pins=OWNED_PINS,
+                            owned_slots={MINI: 11}, jobs=3, shards=pool.APP_HOST_SHARDS)
+        self.assertEqual((owned.runner, owned.shard_runner), (MINI, ""))
+
+    def test_main_writes_the_shard_runner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = backlog(small=0, large=0, old=0)
+            snap["pools"][SMALL]["running"] = 0
+            snap["pools"][LARGE]["running"] = 0
+            snap["generated_at"] = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            path, out = Path(tmp, "snap.json"), Path(tmp, "out")
+            path.write_text(json.dumps(snap))
+            base = {"EVENT_NAME": "pull_request", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                    "HEAD_REPO": "manaflow-ai/cmux", "DEFAULT_RUNNER": SMALL, "GITHUB_OUTPUT": str(out),
+                    "CMUX_CI_XCODE_APP_MACOS_15": XCODE_15, "RUN_MACOS": "true"}
+            for full, expected in (("true", SMALL), ("false", "")):
+                out.write_text("")
+                with unittest.mock.patch("sys.stdout", io.StringIO()):
+                    pool.main(["--snapshot", str(path)], {**base, "RUN_FULL_SUITE": full})
+                values = dict(line.split("=", 1) for line in out.read_text().splitlines())
+                self.assertEqual((values["runner"], values["shard_runner"]), (LARGE, expected), full)
 
 
 class OwnedPools(unittest.TestCase):
@@ -1002,7 +1059,7 @@ class Wiring(unittest.TestCase):
                                             "format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner "
                                             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, "
                                             "format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner "
-                                            "|| needs.macos-compile-admission.outputs.runner }}")
+                                            "|| inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}")
         wrapper = self.workflow("ci.yml")["jobs"]["claude-wrapper"]["runs-on"]
         self.assertIn("github.event_name == 'pull_request' && github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains("
                       "needs.changes.outputs.macos_pr_owned_jobs, ' claude-wrapper ') && "

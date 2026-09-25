@@ -1,6 +1,6 @@
-import Foundation
-import ObjectiveC
-import WebKit
+public import Foundation
+public import ObjectiveC
+public import WebKit
 
 extension CmuxWebView {
     private static let scriptedDownloadMessageHandlerName = "cmuxScriptedDownload"
@@ -10,12 +10,12 @@ extension CmuxWebView {
     private static let maxScriptedDownloadPayloadBytes = 100 * 1024 * 1024
     private static let maxScriptedDownloadDataURLCharacters = 140 * 1024 * 1024
 
-    var onSubframeDownloadIntent: ((URL) -> Void)? {
+    public var onSubframeDownloadIntent: ((URL) -> Void)? {
         get { objc_getAssociatedObject(self, &Self.subframeDownloadIntentHandlerKey) as? ((URL) -> Void) }
         set { objc_setAssociatedObject(self, &Self.subframeDownloadIntentHandlerKey, newValue, .OBJC_ASSOCIATION_COPY_NONATOMIC) }
     }
 
-    func clearBrowserDownloadCallbacks() {
+    public func clearBrowserDownloadCallbacks() {
         onContextMenuDownloadStateChanged = nil
         onSessionDownloadEvent = nil
         onSubframeDownloadIntent = nil
@@ -408,7 +408,7 @@ extension CmuxWebView {
 #if DEBUG
                 self.debugContextDownload("browser.scriptdl.webkit trace=\(traceID) stage=didStart")
 #endif
-                if let browserDownloadDelegate = downloadDelegate as? BrowserDownloadDelegate {
+                if let browserDownloadDelegate = downloadDelegate as? any BrowserSuggestedFilenameOverriding {
                     browserDownloadDelegate.setSuggestedFilenameOverride(suggestedFilename, for: download)
                 }
                 download.delegate = downloadDelegate
@@ -420,7 +420,7 @@ extension CmuxWebView {
         }
     }
 
-    nonisolated static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {
+    public nonisolated static func cookiesForDownloadRequest(_ cookies: [HTTPCookie], url: URL) -> [HTTPCookie] {
         let now = Date.now
 
         return cookies.filter { cookieMatchesURL($0, url: url, now: now) }
@@ -431,7 +431,7 @@ extension CmuxWebView {
     /// Cookie clearing and scripted-download cookie forwarding share this
     /// predicate so URL scoping cannot silently drift between mutation and
     /// request paths.
-    nonisolated static func cookieMatchesURL(_ cookie: HTTPCookie, url: URL, now: Date = .now) -> Bool {
+    public nonisolated static func cookieMatchesURL(_ cookie: HTTPCookie, url: URL, now: Date = .now) -> Bool {
         guard let host = url.host?.lowercased() else { return false }
         let requestPath = url.path.isEmpty ? "/" : url.path
         let isHTTPS = url.scheme?.caseInsensitiveCompare("https") == .orderedSame
@@ -443,7 +443,7 @@ extension CmuxWebView {
     }
 
     /// Returns whether a stored cookie domain is within a requested domain scope.
-    nonisolated static func cookieDomainMatchesFilter(_ cookieDomain: String, filter: String) -> Bool {
+    public nonisolated static func cookieDomainMatchesFilter(_ cookieDomain: String, filter: String) -> Bool {
         let normalizedCookieDomain = cookieDomain.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
         let normalizedFilter = filter.trimmingCharacters(in: CharacterSet(charactersIn: ".")).lowercased()
         guard !normalizedCookieDomain.isEmpty, !normalizedFilter.isEmpty else { return false }

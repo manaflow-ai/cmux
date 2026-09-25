@@ -92,6 +92,14 @@ on:
         required: false
         default: ""
         type: string
+      # Set only for a full suite on a Blacksmith pool (pr_runner_pool.py
+      # spread_shards): another pool on the same Xcode, with more room than
+      # compile admission's for the app-host shards. The product runs on any
+      # pool on its Xcode, since every one reproduces the canonical root.
+      pr_shard_runner:
+        required: false
+        default: ""
+        type: string
       # Set only when pr_runner is persistent: the owned label again, for
       # attempt 2 of a job in pr_owned_jobs. ci-owned-pool-rescue.yml re-runs
       # the failed jobs of a run whose owned job was refused, and that re-run
@@ -357,6 +365,32 @@ jobs:
               output.write(f"seconds={seconds:.3f}\n")
           print(f"hosted admission queue-to-start: {seconds:.3f}s")
           PY
+
+      - name: Choose this job's canonical build root
+        id: build-slot
+        run: |
+          set -euo pipefail
+          # /private/tmp/cmux-ci everywhere but the second compile slot of an
+          # owned Mac, where glaeda exports CMUX_CI_CANONICAL_ROOT as
+          # /private/tmp/cmux-ci-<n> for the compile token it granted, so two
+          # compiles on one Mac never share a tree. Such a root is part of the
+          # canonical build fingerprint, so it never adopts a seed or
+          # compilation cache made at another root. Consumers read the root
+          # from the product's receipt (restore-app-host-test-product.sh). Its
+          # kept build state sits in its own directory beside the first slot's.
+          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          case "$root" in
+            /private/tmp/cmux-ci) ;;
+            /private/tmp/cmux-ci-[0-9]|/private/tmp/cmux-ci-[0-9][0-9])
+              case "$CMUX_PRODUCT_RUNNER" in
+                glaeda-*) ;;
+                *) echo "::error::$root is only for an owned Mac's second compile slot"; exit 1 ;;
+              esac
+              echo "CMUX_OWNED_STATE_ROOT=$CMUX_OWNED_STATE_ROOT/${root##*/}" >> "$GITHUB_ENV"
+              ;;
+            *) echo "::error::unexpected CMUX_CI_CANONICAL_ROOT $root"; exit 1 ;;
+          esac
+          echo "root=$root" >> "$GITHUB_OUTPUT"
 
       - name: Prepare isolated admission DerivedData
         run: |
@@ -1259,8 +1293,10 @@ jobs:
     # When compile admission ran on an owned pool, a shard the picker did not
     # place there (no machine left, or CI_PR_POOL_OWNED_GUI=0), and a re-run
     # of failed shards, take pr_retry_runner: Blacksmith on the lane's Xcode,
-    # which is the Xcode the owned label names.
-    runs-on: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+    # which is the Xcode the owned label names. Otherwise a full suite's shards
+    # take pr_shard_runner when the picker found another pool on admission's
+    # Xcode with more room, and admission's own pool when it is empty.
+    runs-on: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
@@ -1342,7 +1378,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && inputs.pr_refused_retry_runner || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -2026,8 +2062,10 @@ jobs:
           set -euo pipefail
           ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
+      # The notification semantics step below resolves `bun` too, and it runs
+      # on the focused regression shard, so Bun must be set up there as well.
       - name: Set up Bun for Pi extension dispatch regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_CLI_REGRESSION_SHARD) || matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) || contains(inputs.unit_strict_steps, '|Run agent notification semantics|') }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.3.6"
