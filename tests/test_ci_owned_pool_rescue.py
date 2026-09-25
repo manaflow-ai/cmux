@@ -31,6 +31,7 @@ def load(name: str, path: Path):
 rescue = load("owned_pool_rescue", ROOT / "scripts/ci/owned_pool_rescue.py")
 
 MINI = "glaeda-std-xcode-26.6"
+LIGHT = "glaeda-light-xcode-26.6"
 BLACKSMITH = "blacksmith-6vcpu-macos-26"
 START = dt.datetime(2026, 9, 24, 12, 0, tzinfo=dt.timezone.utc)
 RUN_ID = 555
@@ -72,10 +73,11 @@ class FakeAPI:
         self.finished = finished
         self.calls: list[str] = []
         self.cancelled_at: float | None = None
+        self.cancel_attempt = 0
 
     def run(self, run_id):
         self.calls.append("run")
-        if self.cancelled_at is not None:
+        if self.cancelled_at is not None and self.cancel_attempt == self.attempt:
             done = self.clock.seconds - self.cancelled_at >= self.settles_after
             # attempt_after_cancel above 1: someone else re-ran it meanwhile.
             return {"status": "completed" if done else "in_progress",
@@ -94,7 +96,7 @@ class FakeAPI:
 
     def has_artifact(self, run_id, name):
         self.calls.append(f"artifact:{name}")
-        return self.marker
+        return self.marker(name) if callable(self.marker) else self.marker
 
     def pull(self, number):
         self.calls.append("pull")
@@ -102,13 +104,16 @@ class FakeAPI:
 
     def cancel(self, run_id):
         self.calls.append("cancel")
-        self.cancelled_at = self.clock.seconds
+        self.cancelled_at, self.cancel_attempt = self.clock.seconds, self.attempt
 
     def force_cancel(self, run_id):
         self.calls.append("force-cancel")
 
     def rerun(self, run_id):
         self.calls.append("rerun")
+        # cancelled_at stays for the assertions; the cancel was of the attempt before.
+        self.attempt += 1
+        self.rerun_at = self.clock.seconds
 
     def rerun_failed(self, run_id):
         self.calls.append("rerun-failed")
@@ -392,13 +397,81 @@ class Rescuing(unittest.TestCase):
     def test_a_job_waiting_past_the_budget_reruns_the_run(self):
         clock = Clock()
         api = FakeAPI(clock, persistent_run(), marker=True)
-        code, summary = run_main(api, clock)
+        code, summary = run_main(api, clock, env_extra={"OWNED_LIGHT_RETRY": "1"})
         self.assertEqual(code, 0)
-        self.assertEqual(api.calls[-4:], ["cancel", "run", "pull", "rerun"])
+        start = api.calls.index("cancel")
+        self.assertEqual(api.calls[start:start + 4], ["cancel", "run", "pull", "rerun"])
+        # The full re-run may take the light tier, so attempt 2 is watched too.
+        self.assertIn("jobs:2", api.calls[start + 4:])
         self.assertIn(f"queued on {MINI} for at least 90s", summary)
         self.assertIn("attempt 2 takes an ephemeral pool", summary)
         # Rescued at the first look past 40 + 90 seconds.
         self.assertLess(api.cancelled_at, 40 + 90 + rescue.POLL_SECONDS + 1)
+
+    def test_a_full_re_run_on_the_light_tier_is_watched_the_attempt_1_way(self):
+        # The full re-run runs `changes` again. Its macOS jobs are created only
+        # once the picker has chosen light, so the first look at attempt 2
+        # sees `changes` alone; the watch must wait for the picker and read
+        # attempt 2's own marker, then move a job stuck on light to Blacksmith.
+        clock = Clock()
+        light_run = persistent_run()
+
+        def rerun_jobs(seconds):
+            found = light_run(seconds)
+            for queued in found[1:]:
+                queued["labels"] = [LIGHT]
+            return found
+
+        api = FakeAPI(clock, persistent_run(), marker=lambda name: True, rerun_jobs=rerun_jobs)
+        code, summary = run_main(api, clock, env_extra={"OWNED_LIGHT_RETRY": "1"})
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("rerun"), 1)
+        self.assertIn(f"artifact:{rescue.MARKER_PREFIX}-{RUN_ID}-2-", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn(f"queued on {LIGHT}", summary)
+        self.assertIn("attempt 3 takes retry_runner on Blacksmith", summary)
+        # Attempt 2 without its own marker is on Blacksmith: the watch stops.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=lambda name: name.endswith("-1-"), rerun_jobs=rerun_jobs)
+        code, summary = run_main(api, clock, env_extra={"OWNED_LIGHT_RETRY": "1"})
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertIn("stopped watching attempt 2: the run is on an ephemeral pool", summary)
+
+    def test_a_late_rescue_gives_the_followed_attempt_its_own_watch(self):
+        # Attempt 1 queues at minute 40 and is rescued; attempt 2's light job
+        # queues 25 minutes into the re-run, past attempt 1's 60-minute
+        # deadline. The followed attempt must still be watched and moved.
+        clock = Clock()
+        late = persistent_run(queued_at=2400)
+
+        def rerun_jobs(seconds):
+            found = persistent_run(queued_at=1500)(seconds)
+            for queued in found[1:]:
+                queued["labels"] = [LIGHT]
+            # A Linux job keeps the re-run going until its macOS jobs queue.
+            return found + [job("linux-preflight", status="in_progress", labels=["blacksmith-4vcpu-ubuntu-2404"])]
+
+        api = FakeAPI(clock, late, marker=lambda name: True, rerun_jobs=rerun_jobs)
+        code, summary = run_main(api, clock, env_extra={"OWNED_LIGHT_RETRY": "1"})
+        self.assertEqual(code, 0)
+        self.assertGreater(clock.seconds, rescue.WATCH_LIMIT_SECONDS)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+        self.assertIn(f"queued on {LIGHT}", summary)
+        self.assertNotIn("watch limit reached", summary)
+
+    def test_a_full_re_run_is_not_watched_with_the_light_retry_off(self):
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True)
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls[-1], "rerun")
+        self.assertNotIn("jobs:2", api.calls)
+
+    def test_the_light_retry_variable_reaches_the_rescue(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text())
+        steps = [step for job in workflow["jobs"].values() for step in job["steps"]
+                 if "owned_pool_rescue.py" in str(step.get("run"))]
+        self.assertEqual(steps[0]["env"]["OWNED_LIGHT_RETRY"], "${{ vars.CI_OWNED_LIGHT_RETRY }}")
 
     def test_budget_variable_moves_the_deadline(self):
         clock = Clock()
