@@ -359,46 +359,9 @@ extension ControlCommandCoordinator {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        let colorParam = Self.aliasStringParam(params, canonical: "hex", alias: "color")
-        // `custom_color` is the response field name, not an accepted input
-        // key: echoed back alone it would read as a set while actually
-        // clearing the override (#9594 class). Point the caller at the real
-        // keys instead.
-        if params["custom_color"] != nil, case .absent = colorParam {
-            return .err(
-                code: "invalid_params",
-                message: "unknown key custom_color; set_color accepts hex or color",
-                data: .object(["custom_color": params["custom_color"] ?? .null])
-            )
-        }
-        // `hex` is the canonical key and `color` its alias. Accept
-        // "hex"/"color": null to clear the override, or omit both entirely.
-        let normalized: String?
-        switch colorParam {
-        case .absent:
-            normalized = nil
-        case .supplied(let raw):
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                normalized = nil
-            } else if let canonical = Self.normalizeHexColor(trimmed) {
-                // Store the renderer's canonical spelling so a request cannot
-                // park a value the renderer would refuse to display.
-                normalized = canonical
-            } else {
-                return .err(
-                    code: "invalid_params",
-                    message: "color must be a 6-digit hex color like #FF3EA5 (leading # optional)",
-                    data: .object([params["hex"] != nil ? "hex" : "color": .string(raw)])
-                )
-            }
-        case .typeMismatch(let value):
-            return .err(
-                code: "invalid_params",
-                message: "color must be a string holding a hex color",
-                data: .object([params["hex"] != nil ? "hex" : "color": value])
-            )
-        }
+        // Accept "hex": null to clear the override, or omit it entirely.
+        let hex: String? = rawString(params, "hex").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String? = (hex?.isEmpty == false) ? hex : nil
         guard let ok = context?.controlSetWorkspaceGroupColor(
             routing: routingSelectors(params), groupID: gid, hex: normalized
         ) else {
@@ -414,31 +377,8 @@ extension ControlCommandCoordinator {
         guard let gid = uuid(params, "group_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
-        let symbolParam = Self.aliasStringParam(params, canonical: "symbol", alias: "icon")
-        // `icon_symbol` is the response field name, not an accepted input
-        // key: echoed back alone it would read as a set while actually
-        // clearing the symbol. Point the caller at the real keys instead.
-        if params["icon_symbol"] != nil, case .absent = symbolParam {
-            return .err(
-                code: "invalid_params",
-                message: "unknown key icon_symbol; set_icon accepts symbol or icon",
-                data: .object(["icon_symbol": params["icon_symbol"] ?? .null])
-            )
-        }
-        let normalized: String?
-        switch symbolParam {
-        case .absent:
-            normalized = nil
-        case .supplied(let raw):
-            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            normalized = trimmed.isEmpty ? nil : trimmed
-        case .typeMismatch(let value):
-            return .err(
-                code: "invalid_params",
-                message: "symbol must be a string",
-                data: .object([params["symbol"] != nil ? "symbol" : "icon": value])
-            )
-        }
+        let symbol: String? = rawString(params, "symbol").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let normalized: String? = (symbol?.isEmpty == false) ? symbol : nil
         guard let result = context?.controlSetWorkspaceGroupIcon(
             routing: routingSelectors(params), groupID: gid, symbol: normalized
         ) else {
@@ -499,52 +439,6 @@ extension ControlCommandCoordinator {
 
     // MARK: - Local helpers
 
-    /// How a string-typed RPC parameter (and its alias) was supplied.
-    enum AliasStringParam {
-        /// Neither key present, or the winning key is JSON `null` — the
-        /// documented spelling for "clear the override".
-        case absent
-        /// The winning key holds a JSON string (untrimmed).
-        case supplied(String)
-        /// The winning key holds some other JSON type. Surfacing this as
-        /// `invalid_params` keeps a mistyped value from silently clearing.
-        case typeMismatch(JSONValue)
-    }
-
-    /// Resolves `canonical` — falling back to `alias` — in `params`. The
-    /// canonical key wins whenever it is present, so an alias can never
-    /// override an explicit canonical `null` clear.
-    static func aliasStringParam(
-        _ params: [String: JSONValue],
-        canonical: String,
-        alias: String
-    ) -> AliasStringParam {
-        for key in [canonical, alias] {
-            guard let value = params[key] else { continue }
-            if case .string(let string) = value {
-                return .supplied(string)
-            }
-            if case .null = value {
-                return .absent
-            }
-            return .typeMismatch(value)
-        }
-        return .absent
-    }
-
-    /// The canonical stored spelling for a group color: `#RRGGBB` (uppercase,
-    /// `#`-prefixed). This mirrors the renderer's own rule
-    /// (`WorkspaceTabColorSettings.normalizedHex`), which accepts a missing
-    /// leading `#` but only ever displays 6-digit values — so short and alpha
-    /// forms are rejected here rather than stored where they would silently
-    /// never render.
-    static func normalizeHexColor(_ value: String) -> String? {
-        let body = value.hasPrefix("#") ? String(value.dropFirst()) : value
-        // ASCII only: `Character.isHexDigit` also accepts fullwidth digits,
-        // which the renderer's `UInt64(_:radix:)` parse rejects.
-        guard body.count == 6, body.allSatisfy({ $0.isASCII && $0.isHexDigit }) else { return nil }
-        return "#" + body.uppercased()
-    }
 
     /// The localized workspace-group error strings, resolved by the app
     /// conformance against the app bundle.
