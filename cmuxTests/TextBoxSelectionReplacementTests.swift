@@ -77,6 +77,88 @@ struct TextBoxSelectionReplacementTests {
         #expect(textView.string == "1. First\n2. ")
     }
 
+    @Test("list continuation only rewrites an empty item at the line end")
+    func listContinuationDoesNotDeleteTextAfterTheCaret() {
+        let text = "1. First"
+
+        #expect(
+            TextBoxInputTextView.automaticListContinuation(in: text, at: 3) == nil
+        )
+    }
+
+    @Test("adjacent occurrence selections receive the same replacement")
+    func adjacentOccurrencesReceiveTheSameReplacement() throws {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        textView.string = "aa"
+        textView.setSelectedRange(NSRange(location: 0, length: 1))
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.command],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "d",
+                charactersIgnoringModifiers: "d",
+                isARepeat: false,
+                keyCode: UInt16(kVK_ANSI_D)
+            )
+        )
+
+        #expect(textView.performKeyEquivalent(with: event))
+        textView.insertText("X", replacementRange: textView.selectedRange())
+
+        #expect(textView.string == "XX")
+    }
+
+    @Test("deletion preserves the primary and boundary cursors")
+    func deletionPreservesPrimaryAndBoundaryCursors() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        textView.string = "abc"
+        textView.setSelectedRange(NSRange(location: 3, length: 0))
+        textView.addTextBoxCursor(at: 1)
+
+        textView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+
+        #expect(textView.string == "b")
+        #expect(textView.selectedRange() == NSRange(location: 1, length: 0))
+        textView.insertText("X", replacementRange: textView.selectedRange())
+        #expect(textView.string == "XbX")
+
+        let boundaryView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        boundaryView.string = "ab"
+        boundaryView.setSelectedRange(NSRange(location: 2, length: 0))
+        boundaryView.addTextBoxCursor(at: 0)
+        boundaryView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+        boundaryView.insertText("X", replacementRange: boundaryView.selectedRange())
+
+        #expect(boundaryView.string == "XaX")
+    }
+
+    @Test("multi-range edits restore a touched pending paste marker")
+    func multiRangeEditRestoresTouchedPendingPasteMarker() throws {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: TextBoxLayout.minimumTextHeight)
+        )
+        textView.string = "one"
+        textView.setSelectedRange(NSRange(location: 0, length: 3))
+        let reservationID = UUID()
+        #expect(textView.beginPendingPasteReservation(id: reservationID))
+        textView.addTextBoxCursor(at: 1)
+
+        textView.insertText("X", replacementRange: textView.selectedRange())
+
+        #expect(!textView.hasPendingAttachmentUploadPlaceholder())
+        #expect(textView.string == "oXneX")
+    }
+
     @Test("stale parent refresh does not resurrect text replaced in the editor")
     func staleParentRefreshPreservesSelectionReplacement() throws {
         let staleExternalText = "hello world"

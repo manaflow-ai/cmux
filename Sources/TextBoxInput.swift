@@ -3320,6 +3320,13 @@ final class TextBoxInputTextView: NSTextView {
         let newline = prefix.range(of: "\n", options: .backwards)
         let lineStart = newline.location == NSNotFound ? 0 : NSMaxRange(newline)
         let linePrefix = nsText.substring(with: NSRange(location: lineStart, length: location - lineStart))
+        let lineEndRange = nsText.range(
+            of: "\n",
+            options: [],
+            range: NSRange(location: location, length: nsText.length - location)
+        )
+        let lineEnd = lineEndRange.location == NSNotFound ? nsText.length : lineEndRange.location
+        guard location == lineEnd else { return nil }
         let patterns: [(pattern: String, ordered: Bool)] = [
             (#"^([ \t]*)([-+*])([ \t]+)(.*)$"#, false),
             (#"^([ \t]*)([0-9]+)([.)])([ \t]+)(.*)$"#, true)
@@ -3621,8 +3628,7 @@ final class TextBoxInputTextView: NSTextView {
                 result.append(candidate)
                 continue
             }
-            if NSIntersectionRange(previous, candidate).length > 0
-                || (previous.length > 0 && candidate.location == NSMaxRange(previous)) {
+            if NSIntersectionRange(previous, candidate).length > 0 {
                 continue
             }
             result.append(candidate)
@@ -3646,7 +3652,8 @@ final class TextBoxInputTextView: NSTextView {
     private func performMultipleSelectionEdit(
         ranges: [NSRange],
         replacements: [NSAttributedString],
-        primaryRange: NSRange
+        primaryRange: NSRange,
+        primaryIndex: Int? = nil
     ) -> Bool {
         guard ranges.count == replacements.count,
               !ranges.isEmpty,
@@ -3660,6 +3667,19 @@ final class TextBoxInputTextView: NSTextView {
 
         let rangeValues = ranges.map { NSValue(range: $0) }
         let replacementStrings = replacements.map(\.string)
+        let markerRanges = pendingPasteMarkerRanges()
+        let touchesPendingPasteMarker = pendingPasteReservations.contains { id, reservation in
+            guard reservation.usesMarker,
+                  let markerRange = markerRanges[id] else { return false }
+            return ranges.contains {
+                Self.pasteReservationRangesIntersect($0, markerRange)
+            }
+        }
+        if touchesPendingPasteMarker {
+            // Restore marker-backed reservations before applying a multi-range edit.
+            // The single-range AppKit interception cannot observe in-range edits here.
+            rollbackAllPendingPasteReservations(notifyingTextChange: false)
+        }
         guard shouldChangeText(inRanges: rangeValues, replacementStrings: replacementStrings) else {
             return false
         }
@@ -3689,7 +3709,7 @@ final class TextBoxInputTextView: NSTextView {
         isApplyingMultipleSelectionEdit = false
         didChangeText()
 
-        let primaryIndex = ranges.firstIndex(of: primaryRange) ?? 0
+        let primaryIndex = primaryIndex ?? ranges.firstIndex(of: primaryRange) ?? 0
         let primary = transformedRanges[primaryIndex]
         setSelectedRange(primary)
         additionalSelectionRanges = transformedRanges.enumerated().compactMap { index, range in
@@ -4602,28 +4622,24 @@ final class TextBoxInputTextView: NSTextView {
     private func deleteMultipleSelections(direction: MultipleSelectionDeleteDirection) -> Bool {
         guard let activeRanges = activeEditingRanges() else { return false }
         let length = attributedString().length
-        var ranges: [NSRange] = []
-        for range in activeRanges {
-            if range.length > 0 {
-                ranges.append(range)
-                continue
-            }
-            let deletionRange: NSRange
+        let primaryIndex = activeRanges.firstIndex(of: selectedRange()) ?? 0
+        let ranges = activeRanges.map { range -> NSRange in
+            guard range.length == 0 else { return range }
             switch direction {
             case .backward:
-                guard range.location > 0 else { continue }
-                deletionRange = NSRange(location: range.location - 1, length: 1)
+                guard range.location > 0 else { return range }
+                return NSRange(location: range.location - 1, length: 1)
             case .forward:
-                guard range.location < length else { continue }
-                deletionRange = NSRange(location: range.location, length: 1)
+                guard range.location < length else { return range }
+                return NSRange(location: range.location, length: 1)
             }
-            ranges.append(deletionRange)
         }
-        guard !ranges.isEmpty else { return true }
+        guard ranges.contains(where: { $0.length > 0 }) else { return true }
         return performMultipleSelectionEdit(
             ranges: ranges,
             replacements: ranges.map { _ in NSAttributedString(string: "", attributes: currentTextAttributes()) },
-            primaryRange: ranges[0]
+            primaryRange: ranges[primaryIndex],
+            primaryIndex: primaryIndex
         )
     }
 
