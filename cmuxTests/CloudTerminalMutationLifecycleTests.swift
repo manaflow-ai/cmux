@@ -15,11 +15,11 @@ struct CloudTerminalMutationLifecycleTests {
     @Test("A durable creation turn returns its receipt after caller cancellation")
     func durableTurnRetainsResponseAfterCancellation() async throws {
         let queue = CloudTerminalMutationQueue()
-        let task = queue.run(honorCancellationAfterOperation: false) {
+        let data = try await queue.run(honorCancellationAfterOperation: false) {
             withUnsafeCurrentTask { $0?.cancel() }
             return Data("durable-receipt".utf8)
         }
-        #expect(try await task.value == Data("durable-receipt".utf8))
+        #expect(data == Data("durable-receipt".utf8))
         await queue.waitForIdle()
     }
 
