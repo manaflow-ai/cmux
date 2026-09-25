@@ -406,9 +406,9 @@ jobs:
           # reuse_app_host_products.py all extract. Same files, 572 MB, packed
           # faster.
           stage="$(mktemp -d "${CMUX_COMPILE_ADMISSION_DERIVED_DATA%/*}/.product-pack.XXXXXX")"
+          trap 'rm -rf "$stage"' EXIT
           (cd "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" && pax -rwlL Build/Products "$stage")
           COPYFILE_DISABLE=1 tar -cf - -C "$stage" Build/Products | gzip -1 > "$archive"
-          rm -rf "$stage"
           echo "sha256=$(shasum -a 256 "$archive" | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 
       # Three days, as admission keeps its own: a pull request only matches
