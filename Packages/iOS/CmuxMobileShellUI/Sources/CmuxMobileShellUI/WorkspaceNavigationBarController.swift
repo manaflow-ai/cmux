@@ -62,7 +62,6 @@ final class WorkspaceNavigationBarController: UIViewController {
                 }
                 .buttonStyle(.plain)
                 .imageScale(.large)
-                .fixedSize()
                 .frame(width: itemWidth, height: 36)
                 .environment(\.self, environment)
             )
