@@ -2019,6 +2019,8 @@ class Wiring(unittest.TestCase):
         self.assertEqual(steps["keys"]["with"]["name"], "owned-warm-keys-${{ github.event.workflow_run.id }}-"
                                                         "${{ github.event.workflow_run.run_attempt }}")
         self.assertEqual(steps["route-token"]["with"]["permission-administration"], "write")
+        # The minis are org runners (glaeda-minis): their labels need the org permission.
+        self.assertEqual(steps["route-token"]["with"]["permission-organization-self-hosted-runners"], "write")
         self.assertEqual(steps["Label the runner"]["run"], "python3 scripts/ci/owned_warm_labels.py")
 
     def test_package_tests_take_an_owned_mac_only_where_the_picker_placed_them(self):
