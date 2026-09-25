@@ -76,7 +76,7 @@ final class WorkspaceNavigationTitleView: UIView {
             height: min(36, bounds.height)
         )
         if #unavailable(iOS 26.0) {
-            capsule.layer.cornerRadius = bounds.height / 2
+            capsule.layer.cornerRadius = capsule.bounds.height / 2
         }
         let inset = min(Self.contentHorizontalInset, capsule.bounds.width / 2)
         contentView.frame = capsule.bounds.insetBy(dx: inset, dy: 0)
