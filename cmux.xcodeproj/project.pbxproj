@@ -2015,6 +2015,7 @@
 		5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */; };
 		816400000000000000000001 /* GhosttyScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816400000000000000000002 /* GhosttyScrollView.swift */; };
 		816400000000000000000003 /* GhosttyScrollViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816400000000000000000004 /* GhosttyScrollViewTests.swift */; };
+		A1400000A1B2C3D4E5F60718 /* GhosttySplitDividerColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1400001A1B2C3D4E5F60718 /* GhosttySplitDividerColorTests.swift */; };
 		C85390010000000000000001 /* GhosttyStartupAppearancePreviewProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C85390010000000000000002 /* GhosttyStartupAppearancePreviewProfile.swift */; };
 		B8835700000000000000000F /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */; };
 		B84BD7AD94EE485B8DDAB6FF /* GhosttySurfaceConfigurationRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */; };
@@ -2664,6 +2665,7 @@
 		736200000000000000000008 /* RemoteTmuxMirrorTargetingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 736200000000000000000007 /* RemoteTmuxMirrorTargetingTests.swift */; };
 		8382C0028382C0028382C002 /* RemoteTmuxMirrorTeardownReason.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8382D0028382D0028382D002 /* RemoteTmuxMirrorTeardownReason.swift */; };
 		7910A0017910A0017910A001 /* RemoteTmuxMirrorTopTopologyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7910B0017910B0017910B001 /* RemoteTmuxMirrorTopTopologyTests.swift */; };
+		8C8E4E06154E8EA3591AB2B5 /* RemoteTmuxMirrorWorkspaceNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22C4F980B58BD864424CB5B7 /* RemoteTmuxMirrorWorkspaceNameTests.swift */; };
 		7368BEEF7368BEEF7368B002 /* RemoteTmuxMissingTmuxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7368BEEF7368BEEF7368B001 /* RemoteTmuxMissingTmuxTests.swift */; };
 		0C7D0CDD0C7D0CDD0C7D0002 /* RemoteTmuxNewWindowCwdTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */; };
 		A90070000000000000009007 /* RemoteTmuxNotificationLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90070000000000000009007 /* RemoteTmuxNotificationLifecycleTests.swift */; };
@@ -6048,6 +6050,7 @@
 		5C0011AA0000000000000002 /* GhosttyScrollPreciseBoostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollPreciseBoostTests.swift; sourceTree = "<group>"; };
 		816400000000000000000002 /* GhosttyScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollView.swift; sourceTree = "<group>"; };
 		816400000000000000000004 /* GhosttyScrollViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyScrollViewTests.swift; sourceTree = "<group>"; };
+		A1400001A1B2C3D4E5F60718 /* GhosttySplitDividerColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttySplitDividerColorTests.swift; sourceTree = "<group>"; };
 		C85390010000000000000002 /* GhosttyStartupAppearancePreviewProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyStartupAppearancePreviewProfile.swift; sourceTree = "<group>"; };
 		B88357000000000000000010 /* GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttySurfaceCallbackContext+ClipboardInputSequencing.swift"; sourceTree = "<group>"; };
 		9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/GhosttySurfaceConfigurationRefresh.swift; sourceTree = "<group>"; };
@@ -6682,6 +6685,7 @@
 		736200000000000000000007 /* RemoteTmuxMirrorTargetingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTargetingTests.swift; sourceTree = "<group>"; };
 		8382D0028382D0028382D002 /* RemoteTmuxMirrorTeardownReason.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTeardownReason.swift; sourceTree = "<group>"; };
 		7910B0017910B0017910B001 /* RemoteTmuxMirrorTopTopologyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorTopTopologyTests.swift; sourceTree = "<group>"; };
+		22C4F980B58BD864424CB5B7 /* RemoteTmuxMirrorWorkspaceNameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMirrorWorkspaceNameTests.swift; sourceTree = "<group>"; };
 		7368BEEF7368BEEF7368B001 /* RemoteTmuxMissingTmuxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxMissingTmuxTests.swift; sourceTree = "<group>"; };
 		0C7D0CDD0C7D0CDD0C7D0001 /* RemoteTmuxNewWindowCwdTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxNewWindowCwdTests.swift; sourceTree = "<group>"; };
 		B90070000000000000009007 /* RemoteTmuxNotificationLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxNotificationLifecycleTests.swift; sourceTree = "<group>"; };
@@ -11255,6 +11259,7 @@
 				C12813000000000000000102 /* RemoteSessionParkedReconnectTests.swift */,
 				F4000001A1B2C3D4E5F60718 /* GhosttyConfigTests.swift */,
 				F11307000000000000000002 /* GhosttyAppearanceAuthorityTests.swift */,
+				A1400001A1B2C3D4E5F60718 /* GhosttySplitDividerColorTests.swift */,
 				B8E9500A0000000000000002 /* PostHogAnalyticsPropertiesTests.swift */,
 				8F8A0358C8DD0A7D998A86E9 /* VMClientTelemetryTests.swift */,
 				7B7B816D0E6DDD18F2D66C77 /* CloudOperationRecorderTests.swift */,
@@ -11906,6 +11911,7 @@
 				7738B0027738B0027738B002 /* RemoteTmuxMirrorCLIFailClosedTests.swift */,
 				7837E0047837E0047837E004 /* RemoteTmuxMirrorResizeRoutingTests.swift */,
 				7910B0017910B0017910B001 /* RemoteTmuxMirrorTopTopologyTests.swift */,
+				22C4F980B58BD864424CB5B7 /* RemoteTmuxMirrorWorkspaceNameTests.swift */,
 				A7E1C4D2B3F09865E217D4C1 /* RemoteTmuxMirrorFeedForwardTests.swift */,
 				740600000000000000000009 /* RemoteTmuxMirrorLayoutMathTests.swift */,
 				74060000000000000000000B /* RemoteTmuxMirrorPlacementTests.swift */,
@@ -16419,6 +16425,7 @@
 				7269A0017269A0017269A001 /* GhosttyPhysicalInputFocusReassertionTests.swift in Sources */,
 				5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */,
 				816400000000000000000003 /* GhosttyScrollViewTests.swift in Sources */,
+				A1400000A1B2C3D4E5F60718 /* GhosttySplitDividerColorTests.swift in Sources */,
 				37106908DC3196DFD53D7812 /* GhosttyTerminalMouseRoutingTests.swift in Sources */,
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
@@ -16613,6 +16620,7 @@
 				D4F8A2E61C5B39707A8E6F12 /* RemoteTmuxMirrorSplitRoutingTests.swift in Sources */,
 				736200000000000000000008 /* RemoteTmuxMirrorTargetingTests.swift in Sources */,
 				7910A0017910A0017910A001 /* RemoteTmuxMirrorTopTopologyTests.swift in Sources */,
+				8C8E4E06154E8EA3591AB2B5 /* RemoteTmuxMirrorWorkspaceNameTests.swift in Sources */,
 				7368BEEF7368BEEF7368B002 /* RemoteTmuxMissingTmuxTests.swift in Sources */,
 				0C7D0CDD0C7D0CDD0C7D0002 /* RemoteTmuxNewWindowCwdTests.swift in Sources */,
 				A90070000000000000009007 /* RemoteTmuxNotificationLifecycleTests.swift in Sources */,
@@ -17160,6 +17168,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_ENABLE_BATCH_MODE = NO;
 				SWIFT_OBJC_BRIDGING_HEADER = "cmux-Bridging-Header.h";
+				SWIFT_OBJC_INTERFACE_HEADER_NAME = "";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
