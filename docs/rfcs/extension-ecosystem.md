@@ -233,6 +233,24 @@ Provider failure falls back only when the route explicitly declares a built-in
 fallback and the intent marks fallback as safe. A failed write never silently
 replays against another store.
 
+### Protocol scope
+
+This RFC specifies the registry boundary, not a universal provider wire
+protocol. `protocol` values are versioned references whose request, response,
+error, framing, handshake, and cancellation schemas must be published with the
+provider kind before a non-builtin driver is accepted. A provider kind owns its
+typed payload schema; the coordinator translates that payload to the stable
+cmux intent result and never forwards a raw socket or app object. Until a kind
+schema exists, only the `builtin` driver is valid for that kind.
+
+The first external-driver follow-up must define, at minimum, a bounded
+handshake that returns the provider and protocol IDs, capability echo, and
+maximum request size; a framed request/response envelope with request IDs and
+typed errors; cancellation acknowledgement and a deadline after which cmux
+terminates the process or closes the webview; and a capability-scoped payload
+for each intent. Those schemas are separate reviewable contracts, not implied
+by the registry manifest example below.
+
 ### Driver contracts
 
 Drivers are introduced in this order:
@@ -245,7 +263,8 @@ Drivers are introduced in this order:
    capability-scoped `window.cmux` bridge and no ambient app or filesystem API.
 4. **stdio** — a child process launched with an argument array, a bounded
    handshake, a private environment, request deadlines, output limits, and an
-   explicit termination policy.
+   explicit termination policy. It remains unavailable for a provider kind
+   until that kind's protocol schema has landed.
 
 No driver accepts shell fragments in a route. The `command` field for `stdio`
 is an executable name or absolute path; arguments are a separate array. PATH
