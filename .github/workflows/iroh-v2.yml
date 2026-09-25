@@ -112,4 +112,5 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          bunx wrangler deploy --env development --keep-vars $(bash scripts/source-revision-vars.sh)
+          read -r -a source_revision_vars <<< "$(bash scripts/source-revision-vars.sh)"
+          bunx wrangler deploy --env development --keep-vars "${source_revision_vars[@]}"
