@@ -14,11 +14,11 @@ import Testing
         )
     }
 
-    private func service(backend: V2TestBackend, store: V2TestStateStore = V2TestStateStore()) throws -> V2ControlService {
-        let fixedNow = now
+    private func service(backend: V2TestBackend, store: V2TestStateStore = V2TestStateStore(), clock: V2TestClock? = nil) throws -> V2ControlService {
+        let clock = clock ?? V2TestClock(seconds: now)
         return V2ControlService(
             configuration: try V2ControlConfiguration(baseURL: URL(string: "https://control.example.com")!, device: device()),
-            dependencies: V2ControlDependencies(connect: { try await backend.connect($0) }, http: { try await backend.http($0) }, stackAccessToken: { _ in "existing-stack-session" }, sign: { _ in Data(repeating: 1, count: 64) }, now: { Date(timeIntervalSince1970: Double(fixedNow)) }, jitter: { 0.5 }),
+            dependencies: V2ControlDependencies(connect: { try await backend.connect($0) }, http: { try await backend.http($0) }, stackAccessToken: { _ in try clock.stackToken() }, sign: { _ in Data(repeating: 1, count: 64) }, now: { clock.date }, jitter: { 0.5 }),
             store: store
         )
     }
@@ -74,6 +74,41 @@ import Testing
         #expect(await socket.pingCount == 1)
         #expect(await socket.sentSchemas.contains("ping") == false)
         #expect(await socket.sentSchemas.filter { $0 == "device.register.v1" }.count == 1)
+        await service.stop()
+    }
+
+    @Test func requestAfterTicketRefreshTimeRenewsTheTicketFirst() async throws {
+        // After sleep or suspension the renewal deadline has passed. The
+        // request must not reach the server ahead of the renewal, or it is
+        // rejected as ticket_expired.
+        let backend = V2TestBackend(now: now)
+        let clock = V2TestClock(seconds: now)
+        let service = try service(backend: backend, clock: clock)
+        await service.start()
+        _ = try await ready(service)
+        let socket = await backend.currentSocket()
+        let sentBefore = await socket.sentSchemas.count
+        clock.seconds = now + 3400
+        _ = try await service.refreshRelayCredentials()
+        let sent = Array(await socket.sentSchemas.dropFirst(sentBefore))
+        let renewal = try #require(sent.firstIndex(of: "ticket.request.v1"))
+        let relay = try #require(sent.firstIndex(of: "relay.request.v1"))
+        #expect(renewal < relay)
+        await service.stop()
+    }
+
+    @Test func expiredTicketWithFailedRenewalSendsNothing() async throws {
+        let backend = V2TestBackend(now: now)
+        let clock = V2TestClock(seconds: now)
+        let service = try service(backend: backend, clock: clock)
+        await service.start()
+        _ = try await ready(service)
+        let socket = await backend.currentSocket()
+        let sentBefore = await socket.sentSchemas.count
+        clock.seconds = now + 3700
+        clock.stackFailure = URLError(.notConnectedToInternet)
+        await #expect(throws: (any Error).self) { _ = try await service.refreshRelayCredentials() }
+        #expect(await socket.sentSchemas.dropFirst(sentBefore).contains("relay.request.v1") == false)
         await service.stop()
     }
 
@@ -335,5 +370,29 @@ import Testing
         _ = try await service.refreshRelayCredentials()
         #expect(await backend.sockets.count == 1)
         await service.stop()
+    }
+}
+
+/// A settable clock and Stack token source shared with the service's dependencies.
+private final class V2TestClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedSeconds: Int
+    private var storedStackFailure: (any Error)?
+
+    init(seconds: Int) { storedSeconds = seconds }
+
+    var seconds: Int {
+        get { lock.withLock { storedSeconds } }
+        set { lock.withLock { storedSeconds = newValue } }
+    }
+    var stackFailure: (any Error)? {
+        get { lock.withLock { storedStackFailure } }
+        set { lock.withLock { storedStackFailure = newValue } }
+    }
+    var date: Date { Date(timeIntervalSince1970: Double(seconds)) }
+
+    func stackToken() throws -> String {
+        if let failure = stackFailure { throw failure }
+        return "existing-stack-session"
     }
 }
