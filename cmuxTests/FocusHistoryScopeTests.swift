@@ -1,3 +1,4 @@
+import CmuxControlSocket
 import CmuxSettings
 import Foundation
 import Testing
@@ -234,6 +235,38 @@ struct FocusHistoryScopeTests {
         NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: defaults)
         #expect(manager.focusHistoryRevision > disabledRevision)
         #expect(manager.canNavigateBack)
+    }
+
+    /// `workspace.last` (CLI `last-window`, tmux `-` target) runs the same
+    /// Focus Last toggle as the app, so a second call returns to the start
+    /// instead of walking further back through history.
+    @Test func workspaceLastSocketCommandTogglesLikeFocusLast() throws {
+        let suiteName = "FocusHistoryScopeTests.workspaceLast.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let manager = TabManager(settings: UserDefaultsSettingsClient(defaults: defaults))
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer { TerminalController.shared.setActiveTabManager(previousManager) }
+
+        _ = try #require(manager.selectedWorkspace)
+        let second = manager.addWorkspace(select: true)
+        let third = manager.addWorkspace(select: true)
+        settleFocusBroadcasts()
+        #expect(manager.selectedTabId == third.id)
+
+        let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
+        func selectLast(_ id: Int64) -> JSONValue? {
+            let result = coordinator.handle(ControlRequest(id: .int(id), method: "workspace.last", params: [:]))
+            settleFocusBroadcasts()
+            guard case .ok(.object(let payload)) = result else { return nil }
+            return payload["workspace_id"]
+        }
+
+        #expect(selectLast(1) == .string(second.id.uuidString))
+        #expect(manager.selectedTabId == second.id)
+        #expect(selectLast(2) == .string(third.id.uuidString))
+        #expect(manager.selectedTabId == third.id)
     }
 
     @Test func restoredWorkspaceDockUsesInjectedSetting() throws {
