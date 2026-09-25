@@ -305,7 +305,7 @@ extension MobileIrxRuntimeComposition {
 
     /// Forwards a platform network change to every live iroh endpoint so
     /// paths that died with the old network are abandoned immediately.
-    func notifyNetworkChange() async {
+    public func notifyNetworkChange() async {
         let supervisors = [endpointSupervisor, directEndpointSupervisor].compactMap { $0 }
         for supervisor in supervisors {
             await supervisor.notifyNetworkChange()
