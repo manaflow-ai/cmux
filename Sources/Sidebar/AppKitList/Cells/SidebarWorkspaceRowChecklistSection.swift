@@ -569,22 +569,24 @@ final class SidebarRowChecklistSection: NSView {
 
     // MARK: Measurement + layout
 
-    /// Legacy single-line row height estimate (`11 * fontScale + 4`); the
-    /// expanded viewport caps at 6 estimated rows and scrolls for the rest.
+    /// Legacy single-line row height estimate (`11 * fontScale + 4`), used
+    /// until each AppKit row can report its measured height.
     private func itemRowHeightEstimate(_ model: SidebarWorkspaceRowModel) -> CGFloat {
         11 * model.fontScale + 4
     }
 
-    private static let visibleRowCount = 6
     private static let rowSpacing: CGFloat = 2
     /// The expanded list's `.padding(.leading, 2)`.
     private static let expandedLeadingPadding: CGFloat = 2
 
-    private func scrollViewportHeight(forItemCount count: Int, model: SidebarWorkspaceRowModel) -> CGFloat {
-        guard count > 0 else { return 0 }
-        let visibleCount = min(count, Self.visibleRowCount)
-        return itemRowHeightEstimate(model) * CGFloat(visibleCount)
-            + Self.rowSpacing * CGFloat(visibleCount - 1)
+    private func scrollViewportHeight(width: CGFloat, model: SidebarWorkspaceRowModel) -> CGFloat {
+        let rowHeights = orderedLines.map { $0.measuredHeight(width: width) }
+        return SidebarWorkspaceChecklistPopoverViewportModel.viewportHeight(
+            rowHeights: rowHeights,
+            itemCount: orderedItems.count,
+            fallbackRowHeight: itemRowHeightEstimate(model),
+            fallbackSpacing: Self.rowSpacing
+        )
     }
 
     func measuredHeight(width: CGFloat) -> CGFloat {
@@ -602,7 +604,10 @@ final class SidebarRowChecklistSection: NSView {
         }
         if showsExpandedList {
             if !orderedItems.isEmpty {
-                addBlock(scrollViewportHeight(forItemCount: orderedItems.count, model: model))
+                addBlock(scrollViewportHeight(
+                    width: max(10, width - Self.expandedLeadingPadding),
+                    model: model
+                ))
             }
             if !addRow.isHidden {
                 addBlock(addRow.measuredHeight(width: max(10, width - Self.expandedLeadingPadding)))
@@ -628,14 +633,20 @@ final class SidebarRowChecklistSection: NSView {
             summaryLine.frame = NSRect(x: 0, y: advance(height), width: bounds.width, height: height)
         }
         if showsExpandedList, !scrollView.isHidden {
-            let viewportHeight = scrollViewportHeight(forItemCount: orderedItems.count, model: model)
-            let top = advance(viewportHeight)
             let viewportWidth = max(10, bounds.width - Self.expandedLeadingPadding)
+            let top = y + (hasBlock ? Self.rowSpacing : 0)
             scrollView.frame = NSRect(
                 x: Self.expandedLeadingPadding, y: top,
-                width: viewportWidth, height: viewportHeight
+                width: viewportWidth, height: 0
             )
-            layoutItems(width: scrollView.contentSize.width)
+            let contentWidth = max(10, scrollView.contentSize.width)
+            let viewportHeight = scrollViewportHeight(width: contentWidth, model: model)
+            var scrollFrame = scrollView.frame
+            scrollFrame.size.height = viewportHeight
+            scrollView.frame = scrollFrame
+            y = top + viewportHeight
+            hasBlock = true
+            layoutItems(width: contentWidth)
         }
         if !addRow.isHidden {
             let width = max(10, bounds.width - Self.expandedLeadingPadding)
