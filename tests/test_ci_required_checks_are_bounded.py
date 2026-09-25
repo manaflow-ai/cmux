@@ -31,6 +31,7 @@ from test_web_complexity_trusted_workflow import REQUIRED_CHECK, validate_metada
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
+CI_WORKFLOW = WORKFLOWS / "ci.yml"
 
 # `gh api repos/manaflow-ai/cmux/rules/branches/main`, the
 # required_status_checks rule. Update alongside the ruleset.
@@ -108,9 +109,33 @@ def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
     return name
 
 
+def check_macos_15_pull_request_lane() -> str | None:
+    """Require every CI pull request run to execute the full unit target on macOS 15."""
+    workflow = load(CI_WORKFLOW)
+    jobs = workflow.get("jobs") or {}
+    lane = jobs.get("macos-15-unit-tests")
+    if not isinstance(lane, dict):
+        return "ci.yml has no macos-15-unit-tests job"
+    if lane.get("uses") != "./.github/workflows/test-macos-suite.yml":
+        return "macos-15-unit-tests must call test-macos-suite.yml"
+    if lane.get("with", {}).get("skip_ui_tests") is not True:
+        return "macos-15-unit-tests must skip UI tests"
+    if lane.get("with", {}).get("runner") != (
+        "${{ github.repository_owner == 'manaflow-ai' && 'blacksmith-6vcpu-macos-15' || 'macos-15' }}"
+    ):
+        return "macos-15-unit-tests must select the macOS 15 runner"
+    if "macos-15-unit-tests" not in (jobs.get("ci-status", {}).get("needs") or []):
+        return "ci-status must wait for macos-15-unit-tests"
+    return None
+
+
 def main() -> int:
     workflows = {p: load(p) for p in sorted(WORKFLOWS.glob("*.y*ml"))}
     failures: list[str] = []
+
+    macos_15_failure = check_macos_15_pull_request_lane()
+    if macos_15_failure:
+        failures.append(macos_15_failure)
 
     # Which workflows own a required check, by what their jobs are called.
     owners: dict[str, set[Path]] = {}
