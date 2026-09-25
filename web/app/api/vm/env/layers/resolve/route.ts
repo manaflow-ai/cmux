@@ -14,8 +14,6 @@ import {
 import { setSpanAttributes } from "../../../../../../services/telemetry";
 import { resolveEnvLayers, runVmWorkflow } from "../../../../../../services/vms/workflows";
 
-export const dynamic = "force-dynamic";
-
 const MAX_CHAIN_HASHES = 256;
 
 export async function POST(request: Request): Promise<Response> {
