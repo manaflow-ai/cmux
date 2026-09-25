@@ -13,7 +13,7 @@ public final class CloudDesktopConnectionObserver: NSObject, WKScriptMessageHand
           if (location.pathname !== '/vnc.html') return;
           const status = document.getElementById('noVNC_status');
           if (!status || !document.getElementById('noVNC_container')) return;
-          public let last;
+          let last;
           const report = () => {
             const connected = document.documentElement.classList.contains('noVNC_connected');
             const failed = status.classList.contains('noVNC_status_error') &&

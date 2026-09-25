@@ -92,7 +92,7 @@ public actor CloudMachineLink {
         }
     }
 
-    public let machineID: String
+    public nonisolated let machineID: String
     private let clientURL: URL
     private let paths: CloudTuiClientPaths
 
@@ -141,7 +141,7 @@ public actor CloudMachineLink {
 
     /// The newest change is buffered. If pressure drops an earlier delta, the next
     /// `previous_revision` check detects the gap and forces a complete snapshot.
-    public let changes: AsyncStream<Change>
+    public nonisolated let changes: AsyncStream<Change>
     private let changesContinuation: AsyncStream<Change>.Continuation
 
     public init(

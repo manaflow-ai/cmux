@@ -33,13 +33,13 @@ nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app", category:
 /// command-line fallback.
 public actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     private struct RetiredStartDeadline: Error {}
-    public let backend: CloudTunnelBackend
+    public nonisolated let backend: CloudTunnelBackend
     private let controller: any CloudTunnelControlling
     private let enroller: any CloudTunnelEnrolling
     private let consumers: any CloudTunnelConsumerSource
     /// Injected so tests drive virtual time; the deadline helper in
     /// `CloudTunnelCoordinator+Deadline.swift` reads it.
-    public let clock: any Clock<Duration>
+    public nonisolated let clock: any Clock<Duration>
     private let timing: CloudTunnelTiming
     /// Why a start is refused right now, or nil. Asked on every start path so
     /// an opt-in flipped while the app runs is honored by the next use.

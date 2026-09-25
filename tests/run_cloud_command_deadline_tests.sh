@@ -38,6 +38,6 @@ rm -f "$DEST/Sources/CloudCommandFixture/"*.bak
 for name in CloudCommandDeadlineClock CloudCommandDeadlineTests CloudTuiManualIOConnectionTests; do
     cp "$ROOT/cmuxTests/$name.swift" "$DEST/Tests/CloudCommandFixtureTests/"
 done
-sed -i.bak '/^import CmuxCloudTui$/d' "$DEST/Tests/CloudCommandFixtureTests/"*.swift
+sed -i.bak -e '/^import CmuxCloudTui$/d' -e '/^import CmuxCloud$/d' "$DEST/Tests/CloudCommandFixtureTests/"*.swift
 rm -f "$DEST/Tests/CloudCommandFixtureTests/"*.bak
 swift test --package-path "$DEST" -Xswiftc -warnings-as-errors

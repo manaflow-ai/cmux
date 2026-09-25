@@ -6,7 +6,7 @@ import SwiftUI
 public struct CloudTreeMachineBand<Content: View>: View {
     public init(
         style: CloudTreeStyle,
-        content: @escaping () -> Content
+        @ViewBuilder content: @escaping () -> Content
     ) {
         self.style = style
         self.content = content

@@ -20,7 +20,7 @@ public actor CloudBrowserProxyProcess {
     private var releaseHub: (@Sendable () async -> Void)?
     private var endpoint: CloudBrowserProxyEndpoint?
     private var stopped = false
-    public let addresses: [String]
+    public nonisolated let addresses: [String]
 
     public init(addresses: [String]) { self.addresses = addresses }
 
