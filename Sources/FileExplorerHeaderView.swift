@@ -13,6 +13,7 @@ final class FileExplorerHeaderView: NSView, NSTextFieldDelegate {
     private let queryLabel = NSTextField(labelWithString: "")
     private var heightConstraint: NSLayoutConstraint?
     private var directoryPath = ""
+    private var resourceContextID: UUID?
     private var quickSearchQuery: String?
     private var retry: (() -> Void)?
     var onNavigate: ((String) -> Void)?
@@ -140,6 +141,7 @@ final class FileExplorerHeaderView: NSView, NSTextFieldDelegate {
     func update(
         displayPath: String,
         directoryPath: String,
+        resourceContextID: UUID,
         canNavigateBack: Bool,
         canNavigateForward: Bool,
         canNavigateToParent: Bool,
@@ -148,6 +150,11 @@ final class FileExplorerHeaderView: NSView, NSTextFieldDelegate {
     ) {
         self.retry = retry
         self.directoryPath = directoryPath
+        if self.resourceContextID != resourceContextID {
+            self.resourceContextID = resourceContextID
+            // A draft belongs to the directory and provider where editing began.
+            if pathField.currentEditor() != nil { endEditing() }
+        }
         // These updates run within NSViewRepresentable. Redundant AppKit KVO
         // writes can trigger another SwiftUI pass, so every setter is guarded.
         if retryButton.isHidden != (retry == nil) { retryButton.isHidden = retry == nil }

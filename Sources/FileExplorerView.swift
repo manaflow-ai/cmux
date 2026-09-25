@@ -1278,6 +1278,7 @@ final class FileExplorerContainerView: NSView {
         headerView.update(
             displayPath: store.displayRootPath,
             directoryPath: store.rootPath,
+            resourceContextID: store.resourceContextID,
             canNavigateBack: store.canNavigateBack,
             canNavigateForward: store.canNavigateForward,
             canNavigateToParent: store.canNavigateToParent,

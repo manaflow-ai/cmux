@@ -46,6 +46,9 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
     var homePath: Result<String, Error>
     var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
     var downloads: [String: Result<Data, Error>] = [:]
+    var deferredHomeResolution = false
+    var homeContinuation: CheckedContinuation<String, Error>?
+    private(set) var homeReturned = false
     private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
     private(set) var listedPaths: [String] = []
     private(set) var downloadedPaths: [String] = []
@@ -56,6 +59,11 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
 
     func resolveHomePath(connection: SSHFileExplorerConnection) async throws -> String {
         resolvedHomeConnections.append(connection)
+        if deferredHomeResolution {
+            let home = try await withCheckedThrowingContinuation { homeContinuation = $0 }
+            homeReturned = true
+            return home
+        }
         return try homePath.get()
     }
 
@@ -278,6 +286,44 @@ struct FileExplorerStoreTests {
         store.setRootPath("/home/user/project")
         #expect(!store.canNavigateBack)
         #expect(!store.canNavigateForward)
+    }
+
+    @Test
+    func testDirectoryNavigationResolvesTildeOnRemoteHost() async throws {
+        let transport = MockSSHFileExplorerTransport(homePath: .success("/home/remote"))
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(.remoteSSH(
+            workspaceId: UUID(),
+            connection: SSHFileExplorerConnection(destination: "remote.example", port: nil, identityFile: nil, sshOptions: []),
+            displayTarget: "remote.example", rootPath: "/srv/app", isAvailable: true, unavailableDetail: nil
+        ), sshTransport: transport)
+        store.navigate(to: "~/different folder")
+        try await waitFor("remote home navigation") { store.rootPath == "/home/remote/different folder" && !store.isRootLoading }
+        #expect(transport.listedPaths.contains("/home/remote/different folder"))
+        #expect(store.canNavigateBack)
+        store.navigateBack()
+        #expect(store.rootPath == "/srv/app")
+    }
+
+    @Test
+    func testManualNavigationCancelsInitialRemoteHomeLookup() async throws {
+        let transport = MockSSHFileExplorerTransport()
+        transport.deferredHomeResolution = true
+        let store = FileExplorerStore()
+        store.applyWorkspaceRoot(.remoteSSH(
+            workspaceId: UUID(),
+            connection: SSHFileExplorerConnection(destination: "remote.example", port: nil, identityFile: nil, sshOptions: []),
+            displayTarget: "remote.example", rootPath: nil, isAvailable: true, unavailableDetail: nil
+        ), sshTransport: transport)
+        try await waitFor("initial home lookup started") { transport.homeContinuation != nil }
+        store.navigate(to: "/srv/chosen")
+        try await waitFor("chosen directory loaded") { store.rootPath == "/srv/chosen" && !store.isRootLoading }
+        #expect(store.remoteHomeResolutionKey == nil)
+        #expect(store.remoteHomeResolutionTask == nil)
+        transport.homeContinuation?.resume(returning: "/home/remote")
+        transport.homeContinuation = nil
+        try await waitFor("cancelled lookup returned") { transport.homeReturned }
+        #expect(store.rootPath == "/srv/chosen")
     }
 
     @Test
