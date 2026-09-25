@@ -3446,7 +3446,7 @@ impl Mux {
                 }
                 continue;
             }
-            self.complete_template_adoption(&terminal_id)?;
+            self.ensure_template_adoption_completed(&terminal_id);
             handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
         }
@@ -3473,6 +3473,45 @@ impl Mux {
             )?;
         }
         Ok(())
+    }
+
+    /// Complete an adopted template terminal (complete_template_adoption),
+    /// retrying in the background until it succeeds or the daemon shuts down.
+    /// Adoption itself has already committed, so a failure here must neither
+    /// abort startup nor leave the terminal without its public placement and
+    /// binding.
+    #[cfg(unix)]
+    fn ensure_template_adoption_completed(self: &Arc<Self>, terminal_id: &str) {
+        let Err(error) = self.complete_template_adoption(terminal_id) else {
+            return;
+        };
+        eprintln!("cmux-tui: template terminal {terminal_id} not published yet: {error:#}");
+        let mux = Arc::clone(self);
+        let terminal_id = terminal_id.to_string();
+        let spawned = std::thread::Builder::new()
+            .name(format!("template-complete-{terminal_id}"))
+            .spawn(move || {
+                let mut delay = Duration::from_millis(100);
+                loop {
+                    std::thread::sleep(delay);
+                    if mux.shutting_down.load(Ordering::Acquire) {
+                        break;
+                    }
+                    match mux.complete_template_adoption(&terminal_id) {
+                        Ok(()) => break,
+                        Err(error) => {
+                            eprintln!(
+                                "cmux-tui: template terminal {terminal_id} not published yet: \
+                                 {error:#}"
+                            );
+                            delay = (delay * 2).min(Duration::from_secs(5));
+                        }
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            eprintln!("cmux-tui: could not schedule template completion: {error}");
+        }
     }
 
     /// Finish a template terminal once its host is adopted, on the startup
@@ -3939,12 +3978,7 @@ impl Mux {
                             )
                             .is_ok()
                         {
-                            if let Err(error) = mux.complete_template_adoption(&terminal_id) {
-                                eprintln!(
-                                    "cmux-tui: could not publish template terminal \
-                                     {terminal_id}: {error:#}"
-                                );
-                            }
+                            mux.ensure_template_adoption_completed(&terminal_id);
                             mux.reap_if_dead(&surface);
                             break;
                         }
