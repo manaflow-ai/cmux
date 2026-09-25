@@ -254,34 +254,36 @@ struct ComputerUseHelperStaging {
         }
     }
 
-    /// Lists regular files used to verify a copied helper bundle.
+    /// Lists relative paths directly, without depending on /var versus /private/var spelling.
     private nonisolated func helperBundleRelativeFilePaths(at root: URL) -> Set<String>? {
-        var enumerationFailed = false
-        guard
-            let enumerator = fileManager.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [],
-                errorHandler: { _, _ in
-                    enumerationFailed = true
-                    return false
-                }
-            )
-        else {
+        do {
+            var paths: Set<String> = []
+            try collectFiles(root: root, relativeDirectory: "", into: &paths)
+            return paths
+        } catch {
             return nil
         }
-        var paths: Set<String> = []
-        for case let fileURL as URL in enumerator {
-            guard !Task.isCancelled else { return nil }
-            guard
-                let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
-                values.isRegularFile == true
-            else {
-                continue
+    }
+
+    /// Traverses directory names in the caller's path space and fails on unreadable entries.
+    private nonisolated func collectFiles(
+        root: URL,
+        relativeDirectory: String,
+        into paths: inout Set<String>
+    ) throws {
+        try Task.checkCancellation()
+        let directory = relativeDirectory.isEmpty ? root : root.appendingPathComponent(relativeDirectory)
+        for name in try fileManager.contentsOfDirectory(atPath: directory.path) {
+            try Task.checkCancellation()
+            let relative = relativeDirectory.isEmpty ? name : "\(relativeDirectory)/\(name)"
+            let url = root.appendingPathComponent(relative)
+            guard let mode = modeBits(at: url) else { throw CocoaError(.fileReadUnknown) }
+            switch mode & mode_t(S_IFMT) {
+            case mode_t(S_IFREG): paths.insert(relative)
+            case mode_t(S_IFDIR):
+                try collectFiles(root: root, relativeDirectory: relative, into: &paths)
+            default: break
             }
-            let relativePath = String(fileURL.path.dropFirst(root.path.count + 1))
-            paths.insert(relativePath)
         }
-        return enumerationFailed ? nil : paths
     }
 }
