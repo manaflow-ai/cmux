@@ -10,6 +10,18 @@ import Testing
 @Suite(.serialized)
 struct AgentSessionWebRendererTests {
     @Test
+    func testReactShellUsesCustomSchemeForModuleBundle() {
+        let resources = URL(fileURLWithPath: "/tmp/cmux DEV test.app/Contents/Resources", isDirectory: true)
+        let shellURL = AgentSessionWebRendererCoordinator.shellURL(
+            rendererKind: .react,
+            resourceDirectoryURL: resources
+        )
+
+        #expect(shellURL.scheme == "cmux-agent-session")
+        #expect(shellURL.host == "shell")
+    }
+
+    @Test
     @MainActor
     func testTerminalCommandQueuedBeforeCloseIsRejectedAfterClose() {
         let coordinator = AgentSessionWebRendererCoordinator()
