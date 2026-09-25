@@ -14696,7 +14696,7 @@ class TerminalController {
             )
         }
 
-        await ticket.turn.value
+        await ticket.waitForTurn()
         defer {
             MobileHostService.shared.terminalInputOrdering.finish(ticket)
         }

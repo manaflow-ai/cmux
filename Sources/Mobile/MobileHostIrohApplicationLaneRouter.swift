@@ -919,7 +919,7 @@ actor MobileHostIrohApplicationLaneRouter {
             return ticket
         }
         guard let ticket else { return false }
-        await ticket.turn.value
+        await ticket.waitForTurn()
         return await MainActor.run {
             defer {
                 MobileHostService.shared.terminalInputOrdering.finish(ticket)
