@@ -257,6 +257,9 @@ jobs:
           set -euo pipefail
           run_head="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq '.head_sha' 2>/dev/null || true)"
           current_head="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || true)"
+          # An API error (rate limit, outage) prints its body on stdout; only a SHA is a head.
+          [[ "$run_head" =~ ^[0-9a-f]{40}$ ]] || run_head=""
+          [[ "$current_head" =~ ^[0-9a-f]{40}$ ]] || current_head=""
           if [ -z "$run_head" ] || [ -z "$current_head" ]; then
             echo "Could not resolve run/PR head identity; continuing with normal CI."
             exit 0
