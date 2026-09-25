@@ -10,6 +10,9 @@ public enum EventStreamSocketFailureKind: Equatable, Sendable {
     case receiveTimeoutConfiguration
 }
 
+/// lint:allow namespace-type — stateless policy namespace; keeping the public
+/// type-level API avoids exposing an instance solely for dependency-free rules.
+///
 /// Whether an event-stream failure may be retried by `cmux events --reconnect`.
 ///
 /// The decision is pure: a typed ``EventStreamSocketFailureKind`` is
