@@ -4248,8 +4248,8 @@ final class TextBoxInputTextView: NSTextView {
                     forGlyphRange: intersection,
                     in: textContainer
                 )
-                rect.origin.x += textContainerOrigin.x
-                rect.origin.y += textContainerOrigin.y
+                rect.origin.x += self.textContainerOrigin.x
+                rect.origin.y += self.textContainerOrigin.y
                 rect = rect.insetBy(dx: -1, dy: 0)
                 guard rect.intersects(dirtyRect) else { return }
                 rect.fill()
@@ -4285,7 +4285,11 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         let character = min(max(location, 0), max(0, length - 1))
-        let glyph = layoutManager.glyphIndex(forCharacterAt: character)
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: character, length: 1),
+            actualCharacterRange: nil
+        )
+        let glyph = min(glyphRange.location, max(0, layoutManager.numberOfGlyphs - 1))
         let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
         let glyphRect = layoutManager.boundingRect(
             forGlyphRange: NSRange(location: glyph, length: 1),
