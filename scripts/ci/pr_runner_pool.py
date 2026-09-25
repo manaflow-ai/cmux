@@ -273,6 +273,10 @@ class Choice:
     # For a persistent runner only: its machines free for this run (capped at
     # the run's peak), which place() fills in priority order.
     owned_budget: int = 0
+    # For a Blacksmith pick on the lane's Xcode only: the pool the app-host
+    # shards take, when another pool on that Xcode has more room for them
+    # (spread_shards). "" keeps them on compile admission's pool.
+    shard_runner: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -637,6 +641,7 @@ def decide(
     owned_slots: Mapping[str, int] | None = None,
     jobs: int = MAX_RUN_JOBS,
     split: bool = False,
+    shards: int = 0,
 ) -> Choice:
     """The preference rule over a janitor snapshot. Uncertainty keeps today's route.
 
@@ -733,7 +738,38 @@ def decide(
         # own Xcode, which is also the Xcode the owned label names.
         lane = [pool_label for pool_label in usable if not persistent(pool_label) and not POOLS.get(pool_label)]
         retry = pick(load, added, lane, limits.max_queued)[0] if lane else DEFAULT_RUNNER
-    return Choice(label, xcode(label) or "", why + note, retry, min(free, max(1, jobs)) if persistent(label) else 0)
+    shard = spread_shards(load, added, usable, label, shards)
+    if shard:
+        note += f"; its {shards} app-host shards take {shard}, which has more room for them"
+    return Choice(label, xcode(label) or "", why + note, retry, min(free, max(1, jobs)) if persistent(label) else 0,
+                  shard)
+
+
+def spread_shards(load: Mapping[str, Mapping[str, int]], added: Mapping[str, int], usable: Sequence[str],
+                  label: str, shards: int) -> str:
+    """The pool a full suite's app-host shards take, or "" for admission's own.
+
+    Admission and the shards need the same Xcode, not the same pool: every
+    Blacksmith pool on the lane's Xcode reproduces the canonical build root, so
+    the product runs on any of them. A run that compiles on the 5-machine
+    12vcpu pool left its 7 shards waiting for it, the last one starting a
+    median 23 minutes (p90 42) after the compile (2026-09-25). They take the
+    pool on that Xcode whose queue is shortest in rounds once they all arrive
+    there, admission's own on a tie.
+    """
+    if shards < 2 or persistent(label) or POOLS.get(label):
+        return ""
+    lane = [pool_label for pool_label in usable if not persistent(pool_label) and not POOLS.get(pool_label)]
+    if label not in lane or len(lane) < 2:
+        return ""
+    after = {**added, label: added.get(label, 0) + 1}  # this run's admission
+
+    def wait(pool_label: str) -> tuple[float, int]:
+        queued = effective_queue(load[pool_label], after.get(pool_label, 0) + shards)
+        return rounds(load[pool_label], queued), 0 if pool_label == label else 1 + lane.index(pool_label)
+
+    best = min(lane, key=wait)
+    return "" if best == label else best
 
 
 def choose(
@@ -755,6 +791,7 @@ def choose(
     now: dt.datetime,
     run_attempt: int = 1,
     live_owned: Mapping[str, int] | None = None,
+    shards: int = 0,
 ) -> tuple[Choice, Mapping[str, Any] | None]:
     """The pool for this run and the snapshot it was read from (None when none was read)."""
     if event != "pull_request":
@@ -826,7 +863,7 @@ def choose(
     choice = decide(snapshot, limits, now=now, xcode_pins={} if fork else xcode_pins,
                     routed_since=routed.unknown, owned_since=routed.owned, ephemeral_since=routed.ephemeral,
                     auto_xcode=fork, owned_slots=owned_capacity, jobs=jobs,
-                    split=(split or "").strip() == "1")
+                    split=(split or "").strip() == "1", shards=shards)
     if live and persistent(choice.runner):
         choice = dataclasses.replace(choice, reason=f"{choice.reason}; owned machines read live from the runners API")
     if fork and choice.runner:
@@ -1103,6 +1140,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         now=now,
         run_attempt=int(attempt) if attempt.isdigit() else 1,
         live_owned=live_owned,
+        shards=sum(1 for key in plan.after if key.startswith("shard-")),
     )
     pr_xcode_app = env.get(PR_XCODE_VARIABLE)
     # Only a same-repository pull request reads the slots; ci.yml blanks the pin
@@ -1128,6 +1166,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
             handle.write(f"runner={choice.runner}\nxcode_app={choice.xcode_app}\n"
                          f"persistent={'true' if persistent(choice.runner) else 'false'}\n"
                          f"retry_runner={choice.retry_runner}\njobs={held}\n"
+                         f"shard_runner={choice.shard_runner}\n"
                          # Attempt 2 of an owned job the fleet refused tries it
                          # once more: a re-run of failed jobs reuses these outputs.
                          f"refused_retry_runner={choice.runner if persistent(choice.runner) else ''}\n"
