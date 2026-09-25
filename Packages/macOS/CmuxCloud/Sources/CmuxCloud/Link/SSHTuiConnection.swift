@@ -55,8 +55,14 @@ public struct SSHTuiConnection: Sendable {
     public func arguments(stateDirectory: String, deviceName: String) -> [String] {
         var arguments = ["remote", "ssh", configuration.destination, "--headless", "--json",
                          "--exit-with-parent", "--lanes", "single", "--carrier",
+                         // A headless carrier cannot answer an SSH password or host-key
+                         // prompt. Fail fast so the CLI can run foreground authentication
+                         // and retry through the shared ControlMaster.
+                         "--connect-timeout-seconds", "15",
+                         "--reconnect-attempts", "1",
+                         "--reconnect-attempt-timeout-ms", "5000",
                          "--session", session, "--state-dir", stateDirectory]
-        var sshArguments = ["-o", "RequestTTY=no", "-o", "RemoteCommand=none"]
+        var sshArguments = ["-o", "BatchMode=yes", "-o", "RequestTTY=no", "-o", "RemoteCommand=none"]
         if let port = configuration.port { sshArguments += ["-p", String(port)] }
         if let identity = configuration.identityFile { sshArguments += ["-i", identity] }
         for option in configuration.sshOptions { sshArguments += ["-o", option] }

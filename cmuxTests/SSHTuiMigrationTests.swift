@@ -70,6 +70,27 @@ struct SSHTuiMigrationTests {
         #expect(values.contains(Substring("identityfile " + key.path)))
     }
 
+    @Test("Headless carriers fail fast for foreground authentication")
+    func carrierUsesBoundedBatchAuthentication() {
+        let arguments = SSHTuiConnection(configuration: configuration()).arguments(
+            stateDirectory: "/tmp/cmux-tui-client",
+            deviceName: "test"
+        )
+        #expect(arguments.contains("--connect-timeout-seconds"))
+        #expect(arguments.contains("15"))
+        #expect(arguments.contains("--reconnect-attempts"))
+        #expect(arguments.contains("1"))
+        #expect(arguments.contains("--reconnect-attempt-timeout-ms"))
+        #expect(arguments.contains("5000"))
+        let sshArguments = arguments.indices.compactMap { index -> String? in
+            guard index > 0, arguments[index - 1] == "--ssh-arg" else { return nil }
+            return arguments[index]
+        }
+        #expect(sshArguments.contains("BatchMode=yes"))
+        #expect(sshArguments.contains("RequestTTY=no"))
+        #expect(sshArguments.contains("RemoteCommand=none"))
+    }
+
     @Test("Changing a ControlMaster path does not change persistent SSH terminal identity")
     func sessionIdentitySurvivesCarrierReplacement() {
         let first = SSHTuiConnection(configuration: configuration(options: ["ControlPath=/tmp/first", "ProxyJump=bastion"]))
