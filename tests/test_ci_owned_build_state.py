@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -34,7 +35,8 @@ class Fixture(unittest.TestCase):
         base = Path(self.tmp.name)
         self.store, self.workspace = base / "store", base / "workspace"
         self.derived = base / "canonical" / "derived-data-compile-admission"
-        self.packages = base / "canonical" / "src" / ".ci-source-packages"
+        self.source = base / "canonical" / "src"
+        self.packages = self.source / ".ci-source-packages"
         self.workspace.mkdir()
 
     def tearDown(self):
@@ -95,20 +97,23 @@ class AdoptAndSave(Fixture):
         state.remove(self.derived)
         self.derived.mkdir(parents=True)
         (self.derived / "fresh").write_text("resolve")
-        self.assertEqual(run(state.adopt, self.store, self.derived), {"hit": "true"})
+        result = run(state.adopt, self.store, self.derived, self.source)
+        self.assertEqual(result["hit"], "true")
+        # Kept before inputs were recorded: adopted, but nothing to replay.
+        self.assertEqual(result["replayed"], "false")
         self.assertTrue((self.derived / "Build" / "obj.o").is_file())
         self.assertFalse((self.derived / "fresh").exists())
         self.assertFalse((self.store / "derived-data").exists())
 
     def test_adopt_without_a_kept_derived_data_is_a_miss(self):
-        self.assertEqual(run(state.adopt, self.store, self.derived)["hit"], "false")
+        self.assertEqual(run(state.adopt, self.store, self.derived, self.source)["hit"], "false")
 
     def test_a_failed_compile_keeps_packages_but_not_derived_data(self):
         # adopt moved the kept DerivedData out; with no keep after a failed
         # compile the store has none, and the next job starts from the seed.
         self.keep()
         run(state.check, self.store, "fp", self.workspace)
-        run(state.adopt, self.store, self.derived)
+        run(state.adopt, self.store, self.derived, self.source)
         result = run(state.save, self.store, self.packages, self.workspace)
         self.assertEqual(result["packages"], "true")
         self.assertFalse((self.store / "derived-data").exists())
@@ -149,6 +154,58 @@ class AdoptAndSave(Fixture):
             self.assertEqual(state.main(["x", "check", "only"]), 2)
 
 
+class Replay(Fixture):
+    """A warm job must see the times the kept build saw, not the copy's (job 107904138254)."""
+
+    OLD = 1_700_000_000_000_000_000
+
+    def write_source(self, files):
+        for relative, text in files.items():
+            path = self.source / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+
+    def test_the_next_job_replays_the_recorded_times_onto_unchanged_inputs(self):
+        self.write_source({"Sources/a.swift": "a", "Sources/b.swift": "b"})
+        for path in (self.source / "Sources").iterdir():
+            os.utime(path, ns=(self.OLD, self.OLD))
+        self.derived.mkdir(parents=True)
+        self.assertEqual(run(state.record, self.source, self.derived), {"recorded": "true"})
+        self.assertEqual(run(state.keep, self.store, self.derived, "fp")["kept"], "true")
+
+        # The next job: a fresh copy stamped now, with one file changed.
+        state.remove(self.source)
+        state.remove(self.derived)
+        self.write_source({"Sources/a.swift": "a", "Sources/b.swift": "b changed"})
+        self.derived.mkdir(parents=True)
+        result = run(state.adopt, self.store, self.derived, self.source)
+        self.assertEqual((result["hit"], result["replayed"]), ("true", "true"))
+        self.assertEqual((result["unchanged_inputs"], result["changed_inputs"]), ("1", "1"))
+        self.assertEqual((self.source / "Sources/a.swift").stat().st_mtime_ns, self.OLD)
+        self.assertGreater((self.source / "Sources/b.swift").stat().st_mtime_ns, self.OLD)
+
+    def test_a_failed_record_leaves_no_stale_record_behind(self):
+        # A seed's record would age inputs the kept build never saw.
+        self.derived.mkdir(parents=True)
+        (self.derived / state.seed.MANIFEST).write_text(json.dumps({"Sources/a.swift": ["x", self.OLD]}))
+        with unittest.mock.patch.object(state.seed, "record", side_effect=OSError("disk")):
+            with self.assertRaises(OSError):
+                run(state.record, self.source, self.derived)
+        self.assertFalse((self.derived / state.seed.MANIFEST).exists())
+        run(state.keep, self.store, self.derived, "fp")
+        self.derived = self.derived.with_name("next")
+        self.assertEqual(run(state.adopt, self.store, self.derived, self.source)["replayed"], "false")
+
+    def test_record_replaces_the_seed_record(self):
+        self.write_source({"a.swift": "a"})
+        self.derived.mkdir(parents=True)
+        (self.derived / state.seed.MANIFEST).write_text(json.dumps({"stale": ["x", 1]}))
+        run(state.record, self.source, self.derived)
+        recorded = json.loads((self.derived / state.seed.MANIFEST).read_text())
+        self.assertNotIn("stale", recorded)
+        self.assertIn("a.swift", recorded)
+
+
 class WorkflowCommandLines(unittest.TestCase):
     """Run every owned_build_state.py line of the workflow as written (run 36064525977 exited 2)."""
 
@@ -159,7 +216,7 @@ class WorkflowCommandLines(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-macos.yml").read_text())
         steps = workflow["jobs"]["macos-compile-admission"]["steps"]
         calls = [step for step in steps if "owned_build_state.py" in str(step.get("run", ""))]
-        self.assertEqual(len(calls), 4)
+        self.assertEqual(len(calls), 5)
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             (base / "derived").mkdir()
@@ -201,8 +258,9 @@ class Wiring(unittest.TestCase):
         self.assertIn("steps.owned-state.outcome != 'skipped'", self.step("Keep this owned Mac's build state")["if"])
         self.assertIn("steps.owned-state.outputs.fingerprint != ''", self.step("Keep this owned Mac's DerivedData")["if"])
         self.assertIn("steps.owned-state.outputs.warm == 'true'", self.by_id["owned-adopt"]["if"])
-        for step in (self.by_id["owned-state"], self.by_id["owned-adopt"], self.step("Keep this owned Mac's DerivedData"),
-                     self.step("Keep this owned Mac's build state")):
+        self.assertIn("steps.owned-state.outputs.fingerprint != ''", self.step("Record this owned Mac's build inputs")["if"])
+        for step in (self.by_id["owned-state"], self.by_id["owned-adopt"], self.step("Record this owned Mac's build inputs"),
+                     self.step("Keep this owned Mac's DerivedData"), self.step("Keep this owned Mac's build state")):
             self.assertIs(step.get("continue-on-error"), True, step["name"])
             self.assertNotIn("uses", step, step["name"])
         self.assertEqual(self.job["env"]["CMUX_OWNED_STATE_ROOT"], "/Users/Shared/cmux-build-fleet/ci")
@@ -220,7 +278,8 @@ class Wiring(unittest.TestCase):
 
         text = (ROOT / ".github/workflows/ci-macos.yml").read_text()
         for name in ("Reuse this owned Mac's build state", "Adopt this owned Mac's DerivedData",
-                     "Keep this owned Mac's DerivedData", "Keep this owned Mac's build state"):
+                     "Record this owned Mac's build inputs", "Keep this owned Mac's DerivedData",
+                     "Keep this owned Mac's build state"):
             self.assertIn(name, identity.NON_PRODUCT_RECIPE_STEPS)
         steps = identity.recipe_projection(text)["steps"]
         for name, block in steps.items():
@@ -233,7 +292,10 @@ class Wiring(unittest.TestCase):
         self.assertLess(index("Reuse this owned Mac's build state"), index("Cache GhosttyKit.xcframework"))
         self.assertLess(index("Resolve Swift packages"), index("Adopt this owned Mac's DerivedData"))
         self.assertLess(index("Adopt the nightly DerivedData seed"), index("Adopt this owned Mac's DerivedData"))
-        self.assertLess(index("Adopt this owned Mac's DerivedData"), index("Compile app-host test product"))
+        self.assertLess(index("Adopt this owned Mac's DerivedData"), index("Record this owned Mac's build inputs"))
+        self.assertLess(index("Record this owned Mac's build inputs"), index("Compile app-host test product"))
+        # adopt replays onto the canonical tree the compile builds.
+        self.assertIn('"$CMUX_CI_CANONICAL_SRC"', self.by_id["owned-adopt"]["run"])
         self.assertLess(index("Forget the adopted-build inode override"), index("Keep this owned Mac's DerivedData"))
         self.assertLess(index("Seed node-local compiled product cache"), index("Keep this owned Mac's build state"))
         self.assertLess(index("Keep this owned Mac's build state"), index("Prepare isolated DerivedData"))
