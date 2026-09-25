@@ -217,6 +217,47 @@ struct AgentJournalStoreTests {
         }
     }
 
+    @Test func goalProjectionBatchPreservesProviderAndRequestOrder() throws {
+        let (store, url) = try makeStore()
+        defer {
+            store.close()
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        let workspace = UUID().uuidString
+        let surface = UUID().uuidString
+        func goalDraft(source: String, session: String, eventId: String) -> AgentJournalEventDraft {
+            AgentJournalEventDraft(
+                eventId: eventId,
+                kind: .goalStateChanged,
+                occurredAtMs: 100,
+                source: source,
+                agentKey: source,
+                sessionId: session,
+                workspaceId: workspace,
+                surfaceId: surface,
+                nativeEvent: "goal-state",
+                goalLifecycle: AgentGoalLifecycle(
+                    state: .active,
+                    generation: "g1",
+                    updatedAtMs: 100,
+                    provenance: "provider_hook"
+                )
+            )
+        }
+        _ = try store.append(goalDraft(source: "codex", session: "shared", eventId: "batch-1"))
+        _ = try store.append(goalDraft(source: "claude", session: "shared", eventId: "batch-2"))
+
+        let results = try store.goalLifecycles([
+            (source: "claude", sessionId: "shared"),
+            (source: "missing", sessionId: "none"),
+            (source: "codex", sessionId: "shared")
+        ])
+        #expect(results.count == 3)
+        #expect(results[0]?.provenance == "provider_hook")
+        #expect(results[1] == nil)
+        #expect(results[2]?.generation == "g1")
+    }
+
     @Test func goalEventRoundTripsItsPrivatePayload() throws {
         let (store, url) = try makeStore()
         defer {

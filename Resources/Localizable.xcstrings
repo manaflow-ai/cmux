@@ -558091,6 +558091,72 @@
             "state": "translated",
             "value": "目標ライフサイクルの値が無効です: %@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeća vrijednost životnog ciklusa cilja: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig værdi for målets livscyklus: %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valore del ciclo di vita dell’obiettivo non valido: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "តម្លៃវដ្តជីវិតគោលដៅមិនត្រឹមត្រូវ៖ %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig verdi for målets livssyklus: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowa wartość cyklu życia celu: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Valor inválido do ciclo de vida do objetivo: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимое значение жизненного цикла цели: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค่าระยะวงจรชีวิตเป้าหมายไม่ถูกต้อง: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz hedef yaşam döngüsü değeri: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсне значення життєвого циклу цілі: %@"
+          }
         }
       }
     },
@@ -558149,6 +558215,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "目標ライフサイクルの更新は拒否されました。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriranje životnog ciklusa cilja je odbijeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdatering af målets livscyklus blev afvist."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento del ciclo di vita dell’obiettivo rifiutato."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការធ្វើបច្ចុប្បន្នភាពវដ្តជីវិតគោលដៅត្រូវបានបដិសេធ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdatering av målets livssyklus ble avvist."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizacja cyklu życia celu została odrzucona."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A atualização do ciclo de vida do objetivo foi rejeitada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление жизненного цикла цели отклонено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การอัปเดตวงจรชีวิตเป้าหมายถูกปฏิเสธ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hedef yaşam döngüsü güncellemesi reddedildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення життєвого циклу цілі відхилено."
           }
         }
       }
@@ -558209,6 +558341,72 @@
             "state": "translated",
             "value": "--session と --generation は必須です。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session i --generation su obavezni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session og --generation er påkrævet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session e --generation sono obbligatori."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការជម្រើស --session និង --generation។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session og --generation er obligatoriske."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymagane są opcje --session i --generation."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session e --generation são obrigatórios."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуются параметры --session и --generation."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องระบุ --session และ --generation"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--session ve --generation gereklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібні параметри --session і --generation."
+          }
         }
       }
     },
@@ -558267,6 +558465,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "--agent は必須です。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent je obavezan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent er påkrævet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent è obbligatorio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការ --agent។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent er obligatorisk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcja --agent jest wymagana."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent é obrigatório."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуется параметр --agent."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องระบุ --agent"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent gereklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібен параметр --agent."
           }
         }
       }
@@ -558327,6 +558591,72 @@
             "state": "translated",
             "value": "--updated-at-ms は 0 以上の整数で指定してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms mora biti nenegativan cijeli broj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms skal være et heltal, der ikke er negativt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms deve essere un intero non negativo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms ត្រូវជាចំនួនគត់មិនអវិជ្ជមាន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms må være et ikke-negativt heltall."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms musi być nieujemną liczbą całkowitą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms deve ser um número inteiro não negativo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms должен быть неотрицательным целым числом."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms ต้องเป็นจำนวนเต็มที่ไม่ติดลบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms negatif olmayan bir tam sayı olmalıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--updated-at-ms має бути невід’ємним цілим числом."
+          }
         }
       }
     },
@@ -558385,6 +558715,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "使用法: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีใช้: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux agent goal-state <state> --agent <name> --session <id> --generation <id> [--previous-generation <id>] [--provenance <slug>] [--workspace <uuid>] [--surface <uuid>] [--updated-at-ms <n>] [--event-id <id>] [--json]"
           }
         }
       }
@@ -558445,6 +558841,72 @@
             "state": "translated",
             "value": "ワークスペースとサーフェスの識別子が必要です。--workspace と --surface を指定するか、cmux フック環境を使用してください。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebni su identifikatori radnog prostora i površine; navedite --workspace i --surface ili koristite cmux okruženje hooka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der kræves et arbejdsområde- og overflade-id; angiv --workspace og --surface, eller brug cmux-hookmiljøet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sono necessari gli identificatori di workspace e superficie; specifica --workspace e --surface oppure usa l’ambiente hook di cmux."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការអត្តសញ្ញាណ workspace និង surface; បញ្ជូន --workspace និង --surface ឬប្រើបរិស្ថាន hook របស់ cmux។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområde- og overflateidentifikatorer kreves; angi --workspace og --surface eller bruk cmux-hookmiljøet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymagane są identyfikatory obszaru roboczego i powierzchni; podaj --workspace i --surface lub użyj środowiska hooka cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os identificadores do workspace e da superfície são obrigatórios; passe --workspace e --surface ou use o ambiente do hook do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Требуются идентификаторы рабочей области и поверхности; укажите --workspace и --surface или используйте окружение хука cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมีตัวระบุ workspace และ surface ให้ระบุ --workspace และ --surface หรือใช้สภาพแวดล้อม hook ของ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma alanı ve yüzey kimlikleri gereklidir; --workspace ve --surface belirtin veya cmux hook ortamını kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібні ідентифікатори робочої області й поверхні; передайте --workspace і --surface або використайте середовище hook cmux."
+          }
         }
       }
     },
@@ -558503,6 +558965,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK 再実行しました"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U redu, ponovljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK gentaget"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK riprodotto"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យល់ព្រម បានចាក់ឡើងវិញ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK gjentatt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK powtórzono"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK repetido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ОК, повторено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตกลง ทำซ้ำแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamam, yinelendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Гаразд, повторено"
           }
         }
       }
@@ -558563,6 +559091,72 @@
             "state": "translated",
             "value": "目標状態 '%@' は無効です。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nevažeće stanje cilja '%@'."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig måltilstand '%@'."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stato obiettivo non valido '%@'."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានភាពគោលដៅ '%@' មិនត្រឹមត្រូវ។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ugyldig måltilstand «%@»."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprawidłowy stan celu „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estado inválido do objetivo '%@'."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недопустимое состояние цели «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถานะเป้าหมาย '%@' ไม่ถูกต้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçersiz hedef durumu '%@'."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недійсний стан цілі «%@»."
+          }
         }
       }
     },
@@ -558621,6 +559215,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なエージェントです。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznat agent."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente sconosciuto."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមិនស្គាល់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent agent."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznany agent."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente desconhecido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестный агент."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จักเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen aracı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідомий агент."
           }
         }
       }
@@ -558681,6 +559341,72 @@
             "state": "translated",
             "value": "特定のエージェントセッションの目標状態を記録します。世代識別子が以前の目標からの遅延更新を遮断します。"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zabilježite mjerodavno stanje cilja za jednu tačnu sesiju agenta. Generacija blokira zakašnjela ažuriranja prethodnog cilja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrer den autoritative måltilstand for én bestemt agentsession. Generationen blokerer sene opdateringer fra et tidligere mål."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra lo stato obiettivo autorevole per una sessione agente precisa. La generazione blocca gli aggiornamenti tardivi di un obiettivo precedente."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កត់ត្រាស្ថានភាពគោលដៅមានសិទ្ធិសម្រាប់សម័យភ្នាក់ងារជាក់លាក់មួយ។ ជំនាន់ទប់ស្កាត់ការធ្វើបច្ចុប្បន្នភាពយឺតពីគោលដៅមុន។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrer autoritativ måltilstand for én bestemt agentsesjon. Generasjonen blokkerer sene oppdateringer fra et tidligere mål."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zapisuje autorytatywny stan celu dla konkretnej sesji agenta. Generacja blokuje spóźnione aktualizacje poprzedniego celu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra o estado autoritativo do objetivo para uma sessão exata do agente. A geração bloqueia atualizações atrasadas de um objetivo anterior."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записывает достоверное состояние цели для точного сеанса агента. Поколение блокирует поздние обновления предыдущей цели."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บันทึกสถานะเป้าหมายที่เชื่อถือได้สำหรับเซสชันเอเจนต์ที่ระบุ การสร้างจะบล็อกการอัปเดตล่าช้าจากเป้าหมายก่อนหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Belirli bir aracı oturumu için yetkili hedef durumunu kaydeder. Nesil, önceki hedeften gelen gecikmiş güncellemeleri engeller."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Записує авторитетний стан цілі для точної сесії агента. Покоління блокує запізнілі оновлення попередньої цілі."
+          }
         }
       }
     },
@@ -558740,6 +559466,72 @@
             "state": "translated",
             "value": "目標=%@"
           }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cilj=%@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mål=%@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "obiettivo=%@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គោលដៅ=%@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mål=%@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cel=%@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "objetivo=%@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "цель=%@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เป้าหมาย=%@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hedef=%@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ціль=%@"
+          }
         }
       }
     },
@@ -558798,6 +559590,72 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK 更新しました"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U redu, ažurirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK opdateret"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK aggiornato"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "យល់ព្រម បានធ្វើបច្ចុប្បន្នភាព"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK oppdatert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK zaktualizowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK atualizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ОК, обновлено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตกลง อัปเดตแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamam, güncellendi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Гаразд, оновлено"
           }
         }
       }

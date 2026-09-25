@@ -58,9 +58,11 @@ rejects a replacement unless it names the currently stored generation, which
 prevents a late completion from an earlier objective from changing the new one.
 
 Each newly committed goal update also emits `agent.goal.state_changed` on the
-public `cmux events` stream. Its payload contains the event id, exact provider
-session id, lifecycle state, generation, producer timestamp, and provenance;
-the journal event id and stream sequence make reconnect and deduplication safe.
+public `cmux events` stream. Its payload contains the event id, provider,
+lifecycle state, generation, producer timestamp, and provenance. The provider
+session identifier remains in the private journal projection rather than the
+public event payload; the journal event id and stream sequence make reconnect
+and deduplication safe.
 Replaying an already committed append does not emit a second public event.
 
 ## Testing

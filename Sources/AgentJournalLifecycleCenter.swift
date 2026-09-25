@@ -320,7 +320,6 @@ final class AgentJournalLifecycleCenter: Sendable {
                 "event_id": draft.eventId,
                 "provider": draft.source,
                 "agent_key": draft.agentKey,
-                "session_id": draft.sessionId ?? "",
                 "goal_lifecycle": goal.state.rawValue,
                 "goal_generation": goal.generation,
                 "goal_updated_at_ms": goal.updatedAtMs,
@@ -353,14 +352,54 @@ final class AgentJournalLifecycleCenter: Sendable {
                 case goalLifecycle = "goal_lifecycle"
             }
         }
-        guard let data = args.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
-              let request = try? JSONDecoder().decode(Request.self, from: data),
-              AgentJournalEventDraft.isValidSlug(request.source),
-              !request.sessionID.isEmpty, request.sessionID.count <= 256 else {
+        struct BatchRequest: Decodable {
+            let sessions: [Request]
+        }
+        struct BatchItem: Encodable {
+            let source: String
+            let sessionID: String
+            let goalLifecycle: AgentGoalLifecycle?
+
+            enum CodingKeys: String, CodingKey {
+                case source
+                case sessionID = "session_id"
+                case goalLifecycle = "goal_lifecycle"
+            }
+        }
+        struct BatchResponse: Encodable {
+            let available: Bool
+            let goals: [BatchItem]
+        }
+        guard let data = args.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8) else {
             return "ERROR: invalid goal query"
         }
         guard let store = lazyStore?.store() else {
             return "ERROR: agent journal unavailable"
+        }
+        let decoder = JSONDecoder()
+        if let batch = try? decoder.decode(BatchRequest.self, from: data) {
+            guard !batch.sessions.isEmpty, batch.sessions.count <= 256,
+                  batch.sessions.allSatisfy({
+                      AgentJournalEventDraft.isValidSlug($0.source)
+                          && !$0.sessionID.isEmpty && $0.sessionID.count <= 256
+                  }) else {
+                return "ERROR: invalid goal query"
+            }
+            do {
+                let requests = batch.sessions.map { (source: $0.source, sessionId: $0.sessionID) }
+                let projections = try store.goalLifecycles(requests)
+                let goals = zip(batch.sessions, projections).map { request, projection in
+                    BatchItem(source: request.source, sessionID: request.sessionID, goalLifecycle: projection)
+                }
+                return String(decoding: try JSONEncoder().encode(BatchResponse(available: true, goals: goals)), as: UTF8.self)
+            } catch {
+                return "ERROR: agent journal unavailable"
+            }
+        }
+        guard let request = try? decoder.decode(Request.self, from: data),
+              AgentJournalEventDraft.isValidSlug(request.source),
+              !request.sessionID.isEmpty, request.sessionID.count <= 256 else {
+            return "ERROR: invalid goal query"
         }
         do {
             let goal = try store.goalLifecycle(source: request.source, sessionId: request.sessionID)

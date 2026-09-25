@@ -13,6 +13,22 @@ extension AgentJournalStore {
         try withDatabase { try Self.readCurrentGoal($0, source: source, sessionId: sessionId) }
     }
 
+    /// Reads several durable objective projections in one indexed query.
+    ///
+    /// - Parameter requests: Provider and exact session identities. The
+    ///   returned array preserves this order; a `nil` element means that the
+    ///   session has no committed objective projection.
+    /// - Returns: One projection or `nil` for each requested identity.
+    /// - Throws: A storage error when the projection cannot be read.
+    public func goalLifecycles(
+        _ requests: [(source: String, sessionId: String)]
+    ) throws -> [AgentGoalLifecycle?] {
+        guard !requests.isEmpty else { return [] }
+        return try withDatabase {
+            try Self.readCurrentGoals($0, requests: requests)
+        }
+    }
+
     static func migrateGoals(_ database: AgentJournalDatabase) throws {
         try database.exec("""
             CREATE TABLE IF NOT EXISTS agent_goal_context (
@@ -86,5 +102,48 @@ extension AgentJournalStore {
             throw AgentJournalStoreError.stepFailed(result, "goal projection unavailable")
         }
         return try JSONDecoder().decode(AgentGoalLifecycle.self, from: Data(json.utf8))
+    }
+
+    private static func readCurrentGoals(
+        _ database: AgentJournalDatabase,
+        requests: [(source: String, sessionId: String)]
+    ) throws -> [AgentGoalLifecycle?] {
+        let statement = try database.prepare("""
+            WITH requested(source, session_id, ordinal) AS (
+                VALUES \(requests.enumerated().map { index, _ in
+                    "(?\(index * 2 + 1), ?\(index * 2 + 2), \(index))"
+                }.joined(separator: ", "))
+            )
+            SELECT requested.ordinal, agent_goal_current.goal_lifecycle
+            FROM requested
+            LEFT JOIN agent_goal_current
+              ON agent_goal_current.source = requested.source
+             AND agent_goal_current.session_id = requested.session_id
+            ORDER BY requested.ordinal;
+            """)
+        defer { sqlite3_finalize(statement) }
+        let parameters = requests.flatMap { [AgentJournalDatabase.BindValue.text($0.source), .text($0.sessionId)] }
+        try database.bind(statement: statement, parameters: parameters)
+        var results: [AgentGoalLifecycle?] = []
+        let decoder = JSONDecoder()
+        while true {
+            let result = database.step(statement)
+            if result == SQLITE_DONE { break }
+            guard result == SQLITE_ROW else {
+                throw AgentJournalStoreError.stepFailed(result, "goal projection unavailable")
+            }
+            guard database.columnInt64(statement, 0) == Int64(results.count) else {
+                throw AgentJournalStoreError.stepFailed(SQLITE_ERROR, "goal projection order changed")
+            }
+            guard let json = database.columnText(statement, 1) else {
+                results.append(nil)
+                continue
+            }
+            results.append(try decoder.decode(AgentGoalLifecycle.self, from: Data(json.utf8)))
+        }
+        guard results.count == requests.count else {
+            throw AgentJournalStoreError.stepFailed(SQLITE_ERROR, "goal projection result incomplete")
+        }
+        return results
     }
 }

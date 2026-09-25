@@ -8,18 +8,30 @@ extension CMUXCLI {
         case present(AgentGoalLifecycle)
     }
 
-    private struct SessionsListGoalResponse: Decodable {
+    private struct SessionsListGoalBatchResponse: Decodable {
         let available: Bool
+        let goals: [SessionsListGoalBatchItem]
+    }
+
+    private struct SessionsListGoalBatchItem: Decodable {
+        let source: String
+        let sessionID: String
         let goalLifecycle: AgentGoalLifecycle?
 
         enum CodingKeys: String, CodingKey {
-            case available
+            case source
+            case sessionID = "session_id"
             case goalLifecycle = "goal_lifecycle"
         }
     }
 
     private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
-    private typealias SessionListEntry = (updatedAt: TimeInterval, payload: [String: Any])
+    private typealias SessionListEntry = (
+        updatedAt: TimeInterval,
+        payload: [String: Any],
+        goalSource: String,
+        goalSessionID: String
+    )
     private typealias CodexSessionListIndex = (indexedSessionIds: Set<String>, transcriptPathBySessionId: [String: String])
 
     func runSessionsCommand(
@@ -145,7 +157,7 @@ extension CMUXCLI {
             explicitPassword: explicitPassword
         )
         defer { goalClient?.close() }
-        var goalJournalUnavailable = goalClient == nil
+        let goalJournalUnavailable = goalClient == nil
         for spec in selectedSpecs {
             let storePath = URL(fileURLWithPath: stateDir, isDirectory: true)
                 .appendingPathComponent("\(spec.sessionStoreSuffix)-hook-sessions.json", isDirectory: false)
@@ -195,38 +207,12 @@ extension CMUXCLI {
                     "updated_at": sessionsListTimestamp(record.updatedAt),
                     "updated_at_unix": record.updatedAt
                 ]
-                let goalLookup: SessionsListGoalLookup
-                if goalJournalUnavailable {
-                    goalLookup = .unavailable
-                } else if let client = goalClient {
-                    goalLookup = sessionsListGoalLookup(
-                        source: spec.name,
-                        sessionID: rawRecord.sessionId,
-                        client: client
-                    )
-                    if case .unavailable = goalLookup {
-                        goalJournalUnavailable = true
-                        goalClient = nil
-                    }
-                } else {
-                    goalLookup = .unavailable
-                }
-                let goalLifecycle: AgentGoalLifecycle?
-                let goalCapability: String
-                switch goalLookup {
-                case .present(let value):
-                    goalLifecycle = value
-                    goalCapability = "supported"
-                case .absent:
-                    goalLifecycle = nil
-                    // Codex can expose an objective receipt, but a given
-                    // session may not have emitted one yet. Preserve that
-                    // distinction from providers with no objective contract.
-                    goalCapability = spec.name == "codex" ? "unknown" : "unmanaged"
-                case .unavailable:
-                    goalLifecycle = nil
-                    goalCapability = "unknown"
-                }
+                // Objective projections are filled in one bounded batch after
+                // visibility, sorting, and limit selection. This keeps the
+                // common listing path from blocking once per saved record.
+                let goalCapability = goalJournalUnavailable
+                    ? "unknown"
+                    : (spec.name == "codex" ? "unknown" : "unmanaged")
                 if rawRecord.sessionId != record.sessionId {
                     payload["hook_session_id"] = rawRecord.sessionId
                 }
@@ -235,16 +221,13 @@ extension CMUXCLI {
                 payload["pid"] = record.pid ?? NSNull()
                 payload["runtime_status"] = record.runtimeStatus?.rawValue ?? NSNull()
                 payload["agent_lifecycle"] = record.agentLifecycle?.rawValue ?? NSNull()
-                payload["goal_lifecycle"] = goalLifecycle?.state.rawValue
-                    ?? (goalCapability == "unknown" ? AgentGoalLifecycleState.unknown.rawValue : AgentGoalLifecycleState.unmanaged.rawValue)
-                payload["goal_generation"] = goalLifecycle?.generation ?? NSNull()
-                payload["goal_updated_at"] = goalLifecycle.map {
-                    sessionsListTimestamp(Double($0.updatedAtMs) / 1_000)
-                } ?? NSNull()
-                payload["goal_updated_at_unix"] = goalLifecycle.map {
-                    Double($0.updatedAtMs) / 1_000
-                } ?? NSNull()
-                payload["goal_provenance"] = goalLifecycle?.provenance ?? NSNull()
+                payload["goal_lifecycle"] = goalCapability == "unknown"
+                    ? AgentGoalLifecycleState.unknown.rawValue
+                    : AgentGoalLifecycleState.unmanaged.rawValue
+                payload["goal_generation"] = NSNull()
+                payload["goal_updated_at"] = NSNull()
+                payload["goal_updated_at_unix"] = NSNull()
+                payload["goal_provenance"] = NSNull()
                 payload["goal_capability"] = goalCapability
                 payload["last_prompt_turn_id"] = record.lastPromptTurnId ?? NSNull()
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()
@@ -324,7 +307,12 @@ extension CMUXCLI {
                     continue
                 }
 
-                entries.append((updatedAt: record.updatedAt, payload: payload))
+                entries.append((
+                    updatedAt: record.updatedAt,
+                    payload: payload,
+                    goalSource: spec.name,
+                    goalSessionID: rawRecord.sessionId
+                ))
             }
         }
 
@@ -334,7 +322,31 @@ extension CMUXCLI {
             let rhs = ($1.payload["session_id"] as? String) ?? ""
             return lhs < rhs
         }
-        let limitedEntries = Array(sortedEntries.prefix(limit))
+        var limitedEntries = Array(sortedEntries.prefix(limit))
+
+        if !goalJournalUnavailable, let client = goalClient, !limitedEntries.isEmpty {
+            let identities = limitedEntries.map {
+                (source: $0.goalSource, sessionID: $0.goalSessionID)
+            }
+            let lookups = sessionsListGoalLookups(identities: identities, client: client)
+            for index in limitedEntries.indices {
+                let identity = identities[index]
+                let lookup = lookups[goalLookupKey(source: identity.source, sessionID: identity.sessionID)] ?? .unavailable
+                sessionsListApplyGoalLookup(
+                    lookup,
+                    provider: identity.source,
+                    payload: &limitedEntries[index].payload
+                )
+            }
+        } else if goalJournalUnavailable {
+            for index in limitedEntries.indices {
+                sessionsListApplyGoalLookup(
+                    .unavailable,
+                    provider: limitedEntries[index].goalSource,
+                    payload: &limitedEntries[index].payload
+                )
+            }
+        }
 
         if localJSONOutput {
             print(jsonString([
@@ -571,31 +583,92 @@ extension CMUXCLI {
         return client
     }
 
-    private func sessionsListGoalLookup(
-        source: String,
-        sessionID: String,
+    private func goalLookupKey(source: String, sessionID: String) -> String {
+        source + "\u{0}" + sessionID
+    }
+
+    private func sessionsListApplyGoalLookup(
+        _ lookup: SessionsListGoalLookup,
+        provider: String,
+        payload: inout [String: Any]
+    ) {
+        let goalLifecycle: AgentGoalLifecycle?
+        let goalCapability: String
+        switch lookup {
+        case .present(let value):
+            goalLifecycle = value
+            goalCapability = "supported"
+        case .absent:
+            goalLifecycle = nil
+            // Codex can expose an objective receipt, but a given session may
+            // not have emitted one yet. Preserve that distinction from
+            // providers with no objective contract.
+            goalCapability = provider == "codex" ? "unknown" : "unmanaged"
+        case .unavailable:
+            goalLifecycle = nil
+            goalCapability = "unknown"
+        }
+        payload["goal_lifecycle"] = goalLifecycle?.state.rawValue
+            ?? (goalCapability == "unknown" ? AgentGoalLifecycleState.unknown.rawValue : AgentGoalLifecycleState.unmanaged.rawValue)
+        payload["goal_generation"] = goalLifecycle?.generation ?? NSNull()
+        payload["goal_updated_at"] = goalLifecycle.map {
+            sessionsListTimestamp(Double($0.updatedAtMs) / 1_000)
+        } ?? NSNull()
+        payload["goal_updated_at_unix"] = goalLifecycle.map {
+            Double($0.updatedAtMs) / 1_000
+        } ?? NSNull()
+        payload["goal_provenance"] = goalLifecycle?.provenance ?? NSNull()
+        payload["goal_capability"] = goalCapability
+    }
+
+    private func sessionsListGoalLookups(
+        identities: [(source: String, sessionID: String)],
         client: SocketClient
-    ) -> SessionsListGoalLookup {
-        let request: [String: String] = ["source": source, "session_id": sessionID]
-        guard let data = try? JSONSerialization.data(withJSONObject: request),
-              let payload = String(data: data, encoding: .utf8) else {
-            return .unavailable
-        }
-        do {
-            let response = try client.send(
-                command: "agent_journal_goal \(payload)",
-                responseTimeout: 0.5,
-                deadline: Date.now.addingTimeInterval(0.75)
-            )
-            guard let responseData = response.data(using: .utf8),
-                  let decoded = try? JSONDecoder().decode(SessionsListGoalResponse.self, from: responseData),
-                  decoded.available else {
-                return .unavailable
+    ) -> [String: SessionsListGoalLookup] {
+        var lookups: [String: SessionsListGoalLookup] = [:]
+        let uniqueIdentities = Array(Set(identities.map { goalLookupKey(source: $0.source, sessionID: $0.sessionID) }))
+            .compactMap { key -> (source: String, sessionID: String)? in
+                guard let separator = key.firstIndex(of: "\u{0}") else { return nil }
+                return (
+                    source: String(key[..<separator]),
+                    sessionID: String(key[key.index(after: separator)...])
+                )
             }
-            return decoded.goalLifecycle.map(SessionsListGoalLookup.present) ?? .absent
-        } catch {
-            return .unavailable
+        var offset = 0
+        while offset < uniqueIdentities.count {
+            let end = min(offset + 256, uniqueIdentities.count)
+            let chunk = Array(uniqueIdentities[offset..<end])
+            offset = end
+            let request: [String: Any] = [
+                "sessions": chunk.map { ["source": $0.source, "session_id": $0.sessionID] }
+            ]
+            guard let data = try? JSONSerialization.data(withJSONObject: request),
+                  let payload = String(data: data, encoding: .utf8) else {
+                return [:]
+            }
+            do {
+                let response = try client.send(
+                    command: "agent_journal_goal \(payload)",
+                    responseTimeout: 1.5,
+                    deadline: Date.now.addingTimeInterval(2.5)
+                )
+                guard let responseData = response.data(using: .utf8),
+                      let decoded = try? JSONDecoder().decode(SessionsListGoalBatchResponse.self, from: responseData),
+                      decoded.available else {
+                    return Dictionary(uniqueKeysWithValues: identities.map {
+                        (goalLookupKey(source: $0.source, sessionID: $0.sessionID), .unavailable)
+                    })
+                }
+                for item in decoded.goals {
+                    lookups[goalLookupKey(source: item.source, sessionID: item.sessionID)] = item.goalLifecycle.map(SessionsListGoalLookup.present) ?? .absent
+                }
+            } catch {
+                return Dictionary(uniqueKeysWithValues: identities.map {
+                    (goalLookupKey(source: $0.source, sessionID: $0.sessionID), .unavailable)
+                })
+            }
         }
+        return lookups
     }
 
 }
