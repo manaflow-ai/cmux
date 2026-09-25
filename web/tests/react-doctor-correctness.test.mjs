@@ -37,6 +37,11 @@ assert.doesNotMatch(
   /getCurrentYear|new Date\s*\(/,
   "terms copyright must not render a request-time clock value",
 );
+assert.match(
+  termsPage,
+  /t\("termsCopyright",\s*\{\s*year:\s*TERMS_COPYRIGHT_YEAR\s*\}\)/,
+  "terms copyright must use the localized message with a stable year",
+);
 
 const afterSignInHandler = source("app/handler/after-sign-in/handler.ts");
 assert.doesNotMatch(

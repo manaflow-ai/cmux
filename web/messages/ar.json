@@ -2011,6 +2011,7 @@
   "legal": {
     "privacyPolicy": "سياسة الخصوصية",
     "termsOfService": "شروط الخدمة",
+    "termsCopyright": "حقوق الطبع والنشر © {year} Manaflow. جميع الحقوق محفوظة.",
     "eula": "EULA"
   },
   "wallOfLove": {

@@ -2014,6 +2014,7 @@
   "legal": {
     "privacyPolicy": "Datenschutzrichtlinie",
     "termsOfService": "Nutzungsbedingungen",
+    "termsCopyright": "Copyright © {year} Manaflow. Alle Rechte vorbehalten.",
     "eula": "EULA"
   },
   "wallOfLove": {

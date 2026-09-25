@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import type { Locale } from "../../../../i18n/routing";
+import { getTranslations } from "next-intl/server";
 import { legalMetadata } from "../legal-metadata";
 
 const TERMS_COPYRIGHT_YEAR = 2026;
@@ -9,7 +11,17 @@ export const metadata: Metadata = legalMetadata(
   "Terms of service for the cmux website and macOS application",
 );
 
-export default async function TermsOfServicePage() {
+export default async function TermsOfServicePage({
+  params,
+}: {
+  readonly params: Promise<{ readonly locale: string }>;
+}) {
+  const { locale } = await params;
+  const t = await getTranslations({
+    locale: locale as Locale,
+    namespace: "legal",
+  });
+
   return (
     <>
       <h1>Terms of Service</h1>
@@ -184,7 +196,7 @@ export default async function TermsOfServicePage() {
       </p>
 
       <p>
-        Copyright &copy; {TERMS_COPYRIGHT_YEAR} Manaflow. All rights reserved.
+        {t("termsCopyright", { year: TERMS_COPYRIGHT_YEAR })}
       </p>
     </>
   );
