@@ -355,6 +355,7 @@ extension TerminalController {
             }
             let terminalPanel = panel as? TerminalPanel
             let simulatorPanel = panel as? SimulatorPanel
+            let localSurface = workspace.isRemoteTerminalContext(panel.id) ? nil : terminalPanel?.surface
             return [ControlSurfaceSummary(
                 surfaceID: panel.id,
                 typeRawValue: panel.panelType.rawValue,
@@ -382,7 +383,9 @@ extension TerminalController {
                 simulatorRuntimeIdentifier: simulatorPanel?.selectedRuntimeIdentifier,
                 simulatorDeviceTypeIdentifier: simulatorPanel?.selectedDeviceTypeIdentifier,
                 simulatorDeviceName: simulatorPanel?.selectedDeviceName,
-                simulatorDeviceState: simulatorPanel?.selectedDeviceState
+                simulatorDeviceState: simulatorPanel?.selectedDeviceState,
+                controllingTTY: localSurface?.controllingTTYName(),
+                foregroundProcessID: localSurface?.foregroundProcessID()
             )]
         }
     }

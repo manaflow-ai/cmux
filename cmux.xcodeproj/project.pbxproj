@@ -1178,6 +1178,7 @@
 		7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */; };
 		C0DE11260000000000000021 /* CMUXCLI+TmuxCompatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE11260000000000000022 /* CMUXCLI+TmuxCompatStore.swift */; };
 		B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */; };
+		E8431001A1B2C3D4E5F60719 /* CMUXCLI+TmuxProcessInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8431002A1B2C3D4E5F60719 /* CMUXCLI+TmuxProcessInfo.swift */; };
 		B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */; };
 		D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */; };
 		3694B7A8D2894E549E59A8F6 /* CMUXCLI+Vault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */; };
@@ -5304,6 +5305,7 @@
 		7837A0027837A0027837A002 /* CMUXCLI+TmuxCompatResizePane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatResizePane.swift"; sourceTree = "<group>"; };
 		C0DE11260000000000000022 /* CMUXCLI+TmuxCompatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatStore.swift"; sourceTree = "<group>"; };
 		B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxCompatSupport.swift"; sourceTree = "<group>"; };
+		E8431002A1B2C3D4E5F60719 /* CMUXCLI+TmuxProcessInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TmuxProcessInfo.swift"; sourceTree = "<group>"; };
 		B9000032A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TopRendering.swift"; sourceTree = "<group>"; };
 		D1FF52000000000000000002 /* CMUXCLI+TypedDiffViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+TypedDiffViewer.swift"; sourceTree = "<group>"; };
 		74B5FDC25DCB4D39ADD17F39 /* CMUXCLI+Vault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Vault.swift"; sourceTree = "<group>"; };
@@ -10998,6 +11000,7 @@
 				9009A0019009A0019009A002 /* CMUXCLI+TmuxCompatLaunchContext.swift */,
 				9009A0029009A0029009A002 /* TmuxCompatLaunchContextError.swift */,
 				B9000045A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift */,
+				E8431002A1B2C3D4E5F60719 /* CMUXCLI+TmuxProcessInfo.swift */,
 				D1275700D1275700D1275702 /* SocketClient+V2.swift */,
 				B9000049A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatHUDSupport.swift */,
 				B9000051A1B2C3D4E5F60719 /* CMUXCLI+Config.swift */,
@@ -15622,6 +15625,7 @@
 				7837A0017837A0017837A001 /* CMUXCLI+TmuxCompatResizePane.swift in Sources */,
 				C0DE11260000000000000021 /* CMUXCLI+TmuxCompatStore.swift in Sources */,
 				B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,
+				E8431001A1B2C3D4E5F60719 /* CMUXCLI+TmuxProcessInfo.swift in Sources */,
 				B9000033A1B2C3D4E5F60719 /* CMUXCLI+TopRendering.swift in Sources */,
 				D1FF52000000000000000001 /* CMUXCLI+TypedDiffViewer.swift in Sources */,
 				3694B7A8D2894E549E59A8F6 /* CMUXCLI+Vault.swift in Sources */,

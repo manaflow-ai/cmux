@@ -10,6 +10,7 @@ import re
 import select
 import signal
 import socketserver
+import subprocess
 import tempfile
 import threading
 import time
@@ -74,11 +75,26 @@ def read_until(master: int, pattern: bytes) -> re.Match[bytes]:
     raise AssertionError(f"PTY never reached {pattern!r}: {output!r}")
 
 
+def wait_for_sleep(master: int, shell_pid: int) -> int:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        pid = os.tcgetpgrp(master)
+        if pid != shell_pid:
+            command = subprocess.run(
+                ["/bin/ps", "-p", str(pid), "-o", "comm="],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.strip()
+            if Path(command).name == "sleep":
+                return pid
+        time.sleep(0.01)
+    raise AssertionError("shell did not exec the foreground sleep job")
+
+
 def main() -> None:
     cli = resolve_cmux_cli()
     pid, master = pty.fork()
     if pid == 0:
-        os.execve("/bin/sh", ["sh", "-i"], {"PATH": "/usr/bin:/bin", "PS1": "test> "})
+        os.execve("/bin/zsh", ["zsh", "-f", "-i"], {"PATH": "/usr/bin:/bin", "PS1": "test> "})
     try:
         os.write(master, b"printf 'PROCESS_READY %s %s\\n' $$ \"$(tty)\"\n")
         ready = read_until(master, rb"PROCESS_READY (\d+) (/dev/[^\s]+)")
@@ -104,28 +120,27 @@ def main() -> None:
                         expected = f"0|{expected_command}|{shell_pid}|{tty}"
                         assert result.stdout.strip() == expected, (expected, result.stdout, result.stderr)
 
-                    check("display-message", "sh")
-                    check("list-panes", "sh")
+                    check("display-message", "zsh")
+                    check("list-panes", "zsh")
                     state.start_command = "node old-command.js"
-                    check("display-message", "sh")
+                    check("display-message", "zsh")
                     os.write(master, b"sleep 30\n")
-                    deadline = time.monotonic() + 10
-                    while os.tcgetpgrp(master) == pid and time.monotonic() < deadline:
-                        time.sleep(0.01)
-                    foreground_pid = os.tcgetpgrp(master)
-                    assert foreground_pid != pid, "shell did not start the foreground job"
+                    foreground_pid = wait_for_sleep(master, pid)
                     check("display-message", "sleep")
                     check("list-panes", "sleep")
                     os.kill(foreground_pid, signal.SIGTERM)
                     os.write(master, b"printf 'PROCESS_RETURNED\\n'\n")
                     read_until(master, rb"\r\nPROCESS_RETURNED\r\n")
-                    check("display-message", "sh")
+                    check("display-message", "zsh")
                 finally:
                     server.shutdown()
                     thread.join(timeout=5)
     finally:
         os.close(master)
-        os.kill(pid, signal.SIGKILL)
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         os.waitpid(pid, 0)
     print("PASS: tmux process formats follow the foreground job and preserve the shell PID and TTY")
 
