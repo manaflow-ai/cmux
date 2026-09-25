@@ -228,18 +228,38 @@ protocol FileExplorerProvider: AnyObject {
 }
 
 extension FileExplorerProvider {
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func createFile(path: String) async throws {
         throw FileExplorerError.mutationFailed
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func createDirectory(path: String) async throws {
         throw FileExplorerError.mutationFailed
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func rename(path: String, to destinationPath: String) async throws {
         throw FileExplorerError.mutationFailed
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func delete(path: String) async throws {
         throw FileExplorerError.mutationFailed
     }
@@ -264,19 +284,39 @@ protocol SSHFileExplorerTransport: AnyObject {
         connection: SSHFileExplorerConnection,
         to localURL: URL
     ) async throws
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func createFile(
         path: String,
         connection: SSHFileExplorerConnection
     ) async throws
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func createDirectory(
         path: String,
         connection: SSHFileExplorerConnection
     ) async throws
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func rename(
         path: String,
         to destinationPath: String,
         connection: SSHFileExplorerConnection
     ) async throws
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func delete(
         path: String,
         connection: SSHFileExplorerConnection
@@ -354,12 +394,22 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
         }
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func createFile(path: String) async throws {
         guard FileManager.default.createFile(atPath: path, contents: nil) else {
             throw FileExplorerError.mutationFailed
         }
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func createDirectory(path: String) async throws {
         do {
             try FileManager.default.createDirectory(
@@ -372,13 +422,18 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
         }
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func rename(path: String, to destinationPath: String) async throws {
         do {
             if path != destinationPath,
                path.caseInsensitiveCompare(destinationPath) == .orderedSame {
                 let parentPath = (path as NSString).deletingLastPathComponent
                 let temporaryPath = (parentPath as NSString)
-                    .appendingPathComponent(".cmux-rename-(UUID().uuidString)")
+                    .appendingPathComponent(".cmux-rename-\(UUID().uuidString)")
                 try FileManager.default.moveItem(atPath: path, toPath: temporaryPath)
                 do {
                     try FileManager.default.moveItem(atPath: temporaryPath, toPath: destinationPath)
@@ -394,6 +449,11 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
         }
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     func delete(path: String) async throws {
         do {
             try FileManager.default.removeItem(atPath: path)
@@ -584,6 +644,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         }
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func createFile(
         path: String,
         connection: SSHFileExplorerConnection
@@ -596,6 +661,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         )
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func createDirectory(
         path: String,
         connection: SSHFileExplorerConnection
@@ -606,6 +676,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         )
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func rename(
         path: String,
         to destinationPath: String,
@@ -623,6 +698,11 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         )
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     nonisolated func delete(
         path: String,
         connection: SSHFileExplorerConnection
@@ -1177,7 +1257,7 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func renameEntry(path: String, toName name: String) async throws -> String {
-        guard Self.path(path, isContainedIn: rootPath) else {
+        guard Self.path(path, isContainedIn: rootPath), !Self.pathsEqual(path, rootPath) else {
             throw FileExplorerError.mutationFailed
         }
         let parentPath = (path as NSString).deletingLastPathComponent
@@ -1209,7 +1289,7 @@ final class FileExplorerStore: ObservableObject {
 
     func deleteEntries(paths: [String]) async throws {
         guard !paths.isEmpty,
-              paths.allSatisfy({ Self.path($0, isContainedIn: rootPath) }) else {
+              paths.allSatisfy({ Self.path($0, isContainedIn: rootPath) && !Self.pathsEqual($0, rootPath) }) else {
             throw FileExplorerError.mutationFailed
         }
         guard let provider, provider.isAvailable else {
@@ -1306,6 +1386,17 @@ final class FileExplorerStore: ObservableObject {
             guard parent != current else { return false }
             current = parent
         }
+    }
+
+    private static func pathsEqual(_ lhs: String, _ rhs: String) -> Bool {
+        func trimmed(_ path: String) -> String {
+            var result = path
+            while result.count > 1, result.hasSuffix("/") {
+                result.removeLast()
+            }
+            return result
+        }
+        return trimmed(lhs) == trimmed(rhs)
     }
 
     /// Cancels the directory-watch consumer and drops the watcher; the watcher's
