@@ -20,6 +20,105 @@ import Testing
         #expect(TerminalUploadCommand.hostForMatching("  host  ") == "host")
     }
 
+    // MARK: - Brokered connections (ProxyCommand / jump host)
+
+    /// A connection through a broker is dialled as `localhost`, with the host it
+    /// actually reaches carried in `HostName`. Matching the destination argument
+    /// alone makes every brokered host look like `localhost`, so a rule for the
+    /// real host never fires.
+    @Test func hostNameOptionMatchesABrokeredLocalhostDestination() {
+        let options = [
+            "ProxyCommand=/usr/local/bin/broker --tunnel 'host1.corp.example.com'",
+            "HostName=host1.corp.example.com",
+        ]
+        #expect(
+            TerminalUploadCommand.hostsForMatching("localhost", sshOptions: options)
+                == ["localhost", "host1.corp.example.com"]
+        )
+
+        let resolver = TerminalUploadCommand(rules: [
+            TerminalUploadCommandRule(hostPattern: "host*", command: "A"),
+        ])
+        #expect(resolver.command(forDestination: "localhost", sshOptions: options) == "A")
+    }
+
+    /// Rules written against the alias (or the `localhost` workaround people used
+    /// before `HostName` was honored) keep matching when a `HostName` is present.
+    @Test func aliasRulesStillMatchWhenHostNameIsPresent() {
+        let options = ["HostName=host1.corp.example.com"]
+
+        let aliasRule = TerminalUploadCommand(rules: [
+            TerminalUploadCommandRule(hostPattern: "devbox", command: "alias"),
+        ])
+        #expect(aliasRule.command(forDestination: "me@devbox", sshOptions: options) == "alias")
+
+        let localhostRule = TerminalUploadCommand(rules: [
+            TerminalUploadCommandRule(hostPattern: "localhost", command: "workaround"),
+        ])
+        #expect(localhostRule.command(forDestination: "localhost", sshOptions: options) == "workaround")
+
+        let hostNameRule = TerminalUploadCommand(rules: [
+            TerminalUploadCommandRule(hostPattern: "*.corp.example.com", command: "resolved"),
+        ])
+        #expect(hostNameRule.command(forDestination: "me@devbox", sshOptions: options) == "resolved")
+
+        let neither = TerminalUploadCommand(rules: [
+            TerminalUploadCommandRule(hostPattern: "other.example.com", command: "X"),
+        ])
+        #expect(neither.command(forDestination: "devbox", sshOptions: options) == nil)
+    }
+
+    /// Rule order still decides: the first rule matching either host wins.
+    @Test func firstRuleMatchingEitherHostWins() {
+        let options = ["HostName=host1.corp.example.com"]
+        let resolver = TerminalUploadCommand(rules: [
+            TerminalUploadCommandRule(hostPattern: "*.corp.example.com", command: "resolved"),
+            TerminalUploadCommandRule(hostPattern: "devbox", command: "alias"),
+        ])
+        #expect(resolver.command(forDestination: "devbox", sshOptions: options) == "resolved")
+    }
+
+    @Test func hostNameIsReadRegardlessOfSpellingOrSeparator() {
+        // ssh option keys are case-insensitive, and `-o` accepts `Key value` as
+        // well as `Key=Value`.
+        #expect(
+            TerminalUploadCommand.hostsForMatching("localhost", sshOptions: ["hostname=Host1.Example.COM"])
+                == ["localhost", "host1.example.com"]
+        )
+        #expect(
+            TerminalUploadCommand.hostsForMatching("localhost", sshOptions: ["HostName host1.example.com"])
+                == ["localhost", "host1.example.com"]
+        )
+        // ssh uses the first value it obtains for a parameter.
+        #expect(
+            TerminalUploadCommand.hostsForMatching(
+                "localhost",
+                sshOptions: ["HostName=first.example.com", "HostName=second.example.com"]
+            ) == ["localhost", "first.example.com"]
+        )
+        // A HostName equal to the destination is not listed twice.
+        #expect(
+            TerminalUploadCommand.hostsForMatching("me@Host1.example.com", sshOptions: ["HostName=host1.example.com"])
+                == ["host1.example.com"]
+        )
+    }
+
+    @Test func withoutAHostNameTheDestinationStillDecides() {
+        #expect(
+            TerminalUploadCommand.hostsForMatching("me@host1.example.com", sshOptions: ["Port=22"])
+                == ["host1.example.com"]
+        )
+        // An empty or valueless HostName is ignored rather than matching "".
+        #expect(
+            TerminalUploadCommand.hostsForMatching("host1.example.com", sshOptions: ["HostName="])
+                == ["host1.example.com"]
+        )
+        #expect(
+            TerminalUploadCommand.hostsForMatching("host1.example.com", sshOptions: [])
+                == ["host1.example.com"]
+        )
+    }
+
     // MARK: - Glob matching (fnmatch / ssh_config style)
 
     @Test func hostMatchesGlob() {
@@ -208,6 +307,46 @@ import Testing
         _ fake: @escaping TerminalCustomUploadRunner.ProcessRunner
     ) -> TerminalCustomUploadRunner {
         TerminalCustomUploadRunner(runProcess: fake)
+    }
+
+    /// ssh is given the broker alias, but the rule names the host the broker reaches. The
+    /// runner has to pass the session's ssh options into matching, or every brokered drop
+    /// falls through to the built-in transport.
+    @MainActor
+    @Test func brokeredSessionMatchesRuleByHostName() async {
+        let session = DetectedSSHSession(
+            destination: "broker-alias", port: nil, identityFile: nil,
+            configFile: nil, jumpHost: nil, controlPath: nil,
+            useIPv4: false, useIPv6: false, forwardAgent: false,
+            compressionEnabled: false, sshOptions: ["HostName=real-host.example.com"]
+        )
+        let runner = TerminalCustomUploadRunner(
+            runProcess: { _, env, _, _ in (0, "matched:\(env["CMUX_UPLOAD_DESTINATION"] ?? "")", "") },
+            isFileTransferDisabled: { false },
+            uploadRules: {
+                [TerminalUploadCommandRule(hostPattern: "real-host.example.com", command: "upload-tool put")]
+            }
+        )
+
+        var handled = false
+        let result: Result<String, Error> = await withCheckedContinuation { finished in
+            handled = runner.handleIfMatched(
+                plan: .uploadFiles([URL(fileURLWithPath: "/tmp/cmux-brokered-drop.png")], .detectedSSH(session)),
+                operation: TerminalImageTransferOperation(),
+                cleanup: { _ in },
+                completion: { finished.resume(returning: $0) }
+            )
+            if !handled {
+                finished.resume(returning: .failure(CancellationError()))
+            }
+        }
+
+        #expect(handled, "a rule naming the broker's HostName must take the drop")
+        guard case .success(let text) = result else {
+            Issue.record("expected the matched command to run, got \(result)")
+            return
+        }
+        #expect(text == "matched:broker-alias")
     }
 
     @Test func perFileStdoutJoinedWithSpaces() {
