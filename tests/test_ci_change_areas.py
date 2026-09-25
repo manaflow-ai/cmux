@@ -4459,7 +4459,7 @@ def product_runner_output(key: str) -> str:
     # pool on admission's Xcode (pr_runner_pool.spread_shards).
     shard = "inputs.pr_shard_runner || " if "shard-" in key else ""
     return ("${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, " + key + ") "
-            "&& inputs.pr_refused_retry_runner "
+            "&& (inputs.pr_root_runner || inputs.pr_refused_retry_runner) "
             "|| (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, " + key + ")) "
             "&& inputs.pr_retry_runner || " + shard + "needs.macos-compile-admission.outputs.runner }}")
 

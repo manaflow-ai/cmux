@@ -105,6 +105,12 @@ jobs:
       # of an owned job takes after a refusal (ci-owned-pool-rescue.yml
       # re-runs failed jobs once on the fleet before Blacksmith).
       macos_pr_refused_retry_runner: ${{ steps.macos-pool.outputs.refused_retry_runner }}
+      # Set only when the pool is persistent and CI_OWNED_POOL_SLOTS gives it
+      # a root count: glaeda-root-<class>-xcode-<version>, the one runner per
+      # mini that takes a canonical-root job. The root jobs in
+      # macos_pr_owned_jobs (admission, shards, lag, cli-product) take it in
+      # place of the pool label, on attempt 1 and after a refusal.
+      macos_pr_root_runner: ${{ steps.macos-pool.outputs.root_runner }}
     permissions:
       actions: read
       contents: read
@@ -1190,6 +1196,7 @@ jobs:
       pr_shard_runner: ${{ needs.changes.outputs.macos_pr_shard_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
+      pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
 
   tests:

@@ -202,6 +202,10 @@ for expected in \
   -showBuildTimingSummary \
   'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)' \
   CMUX_CI_COMPILATION_CACHE_cmuxTests=NO \
+  'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO \
+  'OTHER_SWIFT_FLAGS=$(inherited) $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))' \
+  CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \
   "$TMP_DIR/packages"; do
@@ -220,7 +224,7 @@ if grep -Fxq -- build "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: the app-host test product must be compiled with build-for-testing, not build"
   exit 1
 fi
-echo "PASS: the build compiles all four schemes for testing, with the compilation cache on outside cmuxTests"
+echo "PASS: the build compiles all four schemes for testing, with the compilation cache on and the module emitted outside cmuxTests"
 if ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS"; then
   echo "FAIL: before Xcode 26.6 the app target must build without the compilation cache"
   exit 1
