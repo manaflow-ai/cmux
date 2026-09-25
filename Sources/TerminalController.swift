@@ -2563,6 +2563,23 @@ class TerminalController {
                     )
                 }
             }
+            if request.method == "browser.type" || request.method == "browser.fill" {
+                guard !Thread.isMainThread else {
+                    return v2Error(
+                        id: request.id.map(\.foundationObject),
+                        code: "invalid_dispatch",
+                        message: "\(request.method) must run off the main thread"
+                    )
+                }
+                if let response = (CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                    v2BrowserTextInputResponseSync(
+                        request: request,
+                        replaceSelection: request.method == "browser.fill"
+                    )
+                }) {
+                    return response
+                }
+            }
             if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
                 return v2Error(
                     id: request.id.map(\.foundationObject),

@@ -107,4 +107,16 @@ struct BrowserControlServiceTests {
         #expect(queryPrelude.contains("escapedOutsideQuote"))
         #expect(queryPrelude.contains("const __cmuxCollectMatches"))
     }
+
+    @Test("evaluationScript binds the selected same-origin frame document")
+    func evaluationScriptFrameBinding() {
+        let script = service.evaluationScript(
+            script: "document.activeElement",
+            useEval: false,
+            frameSelector: "iframe[data-test=\"selected\"]"
+        )
+        #expect(script.contains("const __cmuxFrame = document.querySelector(\"iframe[data-test=\\\"selected\\\"]\")"))
+        #expect(script.contains("const document = __cmuxDoc"))
+        #expect(script.contains("const __cmuxEvalInFrame"))
+    }
 }

@@ -357,6 +357,46 @@ extension TerminalController {
         )
     }
 
+    /// Synchronous adapter for in-process socket callers. The native text path
+    /// is async because WebKit readiness and key delivery are main-actor work;
+    /// preserve nil as the explicit signal that the legacy DOM compatibility
+    /// path should handle this control.
+    nonisolated func v2BrowserTextInputResponseSync(
+        request: ControlRequest,
+        replaceSelection: Bool
+    ) -> String? {
+        let params = request.params.mapValues(\.foundationObject)
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: request.method,
+            isV2: true,
+            params: params
+        )
+        let outcome: BrowserTextInputSyncOutcome? = CmuxAutomationInvocationContext.$focusAllowed.withValue(allowsFocusMutation) {
+            v2AwaitCallback(timeout: 15) { finish in
+                Task {
+                    let response = await self.v2BrowserTextInputResponse(
+                        request: request,
+                        replaceSelection: replaceSelection
+                    )
+                    finish(response.map(BrowserTextInputSyncOutcome.response) ?? .fallback)
+                }
+            }
+        }
+        switch outcome ?? .timedOut {
+        case .response(let response):
+            return response
+        case .fallback:
+            return nil
+        case .timedOut:
+            return Self.v2Encoder.error(
+                id: request.id,
+                code: "timeout",
+                message: "Request timed out after 15 seconds",
+                data: nil
+            )
+        }
+    }
+
     private nonisolated func v2BrowserTextInputResponseWithWorkerSnapshot(
         encodedResponse: String,
         request: ControlRequest
@@ -468,9 +508,31 @@ extension TerminalController {
 
         let browserControl = BrowserControlService()
         let selectorLiteral = selector.map(browserControl.jsonLiteral) ?? "null"
+        var frameAwarePrelude = """
+            var document = globalThis.document;
+            \(browserControl.elementQueryPrelude)
+            let __cmuxFrameReady = true;
+            """
+        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: context.surfaceId) {
+            frameAwarePrelude = """
+                var document = globalThis.document;
+                \(browserControl.elementQueryPrelude)
+                let __cmuxFrameReady = (() => {
+                  try {
+                    const frame = __cmuxQuery(\(browserControl.jsonLiteral(frameSelector)));
+                    if (!frame || !frame.contentDocument) return false;
+                    document = frame.contentDocument;
+                    return true;
+                  } catch (_) {
+                    return false;
+                  }
+                })();
+                """
+        }
         let focusScript = """
             (() => {
-              \(browserControl.elementQueryPrelude)
+              \(frameAwarePrelude)
+              if (!__cmuxFrameReady) return { ok: false, error: 'frame_not_found' };
               const el = \(selectorLiteral) === null
                 ? __cmuxDeepActiveElement()
                 : __cmuxQuery(\(selectorLiteral));
@@ -478,12 +540,16 @@ extension TerminalController {
               if (\(selectorLiteral) !== null && typeof el.focus === 'function') {
                 try { el.focus({ preventScroll: true }); } catch (_) { try { el.focus(); } catch (_) {} }
               }
+              const active = __cmuxDeepActiveElement();
+              const activeTarget = active === el;
               const tag = String(el.tagName || '').toLowerCase();
               const type = String(el.type || 'text').toLowerCase();
-              const editable = !!el.isContentEditable
+              const disabled = el.disabled === true || el.readOnly === true
+                || el.hasAttribute('disabled') || el.hasAttribute('readonly');
+              const editable = activeTarget && !disabled && (!!el.isContentEditable
                 || tag === 'textarea'
-                || (tag === 'input' && !['button','checkbox','color','date','datetime-local','file','hidden','image','month','number','radio','range','reset','submit','time','week'].includes(type));
-              return { ok: true, editable, value: ('value' in el) ? String(el.value || '') : String(el.textContent || '') };
+                || (tag === 'input' && !['button','checkbox','color','date','datetime-local','file','hidden','image','month','number','radio','range','reset','submit','time','week'].includes(type)));
+              return { ok: true, editable, activeTarget, disabled, value: ('value' in el) ? String(el.value || '') : String(el.textContent || '') };
             })()
             """
         let focusResult = await evaluateBrowserTextInputScript(
@@ -559,6 +625,39 @@ extension TerminalController {
                         data: nil
                     )
                 )
+            }
+            let selectionScript = """
+                (() => {
+                  \(frameAwarePrelude)
+                  if (!__cmuxFrameReady) return { selected: false };
+                  const el = \(selectorLiteral) === null
+                    ? __cmuxDeepActiveElement()
+                    : __cmuxQuery(\(selectorLiteral));
+                  if (!el || __cmuxDeepActiveElement() !== el) return { selected: false };
+                  if ('value' in el) {
+                    const value = String(el.value || '');
+                    return { selected: Number(el.selectionStart) === 0 && Number(el.selectionEnd) === value.length };
+                  }
+                  if (el.isContentEditable) {
+                    const selection = document.defaultView && document.defaultView.getSelection
+                      ? document.defaultView.getSelection() : null;
+                    return { selected: !!selection && !selection.isCollapsed };
+                  }
+                  return { selected: true };
+                })()
+                """
+            let selectionResult = await evaluateBrowserTextInputScript(
+                selectionScript,
+                in: context.webView,
+                panel: context.browserPanel
+            )
+            guard case .success(let rawSelection) = selectionResult,
+                  let selection = rawSelection as? [String: Any],
+                  selection["selected"] as? Bool == true else {
+                // Cmd+A can be intercepted by a web component. Returning nil
+                // preserves fill's replacement semantics through the legacy
+                // DOM compatibility implementation.
+                return nil
             }
             if nativeCharacters.isEmpty {
                 guard replayTextInputKey("Backspace", in: context.webView, action: .press) else {
@@ -655,6 +754,12 @@ extension TerminalController {
     }
 }
 
+private enum BrowserTextInputSyncOutcome: Sendable {
+    case response(String)
+    case fallback
+    case timedOut
+}
+
 private enum BrowserTextInputError: Error {
     case documentNotReady
     case evaluationTimedOut
@@ -664,6 +769,11 @@ private enum BrowserTextInputError: Error {
 /// Delivers a WebKit text-input evaluation result exactly once. WebKit may
 /// invoke its callback after the timeout or task cancellation, so the
 /// continuation cannot be resumed directly from either completion path.
+///
+/// The lock is the intentional synchronous callback/timeout compare-and-set
+/// carve-out for this WebKit bridge. @unchecked Sendable is safe here because
+/// the lock protects every continuation and result access, and no WebKit object
+/// crosses the gate.
 private final class BrowserTextInputEvaluationGate: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Result<Any, Error>, Never>?
