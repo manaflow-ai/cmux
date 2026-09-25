@@ -161,6 +161,8 @@ NON_PRODUCT_RECIPE_STEPS = frozenset({
     "Adopt this owned Mac's DerivedData",
     "Keep this owned Mac's DerivedData",
     "Keep this owned Mac's build state",
+    # Chooses where the product's consumers run, after it is uploaded.
+    "Place consumers on free owned Macs",
     "Validate Swift warning budget",
     "Run early CLI binary smoke checks",
     "Start product publication timer",

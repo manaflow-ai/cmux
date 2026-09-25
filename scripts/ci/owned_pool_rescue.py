@@ -91,6 +91,12 @@ PICKER_JOB = "changes"
 # consumers may be placed on owned pools (owned_shard_placement.py) even when
 # the picker chose Blacksmith, and a re-run of failed jobs keeps its product.
 ADMISSION_JOB = "macOS compile admission"
+# ci.yml's job that calls ci-macos.yml; skipped, it is one job of that name.
+MACOS_LANE_JOB = "macos"
+CONSUMER_PREFIXES = ("app-host unit tests", "CLI product tests")
+# Looks after compile admission completes before a run with no consumer on an
+# owned pool is left alone.
+CONSUMER_LOOKS = 3
 DEFAULT_BUDGET_SECONDS = 90
 MIN_BUDGET_SECONDS = 30
 MAX_BUDGET_SECONDS = 600
@@ -175,6 +181,18 @@ def picker_finished(jobs: Sequence[Mapping[str, Any]]) -> bool:
 
 def admission(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
     return [job for job in jobs if str(job.get("name") or "").split(" / ")[-1] == ADMISSION_JOB]
+
+
+def consumers(jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """The jobs that run compile admission's product once it passes."""
+    return [job for job in jobs if str(job.get("name") or "").split(" / ")[-1].startswith(CONSUMER_PREFIXES)]
+
+
+def macos_lane_skipped(jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """ci.yml's `macos` call was skipped or finished without compile admission."""
+    lane = [job for job in jobs if str(job.get("name") or "") == MACOS_LANE_JOB
+            or str(job.get("name") or "").startswith(MACOS_LANE_JOB + " / ")]
+    return bool(lane) and not admission(lane) and all(job.get("status") == "completed" for job in lane)
 
 
 def admission_passed(jobs: Sequence[Mapping[str, Any]]) -> bool:
@@ -360,9 +378,13 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     # still place its consumers on free minis. Look once more
                     # after it completes, when they exist, then stop.
                     found = admission(jobs)
+                    if macos_lane_skipped(jobs):
+                        return "stop", "the run has no macOS lane"
                     if found and all(job.get("status") == "completed" for job in found):
+                        # Consumers are created after admission; wait until
+                        # they exist (a few looks at most) before stopping.
                         admission_done_looks += 1
-                        if admission_done_looks > 1:
+                        if consumers(jobs) or admission_done_looks > CONSUMER_LOOKS:
                             return "stop", "the run is on an ephemeral pool"
                     else:
                         interval = IDLE_POLL_SECONDS

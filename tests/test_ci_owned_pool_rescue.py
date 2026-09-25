@@ -277,6 +277,27 @@ class Watching(unittest.TestCase):
         self.assertIn("the run is on an ephemeral pool", summary)
         self.assertNotIn("cancel", api.calls)
 
+    def test_a_run_without_a_macos_lane_stops_when_it_is_skipped(self):
+        clock = Clock()
+        api = FakeAPI(clock, lambda s: [changes()(s), {**job("macos", status="completed"), "conclusion": "skipped"},
+                                        job("web / Web tests (1/4)", status="in_progress")])
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls.count("jobs"), 1)
+        self.assertIn("the run has no macOS lane", summary)
+
+    def test_waits_for_consumers_that_are_created_late(self):
+        clock = Clock()
+
+        def jobs(seconds):
+            found = [changes()(seconds), blacksmith_admission(done_at=300)(seconds)]
+            if seconds >= 350:
+                found.append(job("macos / app-host unit tests (2/7)", labels=[MINI], created=350))
+            return found
+        api = FakeAPI(clock, jobs)
+        run_main(api, clock)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
     def test_a_consumer_placed_on_a_busy_mini_after_a_blacksmith_admission_is_moved(self):
         clock = Clock()
 
