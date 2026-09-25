@@ -836,6 +836,10 @@ path = "tests/test_cli_version_memory_guard.py"
 lane = "legacy"
 
 [[test]]
+path = "tests/test_cli_version_memory_guard_harness.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_cli_vm_create_name.py"
 lane = "legacy"
 
