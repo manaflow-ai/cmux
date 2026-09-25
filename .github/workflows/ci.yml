@@ -105,6 +105,12 @@ jobs:
       # of an owned job takes after a refusal (ci-owned-pool-rescue.yml
       # re-runs failed jobs once on the fleet before Blacksmith).
       macos_pr_refused_retry_runner: ${{ steps.macos-pool.outputs.refused_retry_runner }}
+      # Set only when the pool is persistent and CI_OWNED_POOL_SLOTS gives it
+      # a root count: glaeda-root-<class>-xcode-<version>, the one runner per
+      # mini that takes a canonical-root job. The root jobs in
+      # macos_pr_owned_jobs (admission, shards, lag, cli-product) take it in
+      # place of the pool label, on attempt 1 and after a refusal.
+      macos_pr_root_runner: ${{ steps.macos-pool.outputs.root_runner }}
     permissions:
       actions: read
       contents: read
@@ -288,8 +294,9 @@ jobs:
             # inputs through the base classifier. Unknown scripts/ci inputs stay
             # in the list and therefore fail open.
             if [ "$ci_router_changed" = true ] || [ "$ci_workflow_changed" = true ]; then
-              # ci.yml is stripped below, but its `cli` job is the CLI lane's
-              # call site. An edit to that job, or to the triggers and
+              # ci.yml is stripped below, but its `macos` job is the CLI lane's
+              # call site: it passes the `cli` route to compile admission and
+              # cli-product-tests. An edit to that job, or to the triggers and
               # permissions before `jobs:` that it inherits, runs the lane.
               cli_call_site_changed=false
               if [ "$ci_workflow_changed" = true ]; then
@@ -304,7 +311,7 @@ jobs:
               if not marker:
                   raise SystemExit(1)
               for block in re.split(r"(?m)^  (?=[A-Za-z0-9_-]+:\s*$)", body):
-                  if block.partition(":")[0] == "cli":
+                  if block.partition(":")[0] == "macos":
                       return preamble, block
               return preamble, ""
 
@@ -871,6 +878,88 @@ jobs:
           python3 scripts/ci/find_admitted_build.py --repository "$GITHUB_REPOSITORY" --branch "$BRANCH" \
             --fingerprint "$FINGERPRINT" --current-run-id "$GITHUB_RUN_ID" --github-output "$GITHUB_OUTPUT"
 
+  # Report only. A pull request that changes app code but no cmuxTests/ file
+  # runs no app-host behavior test today; reverse_test_impact.py names the
+  # suites that could observe the change and what they would cost. The answer
+  # goes to the step summary and a 14-day artifact so its recall can be
+  # measured against later failures on main. It is its own job so it never
+  # delays routing: nothing needs it, ci-status does not wait for it, it has
+  # no outputs, and it cannot fail the run (continue-on-error at job level).
+  #
+  # Like the trusted router in `changes`, the selector and everything it
+  # imports come from the merge commit's first parent, into a directory of
+  # their own, so a pull request cannot change what is reported about it and
+  # a new scripts/ci/ file cannot shadow an import. The pull request's tree is
+  # only read as text. Until the selector is on the base there is nothing to
+  # report.
+  reverse-test-impact:
+    name: Reverse test impact (report only)
+    needs: [changes]
+    if: ${{ github.event_name == 'pull_request' && needs.changes.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The merge commit and its first parent, the trusted base.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Report reverse test impact (report only)
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/reverse-test-impact"
+          rm -rf "$out"
+          mkdir -p "$out/trusted"
+          base="$(git rev-parse -q --verify 'HEAD^1' || true)"
+          if [ -z "$base" ]; then
+            echo "No base revision in this checkout; nothing to report."
+            exit 0
+          fi
+          # A file, not a pipe into grep -q: an early grep exit would SIGPIPE
+          # git on a large diff and pipefail would read that as no match.
+          git diff --no-renames --name-only "$base" HEAD > "$out/names" || true
+          if ! grep -qE '^(Sources/|CLI/|Packages/(macOS|Shared)/[^/]+/Sources/)' "$out/names"; then
+            echo "No app source changes; nothing to report."
+            exit 0
+          fi
+          if ! git archive "$base" -- \
+            scripts/ci/reverse_test_impact.py \
+            scripts/ci/choose_ci_suite.py \
+            scripts/ci/cmux_unit_test_shard.py \
+            scripts/ci/test_impact.py \
+            scripts/ci/cmux-unit-test-timings.json \
+            | tar -x -C "$out/trusted" 2>/dev/null; then
+            echo "The base revision has no reverse test impact selector; nothing to report."
+            exit 0
+          fi
+          trusted="$out/trusted"
+          diff_args=(--diff-from "$out/app.diff")
+          if ! git diff --no-renames -U0 "$base" HEAD -- Sources Packages/macOS Packages/Shared CLI > "$out/app.diff"; then
+            # The selector records "diff unavailable" rather than guessing.
+            diff_args=()
+          fi
+          python3 -I "$trusted/scripts/ci/reverse_test_impact.py" \
+            --root "$GITHUB_WORKSPACE" \
+            ${diff_args[@]+"${diff_args[@]}"} \
+            --output "$out/report.json" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            || echo "::warning::Reverse test impact report failed; routing is unchanged."
+          exit 0
+
+      - name: Upload the reverse test impact report
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reverse-test-impact-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/reverse-test-impact/report.json
+          if-no-files-found: ignore
+          retention-days: 14
 
   static-preflight:
     name: Fast static checks
@@ -955,17 +1044,6 @@ jobs:
       pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
       native_tests: ${{ needs.changes.outputs.remote_daemon_native == 'true' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
 
-  cli:
-    needs: [changes, static-preflight]
-    if: ${{ needs.changes.outputs.cli == 'true' }}
-    uses: ./.github/workflows/cli-pipe-regressions.yml
-    with:
-      pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
-      pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
-      pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
-      pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
-      pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
-
   web:
     # Beside static-preflight for the same reason as guards.
     needs: [changes]
@@ -1036,7 +1114,7 @@ jobs:
   # through ordinary job results: no sleep and no polling. It is every job
   # that needs nothing beyond changes/static-preflight and runs only on Linux;
   # the workflow test derives the same list. Jobs with a Mac runner
-  # (claude-wrapper, remote-daemon, cli) are already billed and slow, so
+  # (claude-wrapper, remote-daemon) are already billed and slow, so
   # waiting on them saves nothing. It finishes long before a compile does, and
   # compile admission's last step reads its result once: a declined gate
   # fails admission, which skips the shards, CLI product tests, lag and
@@ -1118,6 +1196,7 @@ jobs:
       pr_shard_runner: ${{ needs.changes.outputs.macos_pr_shard_runner }}
       pr_owned_jobs: ${{ needs.changes.outputs.macos_pr_owned_jobs }}
       pr_refused_retry_runner: ${{ needs.changes.outputs.macos_pr_refused_retry_runner }}
+      pr_root_runner: ${{ needs.changes.outputs.macos_pr_root_runner }}
       pr_xcode_app: ${{ needs.changes.outputs.macos_pr_xcode_app }}
 
   tests:
@@ -1345,7 +1424,6 @@ jobs:
       - ghosttykit-release-check
       - browser
       - remote-daemon
-      - cli
       - web
       - linux-preflight
       - macos-admission-gate

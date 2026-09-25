@@ -24,9 +24,9 @@ final class HostSettingsActions: SettingsHostActions {
     private let automationConfigStore: AutomationConfigStore
     private let openAutomationRulesFile: @MainActor (URL) -> Void
     private let reportAutomationRulesError: @MainActor (Error) -> Void
-    private let computerUseRuntimeService: ComputerUseRuntimeService
-    private let runComputerUseOnboardingAction:
-        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
+    let computerUseRuntimeService: ComputerUseRuntimeService
+    var runComputerUseOnboardingAction:
+        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -199,48 +199,6 @@ final class HostSettingsActions: SettingsHostActions {
 
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
-    }
-
-    func refreshComputerUsePermissions() async {
-        let status = await computerUseRuntimeService.refreshHelperStatus()
-        guard
-            CmuxFeatureFlags.shared.isComputerUseUXEnabled,
-            computerUseRuntimeService.permissionStatusIsKnown,
-            status.accessibility,
-            status.screenRecording,
-            computerUseRuntimeService.onboardingRequiresCompletion
-        else {
-            return
-        }
-        runComputerUseOnboardingAction(.screenRecording)
-    }
-
-    func computerUseAccessibilityGranted() -> Bool {
-        computerUseRuntimeService.status().accessibility
-    }
-
-    func computerUseScreenRecordingGranted() -> Bool {
-        computerUseRuntimeService.status().screenRecording
-    }
-
-    func computerUsePermissionStatusIsKnown() -> Bool {
-        computerUseRuntimeService.permissionStatusIsKnown
-    }
-
-    func requestComputerUseAccessibility() {
-        runComputerUseOnboardingAction(.accessibility)
-    }
-
-    func requestComputerUseScreenRecording() {
-        runComputerUseOnboardingAction(.screenRecording)
-    }
-
-    func openComputerUseAccessibilitySettings() {
-        runComputerUseOnboardingAction(.accessibility)
-    }
-
-    func openComputerUseScreenRecordingSettings() {
-        runComputerUseOnboardingAction(.screenRecording)
     }
 
     func openConfigInExternalEditor() {
