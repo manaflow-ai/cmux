@@ -69,7 +69,7 @@ struct TokenPaletteTests {
         #expect(theme.palette.type == magenta)
         #expect(theme.palette.number == yellow)
         #expect(theme.palette.attribute == blue)
-        #expect(theme.palette.variable == white)
+        #expect(theme.palette.variable == foreground)
         #expect(theme.palette.regexp == green)
     }
 }

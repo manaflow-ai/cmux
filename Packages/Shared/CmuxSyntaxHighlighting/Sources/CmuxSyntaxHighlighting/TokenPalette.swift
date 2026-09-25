@@ -20,7 +20,8 @@ public struct TokenPalette: Sendable, Equatable {
     public let number: TokenColor
     /// Attributes, JSON keys, and selectors.
     public let attribute: TokenColor
-    /// Variables and template variables.
+    /// Variables and template variables, using the resolved terminal foreground
+    /// so light palettes do not turn them white on a light editor surface.
     public let variable: TokenColor
     /// Regular expressions and links.
     public let regexp: TokenColor
@@ -86,7 +87,7 @@ public struct TokenPalette: Sendable, Equatable {
         self.string = Self.ansiColor(6, in: ansiPalette, fallback: fallback.string)
         self.number = Self.ansiColor(3, in: ansiPalette, fallback: fallback.number)
         self.attribute = Self.ansiColor(4, in: ansiPalette, fallback: fallback.attribute)
-        self.variable = Self.ansiColor(7, in: ansiPalette, fallback: fallback.variable)
+        self.variable = foreground
         self.regexp = Self.ansiColor(2, in: ansiPalette, fallback: fallback.regexp)
         self.currentLine = fallback.currentLine
         self.currentLineAlpha = fallback.currentLineAlpha

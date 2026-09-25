@@ -26,7 +26,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
-    let terminalPalette: [Int: NSColor] = [:]
+    var terminalPalette: [Int: NSColor] = [:]
     let drawsBackground: Bool
     /// Opaque Ghostty panel color. The ruler is not a hole onto that
     /// surface, so it always paints this even when the text view is clear.
@@ -124,7 +124,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
             drawsBackground: drawsBackground,
             gutterBackgroundColor: gutterBackgroundColor,
             tokenTheme: TokenTheme(
-                appearance: textView.effectiveAppearance,
+                appearance: scrollView.effectiveAppearance,
                 terminalPalette: terminalPalette,
                 terminalForegroundColor: themeForegroundColor
             )
