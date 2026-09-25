@@ -268,7 +268,7 @@ Warm affinity (`CI_OWNED_WARM=1`, off by default): an owned Mac keeps
 compile admission's DerivedData, stamped with the merge base and the pull
 request it built, and admission uploads the keys its mini starts from cheaply
 (`owned_build_state.py warm-keys`: the merge base's sha12 and `pr-<n>` of
-every canonical root, then kept seeds, at most 8) as the `owned-warm-keys`
+every canonical root, then kept seeds on a mini with one root, at most 8) as the `owned-warm-keys`
 artifact. The queue janitor folds new ones into its snapshot's `warm`
 (`owned_warm_state.py`): for each root runner, the keys of its newest
 admission, with the runner taken from the jobs API rather than the artifact.
