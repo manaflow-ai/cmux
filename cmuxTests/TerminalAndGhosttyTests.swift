@@ -3677,7 +3677,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
 #endif
     }
 
-    func testVisibilityRestoreRefreshesSurfaceWhileTerminalIsInactive() throws {
+    func testVisibilityRestoreReusesPresentedFrameWhileTerminalIsInactive() throws {
 #if DEBUG
         let window = makeWindow()
         defer { window.orderOut(nil) }
@@ -3713,6 +3713,10 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             "Expected runtime surface before measuring visibility-restore redraws"
         )
 
+        XCTAssertTrue(
+            waitUntil(timeout: 5.0) { surface.hasPresentedFrame },
+            "Expected a presented frame before testing a warm visibility restore"
+        )
         hostedView.setActive(false)
         hostedView.setVisibleInUI(false)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -3720,14 +3724,13 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         surface.resetDebugForceRefreshCount()
         hostedView.setVisibleInUI(true)
         drainMainQueue()
-        // The visibility-restore redraw is scheduled through a main-actor task, which
-        // `drainMainQueue` (GCD) does not drain; wait for it before counting.
-        _ = waitUntil(timeout: 2.0) { surface.debugForceRefreshCount() >= 1 }
+        XCTAssertTrue(hostedView.debugPortalVisibleInUI)
+        XCTAssertTrue(surface.hasPresentedFrame)
 
         XCTAssertEqual(
             surface.debugForceRefreshCount(),
-            1,
-            "Restoring panel visibility should force a redraw even when focus recovery is inactive"
+            0,
+            "A warm visibility restore must reuse its presented frame without a blocking redraw"
         )
 #else
         throw XCTSkip("Debug-only regression test")

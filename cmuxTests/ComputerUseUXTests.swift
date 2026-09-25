@@ -2311,6 +2311,10 @@ struct ComputerUseUXTests {
             environment: ["CMUX_TAG": "permission-replacement"],
             authenticationToken: "permission-test-token"
         )
+        try FileManager.default.createDirectory(
+            at: paths.runtimeDirectoryURL,
+            withIntermediateDirectories: true
+        )
         let runtime = ComputerUseRuntimeService(
             bundle: Bundle(for: NSApplication.self),
             paths: paths

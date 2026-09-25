@@ -47,13 +47,14 @@ struct SidebarAccessibilityTreeTests {
         root.addSubview(projectView)
         let window = NSWindow(
             contentRect: root.bounds,
-            styleMask: [.borderless],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
         window.contentView = root
-        window.orderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
         defer {
             controller.dismantleContainerView(container)
             window.contentView = nil
@@ -76,6 +77,7 @@ struct SidebarAccessibilityTreeTests {
         var projectWalk = SidebarAccessibilityTreeWalk()
         let projectContentRendered = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
             projectView.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
             projectWalk = SidebarAccessibilityTreeWalk()
             projectWalk.visit(projectView)
             return projectWalk.cycle != nil
@@ -84,7 +86,7 @@ struct SidebarAccessibilityTreeTests {
         try #require(projectWalk.cycle == nil, "Project accessibility children must not cycle: \(projectWalk.cycle ?? [])")
         try #require(
             projectContentRendered,
-            "The mounted project navigator must expose its file before the accessibility walk; rendered text: \(projectWalk.textValues.sorted())"
+            "The mounted project navigator must expose its file before the accessibility walk; rendered text: \(projectWalk.textValues.sorted()), active=\(NSApp.isActive), visible=\(window.isVisible), key=\(window.isKeyWindow), bounds=\(projectView.bounds), subviews=\(projectView.subviews.map { String(describing: type(of: $0)) })"
         )
 
         let cell = try #require(
