@@ -94,11 +94,7 @@ struct SidebarAccessibilityTreeTests {
         // with no assistive client attached, SwiftUI does not vend them in the
         // app host, and the walk only ever saw the sidebar row's text.
         var walk = SidebarAccessibilityTreeWalk()
-        _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
-            walk = SidebarAccessibilityTreeWalk()
-            walk.visit(window)
-            return walk.cycle != nil
-        }
+        walk.visit(window)
         #expect(walk.cycle == nil, "Accessibility children must not point back to an ancestor: \(walk.cycle ?? [])")
         #expect(walk.maxDepth < 256, "Accessibility walk exceeded the safety depth: \(walk.maxDepth)")
         #expect(walk.visited.contains(ObjectIdentifier(textView)))
