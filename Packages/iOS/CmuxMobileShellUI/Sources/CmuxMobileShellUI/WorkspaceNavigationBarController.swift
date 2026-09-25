@@ -183,6 +183,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         let view: WorkspaceNavigationControlView
     }
 
+    @MainActor
     private struct OriginalItem {
         let titleView: UIView?
         let style: UINavigationItem.ItemStyle
