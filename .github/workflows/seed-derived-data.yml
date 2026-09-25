@@ -218,11 +218,15 @@ jobs:
       # seed job on it clones its lane's last seed instead of downloading it
       # back from R2 (mini-6 and cmux15 seed jobs spent p50 856 s and 512 s
       # at about 1.9 busy cores on 2026-09-25, cmuxterm-hq#661 Workstream 7).
-      # The same per-root layout owned admission uses (seed_caches), and only
-      # with room: prune_local keeps each root's newest two whatever the disk
-      # says, and mini-6's hook refuses jobs below 150 GiB free.
+      # Only on the runners vars.CI_SEED_KEEP_LOCAL_RUNNERS names (space
+      # separated): the kept seed becomes the next R2 seed, so the Mac must
+      # run nothing else as this user (cmux15; not mini-6, whose dev-build
+      # worker builds PR code as cmux). The same per-root layout owned
+      # admission uses (seed_caches). It starts with 185 GiB free, and once
+      # the cache exists it stays on so prune_local keeps the disk at its
+      # 170 GiB floor (and each root's newest two).
       - name: Keep seeds on a trusted Mac
-        if: matrix.pool == vars.CI_SEED_TRUSTED_POOL
+        if: matrix.pool == vars.CI_SEED_TRUSTED_POOL && contains(format(' {0} ', vars.CI_SEED_KEEP_LOCAL_RUNNERS), format(' {0} ', runner.name))
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -232,11 +236,11 @@ jobs:
             cache="$state/cmux-ci-$CMUX_SEED_ROOT/seeds"
           fi
           free_gib=$(df -g / | awk 'NR==2 {print $4}')
-          if [ "${free_gib:-0}" -ge 200 ]; then
+          if [ -d "$cache" ] || [ "${free_gib:-0}" -ge 185 ]; then
             echo "CMUX_SEED_LOCAL_CACHE=$cache" >> "$GITHUB_ENV"
             echo "Keeping seeds in $cache ($free_gib GiB free)"
           else
-            echo "Not keeping seeds on this Mac: $free_gib GiB free, under 200"
+            echo "Not keeping seeds on this Mac: $free_gib GiB free, under 185"
           fi
 
       - name: Compute seed key

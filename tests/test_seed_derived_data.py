@@ -187,7 +187,10 @@ class SeedDerivedData(unittest.TestCase):
         self.assertLess(choose_at, adopt_at)
         self.assertLess(save_at, keep_at)
         self.assertLess(keep_at, stage_at)
-        self.assertEqual(choose["if"], "matrix.pool == vars.CI_SEED_TRUSTED_POOL")
+        self.assertIn("matrix.pool == vars.CI_SEED_TRUSTED_POOL", choose["if"])
+        # only runners that run nothing else as this user: a kept seed becomes the next R2 seed
+        self.assertIn("vars.CI_SEED_KEEP_LOCAL_RUNNERS", choose["if"])
+        self.assertIn('[ -d "$cache" ]', choose["run"])  # once on, prune_local holds the disk
         self.assertIn("CMUX_SEED_LOCAL_CACHE=$cache", choose["run"])
         self.assertIn('cache="$state/cmux-ci-$CMUX_SEED_ROOT/seeds"', choose["run"])
         self.assertIs(keep["continue-on-error"], True)
