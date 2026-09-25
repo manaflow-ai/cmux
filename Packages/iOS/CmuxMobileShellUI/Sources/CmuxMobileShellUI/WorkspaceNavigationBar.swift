@@ -11,7 +11,22 @@ struct WorkspaceNavigationBar: UIViewControllerRepresentable {
         }
 
         let id: ID
-        let content: AnyView
+        enum Content {
+            case custom(AnyView)
+            case terminals(TerminalPickerMenuValue, TerminalPickerMenuActions)
+        }
+
+        let content: Content
+
+        init(id: ID, content: AnyView) {
+            self.id = id
+            self.content = .custom(content)
+        }
+
+        init(terminals value: TerminalPickerMenuValue, actions: TerminalPickerMenuActions) {
+            id = .terminals
+            content = .terminals(value, actions)
+        }
     }
 
     let title: AnyView

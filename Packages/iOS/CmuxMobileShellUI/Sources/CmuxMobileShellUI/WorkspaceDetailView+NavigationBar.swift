@@ -56,7 +56,7 @@ extension WorkspaceDetailView {
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             )))
         }
-        items.append(.init(id: .terminals, content: AnyView(terminalPickerToolbarButton)))
+        items.append(.init(terminals: terminalPickerMenuValue(liveTitles: true), actions: terminalPickerMenuActions))
         return items
     }
 

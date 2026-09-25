@@ -9,10 +9,9 @@ final class WorkspaceNavigationBarController: UIViewController {
     private let titleCapsule = WorkspaceNavigationTitleView()
     private var controls: [WorkspaceNavigationBar.Item.ID: HostedControl] = [:]
     private var leadingGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
-    private var titleGroup = UIBarButtonItemGroup(barButtonItems: [], representativeItem: nil)
     private var trailingIDs: [WorkspaceNavigationBar.Item.ID] = []
     private var trailingGroups: [UIBarButtonItemGroup] = []
-    private var titleItem: UIBarButtonItem?
+    private var terminalPicker: TerminalPickerBarItem?
     private weak var owner: UIViewController?
     private var originalItem: OriginalItem?
 
@@ -54,16 +53,21 @@ final class WorkspaceNavigationBarController: UIViewController {
             .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36, alignment: .leading)
             .environment(\.self, environment)))
         titleCapsule.frame.size = titleCapsule.intrinsicContentSize
-        if titleItem == nil {
-            let item = UIBarButtonItem(customView: titleCapsule)
-            titleItem = item
-            titleGroup = UIBarButtonItemGroup(barButtonItems: [item], representativeItem: nil)
-        }
 
         for value in leadingItems + trailingItems {
+            guard case .custom(let customContent) = value.content else {
+                if case let .terminals(value, actions) = value.content {
+                    if let terminalPicker {
+                        terminalPicker.update(value: value, actions: actions)
+                    } else {
+                        terminalPicker = TerminalPickerBarItem(value: value, actions: actions)
+                    }
+                }
+                continue
+            }
             let itemWidth = WorkspaceNavigationControlView.width(for: value.id)
             let content = AnyView(WorkspaceNavigationControlContent(
-                content: value.content,
+                content: customContent,
                 width: itemWidth
             ).environment(\.self, environment))
             if let control = controls[value.id] {
@@ -112,14 +116,8 @@ final class WorkspaceNavigationBarController: UIViewController {
         navigation.navigationBar.accessibilityIdentifier = "MobileWorkspaceNavigationBar"
         item.style = .browser
         item.largeTitleDisplayMode = .never
-        item.titleView = nil
-        // `centerItemGroups` is UIKit's center toolbar region. Using it keeps
-        // the title in the same layout contract as the leading and trailing
-        // bar-item groups instead of treating `titleView` as a SwiftUI
-        // `.principal` replacement.
-        let desiredCenterGroups = titleGroup.barButtonItems.isEmpty ? [] : [titleGroup]
-        if !item.centerItemGroups.elementsEqual(desiredCenterGroups, by: { $0 === $1 }) {
-            item.centerItemGroups = desiredCenterGroups
+        if item.titleView !== titleCapsule {
+            item.titleView = titleCapsule
         }
         let desiredLeadingGroups = leadingGroup.barButtonItems.isEmpty ? [] : [leadingGroup]
         if !item.leadingItemGroups.elementsEqual(desiredLeadingGroups, by: { $0 === $1 }) {
@@ -141,7 +139,7 @@ final class WorkspaceNavigationBarController: UIViewController {
         let representative = ids.first(where: { $0 == .overflow }).flatMap { controls[$0]?.button }
         let collapsible = ids
             .filter { $0 != .alternateScreen && $0 != .overflow }
-            .compactMap { controls[$0]?.button }
+            .compactMap { id in id == .terminals ? terminalPicker?.button : controls[id]?.button }
         var groups: [UIBarButtonItemGroup] = []
         if let warning {
             groups.append(UIBarButtonItemGroup(barButtonItems: [warning], representativeItem: nil))
@@ -161,8 +159,7 @@ final class WorkspaceNavigationBarController: UIViewController {
     func restoreConfiguration() {
         guard let owner, let originalItem else { return }
         let item = owner.navigationItem
-        if item.centerItemGroups.elementsEqual([titleGroup], by: { $0 === $1 }) {
-            item.centerItemGroups = originalItem.centerGroups
+        if item.titleView === titleCapsule {
             item.titleView = originalItem.titleView
             item.style = originalItem.style
             item.largeTitleDisplayMode = originalItem.largeTitleDisplayMode
@@ -190,7 +187,6 @@ final class WorkspaceNavigationBarController: UIViewController {
         let titleView: UIView?
         let style: UINavigationItem.ItemStyle
         let largeTitleDisplayMode: UINavigationItem.LargeTitleDisplayMode
-        let centerGroups: [UIBarButtonItemGroup]
         let leadingGroups: [UIBarButtonItemGroup]
         let trailingGroups: [UIBarButtonItemGroup]
         let trailingGroup: UIBarButtonItemGroup?
@@ -200,7 +196,6 @@ final class WorkspaceNavigationBarController: UIViewController {
             titleView = item.titleView
             style = item.style
             largeTitleDisplayMode = item.largeTitleDisplayMode
-            centerGroups = item.centerItemGroups
             leadingGroups = item.leadingItemGroups
             trailingGroups = item.trailingItemGroups
             trailingGroup = item.pinnedTrailingGroup

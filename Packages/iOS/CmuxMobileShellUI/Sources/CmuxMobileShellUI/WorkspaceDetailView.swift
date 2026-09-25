@@ -699,46 +699,54 @@ struct WorkspaceDetailView: View {
     // `selectTerminalFromPicker`; keyboard-dismiss-on-open is unavailable.
     var terminalPickerToolbarButton: some View {
         TerminalPickerMenu(
-            value: TerminalPickerMenuValue(
-                liveTerminals: workspace.terminals,
-                liveSurfaces: workspace.surfaces,
-                snapshotRows: terminalPickerRows,
-                selectedID: store.selectedTerminalID,
-                // Resolved through the workspace so the auto-presented
-                // fallback surface (no terminals, no explicit selection)
-                // carries the picker checkmark like any picked surface.
-                selectedMacSurfaceID: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)?.id,
-                canCreateWorkspace: canCreateWorkspace,
-                hasActiveBrowser: activeBrowser != nil,
-                browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
-                supportsBrowserStream: store.supportsBrowserStream,
-                activeBrowserStreamPanelID: activeBrowserStream?.id,
-                simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
-                supportsSimulatorStream: store.supportsSimulatorStream,
-                activeSimulatorStreamPanelID: activeSimulatorStream?.id
-            ),
-            actions: TerminalPickerMenuActions(
-                selectTerminal: selectTerminalFromPicker,
-                selectMacSurface: selectMacSurfaceFromPicker,
-                createWorkspace: createWorkspaceFromToolbar,
-                createTerminal: createTerminalFromToolbar,
-                openBrowser: openBrowserFromToolbar,
-                selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
-                selectSimulatorStream: selectSimulatorStreamFromToolbar,
-                openTextSheet: openTextSheetFromMenu,
-                copyDebugLogs: {
-                    #if DEBUG
-                    copyDebugLogsFromMenu()
-                    #endif
-                },
-                sendFeedback: openFeedbackComposerFromMenu
-            ),
+            value: terminalPickerMenuValue(),
+            actions: terminalPickerMenuActions,
             terminalTheme: store.activeTerminalTheme
         )
         .equatable()
         .simultaneousGesture(TapGesture().onEnded { syncTerminalPickerRows(includeTitleChanges: true) })
         .onAppear { syncTerminalPickerRows(includeTitleChanges: true) }
         .onChange(of: terminalPickerLiveMembership) { _, _ in syncTerminalPickerRows() }
+    }
+
+    func terminalPickerMenuValue(liveTitles: Bool = false) -> TerminalPickerMenuValue {
+        TerminalPickerMenuValue(
+            liveTerminals: workspace.terminals,
+            liveSurfaces: workspace.surfaces,
+            snapshotRows: liveTitles ? [] : terminalPickerRows,
+            selectedID: store.selectedTerminalID,
+            // Resolved through the workspace so the auto-presented
+            // fallback surface (no terminals, no explicit selection)
+            // carries the picker checkmark like any picked surface.
+            selectedMacSurfaceID: workspace.selectedMacSurface(id: store.selectedMacSurfaceID)?.id,
+            canCreateWorkspace: canCreateWorkspace,
+            hasActiveBrowser: activeBrowser != nil,
+            browserStreamRows: browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(BrowserStreamPickerRow.init),
+            supportsBrowserStream: store.supportsBrowserStream,
+            activeBrowserStreamPanelID: activeBrowserStream?.id,
+            simulatorStreamRows: simulatorStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue).map(SimulatorStreamPickerRow.init),
+            supportsSimulatorStream: store.supportsSimulatorStream,
+            activeSimulatorStreamPanelID: activeSimulatorStream?.id
+        )
+    }
+
+    var terminalPickerMenuActions: TerminalPickerMenuActions {
+        TerminalPickerMenuActions(
+            selectTerminal: selectTerminalFromPicker,
+            selectMacSurface: selectMacSurfaceFromPicker,
+            createWorkspace: createWorkspaceFromToolbar,
+            createTerminal: createTerminalFromToolbar,
+            openBrowser: openBrowserFromToolbar,
+            selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
+            selectSimulatorStream: selectSimulatorStreamFromToolbar,
+            openTextSheet: openTextSheetFromMenu,
+            copyDebugLogs: {
+                #if DEBUG
+                copyDebugLogsFromMenu()
+                #endif
+            },
+            sendFeedback: openFeedbackComposerFromMenu
+        )
     }
 
     #if canImport(UIKit)

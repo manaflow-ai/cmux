@@ -24,10 +24,6 @@ struct TerminalPickerMenu: View, Equatable {
                 systemImage: "rectangle.stack"
             )
             .labelStyle(.iconOnly)
-            // Match the native navigation-bar item slot. Menu otherwise keeps
-            // its 28-point intrinsic label and leaves the stack icon left of
-            // center inside the 42-point UIKit bar item.
-            .frame(width: 42, height: 36)
         }
         .foregroundStyle(terminalTheme.terminalChromeForegroundColor)
         .accessibilityLabel(L10n.string("mobile.terminal.picker.title", defaultValue: "Terminals"))
