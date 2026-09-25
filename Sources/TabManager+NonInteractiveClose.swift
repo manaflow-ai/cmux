@@ -1,6 +1,45 @@
 import Foundation
 
 extension TabManager {
+    /// Saves one live workspace to the parked manifest and tears down its runtime resources.
+    @discardableResult
+    func parkWorkspaceNonInteractively(_ workspace: Workspace) -> Bool {
+        guard tabs.count > 1,
+              tabs.contains(where: { $0.id == workspace.id }),
+              canCloseWorkspace(workspace, allowPinned: true),
+              let index = tabs.firstIndex(where: { $0.id == workspace.id }) else {
+            return false
+        }
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: true,
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+                ?? RestorableAgentSessionIndex.load()
+        )
+        ParkedWorkspaceStore.shared.append(ParkedWorkspaceRecord(
+            id: workspace.id,
+            workspaceIndex: index,
+            windowId: AppDelegate.shared?.windowId(for: self),
+            snapshot: snapshot
+        ))
+        closeWorkspace(workspace, recordHistory: false)
+        return !tabs.contains(where: { $0.id == workspace.id })
+    }
+
+    /// Restores a parked workspace through the same identity and topology path as close history.
+    @discardableResult
+    func unparkWorkspace(_ record: ParkedWorkspaceRecord) -> Bool {
+        let entry = ClosedWorkspaceHistoryEntry(
+            workspaceId: record.id,
+            windowId: record.windowId,
+            workspaceIndex: record.workspaceIndex,
+            snapshot: record.snapshot
+        )
+        guard restoreClosedWorkspace(entry) else { return false }
+        _ = ParkedWorkspaceStore.shared.remove(id: record.id)
+        return true
+    }
+
     /// Closes a socket/API-targeted workspace without an interactive veto.
     ///
     /// Closing a window's last workspace means closing the window. A remote-tmux

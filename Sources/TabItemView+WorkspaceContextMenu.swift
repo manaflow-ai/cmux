@@ -242,6 +242,19 @@ extension TabItemView {
 
         Divider()
 
+        Button(
+            contextMenuLabel(
+                multi: String(localized: "contextMenu.parkWorkspaces", defaultValue: "Park Workspaces"),
+                single: String(localized: "contextMenu.parkWorkspace", defaultValue: "Park Workspace"),
+                isMulti: isMulti
+            )
+        ) {
+            actions.parkTargets(targetIds)
+        }
+        .disabled(targetIds.isEmpty || snapshot.workspaceCount <= targetIds.count)
+
+        Divider()
+
         if let key = closeWorkspaceShortcut.keyEquivalent {
             Button(closeLabel) {
                 actions.closeTargets(targetIds, true)

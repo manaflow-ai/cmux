@@ -61,6 +61,133 @@ struct ClosedWorkspaceHistoryEntry: Codable, Sendable {
     let workspaceIndex: Int
     let snapshot: SessionWorkspaceSnapshot
 }
+
+/// A durable workspace snapshot that was explicitly parked by the user.
+struct ParkedWorkspaceRecord: Codable, Identifiable, Sendable {
+    let id: UUID
+    let parkedAt: Date
+    let workspaceIndex: Int
+    let windowId: UUID?
+    let snapshot: SessionWorkspaceSnapshot
+
+    var workspaceId: UUID { id }
+
+    init(
+        id: UUID,
+        parkedAt: Date = Date(),
+        workspaceIndex: Int,
+        windowId: UUID?,
+        snapshot: SessionWorkspaceSnapshot
+    ) {
+        self.id = id
+        self.parkedAt = parkedAt
+        self.workspaceIndex = workspaceIndex
+        self.windowId = windowId
+        self.snapshot = snapshot
+    }
+}
+
+/// Owns persisted workspace snapshots that are intentionally absent from the live sidebar.
+@MainActor
+final class ParkedWorkspaceStore: ObservableObject {
+    static let shared = ParkedWorkspaceStore(fileURL: defaultFileURL())
+
+    @Published private(set) var revision: UInt64 = 0
+    @Published private(set) var records: [ParkedWorkspaceRecord] = []
+
+    private let fileURL: URL?
+    private let persistsSynchronously: Bool
+
+    init(
+        fileURL: URL?,
+        loadPersisted: Bool = true,
+        persistsSynchronously: Bool = false
+    ) {
+        self.fileURL = fileURL
+        self.persistsSynchronously = persistsSynchronously
+        if loadPersisted, let fileURL {
+            records = Self.loadRecords(fileURL: fileURL)
+        }
+    }
+
+    var isEmpty: Bool { records.isEmpty }
+
+    func append(_ record: ParkedWorkspaceRecord) {
+        records.removeAll { $0.id == record.id }
+        records.append(record)
+        records.sort { $0.parkedAt > $1.parkedAt }
+        persist()
+    }
+
+    @discardableResult
+    func remove(id: UUID) -> ParkedWorkspaceRecord? {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return nil }
+        let record = records.remove(at: index)
+        persist()
+        return record
+    }
+
+    func search(_ query: String?) -> [ParkedWorkspaceRecord] {
+        let normalized = query?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        guard !normalized.isEmpty else { return records }
+        return records.filter { record in
+            let title = [record.snapshot.customTitle, record.snapshot.processTitle, record.snapshot.currentDirectory]
+                .compactMap { $0?.lowercased() }
+                .joined(separator: "\n")
+            return title.contains(normalized) || record.snapshot.panels.contains { panel in
+                let text = [panel.customTitle, panel.terminal?.agent?.sessionId, panel.terminal?.agent?.kind.rawValue]
+                    .compactMap { $0?.lowercased() }
+                    .joined(separator: "\n")
+                return text.contains(normalized)
+            }
+        }
+    }
+
+    func flush() {
+        guard let fileURL else { return }
+        Self.saveRecords(records, fileURL: fileURL)
+    }
+
+    private func persist() {
+        revision &+= 1
+        guard let fileURL else { return }
+        if persistsSynchronously {
+            Self.saveRecords(records, fileURL: fileURL)
+        } else {
+            let snapshot = records
+            Task.detached(priority: .utility) {
+                Self.saveRecords(snapshot, fileURL: fileURL)
+            }
+        }
+    }
+
+    private static func defaultFileURL() -> URL? {
+        guard !SessionRestorePolicy.isRunningUnderAutomatedTests(),
+              let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        else { return nil }
+        return appSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("parked-workspaces.json", isDirectory: false)
+    }
+
+    private static func loadRecords(fileURL: URL) -> [ParkedWorkspaceRecord] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        return (try? JSONDecoder().decode([ParkedWorkspaceRecord].self, from: data)) ?? []
+    }
+
+    nonisolated private static func saveRecords(_ records: [ParkedWorkspaceRecord], fileURL: URL) {
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try JSONEncoder().encode(records)
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            closedItemHistoryLogger.error("parkedWorkspace.save.failed error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
 struct ClosedWindowHistoryEntry: Codable, Sendable {
     let windowId: UUID?
     let snapshot: SessionWindowSnapshot
