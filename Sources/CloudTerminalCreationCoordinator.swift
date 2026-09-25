@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import os
 
@@ -58,7 +59,7 @@ final class CloudTerminalCreationCoordinator {
         _ work: @MainActor () async throws -> T
     ) async rethrows -> T {
         let context = recorder?.begin(.terminal, foreground: false, file: file, line: line)
-        return try await CloudOperationContext.$current.withValue(context) {
+        return try await CloudOperationContext.withCurrent(context) {
             do {
                 let value = try await work()
                 if let context { await context.recorder.finish(context) }

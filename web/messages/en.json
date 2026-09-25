@@ -1,4 +1,18 @@
 {
+  "agentHarness": {
+    "title": "Detected harness configuration",
+    "selectionNotice": "Selecting a provider does not launch or enable these harnesses.",
+    "selectProvider": "Select {provider}",
+    "foundPath": "Found {path}",
+    "foundCommand": "Found command {command}",
+    "installed": "Provider is installed",
+    "missing": "Provider is not installed",
+    "install": "Install with: {command}",
+    "benefitPi": "Compaction, memory, and provider routing",
+    "benefitOpenagent": "Parallel specialists and recovery for OpenCode",
+    "benefitClaude": "Teams and verification for Claude Code",
+    "benefitSuperpowers": "Planning, TDD, subagents, and review"
+  },
   "coderouterAuth": {
     "title": "Authorization received",
     "description": "Return to your terminal to finish setup."
@@ -136,6 +150,17 @@
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM setup did not finish.",
+      "reason": "The Cloud VM guest setup did not complete.",
+      "message": "cmux could not finish setting up the Cloud VM.",
+      "action": "Retry the operation. If it keeps failing, contact support."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM cleanup pending",
+      "message": "Cloud VM setup failed and cleanup is still pending.",
+      "action": "Contact support with the trace ID before creating another machine."
+    },
     "artifactUnavailable": {
       "title": "Cloud VM setup unavailable",
       "message": "Cloud VM setup is temporarily unavailable.",
@@ -172,6 +197,11 @@
       "message": "Cloud VMs require a cmux Pro plan.",
       "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
     },
+    "displayName": {
+      "title": "Invalid machine name",
+      "message": "Machine names must be printable text of at most {maxLength} characters.",
+      "action": "Use a shorter name without control characters, or leave it empty to clear it."
+    },
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
@@ -184,8 +214,7 @@
     "memoryUnavailable": {
       "message": "This machine size is currently unavailable. Choose a size up to {max} GiB.",
       "action": "cmux vm new --size {max}g"
-    }
-  ,
+    },
     "goLimit": {
       "savedMessage": "Go includes two saved VMs, including the running VM.",
       "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
@@ -195,7 +224,8 @@
       "hoursAction": "cmux billing checkout --plan pro",
       "shapeMessage": "Go supports 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
       "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
-    }},
+    }}
+  ,
   "ios": {
     "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
     "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
@@ -283,6 +313,7 @@
   "authError": {
     "emailUnverifiedTitle": "Verify your email to continue",
     "emailUnverifiedBody": "Sign in with the method you used originally, then verify your email before using this sign-in method.",
+    "signupPendingBody": "If you already have an account, sign in with the method you used before. If you just created an account, verify your email before signing in.",
     "genericTitle": "Sign-in could not be completed",
     "genericBody": "Please try again. If the problem continues, contact support.",
     "backToSignIn": "Back to sign in"
@@ -317,12 +348,12 @@
       "vaultSessions": "sessions",
       "coderouterGroup": "coderouter",
       "coderouterOverview": "overview",
-      "iosGroup": "iOS",
+      "remoteControlGroup": "Remote control",
       "accountGroup": "account",
       "billing": "billing",
       "team": "team",
       "testflight": "iOS TestFlight",
-      "irohDevices": "IROH devices"
+      "mobileDevices": "Mobile devices"
     },
     "home": {
       "title": "dashboard",
@@ -459,7 +490,34 @@
       "cancelAction": "Cancel",
       "shareWithTeam": "Share with team",
       "makePrivate": "Make private",
-      "privateImportHint": "New accounts are private. Share an account to make it available to this team’s Cloud VMs."
+      "privateImportHint": "New accounts are private. Share an account to make it available to this team’s Cloud VMs.",
+      "apiKeysTitle": "API keys",
+      "apiKeysDescription": "Create long-lived keys for scripts and agents. The secret is shown once.",
+      "apiKeysCount": "{count, plural, one {# key} other {# keys}}",
+      "apiKeysLoading": "Loading API keys…",
+      "apiKeysLoadError": "API keys could not be loaded. Try again shortly.",
+      "apiKeysRetry": "Retry",
+      "apiKeysEmptyBody": "No API keys yet. Create one to authenticate a CodeRouter client.",
+      "apiKeyPrefixColumn": "Key",
+      "apiKeyStatusColumn": "Status",
+      "apiKeySecretTitle": "Copy this key now",
+      "apiKeySecretBody": "This secret will not be shown again.",
+      "apiKeyCopy": "Copy API key",
+      "apiKeyCopied": "Copied",
+      "apiKeyCreatedAt": "created {at}",
+      "apiKeyLastUsed": "last used {at}",
+      "apiKeyRevoked": "Revoked",
+      "apiKeyLabelPlaceholder": "For example, CI or production",
+      "createApiKeyAction": "Create API key",
+      "creatingApiKeyAction": "Creating",
+      "apiKeyCreateError": "API key could not be created.",
+      "revokeApiKeyAction": "Revoke",
+      "revokingApiKeyAction": "Revoking",
+      "apiKeyRevokeError": "API key could not be revoked.",
+      "revokeApiKeyConfirmTitle": "Revoke this API key?",
+      "revokeApiKeyConfirmBody": "Clients using this key will stop authenticating immediately.",
+      "apiKeyUsageDetail": "last 30 days: {completions} completions · {tokens} tokens ({input} in / {output} out) · {value} API equivalent",
+      "apiKeyUsageUnavailable": "Usage unavailable"
     },
     "accountMenu": {
       "label": "Account menu",
@@ -550,7 +608,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Run machines with up to 64 GB RAM on Max for $200 per month, billed monthly."
+        "upsell": "Max includes up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs for $200 per month, billed monthly."
       }
     },
     "testflight": {
@@ -597,23 +655,34 @@
         "leave": "Leave TestFlight"
       }
     },
-    "iroh": {
-      "title": "IROH devices",
-      "description": "Manage devices in the selected Stack team. Access is filtered by team permissions.",
+    "mobileDevices": {
+      "title": "Mobile devices",
+      "description": "Manage access to your connected computers, phones, and tablets.",
       "team": "Team",
+      "scopeActive": "Team scope active",
+      "teamSwitchError": "Could not switch teams. Try again.",
       "loading": "Loading devices…",
-      "empty": "No IROH devices are registered for this team.",
-      "unavailable": "Dashboard authorization is unavailable.",
+      "empty": "No devices are registered for this team.",
+      "emptyTitle": "No connected devices yet",
+      "emptyDescription": "When a cmux device pairs with this team, it will appear here with its platform, version, and access controls.",
+      "unavailable": "Could not load your devices. Refresh the page to try again.",
+      "retry": "Try again",
       "mutationError": "The device change could not be completed.",
       "revoke": "Revoke access",
+      "revoking": "Revoking…",
       "deviceId": "Device",
       "revision": "Revision",
+      "registeredDevices": "Registered devices",
+      "activeDevices": "Active devices",
+      "directoryRevision": "Directory revision",
       "status": "Status",
       "active": "Active",
       "revoked": "Revoked",
       "relaySettings": "Relay settings",
       "relaySettingsDescription": "Choose the relay servers used by this team. Enter one URL per line.",
-      "saveRelaySettings": "Save relay settings"
+      "saveRelaySettings": "Save relay settings",
+      "savingRelaySettings": "Saving…",
+      "eyebrow": "cloud / devices"
     }
   },
   "vault": {
@@ -919,8 +988,8 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 64 GB RAM per machine",
-        "Everything in Pro: 50 Cloud VMs, unlimited workspaces, the iOS app"
+        "Up to 50 Cloud VMs sharing 64 GB RAM and 16 vCPUs",
+        "Unlimited workspaces and the iOS app"
       ]
     },
     "team": {
@@ -1028,7 +1097,7 @@
           "label": "Resources shared across all Cloud VMs",
           "free": "false",
           "pro": "24 GB RAM and 6 vCPUs shared across all VMs",
-          "max": "64 GB RAM and 16 vCPUs per VM",
+          "max": "64 GB RAM and 16 vCPUs shared across all VMs",
           "team": "24 GB RAM and 6 vCPUs per user, shared across all their VMs",
           "enterprise": "Custom",
           "go": "2 vCPU, 4 GiB RAM, 16 GiB disk"
@@ -1140,7 +1209,7 @@
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly, with up to 64 GB RAM and 16 vCPUs per VM. It includes everything in Pro and unlocks Cloud VMs with 32 GB or 64 GB RAM. Pro, Team, and Free machines top out at 24 GB RAM."
+          "a": "Max is $200/mo, billed monthly. Up to 50 Cloud VMs share a total of 64 GB RAM and 16 vCPUs. It includes everything in Pro and supports 32 GB and 64 GB machines within that shared total. Pro, Team, and Free machines top out at 24 GB RAM."
         },
         {
           "q": "What is cmux Vault?",
@@ -1956,6 +2025,54 @@
     }
   },
   "docs": {
+    "iosSetup": {
+      "title": "Set up cmux on iPhone and iPad",
+      "intro": "cmux on iOS connects to cmux running on your Mac. Your shells and agents continue running on the Mac while you view and control their workspaces from your phone or tablet.",
+      "checklistTitle": "Before you start",
+      "checklist1": "Install the latest cmux on your Mac and keep it open with at least one workspace. If the phone requests a newer Mac version, update the specific cmux app you are connecting to.",
+      "checklist2": "Install cmux on your iPhone or iPad. For the beta, accept your TestFlight invitation and install cmux BETA through TestFlight.",
+      "checklist3": "Have both devices connected to the internet and use the same cmux account. If you use teams, select the same team on both devices.",
+      "downloadMac": "Download cmux for Mac",
+      "downloadIOS": "Get cmux for iOS",
+      "macTitle": "1. Enable pairing on your Mac",
+      "mac1": "Open cmux on the Mac and sign in to your cmux account.",
+      "mac2": "Open cmux Settings, select Mobile, and turn on Enable iOS pairing. Do this in each cmux Mac app you want to access from your phone.",
+      "mac3": "Keep cmux running and the Mac awake. If the Mac sleeps, shuts down, or loses its connection, the phone cannot reach its terminals.",
+      "pairingNote": "Pairing is off by default. While it is off, that Mac stays hidden from iOS. Signing in alone does not enable pairing.",
+      "phoneTitle": "2. Sign in and connect from iOS",
+      "phone1": "Open cmux on your iPhone or iPad and sign in with the same cmux account as the Mac. Check the email on both devices if you have more than one account.",
+      "phone2": "Follow the introduction. Enable Notifications when asked, or choose Not Now and enable them later. On the pairing page, confirm that you enabled iOS pairing on your Mac.",
+      "phone3": "Choose Auto-Connect and tap Check for My Mac. This discovers compatible Macs signed in to your account. Auto-Connect does not require you to install Tailscale.",
+      "phone4": "When the Mac is connected, tap Open Workspaces. Choose a workspace, then a terminal to view output and send input. Use All Computers at the top to change the selected Mac.",
+      "permissionsNote": "Allow Local Network access if iOS asks. If you previously denied it, open the iPhone or iPad Settings app, find cmux, and enable Local Network. Then return to cmux and tap Retry.",
+      "tailscaleTitle": "Optional: connect with Tailscale Only",
+      "tailscale1": "Install Tailscale on the Mac and iPhone or iPad, sign both into the same Tailscale network, and confirm Tailscale is connected on both.",
+      "tailscale2": "Keep Enable iOS pairing on in cmux Settings > Mobile. On iOS, select Tailscale Only in the connection options, then choose Scan Pairing Code.",
+      "tailscale3": "Open Mobile Connect in cmux on the Mac and scan its pairing code with the phone. Allow camera access when requested and follow the pairing prompts.",
+      "tailscale4": "Keep Tailscale connected on both devices when using this mode, including when the phone switches from Wi-Fi to cellular. Your Tailscale access rules must allow the phone to reach the Mac.",
+      "notificationsTitle": "3. Enable agent notifications",
+      "notifications1": "Tap Enable Notifications during the introduction and allow notifications in the iOS prompt. If you skipped or denied it, open iOS Settings > Notifications > cmux and enable Allow Notifications.",
+      "notifications2": "Check notification settings in cmux on both devices and enable forwarding where offered. Keep the Mac running and connected so it can send new agent alerts.",
+      "notifications3": "Open a workspace with a configured coding agent and trigger an alert. Check the Notifications tab in cmux, then check delivery to your phone. Focus modes and Scheduled Summary can delay or silence alerts.",
+      "notificationsLink": "Configure terminal and agent notifications",
+      "verifyTitle": "4. Verify your connection",
+      "verify1": "Open a terminal from the phone and run a harmless command such as pwd. Confirm the output appears on the phone and in the same Mac workspace.",
+      "verify2": "Switch to another workspace, then return. If you plan to connect away from home, test on cellular before leaving the Mac.",
+      "verify3": "Keep the Mac plugged in and awake for remote access. A keep-awake option may be offered during setup; use it if you want the Mac to remain reachable.",
+      "troubleshootTitle": "If no workspaces appear",
+      "troubleshootIntro": "After correcting a setup issue, return to Workspaces and tap Retry. Retry reconnects to a saved Mac or refreshes the workspace list and account-backed connection information.",
+      "troubleshootPairingTitle": "The Mac is missing",
+      "troubleshootPairing": "Check Enable iOS pairing in Settings > Mobile on the exact Mac app you opened. Confirm the same cmux account and team on both devices, and keep that Mac app running. Use the Computers button to inspect available Macs and check whether you hid the computer.",
+      "troubleshootVersionTitle": "cmux asks for a newer Mac app",
+      "troubleshootVersion": "Update cmux on the Mac, then quit and reopen that app. If you run several cmux versions, confirm the phone is selecting the updated one. Follow the minimum version shown by the iOS app.",
+      "troubleshootNetworkTitle": "The Mac appears but will not connect",
+      "troubleshootNetwork": "Wake the Mac and check internet access on both devices. Allow Local Network access on iOS if requested. For Tailscale Only, check that both Tailscale apps are connected to the same network and that access rules permit the connection. Then tap Retry.",
+      "troubleshootEmptyTitle": "The connection works but the list is empty",
+      "troubleshootEmpty": "Create or open a workspace in cmux on the Mac. On the phone, choose All Computers and clear workspace search or filters. Pull down to refresh the list, or tap Retry in the empty state.",
+      "helpTitle": "Still need help?",
+      "helpBody": "Include your cmux versions on Mac and iOS, your connection mode, the exact error, and whether the Mac appears under Computers. Never include passwords or pairing codes.",
+      "helpLink": "Contact cmux support"
+    },
     "computerUse": {
       "title": "cmux Computer Use",
       "metaTitle": "cmux Computer Use: AI agents for Mac automation",
@@ -2074,6 +2191,8 @@
       "booleanType": "Boolean",
       "browserKeyDesc": "Disables every embedded-browser surface: browser panes and tabs, terminal-link interception, browser creation from automation, layouts, and session restore. Live browser panes are closed when the policy activates; links open in the system default browser instead. WebKit-based local viewers riding the same gate (the diff viewer, agent-chat pane, in-app upgrade pages) are also unavailable, and the Mac stops advertising browser capabilities to the iOS app.",
       "remoteKeyDesc": "Disables the Mac acting as a remote view/control host for the cmux iOS app: the Iroh host runtime (including its local-network advertisement), the legacy TCP pairing listener, connection admission, and device pairing. Live phone connections are closed when the policy activates, the pairing trust broker refuses to mint new pair grants, local attach-ticket minting refuses, and relayed phone replies are no longer typed into terminals. Outbound-only notification forwarding, app updates, the local automation socket, and Mac-as-client SSH remain unaffected.",
+      "deviceDiscoveryKeyDesc": "Disables discovery of other Macs in My Devices. Incoming access to this Mac remains independent; use DisableIncomingDeviceAccess for that, or DisableRemoteControl for the broad host ban. The forced policy wins over the local discovery preference and applies live.",
+      "incomingDeviceAccessKeyDesc": "Prevents this Mac from advertising or accepting incoming Mac and iOS sessions while leaving outbound Mac discovery available. Live incoming sessions are closed and the host withdraws its discoverability state. DisableRemoteControl and DisableIrohNetworking remain broader bans.",
       "cloudKeyDesc": "Disables cmux Cloud Machines and cmux-managed private-network access: the Cloud sidebar tab, Settings, palette and new-workspace entries, session restore of Cloud workspaces, every Cloud VM service call (create, open, attach, exec, SSH, desktop, ports, publications), the vm socket/CLI commands, the Cloud control-plane verbs that share that backend (remotes, aiAccounts including credential upload, coderouter, workspace.cloud_vm_*), the cmux vm-pty-connect direct dial, the Cloud tab-bar button, and the cmux.cloudvm cmux.json action fail closed with a managed-policy error. The app never enrolls, starts, or reconnects its private-network tunnel; cmux vpn up fails closed while cmux vpn status, down, and revoke stay available for cleanup. When the policy activates mid-session, live Cloud workspaces and links are torn down and the managed VPN configuration is removed. Local terminals, local automation, and ordinary user-configured SSH are unaffected.",
       "remoteConnectionsKeyDesc": "Disables cmux-created remote connections: SSH, Mosh, and remote tmux sessions plus the remote registry, from every entry point (command palette, menus, the cmux CLI, socket automation, and session restore). ssh:// links are refused up front, and a profile pushed mid-session disconnects every live cmux-created remote workspace and remote tmux mirror. Cloud Machines attach over the same mechanism, so this key blocks them too. Terminals on this Mac are unaffected, and a user's own ssh typed into a shell is deliberately out of scope: this control governs the connections cmux creates, not the shell.",
       "fileTransferKeyDesc": "Disables cmux-mediated file transfer: drag-and-drop and pasted-image uploads into a remote terminal (including a configured custom upload command), remote-file previews in the SSH file explorer, phone↔Mac transfers over the iOS app (attachment upload, artifact and changed-file fetch, image paste), and cmux vm push / cmux vm pull. A refused drop or paste shows the policy message. Local drops into local terminals still work, and a user's own scp or rsync typed into a shell is deliberately out of scope.",
@@ -2395,6 +2514,12 @@
       "settingsFileChords": "Use a string for a single shortcut or a two-item array for a chord. Example: [\"ctrl+b\", \"c\"] means press Ctrl+B, then C.",
       "exampleConfig": "Example config",
       "schemaDescriptions": {
+        "root": "cmux configuration. Global cmux.json supports app settings, shortcuts, actions, custom commands, notification hooks, and workspace layouts. Project-local .cmux/cmux.json or cmux.json supports actions, commands, notification hooks, UI action wiring, Agent Chat overrides, vault agents, workspace-group overrides, and workspace launch/button configuration.",
+        "rightSidebar": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
+        "packs": {
+          "description": "Local cmux pack files or directories loaded before this configuration. Directories resolve to cmux.pack.json. Use a path string or an object with a path field.",
+          "path": "Local file or directory path, relative to this configuration file unless absolute."
+        },
         "computerUse": {
           "description": "Local computer-use tools and menu-bar visibility.",
           "enabled": "Allow supported agent launches in cmux terminals to attach the local computer-use tools.",
@@ -2431,6 +2556,7 @@
         "app": {
           "confirmQuit": "Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback.",
           "windowTitleTemplate": "Optional NSWindow title template. Blank preserves cmux's existing default title behavior, including the current-directory fallback. Supported placeholders: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "DEBUG-only display name used when opening new windows. An empty value uses the system default.",
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
@@ -2581,7 +2707,7 @@
       "plusButtonScreenshotAlt": "cmux plus button right-click menu showing Codex Worktree, New Terminal, and New Browser",
       "plusButtonScreenshotCaption": "The right-click menu follows the order from ui.newWorkspace.contextMenu.",
       "newWorkspaceButton": "Custom plus button actions",
-      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>. When it is not set, the menu lists cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), each showing its current shortcut. Cloud rows appear only when Cloud Machines is enabled.",
+      "newWorkspaceButtonDesc": "Use <action>ui.newWorkspace.action</action> to override what the plus button does. Use <contextMenu>ui.newWorkspace.contextMenu</contextMenu> (or the <rightClick>rightClick</rightClick> alias) to define the ordered right-click menu. Menu entries can be action IDs, action objects, or <separator>{ \"type\": \"separator\" }</separator>. When it is not set, the menu lists cmux.newWorkspace (⌘N), cmux.newCloudWorkspace (⇧⌘Y), cmux.newCloudMachine (⌘Y), cmux.newTerminal (⌘T), cmux.newBrowser (⇧⌘L), each showing its current shortcut. New Cloud Workspace uses the last selected Cloud workspace's machine, then the first machine in the right-hand sidebar; New Cloud Machine provisions a machine deliberately. Cloud rows appear only when Cloud Machines is enabled.",
       "newWorkspaceWorktreeNote": "This example makes the normal plus click run the <action>worktree-agents</action> action. The workspace command from <commands>commands</commands> uses a visible setup terminal to create the Git <worktree>worktree</worktree> first. Codex and Claude start at the same time, wait for the workspace-specific state file, then cd into the created directory before exec.",
       "workspaceActions": "Workspace layouts",
       "workspaceActionsDesc": "A workspace layout is stored as a <workspace>workspace</workspace> action, embedding a full workspace definition directly in the action so it needs no separate <commands>commands</commands> entry. It supports the same workspace fields plus <setup>setup</setup>, a bootstrap command sent to the first terminal before that terminal's own command:",
@@ -2642,6 +2768,7 @@
       "workspaceActionsDefaultDesc": "Use the <defaultMenu>Default for New Workspace</defaultMenu> submenu to pick which saved workspace layout plain New Workspace should run, or choose None to return to a blank terminal. The save dialog also has a <checkbox>Use as default for new workspaces</checkbox> checkbox. The setting is <action>ui.newWorkspace.action</action>; a project-local <localConfig>.cmux/cmux.json</localConfig> value wins over <globalConfig>~/.config/cmux/cmux.json</globalConfig>."
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Toggle File Editor Word Wrap (Option+Z).",
       "title": "Keyboard Shortcuts",
       "description": "Default cmux keyboard shortcuts. Every cmux-owned shortcut can be changed in Settings or ~/.config/cmux/cmux.json, including two-step chords.",
       "metaTitle": "Keyboard Shortcuts",
@@ -5733,5 +5860,15 @@
     "organization": "Organization",
     "personalAccount": "personal account",
     "switchAccountButton": "Use a different account"
+  },
+  "MobileRelease106": {
+    "title": "What's New in 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Updated Mac connections",
+    "connectionDetail": "This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect.",
+    "updateTitle": "Update cmux on your Mac",
+    "updateDetail": "Requires cmux {stableVersion} or later, or NIGHTLY {nightlyVersion} or later. Enable iOS pairing in Settings > Mobile on each Mac.",
+    "rollbackTitle": "Need to keep an older Mac build?",
+    "rollbackDetail": "Use cmux BETA 1.0.5 ({rollbackBuild}) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."
   }
 }

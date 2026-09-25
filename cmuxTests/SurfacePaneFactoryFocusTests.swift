@@ -2,7 +2,9 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
+import CmuxCloudTui
 import CmuxPanes
+import CmuxSurfaceCatalogModel
 import Testing
 import SwiftUI
 
@@ -187,7 +189,7 @@ import SwiftUI
         let failure = try #require(workspace.cloudMaterializationFailures[panelID])
         #expect(panelID == pendingPanelID)
         #expect(workspace.cloudPendingCreations[panelID]?.machine == machine)
-        #expect(failure.detail == error.errorDescription)
+        #expect(failure.detail == CloudDiagnosticFailure.classify(error).label)
         #expect(presentation.showsReconnectButton)
         let operation = try #require(recorder.operations.first)
         #expect(operation.operation == .terminal)
@@ -255,7 +257,25 @@ import SwiftUI
             await Task.yield()
         }
         let overlay = try #require(card())
-        #expect(overlay.frame.width > 100 && overlay.frame.height > 50)
+        let layoutDeadline = ContinuousClock.now + .seconds(3)
+        while (overlay.frame.width <= 100 || overlay.frame.height <= 50), ContinuousClock.now < layoutDeadline {
+            window.displayIfNeeded()
+            target.container.layoutSubtreeIfNeeded()
+            overlay.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        #expect(
+            overlay.frame.width > 100 && overlay.frame.height > 50,
+            """
+            card=\(overlay.frame) inContainer=\(overlay.superview === target.container) \
+            source=\(target.container.convert(source.hostedView.bounds, from: source.hostedView)) \
+            sourceVisible=\(source.hostedView.visibleRect) sourceHidden=\(source.hostedView.isHiddenOrHasHiddenAncestor) \
+            sourceWindowMatches=\(source.hostedView.window === window) \
+            reference=\(target.container.convert(target.reference.bounds, from: target.reference)) \
+            window=\(window.frame) visible=\(window.isVisible) key=\(window.isKeyWindow) \
+            mainWindows=\(NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("cmux.main.") == true }.map { "\($0.frame)" })
+            """
+        )
         let terminalFrame = target.container.convert(source.hostedView.bounds, from: source.hostedView)
         #expect(abs(overlay.frame.midX - terminalFrame.midX) < 2)
         #expect(abs(overlay.frame.midY - terminalFrame.midY) < 2)

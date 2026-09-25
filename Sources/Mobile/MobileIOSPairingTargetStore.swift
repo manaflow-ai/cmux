@@ -1,7 +1,7 @@
 import CMUXMobileCore
 import Foundation
 
-/// Persists the one exact iOS app targeted by this Mac's pairing and pushes.
+/// Persists the iOS app used when rendering a legacy pairing URL.
 @MainActor
 struct MobileIOSPairingTargetStore {
     static let defaultsKey = "mobile.pairing.targetIOSBundleIdentifier"
@@ -36,11 +36,6 @@ struct MobileIOSPairingTargetStore {
     var selectedNamespace: MobileIOSAppNamespace? {
         let available = availableNamespaces
         return storedNamespace(in: available) ?? available.first
-    }
-
-    /// Exact push target. An unset official Mac resolves to the App Store lane.
-    var pushTargetNamespace: MobileIOSAppNamespace? {
-        selectedNamespace
     }
 
     var selectedPairingURLScheme: CmxPairingURLScheme? {

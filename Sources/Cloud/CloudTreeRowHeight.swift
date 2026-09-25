@@ -9,12 +9,18 @@ struct CloudTreeRowHeight {
     func height(of item: Any, in _: NSOutlineView) -> CGFloat {
         guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
         switch node.kind {
+        case .devicesEmpty(let section):
+            return GlobalFontMagnification.scaledSize(CloudTreeDevicesEmptyView.rowHeight(for: section, style: style))
         case .machine:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(
                 hasStats: false,
                 hasUsage: false
             ))
+        // Devices sit on This Mac's single line: presence and counts are a dim
+        // inline fact and a tooltip, never extra lines.
         case .localMachine, .pendingMachine:
+            return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
+        case .device:
             return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
         default:
             return GlobalFontMagnification.scaledSize(style.rowHeight)

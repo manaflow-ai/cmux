@@ -1,4 +1,4 @@
-import Combine
+import CmuxSurfaceCatalogModel
 import Foundation
 
 // Cloud notifications: the VM's cmux-tui daemon is the source of truth.
@@ -236,9 +236,9 @@ struct CloudNotificationDeliveryTarget: Equatable, Sendable {
 /// `notification.ack` round trip over the link.
 @MainActor
 final class CloudNotificationSync {
-    /// Returns false when the store declined the notification (muted
-    /// workspace, no store); the row then stays undelivered for a later fold.
-    typealias Deliverer = @MainActor (CloudVMNotificationRow, CloudNotificationDeliveryTarget) -> Bool
+    /// A declined row stays undelivered for a later fold; a suppressed row is
+    /// consumed and read in the same fold (see `CloudNotificationDeliveryOutcome`).
+    typealias Deliverer = @MainActor (CloudVMNotificationRow, CloudNotificationDeliveryTarget) -> CloudNotificationDeliveryOutcome
     typealias TargetResolver = @MainActor (CloudVMNotificationRow) -> CloudNotificationDeliveryTarget?
     typealias AckSender = @MainActor (CloudNotificationSyncState.PendingAck) async throws -> Void
     typealias UnreadObserver = @MainActor (Set<String>) -> Void
@@ -258,17 +258,27 @@ final class CloudNotificationSync {
     private(set) var state: CloudNotificationSyncState
     private(set) var rows: [CloudVMNotificationRow] = []
     private(set) var unreadTerminalIDs: Set<String> = []
+    private var hasAppliedSnapshot = false
+    /// Rows whose delivery was transiently declined or had no local placement.
+    /// A catalog change or later feed fold retries only this small set instead
+    /// of refolding every unchanged row.
+    private var retryableDeliveryIDs: Set<String> = []
     private var flushTask: Task<Void, Never>?
     private var flushRequested = false
     /// Set by `retire()`: a replaced sync must not write the shared per-machine
     /// key after its provider is gone.
     private var retired = false
 
+    /// The idempotency key of one `notification.ack` batch.
+    nonisolated static func mintAckKey() -> String {
+        "mac-ack-\(UUID().uuidString.lowercased())"
+    }
+
     init(
         machineID: String,
         clientID: String,
         store: CloudNotificationSyncStore,
-        newKey: @escaping () -> String = { "mac-ack-\(UUID().uuidString.lowercased())" },
+        newKey: @escaping () -> String = CloudNotificationSync.mintAckKey,
         resolveTarget: @escaping TargetResolver,
         deliver: @escaping Deliverer,
         send: @escaping AckSender,
@@ -289,18 +299,26 @@ final class CloudNotificationSync {
 
     /// Fold one accepted state. Called after every installed snapshot or
     /// delta; cheap when the rows did not change.
-    func apply(rows incoming: [CloudVMNotificationRow]) {
-        guard !retired else { return }
+    @discardableResult
+    func apply(rows incoming: [CloudVMNotificationRow]) -> Bool {
+        guard !retired else { return false }
+        guard rows != incoming || !retryableDeliveryIDs.isEmpty || !hasAppliedSnapshot else {
+            requestFlush()
+            return false
+        }
+        hasAppliedSnapshot = true
         rows = incoming
         let plan = CloudNotificationSyncReducer.plan(rows: incoming, clientID: clientID, state: state)
         var next = plan.state
         var placed: [(CloudVMNotificationRow, CloudNotificationDeliveryTarget)] = []
+        retryableDeliveryIDs.removeAll(keepingCapacity: true)
         for row in plan.deliver {
             if let target = resolveTarget(row) {
                 placed.append((row, target))
             } else {
                 // Not consumed: the next fold retries placement.
                 next.delivered.removeAll { $0 == row.id }
+                retryableDeliveryIDs.insert(row.id)
             }
         }
         // Commit before delivering: the store can call back into this sync
@@ -312,15 +330,32 @@ final class CloudNotificationSync {
             withdraw(plan.removed)
         }
         var undelivered: [String] = []
-        for (row, target) in placed where !deliver(row, target) {
-            undelivered.append(row.id)
+        var suppressed: [String] = []
+        for (row, target) in placed {
+            switch deliver(row, target) {
+            case .delivered:
+                break
+            case .declined:
+                undelivered.append(row.id)
+                retryableDeliveryIDs.insert(row.id)
+            case .suppressed:
+                suppressed.append(row.id)
+            }
         }
-        if !undelivered.isEmpty {
+        if !undelivered.isEmpty || !suppressed.isEmpty {
+            // Built on the current state, not `next`: a delivery can re-enter
+            // through the store and commit in between.
             var declined = state
             declined.delivered.removeAll { undelivered.contains($0) }
+            if !suppressed.isEmpty {
+                declined = CloudNotificationSyncReducer.recordRead(
+                    ids: suppressed, rows: rows, clientID: clientID, state: declined, newKey: newKey
+                )
+            }
             commit(declined)
         }
         requestFlush()
+        return true
     }
 
     /// Local reads of this machine's notifications, by daemon row id.
@@ -336,6 +371,29 @@ final class CloudNotificationSync {
         guard next != state else { return }
         commit(next)
         requestFlush()
+    }
+
+    /// Local reads by target: every unread row whose current placement the
+    /// read covers is acknowledged, whether or not it ever became a local
+    /// record (an admission drop, a row placed elsewhere before the terminal
+    /// was opened here). Returns the ids so the caller can mirror the read
+    /// onto local records that live on another workspace.
+    @discardableResult
+    func noteRead(coveredBy target: NotificationReadTarget) -> [String] {
+        guard !retired else { return [] }
+        let pending = state.pendingIDs
+        let read = state.readIDs
+        var ids: [String] = []
+        for row in rows where !row.isRead(by: clientID) && !read.contains(row.id) && !pending.contains(row.id) {
+            if case .all = target {
+                ids.append(row.id)
+            } else if let placement = resolveTarget(row), placement.isCovered(by: target) {
+                ids.append(row.id)
+            }
+        }
+        guard !ids.isEmpty else { return [] }
+        noteRead(notificationIDs: ids)
+        return ids
     }
 
     /// The link came back. Anything still pending is retried now.
@@ -413,107 +471,6 @@ final class CloudNotificationSync {
             if retired { return }
             rows = CloudNotificationSyncReducer.markingRead(ids: batch.ids, clientID: clientID, rows: rows)
             commit(CloudNotificationSyncReducer.ackCompleted(key: batch.key, state: state))
-        }
-    }
-}
-
-extension Notification.Name {
-    /// Posted on the main actor after a machine's unread terminal set changes.
-    static let cmuxCloudNotificationUnreadDidChange = Notification.Name("cmux.cloudNotifications.unreadDidChange")
-}
-
-/// App-wide registry of per-machine syncs. Owns the one subscription on the
-/// notification store that turns local reads into acknowledgements, and the
-/// unread index the Cloud tree renders.
-@MainActor
-final class CloudNotificationSyncHub {
-    static let shared = CloudNotificationSyncHub()
-    let persistenceStore = CloudNotificationSyncStore()
-    private var syncs: [String: CloudNotificationSync] = [:]
-    private var notificationGate = CloudMachineNotificationGate()
-
-    /// One admission budget across all live machine providers. Dropped rows remain
-    /// consumed by the sync so subsequent catalog folds cannot replay a flood.
-    func admit(_ row: CloudVMNotificationRow, machineID: String) -> Bool {
-        notificationGate.admit(machineID: machineID, event: CloudMachineNotificationEvent(
-            id: row.id, terminalID: row.terminalID, title: row.title, body: row.body
-        )) == .allowed
-    }
-    private(set) var unreadTerminalIDs: [String: Set<String>] = [:]
-    private var storeSubscription: AnyCancellable?
-    private var unreadCloudKeys: Set<String>?
-
-    func register(_ sync: CloudNotificationSync) {
-        syncs[sync.machineID] = sync
-        observeStoreIfNeeded()
-    }
-
-    func unregister(machineID: String) {
-        syncs.removeValue(forKey: machineID)
-        if unreadTerminalIDs.removeValue(forKey: machineID) != nil {
-            NotificationCenter.default.post(name: .cmuxCloudNotificationUnreadDidChange, object: nil)
-        }
-    }
-
-    func sync(machineID: String) -> CloudNotificationSync? {
-        syncs[machineID]
-    }
-
-    func setUnread(_ terminalIDs: Set<String>, machineID: String) {
-        if terminalIDs.isEmpty {
-            guard unreadTerminalIDs.removeValue(forKey: machineID) != nil else { return }
-        } else {
-            guard unreadTerminalIDs[machineID] != terminalIDs else { return }
-            unreadTerminalIDs[machineID] = terminalIDs
-        }
-        #if DEBUG
-        cmuxDebugLog("cloud.notifications.unread machine=\(machineID) terminals=\(terminalIDs.count)")
-        #endif
-        NotificationCenter.default.post(name: .cmuxCloudNotificationUnreadDidChange, object: nil)
-    }
-
-    /// Correlation keys of cloud notifications that were unread in `previous`
-    /// and are read or gone in `current`. A dismissal counts as a read: the
-    /// person chose not to see it again, on this Mac and on the machine.
-    static func newlyReadKeys(previous: Set<String>, current: [TerminalNotification]) -> (read: Set<String>, unread: Set<String>) {
-        var unread = Set<String>()
-        for notification in current where !notification.isRead {
-            if let key = notification.correlationKey, key.hasPrefix(CloudNotificationCorrelation.prefix) {
-                unread.insert(key)
-            }
-        }
-        return (previous.subtracting(unread), unread)
-    }
-
-    private func observeStoreIfNeeded() {
-        guard storeSubscription == nil, let store = AppDelegate.shared?.notificationStore else { return }
-        storeSubscription = store.$notifications
-            .receive(on: RunLoop.main)
-            .sink { [weak self] notifications in
-                MainActor.assumeIsolated {
-                    self?.storeDidChange(notifications)
-                }
-            }
-    }
-
-    func storeDidChange(_ notifications: [TerminalNotification]) {
-        guard let previous = unreadCloudKeys else {
-            // First observation seeds the baseline. Rows restored from the
-            // durable feed history as already-read never become acks here;
-            // the daemon already has them or they were read elsewhere.
-            unreadCloudKeys = Self.newlyReadKeys(previous: [], current: notifications).unread
-            return
-        }
-        let (read, unread) = Self.newlyReadKeys(previous: previous, current: notifications)
-        unreadCloudKeys = unread
-        guard !read.isEmpty else { return }
-        var byMachine: [String: [String]] = [:]
-        for key in read {
-            guard let parsed = CloudNotificationCorrelation.parse(key) else { continue }
-            byMachine[parsed.machineID, default: []].append(parsed.notificationID)
-        }
-        for (machineID, ids) in byMachine {
-            syncs[machineID]?.noteRead(notificationIDs: ids)
         }
     }
 }

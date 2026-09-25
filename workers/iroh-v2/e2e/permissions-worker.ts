@@ -67,6 +67,47 @@ export class PermissionTestDO {
         this.store.updateMetadata(device.descriptor.identity, { ...device.descriptor.metadata, pairingEnabled: input.enabled }, this.now);
         return Response.json({ ok: true });
       }
+      if (path === "/mac-devices") {
+        this.store.updateMetadata(device.descriptor.identity, { ...device.descriptor.metadata,
+          capabilities: ["cmux.mac-devices.v1", "cmux.mac-host.v1"] }, this.now);
+        const descriptor = {
+          ...device.descriptor,
+          identity: { ...device.descriptor.identity, deviceId: "mac-alice-peer",
+            userId: input.user ?? device.descriptor.identity.userId,
+            buildTag: input.tag ?? device.descriptor.identity.buildTag,
+            appNamespace: input.namespace ?? device.descriptor.identity.appNamespace },
+          endpointId: "f".repeat(64),
+          metadata: { ...device.descriptor.metadata, pairingEnabled: false, capabilities: ["cmux.mac-devices.v1"] },
+        };
+        const challenge = { challengeId: "peer", nonceHash: "peer", payloadHash: "peer", issuedAt: 1000, expiresAt: 2800 };
+        this.store.issueChallenge(descriptor.identity, challenge);
+        const result = this.store.commitRegistration({ descriptor, ...challenge, requestId: "peer", requestHash: "peer", now: this.now });
+        this.devices.set("mac-alice-peer", result.device);
+        return Response.json({ ok: true });
+      }
+      if (path === "/nightly-pair") {
+        // The pair from https://github.com/manaflow-ai/cmux/issues/13458: two
+        // nightly Macs on one account. The host opted into incoming access
+        // (cmux.mac-host.v1); the dialer only discovers (cmux.mac-devices.v1).
+        // Both keep pairingEnabled for their phones, exactly like production.
+        const pair = [
+          ["nightly-host", "e", ["irx-v2", "cmux.mac-devices.v1", "cmux.mac-host.v1"]],
+          ["nightly-dialer", "d", ["irx-v2", "cmux.mac-devices.v1"]],
+        ] as const;
+        for (const [name, key, capabilities] of pair) {
+          const descriptor = {
+            identity: { ...scope, userId: "alice", deviceId: name, appNamespace: "com.cmuxterm.app.nightly", buildTag: "nightly" },
+            endpointId: key.repeat(64), identityGeneration: 0,
+            metadata: { platform: "mac" as const, displayName: name, appVersion: "0.64.25-nightly.1", pairingEnabled: true,
+              capabilities: [...capabilities], relayURLs: ["https://relay.test"] },
+          };
+          const challenge = { challengeId: name, nonceHash: name, payloadHash: name, issuedAt: 1000, expiresAt: 2800 };
+          this.store.issueChallenge(descriptor.identity, challenge);
+          const result = this.store.commitRegistration({ descriptor, ...challenge, requestId: name, requestHash: name, now: this.now });
+          this.devices.set(name, result.device);
+        }
+        return Response.json({ ok: true });
+      }
       if (path === "/page") return Response.json(this.store.listDirectoryDevices(this.store.getDevice(device.descriptor.identity)!, this.now, input.cursor, input.limit));
       const verifiedAt = device.descriptor.identity.userId === "alice" ? 1200 : 1000;
       const session: BrokerSession = {

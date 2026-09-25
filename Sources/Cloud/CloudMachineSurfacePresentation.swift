@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Immutable surface rows available even before the terminal link supplies a graph.
@@ -28,7 +29,7 @@ struct CloudMachineSurfacePresentation {
         case .asleep:
             text = String(localized: "cloudTree.displays.asleep", defaultValue: "Displays unavailable while the machine sleeps")
             style = .dimmed
-        case .unavailable:
+        case .unavailable, .offline:
             text = String(localized: "cloudTree.displays.unavailable", defaultValue: "Display discovery unavailable. Refresh to retry.")
             style = .dimmed
         case .connected, .notApplicable:
@@ -54,7 +55,7 @@ struct CloudMachineSurfacePresentation {
         case .asleep:
             text = String(localized: "cloudTree.ports.asleep", defaultValue: "Open the machine to discover ports")
             style = .dimmed
-        case .unavailable:
+        case .unavailable, .offline:
             text = String(localized: "cloudTree.ports.unavailable", defaultValue: "Port discovery unavailable. Refresh to retry.")
             style = .dimmed
         case .connected, .notApplicable:

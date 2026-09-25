@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 /// Debug-only Cloud tree style picker (Debug → Debug Windows → Cloud Tree Style
@@ -106,6 +107,7 @@ private struct CloudTreeStyleGalleryColumn: View {
                 localWorkspaces: localWorkspaces,
                 machineActions: MachineRowActions.bound(onDidMutate: {}),
                 nodeActions: CloudTreeNodeActions.bound(
+                    navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
                     catalog: { SurfaceCatalog.shared },
                     selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
                     selectLocalWorkspace: { workspaceID in
@@ -114,7 +116,8 @@ private struct CloudTreeStyleGalleryColumn: View {
                     onWillMutate: { _ in },
                     onDidMutate: {},
                     onFailure: { _ in },
-                    refresh: { Task { await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) } }
+                    refresh: { Task { await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true) } },
+                    workspaceCreationHost: { AppDelegate.shared?.tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
                 ),
                 expansionStore: expansionStore,
                 style: style
@@ -122,4 +125,6 @@ private struct CloudTreeStyleGalleryColumn: View {
         }
     }
 }
+
+
 #endif

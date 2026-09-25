@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui
@@ -198,8 +199,8 @@ extension SurfaceCatalog {
         }
         let workspaceID = member.remoteWorkspaceID ?? fallbackWorkspaceID
         guard let workspaceID else { return nil }
-        if member.resource.kind == .display, projections.contains(where: {
-            $0.resource == member.resource && $0.remoteTabID == nil && $0.remoteWorkspaceID == workspaceID
+        if projections.contains(where: {
+            $0.resource == member.resource && $0.isLocalWorkspaceView && $0.remoteWorkspaceID == workspaceID
         }) {
             return nil
         }
@@ -419,7 +420,7 @@ extension SurfaceCatalog {
     private func reservableTerminals(_ group: SurfaceResourceGroup) -> [(SurfaceResourcePlacement, SurfaceResource, SurfaceRemoteView?)]? {
         var members: [(SurfaceResourcePlacement, SurfaceResource, SurfaceRemoteView?)] = []
         for placement in group.placements {
-            guard !placement.resource.machine.isLocal,
+            guard placement.resource.machine.cloudMachineID != nil,
                   let resource = resources[placement.resource],
                   resource.kind == .terminal,
                   let remoteView = try? resolveRemoteView(for: placement, fallbackWorkspaceID: group.remoteWorkspaceID) else {
@@ -459,6 +460,7 @@ extension SurfaceCatalog {
         let host: NewWorkspaceHost
         private(set) var projected: [SurfaceProjection] = []
         private(set) var firstError: Error?
+        private var tabIndices: [SurfaceResourcePlacement: Int] = [:]
 
         init(catalog: SurfaceCatalog, group: SurfaceResourceGroup, workspaceID: UUID, starterPanelID: UUID?, focus: Bool, host: NewWorkspaceHost) {
             self.catalog = catalog
@@ -474,6 +476,7 @@ extension SurfaceCatalog {
         /// synchronously first, so the workspace opens looking the way it does on the
         /// machine, and the terminals attach in parallel behind those panes.
         mutating func run(_ layout: SurfaceProjectionLayout) async -> SurfaceProjectionLayout? {
+            indexTabs(in: layout)
             if let optimistic = host.optimistic, let realized = reserveAll(layout, host: optimistic) {
                 return realized
             }
@@ -482,6 +485,23 @@ extension SurfaceCatalog {
                 return nil
             }
             return await build(root.remaining, in: root.paneID)
+        }
+
+        private mutating func indexTabs(in layout: SurfaceProjectionLayout) {
+            switch layout {
+            case .leaf(let placements):
+                for (index, placement) in placements.enumerated() { tabIndices[placement] = index }
+            case .split(_, _, let first, let second):
+                indexTabs(in: first)
+                indexTabs(in: second)
+            }
+        }
+
+        private func selectedFirst(_ placements: [SurfaceResourcePlacement]) -> [SurfaceResourcePlacement] {
+            guard let selected = placements.first(where: {
+                (try? catalog.resolveRemoteView(for: $0, fallbackWorkspaceID: group.remoteWorkspaceID))?.focused == true
+            }) else { return placements }
+            return [selected] + placements.filter { $0 != selected }
         }
 
         /// Reserves every pane of `layout` in the same order the awaited walk projects them,
@@ -509,9 +529,11 @@ extension SurfaceCatalog {
             @MainActor func consumeFirst(of node: SurfaceProjectionLayout, into destination: SurfaceDestination) -> (paneID: String?, remaining: SurfaceProjectionLayout)? {
                 switch node {
                 case .leaf(let placements):
-                    for (offset, placement) in placements.enumerated() {
+                    var attempted = Set<SurfaceResourcePlacement>()
+                    for placement in selectedFirst(placements) {
+                        attempted.insert(placement)
                         guard let paneID = reserve(placement, into: destination) else { continue }
-                        return (paneID, .leaf(placements: Array(placements[(offset + 1)...])))
+                        return (paneID, .leaf(placements: placements.filter { !attempted.contains($0) }))
                     }
                     return nil
                 case .split(let direction, let ratio, let first, let second):
@@ -524,7 +546,7 @@ extension SurfaceCatalog {
             @MainActor func build(_ node: SurfaceProjectionLayout, in paneID: String?) -> SurfaceProjectionLayout {
                 switch node {
                 case .leaf(let placements):
-                    for placement in placements { _ = reserve(placement, into: tabDestination(paneID)) }
+                    for placement in placements { _ = reserve(placement, into: tabDestination(paneID, placement: placement)) }
                     return node
                 case .split(let direction, let ratio, let first, let second):
                     guard let consumed = consumeFirst(of: second, into: splitDestination(paneID, direction)) else {
@@ -573,10 +595,12 @@ extension SurfaceCatalog {
         ) async -> (paneID: String?, remaining: SurfaceProjectionLayout)? {
             switch node {
             case .leaf(let placements):
-                for (offset, placement) in placements.enumerated() {
+                var attempted = Set<SurfaceResourcePlacement>()
+                for placement in selectedFirst(placements) {
+                    attempted.insert(placement)
                     guard let projection = await projectOne(placement, into: destination) else { continue }
                     let paneID = host.paneLookup(projection.panelID, workspaceID)
-                    return (paneID, .leaf(placements: Array(placements[(offset + 1)...])))
+                    return (paneID, .leaf(placements: placements.filter { !attempted.contains($0) }))
                 }
                 return nil
             case .split(let direction, let ratio, let first, let second):
@@ -594,7 +618,7 @@ extension SurfaceCatalog {
             switch node {
             case .leaf(let placements):
                 for placement in placements {
-                    _ = await projectOne(placement, into: tabDestination(paneID))
+                    _ = await projectOne(placement, into: tabDestination(paneID, placement: placement))
                 }
                 return node
             case .split(let direction, let ratio, let first, let second):
@@ -610,9 +634,9 @@ extension SurfaceCatalog {
 
         /// A pane the factory could not name falls back to the workspace's focused pane,
         /// as the tab-anchored group walk above does.
-        private func tabDestination(_ paneID: String?) -> SurfaceDestination {
+        private func tabDestination(_ paneID: String?, placement: SurfaceResourcePlacement) -> SurfaceDestination {
             guard let paneID else { return .workspace(id: workspaceID, placement: .tab) }
-            return .tab(workspaceID: workspaceID, paneID: paneID, index: nil)
+            return .tab(workspaceID: workspaceID, paneID: paneID, index: tabIndices[placement])
         }
 
         private func splitDestination(_ paneID: String?, _ direction: SurfaceSplitDirection) -> SurfaceDestination {

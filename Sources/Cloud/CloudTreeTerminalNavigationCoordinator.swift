@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Routes an ordinary Cloud tree terminal activation to its parent workspace.
@@ -7,20 +8,23 @@ import Foundation
 final class CloudTreeTerminalNavigationCoordinator {
     typealias Run = @MainActor (
         _ label: String,
-        _ operation: @escaping @MainActor (SurfaceCatalog) async throws -> Void
+        _ operation: @escaping @MainActor (any CloudTerminalNavigationCatalog) async throws -> Void
     ) -> Task<Void, Never>
 
     private let machineName: @MainActor (SurfaceMachineID) -> String
     private let run: Run
-    private let operationController: CloudWorkspaceOperationController?
+    private let host: CloudTerminalNavigationHost
+    private let operationController: (any CloudTerminalNavigationScheduling)?
 
     init(
         machineName: @escaping @MainActor (SurfaceMachineID) -> String,
         run: @escaping Run,
-        operationController: CloudWorkspaceOperationController?
+        host: CloudTerminalNavigationHost,
+        operationController: (any CloudTerminalNavigationScheduling)?
     ) {
         self.machineName = machineName
         self.run = run
+        self.host = host
         self.operationController = operationController
     }
 
@@ -68,7 +72,7 @@ final class CloudTreeTerminalNavigationCoordinator {
     }
 
     private func navigate(
-        catalog: SurfaceCatalog,
+        catalog: any CloudTerminalNavigationCatalog,
         machine: SurfaceMachineID,
         group: SurfaceResourceGroup,
         resource: SurfaceResourceID,
@@ -76,65 +80,36 @@ final class CloudTreeTerminalNavigationCoordinator {
         remoteWorkspaceID: String,
         openIn: UUID?
     ) async throws {
-        let localWorkspaceID = CloudTreeNodeBuilder.localWorkspaceShowing(
+        try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
+        let localWorkspaceID = catalog.localWorkspaceShowing(
             remoteWorkspaceID: remoteWorkspaceID,
-            placements: group.placements,
-            snapshot: catalog.snapshot
+            placements: group.placements
         ) ?? openIn
         if let localWorkspaceID {
-            let opened: (projection: SurfaceProjection, reused: Bool)
-            if let view {
-                opened = try await catalog.project(
-                    resource,
-                    into: .workspace(id: localWorkspaceID, placement: .tab),
-                    focus: true,
-                    reuseExisting: true,
-                    reuseInWorkspace: localWorkspaceID,
-                    remoteView: view
-                )
-            } else {
-                opened = try await catalog.project(
-                    resource,
-                    into: .workspace(id: localWorkspaceID, placement: .tab),
-                    focus: true,
-                    reuseExisting: true,
-                    reuseInWorkspace: localWorkspaceID
-                )
-            }
-            SurfacePaneFactory.focus(
-                panelID: opened.projection.panelID,
-                in: opened.projection.workspaceID
-            )
+            let projection = try await catalog.projectTerminal(resource, in: localWorkspaceID, view: view)
+            host.focus(projection.panelID, projection.workspaceID)
             return
         }
 
-        let layout = await CloudWorkspaceLayoutTranslator.fetch(
+        let layout = await catalog.terminalWorkspaceLayout(
             machine: machine,
-            workspaceID: remoteWorkspaceID,
-            catalog: catalog
+            workspaceID: remoteWorkspaceID
         )
-        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+        try catalog.checkCloudWorkspaceNavigation(machine: machine, workspaceID: remoteWorkspaceID)
+        let opened = try await catalog.openTerminalWorkspace(
             group,
-            title: CloudTreeNodeActions.localWorkspaceTitle(
-                hostName: machineName(machine),
-                group: group
-            ),
-            focus: true,
-            host: .appOptimistic,
+            title: group.localWorkspaceTitle(hostName: machineName(machine)),
             layout: layout
         )
         guard !Task.isCancelled else {
-            closeOpenedWorkspace(opened.workspaceID)
+            host.closeWorkspace(opened.workspaceID)
             throw CancellationError()
         }
-        catalog.bindCloudWorkspace(
+        catalog.bindTerminalWorkspace(
             localWorkspaceID: opened.workspaceID,
             machine: machine,
             remoteWorkspaceID: remoteWorkspaceID,
-            generatedTitle: CloudTreeNodeActions.localWorkspaceTitle(
-                hostName: machineName(machine),
-                group: group
-            )
+            generatedTitle: group.localWorkspaceTitle(hostName: machineName(machine))
         )
         guard let target = targetProjection(
             in: opened.projections,
@@ -142,12 +117,12 @@ final class CloudTreeTerminalNavigationCoordinator {
             view: view,
             remoteWorkspaceID: remoteWorkspaceID
         ) else {
-            closeOpenedWorkspace(opened.workspaceID)
+            host.closeWorkspace(opened.workspaceID)
             throw SurfaceCatalogError.destinationNotFound(
                 String(localized: "cloudTree.error.terminalRestoreFailed", defaultValue: "The clicked Cloud terminal could not be restored in its workspace.")
             )
         }
-        SurfacePaneFactory.focus(panelID: target.panelID, in: target.workspaceID)
+        host.focus(target.panelID, target.workspaceID)
     }
 
     private func targetProjection(
@@ -163,43 +138,5 @@ final class CloudTreeTerminalNavigationCoordinator {
             return projection.remoteTabID == view.tabID
         }
         return matches.count == 1 ? matches[0] : nil
-    }
-
-    private func closeOpenedWorkspace(_ workspaceID: UUID) {
-        guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
-              let workspace = manager.tabs.first(where: { $0.id == workspaceID }) else {
-            return
-        }
-        _ = manager.closeWorkspaceNonInteractively(
-            workspace,
-            recordHistory: false,
-            allowPinned: true
-        )
-    }
-}
-
-extension CloudTreeOutlineView.Coordinator {
-    /// Resolves a terminal row's workspace parent before dispatching its open verb.
-    func openTerminalRow(_ node: CloudTreeNode, row: CloudTreeTerminalRow) {
-        if let parent = outlineView?.parent(forItem: node) as? CloudTreeNode,
-           case .workspace(let machine, let workspace, _, _, let openIn) = parent.kind {
-            guard machine == row.resource.machine,
-                  let group = parent.dragGroup,
-                  group.remoteWorkspaceID == workspace.id,
-                  row.remoteView?.workspace.id == nil || row.remoteView?.workspace.id == workspace.id else {
-                #if DEBUG
-                cmuxDebugLog("cloudTree.open terminal staleOwner resource=\(row.resource.id.rawValue)")
-                #endif
-                return
-            }
-            nodeActions.openRemoteTerminal(machine, group, row.resource.id, row.remoteView, openIn)
-        } else if let view = row.remoteView {
-            #if DEBUG
-            cmuxDebugLog("cloudTree.open terminal missingOwner resource=\(row.resource.id.rawValue) view=\(view.tabID)")
-            #endif
-        } else {
-            // Pool terminals have no owner; retain their selected-workspace behavior.
-            nodeActions.project(row.resource.id, .tab, true)
-        }
     }
 }

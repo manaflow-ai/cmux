@@ -40,6 +40,8 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
     /// Third optional integer payload slot; meaning is per ``code``.
     public var c: Int?
 
+    /// Typed terminal work metadata, present only for phase entry/completion.
+    public var terminalWork: TerminalWorkDiagnostic?
     /// Opaque operation identifier for correlating a bounded terminal trace.
     public var traceID: UInt64?
 
@@ -53,6 +55,8 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
     ///   - a: First optional integer payload slot.
     ///   - b: Second optional integer payload slot.
     ///   - c: Third optional integer payload slot.
+    ///   - terminalWork: Content-free terminal phase metadata.
+    ///   - traceID: Opaque terminal operation correlation identifier.
     public init(
         code: DiagnosticEventCode,
         tNanos: UInt64,
@@ -61,6 +65,7 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
         a: Int? = nil,
         b: Int? = nil,
         c: Int? = nil,
+        terminalWork: TerminalWorkDiagnostic? = nil,
         traceID: UInt64? = nil
     ) {
         self.code = code
@@ -70,6 +75,7 @@ public struct DiagnosticEvent: Sendable, Codable, Equatable {
         self.a = a
         self.b = b
         self.c = c
+        self.terminalWork = terminalWork
         self.traceID = traceID
     }
 

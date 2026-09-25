@@ -448,6 +448,23 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: liveWriterSnapshot.path))
     }
 
+    @Test func recipientKeyRotationRequeuePreservesAccountWideTarget() {
+        let original = requestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000010",
+            targetBundleIdentifier: nil
+        )
+        let requeued = PhonePushRequestEnvelope(
+            correlationID: "00000000-0000-4000-8000-000000000011",
+            expirationEpochSeconds: original.expirationEpochSeconds,
+            body: original.body,
+            expectedAccountID: original.expectedAccountID,
+            expectedSessionGeneration: original.expectedSessionGeneration,
+            targetBundleIdentifier: original.targetBundleIdentifier
+        )
+
+        #expect(requeued.targetBundleIdentifier == nil)
+    }
+
     @Test func queuedEventCannotRebindToTheNextSignedInAccount() {
         let envelope = PhonePushRequestEnvelope(
             correlationID: "00000000-0000-4000-8000-000000000001",
@@ -486,7 +503,8 @@ import Testing
         correlationID: String,
         coalescingID: String? = nil,
         expectedAccountID: String? = nil,
-        expectedSessionGeneration: UInt64? = nil
+        expectedSessionGeneration: UInt64? = nil,
+        targetBundleIdentifier: String? = nil
     ) -> PhonePushRequestEnvelope {
         PhonePushRequestEnvelope(
             correlationID: correlationID,
@@ -494,7 +512,8 @@ import Testing
             body: Data(),
             coalescingID: coalescingID,
             expectedAccountID: expectedAccountID,
-            expectedSessionGeneration: expectedSessionGeneration
+            expectedSessionGeneration: expectedSessionGeneration,
+            targetBundleIdentifier: targetBundleIdentifier
         )
     }
 }

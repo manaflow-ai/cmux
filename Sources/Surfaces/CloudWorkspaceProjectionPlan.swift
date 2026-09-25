@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Exact daemon tab identities determine membership; a shared terminal process

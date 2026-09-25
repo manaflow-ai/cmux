@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 
@@ -36,7 +37,7 @@ final class CloudPlacementCoordinator {
     }
 
     func boundRemoteWorkspaceID(forLocalWorkspace localWorkspaceID: UUID, on machine: SurfaceMachineID) -> String? {
-        guard let vmID = machine.cloudMachineID,
+        guard let vmID = machine.tuiMachineID,
               let binding = binding(localWorkspaceID), binding.vmID == vmID,
               let remote = binding.remoteWorkspaceID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !remote.isEmpty else { return nil }
@@ -72,9 +73,9 @@ final class CloudPlacementCoordinator {
         }
     }
 
-    /// Resolve a local VNC pane before binding inference sees its old workspace.
+    /// Resolve a local preview before binding inference sees its old workspace.
     func projectionInCurrentWorkspace(_ projection: SurfaceProjection) -> SurfaceProjection {
-        guard projection.resource.kind == .display, projection.remoteTabID == nil else { return projection }
+        guard projection.isLocalWorkspaceView else { return projection }
         var updated = projection
         updated.remoteWorkspaceID = boundRemoteWorkspaceID(
             forLocalWorkspace: projection.workspaceID, on: projection.resource.machine
@@ -85,8 +86,8 @@ final class CloudPlacementCoordinator {
     private func placement(of projection: SurfaceProjection, resource: SurfaceResource, catalog: SurfaceCatalog) -> SurfaceRemotePlacement? {
         let receipt = receipts[resource.id]?[projection.panelID]
         let live = catalog.projection(forPanel: projection.panelID).flatMap { $0.resource == resource.id ? $0 : nil }
-        // A local VNC pane must never borrow another viewer's daemon tab on close.
-        if resource.kind == .display, receipt == nil, (live ?? projection).remoteTabID == nil { return nil }
+        // A local preview must never borrow another viewer's daemon tab on close.
+        if receipt == nil, (live ?? projection).isLocalWorkspaceView { return nil }
         guard let tabID = receipt?.tabID
             ?? catalog.cloudWorkspaceRenameService.remoteTabID(for: live ?? projection, resource: resource) else { return nil }
         guard let workspaceID = movedTabs[resource.machine]?[tabID]
@@ -98,8 +99,8 @@ final class CloudPlacementCoordinator {
     }
 
     func projectionDidMove(_ projection: SurfaceProjection, catalog: SurfaceCatalog) {
-        if projection.resource.kind == .display, projection.remoteTabID == nil {
-            // Local VNC membership follows the current binding, including removal
+        if projection.isLocalWorkspaceView {
+            // Local preview membership follows the current binding, including removal
             // when the pane moves into an unbound viewer workspace.
             let current = projectionInCurrentWorkspace(projection)
             catalog.setRemotePlacement(for: projection, workspaceID: current.remoteWorkspaceID, tabID: nil)

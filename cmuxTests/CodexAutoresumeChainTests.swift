@@ -42,14 +42,15 @@ struct CodexAutoresumeChainTests {
                 arguments: snapshot.launchCommand?.arguments ?? []
             )
         )
-        #expect(resumeArgv.prefix(3) == ["codex", "resume", sessionID])
+        #expect(resumeArgv.prefix(3) == ["/usr/local/bin/codex", "resume", sessionID])
         #expect(resumeArgv.contains("--yolo"))
         #expect(resumeArgv.filter { $0 == sessionID }.count == 1)
 
-        let panelID = UUID()
         let selector = " cmux restore codex \(sessionID)\n"
-        let lifecycle = RestoredAgentLifecycleCoordinator(dateProvider: { 1_788_868_000 })
-        var deliveredSelectors: [String] = []
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let lifecycle = workspace.restoredAgentLifecycle
 
         for generation in 0..<3 {
             lifecycle.seedSessionRestore(
@@ -64,25 +65,19 @@ struct CodexAutoresumeChainTests {
 
             #expect(lifecycle.snapshotsByPanelId[panelID]?.sessionId == sessionID)
             #expect(lifecycle.startupInput(panelId: panelID) == selector)
-            #expect(lifecycle.armStartupInputResend(panelId: panelID))
 
-            // The wrapper's resume SessionStart is positive ownership evidence.
-            // It must consume the retained selector instead of typing it into
-            // the already-running Codex process (including after generation 0).
-            let replay = lifecycle.takeStartupInputForResend(
-                panelId: panelID,
-                shellState: .promptIdle,
-                hasLiveAgent: true
-            )
-            if let replay {
-                deliveredSelectors.append(replay)
-            }
-            #expect(replay == nil, "generation \(generation) injected a duplicate selector")
-            #expect(lifecycle.startupInput(panelId: panelID) == nil)
+            // Prompt readiness releases the terminal's one-shot gate but cannot
+            // acknowledge execution, so the restore keeps ownership.
+            workspace.updatePanelShellActivityState(panelId: panelID, state: .promptIdle)
+            #expect(lifecycle.awaitsStartupInput(panelId: panelID), "generation \(generation)")
+
+            // The typed selector starting retires the retained input, so no
+            // later prompt can type it into the running Codex process.
+            workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
+            #expect(lifecycle.startupInput(panelId: panelID) == nil, "generation \(generation)")
             #expect(lifecycle.resumeStatesByPanelId[panelID] == .autoResumeCommandRunning)
         }
 
-        #expect(deliveredSelectors.isEmpty)
         #expect(lifecycle.snapshotsByPanelId[panelID]?.sessionId == sessionID)
     }
 }

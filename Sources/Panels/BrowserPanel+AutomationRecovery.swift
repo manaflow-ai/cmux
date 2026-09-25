@@ -41,6 +41,65 @@ extension BrowserPanel {
         )
     }
 
+    func setupDocumentReadyMessageHandler(for webView: WKWebView) {
+        let observedWebViewInstanceID = webViewInstanceID
+        let handler = BrowserDocumentReadyMessageHandler(
+            webView: webView,
+            onDocumentReady: { [weak self, weak webView] in
+                guard let self, let webView,
+                      self.webView === webView,
+                      self.webViewInstanceID == observedWebViewInstanceID else {
+                    return
+                }
+                self.automationDocumentReadiness.didSignalDocumentReady(
+                    instanceID: observedWebViewInstanceID
+                )
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.documentReadyBridge panel=\(self.id.uuidString.prefix(5)) " +
+                    "instance=\(observedWebViewInstanceID.uuidString.prefix(6))"
+                )
+#endif
+            }
+        )
+        documentReadyMessageHandler = handler
+        let userContentController = webView.configuration.userContentController
+        userContentController.removeScriptMessageHandler(
+            forName: BrowserDocumentReadyMessageHandler.name,
+            contentWorld: BrowserDocumentReadyMessageHandler.contentWorld
+        )
+        userContentController.add(
+            handler,
+            contentWorld: BrowserDocumentReadyMessageHandler.contentWorld,
+            name: BrowserDocumentReadyMessageHandler.name
+        )
+    }
+
+    func tearDownDocumentReadyMessageHandler(from webView: WKWebView) {
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BrowserDocumentReadyMessageHandler.name,
+            contentWorld: BrowserDocumentReadyMessageHandler.contentWorld
+        )
+        documentReadyMessageHandler = nil
+    }
+
+    /// Returns lifecycle-only state for diagnosing automation readiness failures.
+    ///
+    /// The payload deliberately excludes document contents, cookies, and page JavaScript values.
+    func browserAutomationReadinessPayload() -> [String: Any] {
+        let snapshot = automationDocumentReadiness.snapshot
+        return [
+            "ready": snapshot.isReady,
+            "signal": snapshot.signal?.rawValue ?? "none",
+            "document_ready_bridge_registered": documentReadyMessageHandler != nil,
+            "navigation_delegate_registered": webView.navigationDelegate != nil,
+            "history_item_present": webView.backForwardList.currentItem != nil,
+            "is_loading": webView.isLoading,
+            "estimated_progress": webView.estimatedProgress,
+            "web_content_terminated": webContentState.isTerminated
+        ]
+    }
+
     func beginAutomationNavigation(
         to targetURL: URL,
         recordTypedNavigation: Bool
@@ -80,22 +139,7 @@ extension BrowserPanel {
             )
         }
 
-        switch navigationDelegate?.activeErrorPageRetryForAutomation() {
-        case .request(let request):
-            navigateWithoutInsecureHTTPPrompt(
-                request: request,
-                recordTypedNavigation: false,
-                onNavigationStarted: navigationStarted
-            )
-        case .urlOnly:
-            navigate(
-                to: targetURL,
-                recordTypedNavigation: false,
-                onNavigationStarted: navigationStarted
-            )
-        case .disabled:
-            navigationStarted(nil)
-        case nil:
+        if !retryFailedNavigationForReload(mode: .soft, onNavigationStarted: navigationStarted) {
             if let navigation = reload() {
                 navigationStarted(navigation)
             } else {
@@ -170,6 +214,9 @@ extension BrowserPanel {
                 source: RemoteLoopbackRuntimeBridge.scriptSource(aliasHost: host, preservesSubdomains: false),
                 injectionTime: .atDocumentStart, forMainFrameOnly: false
             ))
+            if let endpoint = cloudAccess.model?.browserProxy {
+                CloudBrowserRouting.installWebSocketBridge(endpoint: endpoint, address: host, on: replacement)
+            }
         }
         return replacement
     }

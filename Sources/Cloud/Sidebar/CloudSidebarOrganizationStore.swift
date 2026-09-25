@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 
@@ -6,6 +7,7 @@ import Observation
 @MainActor
 @Observable
 final class CloudSidebarOrganizationStore {
+    static let didChangeNotification = Notification.Name("cmux.cloudSidebarOrganizationDidChange")
     private(set) var state: CloudSidebarOrganizationState
     @ObservationIgnored private let defaults: UserDefaults?
     private let key = "cloudTree.organization.v1"
@@ -99,5 +101,6 @@ final class CloudSidebarOrganizationStore {
     private func commit(_ next: CloudSidebarOrganizationState) {
         state = next
         if let defaults, let data = try? JSONEncoder().encode(next) { defaults.set(data, forKey: key) }
+        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
     }
 }
