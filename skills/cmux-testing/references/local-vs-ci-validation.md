@@ -22,10 +22,8 @@ For docs or portable tooling, validate links/commands and run the affected porta
 tests. An app build is needed when native build or runtime behavior changes, not
 for every instruction edit. Web changes need their package's checks and live preview.
 
-Native work follows the [current build/test capacity owner](../../../AGENTS.md).
-The dev-build fleet does not imply XCTest, simulator or GUI support. Use an
-available supported recipe or the existing CI lane; report missing support
-instead of bypassing scheduling with an old SSH/VM command.
+Native work uses a [tagged build](../../cmux-dev-workflow/references/tagged-builds.md)
+or the existing CI lane. Team members: shared build fleet rules are in cmuxterm-hq.
 
 ## Native app versus test compilation
 
@@ -64,7 +62,7 @@ Dispatch through the wrapper. It pins the exact pushed commit, carries a `dispat
 
 **Compile the test target locally before dispatching.** One focused run costs 10-20 macOS runner-minutes, and it compiles the whole tree before it runs anything, so the most common red result on a feature branch is a Swift compile error rather than a test failure. The `cmux-unit` command above catches those in a fraction of the time and without a runner.
 
-**The wrapper picks the runner; leave `--runner` off.** Commits whose SHA ends in an odd hex digit compile on `blacksmith-12vcpu-macos-26`, the rest on `blacksmith-6vcpu-macos-26`, so the two sizes are compared on real traffic. Every dispatch at one commit lands on the same pool, which is what lets the wrapper reuse a run already in flight there. Over 60 consecutive dispatches (2026-09-22/23) the macOS 15 pool queued for a median 2.4 min but a p90 of 83 min and a worst case of 178 min, while macOS 26 queued 0.3 min median / 1.0 min p90. Pass `--runner blacksmith-6vcpu-macos-15` only when the question is specifically about macOS 15 behavior, and expect to wait for it.
+**The wrapper picks the runner; leave `--runner` off.** `auto` goes through `scripts/ci/e2e_runner_pool.py`, the rule pull request CI uses: an owned Mac with a free slot first, then `blacksmith-12vcpu-macos-26` while it has headroom, then `blacksmith-6vcpu-macos-26`, then the shorter queue. A dispatch that names a Blacksmith pool skips idle owned Macs and waits in that pool's queue, which can run to an hour or more when many branches are testing at once (76 minutes on 6vcpu macOS 26 on 2026-09-25). Leaving it off also lets the wrapper attach to an identical run already in flight at that commit on any of those pools; a named `--runner` only reuses a run on that pool. Pass `--runner blacksmith-6vcpu-macos-15` only when the question is specifically about macOS 15 behavior, and expect to wait for it.
 
 **Do not dispatch `test-macos-suite.yml` for one test.** It runs a whole test target, compiles cold every time, and has none of the wrapper's reuse or refusal. A single-test dispatch there costs about 20 macOS runner-minutes for an answer the wrapper would share.
 
