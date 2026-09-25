@@ -93,6 +93,14 @@ struct CloudTerminalCreationRequestTests {
         #expect(await runner.commands.first?.params["welcome"] as? Bool == false)
     }
 
+    @Test("App environment suppression also covers sidebar first opens")
+    func environmentSuppressionKeepsTheInitialShellQuiet() async throws {
+        let request = CloudTerminalCreationRequest(opensMachine: true, environment: ["CMUX_CLOUD_WELCOME": "0"])
+        let runner = CreationReceiptRunner(responses: [.success(try initialWorkspaceReceipt())])
+        _ = try await request.prepareInitialWorkspace(using: runner, machineID: "vm_test", welcomeEligible: true)
+        #expect(await runner.commands.first?.params["welcome"] as? Bool == false)
+    }
+
     @Test
     func firstAttemptNeedsNoReceiptLookupOrAdditiveFlag() async throws {
         let request = CloudTerminalCreationRequest()

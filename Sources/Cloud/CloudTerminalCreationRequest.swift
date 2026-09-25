@@ -23,11 +23,11 @@ final class CloudTerminalCreationRequest {
     private var initialWorkspaceUnavailable = false
     private(set) var usesMachineStarter = false
 
-    init(id: UUID = UUID(), remoteWorkspaceID: String? = nil, commandOverride: [String]? = nil, restoring: Bool = false, opensMachine: Bool = false, suppressWelcome: Bool = false) {
+    init(id: UUID = UUID(), remoteWorkspaceID: String? = nil, commandOverride: [String]? = nil, restoring: Bool = false, opensMachine: Bool = false, suppressWelcome: Bool = false, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.id = id
         self.commandOverride = commandOverride
         self.opensMachine = opensMachine
-        self.suppressWelcome = suppressWelcome
+        self.suppressWelcome = suppressWelcome || environment["CMUX_CLOUD_WELCOME"] == "0"
         self.remoteWorkspaceID = remoteWorkspaceID
         let key = "cmux-cloud-create-\(id.uuidString.lowercased())"
         correlationKey = key
