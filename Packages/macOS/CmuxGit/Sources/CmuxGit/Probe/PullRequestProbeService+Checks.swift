@@ -20,7 +20,8 @@ extension PullRequestProbeService {
               let authHeader = await authHeaderValue() else { return nil }
         let identity = Data(SHA256.hash(data: Data(authHeader.utf8))).base64EncodedString()
         let key = "\(identity)|\(repoSlug)#\(pullRequestNumber)|\(headSHA)"
-        if allowCachedResults, let cached = await checksCache.value(for: key, now: Date()) { return cached }
+        let cacheEntry = await checksCache.begin(for: key, now: Date(), allowCachedResults: allowCachedResults)
+        if let cached = cacheEntry.summary { return cached }
         let slug = repoSlug.split(separator: "/")
         guard slug.count == 2 else { return nil }
         var currentSHA: String?
@@ -88,9 +89,10 @@ extension PullRequestProbeService {
             return lhs.name < rhs.name
         }
         let summary = PullRequestChecksSummary(checks: checks, mergeStatus: mergeStatus, complete: complete)
-        if complete, summary.status != PullRequestCheckStatus.unavailable, currentSHA == headSHA {
-            await checksCache.insert(summary, for: key, now: Date())
-        }
+        guard await checksCache.accept(
+            summary, for: key, generation: cacheEntry.generation, now: Date(),
+            cacheable: complete && summary.status != .unavailable && currentSHA == headSHA
+        ) else { return nil }
         return summary
     }
 }

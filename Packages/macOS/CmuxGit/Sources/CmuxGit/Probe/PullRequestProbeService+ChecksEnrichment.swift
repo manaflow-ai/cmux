@@ -37,7 +37,9 @@ extension PullRequestProbeService {
         }
         let retryDate: Date?
         if let header = await authHeaderValue() {
-            retryDate = await requestCoordinator.retryDate(authHeader: header, resource: .graphql)
+            // REST primary and shared secondary limits affect ordinary PR polling.
+            // A GraphQL-only primary deadline is enforced by the checks transport.
+            retryDate = await requestCoordinator.retryDate(authHeader: header)
         } else {
             retryDate = nil
         }

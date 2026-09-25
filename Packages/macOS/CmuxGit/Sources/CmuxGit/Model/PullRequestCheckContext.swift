@@ -22,7 +22,12 @@ struct PullRequestCheckContext: Sendable {
                 workflow: workflow?["id"] as? String ?? "", event: run?["event"] as? String ?? ""
             )
             startedAt = node["startedAt"] as? String ?? ""
-            runNumber = (node["databaseId"] as? NSNumber)?.int64Value
+            if let fullID = node["fullDatabaseId"] as? String {
+                runNumber = Int64(fullID)
+            } else {
+                runNumber = (node["fullDatabaseId"] as? NSNumber)?.int64Value
+                    ?? (node["databaseId"] as? NSNumber)?.int64Value
+            }
             check = PullRequestCheck(
                 id: id, name: name,
                 status: PullRequestCheckStatus(checkRunStatus: status, conclusion: node["conclusion"] as? String),

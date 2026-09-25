@@ -21,7 +21,7 @@ struct PullRequestChecksQuery {
                     nodes {
                       __typename
                       ... on CheckRun {
-                        id databaseId name status conclusion detailsUrl startedAt
+                        id fullDatabaseId name status conclusion detailsUrl startedAt
                         checkSuite { app { id } workflowRun { event workflow { id } } }
                       }
                       ... on StatusContext { id context state targetUrl createdAt }
