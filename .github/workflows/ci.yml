@@ -619,9 +619,11 @@ jobs:
         # pool choice below sees which owned Macs are idle now. Same-repository
         # pull requests and main's full-suite dispatch only, on this ephemeral
         # Linux runner: a fork run never sees the key, and no Mac ever holds
-        # it. Any failure (no key yet, the App not installed) leaves the token
-        # empty, and the choice falls back to the janitor snapshot and
-        # CI_OWNED_POOL_SLOTS.
+        # it. The minis are org runners in the glaeda-minis group, so the
+        # token also reads the org's self-hosted runners. Any failure (no key
+        # yet, the App not installed, or the App without that organization
+        # permission) leaves the token empty, and the choice falls back to the
+        # janitor snapshot and CI_OWNED_POOL_SLOTS.
         if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
@@ -630,6 +632,7 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
+          permission-organization-self-hosted-runners: read
 
       - name: Choose the pull request macOS pool
         id: macos-pool

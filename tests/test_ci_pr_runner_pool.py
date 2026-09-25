@@ -12,6 +12,7 @@ import json
 import re
 import sys
 import tempfile
+import urllib.error
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -639,8 +640,74 @@ class OwnedPools(unittest.TestCase):
         self.assertIs(mint["continue-on-error"], True)
         self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
         self.assertEqual(mint["with"]["permission-administration"], "read")
+        # The minis are org runners (glaeda-minis), listed with the org permission.
+        self.assertEqual(mint["with"]["permission-organization-self-hosted-runners"], "read")
         self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
         self.assertEqual(steps[ids.index("macos-pool")]["env"]["ROUTE_TOKEN"], "${{ steps.route-token.outputs.token }}")
+        late = yaml.safe_load((WORKFLOWS / "ci-macos.yml").read_text())
+        late_mints = [step for job in late["jobs"].values() for step in job.get("steps") or []
+                      if step.get("id") == "route-token"]
+        self.assertTrue(late_mints)
+        for step in late_mints:
+            self.assertEqual(step["with"]["permission-organization-self-hosted-runners"], "read")
+
+    def fake_api(self, responses):
+        """A GitHub whose get_api answers from `responses` (path -> payload or HTTP status)."""
+        calls = []
+
+        def get_api(path):
+            calls.append(path)
+            answer = responses[path]
+            if isinstance(answer, int):
+                raise urllib.error.HTTPError(path, answer, "denied", {}, None)
+            return answer
+        client = pool.GitHub("app-token", "manaflow-ai/cmux")
+        client.get_api = get_api
+        return client, calls
+
+    REPO_RUNNERS = "/repos/manaflow-ai/cmux/actions/runners?per_page=100&page=1"
+    GROUPS = "/orgs/manaflow-ai/actions/runner-groups?per_page=100&visible_to_repository=cmux"
+    GROUP_RUNNERS = "/orgs/manaflow-ai/actions/runner-groups/23/runners?per_page=100&page=1"
+
+    def test_runners_lists_the_org_glaeda_minis_group_beside_the_repository(self):
+        # glaeda#1222 moved the minis to org runners in glaeda-minis, which the
+        # repository endpoint does not list (run 36134461049: "0 of 32 owned
+        # machines free" while 27 sat idle).
+        trusted = {"id": 1, "status": "online", "busy": True, "labels": [{"name": "glaeda-trusted"}]}
+        minis = [{"id": 10 + n, "status": "online", "busy": n == 0, "labels": [{"name": MINI}]} for n in range(3)]
+        client, calls = self.fake_api({
+            self.REPO_RUNNERS: {"runners": [trusted]},
+            self.GROUPS: {"runner_groups": [{"id": 4, "name": "Blacksmith runners"},
+                                            {"id": 23, "name": pool.RUNNER_GROUP}]},
+            self.GROUP_RUNNERS: {"runners": [*minis, trusted]},
+        })
+        runners = client.runners()
+        self.assertEqual(sorted(runner["id"] for runner in runners), [1, 10, 11, 12])
+        self.assertEqual(pool.live_owned_free(runners, (MINI,)), {MINI: 2})
+        self.assertEqual(calls, [self.REPO_RUNNERS, self.GROUPS, self.GROUP_RUNNERS])
+
+    def test_runners_pages_through_a_full_group(self):
+        page = [{"id": n, "status": "online", "busy": False, "labels": [{"name": MINI}]} for n in range(100)]
+        second = self.GROUP_RUNNERS.replace("&page=1", "&page=2")
+        client, calls = self.fake_api({
+            self.REPO_RUNNERS: {"runners": []},
+            self.GROUPS: {"runner_groups": [{"id": 23, "name": pool.RUNNER_GROUP}]},
+            self.GROUP_RUNNERS: {"runners": page},
+            second: {"runners": [{"id": 100, "status": "online", "busy": False, "labels": [{"name": MINI}]}]},
+        })
+        self.assertEqual(pool.live_owned_free(client.runners(), (MINI,)), {MINI: 101})
+        self.assertEqual(calls[-1], second)
+
+    def test_runners_raises_when_the_org_group_is_unreadable(self):
+        # Without the App's org permission the minis cannot be counted, so the
+        # caller falls back to the snapshot instead of counting them all busy.
+        client, _ = self.fake_api({self.REPO_RUNNERS: {"runners": []}, self.GROUPS: 403})
+        with self.assertRaisesRegex(RuntimeError, "HTTP 403.*Self-hosted runners: read"):
+            client.runners()
+        client, _ = self.fake_api({self.REPO_RUNNERS: {"runners": []},
+                                   self.GROUPS: {"runner_groups": [{"id": 4, "name": "Blacksmith runners"}]}})
+        with self.assertRaisesRegex(RuntimeError, "no runner group glaeda-minis"):
+            client.runners()
 
     def test_attempt_2_may_take_the_light_tier_when_switched_on(self):
         # The rescue re-runs a run stuck on a full std pool in full; that

@@ -1434,6 +1434,7 @@ jobs:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
           private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           permission-administration: read
+          permission-organization-self-hosted-runners: read
       - name: Place the jobs after admission
         id: place
         continue-on-error: true

@@ -79,7 +79,8 @@ on its root runners. With the rounds at 0 every run counts its whole peak
 against the machines, as before (owned_free()). An owned pool is
 skipped when it has no slot count, and like every pool when the snapshot is
 older than MAX_SNAPSHOT_MINUTES. With the org route App's token, the runners
-API gives the idle runners carrying each label, and every other runner
+API (this repository's and the org's glaeda-minis group, GitHub.runners())
+gives the idle runners carrying each label, and every other runner
 counts as busy (live_pools()); a label with no idle runner is charged the
 snapshot's queue and the runs since it, since the API shows no queue.
 A job on an owned pool may therefore wait up to about CI_PR_POOL_QUEUE_ROUNDS
@@ -379,6 +380,8 @@ MARKER_STEP = "Mark a run on a persistent macOS pool"
 # many are replayed as unknown.
 ROUTE_LOOKUPS = 8
 API = "https://api.github.com"
+# The org runner group holding the glaeda minis (glaeda#1222 moved them there).
+RUNNER_GROUP = "glaeda-minis"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1516,7 +1519,12 @@ class GitHub:
         }
 
     def get(self, path: str) -> Any:
-        request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", headers=self.headers)
+        """GET a path under this repository."""
+        return self.get_api(f"/repos/{self.repo}{path}")
+
+    def get_api(self, path: str) -> Any:
+        """GET any API path (an org endpoint, for one)."""
+        request = urllib.request.Request(f"{API}{path}", headers=self.headers)
         with urllib.request.urlopen(request, timeout=15) as response:
             return json.loads(response.read())
 
@@ -1610,10 +1618,35 @@ class GitHub:
         return None
 
     def runners(self) -> list[Mapping[str, Any]]:
-        """This repository's self-hosted runners (needs administration:read)."""
+        """The self-hosted runners this repository can use: its own and the org's RUNNER_GROUP.
+
+        The glaeda minis are org runners in RUNNER_GROUP (glaeda#1222), which
+        the repository endpoint does not list. Listing that group needs the
+        App's organization permission "Self-hosted runners: read" (ci.yml
+        mints the token with it). Raises when the group cannot be read, so
+        each caller falls back to the snapshot instead of counting every
+        mini as busy.
+        """
+        found = {runner.get("id"): runner for runner in self._runner_pages(f"/repos/{self.repo}/actions/runners")}
+        owner, _, name = self.repo.partition("/")
+        try:
+            groups = self.get_api(f"/orgs/{owner}/actions/runner-groups?per_page={PAGE_SIZE}"
+                                  f"&visible_to_repository={urllib.parse.quote(name)}").get("runner_groups") or []
+            group = next((group for group in groups
+                          if isinstance(group, Mapping) and group.get("name") == RUNNER_GROUP), None)
+            if group is None:
+                raise RuntimeError(f"no runner group {RUNNER_GROUP} is visible to {self.repo}")
+            org = self._runner_pages(f"/orgs/{owner}/actions/runner-groups/{group.get('id')}/runners")
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"org runner group {RUNNER_GROUP} unreadable (HTTP {error.code}); the routing "
+                               "App needs the organization permission Self-hosted runners: read") from error
+        found.update((runner.get("id"), runner) for runner in org)
+        return list(found.values())
+
+    def _runner_pages(self, path: str) -> list[Mapping[str, Any]]:
         found: list[Mapping[str, Any]] = []
         for page in range(1, 6):
-            batch = self.get(f"/actions/runners?per_page={PAGE_SIZE}&page={page}").get("runners") or []
+            batch = self.get_api(f"{path}?per_page={PAGE_SIZE}&page={page}").get("runners") or []
             found.extend(runner for runner in batch if isinstance(runner, Mapping))
             if len(batch) < PAGE_SIZE:
                 break
