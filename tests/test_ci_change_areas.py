@@ -1330,7 +1330,7 @@ def test_workflow_changes_run_everything() -> None:
 
 
 def test_publishing_helpers_skip_unrelated_product_builds() -> None:
-    helpers = ["scripts/ci/download-run-artifact.py", "scripts/prebuild_sparkle_deltas.sh", "scripts/sparkle_generate_appcast.sh"]
+    helpers = ["scripts/ci/download-run-artifact.py", "scripts/prebuild_sparkle_deltas.sh", "scripts/sparkle_generate_appcast.sh", "scripts/build-sign-upload.sh"]
     for path in helpers:
         actual = module.classify_files([path])
         assert not any((actual.macos, actual.web, actual.agent_session_web, actual.cli, actual.swift_packages, actual.release_build)), (path, actual)
