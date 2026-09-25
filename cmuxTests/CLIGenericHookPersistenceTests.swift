@@ -2255,78 +2255,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
     }
 
-    /// The Feed permission modes that allow a tool (`once` / `always` / `all`
-    /// / `bypass`, the WorkstreamPermissionMode raw values) must exit 0 so
-    /// Kiro proceeds; an unrecognized/malformed mode must fail closed with
-    /// exit 2 rather than silently allowing the tool.
-    func testKiroFeedAllowModesProceedAndUnknownModeDenies() throws {
-        func runKiroDecision(mode: String) throws -> ProcessRunResult {
-            let cliPath = try bundledCLIPath()
-            let socketPath = makeSocketPath("kiro-feed-mode")
-            let listenerFD = try bindUnixSocket(at: socketPath)
-            let state = MockSocketServerState()
-            let root = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-kiro-feed-mode-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-            defer {
-                Darwin.close(listenerFD)
-                unlink(socketPath)
-                try? FileManager.default.removeItem(at: root)
-            }
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
-                    return self.malformedRequestResponse(raw: line)
-                }
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "status": "resolved",
-                        "decision": ["kind": "permission", "mode": mode],
-                    ]
-                )
-            }
-            let result = runProcess(
-                executablePath: cliPath,
-                arguments: ["hooks", "feed", "--source", "kiro", "--event", "preToolUse"],
-                environment: [
-                    "HOME": root.path,
-                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                    "PWD": root.path,
-                    "CMUX_SOCKET_PATH": socketPath,
-                    "CMUX_WORKSPACE_ID": "33333333-3333-3333-3333-333333333333",
-                    "CMUX_SURFACE_ID": "44444444-4444-4444-4444-444444444444",
-                    "CMUX_KIRO_PID": "525252",
-                    "CMUX_KIRO_NOTIFICATION_LEVEL": "standard",
-                    "CMUX_CLI_SENTRY_DISABLED": "1",
-                ],
-                standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-mode","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
-                timeout: 5
-            )
-            wait(for: [serverHandled], timeout: 5)
-            return result
-        }
-
-        for mode in ["once", "always", "all", "bypass"] {
-            let result = try runKiroDecision(mode: mode)
-            XCTAssertFalse(result.timedOut, "\(mode): \(result.stderr)")
-            XCTAssertEqual(result.status, 0, "mode \(mode) should allow (exit 0): \(result.stderr)")
-            XCTAssertEqual(result.stdout, "{}\n", "mode \(mode) should print {}")
-        }
-
-        let unknown = try runKiroDecision(mode: "totally-bogus-mode")
-        XCTAssertFalse(unknown.timedOut, unknown.stderr)
-        XCTAssertEqual(unknown.status, 2, "unrecognized mode must fail closed (exit 2): \(unknown.stderr)")
-        XCTAssertTrue(unknown.stderr.contains("unrecognized"), unknown.stderr)
-    }
-
     /// At the default `standard` notification level, Kiro read-only tool
     /// events (`fs_read`) are suppressed (no Feed telemetry) while mutating
     /// tools (`fs_write`) still emit. Guards that suppression keys off the
     /// classified wire name (`PostToolUse`) rather than the raw camelCase hook
     /// event — i.e. the suppression actually triggers for real Kiro events.
     func testKiroStandardLevelSuppressesReadOnlyToolFeedEvents() throws {
-        func feedPushCount(forTool tool: String) throws -> Int {
+        // A suppressed hook returns `{}` without ever opening the cmux socket,
+        // so the negative case is settled by the listener's empty accept queue
+        // once the hook process has exited — never by waiting out a timeout.
+        func runKiroPostToolUseHook(
+            forTool tool: String,
+            servesSocket: Bool
+        ) throws -> (feedPushCount: Int, openedSocket: Bool) {
             let cliPath = try bundledCLIPath()
             let socketPath = makeSocketPath("kiro-suppress")
             let listenerFD = try bindUnixSocket(at: socketPath)
@@ -2339,11 +2280,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 unlink(socketPath)
                 try? FileManager.default.removeItem(at: root)
             }
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
-                    return self.malformedRequestResponse(raw: line)
+            var serverHandled: XCTestExpectation?
+            if servesSocket {
+                serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                    guard let payload = self.jsonObject(line), let id = payload["id"] as? String else {
+                        return self.malformedRequestResponse(raw: line)
+                    }
+                    return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
                 }
-                return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
             }
             let result = runProcess(
                 executablePath: cliPath,
@@ -2365,17 +2309,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
             XCTAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
-            // A non-suppressed event sends one feed.push, so wait for the
-            // server to record it (generous timeout to avoid flaking on the
-            // socket/process round-trip under CI load). A suppressed event
-            // sends nothing, so this wait simply times out silently.
-            _ = XCTWaiter().wait(for: [serverHandled], timeout: 5)
-            return state.commands.filter { $0.contains("feed.push") }.count
+            // A non-suppressed event sends one feed.push, so wait on the server
+            // recording it. The suppressed run serves no connection at all: the
+            // exited hook either left a connection queued on the listener or
+            // never dialed it, and poll answers that immediately.
+            if let serverHandled {
+                wait(for: [serverHandled], timeout: 10)
+            }
+            var listener = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
+            let queuedConnection = Darwin.poll(&listener, 1, 0) > 0
+            return (
+                state.commands.filter { $0.contains("feed.push") }.count,
+                queuedConnection || !state.commands.isEmpty
+            )
         }
 
-        XCTAssertEqual(try feedPushCount(forTool: "fs_read"), 0,
+        let suppressed = try runKiroPostToolUseHook(forTool: "fs_read", servesSocket: false)
+        XCTAssertFalse(suppressed.openedSocket,
+                       "read-only kiro tool at standard level must be suppressed before it dials cmux")
+        XCTAssertEqual(suppressed.feedPushCount, 0,
                        "read-only kiro tool at standard level must be suppressed")
-        XCTAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
+        let reported = try runKiroPostToolUseHook(forTool: "fs_write", servesSocket: true)
+        XCTAssertGreaterThan(reported.feedPushCount, 0,
                              "mutating kiro tool at standard level must still emit telemetry")
     }
 

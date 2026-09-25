@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxFoundation
 
@@ -362,6 +363,14 @@ final class CloudTreeNSOutlineView: NSOutlineView {
 
     override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
         var frame = super.frameOfCell(atColumn: column, row: row)
+        if let node = item(atRow: row) as? CloudTreeNode, case .devicesEmpty = node.kind {
+            // Controls own a full-width hit/hover area and inset their content
+            // onto the same icon grid as the sibling device rows.
+            let rowFrame = rect(ofRow: row)
+            frame.origin.x = rowFrame.minX
+            frame.size.width = rowFrame.width
+            return frame
+        }
         let trailing = frame.maxX
         frame.origin.x = disclosureLeading(atRow: row) + GlobalFontMagnification.scaledSize(
             treeStyle.rowGrid.disclosureSlot + treeStyle.rowGrid.disclosureGap

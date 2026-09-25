@@ -1,8 +1,34 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import WebKit
 
 extension BrowserPanel {
+    /// Keeps the browser-owned readiness callback installed while a committed
+    /// WebKit document is rebound to a new same-VM route.
+    func bindCloudBrowserNavigation() {
+        cloudAccess.automaticallyNavigate { [weak self] url in
+            guard let self, !self.isClosingWebViewLifecycle else { return }
+            _ = self.navigate(to: url)
+        }
+    }
+
+    /// Activates an admitted Cloud route independently of the SwiftUI host.
+    /// Callers validate resource ownership before reaching this boundary.
+    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+        guard !isClosingWebViewLifecycle else { return }
+        webView.stopLoading()
+        if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
+            prepareCloudBrowserStore(machineID: machineID)
+        }
+        showCloudAddress(url)
+        // A cached model can navigate synchronously. Its machine/profile store
+        // must be installed first, including on reconfiguration and duplication.
+        cloudAccess.configure(model: model, url: url, resourceID: resourceID)
+        bindCloudBrowserNavigation()
+        model.connect()
+    }
+
     /// Leaving a Cloud resource for a user-owned external page ends only this
     /// local projection. The `.replaced` reason keeps a navigation from
     /// editing the remote workspace layout while removing stale restore

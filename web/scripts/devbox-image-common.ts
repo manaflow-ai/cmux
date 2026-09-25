@@ -734,24 +734,84 @@ export function devboxWaitForDaemonCommand(timeoutSeconds = 120): string {
   );
 }
 
+const TEMPLATE_RUN_DIR = "/run/cmux";
+const TERMINAL_IDS_JQ = `[.. | objects | (.terminal_id? // .id?) | strings | select(startswith("term_"))] | unique | .[]`;
+
+/**
+ * Create the warm template terminal the snapshot will carry: close every
+ * terminal the bake left behind, arm exactly one shell (cmux-prompt.bash
+ * consumes /run/cmux/template-arm), create the first workspace, and wait
+ * until that shell has sourced its rc files and is waiting at its first
+ * prompt for a clone to bind it. Run as root on a machine whose daemon is
+ * up. The derive step runs it again after its resize reboot, so a derived
+ * snapshot never carries a shell that an earlier clone already bound.
+ */
+export function devboxPrepareTemplateTerminalCommand(timeoutSeconds = 60): string {
+  const run = (args: string) => cmuxTuiRunCommand(`--session ${CMUX_TUI_SESSION} --json ${args}`);
+  return [
+    `install -d -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 755 ${TEMPLATE_RUN_DIR}`,
+    `rm -f ${TEMPLATE_RUN_DIR}/template-arm ${TEMPLATE_RUN_DIR}/template-shell-ready ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
+    `(${run("terminal list")} > /tmp/cmux-template-terminals.json || :)`,
+    `for id in $(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json 2>/dev/null); do ${run('terminal "$id" close')} >/dev/null || exit 1; done`,
+    `install -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 644 /dev/null ${TEMPLATE_RUN_DIR}/template-arm`,
+    `${run("workspace create --name Cloud")} >/dev/null`,
+    `for i in $(seq 1 ${timeoutSeconds * 10}); do [ -e ${TEMPLATE_RUN_DIR}/template-shell-ready ] && break; sleep 0.1; done`,
+    `test -e ${TEMPLATE_RUN_DIR}/template-shell-ready`,
+    `test ! -e ${TEMPLATE_RUN_DIR}/template-arm`,
+    `${run("terminal list")} > /tmp/cmux-template-terminals.json`,
+    `test "$(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json | wc -l)" = 1`,
+    "echo template-terminal-ready",
+  ].join(" && ");
+}
+
+/**
+ * Remove every per-machine file under the daemon's state root (machine id,
+ * receipt pepper, session registry and journal) while keeping the terminal
+ * host record directory. `stateRoot` is a shell word naming an absolute path.
+ * Sets `$cmux_keep` to the kept directory, and fails when no host directory
+ * exists or any identity file survives.
+ *
+ * The removal loop runs in its own guarded group: it refuses an empty or
+ * relative path, so it can never walk up from the working directory.
+ */
+export function devboxWipeDaemonStateKeepingTemplateCommand(stateRoot: string): string {
+  return [
+    `cmux_state=${stateRoot}`,
+    'case "$cmux_state" in /?*) ;; *) exit 1 ;; esac',
+    `cmux_keep="$(find "$cmux_state" -maxdepth 3 -type d -name 'terminal-hosts-*' | head -1)"`,
+    'case "$cmux_keep" in "$cmux_state"/?*) ;; *) exit 1 ;; esac',
+    // Remove every sibling on the path from the state root down to the host
+    // record directory, so only that directory survives.
+    '{ cmux_dir="$cmux_keep"; while [ "$cmux_dir" != "$cmux_state" ]; do cmux_parent="$(dirname "$cmux_dir")"; case "$cmux_parent" in "$cmux_state" | "$cmux_state"/?*) ;; *) exit 1 ;; esac; find "$cmux_parent" -mindepth 1 -maxdepth 1 ! -path "$cmux_dir" -exec rm -rf {} + || exit 1; cmux_dir="$cmux_parent"; done; }',
+    `test -z "$(find "$cmux_state" -name machine-id -o -name resource-effect-pepper -o -name '*.sqlite3*')"`,
+  ].join(" && ");
+}
+
 /**
  * Park the cmux-tui daemon on a machine about to be snapshotted: record this
  * machine's instance id as the bake id (cmux-devbox-boot keeps the daemon
- * stopped while the ids match), wait for the supervisor to stop it, wipe the
- * identity and session state it produced, and prove nothing listens on 1337.
- * Every machine created from the resulting snapshot has a different id, so
- * its supervisor starts a daemon with a fresh identity within one tick.
- * Run as root. Exits 0 only when the daemon is parked.
+ * stopped while the ids match), wait for the supervisor to stop it, and wipe
+ * every per-machine file it produced (machine id, receipt pepper, session
+ * registry and journal, remote identity) while keeping the warm template
+ * terminal's host process and record (devboxPrepareTemplateTerminalCommand).
+ * A clone's daemon creates all of that fresh and adopts the host, so no
+ * identity is shared between clones while the first shell survives.
+ * Run as root. Exits 0 only when the daemon is parked and the host is live.
  */
 export function devboxParkDaemonCommand(): string {
   return [
     cmuxTuiLayoutSelector(),
+    `test -e ${TEMPLATE_RUN_DIR}/template-shell-ready`,
     `mkdir -p /etc/cmux && ${DEVBOX_INSTANCE_ID_COMMAND} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id`,
     // [s]tart: the pattern must not match the exec shell carrying this command line.
     "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "systemctl is-active cmux-tui-daemon >/dev/null",
-    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" "$CMUX_TUI_HOME/.local/state/cmux-tui" /etc/cmux/daemon-instance-id',
+    devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
+    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json',
+    `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
+    `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
+    "pgrep -f '[_]_terminal-host' >/dev/null",
     "! grep -qi ':0539 ' /proc/net/tcp6",
     "echo daemon-parked-for-clones",
   ].join(" && ");
@@ -1396,4 +1456,18 @@ export function devboxSourceDriftProblems(
     }
   }
   return problems;
+}
+
+/**
+ * The last guest command before every devbox memory snapshot. The bake's
+ * final steps (park, cleanup, journal reset, derive resize) leave writeback,
+ * page-cache and CPU activity in flight; a snapshot taken mid-burst captures
+ * dirty pages (larger image, slower restore) and a clone resumes into that
+ * burst. Flush, then give the guest this long to go idle. Keep it the very
+ * last step: anything run after it restarts the activity it waits out.
+ */
+export const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
+
+export function devboxSettleBeforeSnapshotCommand(): string {
+  return `sync && sleep ${DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS} && sync && echo "settled $(cut -d' ' -f1-3 /proc/loadavg)"`;
 }

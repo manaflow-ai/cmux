@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -155,7 +156,8 @@ struct CloudTreeNodeActions {
                             resource,
                             into: .workspace(id: workspaceID, placement: placement),
                             focus: true,
-                            reuseExisting: reuseExisting
+                            reuseExisting: reuseExisting,
+                            reuseInWorkspace: resource.kind == .display ? workspaceID : nil
                         )
                     }
                     let projection = opened.projection
