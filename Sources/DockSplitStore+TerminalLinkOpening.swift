@@ -1,5 +1,6 @@
 import AppKit
 import CmuxPanes
+import CmuxSettings
 import Foundation
 
 extension DockSplitStore: TerminalLinkOpenContainer {
