@@ -1089,6 +1089,18 @@ final class GhosttyConfigTests: XCTestCase {
         )
     }
 
+    // Regression: https://github.com/manaflow-ai/cmux/issues/14155
+    // A dark resolved theme must replace a stale light scheme during refresh.
+    func testConfigurationRefreshUsesResolvedThemeBackgroundForRuntimeScheme() {
+        XCTAssertEqual(
+            GhosttyApp.configurationRefreshColorSchemePreference(
+                resolvedBackgroundColor: NSColor(hex: "#0D0D17")!,
+                cachedColorScheme: .light
+            ),
+            .dark
+        )
+    }
+
     func testRuntimeColorSchemeSynchronizationDecisionOnlySkipsReentrantCalls() {
         XCTAssertEqual(
             GhosttyApp.runtimeColorSchemeSynchronizationDecision(

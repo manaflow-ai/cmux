@@ -1649,6 +1649,13 @@ class GhosttyApp {
         cmuxReadableColorScheme(for: backgroundColor) == .light ? .light : .dark
     }
 
+    static func configurationRefreshColorSchemePreference(
+        resolvedBackgroundColor _: NSColor,
+        cachedColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> GhosttyConfig.ColorSchemePreference {
+        cachedColorScheme
+    }
+
     static func runtimeColorSchemeForConfigLoad(
         source: String,
         requestedColorScheme: GhosttyConfig.ColorSchemePreference,
@@ -1983,7 +1990,9 @@ class GhosttyApp {
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
             let effectiveReloadColorScheme =
-                effectiveTerminalColorSchemePreference
+                refreshEffectiveTerminalColorSchemePreference(
+                    preferredColorScheme: reloadColorScheme
+                )
             synchronizeGhosttyRuntimeColorScheme(
                 effectiveReloadColorScheme,
                 source:
@@ -2711,6 +2720,21 @@ class GhosttyApp {
             scope: scope,
             forceNotify: forceNotify
         )
+    }
+
+    func refreshEffectiveTerminalColorSchemePreference(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) -> GhosttyConfig.ColorSchemePreference {
+        let resolvedBackgroundColor = resolvedDefaultBackgroundValues(
+            preferredColorScheme: preferredColorScheme,
+            baselineConfig: config
+        ).backgroundColor
+        let effectiveColorScheme = Self.configurationRefreshColorSchemePreference(
+            resolvedBackgroundColor: resolvedBackgroundColor,
+            cachedColorScheme: effectiveTerminalColorSchemePreference
+        )
+        effectiveTerminalColorSchemePreference = effectiveColorScheme
+        return effectiveColorScheme
     }
 
     private func defaultBackgroundBlurValue(from config: ghostty_config_t) -> GhosttyBackgroundBlur {
@@ -3481,7 +3505,11 @@ class GhosttyApp {
                 guard self.shouldProcessGhosttyReloadAction(source: source, soft: soft) else {
                     return true
                 }
-                let preferredColorScheme = self.effectiveTerminalColorSchemePreference
+                let preferredColorScheme =
+                    self.refreshEffectiveTerminalColorSchemePreference(
+                        preferredColorScheme:
+                            self.appearanceBackedColorSchemePreference()
+                    )
                 GhosttySurfaceConfigurationRefresh.applyConfigurationReload(
                     to: target.target.surface,
                     soft: soft,
