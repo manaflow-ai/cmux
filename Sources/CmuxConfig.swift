@@ -73,9 +73,10 @@ struct CmuxConfigFile: Codable, Sendable {
     var commands: [CmuxCommandDefinition]
     var vault: CmuxVaultConfigDefinition?
     var workspaceGroups: CmuxConfigWorkspaceGroupsDefinition?
+    var remote: SSHKeepaliveSettings?
 
     private enum CodingKeys: String, CodingKey {
-        case packs, actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups
+        case packs, actions, ui, notifications, agentChat, newWorkspaceCommand, surfaceTabBarButtons, commands, vault, workspaceGroups, remote
     }
 
     init(
@@ -88,7 +89,8 @@ struct CmuxConfigFile: Codable, Sendable {
         surfaceTabBarButtons: [CmuxSurfaceTabBarButton]? = nil,
         commands: [CmuxCommandDefinition] = [],
         vault: CmuxVaultConfigDefinition? = nil,
-        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil
+        workspaceGroups: CmuxConfigWorkspaceGroupsDefinition? = nil,
+        remote: SSHKeepaliveSettings? = nil
     ) {
         self.packs = packs
         self.actions = actions
@@ -100,6 +102,7 @@ struct CmuxConfigFile: Codable, Sendable {
         self.commands = commands
         self.vault = vault
         self.workspaceGroups = workspaceGroups
+        self.remote = remote
     }
 
     init(from decoder: Decoder) throws {
@@ -153,6 +156,7 @@ struct CmuxConfigFile: Codable, Sendable {
             CmuxConfigWorkspaceGroupsDefinition.self,
             forKey: .workspaceGroups
         )
+        remote = try container.decodeIfPresent(SSHKeepaliveSettings.self, forKey: .remote)
     }
 
     private static func normalizedActions(
@@ -1783,6 +1787,9 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
+    /// Global SSH keepalive overrides for cmux-managed remote workspaces.
+    /// `nil` preserves the built-in per-transport defaults.
+    @Published private(set) var remoteSSHKeepaliveSettings: SSHKeepaliveSettings? = nil
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -1959,6 +1966,10 @@ final class CmuxConfigStore: ObservableObject {
             .store(in: &trackingCancellables)
 
         updateLocalConfigPath(tabManager.selectedWorkspace?.surfaceTabBarDirectory)
+    }
+
+    func applyRemoteSSHKeepaliveSettings(to sshOptions: [String]) -> [String] {
+        remoteSSHKeepaliveSettings?.appendingMissingOptions(to: sshOptions) ?? sshOptions
     }
 
     func notificationHooks(startingFrom directory: String?) -> [CmuxResolvedNotificationHook] {
@@ -2275,6 +2286,7 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
+        remoteSSHKeepaliveSettings = globalConfig?.remote
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
         if let issue = resolvedNewWorkspaceAction.issue {

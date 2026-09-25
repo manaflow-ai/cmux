@@ -45,17 +45,18 @@ final class RemoteTmuxController {
 
     /// Returns (creating if needed) the transport for a host.
     func transport(for host: RemoteTmuxHost) -> RemoteTmuxSSHTransport {
-        transportRegistry.transport(for: host)
+        transportRegistry.transport(for: configuredHost(host))
     }
 
     /// Discovers the tmux sessions on a host.
     func listSessions(host: RemoteTmuxHost) async throws -> [RemoteTmuxSession] {
-        try await transport(for: host).listSessions()
+        let host = configuredHost(host)
+        return try await transport(for: host).listSessions()
     }
 
     /// Tears down a host's shared SSH master (used when removing a host).
     func disconnect(host: RemoteTmuxHost) async {
-        await transportRegistry.disconnectMaster(host: host)
+        await transportRegistry.disconnectMaster(host: configuredHost(host))
     }
 
     /// Warms and confirms the host's shared SSH ControlMaster before a per-session
@@ -70,6 +71,7 @@ final class RemoteTmuxController {
     /// returns `true` (the warmup's single-creator open succeeds), so only the
     /// genuinely-unready case is blocked.
     func ensureControlMasterReadyForBurst(host: RemoteTmuxHost) async throws {
+        let host = configuredHost(host)
         let ready = try await transport(for: host).ensureMasterReady()
         // The warmup's SSH work runs in a shared unstructured task and isn't
         // cancellation-aware, so a caller cancelled meanwhile (e.g. a v2VmCall
@@ -96,6 +98,7 @@ final class RemoteTmuxController {
         sessionName: String,
         createIfMissing: Bool = false
     ) throws -> RemoteTmuxControlConnection {
+        let host = configuredHost(host)
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         if let existing = connectionsByHostSession[key] {
             if !existing.exited { return existing }
@@ -126,6 +129,7 @@ final class RemoteTmuxController {
         sessionName: String,
         createIfMissing: Bool = false
     ) async throws -> [String]? {
+        let host = configuredHost(host)
         if let sshArgv = try await preflightControlAttach(
             host: host,
             sessionName: sessionName,
@@ -145,6 +149,10 @@ final class RemoteTmuxController {
             throw RemoteTmuxError.unreachable("tmux control stream ended before attach for \(host.destination)")
         }
         return nil
+    }
+
+    private func configuredHost(_ host: RemoteTmuxHost) -> RemoteTmuxHost {
+        host.withSSHKeepaliveSettings(AppDelegate.shared?.remoteSSHKeepaliveSettings)
     }
 
     private func stopCachedConnectionIfCurrent(

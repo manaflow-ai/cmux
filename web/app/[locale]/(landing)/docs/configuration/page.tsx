@@ -48,6 +48,7 @@ const sectionOrder = [
   "ui",
   "commands",
   "agentChat",
+  "remote",
   "browser",
   "markdown",
   "fileEditor",

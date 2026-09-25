@@ -18,13 +18,15 @@ extension TerminalController {
             throw SurfaceCatalogError.unsupported(String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
         }
         let options = params["ssh_options"] as? [String] ?? []
+        let configuredSSHOptions = AppDelegate.shared?.remoteSSHKeepaliveSettings?
+            .appendingMissingOptions(to: options) ?? options
         let configuredCommand = params["configured_remote_command"] as? String
         guard let profile = WorkspaceRemoteTerminalProfile(remoteConfigurationValue: params["terminal_profile"] as? String,
                 tmuxSessionName: params["terminal_tmux_session"] as? String) else { throw CloudDiagnosticFailure.unsupported }
         let configuration = WorkspaceRemoteConfiguration(
             terminalProfile: profile,
             destination: host.destination, port: host.port, identityFile: host.identityFile,
-            sshOptions: options, localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
+            sshOptions: configuredSSHOptions, localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
             localSocketPath: nil, terminalStartupCommand: nil, configuredRemoteCommand: configuredCommand,
             agentSocketPath: params["ssh_auth_sock"] as? String, preserveAfterTerminalExit: true
         )

@@ -39,6 +39,11 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// Optional explicit identity file (`-i`). `nil` defers to `~/.ssh/config`.
     let identityFile: String?
 
+    /// Optional cmux.json keepalive override. It is excluded from the endpoint
+    /// identity so changing the setting does not merge distinct hosts or split
+    /// an existing host's mirrored sessions.
+    let sshKeepaliveSettings: SSHKeepaliveSettings?
+
     /// Stable identity matching the connection-uniqueness key. Two hosts with the
     /// same destination but a different port/identity are distinct endpoints (see
     /// ``connectionHash``), so `id` uses ``connectionHash`` rather than the
@@ -46,10 +51,25 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
     /// ``RemoteTmuxController`` keys its per-endpoint state.
     var id: String { connectionHash }
 
-    init(destination: String, port: Int? = nil, identityFile: String? = nil) {
+    init(
+        destination: String,
+        port: Int? = nil,
+        identityFile: String? = nil,
+        sshKeepaliveSettings: SSHKeepaliveSettings? = nil
+    ) {
         self.destination = destination
         self.port = port
         self.identityFile = identityFile
+        self.sshKeepaliveSettings = sshKeepaliveSettings
+    }
+
+    func withSSHKeepaliveSettings(_ settings: SSHKeepaliveSettings?) -> RemoteTmuxHost {
+        RemoteTmuxHost(
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshKeepaliveSettings: settings
+        )
     }
 
     /// A human-readable (but lossy) slug for the destination, used only for
@@ -212,9 +232,15 @@ struct RemoteTmuxHost: Sendable, Equatable, Identifiable {
             "-o", "ControlPath=\(controlSocketPath)",
             "-o", "ControlPersist=\(controlPersistSeconds)",
             "-o", "ConnectTimeout=10",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=3",
         ]
+        if let sshKeepaliveSettings {
+            args += sshKeepaliveSettings.optionArguments(for: [])
+        } else {
+            args += [
+                "-o", "ServerAliveInterval=20",
+                "-o", "ServerAliveCountMax=3",
+            ]
+        }
         if batchMode {
             args.append(contentsOf: ["-o", "BatchMode=yes"])
         }

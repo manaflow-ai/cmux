@@ -10,7 +10,8 @@ extension SessionRemoteWorkspaceSnapshot {
         localSocketPath: String? = nil,
         allowPersistentPTYRestore: Bool = true,
         preserveSSHOptions: Bool = false,
-        agentSocketPath overrideAgentSocketPath: String? = nil
+        agentSocketPath overrideAgentSocketPath: String? = nil,
+        sshKeepaliveSettings: SSHKeepaliveSettings? = nil
     ) -> WorkspaceRemoteConfiguration? {
         let normalizedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedDestination.isEmpty else { return nil }
@@ -43,13 +44,18 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        if let configuration = tuiSSHConfiguration(agentSocketPath: overrideAgentSocketPath) { return configuration }
+        let configuredSnapshotSSHOptions = sshKeepaliveSettings?.appendingMissingOptions(to: sshOptions) ?? sshOptions
+
+        if let configuration = tuiSSHConfiguration(
+            agentSocketPath: overrideAgentSocketPath,
+            sshKeepaliveSettings: sshKeepaliveSettings
+        ) { return configuration }
         if skipDaemonBootstrap != true, (terminalTransport ?? .ssh) == .ssh,
            preserveAfterTerminalExit == true {
             // Preserve the old descriptor for recovery, but never resume its daemon
             // or start a replacement workload under a different session owner.
             var configuration = WorkspaceRemoteConfiguration(destination: normalizedDestination,
-                port: normalizedPort, identityFile: identityFile, sshOptions: sshOptions,
+                port: normalizedPort, identityFile: identityFile, sshOptions: configuredSnapshotSSHOptions,
                 localProxyPort: nil, relayPort: nil, relayID: nil, relayToken: nil,
                 localSocketPath: nil, terminalStartupCommand: nil, preserveAfterTerminalExit: true)
             configuration.restoredSSHSession = self
@@ -62,8 +68,8 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
         let preservedOptions = preserveSSHOptions
-            ? WorkspaceRemoteConfiguration.trimmedSSHOptions(sshOptions)
-            : Self.normalizedSSHOptions(sshOptions)
+            ? WorkspaceRemoteConfiguration.trimmedSSHOptions(configuredSnapshotSSHOptions)
+            : Self.normalizedSSHOptions(configuredSnapshotSSHOptions)
         let optionsWithRestoreControlDefaults = SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(
             preservedOptions,
             relayPort: normalizedRelayPort

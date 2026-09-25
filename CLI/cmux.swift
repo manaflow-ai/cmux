@@ -12260,6 +12260,7 @@ struct CMUXCLI {
             sshOptions: sshOptions,
             override: forwardAgentOverride
         )
+        let configuredSSHOptions = configuredRemoteSSHOptions(agentForwarding.sshOptions)
         return SSHCommandOptions(
             destination: destination,
             port: port,
@@ -12268,7 +12269,7 @@ struct CMUXCLI {
             initialCommand: initialCommand,
             windowRaw: windowRaw ?? windowOverride,
             noFocus: noFocus,
-            sshOptions: agentForwarding.sshOptions,
+            sshOptions: configuredSSHOptions,
             remoteCommand: remoteCommand,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
@@ -12276,6 +12277,24 @@ struct CMUXCLI {
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
         )
+    }
+
+    private func configuredRemoteSSHOptions(_ options: [String]) -> [String] {
+        guard let settings = globalRemoteSSHKeepaliveSettings() else { return options }
+        return settings.appendingMissingOptions(to: options)
+    }
+
+    private func globalRemoteSSHKeepaliveSettings() -> SSHKeepaliveSettings? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let path = (home as NSString).appendingPathComponent(".config/cmux/cmux.json")
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let sanitized = try? JSONCParser.preprocess(data: data) else {
+            return nil
+        }
+        struct Envelope: Decodable {
+            let remote: SSHKeepaliveSettings?
+        }
+        return try? JSONDecoder().decode(Envelope.self, from: sanitized).remote
     }
 
     private func resolvedSSHAgentForwarding(
@@ -12749,12 +12768,7 @@ struct CMUXCLI {
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
             parts += ["-o", "ConnectTimeout=6"]
         }
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveInterval") {
-            parts += ["-o", "ServerAliveInterval=20"]
-        }
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "ServerAliveCountMax") {
-            parts += ["-o", "ServerAliveCountMax=2"]
-        }
+        parts += SSHKeepaliveSettings.default.optionArguments(for: effectiveSSHOptions)
         if !hasSSHOptionKey(effectiveSSHOptions, key: "SetEnv") {
             parts += ["-o", "SetEnv COLORTERM=truecolor"]
         }
@@ -13235,7 +13249,7 @@ struct CMUXCLI {
         //
         // Each VM pane needs an independent gateway session. Reusing OpenSSH control sockets
         // can make a new split disturb the original shell.
-        let sshOptionStrings = [
+        let sshOptionStrings = configuredRemoteSSHOptions([
             "StrictHostKeyChecking=no",
             "UserKnownHostsFile=/dev/null",
             "LogLevel=QUIET",
@@ -13244,7 +13258,7 @@ struct CMUXCLI {
             "PreferredAuthentications=none,password",
             "NumberOfPasswordPrompts=1",
             "ControlMaster=no",
-        ]
+        ])
         let destination = "\(username)@\(host)"
         let displayDestination = pinWorkspaceToTop
             ? String(localized: "cli.cloud.managedDisplayTarget", defaultValue: "cloud VM")

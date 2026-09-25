@@ -269,7 +269,9 @@ extension Workspace {
         panelShellActivityStates.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
-            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
+            localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
+            sshKeepaliveSettings: owningTabManager
+                .flatMap { AppDelegate.shared?.mainWindowContext(for: $0)?.cmuxConfigStore?.remoteSSHKeepaliveSettings }
         )
         if let restoredRemoteConfiguration {
             let shouldAutoConnect = sessionRestorePolicy.shouldAutoConnectRestoredRemote(
@@ -6975,8 +6977,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // once. Nothing is retained or dialed before the refusal.
         guard !managedDevicePolicy.isEnforced(.disableRemoteConnections) else { return false }
         if let managedCloudVMID = configuration.managedCloudVMID,
-           !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           !CloudMachinesFeature.offMainIsEnabled() {
+            !managedCloudVMID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !CloudMachinesFeature.offMainIsEnabled() {
             return suspendCloudRemoteConfiguration(configuration)
         }
         if configuration.routesThroughSSHTui {
@@ -13227,7 +13229,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore(),
             allowPersistentPTYRestore: false,
             preserveSSHOptions: true,
-            agentSocketPath: remoteConfiguration?.agentSocketPath
+            agentSocketPath: remoteConfiguration?.agentSocketPath,
+            sshKeepaliveSettings: owningTabManager
+                .flatMap { AppDelegate.shared?.mainWindowContext(for: $0)?.cmuxConfigStore?.remoteSSHKeepaliveSettings }
         ) ?? remoteConfiguration
     }
 

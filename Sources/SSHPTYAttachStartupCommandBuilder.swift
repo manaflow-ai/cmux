@@ -157,12 +157,7 @@ enum SSHPTYAttachStartupCommandBuilder {
         if !hasSSHOptionKey(options, key: "ConnectTimeout") {
             arguments += ["-o", "ConnectTimeout=6"]
         }
-        if !hasSSHOptionKey(options, key: "ServerAliveInterval") {
-            arguments += ["-o", "ServerAliveInterval=20"]
-        }
-        if !hasSSHOptionKey(options, key: "ServerAliveCountMax") {
-            arguments += ["-o", "ServerAliveCountMax=2"]
-        }
+        arguments += SSHKeepaliveSettings.default.optionArguments(for: options)
         if let port = auth.port {
             arguments += ["-p", String(port)]
         }

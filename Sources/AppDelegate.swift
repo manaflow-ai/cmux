@@ -14283,6 +14283,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowContexts.values.compactMap { $0.cmuxConfigStore }
     }
 
+    @MainActor
+    var remoteSSHKeepaliveSettings: SSHKeepaliveSettings? {
+        mainWindowContexts.values
+            .compactMap { $0.cmuxConfigStore?.remoteSSHKeepaliveSettings }
+            .first
+    }
+
     func refreshWindowTitlesAfterConfigReload() {
         refreshWindowTitlesAcrossMainWindows()
     }

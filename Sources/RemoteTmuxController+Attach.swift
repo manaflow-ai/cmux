@@ -9,6 +9,7 @@ extension RemoteTmuxController {
         activate: Bool,
         workspaceName: String? = nil
     ) async throws -> RemoteTmuxAttachOutcome {
+        let host = configuredHost(host)
         guard let appDelegate = AppDelegate.shared else {
             throw RemoteTmuxError.unreachable("app not ready")
         }

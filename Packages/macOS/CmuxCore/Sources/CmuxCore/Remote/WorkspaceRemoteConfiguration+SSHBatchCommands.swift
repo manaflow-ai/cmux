@@ -118,9 +118,8 @@ extension WorkspaceRemoteConfiguration {
         let effectiveSSHOptions = backgroundSSHOptions(sshOptions)
         var args: [String] = [
             "-o", "ConnectTimeout=6",
-            "-o", "ServerAliveInterval=20",
-            "-o", "ServerAliveCountMax=2",
         ]
+        args += SSHKeepaliveSettings.default.optionArguments(for: effectiveSSHOptions)
         if !Self.hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
