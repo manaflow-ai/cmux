@@ -1616,6 +1616,9 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var stableSurfaceId: UUID? = nil
     var type: PanelType
     var title: String?
+    /// User-assigned surface accent color as `#RRGGBB`. Absent in snapshots
+    /// written before per-surface colors existed, which restore uncolored.
+    var colorHex: String? = nil
     var customTitle: String?
     /// Provenance of `customTitle`; absent provenance restores as user-set for compatibility.
     var customTitleSource: Workspace.CustomTitleSource? = nil

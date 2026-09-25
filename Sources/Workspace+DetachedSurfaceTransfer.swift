@@ -44,6 +44,9 @@ extension Workspace {
         var ttyNameWasReportedByCurrentRuntime: Bool = false
         var ttyReportRuntimeSurfaceGeneration: UInt64? = nil
         let cachedTitle: String?
+        /// User-assigned surface accent color, carried so a tab keeps its
+        /// color when it moves to another workspace or window.
+        let colorHex: String?
         let customTitle: String?
         let customTitleSource: Workspace.CustomTitleSource?
         let manuallyUnread: Bool
@@ -107,6 +110,7 @@ extension Workspace {
                 ttyNameWasReportedByCurrentRuntime: ttyNameWasReportedByCurrentRuntime,
                 ttyReportRuntimeSurfaceGeneration: ttyReportRuntimeSurfaceGeneration,
                 cachedTitle: cachedTitle,
+                colorHex: colorHex,
                 customTitle: customTitle,
                 customTitleSource: customTitleSource,
                 manuallyUnread: manuallyUnread,
