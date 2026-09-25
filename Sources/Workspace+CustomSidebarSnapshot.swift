@@ -147,6 +147,7 @@ extension Workspace {
                         title: tab.title,
                         isFocused: panelId == focusedPanelId,
                         isPinned: pinnedPanelIds.contains(panelId),
+                        status: customSidebarSurfaceStatus(panelId: panelId),
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
@@ -156,5 +157,25 @@ extension Workspace {
             }
         }
         return surfaces
+    }
+
+    /// Maps the existing lifecycle state that drives the native loading
+    /// spinner into the custom-sidebar tab status vocabulary.
+    private func customSidebarSurfaceStatus(panelId: UUID) -> String {
+        let states = agentLifecycleStatesByPanelId[panelId] ?? [:]
+        // The native spinner is shown for every running lifecycle, including
+        // the manual keys used by workspace loading.
+        if states.values.contains(.running) {
+            return "working"
+        }
+        switch AgentHibernationLifecycleState.aggregate(
+            statusKeyedStates: states,
+            fallback: .idle
+        ) {
+        case .needsInput:
+            return "needs_input"
+        case .running, .idle, .unknown:
+            return "idle"
+        }
     }
 }

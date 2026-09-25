@@ -306,8 +306,11 @@ with:
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
   `transcriptPath`, and `pid`.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+  `focused` (Bool), `pinned` (Bool), `status` (`idle` | `working` |
+  `needs_input`). `working` is the same per-tab state that drives cmux's
+  loading spinner, including `cmux workspace loading on`; `needs_input`
+  identifies an agent waiting for input. When available: `directory`,
+  `branch` + `dirty`, `ports` (array of Int).
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The

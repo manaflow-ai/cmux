@@ -286,6 +286,7 @@ struct CustomSidebarDataContextBuilderTests {
             title: "editor",
             isFocused: true,
             isPinned: true,
+            status: "working",
             directory: "/src",
             gitBranch: "feat",
             gitIsDirty: false,
@@ -298,7 +299,7 @@ struct CustomSidebarDataContextBuilderTests {
         #expect(value.member("title") == .string("editor"))
         #expect(value.member("focused") == .bool(true))
         #expect(value.member("pinned") == .bool(true))
-        #expect(value.member("status") == .string("idle"))
+        #expect(value.member("status") == .string("working"))
         #expect(value.member("directory") == .string("/src"))
         #expect(value.member("branch") == .string("feat"))
         #expect(value.member("dirty") == .bool(false))

@@ -395,23 +395,25 @@ struct WorkspaceSidebarObservationTests {
         #expect(count == 2)
     }
 
-    @Test func customSidebarTabStatusMirrorsRunningLifecycle() throws {
+    @Test func customSidebarTabStatusUsesLifecycleWireValues() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
-        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
-
-        let snapshot = workspace.customSidebarWorkspaceSnapshot(
-            index: 0,
-            selectedId: workspace.id,
-            unreadCount: 0
-        )
-        let surface = try #require(snapshot.surfaces.first)
-        let value = CustomSidebarDataContextBuilder().surfaceValue(surface)
-
-        #expect(
-            value.member("status") == .string("working"),
-            "A running lifecycle must be visible as working on the matching custom-sidebar tab."
-        )
+        let cases: [(AgentHibernationLifecycleState, String)] = [
+            (.running, "working"),
+            (.needsInput, "needs_input"),
+            (.idle, "idle"),
+        ]
+        for (lifecycle, expectedStatus) in cases {
+            workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: lifecycle)
+            let snapshot = workspace.customSidebarWorkspaceSnapshot(
+                index: 0,
+                selectedId: workspace.id,
+                unreadCount: 0
+            )
+            let surface = try #require(snapshot.surfaces.first)
+            let value = CustomSidebarDataContextBuilder().surfaceValue(surface)
+            #expect(value.member("status") == .string(expectedStatus))
+        }
     }
 
     @Test func visibleActiveCodingAgentCountReturnsZeroWhenSettingIsDisabled() {
