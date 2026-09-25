@@ -11,7 +11,8 @@ extension TerminalSurface {
     /// - Parameters:
     ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
     ///   - surfaceId: The terminal surface that owns the generated shim directory.
-    ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - temporaryDirectory: The root under which the isolated shim directory is created. The
+    ///     live app supplies a durable per-user cmux state directory; tests may use a temporary root.
     ///   - enabledCommands: Bundled agent commands that should receive a shim.
     ///   - hermesProfileAliasDirectoryURL: The Hermes-owned wrapper directory to inspect for profile aliases.
     ///   - fileManager: The filesystem implementation used for discovery and installation.
@@ -51,7 +52,8 @@ extension TerminalSurface {
     /// - Parameters:
     ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
     ///   - surfaceId: The terminal surface that owns the generated shim directory.
-    ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - temporaryDirectory: The root under which the isolated shim directory is created. The
+    ///     live app supplies a durable per-user cmux state directory; tests may use a temporary root.
     ///   - enabledCommands: Bundled agent commands that should receive a shim.
     ///   - hermesProfileAliasCatalog: The process-owned Hermes alias discovery cache.
     ///   - fileManager: The filesystem implementation used for shim installation.

@@ -157,8 +157,13 @@ extension TerminalSurfaceRuntimeFilesystem {
             wrapperDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".local/bin", isDirectory: true)
         )
+        // Per-surface command shims are part of the lifetime of their pane.
+        // Keep them beside cmux's durable state so macOS's periodic `$TMPDIR`
+        // cleanup cannot remove a live pane's Claude entry from `PATH`.
+        let agentCommandShimRootDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
         return TerminalSurfaceRuntimeFilesystem(
-            agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            agentCommandShimRootDirectory: agentCommandShimRootDirectory,
             installAgentCommandShims: {
                 let fileManager = FileManager.default
                 return await TerminalSurface.installAgentCommandShimsIfPossible(

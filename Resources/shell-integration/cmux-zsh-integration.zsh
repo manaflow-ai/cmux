@@ -324,8 +324,14 @@ _cmux_install_cli_command_shim() {
     local surface_component="${CMUX_SURFACE_ID:-$$}"
     local shim_root="${CMUX_CLAUDE_WRAPPER_SHIM_ROOT:-}"
     local shim_parent="${shim_root%/*}"
-    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" ]]; then
-        shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    local legacy_shim_root="${TMPDIR:-/tmp}/cmux-cli-shims/$surface_component"
+    local durable_shim_root="${HOME:-}/.cmuxterm/cmux-cli-shims/$surface_component"
+    if [[ -z "$shim_root" || "${shim_root##*/}" != "$surface_component" || "${shim_parent##*/}" != "cmux-cli-shims" || "$shim_root" == "$legacy_shim_root" ]]; then
+        if [[ -n "${HOME:-}" ]]; then
+            shim_root="$durable_shim_root"
+        else
+            shim_root="$legacy_shim_root"
+        fi
     fi
     local shim_path="$shim_root/$command_name"
     local escaped_wrapper="$wrapper_path"

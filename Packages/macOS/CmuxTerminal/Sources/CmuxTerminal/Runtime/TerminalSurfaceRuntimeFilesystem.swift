@@ -3,8 +3,8 @@ public import CmuxTerminalCore
 
 /// Filesystem operations injected into ``TerminalSurface`` runtime creation.
 public struct TerminalSurfaceRuntimeFilesystem: Sendable {
-    /// The root directory used for per-surface agent command shims.
-    public let agentCommandShimTemporaryDirectory: URL
+    /// The durable root directory used for per-surface agent command shims.
+    public let agentCommandShimRootDirectory: URL
 
     /// Installs per-surface agent command shims for the available bundled wrappers.
     public let installAgentCommandShims:
@@ -20,7 +20,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
 
     /// Creates the runtime filesystem seam with a policy-aware shim installer.
     public init(
-        agentCommandShimTemporaryDirectory: URL,
+        agentCommandShimRootDirectory: URL,
         installAgentCommandShims:
             @escaping @Sendable (
                 _ wrapperDirectoryURL: URL,
@@ -30,7 +30,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
             ) async -> TerminalSurfaceAgentCommandShimSet?,
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
-        self.agentCommandShimTemporaryDirectory = agentCommandShimTemporaryDirectory
+        self.agentCommandShimRootDirectory = agentCommandShimRootDirectory
         self.installAgentCommandShims = installAgentCommandShims
         self.isExecutableFile = isExecutableFile
     }
@@ -38,7 +38,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
     /// Creates the runtime filesystem seam with an installer that ignores
     /// command selection. This keeps existing tests and embedders source-compatible.
     public init(
-        agentCommandShimTemporaryDirectory: URL,
+        agentCommandShimRootDirectory: URL,
         installAgentCommandShims:
             @escaping @Sendable (
                 _ wrapperDirectoryURL: URL,
@@ -48,7 +48,7 @@ public struct TerminalSurfaceRuntimeFilesystem: Sendable {
         isExecutableFile: @escaping @Sendable (_ path: String) -> Bool
     ) {
         self.init(
-            agentCommandShimTemporaryDirectory: agentCommandShimTemporaryDirectory,
+            agentCommandShimRootDirectory: agentCommandShimRootDirectory,
             installAgentCommandShims: { wrapperDirectoryURL, surfaceId, temporaryDirectory, _ in
                 await installAgentCommandShims(
                     wrapperDirectoryURL,
