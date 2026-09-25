@@ -1245,6 +1245,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didArmSessionLaunchSentinel = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
+    /// True only when it is safe to enumerate the window/tab tree for the v2
+    /// control pre-mint pass (#2751): the initial session-restore decision has
+    /// resolved (`didAttemptStartupSessionRestore`) AND no restore pass is
+    /// currently populating a tab manager in place (`!isApplyingSessionRestore`).
+    /// Deliberately FALSE during the pre-attempt window, the deferred
+    /// signing-secret window (where `didAttemptStartupSessionRestore` stays
+    /// false until the secret arrives), and while `restoreSessionSnapshot` runs
+    /// — the exact windows in which iterating a half-built tree faults. Refs
+    /// mint lazily meanwhile, so skipping the pre-mint is safe.
+    var didCompleteInitialSessionRestore: Bool {
+        didAttemptStartupSessionRestore && !isApplyingSessionRestore
+    }
     /// Durable navigation links that arrived before startup restore registered
     /// their target workspaces.
     var pendingStartupNavigationURLRequests: [CmuxNavigationURLRequest] = []
@@ -1569,6 +1581,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Start the one browser-availability watcher before any gated view or
+        // menu mounts: it is lazy, and its consumers only observe its
+        // notification, so nothing else would bring it up (#10866).
+        BrowserAvailabilityMonitor.shared.activate()
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
@@ -9263,6 +9279,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        // Surface the system "New Folder" button so the user can create a
+        // directory and immediately open it as a workspace.
+        panel.canCreateDirectories = true
         panel.title = String(localized: "menu.file.openFolder.panelTitle", defaultValue: "Open Folder")
         panel.prompt = String(localized: "menu.file.openFolder.panelPrompt", defaultValue: "Open")
         // Seed the panel with the active workspace's directory. Use the shared
@@ -9345,6 +9364,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
+        // Surface the system "New Folder" button so a fresh directory can be
+        // created and opened in VS Code in one step.
+        panel.canCreateDirectories = true
         panel.title = String(
             localized: "menu.file.openFolderInVSCodeInline.panelTitle",
             defaultValue: "Open Folder in VS Code (Inline)"

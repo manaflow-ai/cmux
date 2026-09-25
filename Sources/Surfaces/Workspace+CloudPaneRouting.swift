@@ -311,7 +311,8 @@ extension CloudWorkspaceRenameService {
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
         isBase: Bool? = nil,
-        generatedTitle: String? = nil
+        generatedTitle: String? = nil,
+        remoteWorkspaceName: String? = nil
     ) {
         guard let vmID = machine.tuiMachineID,
               let manager = environment.tabManager(localWorkspaceID),
@@ -326,12 +327,15 @@ extension CloudWorkspaceRenameService {
 
         // The placeholder is marked automatic at creation. An explicit user
         // title, including the literal "Cloud VM", is never inferred from text
-        // and therefore wins over a delayed daemon receipt.
+        // and therefore wins over a delayed daemon receipt. When the first
+        // remote workspace receipt includes its accepted name, apply it here so
+        // the local projection adopts that identity in the same turn instead of
+        // briefly presenting two names for one workspace.
         if let generatedTitle,
            (workspace.effectiveCustomTitleSource == .auto || workspace.customTitleSource == nil),
            workspace.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
                == generatedTitle.trimmingCharacters(in: .whitespacesAndNewlines) {
-            _ = manager.setCustomTitle(tabId: localWorkspaceID, title: generatedTitle, source: .remote,
+            _ = manager.setCustomTitle(tabId: localWorkspaceID, title: remoteWorkspaceName ?? generatedTitle, source: .remote,
                                        propagateToRemoteTmux: false, propagateToCloud: false)
         }
 
