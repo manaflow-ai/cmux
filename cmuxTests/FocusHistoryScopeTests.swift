@@ -256,7 +256,7 @@ struct FocusHistoryScopeTests {
         #expect(manager.selectedTabId == third.id)
 
         let coordinator = ControlCommandCoordinator(context: TerminalController.shared)
-        func selectLast(_ id: Int) -> JSONValue? {
+        func selectLast(_ id: Int64) -> JSONValue? {
             let result = coordinator.handle(ControlRequest(id: .int(id), method: "workspace.last", params: [:]))
             settleFocusBroadcasts()
             guard case .ok(.object(let payload)) = result else { return nil }
