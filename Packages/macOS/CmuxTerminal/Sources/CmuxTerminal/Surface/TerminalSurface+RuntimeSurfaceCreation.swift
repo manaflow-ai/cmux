@@ -289,6 +289,11 @@ extension TerminalSurface {
             managedShellCommand: managedShellPlan.command,
             resolvedShell: engine.resolvedUserShell
         )
+        let commandForSpawn = LocalCommandArgumentLimitPolicy().commandForSpawn(
+            command: resolvedCommand,
+            workingDirectory: resolvedWorkingDirectory,
+            writeExternalCommand: runtimeFilesystem.writeLongStartupCommand
+        )
         let runtimeInitialInput = nextRuntimeInitialInput
         let resolvedInitialInput: String? = {
             if let runtimeInitialInput, !runtimeInitialInput.isEmpty {
@@ -314,7 +319,7 @@ extension TerminalSurface {
                 environment: env,
                 managedShellReportsPromptReadiness: managedShellPlan.reportsPromptReadiness
             )
-        let createdSurface = withOptionalCString(resolvedCommand) { cCommand in
+        let createdSurface = withOptionalCString(commandForSpawn) { cCommand in
             surfaceConfig.command = cCommand
             return withOptionalCString(resolvedWorkingDirectory) { cWorkingDir in
                 surfaceConfig.working_directory = cWorkingDir

@@ -142,6 +142,21 @@ struct OneShotTerminalLauncherStore {
         return " /bin/zsh \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))\n"
     }
 
+    /// Returns a short command that runs a large startup command from a private file.
+    func writeDirectStartupCommand(
+        command: String,
+        workingDirectory: String?
+    ) -> String? {
+        guard let launcherURL = writeLauncherScript(
+            command: command,
+            workingDirectory: workingDirectory,
+            execution: .direct
+        ) else {
+            return nil
+        }
+        return "/bin/zsh \(TerminalStartupShellQuoting.singleQuoted(launcherURL.path))"
+    }
+
     /// Returns a non-resume startup command that interprets a private launcher script.
     func writeStartupCommand(
         command: String,

@@ -176,19 +176,25 @@ struct MoshTerminalCommandBuilderTests {
 
     @Test("launches a large Mosh preparation through the terminal boundary")
     func largePreparationLaunchesWithoutE2BIG() throws {
-        let largePreparation = ": # " + String(repeating: "bootstrap", count: 120_000)
-        let command = builder(preparationShellScript: largePreparation).command()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
-        process.environment = ["PATH": "/usr/bin:/bin"]
-
-        do {
+        try withFakeCommands(sshStatus: 0) { directory, environment in
+            let largePreparation = ": # " + String(repeating: "bootstrap", count: 120_000)
+            let command = builder(preparationShellScript: largePreparation).command()
+            let launcherURL = directory.appendingPathComponent("large-mosh-launcher.sh")
+            let commandForSpawn = try #require(LocalCommandArgumentLimitPolicy().commandForSpawn(
+                command: command,
+                workingDirectory: nil
+            ) { commandToExternalize, _ in
+                try? commandToExternalize.write(to: launcherURL, atomically: true, encoding: .utf8)
+                return "/bin/sh \(launcherURL.path)"
+            })
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", commandForSpawn]
+            process.environment = environment
             try process.run()
             process.waitUntilExit()
             #expect(process.terminationStatus == 0)
-        } catch {
-            Issue.record("launching the generated Mosh command failed: \(error)")
+            #expect(commandForSpawn.utf8.count < LocalCommandArgumentLimitPolicy.maximumInlineCommandBytes)
         }
     }
 
