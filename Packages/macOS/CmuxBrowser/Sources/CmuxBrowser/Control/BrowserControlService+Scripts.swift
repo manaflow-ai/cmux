@@ -195,7 +195,9 @@ extension BrowserControlService {
                 const __target = String(\(textLiteral));
                 const __exact = \(exactLiteral);
                 const __norm = (s) => String(s || '').replace(/\\s+/g, ' ').trim().toLowerCase();
-                const __nodes = Array.from(__cmuxQueryAll('*'));
+                const __nodes = Array.from(__cmuxQueryAll('*')).filter((el) => {
+                  return el !== document.documentElement && el !== document.body;
+                });
                 return __nodes.find((el) => {
                   const v = __norm(el.innerText || el.textContent || '');
                   if (!v) return false;
@@ -221,6 +223,12 @@ extension BrowserControlService {
                 if (!__label) return null;
                 const htmlFor = String(__label.getAttribute('for') || '').trim();
                 if (htmlFor) {
+                  const root = __label.getRootNode && __label.getRootNode();
+                  if (root && typeof root.getElementById === 'function') {
+                    const control = root.getElementById(htmlFor);
+                    if (control) return control;
+                  }
+                  try { return __cmuxQuery('#' + CSS.escape(htmlFor)); } catch (_) {}
                   return document.getElementById(htmlFor);
                 }
                 return __label.querySelector('input,textarea,select,button,[contenteditable="true"]');

@@ -618,15 +618,26 @@ extension TerminalController {
         ) == .committed else {
             return .failure(BrowserTextInputError.documentNotReady)
         }
-        return await withCheckedContinuation { continuation in
-            webView.callAsyncJavaScript(
-                "return \(script)",
-                arguments: [:],
-                in: nil,
-                in: .page
-            ) { result in
-                continuation.resume(returning: result)
+        let gate = BrowserTextInputEvaluationGate()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Result<Any, Error>, Never>) in
+                gate.install(continuation)
+                webView.callAsyncJavaScript(
+                    "return \(script)",
+                    arguments: [:],
+                    in: nil,
+                    in: .page
+                ) { result in
+                    gate.finish(result)
+                }
+                Task { [gate] in
+                    try? await Task.sleep(nanoseconds: 5_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    gate.finish(.failure(BrowserTextInputError.evaluationTimedOut))
+                }
             }
+        } onCancel: {
+            gate.finish(.failure(BrowserTextInputError.cancelled))
         }
     }
 
@@ -646,4 +657,44 @@ extension TerminalController {
 
 private enum BrowserTextInputError: Error {
     case documentNotReady
+    case evaluationTimedOut
+    case cancelled
+}
+
+/// Delivers a WebKit text-input evaluation result exactly once. WebKit may
+/// invoke its callback after the timeout or task cancellation, so the
+/// continuation cannot be resumed directly from either completion path.
+private final class BrowserTextInputEvaluationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Result<Any, Error>, Never>?
+    private var isFinished = false
+    private var finishedResult: Result<Any, Error>?
+
+    func install(_ continuation: CheckedContinuation<Result<Any, Error>, Never>) {
+        lock.lock()
+        let result = finishedResult
+        if !isFinished {
+            self.continuation = continuation
+        }
+        lock.unlock()
+
+        if let result {
+            continuation.resume(returning: result)
+        }
+    }
+
+    func finish(_ result: Result<Any, Error>) {
+        lock.lock()
+        guard !isFinished else {
+            lock.unlock()
+            return
+        }
+        isFinished = true
+        finishedResult = result
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+
+        continuation?.resume(returning: result)
+    }
 }

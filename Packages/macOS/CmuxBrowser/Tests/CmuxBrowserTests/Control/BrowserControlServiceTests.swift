@@ -100,6 +100,6 @@ struct BrowserControlServiceTests {
 
         let nth = service.findNthScript(selector: ".row", index: -1)
         #expect(nth.contains("let idx = -1;"))
-        #expect(nth.contains("document.querySelectorAll(\".row\")"))
+        #expect(nth.contains("__cmuxQueryAll(\".row\")"))
     }
 }

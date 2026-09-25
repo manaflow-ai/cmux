@@ -8,24 +8,73 @@ extension BrowserControlService {
     /// when a component does not expose a host path.
     public var elementQueryPrelude: String {
         """
+        const __cmuxSelectorParts = (selector) => {
+          const source = String(selector || '');
+          const parts = [];
+          let start = 0;
+          let quote = null;
+          let escaped = false;
+          let brackets = 0;
+          let parentheses = 0;
+          for (let index = 0; index < source.length; index += 1) {
+            const character = source[index];
+            if (quote) {
+              if (escaped) {
+                escaped = false;
+              } else if (character === '\\\\') {
+                escaped = true;
+              } else if (character === quote) {
+                quote = null;
+              }
+              continue;
+            }
+            if (character === '\"' || character === "'") {
+              quote = character;
+              continue;
+            }
+            if (character === '[') {
+              brackets += 1;
+              continue;
+            }
+            if (character === ']') {
+              brackets = Math.max(0, brackets - 1);
+              continue;
+            }
+            if (character === '(') {
+              parentheses += 1;
+              continue;
+            }
+            if (character === ')') {
+              parentheses = Math.max(0, parentheses - 1);
+              continue;
+            }
+            if (brackets === 0 && parentheses === 0
+                && character === '>' && source[index + 1] === '>'
+                && source[index + 2] === '>') {
+              parts.push(source.slice(start, index).trim());
+              index += 2;
+              start = index + 1;
+            }
+          }
+          parts.push(source.slice(start).trim());
+          return parts.filter(Boolean);
+        };
         const __cmuxCollectMatches = (root, selector, output, seen) => {
           if (!root || typeof root.querySelectorAll !== 'function') return;
-          let matches = [];
-          try { matches = Array.from(root.querySelectorAll(selector)); } catch (_) { return; }
+          const matches = Array.from(root.querySelectorAll(selector));
           for (const element of matches) {
             if (!seen.has(element)) {
               seen.add(element);
               output.push(element);
             }
           }
-          let hosts = [];
-          try { hosts = Array.from(root.querySelectorAll('*')); } catch (_) {}
+          const hosts = Array.from(root.querySelectorAll('*'));
           for (const host of hosts) {
             if (host.shadowRoot) __cmuxCollectMatches(host.shadowRoot, selector, output, seen);
           }
         };
         const __cmuxQueryAll = (selector) => {
-          const parts = String(selector || '').split(/\\s*>>>\\s*/).map((part) => part.trim()).filter(Boolean);
+          const parts = __cmuxSelectorParts(selector);
           if (!parts.length) return [];
           let roots = [document];
           for (let index = 0; index < parts.length; index += 1) {

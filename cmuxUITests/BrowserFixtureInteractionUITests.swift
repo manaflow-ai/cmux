@@ -791,36 +791,42 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
-    /// The fixture's hostile listeners revert the first two input events and
-    /// rewrite the value on the first change event, so a single fill is
-    /// deliberately defeated. Each step below asserts the documented
-    /// per-attempt behavior; three fills converge to the final value.
+    /// The fixture's hostile listeners revert the first two trusted input
+    /// events and rewrite the value on the first native change event. Native
+    /// fill leaves change delivery to the browser's normal blur behavior, so
+    /// each attempt explicitly moves focus before checking the result.
     func testStickyInput() throws {
         try launchApp()
         let sid = try openFixture("sticky-input")
         let valueScript = "document.getElementById('sticky').value"
 
-        // Fill 1: input revert #1 eats the value, then the change handler
-        // rewrites it once.
+        // Fill 1: the first two trusted input events are reverted, then blur
+        // lets the change handler rewrite the value once.
         try socketResult(method: "browser.fill", params: ["surface_id": sid, "selector": "#sticky", "text": "final-text"])
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#blur-target"])
         XCTAssertEqual(
             try evalString(valueScript, surfaceID: sid),
             "rewritten-once",
-            "a single fill is defeated by the hostile input/change listeners"
+            "the hostile input listener defeats the first native fill"
         )
 
-        // Fill 2: input revert #2 eats the value again.
+        // Fill 2: the reverts are exhausted, so the native input reaches the
+        // requested value; the second blur leaves the rewrite untouched.
         try socketResult(method: "browser.fill", params: ["surface_id": sid, "selector": "#sticky", "text": "final-text"])
-        XCTAssertEqual(try evalString(valueScript, surfaceID: sid), "rewritten-once")
-
-        // Fill 3: reverts exhausted; the value finally sticks.
-        try socketResult(method: "browser.fill", params: ["surface_id": sid, "selector": "#sticky", "text": "final-text"])
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#blur-target"])
         XCTAssertEqual(
             try evalString(valueScript, surfaceID: sid),
             "final-text",
             "fill should stick once the hostile listeners are exhausted"
         )
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
+        XCTAssertTrue(
+            try evalBool(
+                "window.__cmuxLog.filter(e => e.type === 'input').every(e => e.isTrusted === true)",
+                surfaceID: sid
+            ),
+            "native fill input events should remain trusted"
+        )
     }
 
     func testDatetimeRange() throws {
