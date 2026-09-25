@@ -86,6 +86,7 @@ struct CloudTreeMachineMenuTests {
             Self.title("cloudTree.menu.newWorkspace", "New Workspace"),
             Self.title("cloudTree.menu.openFullClient", "Open Full cmux-tui Client"),
             Self.title("cloud.operation.kind.resize", "Resize machine"),
+            Self.title("machines.menu.network", "Network\u{2026}"),
             Self.title("cloudTree.menu.refresh", "Refresh"),
             Self.title("machines.menu.rename", "Rename\u{2026}"),
             Self.title("machines.menu.copyIPAddress", "Copy IP Address"),
@@ -132,6 +133,8 @@ struct CloudTreeMachineMenuTests {
         let memoryResize = try #require(recorder.memoryResizes.first)
         #expect(memoryResize.0 == Self.machineID)
         #expect(memoryResize.1 == 16)
+        try Self.choose(Self.title("machines.menu.network", "Network\u{2026}"), in: menu)
+        #expect(recorder.networkEdits.map { $0.0 } == [Self.machineID])
         try Self.choose(Self.title("machines.menu.checkpoint", "Checkpoint"), in: menu)
         #expect(recorder.commands.map { $0.id } == [Self.machineID])
         #expect(recorder.commands.map { $0.verb } == [["vm", "snapshot"]])
@@ -539,6 +542,7 @@ struct CloudTreeMachineMenuTests {
             resizeCPU: { id, cpu in recorder.cpuResizes.append((id, cpu)) },
             resizeMemory: { id, gib in recorder.memoryResizes.append((id, gib)) },
             promptUpgrade: {},
+            editNetwork: { id, label in recorder.networkEdits.append((id, label)) },
             setPinned: { id, pinned in recorder.pinChanges.append((id, pinned)); return nil }
         )
     }
@@ -585,4 +589,5 @@ private final class CloudTreeMenuVerbRecorder {
     var pinChanges: [(String, Bool)] = []
     var renamedMachines: [(String, String)] = []
     var renamedWorkspaces: [(SurfaceMachineID, (String, String))] = []
+    var networkEdits: [(String, String?)] = []
 }

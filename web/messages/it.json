@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "ultimi 30 giorni: {completions} completamenti · {tokens} token ({input} input / {output} output) · equivalente API {value}",
       "apiKeyUsageUnavailable": "Utilizzo non disponibile",
       "revokeApiKeyConfirmBody": "I client che usano questa chiave non potranno più autenticarsi."
+    },
+    "cloud": {
+      "title": "Macchine Cloud e accesso Mac",
+      "description": "Imposta la rete in uscita di ogni macchina e controlla i Mac con accesso WireGuard alla tua rete privata di VM Cloud. Gli abbinamenti di iPhone e Iroh sono gestiti separatamente.",
+      "macAccessTitle": "Accesso Mac",
+      "machines": {
+        "title": "Macchine",
+        "empty": "Non hai macchine Cloud.",
+        "personal": "personale",
+        "team": "team",
+        "status": {
+          "provisioning": "avvio in corso",
+          "running": "in esecuzione",
+          "failed": "non riuscita",
+          "paused": "in pausa",
+          "destroyed": "eliminata"
+        }
+      },
+      "network": {
+        "open": "Rete",
+        "title": "Rete in uscita per {name}",
+        "description": "Scegli cosa può raggiungere questa macchina. Le modifiche si applicano subito, senza riavvio.",
+        "loading": "Caricamento della policy di rete…",
+        "loadError": "Impossibile caricare la policy di rete per questa macchina.",
+        "saveError": "Impossibile applicare questa policy di rete.",
+        "unsupported": "Questa macchina non supporta il controllo della rete in uscita.",
+        "retry": "Riprova",
+        "appliedLabel": "Stato:",
+        "applied": {
+          "applied": "applicata",
+          "pending": "applicazione in corso",
+          "failed": "applicazione non riuscita"
+        },
+        "unsaved": "modifiche non salvate",
+        "refresh": "Aggiorna",
+        "modeLabel": "Accesso in uscita",
+        "mode": {
+          "full": {
+            "label": "Internet completo",
+            "description": "Qualsiasi indirizzo pubblico."
+          },
+          "allowlist": {
+            "label": "Lista consentiti",
+            "description": "Solo i preset, i domini e gli intervalli IP che indichi."
+          },
+          "none": {
+            "label": "Nessun internet",
+            "description": "Solo gli host cmux elencati sotto."
+          }
+        },
+        "presetsTitle": "Preset",
+        "presetsNote": "Ogni preset aggiunge nomi host esatti. Un servizio che usa altri sottodomini può richiedere altri domini.",
+        "domainsTitle": "Domini",
+        "domainsNote": "Solo nomi host esatti, solo HTTPS sulla porta 443. I caratteri jolly non sono ancora supportati.",
+        "domainInput": "Dominio",
+        "rangesTitle": "Intervalli IP",
+        "rangesNote": "Il firewall del provider li applica fuori dalla macchina. Lascia vuota la porta per consentire tutte le porte. Una porta richiede un protocollo.",
+        "cidrInput": "Intervallo IP (CIDR)",
+        "portInput": "Porta",
+        "protocolInput": "Protocollo",
+        "anyProtocol": "qualsiasi",
+        "noteInput": "Nota (facoltativa)",
+        "allPorts": "tutte le porte",
+        "dnsLabel": "Consenti DNS",
+        "dnsNote": "Permette agli strumenti di risolvere i nomi a cui puntano i tuoi intervalli IP. I domini non richiedono DNS. Un DNS aperto è un canale in uscita: un processo può inviare dati nei nomi che interroga.",
+        "requiredTitle": "Sempre consentiti",
+        "requiredNote": "cmux ha bisogno di questi host in ogni modalità per installare e aggiornare la CLI nella macchina.",
+        "add": "Aggiungi",
+        "remove": "Rimuovi",
+        "discard": "Annulla modifiche",
+        "close": "Chiudi",
+        "apply": "Applica"
+      }
     }
   },
   "community": {

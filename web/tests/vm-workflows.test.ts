@@ -6852,6 +6852,8 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     failureCode: null,
     failureMessage: null,
     providerMetadata: {},
+    networkPolicy: null,
+    networkPolicyStatus: null,
     ownerTeamId: overrides.ownerTeamId ?? overrides.billingTeamId ?? overrides.userId ?? "user-workflow-usage-events",
     coderouterPoolId: null,
     ...overrides,

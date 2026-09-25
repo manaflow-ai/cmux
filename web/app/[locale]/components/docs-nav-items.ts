@@ -4,6 +4,7 @@ import {
   type DocsChannel,
 } from "@/app/lib/docs-channel";
 import {
+  cloudSecurityDocsLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
@@ -97,6 +98,12 @@ export const navItems: NavEntry[] = [
     href: "/docs/managed-policies",
     locales: managedPoliciesDocsLocales,
     contentLocales: managedPoliciesDocsLocales,
+  },
+  {
+    titleKey: "cloudSecurity",
+    href: "/docs/cloud-security",
+    locales: cloudSecurityDocsLocales,
+    contentLocales: cloudSecurityDocsLocales,
   },
   {
     sectionKey: "agentIntegrations",

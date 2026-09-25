@@ -174,6 +174,38 @@ final class NewMachineModel {
     /// Set by the presenter: called once when the sheet should close.
     var onFinished: (@MainActor (Outcome) -> Void)?
 
+    /// Whether the control plane answered the network preset catalog. The
+    /// Network section is editable only once it has: a server that does not
+    /// know network policy would ignore it and give the machine full internet.
+    enum NetworkAvailability: Equatable {
+        case loading
+        case available
+        case unavailable
+    }
+
+    /// The outbound network choice for `vm new`. Base has no network choice.
+    let network = CloudNetworkPolicyEditorModel()
+    private(set) var networkAvailability: NetworkAvailability = .loading
+
+    var supportsNetworkPolicy: Bool { mode == .newMachine }
+
+    func applyNetworkCatalog(_ catalog: CloudNetworkPresetCatalog?) {
+        guard let catalog else {
+            networkAvailability = .unavailable
+            return
+        }
+        network.setCatalog(catalog)
+        networkAvailability = .available
+    }
+
+    /// The policy the create sends; nil keeps the server default. Only sent
+    /// once the server proved it understands policies, and never when the
+    /// person left it at the default (full internet, nothing listed).
+    var requestedNetworkPolicy: CloudNetworkPolicy? {
+        guard supportsNetworkPolicy, networkAvailability == .available, network.policy != .default else { return nil }
+        return network.policy
+    }
+
     private let submit: Submit
     private let selectionWindowID: UUID?
 
@@ -410,6 +442,7 @@ final class NewMachineModel {
         case .newMachine:
             arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
+            if let policy = requestedNetworkPolicy { arguments += ["--network-policy", policy.jsonString] }
             arguments += ["--focus", "false"]
         case .base(let workspaceID):
             arguments = [

@@ -372,8 +372,8 @@
       "iosLink": "iOSアプリを開く"
     },
     "cloud": {
-      "title": "Cloud Macアクセス",
-      "description": "これらのMacはプライベートCloud VMネットワークへのWireGuardアクセスを持っています。iPhoneとIrohのペアリング記録は別に管理されます。",
+      "title": "CloudマシンとMacアクセス",
+      "description": "マシンごとに送信ネットワークを設定し、プライベートCloud VMネットワークへのWireGuardアクセスを持つMacを確認します。iPhoneとIrohのペアリング記録は別に管理されます。",
       "empty": "Cloud VMアクセスが登録されたMacはありません。",
       "cmux": "cmuxビルド",
       "access": "ネットワークアクセス",
@@ -394,7 +394,76 @@
       "renameError": "このMacの名前を変更できませんでした。",
       "revokeTitle": "{name}のアクセスを取り消しますか？",
       "revokeBody": "このMacをサインアウトし、すべてのCloud VMネットワークアクセスを削除します。",
-      "revokeError": "このMacのアクセスを取り消せませんでした。"
+      "revokeError": "このMacのアクセスを取り消せませんでした。",
+      "macAccessTitle": "Macアクセス",
+      "machines": {
+        "title": "マシン",
+        "empty": "Cloudマシンはありません。",
+        "personal": "個人",
+        "team": "チーム",
+        "status": {
+          "provisioning": "起動中",
+          "running": "実行中",
+          "failed": "失敗",
+          "paused": "一時停止中",
+          "destroyed": "削除済み"
+        }
+      },
+      "network": {
+        "open": "ネットワーク",
+        "title": "{name}の送信ネットワーク",
+        "description": "このマシンが接続できる宛先を選択します。変更は再起動なしで即時に適用されます。",
+        "loading": "ネットワークポリシーを読み込み中…",
+        "loadError": "このマシンのネットワークポリシーを読み込めませんでした。",
+        "saveError": "このネットワークポリシーを適用できませんでした。",
+        "unsupported": "このマシンは送信ネットワークの制御に対応していません。",
+        "retry": "再試行",
+        "appliedLabel": "状態:",
+        "applied": {
+          "applied": "適用済み",
+          "pending": "適用中",
+          "failed": "適用に失敗"
+        },
+        "unsaved": "未保存の変更",
+        "refresh": "更新",
+        "modeLabel": "送信アクセス",
+        "mode": {
+          "full": {
+            "label": "インターネット全体",
+            "description": "すべてのパブリックアドレス。"
+          },
+          "allowlist": {
+            "label": "許可リスト",
+            "description": "指定したプリセット、ドメイン、IP範囲のみ。"
+          },
+          "none": {
+            "label": "インターネットなし",
+            "description": "下記のcmuxホストのみ。"
+          }
+        },
+        "presetsTitle": "プリセット",
+        "presetsNote": "各プリセットは完全一致のホスト名を追加します。他のサブドメインを使うサービスには、追加のドメインが必要な場合があります。",
+        "domainsTitle": "ドメイン",
+        "domainsNote": "完全一致のホスト名で、ポート443のHTTPSのみです。ワイルドカードはまだ使えません。",
+        "domainInput": "ドメイン",
+        "rangesTitle": "IP範囲",
+        "rangesNote": "プロバイダーのファイアウォールがマシンの外側で適用します。ポートを空欄にするとすべてのポートを許可します。ポートにはプロトコルが必要です。",
+        "cidrInput": "IP範囲（CIDR）",
+        "portInput": "ポート",
+        "protocolInput": "プロトコル",
+        "anyProtocol": "すべて",
+        "noteInput": "メモ（任意）",
+        "allPorts": "すべてのポート",
+        "dnsLabel": "DNSを許可",
+        "dnsNote": "IP範囲が指す名前をツールが解決できるようにします。ドメインにはDNSは不要です。開いたDNSは送信チャネルです。プロセスは問い合わせる名前にデータを載せて外部に送れます。",
+        "requiredTitle": "常に許可",
+        "requiredNote": "cmuxは、マシン内のCLIをインストールおよび更新するために、すべてのモードでこれらのホストを必要とします。",
+        "add": "追加",
+        "remove": "削除",
+        "discard": "変更を破棄",
+        "close": "閉じる",
+        "apply": "適用"
+      }
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -3287,7 +3356,8 @@
       "ios": "iOSアプリ",
       "vault": "Vault",
       "taskManager": "タスクマネージャ",
-      "ssh": "SSH"
+      "ssh": "SSH",
+      "cloudSecurity": "Cloudセキュリティ"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -3480,6 +3550,56 @@
       "useTitle": "使う場面",
       "useDesc": "Activity Monitorではcmuxの負荷は分かるが、原因のワークスペース、エージェント、ブラウザペインが分からないときに使います。",
       "blogCta": "ワークフローと導入背景は<link>タスクマネージャの機能紹介</link>をご覧ください。"
+    },
+    "cloudSecurity": {
+      "title": "Cloudセキュリティ",
+      "metaTitle": "cmux Cloudのセキュリティ",
+      "metaDescription": "cmux Cloudマシンの分離方法、認証情報の保管場所、送信ネットワークポリシーでマシンの接続先を制限する方法を説明します。",
+      "intro": "このページでは、cmux Cloudマシンのセキュリティモデルを説明します。マシンを分離するもの、認証情報の保管場所、ネットワーク上でマシンが接続できる宛先を制限する方法です。",
+      "isolationTitle": "分離",
+      "isolationVm": "各マシンは、専用のLinuxカーネルを持つFreestyleのmicroVMです。共有カーネル上のコンテナではありません。",
+      "isolationRoot": "マシン内では、設計上パスワードなしでrootになれます。セキュリティ境界はVMであり、VM内のユーザーアカウントではありません。エージェントを含め、マシン内のすべてのプロセスはrootと同じ操作ができます。",
+      "isolationHome": "マシンを再作成すると、ホームディレクトリがリセットされます。既知の状態に戻すには、マシンを再作成してください。",
+      "credentialsTitle": "認証情報",
+      "credentialsModel": "CodeRouterのモデル認証情報がマシンに入ることはありません。リクエストがマシンを出た後に、FreestyleのTLSエッジが認証情報を追加します。プロバイダーはこれらのヘッダー値を書き込み専用で保存するため、cmuxが設定した後は誰も読み出せません。",
+      "credentialsAttach": "クライアントがマシン上でセッションを開くためのアタッチ認証情報は短時間だけ有効で、1台のマシンと1つのセッションに限定されます。",
+      "previewsTitle": "ポートプレビュー",
+      "previewsDesc": "ポートプレビューは、あなたのプライベートWireGuardネットワークを通ります。公開URLはありません。プライベートネットワーク上のデバイスだけが開けます。",
+      "networkTitle": "送信ネットワークポリシー",
+      "networkIntro": "各マシンには送信ネットワークポリシーがあります。<link>Cloudダッシュボード</link>のネットワーク設定で変更できます。変更は実行中のマシンに再起動なしで即時に適用されます。",
+      "modesTitle": "モード",
+      "modeFull": "<b>インターネット全体</b>: マシンはすべてのパブリックアドレスに接続できます。これが既定です。",
+      "modeAllowlist": "<b>許可リスト</b>: マシンは、指定したプリセット、ドメイン、IP範囲と、常に許可されるcmuxホストにのみ接続できます。",
+      "modeNone": "<b>インターネットなし</b>: マシンは常に許可されるcmuxホストにのみ接続できます。",
+      "domainsTitle": "ドメインルール",
+      "domainsExact": "ドメインルールは1つのホスト名に完全一致します。api.example.comはexample.comや他のサブドメインには一致しません。ワイルドカードはまだ使えません。",
+      "domainsHttps": "ドメインルールが許可するのは、ポート443のHTTPSのみです。",
+      "domainsSteer": "プラットフォームは、許可された各名前をマシンの/etc/hostsファイルでプロバイダーのTLSエッジに向けます。ドメインルールはDNSもIP範囲もなしで動作します。",
+      "domainsBypass": "/etc/hostsを使わない通信は誘導されません。例として、独自のDNSリゾルバーを持つコンテナや、TLS証明書をピン留めするツールがあります。IP範囲で許可しない限り、その通信はドメインに届きません。",
+      "presetsDesc": "プリセットは、よく使うサービスの完全一致の名前をまとめて追加します。Anthropic、OpenAI、OpenRouter、OpenCode、GitHub、npm、PyPI、Rustがあります。cmuxが名前の一覧を更新すると、そのプリセットを使うすべてのマシンに反映されます。有効にする前に、プリセットが追加する名前を確認してください。",
+      "rangesTitle": "IP範囲",
+      "rangesDesc": "IP範囲はIPv4またはIPv6のCIDRブロックで、1つのポートとプロトコルに絞り込むこともできます。プロバイダーのファイアウォールがマシンの外側でIP範囲を適用するため、マシン内のrootでも削除できません。",
+      "dnsTitle": "DNS",
+      "dnsDesc": "許可リストモードでは、IP範囲が指す名前をツールが解決できるようにDNSを許可できます。ドメインルールにDNSは不要です。",
+      "dnsRisk": "開いたDNSは送信チャネルです。プロセスは問い合わせる名前にデータを載せられ、リゾルバーはその問い合わせをドメインのサーバーに転送します。信頼できないコードを実行するマシンではDNSをオフにしてください。",
+      "mailTitle": "メールポート",
+      "mailDesc": "プラットフォームは、送信メールポート25、465、587をすべてのモードで常にブロックします。",
+      "requiredTitle": "常に許可されるホスト",
+      "requiredDesc": "すべてのモードで、マシン内のCLIをインストールおよび更新するためにcmuxが必要とするホストを許可します:",
+      "requiredWhy": "これらのホストがないと、許可リストモードやインターネットなしモードのマシンはcmuxツールを取得できません。",
+      "hardeningTitle": "強化チェックリスト",
+      "hardeningAllowlist": "信頼できないリポジトリには許可リストモードを使い、作業に必要なプリセットとドメインだけを追加してください。",
+      "hardeningSecrets": "シークレットはリポジトリにもマシンにも置かないでください。マシン内のすべてのプロセスは、マシン内のものを読めます。",
+      "hardeningEdge": "マシンに保存したAPIキーよりも、CodeRouterのようなエッジで注入される認証情報を使ってください。",
+      "hardeningPresets": "プリセットは有効にする前に確認し、不要になったプリセットは削除してください。",
+      "hardeningDns": "許可リストモードでは、IP範囲が必要としない限りDNSをオフにしてください。",
+      "hardeningRecreate": "信頼できないコードを実行した後は、マシンを再作成して状態をリセットしてください。",
+      "limitsTitle": "制限",
+      "limitsLogs": "送信ログはまだありません。マシンがどこに接続したか、ポリシーがどの接続をブロックしたかは確認できません。",
+      "limitsWildcards": "ワイルドカードドメインはまだ使えません。完全一致の名前を1つずつ指定してください。",
+      "limitsTeam": "チーム全体に強制するポリシーはまだありません。ポリシーはマシンごとです。",
+      "limitsGithub": "常に許可されるホストにはgithub.comが含まれるため、インターネットなしモードでもgithub.comへのHTTPSはブロックされません。",
+      "limitsBypass": "ドメインルールは、/etc/hostsを使わない通信や証明書をピン留めする通信には適用されません。"
     }
   },
   "legal": {

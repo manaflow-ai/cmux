@@ -232,9 +232,23 @@ extension TerminalController {
             let persistentHome = Self.socketWorkerBool(params["persistent_home"]) ?? false
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
+            var networkPolicy: CloudNetworkPolicy?
+            if let rawPolicy = params["network_policy"], !(rawPolicy is NSNull) {
+                guard let decoded = try? CloudNetworkPolicy(foundationObject: rawPolicy) else {
+                    return v2Error(
+                        id: id,
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.cloudVM.create.invalidNetworkPolicy",
+                            defaultValue: "vm.create `network_policy` must be an object with a mode of full, allowlist, or none."
+                        )
+                    )
+                }
+                networkPolicy = decoded
+            }
             return v2CloudCall(id: id, method: method, params: params) {
                 let scope = await CmuxTuiSurfaceProviderRegistry.shared.creationScope
-                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, displayName: Self.socketWorkerString(params["display_name"]), networkPolicy: networkPolicy, idempotencyKey: idempotencyKey)
                 await CmuxTuiSurfaceProviderRegistry.shared.recordCreatedMachine(vm, scope: scope)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
@@ -331,6 +345,8 @@ extension TerminalController {
                 if let diskUsedMb = stats.diskUsedMb { payload["disk_used_mb"] = diskUsedMb }
                 return payload
             }
+        case "vm.network_get", "vm.network_update":
+            return socketWorkerCloudNetworkResponse(method: method, id: id, params: params)
         case "vm.rename":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")

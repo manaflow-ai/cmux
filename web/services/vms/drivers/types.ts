@@ -2,6 +2,7 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
+import type { NetworkRulePlan } from "../networkPolicy";
 import type { GuestPromptIdentity } from "../guestPrompt";
 
 export type ProviderId = "freestyle";
@@ -118,6 +119,13 @@ export type CreateOptions = {
    * Providers without `privateNetworking` ignore it.
    */
   network?: ProviderNetworkRef;
+  /**
+   * Outbound rules compiled from the machine's network policy
+   * (services/vms/networkPolicy.ts). Absent: full public egress, the
+   * historical default. Providers without egress control must refuse a
+   * restricted plan rather than silently leave the machine open.
+   */
+  networkRules?: NetworkRulePlan;
 };
 
 /** Enough of a provider network to attach a machine or a tunnel to it. */
@@ -140,7 +148,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -479,6 +487,8 @@ export interface VMProvider {
   getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
+  /** Converge a live machine's outbound rules on `plan`. Must not restart or wake it. */
+  applyNetworkPolicy?(vmId: string, plan: NetworkRulePlan): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;

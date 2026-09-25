@@ -1,3 +1,4 @@
+import type { NetworkRulePlan } from "./networkPolicy";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -98,6 +99,11 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     options: VMResizeOptions,
+  ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
+  readonly applyNetworkPolicy?: (
+    provider: ProviderId,
+    vmId: string,
+    plan: NetworkRulePlan,
   ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
   /** Session transports the provider serves; undefined = legacy websocket/ssh. */
   readonly attachTransports?: (provider: ProviderId) => readonly AttachTransport[] | undefined;
@@ -292,6 +298,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     const impl = getProvider(provider);
     if (!impl.resize) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
     return providerEffect(provider, "resize", () => impl.resize!(vmId, options));
+  },
+  applyNetworkPolicy: (provider, vmId, plan) => {
+    const impl = getProvider(provider);
+    if (!impl.applyNetworkPolicy) return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "applyNetworkPolicy" }));
+    return providerEffect(provider, "applyNetworkPolicy", () => impl.applyNetworkPolicy!(vmId, plan));
   },
   attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>

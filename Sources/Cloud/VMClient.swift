@@ -1164,7 +1164,7 @@ actor VMClient {
         return result
     }
 
-    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, displayName: String? = nil, networkPolicy: CloudNetworkPolicy? = nil, idempotencyKey: String) async throws -> VMSummary {
         return try await withOperation(.create, foreground: true) {
             var body: [String: Any] = [:]
             if let image { body["image"] = image }
@@ -1174,6 +1174,8 @@ actor VMClient {
             if perMachineHome { body["perMachineHome"] = true }
             if let memoryMb { body["memoryMb"] = memoryMb }
             if let displayName { body["displayName"] = displayName }
+            // Omitted means the server default (full internet).
+            if let networkPolicy { body["networkPolicy"] = networkPolicy.foundationObject }
             // The CLI owns key stability across command retries. VMClient only forwards the
             // key so the backend can short-circuit duplicate paid provider creates.
             let headers = ["Idempotency-Key": idempotencyKey]

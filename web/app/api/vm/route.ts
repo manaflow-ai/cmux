@@ -1,3 +1,4 @@
+import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
@@ -241,6 +242,8 @@ export async function POST(request: Request): Promise<Response> {
       const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
+      const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
+      if (!networkPolicy.ok) return networkPolicy.response;
 
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
@@ -292,6 +295,7 @@ export async function POST(request: Request): Promise<Response> {
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
+        networkPolicy: networkPolicy.policy,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),

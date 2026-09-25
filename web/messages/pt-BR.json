@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "últimos 30 dias: {completions} conclusões · {tokens} tokens ({input} entrada / {output} saída) · equivalente de API {value}",
       "apiKeyUsageUnavailable": "Uso indisponível",
       "revokeApiKeyConfirmBody": "Os clientes que usam esta chave perderão a autenticação imediatamente."
+    },
+    "cloud": {
+      "title": "Máquinas do Cloud e acesso do Mac",
+      "description": "Defina a rede de saída de cada máquina e revise os Macs com acesso WireGuard à sua rede privada de VMs do Cloud. Os registros de pareamento do iPhone e do Iroh ficam separados.",
+      "macAccessTitle": "Acesso do Mac",
+      "machines": {
+        "title": "Máquinas",
+        "empty": "Você não tem máquinas do Cloud.",
+        "personal": "pessoal",
+        "team": "equipe",
+        "status": {
+          "provisioning": "iniciando",
+          "running": "em execução",
+          "failed": "com falha",
+          "paused": "pausada",
+          "destroyed": "excluída"
+        }
+      },
+      "network": {
+        "open": "Rede",
+        "title": "Rede de saída de {name}",
+        "description": "Escolha o que esta máquina pode acessar. As alterações são aplicadas na hora, sem reiniciar.",
+        "loading": "Carregando a política de rede…",
+        "loadError": "Não foi possível carregar a política de rede desta máquina.",
+        "saveError": "Não foi possível aplicar esta política de rede.",
+        "unsupported": "Esta máquina não oferece suporte ao controle da rede de saída.",
+        "retry": "Tentar novamente",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "aplicada",
+          "pending": "aplicando",
+          "failed": "falha ao aplicar"
+        },
+        "unsaved": "alterações não salvas",
+        "refresh": "Atualizar",
+        "modeLabel": "Acesso de saída",
+        "mode": {
+          "full": {
+            "label": "Internet completa",
+            "description": "Qualquer endereço público."
+          },
+          "allowlist": {
+            "label": "Lista de permissões",
+            "description": "Somente as predefinições, os domínios e os intervalos de IP que você listar."
+          },
+          "none": {
+            "label": "Sem internet",
+            "description": "Somente os hosts do cmux listados abaixo."
+          }
+        },
+        "presetsTitle": "Predefinições",
+        "presetsNote": "Cada predefinição adiciona nomes de host exatos. Um serviço que usa outros subdomínios pode precisar de mais domínios.",
+        "domainsTitle": "Domínios",
+        "domainsNote": "Somente nomes de host exatos, somente HTTPS na porta 443. Curingas ainda não são compatíveis.",
+        "domainInput": "Domínio",
+        "rangesTitle": "Intervalos de IP",
+        "rangesNote": "O firewall do provedor aplica essas regras fora da máquina. Deixe a porta vazia para permitir todas as portas. Uma porta exige um protocolo.",
+        "cidrInput": "Intervalo de IP (CIDR)",
+        "portInput": "Porta",
+        "protocolInput": "Protocolo",
+        "anyProtocol": "qualquer",
+        "noteInput": "Observação (opcional)",
+        "allPorts": "todas as portas",
+        "dnsLabel": "Permitir DNS",
+        "dnsNote": "Permite que as ferramentas resolvam os nomes para os quais seus intervalos de IP apontam. Domínios não precisam de DNS. DNS aberto é um canal de saída: um processo pode enviar dados nos nomes que consulta.",
+        "requiredTitle": "Sempre permitidos",
+        "requiredNote": "O cmux precisa desses hosts em todos os modos para instalar e atualizar a CLI na máquina.",
+        "add": "Adicionar",
+        "remove": "Remover",
+        "discard": "Descartar alterações",
+        "close": "Fechar",
+        "apply": "Aplicar"
+      }
     }
   },
   "community": {

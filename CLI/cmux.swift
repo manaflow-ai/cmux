@@ -5747,6 +5747,9 @@ struct CMUXCLI {
             case "resize":
                 try runVMResizeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "network":
+                try runVMNetworkCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "pause", "resume":
                 // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
                 // stays); resuming brings the daemon and its terminals back.
@@ -5810,7 +5813,10 @@ struct CMUXCLI {
                 let focus = try parseCloudVMFocusOption(focusOpt, command: "vm new")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 let machineKind = try Self.cloudVMCreateKind(rem2, command: "vm new")
-                let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
+                let (sizeOpt, rem2a) = parseOption(rem2, name: "--size")
+                let (networkPolicyOpt, rem2b) = parseOption(rem2a, name: "--network-policy")
+                let (networkModeOpt, rem3) = parseOption(rem2b, name: "--network")
+                let networkPolicy = try Self.parseVMCreateNetworkPolicy(json: networkPolicyOpt, mode: networkModeOpt)
                 let memoryMb: Int?
                 if let sizeOpt {
                     guard let parsed = Self.parseCloudVMSize(sizeOpt) else {
@@ -5834,6 +5840,8 @@ struct CMUXCLI {
 
                         Known flags:
                           --size <4g|8g|16g|24g|32g|64g>  4g to 24g on Pro; 32g and 64g need cmux Max
+                          --network <full|allowlist|none>  outbound access (see `cmux vm network --help`)
+                          --network-policy <json>  full network policy object
                           --desktop, --base  \(String(localized: "cli.vm.help.legacyKindFlags", defaultValue: "accepted for older scripts; every machine has a screen"))
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
@@ -5876,13 +5884,16 @@ struct CMUXCLI {
                 // for runtime memory get it, and the backend applies the plan ceiling.
                 if let memoryMb { params["memory_mb"] = memoryMb }
                 if let machineName, !machineName.isEmpty { params["display_name"] = machineName }
+                if let networkPolicy { params["network_policy"] = networkPolicy.object }
                 // Freestyle is the default and only deployed provider. It does not support
                 // persistent home volumes, so leave both volume flags out of this request.
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
                 // Store-based idempotency: retries of a failed create reuse the key; a
                 // successful create clears it, so the next `vm new` makes a new machine.
+                // A different network policy is a different request: it must not
+                // replay an in-flight create that carries the old one.
                 let idempotency = try Self.activeVMCreateIdempotency(
-                    image: imageOptRaw ?? "kind=\(machineKind.rawValue)",
+                    image: (imageOptRaw ?? "kind=\(machineKind.rawValue)") + (networkPolicy.map { " network=\($0.canonicalJSON)" } ?? ""),
                     provider: normalizedProvider,
                     workspace: targetWorkspaceOpt
                 )
@@ -18213,12 +18224,16 @@ struct CMUXCLI {
                 localized: "cli.cloud.domains.helpDescription",
                 defaultValue: "Publish VM ports on generated or custom domains."
             )
+            let networkDescription = String(
+                localized: "cli.vm.network.helpDescription",
+                defaultValue: "Show or change the machine's outbound network policy; see `cmux vm network --help`."
+            )
             let resizeDescription = String(
                 localized: "cli.vm.resize.helpDescription",
                 defaultValue: "Grow an existing machine's CPU, memory, or disk; see `cmux vm resize --help`."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|self|status|stats|resize|network|rename|pause|resume|snapshot|fork|restore|rm|run|route|agent|dev|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|terminal|tab|layout|env|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             `cmux vm <verb> --help` prints that verb's own usage.
 
@@ -18330,6 +18345,8 @@ struct CMUXCLI {
               stats <id>                     CPU, memory, and disk right now (sleeping machines stay asleep)
               resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]
                                         \(resizeDescription)
+              network <id> [set|add-domain|remove-domain|add-range|remove-range|preset] ...
+                                        \(networkDescription)
               tui <id> [--window <id|ref|index>]
                                         Open a workspace attached through the machine's
                                         cmux-tui remote daemon (enrolls this Mac on first use).

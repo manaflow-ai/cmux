@@ -15,6 +15,9 @@ struct NewMachineSheet: View {
             if model.supportsSize {
                 sizeSection
             }
+            if model.supportsNetworkPolicy {
+                networkSection
+            }
             if model.hasNoAllowedMemoryOptions {
                 Text(String(localized: "machines.new.size.noneAllowed", defaultValue: "No machine size is available for this plan. Close this dialog and reopen it to refresh your plan."))
                     .cmuxFont(size: 12)
@@ -64,7 +67,35 @@ struct NewMachineSheet: View {
                 .cmuxFont(size: 12)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            CloudSecurityExplainer()
         }
+    }
+
+    private var networkSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(String(localized: "cloud.network.section.label", defaultValue: "Network"))
+                .cmuxFont(size: 13, weight: .semibold)
+            switch model.networkAvailability {
+            case .loading:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text(String(localized: "cloud.network.loading", defaultValue: "Loading network options…"))
+                        .cmuxFont(size: 11)
+                        .foregroundStyle(.secondary)
+                }
+            case .unavailable:
+                Text(String(
+                    localized: "cloud.network.unavailable",
+                    defaultValue: "Network options could not be loaded. The machine gets full internet access; change it later with Network… in the machine menu."
+                ))
+                .cmuxFont(size: 11)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            case .available:
+                CloudNetworkPolicyEditor(model: model.network)
+            }
+        }
+        .accessibilityIdentifier("NewMachineSheet.network")
     }
 
     private var sizeSection: some View {

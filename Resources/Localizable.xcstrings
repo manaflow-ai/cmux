@@ -552989,6 +552989,3605 @@
           }
         }
       }
+    },
+    "cli.vm.network.invalidDns": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --dns takes on or off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --dns akzeptiert on oder off."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network : --dns accepte on ou off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: يقبل ‎--dns القيمة on أو off."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --dns acepta on u off."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--dns 只接受 on 或 off。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--dns 只接受 on 或 off。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --dns에는 on 또는 off를 지정합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--dns には on または off を指定してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.network.invalidMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: the mode must be full, allowlist, or none."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: Der Modus muss full, allowlist oder none sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network : le mode doit être full, allowlist ou none."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: يجب أن يكون الوضع full أو allowlist أو none."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: el modo debe ser full, allowlist o none."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：模式必須是 full、allowlist 或 none。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：模式必须是 full、allowlist 或 none。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: 모드는 full, allowlist, none 중 하나여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：モードは full、allowlist、none のいずれかにしてください。"
+          }
+        }
+      }
+    },
+    "cli.vm.network.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --port must be a number from 1 to 65535."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --port muss eine Zahl von 1 bis 65535 sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network : --port doit être un nombre de 1 à 65535."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: يجب أن تكون قيمة ‎--port رقمًا من 1 إلى 65535."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --port debe ser un número de 1 a 65535."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--port 必須是 1 到 65535 之間的數字。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--port 必须是 1 到 65535 之间的数字。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --port는 1부터 65535까지의 숫자여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--port には 1〜65535 の数値を指定してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.network.invalidProtocol": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --protocol takes tcp or udp."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --protocol akzeptiert tcp oder udp."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network : --protocol accepte tcp ou udp."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: يقبل ‎--protocol القيمة tcp أو udp."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --protocol acepta tcp o udp."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--protocol 只接受 tcp 或 udp。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--protocol 只接受 tcp 或 udp。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network: --protocol에는 tcp 또는 udp를 지정합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm network：--protocol には tcp または udp を指定してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.network.listsInactive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(the lists below take effect only in allowlist mode)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(die folgenden Listen gelten nur im Modus allowlist)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(les listes ci-dessous ne s'appliquent qu'en mode allowlist)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(القوائم أدناه لا تسري إلا في وضع allowlist)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(las listas siguientes solo se aplican en el modo allowlist)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（以下清單只在 allowlist 模式下生效）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（以下列表仅在 allowlist 模式下生效）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(아래 목록은 allowlist 모드에서만 적용됩니다)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（以下の一覧は allowlist モードでのみ有効です）"
+          }
+        }
+      }
+    },
+    "cli.vm.network.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage:\n  cmux vm network <id>                                   Show the machine's outbound policy.\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               Replace the whole policy.\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\nModes: full reaches any public address; allowlist reaches only the listed\ndomains and ranges; none reaches nothing. cmux's own hosts stay reachable\nin every mode. Domains are exact HTTPS host names (no wildcards). A range\nwith --port and no --protocol means TCP. Open DNS (--dns on) is itself an\noutbound channel. Changes apply live to a running machine, with no restart.\n`cmux vm network <id>` lists the preset ids. Add --json for the structured result."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung:\n  cmux vm network <id>                                   Ausgehende Richtlinie der Maschine anzeigen.\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               Die gesamte Richtlinie ersetzen.\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\nModi: full erreicht jede öffentliche Adresse; allowlist nur die aufgeführten\nDomains und Bereiche; none erreicht nichts. Die Hosts von cmux bleiben in jedem\nModus erreichbar. Domains sind exakte HTTPS-Hostnamen (keine Platzhalter). Ein\nBereich mit --port ohne --protocol bedeutet TCP. Offenes DNS (--dns on) ist selbst ein\nausgehender Kanal. Änderungen gelten sofort für eine laufende Maschine, ohne Neustart.\n`cmux vm network <id>` listet die Vorlagen-IDs. Mit --json erhalten Sie das strukturierte Ergebnis."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation :\n  cmux vm network <id>                                   Afficher la politique sortante de la machine.\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               Remplacer toute la politique.\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\nModes : full atteint toute adresse publique ; allowlist uniquement les domaines\net plages listés ; none n'atteint rien. Les hôtes de cmux restent accessibles dans\ntous les modes. Les domaines sont des noms d'hôte HTTPS exacts (sans caractères\ngénériques). Une plage avec --port sans --protocol signifie TCP. Un DNS ouvert (--dns on)\nest lui-même un canal sortant. Les modifications s'appliquent sans redémarrage.\n`cmux vm network <id>` liste les préréglages. Ajoutez --json pour le résultat structuré."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام:\n  cmux vm network <id>                                   عرض سياسة الاتصال الصادر للجهاز.\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               استبدال السياسة بالكامل.\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\nالأوضاع: full يصل إلى أي عنوان عام؛ allowlist يصل فقط إلى النطاقات والمجالات\nالمدرجة؛ none لا يصل إلى شيء. تبقى مضيفات cmux نفسها قابلة للوصول في كل الأوضاع.\nالنطاقات أسماء مضيفين HTTPS مطابقة (بلا أحرف بدل). النطاق مع --port دون --protocol\nيعني TCP. نظام DNS المفتوح (--dns on) هو بحد ذاته قناة صادرة. تُطبَّق التغييرات\nفورًا على الجهاز قيد التشغيل دون إعادة تشغيل. يعرض `cmux vm network <id>` معرّفات\nالإعدادات المسبقة. أضف --json للحصول على النتيجة المنظمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso:\n  cmux vm network <id>                                   Mostrar la política de salida de la máquina.\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               Reemplazar toda la política.\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\nModos: full llega a cualquier dirección pública; allowlist solo a los dominios\ny rangos listados; none no llega a nada. Los hosts de cmux siguen accesibles en\ntodos los modos. Los dominios son nombres de host HTTPS exactos (sin comodines).\nUn rango con --port y sin --protocol significa TCP. El DNS abierto (--dns on) es en sí\nun canal de salida. Los cambios se aplican al instante, sin reiniciar la máquina.\n`cmux vm network <id>` lista los predefinidos. Añade --json para el resultado estructurado."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm network <id>                                   顯示機器的對外連線政策。\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               取代整個政策。\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\n模式：full 可連線任何公開位址；allowlist 只能連線列出的網域與範圍；\nnone 無法連線任何位址。cmux 本身的主機在所有模式下都保持可連線。\n網域必須是完整的 HTTPS 主機名稱（不支援萬用字元）。\n有 --port 但沒有 --protocol 的範圍表示 TCP。開放 DNS（--dns on）本身也是一條對外通道。\n變更會即時套用到執行中的機器，無需重新啟動。\n`cmux vm network <id>` 會列出預設組 ID。加上 --json 可取得結構化結果。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：\n  cmux vm network <id>                                   显示机器的出站策略。\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               替换整个策略。\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\n模式：full 可访问任意公网地址；allowlist 仅可访问列出的域名和范围；\nnone 无法访问任何地址。cmux 自身的主机在所有模式下都保持可访问。\n域名必须是精确的 HTTPS 主机名（不支持通配符）。\n带 --port 但不带 --protocol 的范围表示 TCP。开放 DNS（--dns on）本身也是一条出站通道。\n更改会即时应用到运行中的机器，无需重启。\n`cmux vm network <id>` 会列出预设 ID。添加 --json 可获取结构化结果。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법:\n  cmux vm network <id>                                   머신의 아웃바운드 정책을 표시합니다.\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               정책 전체를 교체합니다.\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\n모드: full은 모든 공용 주소에 연결하고, allowlist는 나열된 도메인과 범위에만 연결하며,\nnone은 아무 곳에도 연결하지 않습니다. cmux 자체 호스트는 모든 모드에서 계속 연결됩니다.\n도메인은 정확한 HTTPS 호스트 이름입니다(와일드카드 불가). --protocol 없이 --port만 있는\n범위는 TCP를 뜻합니다. 열린 DNS(--dns on)도 그 자체로 아웃바운드 채널입니다. 변경 사항은\n실행 중인 머신에 재시작 없이 즉시 적용됩니다. `cmux vm network <id>`는 프리셋 ID를\n나열합니다. 구조화된 결과는 --json을 추가하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用方法：\n  cmux vm network <id>                                   マシンの送信ポリシーを表示します。\n  cmux vm network <id> set --mode <full|allowlist|none> [--dns <on|off>]\n  cmux vm network <id> set --policy <json>               ポリシー全体を置き換えます。\n  cmux vm network <id> add-domain <domain>...\n  cmux vm network <id> remove-domain <domain>...\n  cmux vm network <id> add-range <cidr> [--port <n>] [--protocol <tcp|udp>] [--note <text>]\n  cmux vm network <id> remove-range <cidr> [--port <n>] [--protocol <tcp|udp>]\n  cmux vm network <id> preset <add|remove> <preset-id>...\n\nモード：full は任意のパブリックアドレスに接続できます。allowlist は一覧にあるドメインと\n範囲だけに接続できます。none はどこにも接続できません。cmux 自身のホストはどのモードでも\n接続できます。ドメインは完全一致の HTTPS ホスト名です（ワイルドカード不可）。--protocol なしで\n--port を指定した範囲は TCP です。オープンな DNS（--dns on）もそれ自体が送信経路になります。\n変更は実行中のマシンに再起動なしで即時に適用されます。`cmux vm network <id>` でプリセット ID を\n一覧できます。構造化された結果には --json を追加してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.new.networkConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new: use either --network or --network-policy, not both."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new: Verwenden Sie entweder --network oder --network-policy, nicht beides."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new : utilisez --network ou --network-policy, pas les deux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new: استخدم ‎--network أو ‎--network-policy، وليس كليهما."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new: usa --network o --network-policy, no ambos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new：請擇一使用 --network 或 --network-policy，不可同時使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new：请只使用 --network 或 --network-policy 中的一个。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new: --network와 --network-policy 중 하나만 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm new：--network と --network-policy はどちらか一方だけを指定してください。"
+          }
+        }
+      }
+    },
+    "cli.vm.network.helpDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show or change the machine's outbound network policy; see `cmux vm network --help`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgehende Netzwerkrichtlinie der Maschine anzeigen oder ändern; siehe `cmux vm network --help`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher ou modifier la politique réseau sortante de la machine ; voir `cmux vm network --help`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض سياسة الشبكة الصادرة للجهاز أو تغييرها؛ راجع `cmux vm network --help`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra o cambia la política de red de salida de la máquina; consulta `cmux vm network --help`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示或變更機器的對外網路政策；請參閱 `cmux vm network --help`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或更改机器的出站网络策略；请参阅 `cmux vm network --help`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신의 아웃바운드 네트워크 정책을 표시하거나 변경합니다. `cmux vm network --help`를 참고하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンの送信ネットワークポリシーを表示または変更します。`cmux vm network --help` を参照してください。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.duplicateDomain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is already in the list."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist bereits in der Liste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ figure déjà dans la liste."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ موجود بالفعل في القائمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ya está en la lista."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已在清單中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已在列表中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 이미 목록에 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はすでに一覧にあります。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.duplicateRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is already in the list."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist bereits in der Liste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ figure déjà dans la liste."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ موجود بالفعل في القائمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ya está en la lista."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已在清單中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已在列表中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 이미 목록에 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はすでに一覧にあります。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.invalidPort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The port must be a number from 1 to 65535."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Port muss eine Zahl von 1 bis 65535 sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le port doit être un nombre de 1 à 65535."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن يكون المنفذ رقمًا من 1 إلى 65535."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El puerto debe ser un número de 1 a 65535."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接埠必須是 1 到 65535 之間的數字。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口必须是 1 到 65535 之间的数字。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포트는 1부터 65535까지의 숫자여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートには 1〜65535 の数値を指定してください。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.missingDomain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not in the list."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist nicht in der Liste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne figure pas dans la liste."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ غير موجود في القائمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no está en la lista."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不在清單中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不在列表中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 목록에 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は一覧にありません。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.missingRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is not in the list."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist nicht in der Liste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ne figure pas dans la liste."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ غير موجود في القائمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no está en la lista."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不在清單中。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 不在列表中。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 목록에 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は一覧にありません。"
+          }
+        }
+      }
+    },
+    "cloud.network.mode.allowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allowlist"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zulassungsliste"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liste autorisée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة السماح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista permitida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許清單"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许列表"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "허용 목록"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "許可リスト"
+          }
+        }
+      }
+    },
+    "cloud.network.mode.allowlist.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the domains and IP ranges you list, plus what cmux needs."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur die aufgeführten Domains und IP-Bereiche sowie das, was cmux braucht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniquement les domaines et plages IP listés, plus ce dont cmux a besoin."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فقط النطاقات ونطاقات IP التي تدرجها، إضافةً إلى ما يحتاجه cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo los dominios y rangos IP que indiques, más lo que cmux necesita."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只允許你列出的網域與 IP 範圍，以及 cmux 所需的主機。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅允许你列出的域名和 IP 范围，以及 cmux 所需的主机。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나열한 도메인과 IP 범위, 그리고 cmux에 필요한 곳만 허용합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一覧に追加したドメインと IP 範囲、および cmux が必要とするものだけに接続できます。"
+          }
+        }
+      }
+    },
+    "cloud.network.mode.full": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full internet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volles Internet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internet complet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإنترنت الكامل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internet completo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整網際網路"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整互联网"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 인터넷"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネット全体"
+          }
+        }
+      }
+    },
+    "cloud.network.mode.full.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine can reach any public address."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Maschine kann jede öffentliche Adresse erreichen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La machine peut atteindre n'importe quelle adresse publique."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للجهاز الوصول إلى أي عنوان عام."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La máquina puede llegar a cualquier dirección pública."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器可以連線任何公開位址。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器可以访问任意公网地址。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "머신이 모든 공용 주소에 연결할 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンは任意のパブリックアドレスに接続できます。"
+          }
+        }
+      }
+    },
+    "cloud.network.mode.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No internet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Internet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas d'internet"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلا إنترنت"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin internet"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不連網"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无互联网"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터넷 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターネットなし"
+          }
+        }
+      }
+    },
+    "cloud.network.mode.none.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No outbound access except what cmux itself needs."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein ausgehender Zugriff außer dem, was cmux selbst braucht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun accès sortant, sauf ce dont cmux a besoin."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا وصول صادر باستثناء ما يحتاجه cmux نفسه."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin acceso de salida, salvo lo que el propio cmux necesita."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除了 cmux 本身所需之外，不允許任何對外存取。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "除 cmux 自身所需外，不允许任何出站访问。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 자체에 필요한 곳 외에는 아웃바운드 액세스가 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 自身が必要とするもの以外、送信アクセスはありません。"
+          }
+        }
+      }
+    },
+    "cloud.network.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        }
+      }
+    },
+    "cloud.network.dns.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow DNS lookups"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS-Abfragen erlauben"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser les requêtes DNS"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح باستعلامات DNS"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir consultas DNS"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 DNS 查詢"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 DNS 查询"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 조회 허용"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DNS 参照を許可"
+          }
+        }
+      }
+    },
+    "cloud.network.dns.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listed domains work without DNS. Open DNS lets tools resolve names for IP ranges, but DNS is also an outbound channel."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgeführte Domains funktionieren ohne DNS. Offenes DNS lässt Tools Namen für IP-Bereiche auflösen, ist aber selbst ein ausgehender Kanal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les domaines listés fonctionnent sans DNS. Un DNS ouvert permet aux outils de résoudre les noms des plages IP, mais le DNS est aussi un canal sortant."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعمل النطاقات المدرجة دون DNS. يتيح DNS المفتوح للأدوات تحليل الأسماء لنطاقات IP، لكن DNS هو أيضًا قناة صادرة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los dominios listados funcionan sin DNS. El DNS abierto permite que las herramientas resuelvan nombres para rangos IP, pero el DNS también es un canal de salida."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出的網域不需要 DNS。開放 DNS 可讓工具解析 IP 範圍的名稱，但 DNS 本身也是一條對外通道。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列出的域名无需 DNS。开放 DNS 可让工具解析 IP 范围的名称，但 DNS 本身也是一条出站通道。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나열된 도메인은 DNS 없이 작동합니다. 열린 DNS를 사용하면 도구가 IP 범위의 이름을 확인할 수 있지만, DNS도 아웃바운드 채널입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一覧のドメインは DNS なしで動作します。DNS を開くとツールが IP 範囲の名前を解決できますが、DNS 自体も送信経路になります。"
+          }
+        }
+      }
+    },
+    "cloud.network.domains.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domains (HTTPS)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTPS-Domains"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Domaines (HTTPS)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النطاقات (HTTPS)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dominios (HTTPS)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網域（HTTPS）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "域名（HTTPS）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인(HTTPS)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメイン（HTTPS）"
+          }
+        }
+      }
+    },
+    "cloud.network.domains.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. api.example.com"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. api.example.com"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. api.example.com"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثال: api.example.com"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ej., api.example.com"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如 api.example.com"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如 api.example.com"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: api.example.com"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例：api.example.com"
+          }
+        }
+      }
+    },
+    "cloud.network.mode.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outbound access"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgehender Zugriff"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès sortant"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوصول الصادر"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso de salida"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對外存取"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出站访问"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아웃바운드 액세스"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信アクセス"
+          }
+        }
+      }
+    },
+    "cloud.network.presets.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quick add"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnell hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajout rapide"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة سريعة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir rápido"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速新增"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速添加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠른 추가"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイック追加"
+          }
+        }
+      }
+    },
+    "cloud.network.ranges.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP ranges"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP-Bereiche"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plages IP"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نطاقات IP"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rangos IP"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 範圍"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 范围"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 범위"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 範囲"
+          }
+        }
+      }
+    },
+    "cloud.network.ranges.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. 203.0.113.0/24"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "z. B. 203.0.113.0/24"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ex. 203.0.113.0/24"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مثال: 203.0.113.0/24"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "p. ej., 203.0.113.0/24"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如 203.0.113.0/24"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例如 203.0.113.0/24"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: 203.0.113.0/24"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例：203.0.113.0/24"
+          }
+        }
+      }
+    },
+    "cloud.network.ranges.port": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port-Nr."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N° de port"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "المنفذ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puerto"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連接埠"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端口"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポート"
+          }
+        }
+      }
+    },
+    "cloud.network.ranges.protocol": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocol"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokoll"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocole"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البروتوكول"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protocolo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通訊協定"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "协议"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로토콜"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロトコル"
+          }
+        }
+      }
+    },
+    "cloud.network.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제거"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "cloud.network.required.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always allowed so cmux keeps working: %@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immer erlaubt, damit cmux funktioniert: %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toujours autorisés pour que cmux fonctionne : %@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مسموح بها دائمًا ليستمر cmux في العمل: %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siempre permitidos para que cmux siga funcionando: %@."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為了讓 cmux 正常運作，一律允許：%@。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为保证 cmux 正常工作，始终允许：%@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 계속 작동하도록 항상 허용됨: %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が動作し続けるよう常に許可：%@。"
+          }
+        }
+      }
+    },
+    "cloud.network.sheet.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminé"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "cloud.network.sheet.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes apply without restarting the machine."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen gelten ohne Neustart der Maschine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les modifications s'appliquent sans redémarrer la machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُطبَّق التغييرات دون إعادة تشغيل الجهاز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los cambios se aplican sin reiniciar la máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "變更無需重新啟動機器即可套用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更改无需重启机器即可生效。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경 사항은 머신을 재시작하지 않고 적용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更はマシンを再起動せずに適用されます。"
+          }
+        }
+      }
+    },
+    "cloud.network.sheet.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sichern"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حفظ"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "儲存"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "cloud.network.sheet.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network for %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerk für %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réseau de %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شبكة %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red de %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的網路"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的网络"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 네트워크"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のネットワーク"
+          }
+        }
+      }
+    },
+    "cloud.network.section.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerk"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réseau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشبكة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク"
+          }
+        }
+      }
+    },
+    "cloud.network.applied.applied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applied"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angewendet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appliquée"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مُطبَّقة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicada"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已套用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已应用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적용됨"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用済み"
+          }
+        }
+      }
+    },
+    "cloud.network.applied.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not apply"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konnte nicht angewendet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d'appliquer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر التطبيق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo aplicar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法套用"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法应用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적용할 수 없음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用できませんでした"
+          }
+        }
+      }
+    },
+    "cloud.network.error.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine's provider does not support outbound network rules."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Anbieter dieser Maschine unterstützt keine ausgehenden Netzwerkregeln."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fournisseur de cette machine ne prend pas en charge les règles réseau sortantes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يدعم مزوّد هذا الجهاز قواعد الشبكة الصادرة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El proveedor de esta máquina no admite reglas de red de salida."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這台機器的供應商不支援對外網路規則。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此机器的提供商不支持出站网络规则。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 머신의 공급자는 아웃바운드 네트워크 규칙을 지원하지 않습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンのプロバイダーは送信ネットワークルールに対応していません。"
+          }
+        }
+      }
+    },
+    "cloud.operation.kind.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update network access"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerkzugriff aktualisieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour l'accès réseau"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحديث الوصول إلى الشبكة"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar el acceso de red"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新網路存取"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新网络访问"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 액세스 업데이트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークアクセスを更新"
+          }
+        }
+      }
+    },
+    "cloud.security.explainer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Each machine is its own microVM. You have root inside it. Model API keys stay at the network edge and never enter the machine. Outbound access follows the Network setting."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Maschine ist eine eigene microVM. Darin haben Sie Root-Rechte. Modell-API-Schlüssel bleiben am Netzwerkrand und gelangen nie in die Maschine. Der ausgehende Zugriff folgt der Netzwerkeinstellung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque machine est sa propre microVM. Vous y êtes root. Les clés d'API des modèles restent à la périphérie du réseau et n'entrent jamais dans la machine. L'accès sortant suit le réglage Réseau."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كل جهاز هو microVM مستقل. لديك صلاحيات root داخله. تبقى مفاتيح API للنماذج على حافة الشبكة ولا تدخل الجهاز أبدًا. يتبع الوصول الصادر إعداد الشبكة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada máquina es su propia microVM. Dentro tienes acceso root. Las claves de API de los modelos se quedan en el borde de la red y nunca entran en la máquina. El acceso de salida sigue el ajuste de Red."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台機器都是獨立的 microVM，你在其中擁有 root 權限。模型 API 金鑰留在網路邊緣，絕不進入機器。對外存取依「網路」設定而定。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每台机器都是独立的 microVM，你在其中拥有 root 权限。模型 API 密钥保留在网络边缘，绝不进入机器。出站访问遵循“网络”设置。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 머신은 독립된 microVM이며, 그 안에서 root 권한을 가집니다. 모델 API 키는 네트워크 에지에 머물고 머신 안으로 들어가지 않습니다. 아웃바운드 액세스는 네트워크 설정을 따릅니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各マシンは独立した microVM で、内部では root 権限があります。モデルの API キーはネットワークのエッジに留まり、マシンに入ることはありません。送信アクセスはネットワーク設定に従います。"
+          }
+        }
+      }
+    },
+    "cloud.security.learnMore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Learn more"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr erfahren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En savoir plus"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرفة المزيد"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más información"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深入了解"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "了解更多"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자세히 알아보기"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳しく見る"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.network.editsRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update requires at least one edit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update erfordert mindestens eine Änderung."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update nécessite au moins une modification."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب vm.network_update تعديلًا واحدًا على الأقل."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update requiere al menos un cambio."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update 至少需要一項變更。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update 至少需要一项更改。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update에는 최소 한 개의 변경이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update には少なくとも1つの変更が必要です。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.network.idRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requires `id`. Run `cmux vm ls` to find one."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ erfordert `id`. Führen Sie `cmux vm ls` aus, um eine zu finden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ nécessite `id`. Exécutez `cmux vm ls` pour en trouver un."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ المعامل `id`. شغّل `cmux vm ls` للعثور على واحد."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ requiere `id`. Ejecuta `cmux vm ls` para encontrar uno."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要 `id`。執行 `cmux vm ls` 以找到一個。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 需要 `id`。运行 `cmux vm ls` 查找。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에는 `id`가 필요합니다. `cmux vm ls`를 실행해 찾으세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ には `id` が必要です。`cmux vm ls` を実行して確認してください。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.network.invalidEdit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update received an edit it does not understand. Use `cmux vm network --help`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update hat eine unbekannte Änderung erhalten. Siehe `cmux vm network --help`."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update a reçu une modification qu'il ne comprend pas. Consultez `cmux vm network --help`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلقّى vm.network_update تعديلًا لا يفهمه. استخدم `cmux vm network --help`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update recibió un cambio que no entiende. Consulta `cmux vm network --help`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update 收到無法理解的變更。請參閱 `cmux vm network --help`。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update 收到无法识别的更改。请参阅 `cmux vm network --help`。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update가 이해할 수 없는 변경을 받았습니다. `cmux vm network --help`를 참고하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.network_update が解釈できない変更を受け取りました。`cmux vm network --help` を参照してください。"
+          }
+        }
+      }
+    },
+    "socket.cloudVM.create.invalidNetworkPolicy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create `network_policy` must be an object with a mode of full, allowlist, or none."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create: `network_policy` muss ein Objekt mit dem Modus full, allowlist oder none sein."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create : `network_policy` doit être un objet avec le mode full, allowlist ou none."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create: يجب أن يكون `network_policy` كائنًا بوضع full أو allowlist أو none."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create: `network_policy` debe ser un objeto con modo full, allowlist o none."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create 的 `network_policy` 必須是模式為 full、allowlist 或 none 的物件。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create 的 `network_policy` 必须是模式为 full、allowlist 或 none 的对象。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create의 `network_policy`는 모드가 full, allowlist, none 중 하나인 객체여야 합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.create の `network_policy` には、モードが full、allowlist、none のいずれかのオブジェクトを指定してください。"
+          }
+        }
+      }
+    },
+    "cloud.network.allowlist.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presets: %1$@ · Domains: %2$@ · IP ranges: %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorlagen: %1$@ · Domains: %2$@ · IP-Bereiche: %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préréglages : %1$@ · Domaines : %2$@ · Plages IP : %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإعدادات المسبقة: %1$@ · النطاقات: %2$@ · نطاقات IP: %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinidos: %1$@ · Dominios: %2$@ · Rangos IP: %3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預設組：%1$@ · 網域：%2$@ · IP 範圍：%3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预设：%1$@ · 域名：%2$@ · IP 范围：%3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프리셋: %1$@ · 도메인: %2$@ · IP 범위: %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プリセット：%1$@ · ドメイン：%2$@ · IP 範囲：%3$@"
+          }
+        }
+      }
+    },
+    "cloud.network.applied.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applying…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird angewendet…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Application…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التطبيق…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicando…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在套用…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在应用…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "적용 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "適用中…"
+          }
+        }
+      }
+    },
+    "cloud.network.error.invalidDomain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is not a host name."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ ist kein Hostname."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » n'est pas un nom d'hôte."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ليس اسم مضيف."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» no es un nombre de host."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」不是主機名稱。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”不是主机名。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”은(는) 호스트 이름이 아닙니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」はホスト名ではありません。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.invalidRange": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is not an IPv4 or IPv6 range."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ ist kein IPv4- oder IPv6-Bereich."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » n'est pas une plage IPv4 ou IPv6."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ليس نطاق IPv4 أو IPv6."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» no es un rango IPv4 ni IPv6."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」不是 IPv4 或 IPv6 範圍。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”不是 IPv4 或 IPv6 范围。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”은(는) IPv4 또는 IPv6 범위가 아닙니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」は IPv4 または IPv6 の範囲ではありません。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.noteTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The note is too long."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Notiz ist zu lang."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La note est trop longue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الملاحظة طويلة جدًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La nota es demasiado larga."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "備註太長。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "备注太长。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메모가 너무 깁니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモが長すぎます。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.tooManyDomains": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The domain list is full."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Domainliste ist voll."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste des domaines est pleine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة النطاقات ممتلئة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La lista de dominios está llena."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網域清單已滿。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "域名列表已满。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도메인 목록이 가득 찼습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドメインの一覧がいっぱいです。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.tooManyRanges": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The IP range list is full."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Liste der IP-Bereiche ist voll."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La liste des plages IP est pleine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة نطاقات IP ممتلئة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La lista de rangos IP está llena."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 範圍清單已滿。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 范围列表已满。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 범위 목록이 가득 찼습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IP 範囲の一覧がいっぱいです。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.unknownPreset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown preset “%@”."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannte Vorlage „%@“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préréglage inconnu « %@ »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعداد مسبق غير معروف “%@”."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinido desconocido «%@»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的預設組「%@」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的预设“%@”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 프리셋 “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なプリセット「%@」です。"
+          }
+        }
+      }
+    },
+    "cloud.network.error.wildcardDomain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”: wildcards are not supported yet. List each exact name."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“: Platzhalter werden noch nicht unterstützt. Geben Sie jeden Namen exakt an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » : les caractères génériques ne sont pas encore pris en charge. Indiquez chaque nom exact."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”: أحرف البدل غير مدعومة بعد. أدرج كل اسم مطابق."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@»: los comodines aún no se admiten. Indica cada nombre exacto."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」：尚不支援萬用字元。請逐一列出完整名稱。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”：暂不支持通配符。请逐一列出精确名称。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”: 와일드카드는 아직 지원되지 않습니다. 정확한 이름을 각각 입력하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」：ワイルドカードはまだ使えません。正確な名前を1つずつ指定してください。"
+          }
+        }
+      }
+    },
+    "cloud.network.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading network options…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerkoptionen werden geladen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement des options réseau…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل خيارات الشبكة…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando opciones de red…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入網路選項…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载网络选项…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 옵션을 불러오는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークオプションを読み込み中…"
+          }
+        }
+      }
+    },
+    "cloud.network.sheet.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading the network policy…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerkrichtlinie wird geladen…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de la politique réseau…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل سياسة الشبكة…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando la política de red…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入網路政策…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载网络策略…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 정책을 불러오는 중…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークポリシーを読み込み中…"
+          }
+        }
+      }
+    },
+    "cloud.network.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network options could not be loaded. The machine gets full internet access; change it later with Network… in the machine menu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerkoptionen konnten nicht geladen werden. Die Maschine erhält vollen Internetzugang; ändern Sie das später über Netzwerk… im Maschinenmenü."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger les options réseau. La machine aura un accès internet complet ; modifiez-le plus tard avec Réseau… dans le menu de la machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل خيارات الشبكة. سيحصل الجهاز على وصول كامل إلى الإنترنت؛ غيّر ذلك لاحقًا من الشبكة… في قائمة الجهاز."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron cargar las opciones de red. La máquina tendrá acceso completo a internet; cámbialo después con Red… en el menú de la máquina."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入網路選項。這台機器會取得完整網際網路存取；之後可在機器選單中用「網路…」變更。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载网络选项。此机器将获得完整互联网访问；之后可在机器菜单中通过“网络…”更改。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 옵션을 불러올 수 없습니다. 머신은 전체 인터넷 액세스를 갖습니다. 나중에 머신 메뉴의 네트워크…에서 변경하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークオプションを読み込めませんでした。マシンはインターネット全体に接続できます。あとでマシンメニューの「ネットワーク…」から変更してください。"
+          }
+        }
+      }
+    },
+    "machines.menu.network": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerk…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réseau…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشبكة…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワーク…"
+          }
+        }
+      }
+    },
+    "cli.vm.network.invalidPolicyJSON": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The network policy must be a JSON object with a mode, for example {\"mode\":\"none\"}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Netzwerkrichtlinie muss ein JSON-Objekt mit einem Modus sein, zum Beispiel {\"mode\":\"none\"}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La politique réseau doit être un objet JSON avec un mode, par exemple {\"mode\":\"none\"}."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجب أن تكون سياسة الشبكة كائن JSON يحتوي على وضع، مثل {\"mode\":\"none\"}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La política de red debe ser un objeto JSON con un modo, por ejemplo {\"mode\":\"none\"}."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "網路政策必須是含有 mode 的 JSON 物件，例如 {\"mode\":\"none\"}。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "网络策略必须是包含 mode 的 JSON 对象，例如 {\"mode\":\"none\"}。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 정책은 mode가 있는 JSON 객체여야 합니다. 예: {\"mode\":\"none\"}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネットワークポリシーには mode を含む JSON オブジェクトを指定してください（例：{\"mode\":\"none\"}）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

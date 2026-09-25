@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "30 derniers jours : {completions} complétions · {tokens} tokens ({input} entrée / {output} sortie) · équivalent API {value}",
       "apiKeyUsageUnavailable": "Utilisation indisponible",
       "revokeApiKeyConfirmBody": "Les clients utilisant cette clé ne pourront plus s’authentifier immédiatement."
+    },
+    "cloud": {
+      "title": "Machines Cloud et accès Mac",
+      "description": "Définissez le réseau sortant de chaque machine et consultez les Mac disposant d’un accès WireGuard à votre réseau privé de VM Cloud. Les associations iPhone et Iroh sont gérées séparément.",
+      "macAccessTitle": "Accès Mac",
+      "machines": {
+        "title": "Machines",
+        "empty": "Vous n’avez aucune machine Cloud.",
+        "personal": "personnel",
+        "team": "équipe",
+        "status": {
+          "provisioning": "démarrage",
+          "running": "en cours d’exécution",
+          "failed": "échec",
+          "paused": "en pause",
+          "destroyed": "supprimée"
+        }
+      },
+      "network": {
+        "open": "Réseau",
+        "title": "Réseau sortant de {name}",
+        "description": "Choisissez ce que cette machine peut joindre. Les modifications s’appliquent immédiatement, sans redémarrage.",
+        "loading": "Chargement de la politique réseau…",
+        "loadError": "Impossible de charger la politique réseau de cette machine.",
+        "saveError": "Impossible d’appliquer cette politique réseau.",
+        "unsupported": "Cette machine ne prend pas en charge le contrôle du réseau sortant.",
+        "retry": "Réessayer",
+        "appliedLabel": "État :",
+        "applied": {
+          "applied": "appliquée",
+          "pending": "application en cours",
+          "failed": "échec de l’application"
+        },
+        "unsaved": "modifications non enregistrées",
+        "refresh": "Actualiser",
+        "modeLabel": "Accès sortant",
+        "mode": {
+          "full": {
+            "label": "Internet complet",
+            "description": "Toute adresse publique."
+          },
+          "allowlist": {
+            "label": "Liste d’autorisation",
+            "description": "Uniquement les préréglages, domaines et plages IP que vous indiquez."
+          },
+          "none": {
+            "label": "Pas d’internet",
+            "description": "Uniquement les hôtes cmux listés ci-dessous."
+          }
+        },
+        "presetsTitle": "Préréglages",
+        "presetsNote": "Chaque préréglage ajoute des noms d’hôte exacts. Un service qui utilise d’autres sous-domaines peut nécessiter des domaines supplémentaires.",
+        "domainsTitle": "Domaines",
+        "domainsNote": "Noms d’hôte exacts uniquement, HTTPS sur le port 443 uniquement. Les caractères génériques ne sont pas encore pris en charge.",
+        "domainInput": "Domaine",
+        "rangesTitle": "Plages IP",
+        "rangesNote": "Le pare-feu du fournisseur les applique en dehors de la machine. Laissez le port vide pour autoriser tous les ports. Un port nécessite un protocole.",
+        "cidrInput": "Plage IP (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protocole",
+        "anyProtocol": "tous",
+        "noteInput": "Note (facultative)",
+        "allPorts": "tous les ports",
+        "dnsLabel": "Autoriser le DNS",
+        "dnsNote": "Permet aux outils de résoudre les noms vers lesquels pointent vos plages IP. Les domaines n’ont pas besoin du DNS. Un DNS ouvert est un canal sortant : un processus peut envoyer des données dans les noms qu’il interroge.",
+        "requiredTitle": "Toujours autorisés",
+        "requiredNote": "cmux a besoin de ces hôtes dans tous les modes pour installer et mettre à jour la CLI sur la machine.",
+        "add": "Ajouter",
+        "remove": "Supprimer",
+        "discard": "Annuler les modifications",
+        "close": "Fermer",
+        "apply": "Appliquer"
+      }
     }
   },
   "community": {

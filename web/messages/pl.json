@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "ostatnie 30 dni: {completions} ukończeń · {tokens} tokenów ({input} wejście / {output} wyjście) · równowartość API {value}",
       "apiKeyUsageUnavailable": "Użycie niedostępne",
       "revokeApiKeyConfirmBody": "Klienci używający tego klucza natychmiast stracą uwierzytelnianie."
+    },
+    "cloud": {
+      "title": "Maszyny Cloud i dostęp z Maca",
+      "description": "Ustaw sieć wychodzącą każdej maszyny i sprawdź komputery Mac z dostępem WireGuard do Twojej prywatnej sieci maszyn wirtualnych Cloud. Parowania iPhone i Iroh są zarządzane osobno.",
+      "macAccessTitle": "Dostęp z Maca",
+      "machines": {
+        "title": "Maszyny",
+        "empty": "Nie masz maszyn Cloud.",
+        "personal": "osobista",
+        "team": "zespół",
+        "status": {
+          "provisioning": "uruchamianie",
+          "running": "działa",
+          "failed": "błąd",
+          "paused": "wstrzymana",
+          "destroyed": "usunięta"
+        }
+      },
+      "network": {
+        "open": "Sieć",
+        "title": "Sieć wychodząca dla {name}",
+        "description": "Wybierz, z czym ta maszyna może się łączyć. Zmiany działają od razu, bez ponownego uruchamiania.",
+        "loading": "Wczytywanie zasad sieci…",
+        "loadError": "Nie można wczytać zasad sieci dla tej maszyny.",
+        "saveError": "Nie można zastosować tych zasad sieci.",
+        "unsupported": "Ta maszyna nie obsługuje kontroli sieci wychodzącej.",
+        "retry": "Spróbuj ponownie",
+        "appliedLabel": "Stan:",
+        "applied": {
+          "applied": "zastosowano",
+          "pending": "stosowanie",
+          "failed": "nie udało się zastosować"
+        },
+        "unsaved": "niezapisane zmiany",
+        "refresh": "Odśwież",
+        "modeLabel": "Dostęp wychodzący",
+        "mode": {
+          "full": {
+            "label": "Pełny internet",
+            "description": "Dowolny adres publiczny."
+          },
+          "allowlist": {
+            "label": "Lista dozwolonych",
+            "description": "Tylko podane przez Ciebie ustawienia wstępne, domeny i zakresy IP."
+          },
+          "none": {
+            "label": "Brak internetu",
+            "description": "Tylko hosty cmux wymienione poniżej."
+          }
+        },
+        "presetsTitle": "Ustawienia wstępne",
+        "presetsNote": "Każde ustawienie wstępne dodaje dokładne nazwy hostów. Usługa, która używa innych subdomen, może wymagać dodatkowych domen.",
+        "domainsTitle": "Domeny",
+        "domainsNote": "Tylko dokładne nazwy hostów, tylko HTTPS na porcie 443. Symbole wieloznaczne nie są jeszcze obsługiwane.",
+        "domainInput": "Domena",
+        "rangesTitle": "Zakresy IP",
+        "rangesNote": "Zapora dostawcy egzekwuje je poza maszyną. Pozostaw port pusty, aby zezwolić na wszystkie porty. Port wymaga protokołu.",
+        "cidrInput": "Zakres IP (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokół",
+        "anyProtocol": "dowolny",
+        "noteInput": "Notatka (opcjonalnie)",
+        "allPorts": "wszystkie porty",
+        "dnsLabel": "Zezwól na DNS",
+        "dnsNote": "Pozwala narzędziom rozwiązywać nazwy, na które wskazują Twoje zakresy IP. Domeny nie wymagają DNS. Otwarty DNS to kanał wychodzący: proces może wysyłać dane w nazwach, o które pyta.",
+        "requiredTitle": "Zawsze dozwolone",
+        "requiredNote": "cmux potrzebuje tych hostów w każdym trybie, aby instalować i aktualizować CLI na maszynie.",
+        "add": "Dodaj",
+        "remove": "Usuń",
+        "discard": "Odrzuć zmiany",
+        "close": "Zamknij",
+        "apply": "Zastosuj"
+      }
     }
   },
   "community": {

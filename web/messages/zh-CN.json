@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "过去 30 天：{completions} 次完成 · {tokens} 个令牌（输入 {input} / 输出 {output}）· API 等值 {value}",
       "apiKeyUsageUnavailable": "使用数据不可用",
       "revokeApiKeyConfirmBody": "使用此密钥的客户端将立即无法通过验证。"
+    },
+    "cloud": {
+      "title": "Cloud 机器与 Mac 访问",
+      "description": "设置每台机器的出站网络，并查看可通过 WireGuard 访问你的私有 Cloud VM 网络的 Mac。iPhone 和 Iroh 配对记录单独管理。",
+      "macAccessTitle": "Mac 访问",
+      "machines": {
+        "title": "机器",
+        "empty": "你没有 Cloud 机器。",
+        "personal": "个人",
+        "team": "团队",
+        "status": {
+          "provisioning": "正在启动",
+          "running": "运行中",
+          "failed": "失败",
+          "paused": "已暂停",
+          "destroyed": "已删除"
+        }
+      },
+      "network": {
+        "open": "网络",
+        "title": "{name} 的出站网络",
+        "description": "选择此机器可以访问的目标。更改会立即生效，无需重启。",
+        "loading": "正在加载网络策略…",
+        "loadError": "无法加载此机器的网络策略。",
+        "saveError": "无法应用此网络策略。",
+        "unsupported": "此机器不支持出站网络控制。",
+        "retry": "重试",
+        "appliedLabel": "状态：",
+        "applied": {
+          "applied": "已应用",
+          "pending": "正在应用",
+          "failed": "应用失败"
+        },
+        "unsaved": "有未保存的更改",
+        "refresh": "刷新",
+        "modeLabel": "出站访问",
+        "mode": {
+          "full": {
+            "label": "完整互联网",
+            "description": "任何公共地址。"
+          },
+          "allowlist": {
+            "label": "允许列表",
+            "description": "仅限你列出的预设、域名和 IP 范围。"
+          },
+          "none": {
+            "label": "无互联网",
+            "description": "仅限下方列出的 cmux 主机。"
+          }
+        },
+        "presetsTitle": "预设",
+        "presetsNote": "每个预设会添加精确的主机名。使用其他子域名的服务可能需要更多域名。",
+        "domainsTitle": "域名",
+        "domainsNote": "仅限精确主机名，且仅限 443 端口上的 HTTPS。暂不支持通配符。",
+        "domainInput": "域名",
+        "rangesTitle": "IP 范围",
+        "rangesNote": "提供商防火墙在机器外部执行这些规则。端口留空表示允许所有端口。指定端口时需要选择协议。",
+        "cidrInput": "IP 范围 (CIDR)",
+        "portInput": "端口",
+        "protocolInput": "协议",
+        "anyProtocol": "任意",
+        "noteInput": "备注（可选）",
+        "allPorts": "所有端口",
+        "dnsLabel": "允许 DNS",
+        "dnsNote": "让工具解析你的 IP 范围所指向的名称。域名不需要 DNS。开放的 DNS 是一个出站通道：进程可以把数据放在它查询的名称中发送出去。",
+        "requiredTitle": "始终允许",
+        "requiredNote": "cmux 在所有模式下都需要这些主机，以便在机器中安装和更新 CLI。",
+        "add": "添加",
+        "remove": "移除",
+        "discard": "放弃更改",
+        "close": "关闭",
+        "apply": "应用"
+      }
     }
   },
   "community": {

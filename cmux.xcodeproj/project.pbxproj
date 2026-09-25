@@ -781,6 +781,15 @@
 		EF3CE50369C1428F8F611B2F /* CloudNameAuthorityTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */; };
 		BC9AC2D1065E4E88A48074BC /* CloudNameAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */; };
 		4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */; };
+		4627567ADC26AD8FF9A69F9F /* CloudNetworkPolicy+Editing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EA992E71E24E5A899DD1842 /* CloudNetworkPolicy+Editing.swift */; };
+		31AF8B25C45521D867F5BB9A /* CloudNetworkPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39435AB299A92B3C511E92A2 /* CloudNetworkPolicy.swift */; };
+		5B9DEFC2D0147AB2EAD76B37 /* CloudNetworkPolicyEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B665DEA8E3F2E94C06D0870 /* CloudNetworkPolicyEditor.swift */; };
+		47C1536586485219AD2B00D5 /* CloudNetworkPolicyEditorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D4EF037DE16E5A5B2DDB31A /* CloudNetworkPolicyEditorModel.swift */; };
+		0269530E0F7D6309807A1D20 /* CloudNetworkPolicySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E7C9D653A14A56C31A8C828 /* CloudNetworkPolicySheet.swift */; };
+		87BA8EC259ED0ADC2BDB10D3 /* CloudNetworkPolicySheetModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED8A72856D6A62D59C62247B /* CloudNetworkPolicySheetModel.swift */; };
+		5F7D85054F3D3C771F6749AE /* CloudNetworkPolicySheetPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87CBBE12D927278482712A6D /* CloudNetworkPolicySheetPresenter.swift */; };
+		8662CC967F69B4B360B049BD /* CloudNetworkPolicyStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 653EFEB8BF9922A893AA5BED /* CloudNetworkPolicyStatus.swift */; };
+		A81F48A732C29FD704560A6C /* CloudNetworkPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E00DFCF700146D10AF41875 /* CloudNetworkPolicyTests.swift */; };
 		7829E36E90E948BB82360052 /* CloudNightlyOverrideTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCD9CDECAE2049469F5CAB46 /* CloudNightlyOverrideTests.swift */; };
 		16D0D1DB9FE54DB29743A98A /* CloudNotificationCorrelation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */; };
 		E0AB5F18239F64CBC2B24AEA /* CloudNotificationDismissParityHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD78BAE063E70755F45861C9 /* CloudNotificationDismissParityHarness.swift */; };
@@ -854,6 +863,7 @@
 		B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B12438020000000000000002 /* CloudRenameCoordinator.swift */; };
 		C12575000000000000000050 /* CloudRenameOptimismTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12575000000000000000051 /* CloudRenameOptimismTests.swift */; };
 		C12625A00000000000000002 /* CloudRequestClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625A00000000000000001 /* CloudRequestClock.swift */; };
+		B5F7FD4791E006CF41AFDE98 /* CloudSecurityExplainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 651CA0786CE6EF620FA48D5C /* CloudSecurityExplainer.swift */; };
 		46383D21CF46427F36EBEB7B /* CloudSidebarAcceptanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8150EA26C949866059F3B6EA /* CloudSidebarAcceptanceTests.swift */; };
 		5E3484F75CE048CC95018CF1 /* CloudSidebarAttentionLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */; };
 		D075FB64A68C4CA0A4042528 /* CloudSidebarConsistencyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */; };
@@ -1285,6 +1295,7 @@
 		E02A94E613C7C3565FA40A26 /* CMUXCLI+VMDev.swift in Sources */ = {isa = PBXBuildFile; fileRef = A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */; };
 		CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */; };		CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */; };
 		E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */; };
+		D412B64D8C3A4FF85E50C39B /* CMUXCLI+VMNetwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46B86A2F39B40CAA99280C6B /* CMUXCLI+VMNetwork.swift */; };
 		21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */; };
 		C5C4D27C4078FD2D55679132 /* CMUXCLI+VMSelf.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */; };
 		8CC4B7E07376E56BD8A1369D /* CMUXCLI+VMSnapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */; };
@@ -3865,11 +3876,13 @@
 		A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */; };
 		A3340002A3340002A3340002 /* ViewerNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3340001A3340001A3340001 /* ViewerNavigationTests.swift */; };
 		C12625A00000000000000006 /* VMCapabilities.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625A00000000000000005 /* VMCapabilities.swift */; };
+		F24359090F39DB2CE54224CC /* VMClient+NetworkPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EADD90C9294E93A999A71F6 /* VMClient+NetworkPolicy.swift */; };
 		60AA592C22BFA579A064782E /* VMClient+ResourceStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65A5357644AB29D74F4AC368 /* VMClient+ResourceStats.swift */; };
 		ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */; };
 		EF56B870FD0D4AC490D99CD5 /* VMClientError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98F890512F8E425FAD71FE7C /* VMClientError.swift */; };
 		C13151C00000000000000033 /* VMClientReadCoalescingTests+Identity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13151C00000000000000032 /* VMClientReadCoalescingTests+Identity.swift */; };
 		C12625000000000000000002 /* VMClientReadCoalescingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12625000000000000000001 /* VMClientReadCoalescingTests.swift */; };
+		3AC7AE496E2A88ED7A2750F4 /* VMClientSocketCommands+Network.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3266CA3D5220D1464EC162 /* VMClientSocketCommands+Network.swift */; };
 		7A0CE1000000000000000044 /* VMClientSocketCommands+Tunnel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0CE1000000000000000018 /* VMClientSocketCommands+Tunnel.swift */; };
 		ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */; };
 		93AF7E8EC956FE883E252322 /* VMClientTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831145877779546B628FCAFC /* VMClientTelemetry.swift */; };
@@ -5035,6 +5048,15 @@
 		20C6CAE6E212495C917D9568 /* CloudNameAuthorityTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityTestProvider.swift"; sourceTree = "<group>"; };
 		10D0D38FD741430E9EBBBA9E /* CloudNameAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNameAuthorityTests.swift"; sourceTree = "<group>"; };
 		5DFD749234584EA0BC041370 /* CloudNativeLayoutProjectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNativeLayoutProjectionTests.swift"; sourceTree = "<group>"; };
+		4EA992E71E24E5A899DD1842 /* CloudNetworkPolicy+Editing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNetworkPolicy+Editing.swift"; sourceTree = "<group>"; };
+		39435AB299A92B3C511E92A2 /* CloudNetworkPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNetworkPolicy.swift; sourceTree = "<group>"; };
+		2B665DEA8E3F2E94C06D0870 /* CloudNetworkPolicyEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNetworkPolicyEditor.swift; sourceTree = "<group>"; };
+		7D4EF037DE16E5A5B2DDB31A /* CloudNetworkPolicyEditorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNetworkPolicyEditorModel.swift; sourceTree = "<group>"; };
+		0E7C9D653A14A56C31A8C828 /* CloudNetworkPolicySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNetworkPolicySheet.swift; sourceTree = "<group>"; };
+		ED8A72856D6A62D59C62247B /* CloudNetworkPolicySheetModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNetworkPolicySheetModel.swift; sourceTree = "<group>"; };
+		87CBBE12D927278482712A6D /* CloudNetworkPolicySheetPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNetworkPolicySheetPresenter.swift; sourceTree = "<group>"; };
+		653EFEB8BF9922A893AA5BED /* CloudNetworkPolicyStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNetworkPolicyStatus.swift; sourceTree = "<group>"; };
+		9E00DFCF700146D10AF41875 /* CloudNetworkPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudNetworkPolicyTests.swift"; sourceTree = "<group>"; };
 		DCD9CDECAE2049469F5CAB46 /* CloudNightlyOverrideTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudNightlyOverrideTests.swift; sourceTree = "<group>"; };
 		503C99BC313F48A48235DB1A /* CloudNotificationCorrelation.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationCorrelation.swift; sourceTree = "<group>"; };
 		CD78BAE063E70755F45861C9 /* CloudNotificationDismissParityHarness.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudNotificationDismissParityHarness.swift; sourceTree = "<group>"; };
@@ -5108,6 +5130,7 @@
 		B12438020000000000000002 /* CloudRenameCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudRenameCoordinator.swift; sourceTree = "<group>"; };
 		C12575000000000000000051 /* CloudRenameOptimismTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRenameOptimismTests.swift; sourceTree = "<group>"; };
 		C12625A00000000000000001 /* CloudRequestClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudRequestClock.swift; sourceTree = "<group>"; };
+		651CA0786CE6EF620FA48D5C /* CloudSecurityExplainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSecurityExplainer.swift; sourceTree = "<group>"; };
 		8150EA26C949866059F3B6EA /* CloudSidebarAcceptanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarAcceptanceTests.swift"; sourceTree = "<group>"; };
 		5DB4F197C29A4C03B61418A1 /* CloudSidebarAttentionLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudSidebarAttentionLayoutTests.swift"; sourceTree = "<group>"; };
 		B27A4938294E4A109BC6D2B3 /* CloudSidebarConsistencyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSidebarConsistencyTests.swift; sourceTree = "<group>"; };
@@ -5517,6 +5540,7 @@
 		A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMDev.swift"; sourceTree = "<group>"; };
 		CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMHelp.swift"; sourceTree = "<group>"; };		CC0033E15A1B2C3D4E5F0102 /* CMUXCLI+VMTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMTransfer.swift"; sourceTree = "<group>"; };
 		D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMLayoutEnv.swift"; sourceTree = "<group>"; };
+		46B86A2F39B40CAA99280C6B /* CMUXCLI+VMNetwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMNetwork.swift"; sourceTree = "<group>"; };
 		21D721AF457D40CD877B8D02 /* CMUXCLI+VMSCP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSCP.swift"; sourceTree = "<group>"; };
 		25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSelf.swift"; sourceTree = "<group>"; };
 		F295692D7312639D54A35831 /* CMUXCLI+VMSnapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+VMSnapshots.swift"; sourceTree = "<group>"; };
@@ -7972,11 +7996,13 @@
 		A28B087F0000000000000006 /* ViewerNavigationKeyRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ViewerNavigationKeyRouter.swift; sourceTree = "<group>"; };
 		A3340001A3340001A3340001 /* ViewerNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewerNavigationTests.swift; sourceTree = "<group>"; };
 		C12625A00000000000000005 /* VMCapabilities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMCapabilities.swift; sourceTree = "<group>"; };
+		1EADD90C9294E93A999A71F6 /* VMClient+NetworkPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClient+NetworkPolicy.swift"; sourceTree = "<group>"; };
 		65A5357644AB29D74F4AC368 /* VMClient+ResourceStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClient+ResourceStats.swift"; sourceTree = "<group>"; };
 		9CEC6EF35B71AE59FA45BA69 /* VMClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClient.swift; sourceTree = "<group>"; };
 		98F890512F8E425FAD71FE7C /* VMClientError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientError.swift; sourceTree = "<group>"; };
 		C13151C00000000000000032 /* VMClientReadCoalescingTests+Identity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientReadCoalescingTests+Identity.swift"; sourceTree = "<group>"; };
 		C12625000000000000000001 /* VMClientReadCoalescingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMClientReadCoalescingTests.swift; sourceTree = "<group>"; };
+		FF3266CA3D5220D1464EC162 /* VMClientSocketCommands+Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+Network.swift"; sourceTree = "<group>"; };
 		7A0CE1000000000000000018 /* VMClientSocketCommands+Tunnel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "VMClientSocketCommands+Tunnel.swift"; sourceTree = "<group>"; };
 		9CEC6F0035B71AE59FA45BA7 /* VMClientSocketCommands.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientSocketCommands.swift; sourceTree = "<group>"; };
 		831145877779546B628FCAFC /* VMClientTelemetry.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = VMClientTelemetry.swift; sourceTree = "<group>"; };
@@ -8934,6 +8960,17 @@
 				16379FF80A4A19F633F00413 /* VMResourceStatsSubscription.swift */,
 				B12B8221BA9A4271E0919C72 /* MachinePlanSnapshot.swift */,
 				BC1FC55E8DA750AD0DABABF4 /* VMResourceStatsStore.swift */,
+				39435AB299A92B3C511E92A2 /* CloudNetworkPolicy.swift */,
+				4EA992E71E24E5A899DD1842 /* CloudNetworkPolicy+Editing.swift */,
+				653EFEB8BF9922A893AA5BED /* CloudNetworkPolicyStatus.swift */,
+				1EADD90C9294E93A999A71F6 /* VMClient+NetworkPolicy.swift */,
+				7D4EF037DE16E5A5B2DDB31A /* CloudNetworkPolicyEditorModel.swift */,
+				2B665DEA8E3F2E94C06D0870 /* CloudNetworkPolicyEditor.swift */,
+				651CA0786CE6EF620FA48D5C /* CloudSecurityExplainer.swift */,
+				ED8A72856D6A62D59C62247B /* CloudNetworkPolicySheetModel.swift */,
+				0E7C9D653A14A56C31A8C828 /* CloudNetworkPolicySheet.swift */,
+				87CBBE12D927278482712A6D /* CloudNetworkPolicySheetPresenter.swift */,
+				FF3266CA3D5220D1464EC162 /* VMClientSocketCommands+Network.swift */,
 				65A5357644AB29D74F4AC368 /* VMClient+ResourceStats.swift */,
 				C12625A00000000000000005 /* VMCapabilities.swift */,
 				C12625C00000000000000001 /* TeamMachineUsage.swift */,
@@ -11344,6 +11381,7 @@
 				25D0D22B44AA6CDCE015A259 /* CMUXCLI+VMSelf.swift */,
 				A097380F83E238D57E0ABC4B /* CMUXCLI+VMDev.swift */,
 				D7BEF29029A61AF2B389D31B /* CMUXCLI+VMLayoutEnv.swift */,
+				46B86A2F39B40CAA99280C6B /* CMUXCLI+VMNetwork.swift */,
 				CC0033E15A1B2C3D4E5F0031 /* CMUXCLI+VMHelp.swift */,				EA475616EA96D1D0624FC0A1 /* CMUXCLI+VPN.swift */,
 				7A0CE1000000000000000101 /* CMUXCLI+VPNAppManaged.swift */,
 				C10D0A100000000000000002 /* CMUXCLI+CloudDomains.swift */,
@@ -12516,6 +12554,7 @@
 				511EAB11A81C099E4F5A8ECF /* DeferredAgentResumeAdmissionOwnerTests.swift */,
 				C7E3FFB9B84F6DE45250D5D5 /* CodexSessionStartDeadTurnTests.swift */,
 				0B0073F9140EA86D5ADEE233 /* CodexStaleTurnRestoreIntentTests.swift */,
+				9E00DFCF700146D10AF41875 /* CloudNetworkPolicyTests.swift */,
 				F0677DB157F30F725FECA0EC /* CMUXCLICodexUnavailableAdmissionTests.swift */,
 			);
 			path = cmuxTests;
@@ -13782,6 +13821,14 @@
 				A1B2C3D4E5F6071827364951 /* CloudMachineSurfacePresentation.swift in Sources */,
 				C11324810000000000000001 /* CloudManualMirrorMaterialization.swift in Sources */,
 				A014F45D702B4F71A5E9FB18 /* CloudManualMirrorPresentation.swift in Sources */,
+				4627567ADC26AD8FF9A69F9F /* CloudNetworkPolicy+Editing.swift in Sources */,
+				31AF8B25C45521D867F5BB9A /* CloudNetworkPolicy.swift in Sources */,
+				5B9DEFC2D0147AB2EAD76B37 /* CloudNetworkPolicyEditor.swift in Sources */,
+				47C1536586485219AD2B00D5 /* CloudNetworkPolicyEditorModel.swift in Sources */,
+				0269530E0F7D6309807A1D20 /* CloudNetworkPolicySheet.swift in Sources */,
+				87BA8EC259ED0ADC2BDB10D3 /* CloudNetworkPolicySheetModel.swift in Sources */,
+				5F7D85054F3D3C771F6749AE /* CloudNetworkPolicySheetPresenter.swift in Sources */,
+				8662CC967F69B4B360B049BD /* CloudNetworkPolicyStatus.swift in Sources */,
 				16D0D1DB9FE54DB29743A98A /* CloudNotificationCorrelation.swift in Sources */,
 				06A7D527A380A87E00C122EE /* CloudNotificationLocalDelivery.swift in Sources */,
 				ED7A8BCBA7C0A396EAC81DAB /* CloudNotificationPlacement.swift in Sources */,
@@ -13830,6 +13877,7 @@
 				595EC249E2E015ACE304F0EE /* CloudRemoteOperationStep.swift in Sources */,
 				B12438020000000000000001 /* CloudRenameCoordinator.swift in Sources */,
 				C12625A00000000000000002 /* CloudRequestClock.swift in Sources */,
+				B5F7FD4791E006CF41AFDE98 /* CloudSecurityExplainer.swift in Sources */,
 				B12357000000000000000004 /* CloudSidebarDebugLabWindow.swift in Sources */,
 				51B4FF9048D7FC13A294FEC2 /* CloudSidebarDebugMetrics.swift in Sources */,
 				6EAF84C73F1793C18F24DEE8 /* CloudSidebarDebugResetButton.swift in Sources */,
@@ -15712,9 +15760,11 @@
 				66141EC09936A3AD5EC83307 /* View+CloudErrorCopy.swift in Sources */,
 				A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */,
 				C12625A00000000000000006 /* VMCapabilities.swift in Sources */,
+				F24359090F39DB2CE54224CC /* VMClient+NetworkPolicy.swift in Sources */,
 				60AA592C22BFA579A064782E /* VMClient+ResourceStats.swift in Sources */,
 				ACE4FE1A8F1CC6C0B6A673AB /* VMClient.swift in Sources */,
 				EF56B870FD0D4AC490D99CD5 /* VMClientError.swift in Sources */,
+				3AC7AE496E2A88ED7A2750F4 /* VMClientSocketCommands+Network.swift in Sources */,
 				7A0CE1000000000000000044 /* VMClientSocketCommands+Tunnel.swift in Sources */,
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
 				93AF7E8EC956FE883E252322 /* VMClientTelemetry.swift in Sources */,
@@ -16106,6 +16156,7 @@
 				E02A94E613C7C3565FA40A26 /* CMUXCLI+VMDev.swift in Sources */,
 				CC0033E15A1B2C3D4E5F0030 /* CMUXCLI+VMHelp.swift in Sources */,				CC0033E15A1B2C3D4E5F0101 /* CMUXCLI+VMTransfer.swift in Sources */,
 				E082D369A3254DC975D8B371 /* CMUXCLI+VMLayoutEnv.swift in Sources */,
+				D412B64D8C3A4FF85E50C39B /* CMUXCLI+VMNetwork.swift in Sources */,
 				21D721AF457D40CD877B8D01 /* CMUXCLI+VMSCP.swift in Sources */,
 				C5C4D27C4078FD2D55679132 /* CMUXCLI+VMSelf.swift in Sources */,
 				8CC4B7E07376E56BD8A1369D /* CMUXCLI+VMSnapshots.swift in Sources */,
@@ -16513,6 +16564,7 @@
 				EF3CE50369C1428F8F611B2F /* CloudNameAuthorityTestProvider.swift in Sources */,
 				BC9AC2D1065E4E88A48074BC /* CloudNameAuthorityTests.swift in Sources */,
 				4E25D4EB1F1D488A809C9C96 /* CloudNativeLayoutProjectionTests.swift in Sources */,
+				A81F48A732C29FD704560A6C /* CloudNetworkPolicyTests.swift in Sources */,
 				7829E36E90E948BB82360052 /* CloudNightlyOverrideTests.swift in Sources */,
 				E0AB5F18239F64CBC2B24AEA /* CloudNotificationDismissParityHarness.swift in Sources */,
 				4EFC91B414CF5D9FEA440819 /* CloudNotificationDismissParityTests.swift in Sources */,

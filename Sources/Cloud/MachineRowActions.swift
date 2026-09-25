@@ -21,6 +21,8 @@ struct MachineRowActions {
     /// A locked (free-window-expired) machine routes here instead of a doomed
     /// connect; the backend enforces the same boundary with 402s.
     let promptUpgrade: @MainActor () -> Void
+    /// Opens the Network sheet for a machine id and its display label.
+    var editNetwork: @MainActor (String, String?) -> Void = { _, _ in }
     /// Persists a pin and returns the authoritative fleet order/render state.
     /// Nil means the action was not accepted (for example, after sign-out).
     var setPinned: @MainActor (String, Bool) -> [MachineSnapshot]? = { _, _ in nil }
@@ -80,6 +82,13 @@ struct MachineRowActions {
             },
             promptUpgrade: {
                 ProUpgradePresenter.present(source: .machinesPanelMachineAction)
+            },
+            editNetwork: { id, label in
+                CloudNetworkPolicySheetPresenter.shared.present(
+                    machineID: id,
+                    machineLabel: label,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                )
             }
         )
     }

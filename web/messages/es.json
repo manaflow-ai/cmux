@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "últimos 30 días: {completions} finalizaciones · {tokens} tokens ({input} entrada / {output} salida) · equivalente API de {value}",
       "apiKeyUsageUnavailable": "Uso no disponible",
       "revokeApiKeyConfirmBody": "Los clientes que usen esta clave dejarán de autenticarse inmediatamente."
+    },
+    "cloud": {
+      "title": "Máquinas de Cloud y acceso de Mac",
+      "description": "Configura la red saliente de cada máquina y revisa los Mac con acceso WireGuard a tu red privada de VM de Cloud. Los registros de emparejamiento de iPhone e Iroh se gestionan por separado.",
+      "macAccessTitle": "Acceso de Mac",
+      "machines": {
+        "title": "Máquinas",
+        "empty": "No tienes máquinas de Cloud.",
+        "personal": "personal",
+        "team": "equipo",
+        "status": {
+          "provisioning": "iniciando",
+          "running": "en ejecución",
+          "failed": "con errores",
+          "paused": "en pausa",
+          "destroyed": "eliminada"
+        }
+      },
+      "network": {
+        "open": "Red",
+        "title": "Red saliente de {name}",
+        "description": "Elige a qué puede conectarse esta máquina. Los cambios se aplican al momento, sin reiniciar.",
+        "loading": "Cargando la política de red…",
+        "loadError": "No se ha podido cargar la política de red de esta máquina.",
+        "saveError": "No se ha podido aplicar esta política de red.",
+        "unsupported": "Esta máquina no admite el control de la red saliente.",
+        "retry": "Reintentar",
+        "appliedLabel": "Estado:",
+        "applied": {
+          "applied": "aplicada",
+          "pending": "aplicando",
+          "failed": "no se ha podido aplicar"
+        },
+        "unsaved": "cambios sin guardar",
+        "refresh": "Actualizar",
+        "modeLabel": "Acceso saliente",
+        "mode": {
+          "full": {
+            "label": "Internet completo",
+            "description": "Cualquier dirección pública."
+          },
+          "allowlist": {
+            "label": "Lista de permitidos",
+            "description": "Solo los ajustes predefinidos, dominios y rangos de IP que indiques."
+          },
+          "none": {
+            "label": "Sin internet",
+            "description": "Solo los hosts de cmux que aparecen abajo."
+          }
+        },
+        "presetsTitle": "Ajustes predefinidos",
+        "presetsNote": "Cada ajuste predefinido añade nombres de host exactos. Un servicio que usa otros subdominios puede necesitar más dominios.",
+        "domainsTitle": "Dominios",
+        "domainsNote": "Solo nombres de host exactos y solo HTTPS en el puerto 443. Aún no se admiten comodines.",
+        "domainInput": "Dominio",
+        "rangesTitle": "Rangos de IP",
+        "rangesNote": "El firewall del proveedor los aplica fuera de la máquina. Deja el puerto vacío para permitir todos los puertos. Un puerto requiere un protocolo.",
+        "cidrInput": "Rango de IP (CIDR)",
+        "portInput": "Puerto",
+        "protocolInput": "Protocolo",
+        "anyProtocol": "cualquiera",
+        "noteInput": "Nota (opcional)",
+        "allPorts": "todos los puertos",
+        "dnsLabel": "Permitir DNS",
+        "dnsNote": "Permite que las herramientas resuelvan los nombres a los que apuntan tus rangos de IP. Los dominios no necesitan DNS. El DNS abierto es un canal de salida: un proceso puede enviar datos en los nombres que consulta.",
+        "requiredTitle": "Siempre permitidos",
+        "requiredNote": "cmux necesita estos hosts en todos los modos para instalar y actualizar la CLI en la máquina.",
+        "add": "Añadir",
+        "remove": "Quitar",
+        "discard": "Descartar cambios",
+        "close": "Cerrar",
+        "apply": "Aplicar"
+      }
     }
   },
   "community": {

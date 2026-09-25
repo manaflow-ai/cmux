@@ -257,6 +257,15 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly patch: Readonly<Record<string, unknown>>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  /**
+   * Store a machine's network policy and/or its reconcile status. Either
+   * field may be omitted to leave it unchanged.
+   */
+  readonly setNetworkPolicy?: (input: {
+    readonly id: string;
+    readonly policy?: Readonly<Record<string, unknown>>;
+    readonly status?: Readonly<Record<string, unknown>>;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /** Atomically coalesce advisory samples; false also covers a replaced VM. */
   readonly recordResourceUsage?: (input: {
     readonly id: string;
@@ -1434,6 +1443,18 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return rows.length > 0;
     }),
 
+  setNetworkPolicy: (input) =>
+    dbEffect("setNetworkPolicy", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({
+          ...(input.policy !== undefined ? { networkPolicy: { ...input.policy } } : {}),
+          ...(input.status !== undefined ? { networkPolicyStatus: { ...input.status } } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudVms.id, input.id));
+    }),
   mergeProviderMetadata: (input) =>
     dbEffect("mergeProviderMetadata", async () => {
       const db = cloudDb();

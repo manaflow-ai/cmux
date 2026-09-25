@@ -456,6 +456,79 @@
       "apiKeyUsageDetail": "siste 30 dager: {completions} fullføringer · {tokens} tokens ({input} inn / {output} ut) · {value} API-ekvivalent",
       "apiKeyUsageUnavailable": "Bruk er ikke tilgjengelig",
       "revokeApiKeyConfirmBody": "Klienter som bruker denne nøkkelen mister autentiseringen umiddelbart."
+    },
+    "cloud": {
+      "title": "Cloud-maskiner og Mac-tilgang",
+      "description": "Angi utgående nettverk for hver maskin, og se gjennom Mac-maskinene med WireGuard-tilgang til ditt private Cloud VM-nettverk. Paringer for iPhone og Iroh administreres separat.",
+      "macAccessTitle": "Mac-tilgang",
+      "machines": {
+        "title": "Maskiner",
+        "empty": "Du har ingen Cloud-maskiner.",
+        "personal": "personlig",
+        "team": "team",
+        "status": {
+          "provisioning": "starter",
+          "running": "kjører",
+          "failed": "mislyktes",
+          "paused": "satt på pause",
+          "destroyed": "slettet"
+        }
+      },
+      "network": {
+        "open": "Nettverk",
+        "title": "Utgående nettverk for {name}",
+        "description": "Velg hva denne maskinen kan nå. Endringer gjelder med en gang, uten omstart.",
+        "loading": "Laster inn nettverkspolicyen…",
+        "loadError": "Kunne ikke laste inn nettverkspolicyen for denne maskinen.",
+        "saveError": "Kunne ikke bruke denne nettverkspolicyen.",
+        "unsupported": "Denne maskinen støtter ikke kontroll av utgående nettverk.",
+        "retry": "Prøv igjen",
+        "appliedLabel": "Status:",
+        "applied": {
+          "applied": "brukt",
+          "pending": "tas i bruk",
+          "failed": "kunne ikke brukes"
+        },
+        "unsaved": "ulagrede endringer",
+        "refresh": "Oppdater",
+        "modeLabel": "Utgående tilgang",
+        "mode": {
+          "full": {
+            "label": "Fullt internett",
+            "description": "Enhver offentlig adresse."
+          },
+          "allowlist": {
+            "label": "Tillatelsesliste",
+            "description": "Bare forhåndsinnstillingene, domenene og IP-områdene du angir."
+          },
+          "none": {
+            "label": "Ikke internett",
+            "description": "Bare cmux-vertene nedenfor."
+          }
+        },
+        "presetsTitle": "Forhåndsinnstillinger",
+        "presetsNote": "Hver forhåndsinnstilling legger til eksakte vertsnavn. En tjeneste som bruker andre underdomener, kan trenge flere domener.",
+        "domainsTitle": "Domener",
+        "domainsNote": "Bare eksakte vertsnavn, bare HTTPS på port 443. Jokertegn støttes ikke ennå.",
+        "domainInput": "Domene",
+        "rangesTitle": "IP-områder",
+        "rangesNote": "Leverandørens brannmur håndhever disse utenfor maskinen. La porten stå tom for å tillate alle porter. En port krever en protokoll.",
+        "cidrInput": "IP-område (CIDR)",
+        "portInput": "Port",
+        "protocolInput": "Protokoll",
+        "anyProtocol": "alle",
+        "noteInput": "Notat (valgfritt)",
+        "allPorts": "alle porter",
+        "dnsLabel": "Tillat DNS",
+        "dnsNote": "Lar verktøy slå opp navnene som IP-områdene dine peker til. Domener trenger ikke DNS. Åpen DNS er en utgående kanal: En prosess kan sende data ut i navnene den slår opp.",
+        "requiredTitle": "Alltid tillatt",
+        "requiredNote": "cmux trenger disse vertene i alle moduser for å installere og oppdatere CLI-en på maskinen.",
+        "add": "Legg til",
+        "remove": "Fjern",
+        "discard": "Forkast endringer",
+        "close": "Lukk",
+        "apply": "Bruk"
+      }
     }
   },
   "community": {
