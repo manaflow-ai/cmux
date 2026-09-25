@@ -1,4 +1,5 @@
 import CmuxSurfaceCatalogModel
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -96,6 +97,24 @@ import Testing
     }
 
     // MARK: - Panel titles
+
+    @Test func programTitleCanKeepDirectoryName() throws {
+        let suiteName = "WorkspaceTitleDirectoryPrefix.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: "terminal.prefixProgramTitlesWithDirectory")
+
+        let workspace = Workspace(
+            workingDirectory: "/tmp/app",
+            settings: UserDefaultsSettingsClient(defaults: defaults)
+        )
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panelID = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        #expect(workspace.updatePanelDirectory(panelId: panelID, directory: "/tmp/app"))
+
+        #expect(workspace.updatePanelTitle(panelId: panelID, title: "✳ Claude Code"))
+        #expect(workspace.panelTitle(panelId: panelID) == "✳ app / Claude Code")
+    }
 
     @Test func panelProvenanceMirrorsWorkspaceRules() throws {
         let manager = TabManager()
