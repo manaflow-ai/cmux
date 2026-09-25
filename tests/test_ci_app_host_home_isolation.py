@@ -163,6 +163,23 @@ def require_step(job_name: str, step_name: str) -> dict:
     return matches[0]
 
 
+def bun_setup_gate_ok(condition: object) -> bool:
+    """Whether a condition is `!cancelled() && (<one parenthesized group>)`."""
+    if not isinstance(condition, str):
+        return False
+    expression = condition.replace(" ", "")
+    prefix = "${{!cancelled()&&("
+    if not (expression.startswith(prefix) and expression.endswith(")}}")):
+        return False
+    group = expression[len(prefix) - 1 : -2]
+    depth = 0
+    for index, character in enumerate(group):
+        depth += {"(": 1, ")": -1}.get(character, 0)
+        if depth == 0 and index != len(group) - 1:
+            return False
+    return depth == 0
+
+
 def acceptance_gate_problem(condition: object, preparation_id: str) -> str:
     """Return why a step condition is not gated on preparation, or ""."""
     if not isinstance(condition, str):
@@ -481,10 +498,15 @@ def main() -> int:
     bun_condition = require_step(
         "app-host-unit-tests", "Set up Bun for Pi extension dispatch regression"
     ).get("if")
-    if not isinstance(bun_condition, str) or not bun_condition.replace(
-        " ", ""
-    ).startswith("${{!cancelled()&&"):
+    if not bun_setup_gate_ok(bun_condition):
         raise SystemExit("FAIL: Bun setup must run after an earlier failure")
+    for rejected in (
+        "${{ matrix.shard == 4 || matrix.shard == 6 }}",
+        "${{ !cancelled() && matrix.shard == 4 || matrix.shard == 6 }}",
+        "${{ !cancelled() && (matrix.shard == 4) || (matrix.shard == 6) }}",
+    ):
+        if bun_setup_gate_ok(rejected):
+            raise SystemExit(f"FAIL: Bun setup gate guard must reject {rejected}")
 
     # Once preparation starts, the console-user cleanup must still run even if
     # preparation fails or is cancelled, and its failures must remain visible.
