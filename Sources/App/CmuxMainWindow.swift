@@ -11,6 +11,37 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
     override var fittingSize: NSSize { CmuxMainWindow.minimumContentSize }
     override var intrinsicContentSize: NSSize { CmuxMainWindow.minimumContentSize }
 
+    /// Adds pointing-hand cursor rectangles for native controls hosted by SwiftUI.
+    ///
+    /// SwiftUI does not consistently assign the macOS link cursor to ``Button``
+    /// and ``Toggle`` views, especially when they use a plain button style. The
+    /// hosted AppKit control tree still exposes those controls through their
+    /// accessibility roles, so the host can provide the affordance in one place
+    /// without changing each individual view's styling or action path.
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addPointingHandCursorRects(in: self)
+    }
+
+    private func addPointingHandCursorRects(in view: NSView) {
+        for child in view.subviews {
+            guard !child.isHidden, child.alphaValue > 0, !child.bounds.isEmpty else { continue }
+
+            let isEnabled = (child as? NSControl)?.isEnabled ?? true
+            if PointingHandCursorPolicy.shouldUsePointingHand(
+                forRole: child.accessibilityRole(),
+                isEnabled: isEnabled
+            ) {
+                let rect = convert(child.bounds, from: child).intersection(bounds)
+                if !rect.isEmpty {
+                    addCursorRect(rect, cursor: .pointingHand)
+                }
+            }
+
+            addPointingHandCursorRects(in: child)
+        }
+    }
+
     /// Lets a click on an interactive titlebar control (the sidebar toggle, the
     /// right-sidebar mode bar, the session-index header controls, etc.) both
     /// activate the window and trigger the control in a single click when the

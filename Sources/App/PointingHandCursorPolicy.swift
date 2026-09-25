@@ -7,11 +7,8 @@ struct PointingHandCursorPolicy {
         forRole role: NSAccessibility.Role?,
         isEnabled: Bool
     ) -> Bool {
-        // The first revision intentionally keeps the current behavior so the
-        // regression test can prove the missing cursor affordance.
-        _ = role
-        _ = isEnabled
-        return false
+        guard isEnabled, let role else { return false }
+        return pointingHandRoleRawValues.contains(role.rawValue)
     }
 
     /// Returns whether a view or one of its ancestors is a native click target.
@@ -26,4 +23,14 @@ struct PointingHandCursorPolicy {
         }
         return false
     }
+
+    private static let pointingHandRoleRawValues: Set<String> = [
+        "AXButton",
+        "AXCheckBox",
+        "AXLink",
+        "AXMenuButton",
+        "AXPopUpButton",
+        "AXRadioButton",
+        "AXTab",
+    ]
 }

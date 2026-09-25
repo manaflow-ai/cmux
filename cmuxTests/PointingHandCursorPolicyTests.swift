@@ -20,4 +20,17 @@ import Testing
     @Test func textRoleKeepsTheArrowCursor() {
         #expect(!PointingHandCursorPolicy.shouldUsePointingHand(forRole: .textField, isEnabled: true))
     }
+
+    @Test func enabledButtonViewUsesPointingHandCursor() {
+        let button = NSButton(title: "", target: nil, action: nil)
+
+        #expect(PointingHandCursorPolicy.shouldUsePointingHand(for: button))
+    }
+
+    @Test func disabledButtonViewKeepsTheArrowCursor() {
+        let button = NSButton(title: "", target: nil, action: nil)
+        button.isEnabled = false
+
+        #expect(!PointingHandCursorPolicy.shouldUsePointingHand(for: button))
+    }
 }
