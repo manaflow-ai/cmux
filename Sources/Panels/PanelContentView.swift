@@ -231,14 +231,7 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
-        case .cloudVPNSetup:
-            if let vpnPanel = panel as? CloudVPNSetupPanel {
-                CloudVPNSetupPanelView(
-                    appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus,
-                    model: vpnPanel.model
-                )
-            }
+
         }
     }
 
@@ -256,7 +249,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn, .cloudVPNSetup:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
         case .terminal, .browser:
             return false

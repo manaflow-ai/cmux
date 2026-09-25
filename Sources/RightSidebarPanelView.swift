@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
@@ -15,62 +16,6 @@ import UniformTypeIdentifiers
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     guard let responder else { return "nil" }
     return String(describing: type(of: responder))
-}
-
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case machines
-    case customSidebar = "custom-sidebar"
-
-    var label: String {
-        switch self {
-        case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
-        case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
-        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
-        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
-        }
-    }
-
-
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        case .machines: return "cloud"
-        case .customSidebar: return "wand.and.stars"
-        }
-    }
-
-    var shortcutAction: KeyboardShortcutSettings.Action? {
-        switch self {
-        case .files: return .switchRightSidebarToFiles
-        case .find: return .switchRightSidebarToFind
-        case .sessions: return .switchRightSidebarToSessions
-        case .feed: return .switchRightSidebarToFeed
-        case .dock: return .switchRightSidebarToDock
-        case .machines: return .switchRightSidebarToMachines
-        case .customSidebar: return nil
-        }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions, .machines]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
-    }
 }
 
 enum RightSidebarContentMountPolicy {
@@ -116,6 +61,7 @@ extension RightSidebarMode {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
+    var devicesModel: DevicesPanelViewModel? = nil
     @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -263,6 +209,7 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
+            else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
@@ -506,7 +453,7 @@ struct RightSidebarPanelView: View {
                     }
                 )
                     .onAppear {
-                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexStore.currentDirectory)
                     }
             case .feed:
                 FeedPanelView(
@@ -515,18 +462,13 @@ struct RightSidebarPanelView: View {
             case .dock:
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:
-                if let store = AppDelegate.shared?.cloudWorkspaceCoordinator?.defaultMachineStore {
-                    MachinesPanelView(
-                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                        defaultMachineStore: store,
-                        tabManager: tabManager
-                    )
-                } else {
-                    MachinesPanelView(
-                        chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
-                        tabManager: tabManager
-                    )
-                }
+                MachinesPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
+                    machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
+                    devicesModel: devicesModel,
+                    tabManager: tabManager,
+                    teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation
+                )
             case .customSidebar:
                 customSidebarPanel
             }
@@ -585,10 +527,6 @@ struct RightSidebarPanelView: View {
         Task { await client.shutdown() }
     }
 
-    private var sessionIndexDirectory: String? {
-        sessionIndexStore.currentDirectory
-    }
-
     /// Renders this window's own Dock (created lazily on first show); no
     /// window ever defers to a Dock rendered elsewhere.
     @ViewBuilder
@@ -612,7 +550,7 @@ struct RightSidebarPanelView: View {
     private func selectMode(_ mode: RightSidebarMode) {
         fileExplorerState.mode = mode
         if fileExplorerState.mode == .sessions {
-            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexStore.currentDirectory)
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()
             }

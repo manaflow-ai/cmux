@@ -2,7 +2,7 @@
 import CmuxMobileTerminalKit
 import CoreGraphics
 
-struct TerminalViewportSnapshot {
+struct TerminalViewportSnapshot: Equatable, Sendable {
     let bounds: CGSize
     let containerSize: CGSize
     /// Points the dock's bottom edge sits above the screen bottom (keyboard
@@ -12,6 +12,7 @@ struct TerminalViewportSnapshot {
     let composerFrame: CGRect
     let toolbarFrame: CGRect
     let layoutViewportRect: CGRect
+    let renderTopInset: CGFloat
 
     /// The render rect in surface coordinates: bottom-pinned to the viewport's
     /// bottom edge, which the host keeps glued to the dock top. Letterbox

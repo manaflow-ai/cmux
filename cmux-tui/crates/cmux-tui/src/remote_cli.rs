@@ -93,6 +93,7 @@ fn run_inner(
         Some("connect") => run_connect(&args[1..], None, load_config),
         Some("ssh") => run_ssh(&args[1..], load_config),
         Some("forward") => run_forward(&args[1..]),
+        Some("browser-proxy") => run_browser_proxy(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
         Some("known-daemons") => run_known_daemons(&args[1..]),
@@ -184,6 +185,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("connect") => client.connect_help,
         Some("ssh") => client.ssh_help,
         Some("forward") => client.forward_help,
+        Some("browser-proxy") => client.browser_proxy_help,
         Some("rpc") => client.rpc_help,
         Some("enroll") => client.enroll_help,
         Some("known-daemons") => client.known_daemons_help,
@@ -1044,11 +1046,25 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     result.and(shutdown)
 }
 
+#[path = "remote_browser_proxy.rs"]
+mod remote_browser_proxy;
+use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
+
 #[derive(Debug, PartialEq, Eq)]
 enum RpcInputEvent {
     Line(String),
     End,
     RuntimeFinished,
+}
+
+fn run_browser_proxy(args: &[String]) -> anyhow::Result<()> {
+    let parsed = parse_browser_proxy_args(args)?;
+    let flags = parse_connect_flags(&parsed.connect)?;
+    let connected = start_connected(flags)?;
+    let runtime = tokio_runtime()?;
+    let result = runtime.block_on(serve_browser_proxy(&connected.runtime, parsed));
+    let shutdown = connected.runtime.shutdown();
+    result.and(shutdown)
 }
 
 fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Result<String>>> {
@@ -1957,7 +1973,7 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
 /// hosted ingress on branded machine domains requires.
 /// `wireguard-hub`: `remote connect --wireguard-hub` and `wg hub` exist, so the
 /// app may reach private-network machines through a shared in-process tunnel.
-pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub"];
+pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent", "wireguard-hub", "browser-proxy"];
 
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
@@ -5217,5 +5233,85 @@ mod tests {
         let args = ["create", "--relay-route", "relay+do://worker.example"].map(str::to_string);
         let parsed = parse_enroll_admin_args(&args).unwrap();
         assert!(invitation_relay_access(&parsed).is_err());
+    }
+
+    #[test]
+    fn browser_proxy_accepts_private_ipv4_and_ipv6_authorities() {
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("10.42.0.7:8000", false)
+                .unwrap(),
+            ("10.42.0.7".into(), 8000)
+        );
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("[fd12::7]:8443", false)
+                .unwrap(),
+            ("fd12::7".into(), 8443)
+        );
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("192.0.2.7:8000", false)
+                .is_err()
+        );
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:8000", false)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn browser_proxy_parser_keeps_connection_flags_and_repeats_allowed_hosts() {
+        let parsed = parse_browser_proxy_args(&[
+            "wss://daemon.example/link".into(),
+            "--allowed-host".into(),
+            "10.0.0.4".into(),
+            "--allowed-host".into(),
+            "10.0.0.5".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--wireguard-hub".into(),
+            "/tmp/cmux-wg.sock".into(),
+            "--carrier".into(),
+        ])
+        .unwrap();
+        assert_eq!(parsed.allowed_hosts, ["10.0.0.4", "10.0.0.5"]);
+        assert_eq!(parsed.workspace_root, "/");
+        assert!(
+            parsed.connect.windows(2).any(|pair| pair == ["--wireguard-hub", "/tmp/cmux-wg.sock"])
+        );
+        assert!(parsed.connect.iter().any(|flag| flag == "--carrier"));
+    }
+
+    #[test]
+    fn browser_proxy_loopback_is_opt_in_for_ssh_carriers() {
+        let rejected = parse_browser_proxy_args(&[
+            "ssh://host".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--allowed-host".into(),
+            "127.0.0.1".into(),
+        ]);
+        assert!(rejected.is_err());
+
+        let parsed = parse_browser_proxy_args(&[
+            "ssh://host".into(),
+            "--workspace-root".into(),
+            "/".into(),
+            "--allow-loopback".into(),
+            "--allowed-host".into(),
+            "localhost".into(),
+            "--allowed-host".into(),
+            "::1".into(),
+        ])
+        .unwrap();
+        assert!(parsed.allow_loopback);
+        assert_eq!(parsed.allowed_hosts, vec!["127.0.0.1", "::1"]);
+        assert_eq!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("localhost:3000", true)
+                .unwrap(),
+            ("127.0.0.1".into(), 3000)
+        );
+        assert!(
+            remote_browser_proxy::parse_connect_authority_with_loopback("127.0.0.1:3000", false)
+                .is_err()
+        );
     }
 }

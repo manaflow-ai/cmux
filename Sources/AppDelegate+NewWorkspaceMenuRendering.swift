@@ -230,9 +230,12 @@ extension AppDelegate {
     /// `KeyboardShortcutSettings` binding for built-in actions, else the
     /// `shortcut` declared on a config action. Nil when unbound or when the
     /// binding is a chord, which an `NSMenuItem` key equivalent cannot show.
+    /// New Workspace has no hint: this row always creates locally, while its
+    /// shortcut follows the selected workspace's machine.
     nonisolated static func newWorkspaceMenuShortcutHint(
         for action: CmuxResolvedConfigAction
     ) -> StoredShortcut? {
+        if case .builtIn(.newWorkspace) = action.action { return nil }
         let shortcut: StoredShortcut
         if case .builtIn(let builtIn) = action.action, let shortcutAction = builtIn.shortcutAction {
             shortcut = KeyboardShortcutSettings.menuShortcut(for: shortcutAction)

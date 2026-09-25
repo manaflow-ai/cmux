@@ -314,15 +314,16 @@ struct ClaudeHookLiveDeliveryTargetTests {
         )
         #expect(
             commands.contains {
-                $0.hasPrefix("set_status claude_code Running ")
+                $0.hasPrefix("set_status claude_code Idle ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
             },
-            "Visible status must target the live pane; saw \(commands)"
+            "/clear SessionStart must leave the live pane Idle; saw \(commands)"
         )
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["workspaceId"] as? String == Self.liveWorkspaceId)
         #expect(record?["surfaceId"] as? String == Self.liveSurfaceId)
+        #expect(record?["agentLifecycle"] as? String == "idle")
     }
 
     /// A SessionStart without pid, explicit surface, caller tty, or an existing

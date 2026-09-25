@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension CmuxTuiSurfaceProvider {
@@ -34,7 +37,7 @@ extension CmuxTuiSurfaceProvider {
     private func createFileReceiverWorkspace() async throws -> String {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        let result = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(
+        let result = try await link.run(arguments: CloudTuiRequests.createWorkspaceArguments(
             socketPath: connected.socketPath,
             name: "\(CloudFileDelivery.receiverTitle) \(UUID().uuidString)",
             empty: true
@@ -60,8 +63,7 @@ extension CmuxTuiSurfaceProvider {
             closeTerminal: { terminalID in
                 do {
                     try await self.closeTerminal(
-                        SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID),
-                        fallbackTabID: receiver?.remoteViews?.first?.tabID
+                        SurfaceResourceID(machine: self.machine, kind: .terminal, key: terminalID)
                     )
                 } catch {
                     guard Self.isSelectorNotFound(error) else { throw error }

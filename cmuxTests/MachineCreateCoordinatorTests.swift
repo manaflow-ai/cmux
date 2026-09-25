@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -7,14 +9,9 @@ import Testing
 @testable import cmux
 #endif
 
-/// The background machine create (#11397): a create outlives the sheet that
-/// started it, shows as a pending row while it runs, resolves into the fleet
-/// on success, and stays as a retriable error row on failure.
 @MainActor
 @Suite(.serialized)
 struct MachineCreateCoordinatorTests {
-    /// A launcher stand-in: records the CLI arguments and keeps the completion
-    /// so a test can end the "CLI run" whenever it likes.
     @MainActor
     final class LaunchRecorder {
         var arguments: [[String]] = []
@@ -104,13 +101,16 @@ struct MachineCreateCoordinatorTests {
         )
     }
 
-    private func makeCoordinator() -> (MachineCreateCoordinator, LaunchRecorder, NoticeRecorder, ChangeRecorder, NotificationCenter) {
+    private func makeCoordinator(
+        selectWorkspace: @escaping MachineCreateCoordinator.SelectWorkspace = { _, _ in true }
+    ) -> (MachineCreateCoordinator, LaunchRecorder, NoticeRecorder, ChangeRecorder, NotificationCenter) {
         let center = NotificationCenter()
         let launches = LaunchRecorder()
         let notices = NoticeRecorder()
         let clock = Date(timeIntervalSince1970: 1_787_400_000)
         let coordinator = MachineCreateCoordinator(
             notifier: { notices.notices.append($0) },
+            selectWorkspace: selectWorkspace,
             now: { clock },
             notificationCenter: center
         )
@@ -203,9 +203,6 @@ struct MachineCreateCoordinatorTests {
         #expect(notices.notices.isEmpty)
     }
 
-    /// The operation must be registered before the launcher runs: a launcher
-    /// whose completion fires synchronously still has to find its row, finish
-    /// it, and notify — never leave a phantom pending row behind.
     @Test func synchronousCompletionStillResolvesTheOperation() {
         let (coordinator, _, notices, changes, _) = makeCoordinator()
         let immediate: MachineCreateCoordinator.Launch = { _, _, completion in
@@ -260,7 +257,7 @@ struct MachineCreateCoordinatorTests {
 
     // MARK: Success
 
-    @Test func successDropsTheRowAndTellsThePersonWhereTheMachineOpened() {
+    @Test func successDropsTheRowAndSelectsTheOpenedWorkspace() {
         let (coordinator, launches, notices, changes, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let workspaceID = UUID()
@@ -271,26 +268,52 @@ struct MachineCreateCoordinatorTests {
         #expect(changes.finished.count == 1)
         #expect(changes.finished.first?.outcome == .created(machineID: "calm-petrel", workspaceID: workspaceID))
         #expect(coordinator.lastFinished?.outcome == .created(machineID: "calm-petrel", workspaceID: workspaceID))
-        let notice = try? #require(notices.notices.first)
-        #expect(notice?.title == "calm-petrel is ready")
-        #expect(notice?.workspaceID == workspaceID, "the notification's click goes to the new workspace")
-        #expect(notice?.isFailure == false)
+        #expect(notices.notices.isEmpty, "the new workspace is already selected")
     }
 
-    @Test func successKeepsTheTypedLabelInTheNotification() {
+    @Test func successWithUnavailableSelectionFallsBackToTheMachinesList() {
+        let (coordinator, launches, notices, _, _) = makeCoordinator(selectWorkspace: { _, _ in false })
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let workspaceID = UUID()
+
+        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n", workspaceID: workspaceID)
+
+        #expect(notices.notices.count == 1)
+        #expect(notices.notices[0].workspaceID == workspaceID)
+        #expect(notices.notices[0].body == "Find it in the Machines list.")
+    }
+
+    @Test func successKeepsTheTypedLabelInTheFinishedOperation() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(name: "build box"), launch: launches.launch)
         launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n")
         #expect(notices.notices.first?.title == "build box is ready")
-        #expect(notices.notices.first?.workspaceID == nil)
+        #expect(notices.notices.first?.body == "Find it in the Machines list.")
     }
 
-    @Test func baseSuccessIsAnnouncedAsBase() {
+    @Test func baseSuccessDoesNotPostANotification() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         let workspaceID = UUID()
         coordinator.start(Self.baseRequest(workspaceID: workspaceID), launch: launches.launch)
         launches.complete(status: 0, output: "Opened Base base-1\n", workspaceID: workspaceID)
-        #expect(notices.notices.first?.title == "Base is ready")
+        #expect(notices.notices.isEmpty, "base setup selected its workspace")
+    }
+
+    @Test func reservedMachineCompletesWithoutAnExtraSuccessNotification() {
+        let (coordinator, launches, notices, _, _) = makeCoordinator(selectWorkspace: { _, _ in false })
+        let workspaceID = UUID()
+        coordinator.start(Self.newMachineRequest().targetingReservedWorkspace(workspaceID), launch: launches.launch)
+        launches.complete(status: 0, output: "OK machine=vm-internal-id", workspaceID: workspaceID, machineID: "vm-internal-id")
+        #expect(coordinator.lastFinished?.outcome == .created(machineID: "vm-internal-id", workspaceID: workspaceID))
+        #expect(notices.notices.isEmpty)
+    }
+
+    @Test func reservedMachineFailuresStayAnchoredToTheirOwnWorkspace() {
+        let (coordinator, launches, notices, _, _) = makeCoordinator()
+        let workspaceID = UUID()
+        coordinator.start(Self.newMachineRequest().targetingReservedWorkspace(workspaceID), launch: launches.launch)
+        launches.complete(status: 1, output: "Error: attach failed", machineID: "vm-internal-id")
+        #expect(notices.notices.first?.isFailure == true)
         #expect(notices.notices.first?.workspaceID == workspaceID)
     }
 
@@ -316,7 +339,6 @@ struct MachineCreateCoordinatorTests {
         #expect(notice?.title == "Couldn't create machine")
         #expect(notice?.body.hasPrefix("Cloud VM temporarily unavailable") == true)
 
-        // Retry relaunches the same invocation and the row runs again.
         #expect(coordinator.retry(id))
         #expect(launches.arguments.count == 2)
         #expect(launches.arguments[1] == launches.arguments[0])
@@ -324,7 +346,7 @@ struct MachineCreateCoordinatorTests {
 
         launches.complete(status: 0, output: "Created Cloud VM noble-wren\n")
         #expect(coordinator.operations.isEmpty)
-        #expect(notices.notices.count == 2)
+        #expect(notices.notices.count == 2, "retry success remains visible when no workspace was selected")
     }
 
     @Test func emptyFailureOutputGetsAGenericMessage() {
@@ -371,8 +393,6 @@ struct MachineCreateCoordinatorTests {
         #expect(launches.cancellations == 1, "Cancel terminates the in-flight CLI")
         #expect(cleanedMachineIDs == ["calm-petrel"], "A machine announced before cancellation is destroyed")
 
-        // A process can report its final bytes after the row is gone. They must not
-        // recreate the row or post a misleading success notification.
         launches.completions[0](CloudVMActionLauncher.Completion(
             terminationStatus: 0,
             output: "OK machine=calm-petrel",
@@ -596,7 +616,9 @@ struct MachinesPanelPendingCreateTests {
     /// Regression: while `cmux vm new --name troll` was still opening its
     /// terminal, the fleet list (and, before it, the catalog) already showed
     /// "troll", so the panel listed "troll · Creating…" above "troll". The
-    /// stand-in row exists only until the machine has a row of its own.
+    /// stand-in row exists only until the machine has a row of its own. Since
+    /// #12919 that row keeps the running create's node identity (selection and
+    /// expansion survive adoption), so the assertions check the row's kind too.
     @Test func pendingRowStepsAsideOnceItsMachineHasARow() {
         let started = Date(timeIntervalSince1970: 1_787_400_000)
         let named = MachineCreateOperation(
@@ -617,32 +639,48 @@ struct MachinesPanelPendingCreateTests {
                 isDesktop: false, activity: .ready, createdAt: createdAt, label: label
             )
         }
-        func rows(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [String] {
+        func nodes(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [CloudTreeNode] {
             CloudTreeNodeBuilder.nodes(
                 machines: machines,
                 pendingCreates: pending,
                 snapshot: SurfaceCatalogSnapshot(machines: catalog, resources: [], projections: []),
                 localWorkspaces: []
-            ).map(\.id)
+            )
         }
+        func rows(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [String] {
+            nodes(machines: machines, catalog: catalog, pending: pending).map(\.id)
+        }
+        /// The machine a row shows, nil for a stand-in (pending) row.
+        func machineID(of rowID: String, machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> String? {
+            guard case .machine(let machine, _)? = nodes(machines: machines, catalog: catalog, pending: pending)
+                .first(where: { $0.id == rowID })?.kind else { return nil }
+            return machine.id
+        }
+        let namedRow = "pending-machine:\(named.id.uuidString)"
+        let unnamedRow = "pending-machine:\(unnamed.id.uuidString)"
         let older = machine("old-hare", label: "troll", createdAt: started.addingTimeInterval(-3_600))
         let created = machine("vm-e0382b", label: "troll", createdAt: started.addingTimeInterval(20))
         let anonymous = machine("calm-petrel", label: nil, createdAt: started.addingTimeInterval(20))
 
         // The fleet list returned the named machine: its stand-in is gone; an
         // older machine that happens to share the label is not it.
-        #expect(rows(machines: [older], pending: [named]) == ["pending-machine:\(named.id.uuidString)", "machine:old-hare"])
-        #expect(rows(machines: [older, created], pending: [named]) == ["machine:old-hare", "machine:vm-e0382b"])
+        #expect(rows(machines: [older], pending: [named]) == [namedRow, "machine:old-hare"])
+        #expect(machineID(of: namedRow, machines: [older], pending: [named]) == nil)
+        #expect(rows(machines: [older, created], pending: [named]) == ["machine:old-hare", namedRow])
+        #expect(machineID(of: namedRow, machines: [older, created], pending: [named]) == "vm-e0382b")
         // The catalog registered it (the CLI is opening it) before the fleet
         // list caught up: the catalog row is the machine's row.
         let catalogTroll = SurfaceMachineInfo(
             id: .cloud("vm-e0382b"), name: "troll", status: "running", image: nil, hasDesktop: false,
             memoryMb: nil, diskMb: nil, linkState: .connecting, linkError: nil, cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil
         )
-        #expect(rows(machines: [], catalog: [catalogTroll], pending: [named]) == ["machine:vm-e0382b"])
+        #expect(rows(machines: [], catalog: [catalogTroll], pending: [named]) == [namedRow])
+        #expect(machineID(of: namedRow, machines: [], catalog: [catalogTroll], pending: [named]) == "vm-e0382b")
         // An unnamed create is the machine that appeared after it started.
-        #expect(rows(machines: [older], pending: [unnamed]) == ["pending-machine:\(unnamed.id.uuidString)", "machine:old-hare"])
-        #expect(rows(machines: [anonymous], pending: [unnamed]) == ["machine:calm-petrel"])
+        #expect(rows(machines: [older], pending: [unnamed]) == [unnamedRow, "machine:old-hare"])
+        #expect(machineID(of: unnamedRow, machines: [older], pending: [unnamed]) == nil)
+        #expect(rows(machines: [anonymous], pending: [unnamed]) == [unnamedRow])
+        #expect(machineID(of: unnamedRow, machines: [anonymous], pending: [unnamed]) == "calm-petrel")
         // A failed create keeps its row so it can be retried or dismissed.
         var failed = named
         failed.phase = .failed(output: "Error: quota")

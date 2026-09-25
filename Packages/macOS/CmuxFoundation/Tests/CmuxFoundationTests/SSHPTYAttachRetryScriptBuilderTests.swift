@@ -85,6 +85,47 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nsleep:2\nattach\n")
     }
 
+    // Regression for #9443: the loop used to prefix the attach command with env
+    // assignments, which POSIX only allows before a simple command, so a compound
+    // attach command made the generated cmux-ssh-startup script fail with
+    // "syntax error near unexpected token `then'".
+    @Test func retryLoopIsValidPOSIXShellForCompoundAttachCommands() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-compound-\(UUID().uuidString)")
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-compound-\(UUID().uuidString).sh")
+        defer {
+            try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: scriptURL)
+        }
+
+        let compoundCommand = [
+            "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then : || exit 1; fi",
+            "printf '%s/%s/%s\\n' \"$CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY\" \"$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY\" \"$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT\" >> \"$CMUX_TEST_LOG\"",
+            "exit 0",
+        ].joined(separator: "\n")
+        let script = SSHPTYAttachRetryScriptBuilder().lines(
+            command: compoundCommand,
+            reauthenticates: false
+        ).joined(separator: "\n")
+        try (script + "\n").write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let syntaxCheck = try run("/bin/sh -n '\(scriptURL.path)'", environment: [:])
+        #expect(syntaxCheck.status == 0, "\(syntaxCheck.stderr)\n\(script)")
+
+        // The loop must still hand the retry budget to the command it runs.
+        let execution = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": "",
+                "CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT": "3",
+            ]
+        )
+        #expect(execution.status == 0, "\(execution.stderr)")
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "1/0/3\n")
+    }
+
     @Test func establishedSessionStopsAfterTheFiniteReconnectBudget() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-unclassified-reauth-\(UUID().uuidString)")
@@ -432,8 +473,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         #expect(!transcript.contains("remote PTY bridge closed; reattaching"), Comment(rawValue: transcript))
     }
 
-    @Test(arguments: ["bad", "21", "999999999999999999999999999999"])
-    func malformedOrOversizedReconnectLimitsRemainFinite(_ configuredLimit: String) throws {
+    @Test(arguments: ["bad", "-5", "0"])
+    func unusableReconnectLimitsRemainFinite(_ configuredLimit: String) throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-limit-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: logURL) }
@@ -460,9 +501,46 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             .count
 
         #expect(result.status == 255)
-        // One initial attach plus at most the 20 reconnects is the hard
-        // contract, regardless of user-provided limit text.
+        // One initial attach plus the 20 fallback reconnects is the contract
+        // for text the supervisor cannot use as an attempt count.
         #expect(attempts == 21)
+        #expect(
+            result.stderr.contains("CMUX_SSH_RECONNECT_LIMIT=\(configuredLimit)"),
+            Comment(rawValue: result.stderr)
+        )
+    }
+
+    @Test func wellFormedReconnectLimitAboveTwentyIsHonored() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-limit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: logURL) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: false
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "sleep() { :; }",
+            "cmux_test_attach() { printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return 255; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": "25",
+            ]
+        )
+        let attempts = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+            .count
+
+        #expect(result.status == 255)
+        // 25 used to be rewritten to 20 without a word. The supervisor now
+        // spends the budget it was given, and stays silent about it.
+        #expect(attempts == 26)
+        #expect(!result.stderr.contains("CMUX_SSH_RECONNECT_LIMIT="), Comment(rawValue: result.stderr))
     }
 
     @Test

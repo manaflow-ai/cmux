@@ -13,6 +13,8 @@ extension ContentView {
         }
 
         switch commandId {
+        case Self.commandPaletteAuthTeamPickerCommandId:
+            return .openTeamPicker
         case "palette.newWorkspace":
             return .newTab
         case "palette.newBrowserWorkspace":

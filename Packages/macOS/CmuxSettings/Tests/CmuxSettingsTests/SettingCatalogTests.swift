@@ -103,12 +103,20 @@ struct SettingCatalogTests {
         #expect(ids.contains("browser.defaultZoomLevel"))
     }
 
+    @Test func equalizeSplitsOnCreateDefaultsOff() {
+        #expect(!SettingCatalog().app.equalizeSplitsOnCreate.defaultValue)
+    }
+
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
 
     @Test func adaptiveDefaultTerminalThemeDefaultsOnForUntouchedConfigs() {
         #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
+    }
+
+    @Test func runawayMemoryGuardrailDefaultsOffForUntouchedConfigs() {
+        #expect(!SettingCatalog().terminal.runawayMemoryGuardrailEnabled.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

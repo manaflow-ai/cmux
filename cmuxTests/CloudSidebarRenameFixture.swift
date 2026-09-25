@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -37,7 +38,7 @@ final class CloudSidebarRenameFixture {
 
     var resourceID: SurfaceResourceID { SurfaceResourceID(machine: machine, kind: .terminal, key: "term_main") }
 
-    func state(revision: UInt64 = 1, generation: String = "fixture", name: String? = nil, workspaceName: String = "Fixture workspace") throws -> CloudVMState {
+    func state(revision: UInt64 = 1, generation: String = "fixture", name: String? = nil, workspaceName: String = "Fixture workspace", nameSource: String = "user") throws -> CloudVMState {
         let document: [String: Any] = [
             "cursor": ["generation": generation, "revision": String(revision)],
             "workspaces": [["id": "ws_main", "name": workspaceName, "index": 0]],
@@ -46,7 +47,8 @@ final class CloudSidebarRenameFixture {
             "panes": [["id": "pane_main", "screen_id": "screen_main"]],
             "tabs": [
                 ["id": "tab_main", "pane_id": "pane_main", "index": 0,
-                 "name": name ?? "", "content_kind": "terminal", "content_id": "term_main"],
+                 "name": name ?? "", "content_kind": "terminal", "content_id": "term_main",
+                 "extra": ["name_source": nameSource, "name_revision": String(revision)]],
                 ["id": "tab_other", "pane_id": "pane_main", "index": 1,
                  "name": "Intentional other label", "content_kind": "terminal", "content_id": "term_other"]],
             "terminals": [["id": "term_main", "title": "terminal", "lifecycle": "running"],
@@ -66,6 +68,19 @@ final class CloudSidebarRenameFixture {
 
     func drain() async throws {
         try await catalog.cloudRenameCoordinator.enqueue(key: .workspace(machine: machine, id: "barrier"), pendingName: "") {}.value
+    }
+
+    @discardableResult
+    func agentName(_ name: String) -> Bool {
+        guard let context = catalog.cloudAgentNameContext(workspaceID: workspace.id, panelID: panelID) else { return false }
+        return catalog.submitCloudPanelRename(
+            workspace: workspace, panelID: panelID, title: name, source: .auto, context: context
+        ) == true
+    }
+
+    @discardableResult
+    func userName(_ name: String) -> Bool {
+        catalog.submitCloudPanelRename(workspace: workspace, panelID: panelID, title: name, source: .user) == true
     }
 
     func assertParity(_ title: String, workspaceName: String = "Fixture workspace") throws {

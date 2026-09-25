@@ -16,7 +16,7 @@ extension Array where Element == CuratedSettingEntry {
     /// so both languages find the same setting. Tests and hosts that want
     /// a different set of entries pass their own array via
     /// ``SettingsSearchIndex/init(catalog:curatedEntries:)``.
-    public static var cmuxDefault: [CuratedSettingEntry] {
+    public static func cmuxDefault(catalog: SettingCatalog) -> [CuratedSettingEntry] {
         [
             // Account / integrations
             .init(section: .account, id: "account", title: String(localized: "settings.section.account", defaultValue: "Account"), synonyms: "Account auth authentication login logout signin sign-in signout sign-out email user profile stack team"),
@@ -42,6 +42,12 @@ extension Array where Element == CuratedSettingEntry {
                 id: "focus-history-scope",
                 title: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
                 synonyms: "app.focusHistoryIncludesPanesAndTabs focus history back forward panes tabs workspaces only navigation"
+            ),
+            .init(
+                section: .app,
+                id: "equalize-splits-on-create",
+                title: String(localized: "settings.app.equalizeSplitsOnCreate", defaultValue: "Equalize Splits on Create"),
+                synonyms: "app.equalizeSplitsOnCreate equalize balance distribute even equal split pane size new split"
             ),
             .init(section: .app, id: "file-drops", title: String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), synonyms: "File Drops drag drop files finder path text terminal editor split preview shift"),
             .init(section: .app, id: "preferred-editor", title: String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), synonyms: "Open Files With app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
@@ -85,10 +91,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "menu-bar-only", title: String(localized: "settings.app.menuBarOnly", defaultValue: "Menu Bar Only"), synonyms: "Menu Bar Only app.menuBarOnly menubar menu bar dockless hide dock app switcher cmd-tab command-tab"),
             .init(section: .app, id: "telemetry", title: String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), synonyms: "Send anonymous telemetry app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
-            .init(section: .app, id: "warn-before-closing-tab", title: String(localized: "settings.app.warnBeforeClosingTab", defaultValue: "Warn Before Closing Tab"), synonyms: "Warn Before Closing Tab app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
+            .init(userFacing: catalog.app.warnBeforeClosingTab),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
-            .init(section: .app, id: "hide-tab-close-button", title: String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"), synonyms: "Hide Tab Close Button app.hideTabCloseButton hide x button close tab terminal surface"),
-            .init(section: .app, id: "rename-selects-name", title: String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), synonyms: "Rename Selects Existing Name app.renameSelectsExistingName rename select all existing title command palette workspace name"),
+            .init(userFacing: catalog.app.hideTabCloseButton),
+            .init(userFacing: catalog.app.renameSelectsExistingName),
             .init(section: .app, id: "palette-search-all", title: String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), synonyms: "Command Palette Searches All Surfaces app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
             .init(
                 section: .app,
@@ -170,7 +176,23 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
             .init(section: .terminal, id: "copy-on-select", title: String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), synonyms: "Copy on Selection terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+            .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(section: .terminal, id: "agent-auto-resume", title: String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), synonyms: "Resume Agent Sessions on Reopen terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+            .init(
+                section: .terminal,
+                id: "session-persistence",
+                title: String(
+                    localized: "settings.terminal.localTmux.title",
+                    defaultValue: "Keep Local Sessions Alive",
+                    bundle: .module
+                ),
+                detailText: String(
+                    localized: "settings.terminal.localTmux.subtitle",
+                    defaultValue: "Named local-tmux sessions keep processes and scrollback alive across cmux quit, crashes, and updates. Ordinary terminals keep their current behavior.",
+                    bundle: .module
+                ),
+                synonyms: "session persistence keep local sessions alive local tmux local-tmux tmux detach reattach crash update quit durable terminal process scrollback"
+            ),
             .init(section: .terminal, id: "agent-hibernation", title: String(localized: "settings.terminal.agentHibernation", defaultValue: "Agent Hibernation"), synonyms: "Agent Hibernation terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: String(localized: "settings.terminal.agentHibernation.idleSeconds", defaultValue: "Hibernate After Idle Seconds"), synonyms: "Hibernate After Idle Seconds terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
             .init(section: .terminal, id: "agent-hibernation-max", title: String(localized: "settings.terminal.agentHibernation.maxLiveTerminals", defaultValue: "Max Live Agent Terminals"), synonyms: "Max Live Agent Terminals terminal.agentHibernation.maxLiveTerminals max live agent terminals limit count hibernate"),
@@ -219,6 +241,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "hide-sidebar-details", title: String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), synonyms: "Hide All Sidebar Details sidebar.hideAllDetails compact sidebar hide details only title minimal left rail"),
             .init(section: .sidebarAppearance, id: "wrap-workspace-titles", title: String(localized: "settings.app.wrapWorkspaceTitles", defaultValue: "Wrap Workspace Titles in Sidebar"), synonyms: "Wrap Workspace Titles in Sidebar sidebar.wrapWorkspaceTitles workspace title wrap multiline pr pull request"),
             .init(section: .sidebarAppearance, id: "show-workspace-description", title: String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), synonyms: "Show Workspace Description in Sidebar sidebar.showWorkspaceDescription workspace description notes markdown sidebar"),
+            .init(section: .sidebarAppearance, id: "workspace-description-color", title: String(localized: "settings.app.workspaceDescriptionColor", defaultValue: "Workspace Description Color"), synonyms: "Workspace Description Color sidebar.workspaceDescriptionColor description text color notes markdown sidebar"),
             .init(section: .sidebarAppearance, id: "sidebar-branch-layout", title: String(localized: "settings.app.sidebarBranchLayout", defaultValue: "Sidebar Branch Layout"), synonyms: "Sidebar Branch Layout sidebar.branchLayout sidebar.branchVerticalLayout git branch layout vertical inline cwd directory"),
             .init(section: .sidebarAppearance, id: "stack-branch-directory", title: String(localized: "settings.app.stackBranchDirectory", defaultValue: "Stack Branch and Directory"), synonyms: "Stack Branch and Directory sidebar.stackBranchDirectory git branch directory cwd path stack stacked separate lines two rows"),
             .init(section: .sidebarAppearance, id: "path-last-segment-only", title: String(localized: "settings.app.pathLastSegmentOnly", defaultValue: "Truncate Path From Start"), synonyms: "Truncate Path From Start sidebar.pathLastSegmentOnly cwd path directory last segment basename short truncate folder repo"),
@@ -265,10 +288,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .mobile,
                 id: "pairDevice",
-                title: String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+                title: String(localized: "settings.mobile.pairDevice", defaultValue: "Mobile Pairing"),
                 synonyms: """
                 pair pairing add device qr qr code scan iphone ipad ios mobile \
-                tailscale connect onboarding sign in
+                tailscale iroh connect onboarding sign in
                 """
             ),
             .init(
@@ -347,6 +370,7 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
             ),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
+            .init(section: .betaFeatures, id: "predictedEcho", title: String(localized: "settings.betaFeatures.predictedEcho", defaultValue: "Predictive local echo"), synonyms: "Predictive local echo typing latency lag ssh remote speculative mosh round trip beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(
                 section: .betaFeatures,
@@ -400,7 +424,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computerUse,
                 id: "enabled",
-                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable Computer Use"),
+                title: String(localized: "settings.computerUse.enabled", defaultValue: "Enable cmux Computer Use"),
                 paths: ["computerUse.enabled"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.enabled", defaultValue: "computerUse.enabled enable disable computer use cua mcp agent sessions")
             ),
@@ -413,7 +437,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(
                 section: .computerUse,
                 id: "show-in-menu-bar",
-                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show Computer Use in Menu Bar"),
+                title: String(localized: "settings.computerUse.showInMenuBar", defaultValue: "Show cmux Computer Use in Menu Bar"),
                 paths: ["computerUse.showInMenuBar"],
                 synonyms: String(localized: "settings.search.alias.setting.computerUse.showInMenuBar", defaultValue: "computerUse.showInMenuBar menu bar menubar status item cursor agents")
             ),
