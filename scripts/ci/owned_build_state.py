@@ -42,7 +42,10 @@ the compile on every owned job, warm or seeded, so the DerivedData it keeps
 always carries the times that compile saw. It deletes the old record first:
 a stale one could age an input back to a time the kept build never saw, and
 swift-driver misses a changed file whose time is older. A failed record
-means a full rebuild, never a missed one. `keep` runs right after a
+means a full rebuild, never a missed one. The record has its own file
+(RECORD), never the seed's MANIFEST, and the stamp carries STATE_VERSION, so
+a DerivedData kept from a seeded job before `record` existed is dropped
+rather than replayed with the seed's times. `keep` runs right after a
 successful compile and clones the DerivedData as Xcode left it: the steps
 after it stage package frameworks into Build/Products and rewrite the
 xctestruns, which a later build must not start from (seed-derived-data.yml
@@ -79,6 +82,18 @@ PACKAGES = "source-packages"
 MAX_DERIVED_BYTES = 40 * 1024**3
 # Written by every build and read by none (seed_derived_data.UNREAD).
 UNREAD = ("Logs", "Index.noindex")
+# The owned record, apart from the seed's MANIFEST: a DerivedData adopted from
+# a seed still carries the seed's record, whose times belong to the seed's
+# source, not to what this Mac last compiled.
+RECORD = "cmux-owned-input-mtimes.json"
+# Appended to the canonical fingerprint in every stamp. A DerivedData kept
+# before `record` existed may hold only a seed's record, so bumping this
+# discards every older kept DerivedData instead of trusting it.
+STATE_VERSION = "owned-rec1"
+
+
+def stamped(fingerprint: str) -> str:
+    return f"{fingerprint}-{STATE_VERSION}" if fingerprint else ""
 
 
 def write_outputs(result: dict[str, str]) -> None:
@@ -154,7 +169,7 @@ def check(store: Path, fingerprint: str, workspace: Path) -> dict[str, str]:
     derived = store / DERIVED
     if not derived.is_dir():
         result["reason"] = "no kept DerivedData"
-    elif not fingerprint or stamp.get("fingerprint") != fingerprint:
+    elif not fingerprint or stamp.get("fingerprint") != stamped(fingerprint):
         clear(derived)
         result["reason"] = "kept DerivedData is for another Xcode or layout"
     else:
@@ -179,7 +194,8 @@ def adopt(store: Path, derived: Path, source: Path) -> dict[str, str]:
         return {"hit": "false", "reason": "no kept DerivedData"}
     move(kept, derived)
     result = {"hit": "true", "replayed": "false"}
-    manifest = derived / seed.MANIFEST
+    # Only the owned record: a seed's record describes the seed's source.
+    manifest = derived / RECORD
     if not manifest.is_file():
         result["reason"] = "kept DerivedData has no input record"
     else:
@@ -203,11 +219,15 @@ def adopt(store: Path, derived: Path, source: Path) -> dict[str, str]:
 
 def record(source: Path, derived: Path) -> dict[str, str]:
     """Record the input times this compile sees, for the next job's adopt."""
-    manifest = derived / seed.MANIFEST
+    manifest = derived / RECORD
     if manifest.is_file() or manifest.is_symlink():
         manifest.unlink()
-    seed.record(source, derived)
-    return {"recorded": "true"}
+    recorded = seed.warm.record(source)
+    derived.mkdir(parents=True, exist_ok=True)
+    incoming = derived / f".{RECORD}.incoming"
+    incoming.write_text(json.dumps(recorded, sort_keys=True))
+    incoming.rename(manifest)
+    return {"recorded": "true", "inputs": str(len(recorded))}
 
 
 def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
@@ -217,14 +237,15 @@ def keep(store: Path, derived: Path, fingerprint: str) -> dict[str, str]:
     store.mkdir(parents=True, exist_ok=True)
     incoming = store / f".{DERIVED}.incoming"
     clone(derived, incoming)
-    for name in UNREAD:
+    # A seed's record is never replayed here (adopt reads RECORD only).
+    for name in (*UNREAD, seed.MANIFEST):
         remove(incoming / name)
     stamp = read_stamp(store)
     stamp.pop("fingerprint", None)
     write_stamp(store, stamp)
     clear(store / DERIVED)
     incoming.rename(store / DERIVED)
-    stamp["fingerprint"] = fingerprint
+    stamp["fingerprint"] = stamped(fingerprint)
     write_stamp(store, stamp)
     return {"kept": "true"}
 

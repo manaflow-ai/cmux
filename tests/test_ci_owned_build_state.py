@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -134,7 +135,7 @@ class AdoptAndSave(Fixture):
         kept = self.store / "derived-data"
         self.assertEqual(sorted(path.name for path in (kept / "Build").iterdir()), ["new.o"])
         self.assertFalse((kept / "derived-data-compile-admission").exists())
-        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["fingerprint"], "fp2")
+        self.assertEqual(json.loads((self.store / "stamp.json").read_text())["fingerprint"], "fp2-owned-rec1")
         self.assertEqual([path.name for path in self.store.iterdir() if path.name.startswith(".")], [])
 
     def test_clear_refuses_to_leave_anything_behind(self):
@@ -170,7 +171,7 @@ class Replay(Fixture):
         for path in (self.source / "Sources").iterdir():
             os.utime(path, ns=(self.OLD, self.OLD))
         self.derived.mkdir(parents=True)
-        self.assertEqual(run(state.record, self.source, self.derived), {"recorded": "true"})
+        self.assertEqual(run(state.record, self.source, self.derived)["recorded"], "true")
         self.assertEqual(run(state.keep, self.store, self.derived, "fp")["kept"], "true")
 
         # The next job: a fresh copy stamped now, with one file changed.
@@ -184,26 +185,58 @@ class Replay(Fixture):
         self.assertEqual((self.source / "Sources/a.swift").stat().st_mtime_ns, self.OLD)
         self.assertGreater((self.source / "Sources/b.swift").stat().st_mtime_ns, self.OLD)
 
-    def test_a_failed_record_leaves_no_stale_record_behind(self):
-        # A seed's record would age inputs the kept build never saw.
+    def seed_record_for(self, text):
+        """A seed's record: content `text` at the seed's old time."""
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        return json.dumps({"Sources/a.swift": [digest, self.OLD]})
+
+    def test_a_seed_record_in_a_kept_derived_data_is_never_replayed(self):
+        # The #14250 case: the kept build compiled content B, the seed it was
+        # adopted from recorded content A at an old time, and the tree has A
+        # again. Aging A to the seed's time would hide it from swift-driver.
         self.derived.mkdir(parents=True)
-        (self.derived / state.seed.MANIFEST).write_text(json.dumps({"Sources/a.swift": ["x", self.OLD]}))
-        with unittest.mock.patch.object(state.seed, "record", side_effect=OSError("disk")):
+        (self.derived / state.seed.MANIFEST).write_text(self.seed_record_for("A"))
+        self.assertEqual(run(state.keep, self.store, self.derived, "fp")["kept"], "true")
+        self.assertFalse((self.store / "derived-data" / state.seed.MANIFEST).exists())
+        # Even one that reaches the store some other way is not read.
+        (self.store / "derived-data" / state.seed.MANIFEST).write_text(self.seed_record_for("A"))
+        self.write_source({"Sources/a.swift": "A"})
+        self.derived = self.derived.with_name("next")
+        result = run(state.adopt, self.store, self.derived, self.source)
+        self.assertEqual((result["hit"], result["replayed"]), ("true", "false"))
+        self.assertGreater((self.source / "Sources/a.swift").stat().st_mtime_ns, self.OLD)
+
+    def test_derived_data_kept_before_the_owned_record_is_dropped(self):
+        # Stamped by the previous owned_build_state.py: bare fingerprint, and
+        # possibly the seed's record inside.
+        (self.store / "derived-data").mkdir(parents=True)
+        (self.store / "derived-data" / state.seed.MANIFEST).write_text(self.seed_record_for("A"))
+        (self.store / "stamp.json").write_text(json.dumps({"fingerprint": "fp"}))
+        result = run(state.check, self.store, "fp", self.workspace)
+        self.assertEqual(result["warm"], "false")
+        self.assertFalse((self.store / "derived-data").exists())
+
+    def test_a_failed_record_leaves_no_stale_record_behind(self):
+        self.derived.mkdir(parents=True)
+        (self.derived / state.RECORD).write_text(self.seed_record_for("A"))
+        with unittest.mock.patch.object(state.seed.warm, "record", side_effect=OSError("disk")):
             with self.assertRaises(OSError):
                 run(state.record, self.source, self.derived)
-        self.assertFalse((self.derived / state.seed.MANIFEST).exists())
+        self.assertFalse((self.derived / state.RECORD).exists())
         run(state.keep, self.store, self.derived, "fp")
         self.derived = self.derived.with_name("next")
         self.assertEqual(run(state.adopt, self.store, self.derived, self.source)["replayed"], "false")
 
-    def test_record_replaces_the_seed_record(self):
+    def test_record_replaces_the_old_record_and_leaves_the_seeds_alone(self):
         self.write_source({"a.swift": "a"})
         self.derived.mkdir(parents=True)
-        (self.derived / state.seed.MANIFEST).write_text(json.dumps({"stale": ["x", 1]}))
+        (self.derived / state.RECORD).write_text(json.dumps({"stale": ["x", 1]}))
+        (self.derived / state.seed.MANIFEST).write_text("seed")
         run(state.record, self.source, self.derived)
-        recorded = json.loads((self.derived / state.seed.MANIFEST).read_text())
+        recorded = json.loads((self.derived / state.RECORD).read_text())
         self.assertNotIn("stale", recorded)
         self.assertIn("a.swift", recorded)
+        self.assertNotEqual(state.RECORD, state.seed.MANIFEST)
 
 
 class WorkflowCommandLines(unittest.TestCase):
