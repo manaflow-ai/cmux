@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -42,6 +42,27 @@ const claudeUpstreamBody = claudeUpstreamJson
   : claudeUpstreamApiKey
     ? JSON.stringify({ kind: "anthropic_api_key", apiKey: claudeUpstreamApiKey })
     : "";
+// --zero-token replaces the codex turn with one raw /v1/responses request from
+// the guest. The throwaway team has no subscription, so coderouter must answer
+// no_usable_account after authentication and account selection, and no
+// upstream model is ever called. The request also names a model that does not
+// exist, so even a team that somehow had an account could not start a turn.
+// This is the mode the scheduled canary runs.
+const zeroToken = rest.includes("--zero-token");
+if (zeroToken && (!edgeCheck || claudeCheck)) {
+  console.error("--zero-token requires --edge-check and excludes --claude-check");
+  process.exit(2);
+}
+// --sweep-older-than-minutes deletes leftovers from earlier smoke runs that
+// died before cleanup (runner cancelled or killed): every VM of every smoke
+// user older than the cutoff, then the user. A user whose VM cannot be
+// deleted is kept so the next sweep retries it.
+const sweepOption = optionValue(rest, "--sweep-older-than-minutes");
+const sweepOlderThanMinutes = sweepOption === undefined ? null : Number(sweepOption);
+if (sweepOlderThanMinutes !== null && !(Number.isFinite(sweepOlderThanMinutes) && sweepOlderThanMinutes >= 10)) {
+  console.error("--sweep-older-than-minutes must be a number of at least 10");
+  process.exit(2);
+}
 if (claudeCheck && !edgeCheck) {
   console.error("--claude-check requires --edge-check");
   process.exit(2);
@@ -73,6 +94,8 @@ const { StackServerApp } = stackModule;
 let user;
 let vmId;
 let authHeaders;
+// Set when a VM may still exist; the user then stays for the next sweep.
+let keepUserForSweep = false;
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   if (useVercelCurl) return vercelCurlFetch(url, init, timeoutMs);
@@ -139,6 +162,47 @@ function vercelCurlFetch(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
   }
 }
 
+async function sessionHeaders(stackUser, expiresInMillis) {
+  const session = await stackUser.createSession({ expiresInMillis, isImpersonation: true });
+  const tokens = await session.getTokens();
+  if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return smoke session tokens");
+  return {
+    authorization: `Bearer ${tokens.accessToken}`,
+    "x-stack-refresh-token": tokens.refreshToken,
+  };
+}
+
+async function sweepLeftovers(app, emailPrefix, olderThanMinutes) {
+  const cutoff = Date.now() - olderThanMinutes * 60_000;
+  const candidates = await app.listUsers({ query: emailPrefix, limit: 200 });
+  const swept = { users: 0, vms: 0, kept: [] };
+  for (const leftover of candidates) {
+    if (!leftover.primaryEmail?.startsWith(emailPrefix)) continue;
+    if (leftover.signedUpAt.getTime() > cutoff) continue;
+    let clean = true;
+    try {
+      const headers = await sessionHeaders(leftover, 5 * 60 * 1000);
+      const list = await fetchWithTimeout(`${targetUrl}/api/vm`, { headers });
+      if (list.status !== 200) throw new Error(`GET /api/vm returned ${list.status}`);
+      const { vms = [] } = JSON.parse(await list.text());
+      for (const vm of vms) {
+        const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vm.id)}`, { method: "DELETE", headers });
+        if (destroy.status === 200 || destroy.status === 404) swept.vms += 1;
+        else clean = false;
+      }
+    } catch {
+      clean = false;
+    }
+    if (!clean) {
+      swept.kept.push(leftover.id);
+      continue;
+    }
+    await leftover.delete();
+    swept.users += 1;
+  }
+  return swept;
+}
+
 try {
   const env = loadTargetEnv(project);
   requireEnvKeys(env, [
@@ -151,9 +215,11 @@ try {
   const secretServerKey = env.STACK_SECRET_SERVER_KEY;
 
   const app = new StackServerApp({ projectId, publishableClientKey, secretServerKey });
+  const emailPrefix = `cmux-${project.stackLabel}-smoke+`;
+  const swept = sweepOlderThanMinutes === null ? null : await sweepLeftovers(app, emailPrefix, sweepOlderThanMinutes);
   const suffix = `${Date.now()}-${randomBytes(3).toString("hex")}`;
   user = await app.createUser({
-    primaryEmail: `cmux-${project.stackLabel}-smoke+${suffix}@manaflow.dev`,
+    primaryEmail: `${emailPrefix}${suffix}@manaflow.dev`,
     primaryEmailVerified: true,
     primaryEmailAuthEnabled: true,
     password: randomBytes(24).toString("base64url"),
@@ -163,13 +229,7 @@ try {
   if (paid) {
     await user.update({ clientReadOnlyMetadata: { cmuxVmPlan: "pro" } });
   }
-  const session = await user.createSession({ expiresInMillis: 20 * 60 * 1000, isImpersonation: true });
-  const tokens = await session.getTokens();
-  if (!tokens.accessToken || !tokens.refreshToken) throw new Error("Stack did not return smoke session tokens");
-  authHeaders = {
-    authorization: `Bearer ${tokens.accessToken}`,
-    "x-stack-refresh-token": tokens.refreshToken,
-  };
+  authHeaders = await sessionHeaders(user, 20 * 60 * 1000);
 
   const unauth = await fetchWithTimeout(`${targetUrl}/api/vm`);
   if (unauth.status !== 401) throw new Error(`unauthenticated GET /api/vm expected 401, got ${unauth.status}`);
@@ -187,6 +247,7 @@ try {
     unauthStatus: unauth.status,
     authedListStatus: authed.status,
     beforeCount: Array.isArray(authedJson.vms) ? authedJson.vms.length : null,
+    ...(swept ? { swept } : {}),
   };
 
   if (claudeCheck) {
@@ -204,6 +265,7 @@ try {
   }
 
   if (shouldCreate) {
+    keepUserForSweep = true;
     const createStartedAt = performance.now();
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
@@ -294,13 +356,18 @@ try {
       // route is the guest-side proof that the bound token arrived.
       const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
       const modelsStatus = (models.stdout ?? "").trim();
-      const codex = await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
+      const codex = zeroToken
+        ? await exec(`${guestEnv} command -v codex >/dev/null || echo 'codex-missing'; curl -sS --max-time 30 -X POST -H 'content-type: application/json' -H "authorization: Bearer $OPENAI_API_KEY" -d '{"model":"cmux-canary-no-such-model","input":"x","max_output_tokens":16,"stream":false}' "$CMUX_CODEROUTER_URL/v1/responses"; echo; echo "codex-exit $?"`)
+        : await exec(`${guestEnv} cd /root && command -v codex && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20; echo "codex-exit $?"`, 240_000);
       const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
       // codex echoes the prompt, so only a line that is exactly the answer counts.
-      const codexPong = codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
+      const codexPong = !zeroToken && codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
       // The edge delivered the token but the team has no upstream subscription:
-      // a real outcome on staging teams, reported rather than failed.
-      const codexOutcome = codexPong ? "answered" : /no_usable_account/.test(codexOut) ? "no_account" : "failed";
+      // a real outcome on staging teams, reported rather than failed. In
+      // zero-token mode it is the only passing outcome.
+      const codexOutcome = /codex-missing/.test(codexOut)
+        ? "failed"
+        : codexPong ? "answered" : /"error":\s*"no_usable_account"/.test(codexOut) ? "no_account" : "failed";
       edge = {
         hostsSteered: steered,
         tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
@@ -343,6 +410,7 @@ try {
     const destroyText = await destroy.text();
     if (destroy.status !== 200) throw new Error(`DELETE /api/vm/${vmId} expected 200, got ${destroy.status}: ${destroyText}`);
     vmId = undefined;
+    keepUserForSweep = false;
 
     Object.assign(result, {
       createdProvider: created.provider,
@@ -368,6 +436,7 @@ try {
       if (destroy.status === 200) {
         console.error(`cleanup_destroyed_vm=${vmId}`);
         vmId = undefined;
+        keepUserForSweep = false;
       } else {
         const text = await destroy.text().catch(() => "");
         console.error(`cleanup_delete_failed_vm=${vmId} status=${destroy.status} body=${text}`);
@@ -380,7 +449,11 @@ try {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 } finally {
-  if (user) {
+  // A create that failed before returning an id, or a VM that could not be
+  // deleted, may still exist; deleting its owner would orphan it.
+  if (user && keepUserForSweep && sweepOlderThanMinutes !== null) {
+    console.error(`cleanup_kept_user_for_sweep=${user.id}`);
+  } else if (user) {
     try {
       await user.delete();
     } catch (cleanupError) {
