@@ -735,6 +735,14 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_release_homebrew_gate.py
 
+      - name: Initialize the vendored Homebrew tap
+        if: ${{ matrix.group == 'release-notary' }}
+        run: git submodule update --init --depth 1 homebrew-cmux
+
+      - name: Validate Homebrew cask SHA matches the release DMG
+        if: ${{ matrix.group == 'release-notary' }}
+        run: ./tests/test_homebrew_sha.sh
+
       - name: Validate universal GhosttyKit and Release build settings
         if: ${{ matrix.group == 'release-notary' }}
         run: ./tests/test_ci_universal_release_settings.sh
