@@ -31,6 +31,7 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
             guard store.update(state, for: lease) else { return }
             NotificationCenter.default.post(
                 name: .terminalAgentFooterDidUpdate(surfaceID: lease.surfaceID),
+                object: nil,
                 userInfo: [
                     Notification.Name.terminalAgentFooterStateUserInfoKey:
                         state.map { $0 as Any } ?? NSNull()
@@ -49,6 +50,7 @@ final class TerminalAgentFooterPublisher: AgentFooterStatePublishing, @unchecked
         guard store.retire(surfaceID: surfaceID) else { return }
         NotificationCenter.default.post(
             name: .terminalAgentFooterDidUpdate(surfaceID: surfaceID),
+            object: nil,
             userInfo: [Notification.Name.terminalAgentFooterStateUserInfoKey: NSNull()]
         )
     }
