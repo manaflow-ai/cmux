@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""scripts/ci/run_ci_guards.py must run what ci-guards.yml runs, and finish.
+
+The runner reads ci-guards.yml instead of keeping its own list, so the cases
+here pin the reading: every guard job and matrix group is planned, `uses:`
+steps and the per-job dependency installs are left out, and the step names
+the runner special-cases still exist. The last case is the hang it was built
+around: a guard test that leaks a background child must not keep the runner
+waiting on the child's copy of the output pipe.
+"""
+
+from __future__ import annotations
+
+import re
+import sys
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+
+import run_ci_guards  # noqa: E402
+
+FAST_WORKFLOW = ROOT / ".github/workflows/ci-fast-guards.yml"
+
+
+class PlanFollowsTheWorkflow(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.workflow = run_ci_guards.load_yaml(run_ci_guards.WORKFLOW)
+        cls.units = run_ci_guards.plan(cls.workflow, "base", "head")
+
+    def test_every_guard_job_is_planned(self) -> None:
+        planned_jobs = {unit.job for unit in self.units}
+        self.assertEqual(planned_jobs, set(run_ci_guards.GUARD_JOBS))
+        guard_jobs = {
+            name for name in self.workflow["jobs"] if name.startswith("workflow-guard-")
+        }
+        self.assertEqual(guard_jobs, set(run_ci_guards.GUARD_JOBS), "a new guard job needs a GUARD_JOBS entry")
+
+    def test_every_routed_group_is_planned(self) -> None:
+        text = run_ci_guards.WORKFLOW.read_text(encoding="utf-8")
+        named = set(re.findall(r"matrix\.group == '([a-z0-9-]+)'", text))
+        planned = {unit.group for unit in self.units if unit.group}
+        self.assertEqual(named, planned)
+        for group in run_ci_guards.FAST_GROUPS:
+            self.assertIn(group, planned)
+
+    def test_every_run_step_is_planned_once_per_group(self) -> None:
+        job = self.workflow["jobs"]["workflow-guard-tests"]
+        for unit in (u for u in self.units if u.job == "workflow-guard-tests"):
+            expected = [
+                s["name"]
+                for s in job["steps"]
+                if "run" in s
+                and s["name"] not in run_ci_guards.DEPENDENCY_STEPS
+                and (not s.get("if") or f"'{unit.group}'" in s["if"])
+            ]
+            self.assertEqual([s.name for s in unit.steps], expected, unit.label)
+
+    def test_uses_steps_and_dependency_installs_are_left_out(self) -> None:
+        names = {step.name for unit in self.units for step in unit.steps}
+        self.assertFalse(names & run_ci_guards.DEPENDENCY_STEPS)
+        self.assertNotIn("Checkout", names)
+
+    def test_special_cased_step_names_still_exist(self) -> None:
+        names = {
+            str(step.get("name"))
+            for job in run_ci_guards.GUARD_JOBS
+            for step in self.workflow["jobs"][job]["steps"]
+        }
+        self.assertLessEqual(run_ci_guards.DEPENDENCY_STEPS, names)
+        self.assertLessEqual(run_ci_guards.LINUX_ONLY_STEPS, names)
+
+    def test_expressions_are_resolved(self) -> None:
+        for unit in self.units:
+            for step in unit.steps:
+                self.assertNotIn("${{ matrix.group }}", step.run, step.name)
+        ios = next(u for u in self.units if u.group == "release-ios")
+        env = next(s.env for s in ios.steps if "BASE_SHA" in s.env)
+        self.assertEqual(env["BASE_SHA"], "base")
+
+    def test_groups_that_pass_state_between_steps_run_in_order(self) -> None:
+        by_group = {unit.group or unit.job: unit for unit in self.units}
+        # agent-chat's bun install feeds its bun test (working-directory).
+        self.assertTrue(run_ci_guards.is_stateful(by_group["preflight"]))
+        # The fast group's steps are independent, which is what makes it fast.
+        self.assertFalse(run_ci_guards.is_stateful(by_group["ci"]))
+
+
+class StepsFinish(unittest.TestCase):
+    def test_a_leaked_background_child_does_not_hang_the_runner(self) -> None:
+        step = run_ci_guards.Step(
+            name="leaks a child",
+            run="python3 -c 'import signal; signal.pause()' & echo started",
+            env={},
+            working_directory=None,
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            started = time.monotonic()
+            code, output = run_ci_guards.run_step(
+                step, Path(temp), {"PATH": "/usr/bin:/bin"}, Path(temp) / "log"
+            )
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertEqual(code, 0)
+        self.assertIn("started", output)
+
+    def test_a_failing_step_reports_its_exit_code_and_output(self) -> None:
+        step = run_ci_guards.Step(name="fails", run="echo nope; exit 3", env={}, working_directory=None)
+        with tempfile.TemporaryDirectory() as temp:
+            code, output = run_ci_guards.run_step(step, Path(temp), {"PATH": "/usr/bin:/bin"}, Path(temp) / "log")
+        self.assertEqual(code, 3)
+        self.assertIn("nope", output)
+
+
+class FastWorkflowReportsOnEveryPullRequest(unittest.TestCase):
+    def test_no_path_filter_and_the_shared_command(self) -> None:
+        workflow = run_ci_guards.load_yaml(FAST_WORKFLOW)
+        triggers = workflow.get("on") or workflow.get(True)
+        # A required check that a path filter skips never reports.
+        self.assertIn("pull_request", triggers)
+        self.assertFalse((triggers.get("pull_request") or {}).get("paths"))
+        self.assertIn("merge_group", triggers)
+        self.assertEqual(triggers["push"]["branches"], ["main"])
+        job = workflow["jobs"]["fast-guards"]
+        self.assertEqual(job["name"], "CI fast guards")
+        runs = [s.get("run", "") for s in job["steps"]]
+        self.assertTrue(any(r.startswith("scripts/ci/guards-local.sh") for r in runs))
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,53 @@
+name: CI fast guards
+
+# The workflow, scripts/ci and repository-variable guard tests (ci-guards.yml's
+# `ci` group), reported as their own check within about a minute of a push.
+#
+# ci.yml runs the same tests inside `guards`, but only after `changes` routes
+# them, on a Blacksmith runner, and its verdict reaches the required check only
+# through ci-status at the end of the run. On 2026-09-25, 10 of 28 merged pull
+# requests merged before `guards / Guard status` reported, four of them with it
+# red (#14723 and #14724 broke main that way). This check exists so there is a
+# guard result on the head within a minute, whatever else is still queued.
+#
+# It runs on every pull request, with no path filter: a required check that a
+# path filter skips waits forever. For a change outside CI it passes in about
+# the same time and costs one GitHub-hosted minute.
+#
+# scripts/ci/guards-local.sh is the same command a dev machine runs; a clean
+# local pass stamps the head for the agent merge guard in cmuxterm-hq.
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-fast-guards-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fast-guards:
+    name: CI fast guards
+    # GitHub-hosted on purpose: it starts in seconds. The routed `changes` job
+    # on the Blacksmith pool waited a median 7 s but a p90 of 99 s and up to
+    # 305 s before it could even route the guards (28 merged PRs, 2026-09-25).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run the fast guard tests
+        env:
+          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before || '' }}
+        run: scripts/ci/guards-local.sh --no-stamp --jobs 8
