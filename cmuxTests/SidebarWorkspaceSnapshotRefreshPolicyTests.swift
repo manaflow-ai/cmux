@@ -82,8 +82,9 @@ import Testing
             url: try #require(URL(string: "https://github.com/manaflow-ai/cmux/pull/6546")),
             status: .open
         )
-        let defaults = try #require(UserDefaults(suiteName: "sidebar-summary-refresh-\(UUID())"))
-        defer { defaults.removePersistentDomain(forName: defaults.suiteName ?? "") }
+        let suiteName = "sidebar-summary-refresh-\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let factory = SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
             settings: SidebarTabItemSettingsSnapshot(defaults: defaults),

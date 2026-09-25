@@ -11946,7 +11946,7 @@ struct VerticalTabsSidebar: View, Equatable {
             models: renderContext.tabs.map(\.sidebarAgentRuntimeObservation)
         ) { workspaceId in
             guard isPresented else { return }
-            scheduleWorkspaceSummaryRefresh(workspaceId: workspaceId)
+            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
         .sidebarWorkspaceObservations(
             ids: renderContext.workspaceIds,
