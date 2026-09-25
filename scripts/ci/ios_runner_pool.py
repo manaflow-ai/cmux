@@ -93,11 +93,11 @@ never hold. On 2026-09-25 that kept the picker at "-5 of 8 free" with nine
 simulator minis idle: every run it sent to Blacksmith was charged two
 simulators, so the next run went to Blacksmith too. A run the picker put on
 the owned pool uploads the fixed-name `owned-pool-watch` marker (the rescue
-sweeper's), so one listing of that name (owned_placements()) says which runs
-took the fleet. An `auto` run without it is charged nothing once its runner
+sweeper's), so a listing of that name (owned_placements(), at most
+MARKER_PAGES pages) says which runs took the fleet. An `auto` run without it is charged nothing once its runner
 job has had PLACEMENT_GRACE_MINUTES to pick, and so is a re-run attempt,
 which always takes the retry label. A run younger than that, a listing that
-failed, or one whose page does not reach back to the run is charged in full.
+failed, or one older than the listing reaches is charged in full.
 
 Labels. ios-simulator-build and ios-simulator need the iOS runtime, and
 screenshots too, so they ask for the owned pool label and SIM_LABEL together
@@ -128,7 +128,8 @@ the runner job uploads (as for E2E). From attempt 2 on every macOS job takes
 macOS 26 pool.
 
 API budget: the E2E picker's four requests, plus one page of runs for each
-of the two iOS workflows and one page of `owned-pool-watch` markers.
+of the two iOS workflows and up to MARKER_PAGES pages of `owned-pool-watch`
+markers.
 Anything uncertain keeps the default.
 """
 from __future__ import annotations
@@ -168,6 +169,10 @@ WATCH_MARKER = "owned-pool-watch"
 # How long a run's runner job has to pick and upload that marker. An `auto` run
 # younger than this is charged in full; an older one without it is on Blacksmith.
 PLACEMENT_GRACE_MINUTES = 5
+# Pages of markers read. The name is shared with ci.yml and test-e2e.yml, so one
+# page of 100 reached back about an hour on 2026-09-25; three cover a saturated
+# Blacksmith pool's longest waits.
+MARKER_PAGES = 3
 # A glaeda runner's name: `<member>-glaeda`, or `<member>-glaeda-K` for instance K.
 RUNNER_INSTANCE_SUFFIX = re.compile(r"-glaeda(?:-\d+)?$")
 
@@ -395,9 +400,9 @@ TITLE_SEPARATOR = " · "
 
 @dataclasses.dataclass(frozen=True)
 class Placements:
-    """The runs whose picker took the owned pool, from one page of WATCH_MARKER artifacts."""
+    """The runs whose picker took the owned pool, from the newest WATCH_MARKER artifacts."""
     runs: frozenset[int]
-    # The oldest marker on a full page: a run created before it may be on an unread page.
+    # The oldest marker read when more remain: a run created before it may be on an unread page.
     since: str | None = None
 
     def off_fleet(self, run: Mapping[str, Any], now: dt.datetime) -> bool:
@@ -415,18 +420,25 @@ class Placements:
 
 
 def owned_placements(client: Any) -> Placements | None:
-    """Which runs took the owned pool (one request), or None when the markers cannot be read."""
+    """Which runs took the owned pool (MARKER_PAGES requests at most), or None when the markers cannot be read."""
+    artifacts: list[Mapping[str, Any]] = []
+    more = False
     try:
-        page = client.get(f"/actions/artifacts?name={WATCH_MARKER}&per_page={pr_runner_pool.PAGE_SIZE}")
+        for page in range(1, MARKER_PAGES + 1):
+            found = client.get(f"/actions/artifacts?name={WATCH_MARKER}&per_page={pr_runner_pool.PAGE_SIZE}"
+                               f"&page={page}").get("artifacts") or []
+            artifacts += [item for item in found if isinstance(item, Mapping)]
+            more = len(found) >= pr_runner_pool.PAGE_SIZE
+            if not more:
+                break
     except Exception as error:  # noqa: BLE001 - unknown placements are charged in full
         print(f"::warning title=owned placements::could not list {WATCH_MARKER} markers ({error})", file=sys.stderr)
         return None
-    artifacts = [item for item in (page or {}).get("artifacts") or [] if isinstance(item, Mapping)]
     runs = frozenset(int(item["workflow_run"]["id"]) for item in artifacts
                      if isinstance(item.get("workflow_run"), Mapping)
                      and isinstance(item["workflow_run"].get("id"), int))
     since = None
-    if len(artifacts) >= pr_runner_pool.PAGE_SIZE:
+    if more:
         since = min((str(item.get("created_at") or "") for item in artifacts), default="") or None
     return Placements(runs, since)
 

@@ -2504,14 +2504,23 @@ class IOSRouting(unittest.TestCase):
 
             def get(self, path):
                 self.paths.append(path)
-                return {"artifacts": self.artifacts}
+                page = int(path.rsplit("&page=", 1)[1])
+                return {"artifacts": self.artifacts[(page - 1) * pool.PAGE_SIZE:page * pool.PAGE_SIZE]}
 
         client = Client([marker(1, 3), marker(2, 9), {"name": "owned-pool-watch"}])
         placed = ios_pool.owned_placements(client)
         self.assertEqual(placed, ios_pool.Placements(frozenset({1, 2})))
-        self.assertEqual(client.paths, ["/actions/artifacts?name=owned-pool-watch&per_page=100"])
-        full = ios_pool.owned_placements(Client([marker(n, n) for n in range(1, pool.PAGE_SIZE + 1)]))
-        self.assertEqual(full.since, pool.iso(NOW - dt.timedelta(minutes=pool.PAGE_SIZE)))
+        self.assertEqual(client.paths, ["/actions/artifacts?name=owned-pool-watch&per_page=100&page=1"])
+        # A short second page ends the listing: every marker was read.
+        client = Client([marker(n, n) for n in range(1, pool.PAGE_SIZE + 6)])
+        self.assertIsNone(ios_pool.owned_placements(client).since)
+        self.assertEqual(len(client.paths), 2)
+        # MARKER_PAGES full pages leave older markers unread: runs before the oldest read are unknown.
+        pages = ios_pool.MARKER_PAGES
+        client = Client([marker(n, n) for n in range(1, pages * pool.PAGE_SIZE + 6)])
+        full = ios_pool.owned_placements(client)
+        self.assertEqual(full.since, pool.iso(NOW - dt.timedelta(minutes=pages * pool.PAGE_SIZE)))
+        self.assertEqual(len(client.paths), pages)
 
         class Broken:
             def get(self, path):
