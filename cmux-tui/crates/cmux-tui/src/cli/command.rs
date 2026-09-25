@@ -3426,6 +3426,7 @@ mod tests {
         }
     }
 
+    /// The machine `notify` accepts the macOS flag set, ignores the Mac-only ones, and validates `--desktop`.
     #[test]
     fn notify_matches_the_local_cmux_notify_signature() {
         const TERMINAL: &str = "term_00000000000000000000000000000041";

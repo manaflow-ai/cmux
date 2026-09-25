@@ -128,6 +128,7 @@ struct RemoteRelayAuthorizationPolicyTests {
         ))
     }
 
+    /// Only `notification.create_for_target` is relay-reachable, and its closed contract admits `effects`.
     @Test("relay notification delivery is confined to the targeted method")
     func notificationCreateCannotUseRehomingPath() {
         let policy = RemoteRelayAuthorizationPolicy()

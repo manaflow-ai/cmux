@@ -153,6 +153,7 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         XCTAssertEqual(envelope.notification.body, "Filtered")
     }
 
+    /// A requested `desktop: false` is what hooks receive; a hook may restore it, and a hook patching another effect leaves it alone.
     func testRequestedEffectsSeedTheHookEnvelope() async throws {
         let request = TerminalNotificationPolicyRequest(
             tabId: UUID(),
@@ -200,7 +201,9 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         XCTAssertFalse(partial.effects.sound)
     }
 
+    /// Without hooks the delivered effects are the defaults with the request's override merged in.
     func testNoHooksKeepTheRequestedEffects() async throws {
+        /// A workspace-level request carrying `effects`.
         func request(_ effects: TerminalNotificationPolicyEffectsPatch?) -> TerminalNotificationPolicyRequest {
             TerminalNotificationPolicyRequest(
                 tabId: UUID(),
@@ -219,6 +222,21 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
         XCTAssertTrue(try await evaluate(request: request(nil), hooks: []).get().effects.desktop)
         XCTAssertEqual(request(nil).baseEffects, TerminalNotificationPolicyEffects())
         XCTAssertEqual(request(.init()).baseEffects, TerminalNotificationPolicyEffects())
+    }
+
+    /// The legacy `[String: Any]` create path validates `effects` strictly: only JSON booleans, only known keys, null is absent.
+    func testLegacyEffectsParamRejectsNumbersAndStrings() {
+        XCTAssertNil(TerminalController.notificationEffects(rawParam: ["desktop": 2]))
+        XCTAssertNil(TerminalController.notificationEffects(rawParam: ["desktop": 1]))
+        XCTAssertNil(TerminalController.notificationEffects(rawParam: ["desktop": "false"]))
+        XCTAssertNil(TerminalController.notificationEffects(rawParam: ["banner": false]))
+        XCTAssertNil(TerminalController.notificationEffects(rawParam: "false"))
+        XCTAssertEqual(
+            TerminalController.notificationEffects(rawParam: ["desktop": false, "sound": true]),
+            .some(TerminalNotificationPolicyEffectsPatch(desktop: false, sound: true))
+        )
+        XCTAssertEqual(TerminalController.notificationEffects(rawParam: NSNull()), .some(nil))
+        XCTAssertEqual(TerminalController.notificationEffects(rawParam: nil), .some(nil))
     }
 
     func testHookCanFilterExistingPolicyEnvelope() async throws {
@@ -1575,6 +1593,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         }
     }
 
+    /// `addNotification(effects: desktop false)` still records an unread panel entry and hands `desktop == false` to delivery.
     func testNotifyDesktopFalseRecordsThePanelEntryWithoutABanner() throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("AppDelegate.shared must be set for this test")

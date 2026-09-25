@@ -546,6 +546,7 @@ extension ControlCommandCoordinator {
         )
     }
 
+    /// The localized message for a present but undecodable `effects` override.
     private var notificationEffectsInvalidMessage: String {
         notificationStrings.effectsInvalid
     }

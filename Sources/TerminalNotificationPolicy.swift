@@ -73,14 +73,22 @@ struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
 /// A partial effects override: what a hook emits under `effects`, and what a
 /// `cmux notify --desktop false` request carries in before hooks run.
 struct TerminalNotificationPolicyEffectsPatch: Codable, Sendable, Equatable {
+    /// Overrides `record`, the history and Notifications panel entry.
     var record: Bool?
+    /// Overrides `markUnread`, the workspace and surface unread state.
     var markUnread: Bool?
+    /// Overrides `reorderWorkspace`, the sidebar reorder.
     var reorderWorkspace: Bool?
+    /// Overrides `desktop`, the native macOS banner.
     var desktop: Bool?
+    /// Overrides `sound`.
     var sound: Bool?
+    /// Overrides `command`, the user's `notifications.command`.
     var command: Bool?
+    /// Overrides `paneFlash`, the pane ring.
     var paneFlash: Bool?
 
+    /// Creates a patch from the given field overrides; every field defaults to absent.
     init(
         record: Bool? = nil,
         markUnread: Bool? = nil,
@@ -99,6 +107,7 @@ struct TerminalNotificationPolicyEffectsPatch: Codable, Sendable, Equatable {
         self.paneFlash = paneFlash
     }
 
+    /// Returns `effects` with every present field of this patch applied.
     func merged(into effects: TerminalNotificationPolicyEffects) -> TerminalNotificationPolicyEffects {
         var merged = effects
         if let record {
@@ -286,6 +295,7 @@ struct TerminalNotificationPolicyRequest: Sendable {
     /// keeps the policy defaults. Hooks receive the merged result as the
     /// envelope's starting effects and may still override it.
     let effects: TerminalNotificationPolicyEffectsPatch?
+    /// Creates a request; the defaulted parameters describe optional caller context.
     init(
         tabId: UUID,
         surfaceId: UUID?,
@@ -337,6 +347,7 @@ struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
 enum TerminalNotificationPolicyEngine {
     private static let maxOutputBytes = 1_048_576
 
+    /// Builds the hook envelope for `request`, seeded with the request's base effects, and runs `hooks` over it in order.
     #if compiler(>=6.2)
     @concurrent
     #else

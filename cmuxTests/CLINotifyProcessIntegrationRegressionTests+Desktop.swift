@@ -45,6 +45,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(createRequestLines(in: state).count, requestsBeforeRejection, "a rejected flag must not post anything")
     }
 
+    /// Runs `cmux notify` with `arguments` against the mock socket, with a caller workspace and surface in the environment.
     private func runNotify(cliPath: String, socketPath: String, arguments: [String]) -> ProcessRunResult {
         runProcess(
             executablePath: cliPath,
@@ -69,6 +70,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    /// Answers every create request with a fixed delivery and every other request with an empty success.
     private func notifyMockResponse(line: String) -> String {
         guard let payload = jsonObject(line) else {
             return "OK"

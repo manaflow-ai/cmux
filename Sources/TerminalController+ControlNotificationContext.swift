@@ -12,6 +12,7 @@ import Foundation
 /// own self-contained resolver (`TerminalNotificationCallerResolver.swift`) and
 /// stays on the legacy app-side dispatcher.
 extension TerminalController: ControlNotificationContext {
+    /// `notification.create`: resolve the workspace and surface from `routing`, re-home a moved surface, and deliver.
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
         explicitSurfaceID: UUID?,
@@ -70,6 +71,7 @@ extension TerminalController: ControlNotificationContext {
         )
     }
 
+    /// `notification.create_for_surface`: deliver to a required surface, re-homing it when it moved.
     func controlNotificationCreateForSurface(
         routing: ControlRoutingSelectors,
         surfaceID: UUID,
@@ -166,6 +168,7 @@ extension TerminalController: ControlNotificationContext {
         )
     }
 
+    /// `notification.create_for_target`: deliver to a required workspace and surface without re-homing.
     func controlNotificationCreateForTarget(
         routing: ControlRoutingSelectors,
         workspaceID: UUID,
@@ -355,6 +358,7 @@ extension TerminalController: ControlNotificationContext {
         return .cleared(workspaceID: target.workspaceId, surfaceID: target.surfaceId)
     }
 
+    /// The notification-domain error messages, resolved against the app catalog.
     var notificationStrings: ControlNotificationStrings {
         ControlNotificationStrings(
             dismissSelectorRequired: String(
@@ -502,6 +506,7 @@ extension TerminalController: ControlNotificationContext {
 }
 
 extension TerminalNotificationPolicyEffectsPatch {
+    /// Converts the socket wire patch into the policy patch field by field.
     init(wire: ControlNotificationEffectsPatch) {
         self.init(
             record: wire.record,
@@ -516,6 +521,7 @@ extension TerminalNotificationPolicyEffectsPatch {
 }
 
 extension TerminalController {
+    /// The policy patch for a decoded wire override, or `nil` when the request carried none.
     func notificationEffects(_ wire: ControlNotificationEffectsPatch?) -> TerminalNotificationPolicyEffectsPatch? {
         wire.map(TerminalNotificationPolicyEffectsPatch.init(wire:))
     }
@@ -523,7 +529,7 @@ extension TerminalController {
     /// The `effects` override in a legacy `[String: Any]` request, validated the
     /// same way the coordinator validates the typed form: `.some(nil)` when the
     /// key is absent or JSON null, `nil` when it is present but undecodable.
-    func notificationEffects(rawParam raw: Any?) -> TerminalNotificationPolicyEffectsPatch?? {
+    nonisolated static func notificationEffects(rawParam raw: Any?) -> TerminalNotificationPolicyEffectsPatch?? {
         guard let raw, !(raw is NSNull) else { return .some(nil) }
         guard let json = JSONValue(foundationObject: raw),
               let wire = ControlNotificationEffectsPatch(json: json) else { return nil }

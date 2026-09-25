@@ -1096,6 +1096,7 @@ final class TerminalNotificationStore: ObservableObject {
         inFlightPolicyRequests.discard(policyRequestId)
     }
 
+    /// Records a notification for the target, running the resolved notification hooks first when there are any; returns the id once the entry is recorded synchronously.
     @discardableResult
     func addNotification(
         tabId: UUID,
@@ -1361,6 +1362,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// Resolves focus, cwd, hooks and the policy request for one notification.
     private func makeNotificationPolicyContext(
         tabId: UUID,
         surfaceId: UUID?,

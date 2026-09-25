@@ -10,6 +10,7 @@ import Foundation
 /// from `TerminalNotificationQueue.swift` for the file-length budget.
 
 extension TerminalController {
+    /// Delivers a trusted notification now, following its surface to the workspace that currently owns it unless the caller confined the target.
     @discardableResult
     func deliverNotificationSynchronously(
         tabId: UUID,

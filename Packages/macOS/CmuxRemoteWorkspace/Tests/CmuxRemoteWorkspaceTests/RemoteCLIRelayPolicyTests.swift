@@ -331,6 +331,7 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    /// A relayed `create_for_target` with `effects` reaches the local socket with the override intact.
     @Test("notification.create_for_target carrying an effects override is forwarded")
     func allowsNotificationCreateForTargetWithEffects() throws {
         let localWorkspace = UUID()

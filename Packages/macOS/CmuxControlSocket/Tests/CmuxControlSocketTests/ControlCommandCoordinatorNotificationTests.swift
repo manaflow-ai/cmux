@@ -16,6 +16,7 @@ private final class NotificationControlCommandContext: ControlCommandContext {
     /// absent or null key so it stays distinguishable from an explicit patch.
     private(set) var createEffects: [ControlNotificationEffectsPatch?] = []
 
+    /// Records the forwarded effects override and reports a fixed delivery.
     func controlNotificationCreate(
         routing: ControlRoutingSelectors,
         explicitSurfaceID: UUID?,
@@ -33,6 +34,7 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         )
     }
 
+    /// Records the forwarded effects override and reports a fixed delivery.
     func controlNotificationCreateForSurface(
         routing: ControlRoutingSelectors,
         surfaceID: UUID,
@@ -51,6 +53,7 @@ private final class NotificationControlCommandContext: ControlCommandContext {
         )
     }
 
+    /// Records the forwarded effects override and reports a fixed delivery.
     func controlNotificationCreateForTarget(
         routing: ControlRoutingSelectors,
         workspaceID: UUID,
@@ -165,6 +168,7 @@ struct ControlCommandCoordinatorNotificationTests {
         #expect(payload["id"] == .string(context.notificationID.uuidString))
     }
 
+    /// Every create verb hands the decoded `effects` patch to the context, and an absent or null key hands `nil`.
     @Test func createForwardsTheEffectsOverrideToTheContext() throws {
         let context = NotificationControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -200,6 +204,7 @@ struct ControlCommandCoordinatorNotificationTests {
         .string("false"),
         .bool(false),
     ])
+    /// A present `effects` value that is not an object of known boolean fields is `invalid_params` and reaches no context.
     func createRejectsAnUndecodableEffectsOverride(effects: JSONValue) throws {
         let context = NotificationControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

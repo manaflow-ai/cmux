@@ -3,14 +3,22 @@
 /// optional; an absent field keeps the policy default, and hooks still run
 /// afterwards and may override what the caller asked for.
 public struct ControlNotificationEffectsPatch: Codable, Sendable, Equatable {
+    /// Whether the notification is kept in history and the Notifications panel.
     public var record: Bool?
+    /// Whether the notification marks its workspace and surface unread.
     public var markUnread: Bool?
+    /// Whether the notification moves its workspace up in the sidebar.
     public var reorderWorkspace: Bool?
+    /// Whether the notification posts a native macOS banner.
     public var desktop: Bool?
+    /// Whether the notification plays its sound.
     public var sound: Bool?
+    /// Whether the notification runs the user's `notifications.command`.
     public var command: Bool?
+    /// Whether the notification flashes its pane ring.
     public var paneFlash: Bool?
 
+    /// Creates a patch from the given field overrides; every field defaults to absent.
     public init(
         record: Bool? = nil,
         markUnread: Bool? = nil,
