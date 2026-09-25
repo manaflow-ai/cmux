@@ -148,6 +148,18 @@ build() {
   local -a schemes=()
   read -r -a schemes <<<"$(python3 "$SCRIPT_DIR/product_input_identity.py" schemes)"
   [ "${#schemes[@]}" -gt 0 ] || { echo "empty product profile scheme list" >&2; exit 1; }
+  # cmuxTests builds without the compilation cache. Under the cache its driver
+  # regenerates cmuxTests-*-ChainedBridgingHeader.h (the app's bridging header,
+  # reached through @testable import) on every build, and that newer header
+  # invalidates all ~1,100 inputs: a one-test-file edit recompiled every file
+  # (1,355 CPU s). Without the cache the driver's incremental build works: the
+  # same edit compiled one task and cmuxTests took 31 s instead of 139 s
+  # (#14249, run 36081880621, 12vcpu). Command-line settings are evaluated per
+  # target, so every other target keeps the cache and its arguments.
+  local -a cache_setting=(
+    'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)'
+    CMUX_CI_COMPILATION_CACHE_cmuxTests=NO
+  )
   # shellcheck disable=SC2016 # Xcode expands $(inherited), not the shell
   for scheme in "${schemes[@]}"; do
     FileSystemMode="$XCBUILD_FILE_SYSTEM_MODE" xcodebuild -project cmux.xcodeproj -scheme "$scheme" -configuration Debug \
@@ -157,7 +169,7 @@ build() {
       -destination "platform=macOS" \
       'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_CI_APP_HOST_ISOLATION_REQUIRED' \
       'LD_RUNPATH_SEARCH_PATHS=$(inherited) @executable_path/../Frameworks /private/tmp/cmux-app-host-package-frameworks' \
-      COMPILATION_CACHE_ENABLE_CACHING=YES \
+      "${cache_setting[@]}" \
       "COMPILATION_CACHE_CAS_PATH=$cas_path" \
       "COMPILATION_CACHE_LIMIT_SIZE=$cache_limit_bytes" \
       ${module_cache_setting[@]+"${module_cache_setting[@]}"} \

@@ -200,7 +200,8 @@ for expected in \
   cmux-cli-tests \
   build-for-testing \
   -showBuildTimingSummary \
-  COMPILATION_CACHE_ENABLE_CACHING=YES \
+  'COMPILATION_CACHE_ENABLE_CACHING=$(CMUX_CI_COMPILATION_CACHE_$(TARGET_NAME):default=YES)' \
+  CMUX_CI_COMPILATION_CACHE_cmuxTests=NO \
   "COMPILATION_CACHE_CAS_PATH=$TMP_DIR/cas" \
   "$TMP_DIR/derived" \
   "$TMP_DIR/packages"; do
