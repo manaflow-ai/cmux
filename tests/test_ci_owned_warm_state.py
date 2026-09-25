@@ -40,8 +40,9 @@ def artifact(artifact_id: int, run_id: int, *, created="2026-09-25T19:00:00Z", f
                              "head_branch": "main"}}
 
 
-def admission(runner: str):
-    return [{"name": "changes", "runner_name": "blacksmith-1"}, {"name": ADMISSION, "runner_name": runner}]
+def admission(runner: str, workflow="CI"):
+    return [{"name": "changes", "runner_name": "blacksmith-1", "workflow_name": workflow},
+            {"name": ADMISSION, "runner_name": runner, "workflow_name": workflow}]
 
 
 def zipped(name: str, document) -> bytes:
@@ -69,7 +70,10 @@ class FakeClient:
 
     def download(self, item):
         self.calls.append(item["archive_download_url"])
-        return self.blobs[item["id"]]
+        blob = self.blobs[item["id"]]
+        if isinstance(blob, Exception):
+            raise blob
+        return blob
 
 
 def snapshot_artifact(warm, artifact_id=500):
@@ -93,6 +97,8 @@ class Pure(unittest.TestCase):
         self.assertIsInstance(state.record({"runner": "x", "keys": [A]}, [{"name": "changes", "runner_name": "x"}]),
                               str)
         self.assertIsInstance(state.record([A], admission("x")), str)
+        # Admission of another workflow proves nothing.
+        self.assertIsInstance(state.record({"runner": "x", "keys": [A]}, admission("x", workflow="Other")), str)
 
     def test_new_artifacts_are_newer_same_repository_and_capped(self):
         listed = [artifact(9, 1), artifact(10, 2, fork=True), artifact(11, 3, expired=True), artifact(12, 4),
@@ -101,7 +107,9 @@ class Pure(unittest.TestCase):
         self.assertEqual([item["id"] for item in state.new_artifacts({}, listed)], [9, 12])
         many = [artifact(index, index) for index in range(1, 40)]
         picked = state.new_artifacts({}, many)
-        self.assertEqual([item["id"] for item in picked], list(range(40 - state.MAX_NEW, 40)))
+        # The oldest first, so a backlog drains over later sweeps.
+        self.assertEqual([item["id"] for item in picked], list(range(1, 1 + state.MAX_NEW)))
+        self.assertEqual(state.new_artifacts({"through": "junk"}, [artifact(3, 3)])[0]["id"], 3)
 
     def test_fold_keeps_each_runners_newest_admission_and_drops_old_entries(self):
         previous = {"through": 5, "runners": {"r1": {"keys": [A], "at": "2026-09-25T10:00:00Z"},
@@ -148,6 +156,34 @@ class Sweep(unittest.TestCase):
                             blobs={1: b"not a zip"})
         result = state.sweep(client, {}, NOW, log=lambda _: None)
         self.assertEqual(result, {"through": 1, "runners": {}})
+
+    def test_a_failed_request_stops_the_fold_for_a_retry(self):
+        client = FakeClient(artifacts=[artifact(1, 301), artifact(2, 302), artifact(3, 303)],
+                            jobs={301: admission("r1"), 302: admission("r2"), 303: admission("r3")},
+                            blobs={1: zipped("warm-keys.json", {"runner": "r1", "keys": [A]}),
+                                   2: OSError("timed out"),
+                                   3: zipped("warm-keys.json", {"runner": "r3", "keys": [C]})})
+        result = state.sweep(client, {}, NOW, log=lambda _: None)
+        self.assertEqual((result["through"], list(result["runners"])), (1, ["r1"]))
+
+    def test_a_failed_listing_keeps_the_previous_state(self):
+        previous, blob = snapshot_artifact({"through": 20, "runners": {"r1": {"keys": [A], "at": "2026-09-25T18:00:00Z"}}})
+
+        class Failing(FakeClient):
+            def get(self, path):
+                if "owned-warm-keys" in path:
+                    raise OSError("500")
+                return super().get(path)
+        result = state.sweep(Failing(snapshots=[previous], blobs={500: blob}), {}, NOW, log=lambda _: None)
+        self.assertEqual(result, {"through": 20, "runners": {"r1": {"keys": [A], "at": "2026-09-25T18:00:00Z"}}})
+
+    def test_a_snapshot_without_warm_falls_back_to_the_one_before(self):
+        newer, newer_blob = snapshot_artifact({}, artifact_id=501)
+        newer_blob = zipped("macos-pool-load.json", {"pools": {}})
+        newer["created_at"] = "2026-09-25T19:50:00Z"
+        older, older_blob = snapshot_artifact({"through": 7, "runners": {}}, artifact_id=500)
+        client = FakeClient(snapshots=[older, newer], blobs={500: older_blob, 501: newer_blob})
+        self.assertEqual(state.previous_warm(client), {"through": 7, "runners": {}})
 
     def test_an_untrusted_or_unreadable_previous_snapshot_starts_fresh(self):
         fork, _ = snapshot_artifact({"through": 50, "runners": {}})

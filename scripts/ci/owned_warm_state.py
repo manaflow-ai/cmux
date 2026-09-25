@@ -63,9 +63,25 @@ ADMISSION_JOB = "macOS compile admission"
 # Keys one runner keeps at most: its kept build's merge base and a few
 # commits past it that still build cheaply from it.
 MAX_KEYS = 4
-# Artifacts folded per sweep; the rest wait for the next one.
+# ci.yml's display name: admission of any other workflow proves nothing.
+CI_WORKFLOW = "CI"
+# Artifacts folded per sweep, oldest first; the rest wait for the next one.
 MAX_NEW = 12
 MAX_AGE_HOURS = 24
+MAX_JOB_PAGES = 3
+# Previous snapshots read, newest first, for the last one that has `warm`.
+MAX_PREVIOUS = 3
+
+
+class Transient(Exception):
+    """A request failed; the sweep stops before this artifact and retries it next time."""
+
+
+def through_of(warm: Mapping[str, Any]) -> int:
+    value = warm.get("through")
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
 def keys(document: Any) -> list[str]:
     """The artifact's valid keys, deduplicated in order, at most MAX_KEYS."""
     raw = document.get("keys") if isinstance(document, Mapping) else None
@@ -81,7 +97,8 @@ def admission_job(jobs: Sequence[Mapping[str, Any]]) -> Mapping[str, Any] | None
     """The run's compile admission job that ran on a runner, or None."""
     for job in jobs:
         name = str(job.get("name") or "")
-        if (name == ADMISSION_JOB or name.endswith(" / " + ADMISSION_JOB)) and job.get("runner_name"):
+        if ((name == ADMISSION_JOB or name.endswith(" / " + ADMISSION_JOB)) and job.get("runner_name")
+                and job.get("workflow_name") == CI_WORKFLOW):
             return job
     return None
 
@@ -99,13 +116,13 @@ def same_repository(artifact: Mapping[str, Any]) -> bool:
 
 
 def new_artifacts(previous: Mapping[str, Any], artifacts: Sequence[Any]) -> list[Mapping[str, Any]]:
-    """The artifacts to fold this sweep, oldest first: newer than `through`, at most the newest MAX_NEW."""
-    through = int(previous.get("through") or 0)
+    """The artifacts to fold this sweep, oldest first: newer than `through`, at most MAX_NEW."""
+    through = through_of(previous)
     fresh = [artifact for artifact in artifacts
              if isinstance(artifact, Mapping) and not artifact.get("expired")
              and artifact.get("name") == ARTIFACT_NAME and isinstance(artifact.get("id"), int)
              and artifact["id"] > through and same_repository(artifact)]
-    return sorted(fresh, key=lambda artifact: artifact["id"])[-MAX_NEW:]
+    return sorted(fresh, key=lambda artifact: artifact["id"])[:MAX_NEW]
 
 
 def record(document: Any, jobs: Sequence[Mapping[str, Any]]) -> tuple[str, list[str]] | str:
@@ -129,7 +146,7 @@ def fold(previous: Mapping[str, Any], folded: Sequence[tuple[Mapping[str, Any], 
         if isinstance(entry, Mapping) and isinstance(entry.get("keys"), list):
             runners[str(name)] = {"keys": [key for key in entry["keys"] if warm_key(str(key)) == key][:MAX_KEYS],
                                   "at": str(entry.get("at") or "")}
-    through = int(previous.get("through") or 0)
+    through = through_of(previous)
     for artifact, proved in folded:
         through = max(through, int(artifact["id"]))
         if isinstance(proved, tuple):
@@ -145,39 +162,72 @@ def sweep(client: Any, jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], n
           log: Callable[[str], None] = print) -> dict[str, Any]:
     """The snapshot's new `warm`: the previous one plus the artifacts uploaded since.
 
-    `client` is a pr_runner_pool.GitHub (get() and download()). Raises what
-    the listing raises; a single artifact that cannot be read is skipped.
+    `client` is a pr_runner_pool.GitHub (get() and download()). Raises when
+    no previous snapshot can be read (the janitor then leaves `warm` out, and
+    the next sweep reads the older one). A request that fails stops the fold
+    before that artifact, which the next sweep retries; an artifact that is
+    read but proves nothing is passed over for good.
     """
     previous = previous_warm(client)
-    listed = client.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page=100").get("artifacts") or []
+    try:
+        listed = client.get(f"/actions/artifacts?name={ARTIFACT_NAME}&per_page=100").get("artifacts") or []
+    except (OSError, ValueError, RuntimeError) as error:
+        log(f"owned warm state: listing failed ({type(error).__name__}); keeping the previous state")
+        return fold(previous, [], now)
     folded: list[tuple[Mapping[str, Any], tuple[str, list[str]] | str]] = []
     for artifact in new_artifacts(previous, listed):
         run_id = int((artifact.get("workflow_run") or {}).get("id") or 0)
         try:
-            jobs = jobs_by_run.get(run_id)
-            if jobs is None:
-                jobs = client.get(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs") or []
-            archive = zipfile.ZipFile(io.BytesIO(client.download(artifact)))
-            proved = record(json.loads(archive.read(KEYS_FILE)), jobs)
-        except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile) as error:
-            proved = f"unreadable ({type(error).__name__})"
+            proved = read(client, artifact, jobs_by_run.get(run_id), run_id)
+        except Transient as error:
+            log(f"owned warm state: run {run_id} artifact {artifact['id']}: {error}; retried next sweep")
+            break
         log(f"owned warm state: run {run_id} artifact {artifact['id']}: "
             + (f"{proved[0]} keeps {', '.join(proved[1]) or 'no keys'}" if isinstance(proved, tuple) else proved))
         folded.append((artifact, proved))
     return fold(previous, folded, now)
 
 
-def previous_warm(client: Any) -> Mapping[str, Any]:
-    """The newest trusted janitor snapshot's `warm`, or {} (then this sweep starts fresh)."""
-    listed = client.get(f"/actions/artifacts?name={SNAPSHOT_ARTIFACT}&per_page=20").get("artifacts") or []
-    trusted = [artifact for artifact in listed
-               if isinstance(artifact, Mapping) and trusted_snapshot_artifact(artifact, SNAPSHOT_BRANCH)]
-    if not trusted:
-        return {}
-    newest = max(trusted, key=lambda artifact: str(artifact.get("created_at") or ""))
+def read(client: Any, artifact: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]] | None,
+         run_id: int) -> tuple[str, list[str]] | str:
+    """record() for one artifact. Raises Transient when a request fails."""
     try:
-        document = json.loads(zipfile.ZipFile(io.BytesIO(client.download(newest))).read(SNAPSHOT_FILE))
-    except (OSError, ValueError, KeyError, RuntimeError, zipfile.BadZipFile):
-        return {}
-    warm = document.get("warm") if isinstance(document, Mapping) else None
-    return warm if isinstance(warm, Mapping) else {}
+        if jobs is None:
+            jobs = []
+            for page in range(1, MAX_JOB_PAGES + 1):
+                batch = client.get(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100&page={page}"
+                                   ).get("jobs") or []
+                jobs.extend(job for job in batch if isinstance(job, Mapping))
+                if len(batch) < 100:
+                    break
+        blob = client.download(artifact)
+    except (OSError, ValueError, RuntimeError) as error:
+        raise Transient(f"request failed ({type(error).__name__})") from error
+    try:
+        document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(KEYS_FILE))
+    except (ValueError, KeyError, zipfile.BadZipFile) as error:
+        return f"unreadable ({type(error).__name__})"
+    return record(document, jobs)
+
+
+def previous_warm(client: Any) -> Mapping[str, Any]:
+    """The `warm` of the newest trusted janitor snapshot that has one, or {} when none does.
+
+    A sweep that failed publishes a snapshot without `warm`, so the older
+    ones are read too (at most MAX_PREVIOUS). Raises when a request fails,
+    rather than start over from nothing.
+    """
+    listed = client.get(f"/actions/artifacts?name={SNAPSHOT_ARTIFACT}&per_page=20").get("artifacts") or []
+    trusted = sorted((artifact for artifact in listed
+                      if isinstance(artifact, Mapping) and trusted_snapshot_artifact(artifact, SNAPSHOT_BRANCH)),
+                     key=lambda artifact: str(artifact.get("created_at") or ""), reverse=True)
+    for artifact in trusted[:MAX_PREVIOUS]:
+        blob = client.download(artifact)
+        try:
+            document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(SNAPSHOT_FILE))
+        except (ValueError, KeyError, zipfile.BadZipFile):
+            continue
+        warm = document.get("warm") if isinstance(document, Mapping) else None
+        if isinstance(warm, Mapping):
+            return warm
+    return {}
