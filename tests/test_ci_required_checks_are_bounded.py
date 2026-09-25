@@ -116,8 +116,8 @@ def check_macos_15_pull_request_lane() -> str | None:
     lane = jobs.get("macos-15-unit-tests")
     if not isinstance(lane, dict):
         return "ci.yml has no macos-15-unit-tests job"
-    if lane.get("uses") != "./.github/workflows/test-macos-suite.yml":
-        return "macos-15-unit-tests must call test-macos-suite.yml"
+    if lane.get("uses") != "./.github/workflows/test-macos-unit-suite.yml":
+        return "macos-15-unit-tests must call test-macos-unit-suite.yml"
     if lane.get("if") is not None:
         return "macos-15-unit-tests must not be path-gated"
     if lane.get("with", {}).get("skip_unit_tests") is not False:

@@ -108,7 +108,7 @@ the same cost profile or the same urgency.
   pool by default), including fork pull requests. This lane is independent of
   the path router so Foundation behavior changes stay visible even when a diff
   does not select the routed app-host suite.
-- **Test-only lanes** (`test-e2e.yml`, `test-macos-suite.yml`, `test-ios.yml`
+- **Test-only lanes** (`test-e2e.yml`, `test-macos-suite.yml`, `test-macos-unit-suite.yml`, `test-ios.yml`
   on `auto`, the `iroh-v2.yml` client) resolve through
   `MACOS_RUNNER_TESTS` first, and deliberately do **not** follow `MACOS_RUNNER_15`.
   Setting it moves every test lane off a backed-up pool in one edit without
