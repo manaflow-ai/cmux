@@ -184,8 +184,8 @@ allowed = {
     # The owned-pool rescue marker: without it the run is only not watched.
     ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
     ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
-    # Its dispatch: without it the run is only not watched.
-    ("owned-pool-watch", None, "Dispatch the persistent pool rescue", ""),
+    # The sweeper's fixed-name marker: without it the run is only not watched.
+    ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
