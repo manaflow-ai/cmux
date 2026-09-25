@@ -31153,7 +31153,7 @@ struct CMUXCLI {
         )
     }
 
-    private func agentNeedsInputStatusValue(for def: AgentHookDef) -> String {
+    func agentNeedsInputStatusValue(for def: AgentHookDef) -> String {
         if def.name == "amp" {
             return String(localized: "feed.status.needsInput", defaultValue: "Needs input")
         }
