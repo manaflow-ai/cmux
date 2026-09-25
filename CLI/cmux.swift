@@ -33820,6 +33820,45 @@ export default CMUXSessionRestore;
         rawInputOverride: String? = nil,
         hookDeadline: Date? = nil
     ) throws {
+        // The Codex rollout monitor replays a dropped Stop through the hook
+        // body. Dispatch it here, outside that body, so only one of its very
+        // large (unoptimized ~200 KB) frames is live on the 512 KB task
+        // thread; re-entering the body from inside itself overflowed the stack.
+        if def.name == "codex", commandArgs.first?.lowercased() == "monitor" {
+            telemetry.breadcrumb("codex-hook.monitor")
+            try runCodexTranscriptMonitor(commandArgs: Array(commandArgs.dropFirst()), client: client) { replay in
+                try runGenericAgentHookBody(
+                    def: def,
+                    commandArgs: replay.commandArguments,
+                    client: client,
+                    telemetry: telemetry,
+                    socketPassword: socketPassword,
+                    rawInputOverride: replay.payload,
+                    hookDeadline: hookDeadline
+                )
+            }
+            return
+        }
+        try runGenericAgentHookBody(
+            def: def,
+            commandArgs: commandArgs,
+            client: client,
+            telemetry: telemetry,
+            socketPassword: socketPassword,
+            rawInputOverride: rawInputOverride,
+            hookDeadline: hookDeadline
+        )
+    }
+
+    private func runGenericAgentHookBody(
+        def: AgentHookDef,
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry,
+        socketPassword: String?,
+        rawInputOverride: String?,
+        hookDeadline: Date?
+    ) throws {
         let env = ProcessInfo.processInfo.environment
         let skipCodexLegacyPromptStop = env["CMUX_CODEX_SETTLED_CHILD_STOP"] == "1"
         let isCodexSettledStopRetry = skipCodexLegacyPromptStop
@@ -33856,21 +33895,6 @@ export default CMUXSessionRestore;
                     throw error
                 }
             }
-        }
-
-        if def.name == "codex", subcommand == "monitor" {
-            try runCodexTranscriptMonitor(commandArgs: hookArgs, client: client) { replay in
-                try runGenericAgentHook(
-                    def: def,
-                    commandArgs: replay.commandArguments,
-                    client: client,
-                    telemetry: telemetry,
-                    socketPassword: socketPassword,
-                    rawInputOverride: replay.payload,
-                    hookDeadline: hookDeadline
-                )
-            }
-            return
         }
 
         if def.name == "codex", subcommand == "sync-native-title" {
@@ -35175,22 +35199,58 @@ export default CMUXSessionRestore;
                 // id per event, which would fork a duplicate child. The frame
                 // below carries the stable child id instead.
                 didSendFeedTelemetry = true
-                let childStarts: Bool
-                if case .codexSubagentStart = action {
-                    childStarts = true
-                } else {
-                    childStarts = false
+                let agentId = input.rawObject.flatMap {
+                    firstString(in: $0, keys: ["agent_id", "agentId"])
+                } ?? input.object.flatMap {
+                    firstString(in: $0, keys: ["agent_id", "agentId"])
                 }
-                sendHeadlessSubagentFeedEvent(
-                    source: def.name,
-                    sessionId: sessionId,
-                    input: input,
-                    target: target,
-                    cwd: hookCwd,
-                    childStarts: childStarts,
-                    client: client,
-                    socketPassword: socketPassword
-                )
+                let childLabel = input.rawObject.flatMap {
+                    firstString(in: $0, keys: ["description"])
+                } ?? input.object.flatMap {
+                    firstString(in: $0, keys: ["description"])
+                }
+                let childStarts = {
+                    if case .codexSubagentStart = action { return true }
+                    return false
+                }()
+                if !sessionId.isEmpty,
+                   let workstreamID = Self.feedWorkstreamID(source: def.name, sessionID: sessionId) {
+                    var childEvent: [String: Any] = [
+                        "session_id": workstreamID,
+                        "hook_event_name": childStarts ? "SubagentStart" : "SubagentStop",
+                        "_source": def.name,
+                    ]
+                    if let agentId {
+                        childEvent["_opencode_request_id"] = agentId
+                    }
+                    if let workspaceId = target?.workspaceId {
+                        childEvent["workspace_id"] = workspaceId
+                    }
+                    if let surfaceId = target?.surfaceId, !surfaceId.isEmpty {
+                        childEvent["surface_id"] = surfaceId
+                    }
+                    if let cwd = hookCwd, !cwd.isEmpty {
+                        childEvent["cwd"] = cwd
+                    }
+                    if childStarts, let childLabel {
+                        childEvent["tool_input"] = ["description": childLabel]
+                    }
+                    let frame: [String: Any] = [
+                        "method": "feed.push",
+                        "params": [
+                            "event": childEvent,
+                            "wait_timeout_seconds": 0,
+                        ],
+                    ]
+                    if let data = try? JSONSerialization.data(withJSONObject: frame),
+                       let line = String(data: data, encoding: .utf8) {
+                        sendBestEffortFeedTelemetry(
+                            socketPath: client.socketPath,
+                            line: line,
+                            socketPassword: socketPassword
+                        )
+                    }
+                }
                 emitJournal(
                     childStarts ? .childSpawned : .childCompleted,
                     workspaceId: target?.workspaceId,
@@ -37148,74 +37208,6 @@ export default CMUXSessionRestore;
     }
 
     // MARK: - Feed telemetry helper
-
-    /// Pushes one OMP/Pi headless subagent lifecycle frame to the feed, keyed by
-    /// the stable child `agent_id` so start and stop land on the same child.
-    ///
-    /// Kept out of `runGenericAgentHook` on purpose: that function's unoptimized
-    /// frame is already large, and the Codex transcript monitor re-enters it on
-    /// the same (512 KB) task thread, so every extra local there costs stack twice.
-    private func sendHeadlessSubagentFeedEvent(
-        source: String,
-        sessionId: String,
-        input: ClaudeHookParsedInput,
-        target: (workspaceId: String, surfaceId: String)?,
-        cwd: String?,
-        childStarts: Bool,
-        client: SocketClient,
-        socketPassword: String?
-    ) {
-        guard !sessionId.isEmpty,
-              let workstreamID = Self.feedWorkstreamID(source: source, sessionID: sessionId) else {
-            return
-        }
-        let agentId = input.rawObject.flatMap {
-            firstString(in: $0, keys: ["agent_id", "agentId"])
-        } ?? input.object.flatMap {
-            firstString(in: $0, keys: ["agent_id", "agentId"])
-        }
-        let childLabel = input.rawObject.flatMap {
-            firstString(in: $0, keys: ["description"])
-        } ?? input.object.flatMap {
-            firstString(in: $0, keys: ["description"])
-        }
-        var childEvent: [String: Any] = [
-            "session_id": workstreamID,
-            "hook_event_name": childStarts ? "SubagentStart" : "SubagentStop",
-            "_source": source,
-        ]
-        if let agentId {
-            childEvent["_opencode_request_id"] = agentId
-        }
-        if let workspaceId = target?.workspaceId {
-            childEvent["workspace_id"] = workspaceId
-        }
-        if let surfaceId = target?.surfaceId, !surfaceId.isEmpty {
-            childEvent["surface_id"] = surfaceId
-        }
-        if let cwd, !cwd.isEmpty {
-            childEvent["cwd"] = cwd
-        }
-        if childStarts, let childLabel {
-            childEvent["tool_input"] = ["description": childLabel]
-        }
-        let frame: [String: Any] = [
-            "method": "feed.push",
-            "params": [
-                "event": childEvent,
-                "wait_timeout_seconds": 0,
-            ],
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame),
-              let line = String(data: data, encoding: .utf8) else {
-            return
-        }
-        sendBestEffortFeedTelemetry(
-            socketPath: client.socketPath,
-            line: line,
-            socketPassword: socketPassword
-        )
-    }
 
     /// Best-effort `feed.push` call used by the per-agent hook handlers
     /// so session-start / prompt-submit / stop events show up in Feed's
