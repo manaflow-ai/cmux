@@ -15,13 +15,18 @@ public struct CodexWriterProcessInspector: Sendable {
     private let uptime: @Sendable () -> TimeInterval
     private let maximumDuration: TimeInterval
 
-    /// Creates a bounded, read-only process inspector.
+    /// Creates a read-only inspector with the system census and a two-second budget.
+    public init() {
+        self.init(processIDs: { Self.userProcessIDs() })
+    }
+
+    /// Creates a bounded, read-only process inspector with injected discovery.
     /// - Parameters:
     ///   - processIDs: Process census; tests can restrict discovery to fixture processes.
     ///   - uptime: Monotonic time source, injected to make deadline tests deterministic.
     ///   - maximumDuration: Discovery budget in seconds; production defaults to two.
     public init(
-        processIDs: @escaping @Sendable () -> [Int32] = { CodexWriterProcessInspector.userProcessIDs() },
+        processIDs: @escaping @Sendable () -> [Int32],
         uptime: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
         maximumDuration: TimeInterval = 2
     ) {
