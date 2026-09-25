@@ -15930,6 +15930,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        if matchConfiguredShortcut(event: event, action: .focusHistoryLast) {
+            if performFocusedDockShortcut(
+                .focusHistoryLast,
+                action: .focusHistoryLast,
+                event: event
+            ) {
+                return true
+            }
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if routedManager?.navigateToLastFocused() != true {
+                NSSound.beep()
+            }
+            return true
+        }
+
         if matchConfiguredShortcut(event: event, action: .toggleBrowserFocusMode) {
             // Reached only when focus mode is off (the active-focus-mode bypass
             // returns earlier), so this enters focus mode for the focused browser.
