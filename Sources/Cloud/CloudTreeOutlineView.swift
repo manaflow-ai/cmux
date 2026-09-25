@@ -1,7 +1,9 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import SwiftUI
 /// The Cloud catalog outline: local workspaces, then machine workspaces and resources. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
@@ -27,6 +29,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
+    var source: CloudTreeMachineSource = .cloud
+    var devicesSection: CloudTreeDevicesSection = .init()
+    var reveal: CloudTreeRevealRequest? = nil
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
     /// A terminal rename needs a stable daemon tab placement. A terminal row
@@ -66,8 +71,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             snapshot: snapshot,
             localWorkspaces: localWorkspaces,
             unreadTerminalIDs: unreadTerminalIDs,
-            pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id))
+            pinnedMachineIDs: Set(machines.filter(\.isPinned).map(\.id)),
+            source: source,
+            devicesSection: devicesSection
         ))
+        context.coordinator.reveal(reveal)
     }
     // MARK: - Coordinator
     @MainActor
@@ -88,6 +96,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// Workspaces the catalog has admitted for deletion but not confirmed.
         var pendingWorkspaceDeletions: [SurfaceMachineID: Set<String>] = [:]
         private let deletionPresentation = CloudTreeDeletionPresentation()
+        private var lastRevealToken: UUID?
         private var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
         // NSDraggingItem retains the writer for the live native session. A weak
@@ -356,6 +365,24 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             body()
             isUpdatingProgrammatically = false
         }
+
+        func reveal(_ request: CloudTreeRevealRequest?) {
+            guard let request, request.token != lastRevealToken, let outlineView,
+                  let path = request.path(in: nodes), let node = path.last else { return }
+            for ancestor in path.dropLast() where !outlineView.isItemExpanded(ancestor) {
+                expansionStore.setExpanded(true, node: ancestor)
+                outlineView.expandItem(ancestor)
+            }
+            if node.isExpandable, !outlineView.isItemExpanded(node) {
+                expansionStore.setExpanded(true, node: node)
+                outlineView.expandItem(node)
+            }
+            let row = outlineView.row(forItem: node)
+            guard row >= 0 else { return }
+            lastRevealToken = request.token
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            outlineView.scrollRowToVisible(row)
+        }
         // MARK: NSOutlineViewDataSource
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -376,6 +403,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// Creates or reuses a cell for one immutable Cloud tree node.
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? CloudTreeNode else { return nil }
+            if case .devicesEmpty(let section) = node.kind {
+                let cell = (outlineView.makeView(withIdentifier: CloudTreeDevicesEmptyCell.identifier, owner: nil) as? CloudTreeDevicesEmptyCell)
+                    ?? CloudTreeDevicesEmptyCell(frame: .zero)
+                cell.configure(section: section, actions: nodeActions, style: style, level: outlineView.level(forItem: node))
+                return cell
+            }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
             cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
@@ -474,8 +507,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     toggle(node)
                 }
-            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup:
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .resourcesPool, .browsersGroup, .device, .devicesSection, .cloudMachinesSection:
                 toggle(node)
+            case .devicesEmpty:
+                break
             case .pendingMachine(let operation):
                 // Nothing to open yet. A failed create's click shows why (the
                 // CLI transcript); a running one has nothing to say beyond its row.
@@ -663,10 +698,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
-            case .displaysPool:
-                return [
-                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+            case .displaysPool(let machine, _, let canCreate):
+                return displayMenuItems(machine: machine, canCreate: canCreate)
             case .workspacesGroup(let machine):
                 return [
                     item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
@@ -762,6 +795,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .placeholder(let machineID, _):
                 guard let machine = machine(id: machineID) else { return [] }
                 return machineMenuItems(machine)
+            case .device(let row):
+                return deviceMenuItems(machine: row.machine, canCreate: row.canCreateWorkspacesAndTerminals)
+            case .devicesSection(let section), .devicesEmpty(let section):
+                return deviceDiscoveryMenuItems(section: section)
+            case .cloudMachinesSection:
+                return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
             }
         }
 

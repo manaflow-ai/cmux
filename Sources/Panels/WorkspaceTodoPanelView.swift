@@ -136,6 +136,7 @@ private struct WorkspaceTodoPaneContent: View {
     @FocusState private var addFieldFocused: Bool
     @State private var editingItemId: UUID?
     @State private var editingText = ""
+    @State private var editingOriginalText = ""
     @FocusState private var editFieldFocused: Bool
     /// The keyboard-highlighted item (Up/Down arrows); Return or Cmd+Return
     /// toggles it.
@@ -325,6 +326,10 @@ private struct WorkspaceTodoPaneContent: View {
                     )
                 },
                 beginEdit: { beginItemEdit(item) },
+                editText: { text in
+                    guard text != item.text else { return }
+                    WorkspaceTodoActions.editChecklistItem(id: item.id, text: text, in: workspace)
+                },
                 commitEdit: { commitItemEdit(item.id) },
                 cancelEdit: cancelItemEdit,
                 focusEditor: {
@@ -470,29 +475,45 @@ private struct WorkspaceTodoPaneContent: View {
     private func beginItemEdit(_ item: WorkspaceChecklistItem) {
         editingItemId = item.id
         editingText = item.text
+        editingOriginalText = item.text
         editFieldFocused = true
     }
 
     /// Cmd-Return or focus loss commits the trimmed replacement text; empty keeps the old text.
     private func commitItemEdit(_ id: UUID) {
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         cancelItemEdit()
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
     }
 
     private func finishItemEditOnFocusLoss() {
         guard let id = editingItemId else { return }
         let text = editingText
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            cancelItemEdit()
+            return
+        }
+        editingOriginalText = ""
         editingItemId = nil
         editingText = ""
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         WorkspaceTodoActions.editChecklistItem(id: id, text: text, in: workspace)
     }
 
     private func cancelItemEdit() {
+        if let id = editingItemId,
+           !editingOriginalText.isEmpty,
+           let item = todoState.checklist.first(where: { $0.id == id }),
+           item.text != editingOriginalText {
+            WorkspaceTodoActions.editChecklistItem(id: id, text: editingOriginalText, in: workspace)
+        }
         editingItemId = nil
         editingText = ""
+        editingOriginalText = ""
         editFieldFocused = false
     }
 }
@@ -500,6 +521,7 @@ private struct WorkspaceTodoPaneContent: View {
 private struct WorkspaceTodoPaneItemRowActions {
     let toggleCompletion: () -> Void
     let beginEdit: () -> Void
+    let editText: (String) -> Void
     let commitEdit: () -> Void
     let cancelEdit: () -> Void
     let focusEditor: () -> Void
@@ -566,6 +588,9 @@ private struct WorkspaceTodoPaneItemRow: View {
                 .focused(editFieldFocused)
                 .lineLimit(1...8)
                 .fixedSize(horizontal: false, vertical: true)
+                .onChange(of: editingText) { _, newValue in
+                    actions.editText(newValue)
+                }
                 .backport.onKeyPress(.return) { modifiers in
                     if modifiers.contains(.shift), modifiers.subtracting(.shift).isEmpty {
                         editingText.append("\n")

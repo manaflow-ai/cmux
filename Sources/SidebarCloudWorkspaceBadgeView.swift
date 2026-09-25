@@ -5,10 +5,11 @@ struct SidebarCloudWorkspaceBadgeView: View {
     let label: String?
     let pointSize: CGFloat
     let tint: Color
+    var symbol: String = "cloud"
 
     var body: some View {
         if let label {
-            CmuxSystemSymbolImage(magnified: "cloud", pointSize: pointSize, weight: .regular, tint: tint)
+            CmuxSystemSymbolImage(magnified: symbol, pointSize: pointSize, weight: .regular, tint: tint)
                 .fixedSize()
                 .safeHelp(label)
                 .accessibilityHidden(true)

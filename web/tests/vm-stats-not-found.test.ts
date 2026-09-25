@@ -45,7 +45,6 @@ async function withStatsFixture(
   });
   const driver = new FreestyleProvider({
     client: () => client,
-    resolveDaemonSource: async () => { throw new Error("Stats must not install anything"); },
   });
   const getStats = spyOn(getProvider("freestyle"), "getStats").mockImplementation((id) => driver.getStats(id));
   const repo = new Proxy({

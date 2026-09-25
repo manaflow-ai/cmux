@@ -111,6 +111,9 @@ extension TerminalController {
                 }
             }
         }
+        guard remoteRelayDockTargetIsCurrent(routing: routing, dock: dock, surfaceID: surfaceID) else {
+            return nil
+        }
         return .dock(tabManager: location.tabManager, dock: dock, surfaceID: surfaceID)
     }
 
@@ -118,7 +121,8 @@ extension TerminalController {
         target: ControlSurfaceResumeTarget,
         binding: SurfaceResumeBindingSnapshot?,
         cleared: Bool,
-        claimSucceeded: Bool? = nil
+        claimSucceeded: Bool? = nil,
+        approvalRequired: Bool? = nil
     ) -> ControlSurfaceResumeSnapshot {
         ControlSurfaceResumeSnapshot(
             windowID: target.windowID(using: self),
@@ -130,7 +134,8 @@ extension TerminalController {
             restoreRecord: cleared
                 ? nil
                 : controlSurfaceRestoreRecord(target: target, binding: binding),
-            resumeClaimed: claimSucceeded
+            resumeClaimed: claimSucceeded,
+            approvalRequired: approvalRequired
         )
     }
 
@@ -212,118 +217,29 @@ extension TerminalController {
         )
     }
 
-    private func surfaceResumeBindingWithApproval(
-        _ binding: SurfaceResumeBindingSnapshot
-    ) -> SurfaceResumeApprovalLookup<SurfaceResumeBindingSnapshot> {
-        let context: (
-            effectiveBinding: SurfaceResumeBindingSnapshot,
-            existingRecord: SurfaceResumeApprovalRecord?
-        )
-        switch SurfaceResumeApprovalStore.approvalProposalContext(for: binding) {
-        case .pendingSigningSecret:
-            return .pendingSigningSecret
-        case let .resolved(resolvedContext):
-            context = resolvedContext
-        }
-        var effectiveBinding = context.effectiveBinding
-        if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
-            to: binding,
-            existingRecord: context.existingRecord
-        ) {
-            return .resolved(promptlessCLIManualBinding)
-        }
-        guard SurfaceResumeApprovalStore.shouldPromptForProposal(
-            binding: binding,
-            existingRecord: context.existingRecord,
-            isMainThread: Thread.isMainThread,
-            isRunningTests: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-        ) else {
-            return .resolved(effectiveBinding)
-        }
-        let approval = surfacePromptForResumeApproval(binding: effectiveBinding)
-        guard let record = SurfaceResumeApprovalStore.approve(
-            binding: binding,
-            policy: approval.policy,
-            commandPrefix: approval.commandPrefix
-        ) else {
-            return .resolved(effectiveBinding)
-        }
-        effectiveBinding.approvalPolicy = record.policy
-        effectiveBinding.approvalRecordId = record.id
-        effectiveBinding.autoResume = record.policy == .auto
-        return .resolved(effectiveBinding)
-    }
-
-    private var surfaceResumeApprovalPendingMessage: String {
-        String(
-            localized: "surfaceResumeApproval.pending.message",
-            defaultValue: "Resume approval data is still loading. Retry the request."
-        )
-    }
-
-    private func surfacePromptForResumeApproval(
-        binding: SurfaceResumeBindingSnapshot
-    ) -> (policy: SurfaceResumeApprovalPolicy, commandPrefix: [String]?) {
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = String(
-            localized: "surfaceResumeApproval.proposal.title",
-            defaultValue: "Allow Resume Command?"
-        )
-        let cwd = binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
-        let informativeText = String(
-            format: String(
-                localized: "surfaceResumeApproval.proposal.message",
-                defaultValue: "A process wants cmux to keep this resume command for the current terminal:\n\nWorking directory: %@\n\n%@"
-            ),
-            cwd,
-            binding.command
-        )
-        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.auto", defaultValue: "Auto-Restore"))
-        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.ask", defaultValue: "Ask Each Time"))
-        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.proposal.manual", defaultValue: "Keep Manual"))
-        let generalizedPrefix = SurfaceResumeCommandCanonicalizer.generalizedApprovalPrefix(
-            forCommand: binding.command
-        )
-        let folderScopedGeneralizedPrefix =
-            SurfaceResumeCommandCanonicalizer.normalizedCWD(binding.cwd) == nil
-            ? nil
-            : generalizedPrefix
-        if let generalizedPrefix = folderScopedGeneralizedPrefix {
-            let renderedPrefix = generalizedPrefix
-                .map(SurfaceResumeCommandCanonicalizer.shellQuoted)
-                .joined(separator: " ")
-            alert.showsSuppressionButton = true
-            alert.suppressionButton?.title = String(
-                format: String(
-                    localized: "surfaceResumeApproval.proposal.applyToPrefix",
-                    defaultValue: "Apply to all commands starting with “%@” in this folder"
-                ),
-                renderedPrefix
-            )
-        }
-        let content = CmuxAlertContent(
-            flattenedText: informativeText,
-            separatingScrollableDetails: binding.command
-        )
-        content.apply(to: alert, presentingWindow: nil)
-
-        let response = alert.runModal()
-        let commandPrefix = alert.suppressionButton?.state == .on
-            ? folderScopedGeneralizedPrefix
-            : nil
-        return switch response {
-        case .alertFirstButtonReturn: (.auto, commandPrefix)
-        case .alertSecondButtonReturn: (.prompt, commandPrefix)
-        default: (.manual, commandPrefix)
-        }
-    }
-
+    /// `surface.resume.set` from the control socket. Never presents approval UI;
+    /// see ``SurfaceResumeProposalOrigin``.
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
         hasResolvedWindowID: Bool,
         inputs: ControlSurfaceResumeSetInputs
+    ) -> ControlSurfaceResumeResolution {
+        setSurfaceResumeBinding(
+            routing: routing,
+            explicitTargetID: explicitTargetID,
+            hasResolvedWindowID: hasResolvedWindowID,
+            inputs: inputs,
+            origin: .controlSocket
+        )
+    }
+
+    func setSurfaceResumeBinding(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool,
+        inputs: ControlSurfaceResumeSetInputs,
+        origin: SurfaceResumeProposalOrigin
     ) -> ControlSurfaceResumeResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .windowUnavailable
@@ -365,11 +281,13 @@ extension TerminalController {
             return .setFailed
         }
         let effectiveBinding: SurfaceResumeBindingSnapshot
-        switch surfaceResumeBindingWithApproval(locatedBinding) {
+        let approvalRequired: Bool
+        switch surfaceResumeBindingWithApproval(locatedBinding, origin: origin) {
         case .pendingSigningSecret:
             return .approvalPending(message: surfaceResumeApprovalPendingMessage)
-        case let .resolved(binding):
-            effectiveBinding = binding
+        case let .resolved(resolved):
+            effectiveBinding = resolved.binding
+            approvalRequired = resolved.approvalRequired
         }
         guard target.setBinding(effectiveBinding) else {
             // A same-session agent-hook write cannot demote a trusted binding.
@@ -378,11 +296,21 @@ extension TerminalController {
             // own session and third-party tooling reads the effective state.
             if let keptBinding = target.binding,
                effectiveBinding.downgradesTrustedAgentHookBinding(keptBinding) {
-                return .result(surfaceResumeSnapshot(target: target, binding: keptBinding, cleared: false))
+                return .result(surfaceResumeSnapshot(
+                    target: target,
+                    binding: keptBinding,
+                    cleared: false,
+                    approvalRequired: false
+                ))
             }
             return .emptyResumeCommand
         }
-        return .result(surfaceResumeSnapshot(target: target, binding: effectiveBinding, cleared: false))
+        return .result(surfaceResumeSnapshot(
+            target: target,
+            binding: effectiveBinding,
+            cleared: false,
+            approvalRequired: approvalRequired
+        ))
     }
 
     func controlSurfaceResumeGet(
@@ -427,7 +355,30 @@ extension TerminalController {
             )
         )
     }
-
+    /// Returns the binding that owns agent-resume semantics for a surface.
+    /// Dock terminals keep this managed binding separately from a transient
+    /// process/tmux binding that may currently be effective for ``get``.
+    func controlSurfaceManagedAgentResumeBinding(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard let tabManager = resolveTabManager(routing: routing),
+              let target = resolveSurfaceResumeTarget(
+                  routing: routing,
+                  explicitTargetID: explicitTargetID,
+                  hasResolvedWindowID: hasResolvedWindowID,
+                  fallbackTabManager: tabManager
+              ) else {
+            return nil
+        }
+        switch target {
+        case .workspace:
+            return target.binding?.isAgentHookBinding == true ? target.binding : nil
+        case .dock(_, let dock, let surfaceID):
+            return dock.managedAgentResumeBinding(panelId: surfaceID)
+        }
+    }
     func controlSurfaceResumeClear(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
@@ -466,7 +417,6 @@ extension TerminalController {
         return .result(surfaceResumeSnapshot(target: target, binding: target.binding, cleared: true))
     }
 }
-
 private extension ControlSurfaceResumeTarget {
     func windowID(using controller: TerminalController) -> UUID? {
         switch self {

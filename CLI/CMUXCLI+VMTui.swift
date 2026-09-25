@@ -457,7 +457,20 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
+                // The snapshot contract creates the first remote workspace and
+                // terminal before the daemon accepts clients, so one link plus
+                // one graph read is all New Machine needs to find it.
+                //
+                // `ensure_linked` is that minimum, and it is required: a machine
+                // created a moment ago has no provider and no link in this app,
+                // so a plain cached read returns no graph and the resolver
+                // reports `.unavailable` ("The machine's sessions are
+                // unavailable"). That regression shipped once when the flag was
+                // dropped to "save work". Do not remove it, and do not upgrade it
+                // to `refresh: true`: a forced pass waits behind the fleet poll's
+                // in-flight connect and rescans ports for nothing. A reopen of a
+                // machine that is already linked costs no network at all.
+                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "ensure_linked": true], responseTimeout: 180)
                 let opened: [String: Any]
                 switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
@@ -581,6 +594,7 @@ extension CMUXCLI {
 extension CMUXCLI {
     /// Where `cmux vm open <target>` points. Grammar:
     ///   <machine>                      the machine's shell (the shared vmOpenShell path)
+    ///                                  (`<machine>` is a cloud id, or `device:<uuid>@<tag>` for another Mac)
     ///   <machine>/<workspace>          a cmux-tui workspace on the machine (`ws_…` id or unique name)
     ///   <machine>/<workspace>/<term>   one terminal in it (`term_…`)
     ///   <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…`)
@@ -680,10 +694,19 @@ extension CMUXCLI {
         return id
     }
 
+    /// Another Mac is addressed as `device:<uuid>@<tag>` (SurfaceMachineID's
+    /// wire form), so that colon belongs to the machine id.
+    private static let vmOpenDeviceMachinePrefix = "device:"
+
     static func parseVMOpenTarget(_ raw: String) -> VMOpenTarget? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { return nil }
-        if let colon = trimmed.firstIndex(of: ":") {
+        // The `:desktop` / `:port/<n>` selector starts at the first colon after
+        // the machine id, which for a device address means after its prefix.
+        let selectorSearchStart = trimmed.hasPrefix(vmOpenDeviceMachinePrefix)
+            ? trimmed.index(trimmed.startIndex, offsetBy: vmOpenDeviceMachinePrefix.count)
+            : trimmed.startIndex
+        if let colon = trimmed[selectorSearchStart...].firstIndex(of: ":") {
             let machine = String(trimmed[..<colon])
             let selector = String(trimmed[trimmed.index(after: colon)...])
             guard !machine.isEmpty, !machine.contains("/") else { return nil }
@@ -826,7 +849,7 @@ extension CMUXCLI {
         Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]
                cmux vm open <id> <port> [--print]
 
-        Targets (copy them from `cmux vm tree`):
+        \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceTargets", defaultValue: "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"))
           <machine>                      the machine's shell (same as `cmux vm shell <machine>`)
           <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
           <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
@@ -849,6 +872,7 @@ extension CMUXCLI {
           cmux vm open vivid-newt/main/term_2f9c…/tab_a
           cmux vm open vivid-newt:desktop
           cmux vm open vivid-newt:port/3000 --print
+          cmux vm open device:1f0c…@nightly/main/6C27…   \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceExample", defaultValue: "a terminal on another Mac (from `cmux vm tree`)"))
         """
     }
 

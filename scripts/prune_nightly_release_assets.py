@@ -11,6 +11,7 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -83,6 +84,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Delete assets instead of printing a dry-run plan",
     )
+    parser.add_argument(
+        "--best-effort",
+        action="store_true",
+        help="Treat GitHub API rate limits as a skipped maintenance pass",
+    )
     return parser.parse_args()
 
 
@@ -116,6 +122,23 @@ def github_api_url(path: str) -> str:
     return f"{api_base}/{path.lstrip('/')}"
 
 
+def _retry_setting(name: str, default: float, *, integer: bool = False) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw) if integer else float(raw)
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+def _retryable_api_error(status: int, message: str) -> bool:
+    return status in {408, 425, 429} or status >= 500 or (
+        status == 403 and "rate limit" in message.lower()
+    )
+
+
 def github_api_json(method: str, path: str) -> dict:
     token = github_token()
     if token:
@@ -129,15 +152,33 @@ def github_api_json(method: str, path: str) -> dict:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        try:
-            with urllib.request.urlopen(request) as response:
-                body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            message = exc.read().decode("utf-8", errors="replace")
-            raise GitHubAPIError(exc.code, message) from exc
-        if not body:
-            return {}
-        return json.loads(body)
+        attempts = max(int(_retry_setting(
+            "CMUX_NIGHTLY_GITHUB_API_MAX_ATTEMPTS", 4, integer=True
+        )), 1)
+        base_delay = _retry_setting("CMUX_NIGHTLY_GITHUB_API_RETRY_DELAY_SECONDS", 2.0)
+        for attempt in range(attempts):
+            try:
+                # A stalled connection would otherwise block until the job ceiling.
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    body = response.read().decode("utf-8")
+                if not body:
+                    return {}
+                return json.loads(body)
+            except urllib.error.HTTPError as exc:
+                # A stalled or proxied failure can arrive without a body.
+                message = (exc.fp.read() if exc.fp else b"").decode("utf-8", errors="replace")
+                if not _retryable_api_error(exc.code, message) or attempt + 1 == attempts:
+                    raise GitHubAPIError(exc.code, message) from exc
+                retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                try:
+                    delay = max(float(retry_after), 0.0) if retry_after else base_delay * (2 ** attempt)
+                except ValueError:
+                    delay = base_delay * (2 ** attempt)
+            except (OSError, urllib.error.URLError) as exc:
+                if attempt + 1 == attempts:
+                    raise GitHubAPIError(0, str(exc)) from exc
+                delay = base_delay * (2 ** attempt)
+            time.sleep(min(delay, 30.0))
 
     if shutil.which("gh"):
         args = ["api"]
@@ -224,7 +265,20 @@ def delete_assets(repo: str, assets: list[ReleaseAsset]) -> None:
     total = len(assets)
     for index, asset in enumerate(assets, start=1):
         log(f"[{index}/{total}] deleting {asset.name}")
-        github_api_json("DELETE", f"repos/{repo}/releases/assets/{asset.asset_id}")
+        try:
+            github_api_json("DELETE", f"repos/{repo}/releases/assets/{asset.asset_id}")
+        except GitHubAPIError as error:
+            # Another retry or maintenance pass may have completed the delete.
+            if error.status != 404:
+                raise
+            log(f"{asset.name} was already deleted; continuing")
+
+
+def is_rate_limit_error(error: GitHubAPIError | subprocess.CalledProcessError) -> bool:
+    if isinstance(error, GitHubAPIError):
+        return error.status in {403, 429} and "rate limit" in error.message.lower()
+    message = str(error.stderr or error.output or "").lower()
+    return "rate limit" in message
 
 
 def main() -> int:
@@ -236,7 +290,13 @@ def main() -> int:
         print("--max-assets must be at least 1", file=sys.stderr)
         return 2
 
-    release = load_release(args.repo, args.release_tag)
+    try:
+        release = load_release(args.repo, args.release_tag)
+    except (GitHubAPIError, subprocess.CalledProcessError) as error:
+        if args.best_effort and is_rate_limit_error(error):
+            log(f"GitHub API rate limit reached; skipping {args.release_tag!r} prune pass.")
+            return 0
+        raise
     if release is None:
         log(f"Release {args.release_tag!r} does not exist yet, nothing to prune.")
         return 0
@@ -282,7 +342,13 @@ def main() -> int:
         log("Dry run only. Re-run with --execute to delete assets.")
         return 0
 
-    delete_assets(args.repo, to_delete)
+    try:
+        delete_assets(args.repo, to_delete)
+    except (GitHubAPIError, subprocess.CalledProcessError) as error:
+        if args.best_effort and is_rate_limit_error(error):
+            log(f"GitHub API rate limit reached during deletion; prune pass is incomplete.")
+            return 0
+        raise
     log("Prune complete.")
     return 0
 

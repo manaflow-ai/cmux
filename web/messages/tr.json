@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Algılanan harness yapılandırması",
+    "selectionNotice": "Bir sağlayıcı seçmek bu harnessleri başlatmaz veya etkinleştirmez.",
+    "selectProvider": "{provider} seç",
+    "foundPath": "{path} bulundu",
+    "foundCommand": "{command} komutu bulundu",
+    "installed": "Sağlayıcı yüklü",
+    "missing": "Sağlayıcı yüklü değil",
+    "install": "Şununla yükle: {command}",
+    "benefitPi": "Sıkıştırma, bellek ve sağlayıcı yönlendirmesi",
+    "benefitOpenagent": "OpenCode için paralel uzmanlar ve kurtarma",
+    "benefitClaude": "Claude Code için ekipler ve doğrulama",
+    "benefitSuperpowers": "Planlama, TDD, alt aracılar ve inceleme"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Cloud VM kurulumu tamamlanamadı",
+      "reason": "Cloud VM konuk kurulumu tamamlanmadı.",
+      "message": "cmux, Cloud VM kurulumunu tamamlayamadı.",
+      "action": "İşlemi yeniden deneyin. Sorun devam ederse destek ekibiyle iletişime geçin."
+    },
+    "createCleanupPending": {
+      "title": "Cloud VM temizliği bekleniyor",
+      "message": "Cloud VM kurulumu başarısız oldu ve temizlik henüz tamamlanmadı.",
+      "action": "Başka bir makine oluşturmadan önce izleme kimliğiyle destek ekibine başvurun."
+    },
     "unsupported": {
       "title": "Cloud VM işlemi kullanılamıyor",
       "reason": "Bu makine türü bu işlemi sağlamıyor.",
@@ -399,11 +424,54 @@
       "savingRelaySettings": "Kaydediliyor…"
     },
     "coderouterAccounts": {
+      "transferAction": "Aktar",
+      "transferringAction": "Aktarılıyor…",
+      "transferDialogTitle": "Hesabı başka bir ekibe aktar",
+      "transferChooseBody": "{account} hesabını alacak ekibi seçin. Hesap şu anda {source} ekibine ait.",
+      "transferDestinationLabel": "Hedef ekip",
+      "continueAction": "Devam",
+      "backAction": "Geri",
+      "transferConfirmTitle": "{account} aktarılsın mı?",
+      "transferConfirmBody": "{account}, {source} ekibinden {destination} ekibine taşınır. {source} ekibinin bulut makineleri ve üyeleri onu hemen kullanmayı bırakır. {destination} ekibinde mevcut paylaşım ayarını korur.",
+      "transferConfirmAction": "Hesabı aktar",
+      "transferSuccess": "{account}, {destination} ekibine taşındı.",
+      "transferError": "Bu hesap aktarılamadı. Tekrar deneyin.",
+      "transferForbiddenError": "Artık o ekibe hesap taşıyamazsınız.",
+      "transferNotFoundError": "Bu hesap artık bu ekipte değil. Nerede olduğunu görmek için yenileyin.",
+      "transferConflictError": "Hesap taşınırken değişti. Yenileyip tekrar deneyin.",
+      "transferUnavailableError": "Aktarımlar geçici olarak kullanılamıyor veya hesap yenileniyor. Birazdan tekrar deneyin.",
       "shareWithTeam": "Ekiple paylaş",
       "makePrivate": "Özel yap",
       "privateImportHint": "Yeni hesaplar özeldir. Bu ekibin Cloud VM makinelerinde kullanmak için bir hesabı paylaşın.",
       "description": "Paylaşılan hesaplar bu ekibin Cloud VM’leri tarafından kullanılabilir. Özel hesaplar yalnızca onları ekleyen kişi tarafından kullanılabilir.",
-      "cancelAction": "İptal"
+      "cancelAction": "İptal",
+      "apiKeysTitle": "API anahtarları",
+      "apiKeysDescription": "Komut dosyaları ve aracıların kullanması için uzun ömürlü anahtarlar oluşturun. Gizli değer yalnızca bir kez gösterilir.",
+      "apiKeysCount": "{count, plural, one {# anahtar} other {# anahtar}}",
+      "apiKeysLoading": "API anahtarları yükleniyor…",
+      "apiKeysLoadError": "API anahtarları yüklenemedi. Biraz sonra tekrar deneyin.",
+      "apiKeysRetry": "Tekrar dene",
+      "apiKeysEmptyBody": "Henüz API anahtarı yok. CodeRouter istemcisini doğrulamak için bir anahtar oluşturun.",
+      "apiKeyPrefixColumn": "Anahtar",
+      "apiKeyStatusColumn": "Durum",
+      "apiKeySecretTitle": "Bu anahtarı şimdi kopyalayın",
+      "apiKeySecretBody": "Bu gizli değer tekrar gösterilmeyecek.",
+      "apiKeyCopy": "API anahtarını kopyala",
+      "apiKeyCopied": "Kopyalandı",
+      "apiKeyCreatedAt": "oluşturulma {at}",
+      "apiKeyLastUsed": "son kullanım {at}",
+      "apiKeyRevoked": "İptal edildi",
+      "apiKeyLabelPlaceholder": "Örneğin CI veya üretim",
+      "createApiKeyAction": "API anahtarı oluştur",
+      "creatingApiKeyAction": "Oluşturuluyor",
+      "apiKeyCreateError": "API anahtarı oluşturulamadı.",
+      "revokeApiKeyAction": "İptal et",
+      "revokingApiKeyAction": "İptal ediliyor",
+      "apiKeyRevokeError": "API anahtarı iptal edilemedi.",
+      "revokeApiKeyConfirmTitle": "Bu API anahtarı iptal edilsin mi?",
+      "apiKeyUsageDetail": "son 30 gün: {completions} tamamlama · {tokens} belirteç ({input} giriş / {output} çıkış) · API eşdeğeri {value}",
+      "apiKeyUsageUnavailable": "Kullanım verisi yok",
+      "revokeApiKeyConfirmBody": "Bu anahtarı kullanan istemciler hemen kimlik doğrulaması yapamaz."
     }
   },
   "community": {
@@ -1219,6 +1287,12 @@
       "exampleConfig": "Örnek yapılandırma",
       "metaTitle": "Yapılandırma",
       "schemaDescriptions": {
+        "root": "cmux yapılandırması. Genel cmux.json; uygulama ayarlarını, kısayolları, eylemleri, özel komutları, bildirim hook'larını ve çalışma alanı düzenlerini destekler. Projeye özel .cmux/cmux.json veya cmux.json; eylemleri, komutları, bildirim hook'larını, UI eylem bağlantılarını, Agent Chat geçersiz kılmalarını, vault ajanlarını, çalışma alanı grubu geçersiz kılmalarını ve çalışma alanı başlatma ile düğme yapılandırmasını destekler.",
+        "rightSidebar": "cmux.json içinde korunan eski ve uzantılara ait sağ kenar çubuğu yapılandırması.",
+        "packs": {
+          "description": "Bu yapılandırmadan önce yüklenen yerel cmux paket dosyaları veya dizinleri. Dizinler cmux.pack.json olarak çözümlenir. Bir yol dizesi veya path alanı olan bir nesne kullanın.",
+          "path": "Mutlak değilse bu yapılandırma dosyasına göre belirlenen yerel dosya veya dizin yolu."
+        },
         "paneBorderColor": "Bölünmüş çalışma alanlarında cmux bölme ayırıcı rengini geçersiz kılar. Bu, Ghostty iç bölmelerini değil cmux bölme sınırlarını etkiler.",
         "activePaneBorderColor": "Bölünmüş çalışma alanlarında odaktaki cmux bölmesinin etrafına çizilen isteğe bağlı kenarlık rengi.",
         "automation": {
@@ -1230,6 +1304,7 @@
         "app": {
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Yeni pencereler açılırken yalnızca DEBUG derlemelerinde kullanılan ekran adı. Boş değer sistem varsayılanını kullanır.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
@@ -1405,6 +1480,7 @@
       "restartNew": "Yeni bir workspace oluştur (varsayılan)"
     },
     "keyboardShortcuts": {
+      "fileEditorWordWrap": "Dosya düzenleyicisinde sözcük kaydırmayı değiştir (Option+Z).",
       "title": "Klavye Kısayolları",
       "description": "cmux'ta mevcut tüm klavye kısayolları, kategoriye göre gruplandırılmış.",
       "metaDescription": "macOS'ta çalışma alanları, yüzeyler, bölünmüş paneller, tarayıcı, bildirimler, bulma ve pencere yönetimi için tüm cmux klavye kısayolları.",
@@ -3995,5 +4071,15 @@
     "organization": "Kuruluş",
     "personalAccount": "kişisel hesap",
     "switchAccountButton": "Farklı bir hesap kullan"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 sürümündeki yenilikler",
+    "releaseLabel": "1.0.6 · Eylül 2026",
+    "connectionTitle": "Mac bağlantıları güncellendi",
+    "connectionDetail": "Bu güncelleme yeni bağlantı hizmetini ve Iroh aktarımını kullanır. Eski Mac derlemelerinin bağlanabilmesi için güncellenmesi gerekir.",
+    "updateTitle": "Mac’inizde cmux’u güncelleyin",
+    "updateDetail": "cmux {stableVersion} veya üstü ya da NIGHTLY {nightlyVersion} veya üstü gerekir. Her Mac’te Ayarlar > Mobil bölümünden iOS eşleştirmesini etkinleştirin.",
+    "rollbackTitle": "Eski bir Mac derlemesini kullanmanız mı gerekiyor?",
+    "rollbackDetail": "Kullanılabilir olduğu sürece TestFlight > Önceki Derlemeler’den cmux BETA 1.0.5 ({rollbackBuild}) sürümünü kullanın. Sonraki derlemeler daha yeni bir bağlantı hizmeti kullandığı için tam olarak bu derlemeyi seçin."
   }
 }

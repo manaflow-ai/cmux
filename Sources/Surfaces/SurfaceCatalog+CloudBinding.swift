@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
@@ -53,6 +54,7 @@ extension SurfaceCatalog {
                 observation: cloudStateObservations[machine] ?? .current
             )
         }
+        reconcileDeviceNames(on: machine)
         requestCloudWorkspaceProjection(localWorkspaceID)
         cloudWorkspaceRenameService.updateCloudDirectories(localWorkspaceID: localWorkspaceID, catalog: self)
 }

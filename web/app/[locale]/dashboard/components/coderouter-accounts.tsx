@@ -3,7 +3,7 @@
 import { Dialog } from "@base-ui-components/react/dialog";
 import { Tabs } from "@base-ui-components/react/tabs";
 import { useFormatter, useNow, useTranslations } from "next-intl";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "../../../../i18n/navigation";
 import { Modal } from "../../components/modal";
 import { CopyButton } from "../vault/copy-button";
@@ -36,6 +36,32 @@ export type SharedAccountsState =
   | { readonly kind: "notConfigured" }
   | { readonly kind: "error" };
 
+type CoderouterApiKeySummary = {
+  readonly id: string;
+  readonly keyPrefix: string;
+  readonly label: string;
+  readonly createdAt: string;
+  readonly lastUsedAt: string | null;
+  readonly revokedAt: string | null;
+  readonly usage: CoderouterApiKeyUsage | null;
+};
+
+type CoderouterApiKeyUsage = {
+  readonly completions: number;
+  readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly apiEquivalentUsd: number;
+  readonly pricedTokens: number;
+  readonly unpricedTokens: number;
+};
+
+type IssuedCoderouterApiKey = Pick<
+  CoderouterApiKeySummary,
+  "id" | "keyPrefix" | "label" | "createdAt"
+> & { readonly key: string };
+
 type FormStatus = {
   readonly state: "idle" | "submitting" | "success" | "error";
   readonly message?: string;
@@ -64,20 +90,32 @@ const primaryButtonClass =
   "border border-foreground bg-foreground px-3 py-1.5 text-sm text-background transition-colors hover:bg-background hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground disabled:cursor-not-allowed disabled:opacity-60";
 const rowGridClass =
   "grid gap-2 px-3 py-2 text-sm md:grid-cols-[1.3fr_1fr_1.2fr_auto] md:items-center md:gap-3";
+const API_KEY_REQUEST_TIMEOUT_MS = 10_000;
 
 type Translator = ReturnType<typeof useTranslations<"dashboard.coderouterAccounts">>;
 
+/** A team the viewer can move a native account into. */
+export type CoderouterTransferTeam = { readonly id: string; readonly name: string };
+
 export function CoderouterAccountsSection({
   teamId,
+  teamName,
   viewerUserId,
   canManage,
+  canManageApiKeys,
+  transferTeams = [],
   claude,
   native,
   shared,
 }: {
   readonly teamId: string;
+  /** Selected team's display name, used in the transfer confirmation. */
+  readonly teamName?: string;
   readonly viewerUserId?: string;
   readonly canManage: boolean;
+  /** The viewer's other teams that can receive a native account. */
+  readonly transferTeams?: readonly CoderouterTransferTeam[];
+  readonly canManageApiKeys: boolean;
   readonly claude: ClaudeAccountsState;
   readonly native: NativeAccountsState;
   readonly shared: SharedAccountsState;
@@ -90,6 +128,12 @@ export function CoderouterAccountsSection({
   // Field ids are per form, so switching the add tab never leaves two inputs
   // with one id.
   const partialFailure = claude.kind === "error" || native.kind === "error" || shared.kind === "error";
+  // A moved account leaves this list on refresh, so its success notice lives
+  // here rather than in the row that is about to unmount.
+  const [transferNotice, setTransferNotice] = useState<string | null>(null);
+  const transfer = canManage && transferTeams.length > 0
+    ? { sourceTeamName: teamName ?? teamId, teams: transferTeams, onTransferred: setTransferNotice }
+    : null;
 
   return (
     <section className="mb-4">
@@ -111,6 +155,9 @@ export function CoderouterAccountsSection({
       ) : null}
       {partialFailure ? (
         <Notice title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+      ) : null}
+      {transferNotice ? (
+        <p role="status" className="mb-2 border border-border p-3 text-xs">{transferNotice}</p>
       ) : null}
 
       {total === 0 ? (
@@ -145,6 +192,7 @@ export function CoderouterAccountsSection({
                 viewerUserId={viewerUserId}
                 account={account}
                 canManage={canManage}
+                transfer={transfer}
               />
             ))}
             {sharedAccounts.map((account) => (
@@ -160,7 +208,294 @@ export function CoderouterAccountsSection({
       )}
 
       {canManage ? <><p className="mt-2 text-xs text-muted">{t("privateImportHint")}</p><AddAccountPanel teamId={teamId} /></> : null}
+      <CoderouterApiKeysSection teamId={teamId} canManage={canManageApiKeys} />
     </section>
+  );
+}
+
+function CoderouterApiKeysSection({
+  teamId,
+  canManage,
+}: {
+  readonly teamId: string;
+  readonly canManage: boolean;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const format = useFormatter();
+  const now = useNow();
+  const compactNumber = new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  });
+  const currency = new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  });
+  const [keys, setKeys] = useState<readonly CoderouterApiKeySummary[] | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const [issued, setIssued] = useState<IssuedCoderouterApiKey | null>(null);
+  const [keysTeamId, setKeysTeamId] = useState(teamId);
+  const [issuedTeamId, setIssuedTeamId] = useState(teamId);
+  const requestGeneration = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
+  const currentTeamId = useRef(teamId);
+
+  const fetchKeys = useCallback(async (signal?: AbortSignal): Promise<readonly CoderouterApiKeySummary[]> => {
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS)])
+      : AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS);
+    const response = await fetch("/api/coderouter/api-keys", {
+      headers: { "x-cmux-team-id": teamId },
+      cache: "no-store",
+      signal: requestSignal,
+    });
+    if (!response.ok) throw new Error("api key list failed");
+    const body = await response.json() as { keys?: CoderouterApiKeySummary[] };
+    if (!Array.isArray(body.keys)) throw new Error("api key list malformed");
+    return body.keys;
+  }, [teamId]);
+
+  const load = useCallback(async (expectedTeamId = teamId) => {
+    if (expectedTeamId !== currentTeamId.current || expectedTeamId !== teamId) return;
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const generation = ++requestGeneration.current;
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const nextKeys = await fetchKeys(controller.signal);
+      if (generation !== requestGeneration.current) return;
+      setKeys(nextKeys);
+      setKeysTeamId(teamId);
+    } catch {
+      if (generation !== requestGeneration.current) return;
+      setLoadError(true);
+    } finally {
+      if (activeRequest.current === controller) activeRequest.current = null;
+      if (generation !== requestGeneration.current) return;
+      setLoading(false);
+    }
+  }, [fetchKeys, teamId]);
+
+  useEffect(() => {
+    // The render guard below keeps old team data out of the UI while this
+    // request is in flight. The old request is also aborted before starting it.
+    activeRequest.current?.abort();
+    currentTeamId.current = teamId;
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    const generation = ++requestGeneration.current;
+    void fetchKeys(controller.signal)
+      .then((nextKeys) => {
+        if (generation !== requestGeneration.current) return;
+        setIssued(null);
+        setIssuedTeamId(teamId);
+        setKeys(nextKeys);
+        setKeysTeamId(teamId);
+        setLoadError(false);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (generation !== requestGeneration.current) return;
+        setIssued(null);
+        setIssuedTeamId(teamId);
+        setKeys(null);
+        setKeysTeamId(teamId);
+        setLoadError(true);
+        setLoading(false);
+      })
+      .finally(() => {
+        if (activeRequest.current === controller) activeRequest.current = null;
+      });
+    return () => {
+      controller.abort();
+      requestGeneration.current += 1;
+    };
+  }, [fetchKeys, teamId]);
+
+  const teamSwitching = keysTeamId !== teamId;
+  const visibleKeys = keysTeamId === teamId ? keys : null;
+  const visibleIssued = !teamSwitching &&
+    issuedTeamId === teamId &&
+    issued;
+
+  const create = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (status.state === "submitting") return;
+    const form = event.currentTarget;
+    const label = String(new FormData(form).get("apiKeyLabel") ?? "").trim();
+    setStatus({ state: "submitting" });
+    try {
+      const response = await fetch("/api/coderouter/api-keys", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-cmux-team-id": teamId },
+        body: JSON.stringify({ label }),
+        signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        setStatus({ state: "error", message: response.status === 403 ? t("teamAccessError") : t("apiKeyCreateError") });
+        return;
+      }
+      const created = await response.json() as IssuedCoderouterApiKey;
+      if (!created.key || !created.id) throw new Error("api key response malformed");
+      form.reset();
+      setIssued(created);
+      setIssuedTeamId(teamId);
+      setStatus(idleStatus);
+      await load(teamId);
+    } catch {
+      setStatus({ state: "error", message: t("apiKeyCreateError") });
+    }
+  };
+
+  return (
+    <section className="mt-4 border-t border-border pt-4">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">{t("apiKeysTitle")}</h3>
+          <p className="mt-1 max-w-2xl text-xs text-muted">{t("apiKeysDescription")}</p>
+        </div>
+        {visibleKeys ? <span className="font-mono text-[11px] text-muted">{t("apiKeysCount", { count: visibleKeys.length })}</span> : null}
+      </div>
+
+      {visibleIssued ? (
+        <div className="mb-2 border border-foreground p-3">
+          <div className="text-sm font-medium">{t("apiKeySecretTitle")}</div>
+          <p className="mt-1 text-xs text-muted">{t("apiKeySecretBody")}</p>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border border-border px-3 py-2">
+            <code className="min-w-0 break-all font-mono text-xs text-foreground">{visibleIssued.key}</code>
+            <CopyButton value={visibleIssued.key} label={t("apiKeyCopy")} copiedLabel={t("apiKeyCopied")} />
+          </div>
+        </div>
+      ) : null}
+
+      {(loading || teamSwitching) && !visibleKeys ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysLoading")}</p> : null}
+      {loadError && !teamSwitching ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border border-border p-3 text-xs">
+          <span>{t("apiKeysLoadError")}</span>
+          <button type="button" className={buttonClass} onClick={() => void load()} disabled={loading}>{t("apiKeysRetry")}</button>
+        </div>
+      ) : null}
+      {visibleKeys && visibleKeys.length === 0 ? <p className="border border-border p-3 text-xs text-muted">{t("apiKeysEmptyBody")}</p> : null}
+      {visibleKeys && visibleKeys.length > 0 ? (
+        <div className="border border-border">
+          <div className="hidden grid-cols-[1.1fr_1fr_1.3fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
+            <div>{t("apiKeyPrefixColumn")}</div>
+            <div>{t("labelColumn")}</div>
+            <div>{t("apiKeyStatusColumn")}</div>
+            <div className="text-right">{canManage ? t("actionsColumn") : ""}</div>
+          </div>
+          <ul className="divide-y divide-border">
+            {[...visibleKeys].reverse().map((key) => {
+              const created = new Date(key.createdAt);
+              const lastUsed = key.lastUsedAt ? new Date(key.lastUsedAt) : null;
+              const statusText = key.revokedAt ? t("apiKeyRevoked") : t("stateActive");
+              const statusDetail = lastUsed
+                ? t("apiKeyLastUsed", { at: format.relativeTime(lastUsed, now) })
+                : t("neverUsed");
+              const usageDetail = key.usage
+                ? t("apiKeyUsageDetail", {
+                  completions: compactNumber.format(key.usage.completions),
+                  tokens: compactNumber.format(key.usage.totalTokens),
+                  input: compactNumber.format(key.usage.inputTokens),
+                  output: compactNumber.format(key.usage.outputTokens),
+                  value: currency.format(key.usage.apiEquivalentUsd),
+                })
+                : t("apiKeyUsageUnavailable");
+              return (
+                <li key={key.id} className="grid gap-2 px-3 py-2 text-sm md:grid-cols-[1.1fr_1fr_1.3fr_auto] md:items-center md:gap-3">
+                  <div className="min-w-0">
+                    <div className="mb-1 text-xs text-muted md:hidden">{t("apiKeyPrefixColumn")}</div>
+                    <code className="font-mono text-xs">{key.keyPrefix}</code>
+                  </div>
+                  <div className="min-w-0 truncate text-muted">
+                    <div className="mb-1 text-xs text-muted md:hidden">{t("labelColumn")}</div>
+                    {key.label || t("unlabeledAccount")}
+                  </div>
+                  <div className="min-w-0 text-xs">
+                    <div className="mb-1 text-muted md:hidden">{t("apiKeyStatusColumn")}</div>
+                    <div className={key.revokedAt ? "text-muted" : "text-foreground"}>{statusText}</div>
+                    <div className="mt-0.5 text-muted">{t("apiKeyCreatedAt", { at: format.dateTime(created, { dateStyle: "medium" }) })} · {statusDetail}</div>
+                    <div className="mt-0.5 text-muted">{usageDetail}</div>
+                  </div>
+                  <div className="text-right">{canManage && !key.revokedAt ? <ApiKeyRevokeAction teamId={teamId} keyId={key.id} onRevoked={() => void load(teamId)} /> : null}</div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+
+      {canManage ? (
+        <form onSubmit={create} className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="min-w-56 flex-1">
+            <span className="mb-1 block text-xs text-muted">{t("labelField")}</span>
+            <input name="apiKeyLabel" required maxLength={80} autoComplete="off" className={inputClass} placeholder={t("apiKeyLabelPlaceholder")} />
+          </label>
+          <button type="submit" disabled={status.state === "submitting"} className={primaryButtonClass}>
+            {status.state === "submitting" ? t("creatingApiKeyAction") : t("createApiKeyAction")}
+          </button>
+          {status.state === "error" && status.message ? <span role="alert" className="w-full text-xs text-foreground">{status.message}</span> : null}
+        </form>
+      ) : null}
+    </section>
+  );
+}
+
+function ApiKeyRevokeAction({
+  teamId,
+  keyId,
+  onRevoked,
+}: {
+  readonly teamId: string;
+  readonly keyId: string;
+  readonly onRevoked: () => void;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const [pending, setPending] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState(false);
+  const revoke = async () => {
+    if (pending) return;
+    setPending(true);
+    setError(false);
+    try {
+      const response = await fetch(`/api/coderouter/api-keys/${encodeURIComponent(keyId)}`, {
+        method: "DELETE",
+        headers: { "x-cmux-team-id": teamId },
+        signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        setError(true);
+        return;
+      }
+      setOpen(false);
+      onRevoked();
+    } catch {
+      setError(true);
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <div>
+      <button type="button" className={buttonClass} onClick={() => setOpen(true)} disabled={pending}>
+        {pending ? t("revokingApiKeyAction") : t("revokeApiKeyAction")}
+      </button>
+      {error ? <p role="alert" className="mt-1 text-xs text-foreground">{t("apiKeyRevokeError")}</p> : null}
+      <Modal open={open} onOpenChange={setOpen}>
+        <Dialog.Title className="text-left text-sm font-medium">{t("revokeApiKeyConfirmTitle")}</Dialog.Title>
+        <Dialog.Description className="mt-2 text-left text-xs text-muted">{t("revokeApiKeyConfirmBody")}</Dialog.Description>
+        <div className="mt-5 flex justify-end gap-2">
+          <Dialog.Close className={buttonClass}>{t("cancelAction")}</Dialog.Close>
+          <button type="button" onClick={() => void revoke()} className={primaryButtonClass}>{t("revokeApiKeyAction")}</button>
+        </div>
+      </Modal>
+    </div>
   );
 }
 
@@ -217,16 +552,24 @@ function ClaudeAccountRow({
   );
 }
 
+type NativeTransferOptions = {
+  readonly sourceTeamName: string;
+  readonly teams: readonly CoderouterTransferTeam[];
+  readonly onTransferred: (message: string) => void;
+};
+
 function NativeAccountRow({
   teamId,
   viewerUserId,
   account,
   canManage,
+  transfer,
 }: {
   readonly teamId: string;
   readonly viewerUserId?: string;
   readonly account: CodeRouterAccountSummary;
   readonly canManage: boolean;
+  readonly transfer: NativeTransferOptions | null;
 }) {
   const t = useTranslations("dashboard.coderouterAccounts");
   const format = useFormatter();
@@ -257,7 +600,7 @@ function NativeAccountRow({
           : sessions
       }
       dimmed={account.state === "broken" || account.state === "expired"}
-      actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="native" visibility={account.visibility ?? "team"} /> : null}<NativeAccountActions teamId={teamId} accountId={account.id} /></div> : null}
+      actions={canManage ? <div className="flex flex-wrap gap-2">{(!account.createdBy || account.createdBy === viewerUserId) ? <AccountSharing teamId={teamId} accountId={account.id} family="native" visibility={account.visibility ?? "team"} /> : null}{transfer ? <NativeAccountTransfer teamId={teamId} accountId={account.id} accountLabel={account.label || t("unlabeledAccount")} {...transfer} /> : null}<NativeAccountActions teamId={teamId} accountId={account.id} /></div> : null}
       t={t}
     />
   );
@@ -336,6 +679,137 @@ function NativeAccountActions({
       confirmBody={t("removeNativeConfirmBody")}
       t={t}
     />
+  );
+}
+
+export type TransferRequestResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly status: number | null };
+
+/** Moves one native account from `teamId` to `destinationTeamId`. */
+export async function requestNativeAccountTransfer(
+  input: { readonly teamId: string; readonly accountId: string; readonly destinationTeamId: string },
+  send: typeof fetch = fetch,
+): Promise<TransferRequestResult> {
+  try {
+    const response = await send(`/api/coderouter/accounts/${encodeURIComponent(input.accountId)}/transfer`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-cmux-team-id": input.teamId },
+      body: JSON.stringify({ destinationTeamId: input.destinationTeamId }),
+      signal: AbortSignal.timeout(API_KEY_REQUEST_TIMEOUT_MS),
+    });
+    return response.ok ? { ok: true } : { ok: false, status: response.status };
+  } catch {
+    return { ok: false, status: null };
+  }
+}
+
+const TRANSFER_ERROR_KEYS = {
+  400: "validationError",
+  403: "transferForbiddenError",
+  404: "transferNotFoundError",
+  409: "transferConflictError",
+  503: "transferUnavailableError",
+} as const;
+
+function transferErrorMessage(status: number | null, t: Translator): string {
+  const key = status === null ? undefined : TRANSFER_ERROR_KEYS[status as keyof typeof TRANSFER_ERROR_KEYS];
+  return t(key ?? "transferError");
+}
+
+function NativeAccountTransfer({
+  teamId,
+  accountId,
+  accountLabel,
+  sourceTeamName,
+  teams,
+  onTransferred,
+}: NativeTransferOptions & {
+  readonly teamId: string;
+  readonly accountId: string;
+  readonly accountLabel: string;
+}) {
+  const t = useTranslations("dashboard.coderouterAccounts");
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<"choose" | "confirm">("choose");
+  const [destinationId, setDestinationId] = useState(teams[0]?.id ?? "");
+  const [status, setStatus] = useState<FormStatus>(idleStatus);
+  const destination = teams.find((team) => team.id === destinationId) ?? teams[0];
+
+  const openDialog = () => {
+    setStep("choose");
+    setDestinationId(teams[0]?.id ?? "");
+    setStatus(idleStatus);
+    setOpen(true);
+  };
+
+  const confirm = async () => {
+    if (status.state === "submitting" || !destination) return;
+    setStatus({ state: "submitting" });
+    const result = await requestNativeAccountTransfer({ teamId, accountId, destinationTeamId: destination.id });
+    if (!result.ok) {
+      setStatus({ state: "error", message: transferErrorMessage(result.status, t) });
+      return;
+    }
+    setOpen(false);
+    setStatus(idleStatus);
+    onTransferred(t("transferSuccess", { account: accountLabel, destination: destination.name }));
+    router.refresh();
+  };
+
+  const submitting = status.state === "submitting";
+  return (
+    <div>
+      <button type="button" className={buttonClass} onClick={openDialog} disabled={submitting}>
+        {submitting ? t("transferringAction") : t("transferAction")}
+      </button>
+      <Modal open={open} onOpenChange={(next) => { if (!submitting) setOpen(next); }}>
+        {step === "choose" ? (
+          <>
+            <Dialog.Title className="text-left text-sm font-medium">{t("transferDialogTitle")}</Dialog.Title>
+            <Dialog.Description className="mt-2 text-left text-xs text-muted">
+              {t("transferChooseBody", { account: accountLabel, source: sourceTeamName })}
+            </Dialog.Description>
+            <label className="mt-3 block text-left">
+              <span className="mb-1 block text-xs text-muted">{t("transferDestinationLabel")}</span>
+              <select
+                value={destination?.id ?? ""}
+                onChange={(event) => setDestinationId(event.target.value)}
+                className={inputClass}
+              >
+                {teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+              </select>
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <Dialog.Close className={buttonClass}>{t("cancelAction")}</Dialog.Close>
+              <button type="button" className={primaryButtonClass} disabled={!destination} onClick={() => setStep("confirm")}>
+                {t("continueAction")}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Dialog.Title className="text-left text-sm font-medium">{t("transferConfirmTitle", { account: accountLabel })}</Dialog.Title>
+            <Dialog.Description className="mt-2 text-left text-xs text-muted">
+              {t("transferConfirmBody", { account: accountLabel, source: sourceTeamName, destination: destination?.name ?? "" })}
+            </Dialog.Description>
+            {status.state === "error" && status.message ? (
+              <p role="alert" className="mt-2 text-left text-xs text-foreground">{status.message}</p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className={buttonClass} disabled={submitting} onClick={() => { setStatus(idleStatus); setStep("choose"); }}>
+                {t("backAction")}
+              </button>
+              <Dialog.Close className={buttonClass} disabled={submitting}>{t("cancelAction")}</Dialog.Close>
+              <button type="button" className={primaryButtonClass} disabled={submitting} onClick={() => void confirm()}>
+                {submitting ? t("transferringAction") : t("transferConfirmAction")}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
+    </div>
   );
 }
 

@@ -79,7 +79,7 @@ struct SidebarWorkspaceSnapshotFactory {
             isPinned: workspace.isPinned,
             isMuted: workspace.isMuted,
             customColorHex: workspace.customColor,
-            cloudWorkspaceLabel: cloud?.machineLabel,
+            cloudWorkspaceLabel: cloud?.isDeviceWorkspace == true ? nil : cloud?.machineLabel,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -117,7 +117,8 @@ struct SidebarWorkspaceSnapshotFactory {
             checklistCompletedCount: checklistProgress.completedCount,
             checklistTotalCount: checklistProgress.totalCount,
             checklistFirstUncheckedText: checklistProgress.firstUncheckedText,
-            taskStatusInput: taskStatusInput
+            taskStatusInput: taskStatusInput,
+            deviceWorkspaceLabel: CloudWorkspaceSidebarPresentation.deviceLabel(workspace: workspace)
         )
     }
 

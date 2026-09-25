@@ -56,8 +56,7 @@ struct ControlCommandExecutionPolicyTests {
             "vault.sessions", "vault.search", "vault.checkpoints",
             "vault.checkpoint", "vault.fork",
             "mobile.compatible_tags.get", "mobile.compatible_tags.set",
-            "mobile.panel.artifact.stat", "mobile.panel.artifact.fetch",
-            "mobile.panel.artifact.thumbnail",
+            "mobile.panel.artifact.stat", "mobile.panel.artifact.thumbnail",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
             "browser.eval", "browser.wait", "browser.snapshot", "browser.click",
@@ -89,6 +88,9 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.create", "browser.url.get",
             "browser.open_split", "browser.get.title", "browser.frame.main",
             "mobile.terminal.create", "mobile.task.attachment.upload",
+            // Artifact fetch needs the authenticated mobile execution context;
+            // the local socket must answer method_not_found, not serve bytes.
+            "mobile.panel.artifact.fetch",
             "vmx.create", "",
             // Focus-intent verbs stay on the main lane until the mutations
             // tranche decides them deliberately.
@@ -174,7 +176,7 @@ struct ControlCommandExecutionPolicyTests {
         #expect(ControlCommandExecutionPolicy(forMethod: "system.top") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.task.models.list") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.stat") == .socketWorker(mainThreadCallable: false))
-        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .socketWorker(mainThreadCallable: false))
+        #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.fetch") == .mainActor)
         #expect(ControlCommandExecutionPolicy(forMethod: "mobile.panel.artifact.thumbnail") == .socketWorker(mainThreadCallable: false))
         #expect(ControlCommandExecutionPolicy(forMethod: "vm.create") == .socketWorker(mainThreadCallable: false))
     }

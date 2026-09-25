@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxCloudTui
 import Foundation
 import Testing
 
@@ -20,6 +22,24 @@ struct CloudTerminalCreationRequestTests {
         #expect(await runner.commands.isEmpty)
         #expect(request.attemptKey == request.correlationKey)
         #expect(request.correlationArgument == nil)
+    }
+
+    @Test("Restoring a creation intent adopts its committed daemon receipt without creating a terminal")
+    func restorationRecoversTheCommittedAttempt() async throws {
+        let request = CloudTerminalCreationRequest(id: UUID(), remoteWorkspaceID: "ws_original", restoring: true)
+        let receipt = try resolution(request, state: "created", recovery: "none", extra: [
+            "idempotency_key": "attempt-before-app-relaunch",
+            "generation": "fixture", "revision": "42",
+            "created_path": [
+                "kind": "terminal", "terminal_id": "term_existing", "workspace_id": "ws_original",
+                "screen_id": "screen_original", "pane_id": "pane_original", "tab_id": "tab_existing"
+            ]
+        ])
+        let runner = CreationReceiptRunner(responses: [.success(receipt)])
+        let created = try #require(try await request.prepare(using: runner, socketPath: socketPath))
+        #expect(created.terminalID == "term_existing")
+        #expect(request.attemptKey == "attempt-before-app-relaunch")
+        #expect(await runner.commands == [CloudTuiRequest("session.creation.resolve", ["correlation_key": request.correlationKey])])
     }
 
     @Test

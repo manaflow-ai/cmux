@@ -1,3 +1,5 @@
+public import CMUXMobileCore
+import CmuxIrohTransport
 public import Foundation
 public import IrohLib
 
@@ -142,6 +144,7 @@ public actor IrxConnection {
     /// This is diagnostic history; age alone never proves the peer is dead.
     public private(set) var lastPongAt: ContinuousClock.Instant?
     private let journal: IrxJournal
+    private var pathDiagnostics: CmxIrohConnectionPathDiagnostics?
     private var closedFlag = false
     private var nativeClosureObserved = false
     private var localTermination: IrxTermination?
@@ -157,10 +160,16 @@ public actor IrxConnection {
     private var cancelledClosureWaiters = Set<UUID>()
     private var closureWatcher: Task<Void, Never>?
 
-    public init(connection: Connection, role: Role, journal: IrxJournal) {
+    public init(
+        connection: Connection, role: Role, journal: IrxJournal,
+        diagnosticLog: DiagnosticLog? = nil
+    ) {
         self.connection = connection
         self.role = role
         self.journal = journal
+        pathDiagnostics = diagnosticLog.map {
+            CmxIrohConnectionPathDiagnostics(connection: connection, diagnosticLog: $0)
+        }
         remoteEndpointIDHex = connection.remoteId().toBytes()
             .map { String(format: "%02x", $0) }.joined()
     }
@@ -509,6 +518,7 @@ public actor IrxConnection {
         keepaliveTask?.cancel()
         keepaliveTask = nil
         keepaliveSettings = nil
+        pathDiagnostics = nil
         cancelProbe()
         try? connection.close(errorCode: 1, reason: code.reasonData)
         journal.record(

@@ -1,5 +1,9 @@
 import AppKit
+import CmuxBrowser
+import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxCommandPalette
+import Foundation
 import SwiftUI
 import Testing
 import WebKit
@@ -13,6 +17,43 @@ import WebKit
 @MainActor
 @Suite(.serialized)
 struct WindowOverlayChromeTests {
+    @Test("Window hit testing reaches browser children across portal reopen and overlay dismissal")
+    func windowHitTestingReachesBrowserContent() throws {
+        let window = makeWindow(withBrowserHost: true)
+        defer { window.orderOut(nil) }
+        let content = try #require(window.contentView)
+        let anchor = try #require(find("overlay.browser", in: content))
+        let browser = WindowBrowserPortal(window: window)
+        defer { browser.tearDown() }
+
+        for _ in 0..<3 {
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
+            browser.bind(webView: webView, to: anchor, visibleInUI: true)
+            content.layoutSubtreeIfNeeded()
+            browser.synchronizeWebViewForAnchor(anchor)
+            let slot = try #require(webView.cmuxBrowserViewportPresentationView.superview as? WindowBrowserSlotView)
+            let point = webView.convert(NSPoint(x: webView.bounds.midX, y: webView.bounds.midY), to: nil)
+
+            let zones: [DropZone?] = [nil, .center, nil]
+            for zone in zones {
+                slot.setDropZoneOverlay(zone: zone)
+                let hit = try #require(content.cmuxHitTest(windowPoint: point))
+                #expect(hit === webView || hit.isDescendant(of: webView))
+            }
+
+            browser.detachWebView(withId: ObjectIdentifier(webView))
+            let hitAfterClose = content.cmuxHitTest(windowPoint: point)
+            #expect(hitAfterClose !== slot)
+            #expect(hitAfterClose?.isDescendant(of: slot) != true)
+        }
+
+        for identifier in ["overlay.sidebar", "overlay.tabs", "overlay.terminal"] {
+            let chrome = try #require(find(identifier, in: content))
+            let point = chrome.convert(NSPoint(x: chrome.bounds.midX, y: chrome.bounds.midY), to: nil)
+            #expect(content.cmuxHitTest(windowPoint: point) === chrome)
+        }
+    }
+
     @Test("Installing native portals preserves the SwiftUI chrome root and layout contract")
     func portalsPreserveContentOwnership() throws {
         let window = makeWindow(withBrowserHost: true)
@@ -47,19 +88,43 @@ struct WindowOverlayChromeTests {
 
     @Test("Browser content stays inside the content hierarchy without covering either chrome strip", arguments: [false, true])
     func browserAndTerminalRespectChrome(useGlass: Bool) throws {
+        // A terminal surface re-applies the configured window backdrop when it
+        // mounts (`GhosttyNSView.viewDidMoveToWindow` →
+        // `applyWindowBackgroundIfActive`). With glass off in settings, that
+        // mount removes the native glass root on macOS 26, where
+        // `NSGlassEffectView` exists. Configure glass in settings so the
+        // surface keeps the glass root the test installed. That leaves the
+        // portals as the only thing that could replace it.
+        let defaults = UserDefaults.standard
+        let savedBlendMode = defaults.object(forKey: "sidebarBlendMode")
+        let savedGlassEnabled = defaults.object(forKey: "bgGlassEnabled")
+        defer {
+            defaults.set(savedBlendMode, forKey: "sidebarBlendMode")
+            defaults.set(savedGlassEnabled, forKey: "bgGlassEnabled")
+        }
+        defaults.set(useGlass ? "behindWindow" : "withinWindow", forKey: "sidebarBlendMode")
+        defaults.set(useGlass, forKey: "bgGlassEnabled")
+
         let window = makeWindow(withBrowserHost: true)
         defer { window.orderOut(nil) }
         let content = try #require(window.contentView)
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
+        let glassEffect = WindowGlassEffect()
         if useGlass {
-            WindowGlassEffect().apply(to: window)
+            glassEffect.apply(to: window)
         }
-        let windowRoot = window.contentView
+        let windowRoot = try #require(window.contentView)
+        if useGlass && glassEffect.isAvailable {
+            #expect(windowRoot !== content)
+            #expect(glassEffect.originalContentView(for: window) === content)
+        } else {
+            #expect(windowRoot === content)
+        }
         let browser = WindowBrowserPortal(window: window)
         let terminal = WindowTerminalPortal(window: window)
         defer { browser.tearDown(); terminal.tearDown() }
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let terminalView = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: .zero))
         browser.bind(webView: webView, to: browserAnchor, visibleInUI: true)
         terminal.bind(hostedView: terminalView, to: terminalAnchor, visibleInUI: true)
@@ -70,11 +135,7 @@ struct WindowOverlayChromeTests {
             browser.synchronizeWebViewForAnchor(browserAnchor)
             terminal.synchronizeHostedViewForAnchor(terminalAnchor)
             let root = try #require(window.contentView)
-            if useGlass {
-                #expect(root !== windowRoot)
-            } else {
-                #expect(root === windowRoot)
-            }
+            #expect(root === windowRoot, "Portals must preserve the root installed before they bind.")
             #expect(webView.window === window)
             let browserFrame = browserAnchor.convert(browserAnchor.bounds, to: nil)
             let browserPoint = NSPoint(x: browserFrame.midX, y: browserFrame.midY)
@@ -121,6 +182,75 @@ struct WindowOverlayChromeTests {
         #expect(host.cmuxHitTest(windowPoint: event.locationInWindow) === button)
     }
 
+    @Test("Pane swap selection keeps source distinct and commits the hovered target")
+    func paneSwapSelectionCommitsDistinctHoveredTarget() {
+        let sourcePaneID = UUID()
+        let targetPaneID = UUID()
+        var state = PaneSwapSelectionState(sourcePaneID: sourcePaneID)
+
+        #expect(state.targetPaneID == nil)
+        #expect(state.handle(.hover(sourcePaneID)) == .none)
+        #expect(state.targetPaneID == nil)
+        #expect(state.handle(.hover(targetPaneID)) == .none)
+        #expect(state.targetPaneID == targetPaneID)
+        #expect(
+            state.handle(.primaryClick) == .commit(
+                sourcePaneID: sourcePaneID,
+                targetPaneID: targetPaneID
+            )
+        )
+        #expect(state.targetPaneID == nil)
+    }
+
+    @Test(
+        "Pane swap selection cancellation abandons the active target",
+        arguments: [
+            PaneSwapSelectionCancellationReason.escapeKey,
+            .secondaryClick,
+            .abandonedInteraction,
+            .windowDeactivated,
+            .layoutChanged,
+        ]
+    )
+    func paneSwapSelectionCancellation(reason: PaneSwapSelectionCancellationReason) {
+        let sourcePaneID = UUID()
+        let targetPaneID = UUID()
+        var state = PaneSwapSelectionState(sourcePaneID: sourcePaneID)
+
+        _ = state.handle(.hover(targetPaneID))
+        #expect(state.targetPaneID == targetPaneID)
+        #expect(state.handle(.cancel(reason)) == .cancel(reason))
+        #expect(state.targetPaneID == nil)
+    }
+
+    @Test("Swap With Session command is terminal-pane scoped and dismisses before selection")
+    func swapWithSessionCommandPaletteContract() throws {
+        let contribution = try #require(
+            ContentView.commandPaletteViewCommandContributions().first {
+                $0.commandId == "palette.swapWithSession"
+            }
+        )
+
+        var terminalPane = CommandPaletteContextSnapshot()
+        terminalPane.setBool(CommandPaletteContextKeys.panelIsTerminal, true)
+        terminalPane.setBool(CommandPaletteContextKeys.panelHasPane, true)
+        #expect(contribution.when(terminalPane))
+
+        var terminalWithoutPane = CommandPaletteContextSnapshot()
+        terminalWithoutPane.setBool(CommandPaletteContextKeys.panelIsTerminal, true)
+        #expect(!contribution.when(terminalWithoutPane))
+
+        var nonTerminalPane = CommandPaletteContextSnapshot()
+        nonTerminalPane.setBool(CommandPaletteContextKeys.panelHasPane, true)
+        #expect(!contribution.when(nonTerminalPane))
+
+        #expect(
+            ContentView.commandPaletteShouldDismissBeforeRun(
+                forCommandId: "palette.swapWithSession"
+            )
+        )
+    }
+
     private func makeWindow() -> NSWindow {
         makeWindow(withBrowserHost: false)
     }
@@ -136,7 +266,6 @@ struct WindowOverlayChromeTests {
         let fixture = chromeFixture.overlay {
             if withBrowserHost {
                 WindowContentOverlayBrowserHost()
-                    .allowsHitTesting(false)
             }
         }
         window.contentView = MainWindowHostingView(rootView: fixture)
