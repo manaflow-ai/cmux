@@ -370,6 +370,10 @@ path = "tests/test_ci_cli_lane_in_admission.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_delta_since_green.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_reverse_test_impact.py"
 lane = "linux-guard"
 
