@@ -556824,6 +556824,71 @@
           }
         }
       }
+    },
+    "browser.extensions.error.urlAllowlist": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extensions are off while the browser URL allowlist is on."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザーの URL 許可リストが有効な間、拡張機能はオフになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 URL 허용 목록이 켜져 있는 동안 확장 프로그램이 꺼집니다."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розширення вимкнені, поки ввімкнено список дозволених URL-адрес браузера."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器 URL 允许列表开启时，扩展程序处于关闭状态。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erweiterungen sind deaktiviert, solange die URL-Zulassungsliste des Browsers aktiv ist."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les extensions sont désactivées tant que la liste d’URL autorisées du navigateur est active."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكون الإضافات متوقفة ما دامت قائمة عناوين URL المسموح بها في المتصفح مفعّلة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las extensiones están desactivadas mientras la lista de URL permitidas del navegador esté activa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器 URL 允許清單開啟時，延伸功能會關閉。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

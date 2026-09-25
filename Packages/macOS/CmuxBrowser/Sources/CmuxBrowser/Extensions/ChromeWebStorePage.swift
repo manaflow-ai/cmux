@@ -38,19 +38,19 @@ public enum ChromeWebStorePage {
 
     /// The extension id of a store detail page, taken from the URL path only.
     ///
-    /// The id is the segment right after `detail`, or the one after that when
-    /// a slug comes first (`/detail/<slug>/<id>`). The page script uses the
-    /// same rule, so the button it labels and the extension the app installs
-    /// cannot disagree.
+    /// The id is chosen by route position, as the store routes it:
+    /// `/detail/<slug>/<id>` shows `<id>`, and `/detail/<id>` shows `<id>`.
+    /// An id-shaped slug therefore never wins over the listing the store
+    /// displays. The page script uses the same rule, so the button it labels
+    /// and the extension the app installs cannot disagree.
     public static func extensionID(onStorePage url: URL) -> String? {
         guard isStorePage(url) else { return nil }
         let components = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         guard let detail = components.firstIndex(of: "detail") else { return nil }
-        for offset in 1...2 where components.indices.contains(detail + offset) {
-            if ChromeExtensionPackage.isExtensionID(components[detail + offset]) {
-                return components[detail + offset]
-            }
-        }
+        let first = components.indices.contains(detail + 1) ? components[detail + 1] : nil
+        let second = components.indices.contains(detail + 2) ? components[detail + 2] : nil
+        if let second, ChromeExtensionPackage.isExtensionID(second) { return second }
+        if let first, ChromeExtensionPackage.isExtensionID(first) { return first }
         return nil
     }
 
@@ -105,13 +105,13 @@ public enum ChromeWebStorePage {
           if (!handler) return;
 
           function pageID() {
-            // Same rule as the app: the segment after "detail", else the next.
+            // Same rule as the app: /detail/<slug>/<id>, else /detail/<id>.
             var parts = location.pathname.split('/').filter(function (p) { return p.length; });
             var d = parts.indexOf('detail');
             if (d < 0) return null;
-            for (var i = 1; i <= 2; i++) {
-              if (/^[a-p]{32}$/.test(parts[d + i] || '')) return parts[d + i];
-            }
+            var isID = function (s) { return /^[a-p]{32}$/.test(s || ''); };
+            if (isID(parts[d + 2])) return parts[d + 2];
+            if (isID(parts[d + 1])) return parts[d + 1];
             return null;
           }
 

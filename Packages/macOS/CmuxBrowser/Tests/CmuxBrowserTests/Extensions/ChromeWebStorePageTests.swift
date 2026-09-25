@@ -23,11 +23,13 @@ import Testing
         #expect(ChromeWebStorePage.extensionID(onStorePage: offStore) == nil)
     }
 
-    /// A crafted path with two ids must resolve to the same id the page
-    /// script labels: the one right after `detail`.
-    @Test func picksTheFirstIDAfterDetail() throws {
+    /// A crafted path with an id-shaped slug must resolve to the listing the
+    /// store displays, the id in the second route position.
+    @Test func picksTheIDByRoutePosition() throws {
         let twoIDs = try #require(URL(string: "https://chromewebstore.google.com/detail/bcjindcccaagfpapjjmafapmmgkkhgoa/nngceckbapebfimnlniiiahkandclblb"))
-        #expect(ChromeWebStorePage.extensionID(onStorePage: twoIDs) == "bcjindcccaagfpapjjmafapmmgkkhgoa")
+        #expect(ChromeWebStorePage.extensionID(onStorePage: twoIDs) == "nngceckbapebfimnlniiiahkandclblb")
+        let reviews = try #require(URL(string: "https://chromewebstore.google.com/detail/bcjindcccaagfpapjjmafapmmgkkhgoa/reviews"))
+        #expect(ChromeWebStorePage.extensionID(onStorePage: reviews) == "bcjindcccaagfpapjjmafapmmgkkhgoa")
         let deep = try #require(URL(string: "https://chromewebstore.google.com/detail/a/b/bcjindcccaagfpapjjmafapmmgkkhgoa"))
         #expect(ChromeWebStorePage.extensionID(onStorePage: deep) == nil)
     }

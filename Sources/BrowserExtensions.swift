@@ -4,6 +4,7 @@
 
 import AppKit
 import CmuxBrowser
+import CmuxSettings
 import Combine
 import WebKit
 
@@ -131,6 +132,9 @@ final class BrowserExtensions: NSObject, ObservableObject {
     private var popover: NSPopover?
     private var stateObservation: AnyCancellable?
     private var errorObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
+    /// Extensions with a runtime permission prompt showing or queued.
+    private var pendingRuntimePrompts: Set<String> = []
+    private static let maximumPendingRuntimePrompts = 3
     private var lastRevival: [String: Date] = [:]
 
     private override init() {
@@ -314,6 +318,10 @@ final class BrowserExtensions: NSObject, ObservableObject {
     /// Installs a Chrome Web Store extension, from a store link or bare id,
     /// into the profile whose tab asked.
     func installStoreExtension(from text: String, profile: String) {
+        guard !Self.isBlockedByURLAllowlist else {
+            lastError = String(localized: "browser.extensions.error.urlAllowlist", defaultValue: "Extensions are off while the browser URL allowlist is on.")
+            return
+        }
         guard let id = ChromeExtensionPackage.extensionID(in: text) else {
             lastError = Self.describe(ChromeExtensionPackage.Failure.notAnExtensionID)
             return
@@ -434,7 +442,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 ),
                 detail: String(localized: "browser.extensions.remove.detail", defaultValue: "Its settings and data are removed too."),
                 icon: nil,
-                confirm: String(localized: "browser.extensions.remove.confirm", defaultValue: "Remove")
+                confirm: String(localized: "browser.extensions.remove.confirm", defaultValue: "Remove"),
+                queued: false
             ) else { return }
             installed.removeAll { $0.profileKey == profile && $0.extensionID == id }
             errors[item.id] = nil
@@ -500,6 +509,13 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 return
             }
         }
+        // The install may have been removed, reinstalled, or updated while
+        // this update waited for downloads or the prompt. Commit only against
+        // the exact record the grant comparison used.
+        guard installation(item.extensionID, in: item.profileKey) == item else {
+            try? fileManager.removeItem(at: stage)
+            return
+        }
         let destination = folder(for: item.extensionID, profile: item.profileKey)
         controllers[item.profileKey]?.unload(id: item.extensionID)
         try? fileManager.removeItem(at: destination)
@@ -531,7 +547,16 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     // MARK: - Loading
 
+    /// The embedded-browser URL allowlist restricts navigation. Extensions
+    /// can reach any granted host from their own pages and workers, which
+    /// that allowlist cannot constrain, so extensions do not run while it is
+    /// active (managed by an organization or set by the user).
+    static var isBlockedByURLAllowlist: Bool {
+        BrowserURLAllowlistPolicy(defaults: .standard).isActive
+    }
+
     private func loadInstalled(in controller: Controller) {
+        guard !Self.isBlockedByURLAllowlist else { return }
         for item in installations(inProfile: controller.profileKey) where item.enabled {
             load(id: item.extensionID, in: controller)
         }
@@ -539,7 +564,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     private func load(id: String, in controller: Controller) {
         let profile = controller.profileKey
-        guard controller.contexts[id] == nil, !controller.loading.contains(id),
+        guard !Self.isBlockedByURLAllowlist,
+              controller.contexts[id] == nil, !controller.loading.contains(id),
               let item = installation(id, in: profile), item.enabled else { return }
         controller.loading.insert(id)
         let folder = folder(for: id, profile: profile)
@@ -663,8 +689,10 @@ final class BrowserExtensions: NSObject, ObservableObject {
 
     /// Asks one question at a time, as a sheet on the key window, so a
     /// prompt never blocks the whole app the way a modal alert would.
-    private func ask(title: String, detail: String, icon: NSImage?, confirm: String) async -> Bool {
-        let previous = question
+    /// `queued: false` is for the user's own actions (remove), which must not
+    /// wait behind extension-initiated prompts.
+    private func ask(title: String, detail: String, icon: NSImage?, confirm: String, queued: Bool = true) async -> Bool {
+        let previous = queued ? question : nil
         let task = Task { @MainActor () -> Bool in
             _ = await previous?.value
             let alert = NSAlert()
@@ -683,12 +711,22 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
             }
         }
-        question = task
+        if queued { question = task }
         return await task.value
     }
 
+    /// A runtime permission prompt. An extension gets at most one at a time
+    /// and only a few may queue app-wide; extra requests are denied, so an
+    /// extension cannot bury the user's own prompts (install, remove) under
+    /// a stack of sheets. The answer is dropped if the extension was unloaded
+    /// while it waited.
     fileprivate func askForRuntimeAccess(_ context: WKWebExtensionContext, detail: String) async -> Bool {
-        await ask(
+        let key = context.uniqueIdentifier
+        guard !pendingRuntimePrompts.contains(key),
+              pendingRuntimePrompts.count < Self.maximumPendingRuntimePrompts else { return false }
+        pendingRuntimePrompts.insert(key)
+        defer { pendingRuntimePrompts.remove(key) }
+        let allowed = await ask(
             title: String(
                 format: String(localized: "browser.extensions.moreAccess.title", defaultValue: "“%@” asks for more access"),
                 context.webExtension.displayName ?? context.uniqueIdentifier
@@ -697,6 +735,8 @@ final class BrowserExtensions: NSObject, ObservableObject {
             icon: context.webExtension.icon(for: CGSize(width: 64, height: 64)),
             confirm: String(localized: "browser.extensions.moreAccess.confirm", defaultValue: "Allow")
         )
+        let stillLoaded = controllers.values.contains { $0.contexts[context.uniqueIdentifier] === context }
+        return allowed && stillLoaded
     }
 
     /// Every permission the manifest asks for.
@@ -779,7 +819,10 @@ final class BrowserExtensions: NSObject, ObservableObject {
                 errors: errors[item.id] ?? []
             )
         }
-        return .init(supported: controller != nil, busy: busyID, lastError: lastError, extensions: rows)
+        let policyError = Self.isBlockedByURLAllowlist
+            ? String(localized: "browser.extensions.error.urlAllowlist", defaultValue: "Extensions are off while the browser URL allowlist is on.")
+            : nil
+        return .init(supported: controller != nil, busy: busyID, lastError: policyError ?? lastError, extensions: rows)
     }
 
     func handleManagerRequest(_ request: ChromeExtensionsManagerPage.Request, from webView: WKWebView) {
@@ -1129,7 +1172,17 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
         owner.orderedTabs.firstIndex { $0 === self } ?? NSNotFound
     }
-    func webView(for context: WKWebExtensionContext) -> WKWebView? { panel?.webView }
+    /// A tab showing another extension's page is not visible to this
+    /// extension's scripting or capture, whatever hosts it was granted.
+    private func showsForeignExtensionPage(for context: WKWebExtensionContext) -> Bool {
+        guard let url = panel?.webView.url ?? panel?.currentURL,
+              url.scheme?.lowercased() == ChromeExtensionNavigationPolicy.extensionScheme else { return false }
+        return url.host?.lowercased() != context.uniqueIdentifier.lowercased()
+    }
+
+    func webView(for context: WKWebExtensionContext) -> WKWebView? {
+        showsForeignExtensionPage(for: context) ? nil : panel?.webView
+    }
     func title(for context: WKWebExtensionContext) -> String? { panel?.pageTitle }
     func url(for context: WKWebExtensionContext) -> URL? { panel?.webView.url ?? panel?.currentURL }
     func isLoadingComplete(for context: WKWebExtensionContext) -> Bool { !(panel?.isLoading ?? false) }
@@ -1178,7 +1231,7 @@ private final class BrowserExtensionTab: NSObject, WKWebExtensionTab {
     }
 
     func takeSnapshot(using configuration: WKSnapshotConfiguration, for context: WKWebExtensionContext) async throws -> NSImage? {
-        guard let webView = panel?.webView else { return nil }
+        guard !showsForeignExtensionPage(for: context), let webView = panel?.webView else { return nil }
         return try await webView.takeSnapshot(configuration: configuration)
     }
 }

@@ -781,6 +781,13 @@ private final class PopupUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return
         }
 
+        // Popup windows are website-created; cmux://extensions only ever
+        // opens in a browser tab from cmux itself.
+        if ChromeExtensionsManagerPage.isManagerPageURL(url) {
+            decisionHandler(.cancel)
+            return
+        }
+
         if navigationAction.navigationType == .linkActivated,
            navigationAction.targetFrame?.isMainFrame != false,
            let appLink = BrowserAppLinkOpenRequest(
