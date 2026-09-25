@@ -12220,6 +12220,17 @@ final class GhosttySurfaceScrollView: NSView {
     func debugHasPendingAutomaticFirstResponderApplyForTesting() -> Bool {
         pendingAutomaticFirstResponderApply
     }
+
+    /// Runs the body of the queued automatic first-responder apply now, so a
+    /// test can pin the geometry it sees. On the real queue a layout pass can
+    /// land between scheduling and running and restore the surface frame.
+    func debugApplyFirstResponderNowForTesting() {
+        applyFirstResponderIfNeeded()
+    }
+
+    func debugHasPendingSuppressedFirstResponderFocusReapplyForTesting() -> Bool {
+        pendingSuppressedFirstResponderFocusReapply
+    }
 #endif
 
     private func currentTerminalSurfaceOwnsFirstResponder() -> Bool {
