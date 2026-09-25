@@ -28,8 +28,7 @@ import XCTest
 ///
 /// - `WorkspaceTabTitleView.activeBorderLineWidth` / `activeBorderColor`
 ///   switch on `activeTabIndicatorStyle` (left rail vs solid fill) — a
-///   `CGFloat` border width and a `Color`, including the color-preserving
-///   Border mode, with no accessibility surface.
+///   `CGFloat` border width and a `Color`, no accessibility surface.
 /// - `selectedWorkspaceBackgroundNSColor` is derived from
 ///   `sidebarSelectionColorHex` and used only as a fill.
 /// - `activeUnreadBadgeFillColor` is derived from
@@ -60,9 +59,9 @@ import XCTest
 /// flaky under XCUITest), and the per-row Reset buttons only appear once
 /// a custom hex is stored, which there is no seam-free way to set up.
 ///
-// TIER 2 (needs runtime seam): Workspace Color Indicator (left rail, solid
-//   fill, or border) — only changes `activeBorderLineWidth`/`activeBorderColor`
-//   and the active row fill; pixel-only, no accessibility value.
+// TIER 2 (needs runtime seam): Workspace Color Indicator (left rail vs
+//   solid fill) — only changes `activeBorderLineWidth`/`activeBorderColor`
+//   on the active workspace tab; pixel-only, no accessibility value.
 // TIER 2 (needs runtime seam): Selection Highlight color — only changes
 //   the selected workspace tab background fill; pixel-only, and the
 //   ColorPicker drives NSColorPanel which XCUITest cannot reliably set.
