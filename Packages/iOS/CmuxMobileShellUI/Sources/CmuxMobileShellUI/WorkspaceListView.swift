@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -9,6 +10,9 @@ import AppKit
 #endif
 
 struct WorkspaceListView: View {
+    #if os(iOS) && DEBUG
+    @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
+    #endif
 #if os(iOS)
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 #endif
@@ -67,6 +71,10 @@ struct WorkspaceListView: View {
     /// in previews, where pull-to-refresh is hidden. `@Sendable` to match
     /// SwiftUI's `refreshable(action:)` action type under Swift 6.
     var refresh: (@Sendable () async -> Void)?
+    /// Whether the empty-state recovery action currently owns the shared
+    /// connection status line under the computer picker.
+    var isRecoveringWorkspaceList = false
+    var cancelRefresh: (() -> Void)? = nil
     var signOut: (() -> Void)?
     /// Manual reconnect for the offline status row. `nil` in previews.
     var reconnect: (() -> Void)?
@@ -935,6 +943,7 @@ struct WorkspaceListView: View {
             connectionRequiresReauth: store?.connectionRequiresReauth ?? false,
             connectionRecoveryFailed: store?.connectionRecoveryFailed ?? false,
             isRecoveringConnection: store?.isRecoveringConnection ?? false,
+            isRecoveringWorkspaceList: isRecoveringWorkspaceList,
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
@@ -976,12 +985,8 @@ struct WorkspaceListView: View {
             presentComputers()
         } label: {
             MobileDevicesToolbarLabel(
-                gateWarningDeviceIDs: store?.macVersionUpdateRequiredDeviceIDs ?? [],
-                computerDeviceIDs: Set(
-                    liveMachineSnapshots.macPickerMachines
-                        .map(\.macDeviceID)
-                        .filter { !$0.isEmpty }
-                )
+                gateWarningPairingIDs: store?.macVersionUpdateRequiredPairingIDs ?? [],
+                computerPairingIDs: Set(liveMachineSnapshots.macPickerMachines.map(\.id))
             )
         }
         .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))

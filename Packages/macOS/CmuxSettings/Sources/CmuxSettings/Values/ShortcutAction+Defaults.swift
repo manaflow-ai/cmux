@@ -68,6 +68,7 @@ extension ShortcutAction {
     private var builtInDefaultStroke: ShortcutStroke? {
         switch self {
         case .openSettings: return ShortcutStroke(key: ",", command: true)
+        case .openTeamPicker: return ShortcutStroke(key: "t", command: true, shift: true, option: true)
         case .reloadConfiguration: return ShortcutStroke(key: ",", command: true, shift: true)
         case .showHideAllWindows: return ShortcutStroke(key: ".", command: true, option: true, control: true)
         case .globalSearch: return ShortcutStroke(key: "f", command: true, option: true)
@@ -78,6 +79,8 @@ extension ShortcutAction {
         case .toggleSidebar: return ShortcutStroke(key: "b", command: true)
         case .newTab: return ShortcutStroke(key: "n", command: true)
         case .newBrowserWorkspace: return ShortcutStroke(key: "n", command: true, option: true)
+        case .newCloudWorkspace: return ShortcutStroke(key: "y", command: true, shift: true)
+        case .newCloudMachine: return ShortcutStroke(key: "y", command: true)
         case .saveLayoutTemplate: return ShortcutStroke(key: "s", command: true, control: true)
         case .openFolder: return ShortcutStroke(key: "o", command: true)
         case .reopenPreviousSession: return ShortcutStroke(key: "o", command: true, shift: true)
@@ -137,6 +140,10 @@ extension ShortcutAction {
         case .resetWorkspaceTerminalFontSize:
             return ShortcutStroke(key: "0", command: true, control: true)
         case .equalizeSplits: return ShortcutStroke(key: "=", command: true, shift: true, control: true)
+        case .resizePaneLeft: return ShortcutStroke(key: "h", shift: true, control: true)
+        case .resizePaneRight: return ShortcutStroke(key: "l", shift: true, control: true)
+        case .resizePaneUp: return ShortcutStroke(key: "k", shift: true, control: true)
+        case .resizePaneDown: return ShortcutStroke(key: "j", shift: true, control: true)
         case .splitBrowserRight: return ShortcutStroke(key: "d", command: true, option: true)
         case .splitBrowserDown: return ShortcutStroke(key: "d", command: true, shift: true, option: true)
         case .toggleCanvasLayout: return ShortcutStroke(key: "c", command: true, control: true)
@@ -184,6 +191,7 @@ extension ShortcutAction {
         case .fileExplorerOpenSelectionFinderAlias: return ShortcutStroke(key: "↓", command: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
+        case .toggleFileEditorWordWrap: return ShortcutStroke(key: "z", option: true)
         case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)
         case .focusBrowserAddressBar: return ShortcutStroke(key: "l", command: true)
         case .browserBack: return ShortcutStroke(key: "[", command: true)

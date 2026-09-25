@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Foundation
 
@@ -73,10 +74,16 @@ extension AppDelegate {
 
     func makeNewWorkspaceContextMenu(
         context: MainWindowContext,
-        cmuxConfigStore: CmuxConfigStore
+        cmuxConfigStore: CmuxConfigStore,
+        isAuthenticated: Bool? = nil
     ) -> NSMenu? {
+        let isAuthenticated = isAuthenticated ?? (AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true)
         let model = NewWorkspaceMenuModel.build(
-            newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
+            newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems.filter { item in
+                guard case .action(let menuAction) = item,
+                      case .builtIn(let builtIn) = menuAction.action.action else { return true }
+                return Self.isBuiltInActionAvailableInNewWorkspaceMenu(builtIn, isAuthenticated: isAuthenticated)
+            },
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
@@ -91,6 +98,28 @@ extension AppDelegate {
             context: context,
             cmuxConfigStore: cmuxConfigStore
         )
+    }
+
+    /// Feature gates for built-in plus-menu rows, evaluated when the menu
+    /// opens (not at config load) so flag and setting flips apply at once.
+    /// Mirrors the command palette's gates for the same actions.
+    static func isBuiltInActionAvailableInNewWorkspaceMenu(
+        _ action: CmuxSurfaceTabBarBuiltInAction,
+        isAuthenticated: Bool? = nil
+    ) -> Bool {
+        switch action {
+        case .newCloudWorkspace, .newCloudMachine, .cloudVM:
+            return CloudMachinesFeature.isEnabled
+                && (isAuthenticated ?? (AppDelegate.shared?.auth?.accountFlow.isAuthenticated == true))
+        case .newBrowser, .newAgentChat:
+            return BrowserAvailabilitySettings.isEnabled()
+        case .newSimulator:
+            return CmuxFeatureFlags.shared.isSimulatorEnabled
+        case .mobileConnect:
+            return !MobileRemoteControlPolicy.isDisabled
+        case .newWorkspace, .newTerminal, .splitRight, .splitDown:
+            return true
+        }
     }
 
     private func savedLayoutNames() -> [String] {
@@ -138,7 +167,18 @@ extension AppDelegate {
             NSSound.beep()
             return
         }
-        guard executeConfiguredCmuxAction(box.action, context: context, preferredWindow: window) else {
+        let didExecute: Bool
+        if case .builtIn(.newWorkspace) = box.action.action {
+            // This menu row is an explicit local override of the context-following
+            // New Workspace command. Do not inherit a Cloud-only working directory.
+            didExecute = context.tabManager.addWorkspaceIfActive(
+                inheritWorkingDirectory: context.tabManager.selectedWorkspace?.cloudVMID == nil
+                    && context.tabManager.selectedWorkspace?.cloudVMBinding == nil
+            ) != nil
+        } else {
+            didExecute = executeConfiguredCmuxAction(box.action, context: context, preferredWindow: window)
+        }
+        guard didExecute else {
             NSSound.beep()
             return
         }

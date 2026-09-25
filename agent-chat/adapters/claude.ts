@@ -447,7 +447,7 @@ function seedModelChoices(sess: SessionCtx, st: ClaudeState): boolean {
 }
 
 function emitOptions(sess: SessionCtx) {
-  sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true } });
+  sess.emit({ kind: "options", options: buildOptions(state(sess)), actions: { fork: true, handoff: true } });
 }
 
 function buildOptions(st: Pick<ClaudeState, "model" | "modelChoices" | "modelMeta" | "permissionMode" | "thinking" | "effort" | "fastMode" | "context">): SessionOption[] {

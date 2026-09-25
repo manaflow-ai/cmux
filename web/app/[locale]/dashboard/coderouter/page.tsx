@@ -1,17 +1,16 @@
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { headers } from "next/headers";
+import { connection } from "next/server";
 import { redirect } from "next/navigation";
 import { buildAlternates, openGraphDefaults, seoDescription, twitterSummary } from "@/i18n/seo";
-import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import type { SubrouterAccount } from "@/services/subrouter/types";
 import { hostedSubrouterCutoverReadyForTeam } from "@/services/subrouter/cutover";
 import { createHostedSubrouterClient } from "@/services/subrouter/hostedClient";
 import {
-  authorizedSubrouterTeams,
-} from "@/services/subrouter/routeHelpers";
+  authorizedCoderouterTeams,
+} from "@/services/coderouter/permissions";
 import {
   isSubrouterAuthorizationError,
   SubrouterAuthorizationUnavailableError,
@@ -23,29 +22,23 @@ import {
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
 import { loadMachineUsage, MachineUsageSection } from "./machine-usage";
+import { listClaudeAccounts } from "@/services/coderouter/claudeUpstream";
 import {
-  coderouterOrganizationFromCookieHeader,
-} from "@/services/coderouter/organizationScope";
-import {
-  listClaudeAccounts,
-  type ClaudeAccountDescription,
-} from "@/services/coderouter/claudeUpstream";
-import {
-  AddAiAccountForms,
-  DeleteAiAccountButton,
-} from "../components/ai-account-forms";
-import { ClaudeUpstreamSection } from "../components/claude-upstream-forms";
+  CoderouterAccountsSection,
+  type ClaudeAccountsState,
+  type NativeAccountsState,
+  type SharedAccountsState,
+} from "../components/coderouter-accounts";
+import { listAccounts as listNativeAccounts } from "@/services/coderouter/repository";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
+import { DashboardSectionSkeleton } from "../components/dashboard-skeleton";
 import { withPrioritySpan } from "@/services/telemetry";
 import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
-// The page resolves as one server render. Keeping the auth and data work in
-// this Suspense boundary prevents a header-only response while the private
-// content is still loading.
+// The header is part of the static shell and is prefetched with it. The
+// session, team grants, and team data stream in behind the section boundary,
+// so nothing private is ever part of a prefetch.
 export const instant = true;
-// The page reads the live browser session and team grants. Do not put a
-// private RSC response in the prefetch cache before the click is authorized.
-export const prefetch = "force-disabled";
 
 type PageProps = {
   params: Promise<{ locale: string }>;
@@ -57,14 +50,9 @@ type DashboardTeam = {
   readonly name: string;
   readonly use: boolean;
   readonly manageAccounts: boolean;
+  readonly manageApiKeys: boolean;
   readonly personal: boolean;
 };
-
-type AccountState =
-  | { readonly kind: "ok"; readonly accounts: readonly SubrouterAccount[] }
-  | { readonly kind: "migrationPending" }
-  | { readonly kind: "notConfigured" }
-  | { readonly kind: "error" };
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -92,13 +80,17 @@ export default function CoderouterOverviewPage(props: PageProps) {
   }
 
   return (
-    <Suspense fallback={null}>
-      <ResolvedCoderouterOverviewContent {...props} />
-    </Suspense>
+    <CoderouterPageFrame>
+      <Suspense fallback={<DashboardSectionSkeleton />}>
+        <ResolvedCoderouterOverviewContent {...props} />
+      </Suspense>
+    </CoderouterPageFrame>
   );
 }
 
 async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageProps) {
+  // Authorization and tracing run per request, below the cached page shell.
+  await connection();
   // Framework promises are not stable cache keys across prerender phases.
   const [{ locale }, { team: teamParam }] = await Promise.all([params, searchParams]);
   const team = Array.isArray(teamParam) ? teamParam[0] : teamParam;
@@ -107,9 +99,11 @@ async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageP
 }
 
 type CoderouterAuthorization = {
-  readonly teams: readonly DashboardTeam[];
   readonly selectedTeam: DashboardTeam;
+  /** Every team the viewer can open here, the selected one included. */
+  readonly teams: readonly DashboardTeam[];
   readonly accessToken: string;
+  readonly userId: string;
 };
 
 type CoderouterAuthorizationResult =
@@ -125,9 +119,9 @@ export async function CoderouterOverviewContent({
   locale: string;
   team?: string;
 }) {
-  // Authorization and the access token are resolved for every request. There
-  // is no private page cache here, so a prefetched response cannot outlive a
-  // team grant or expose management controls after revocation.
+  // Team grants and the access token are resolved for every request, so a
+  // revoked membership stops showing team data on the next render. The
+  // static header above this section is what keeps the navigation instant.
   const requestHeaders = await headers();
   const authorization = await withPrioritySpan(
     "cmux-coderouter-dashboard",
@@ -145,15 +139,19 @@ export async function CoderouterOverviewContent({
     redirect("/dashboard");
   }
 
-  const { teams, selectedTeam, accessToken } = authorization.value;
-  const [tPage, t, accountState, metrics, claudeUpstream, machineUsage] = await Promise.all([
+  const { selectedTeam, teams, accessToken, userId } = authorization.value;
+  // The transfer route accepts only another team where the viewer manages
+  // accounts, so the destination list uses the same rule.
+  const transferTeams = teams
+    .filter((candidate) => candidate.id !== selectedTeam.id && candidate.manageAccounts)
+    .map((candidate) => ({ id: candidate.id, name: candidate.name }));
+  const [tPage, sharedAccounts, metrics, claudeAccounts, nativeAccounts, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
-    getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
       "cmux.coderouter.accounts",
       { "cmux.team_scope": "selected" },
-      () => loadAccounts(selectedTeam, accessToken),
+      () => loadSharedAccounts(selectedTeam, accessToken),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
@@ -165,7 +163,13 @@ export async function CoderouterOverviewContent({
       "cmux-coderouter-dashboard",
       "cmux.coderouter.claude_upstream",
       { "cmux.team_scope": "selected" },
-      () => loadClaudeUpstream(selectedTeam.id),
+      () => loadClaudeAccounts(selectedTeam.id, userId),
+    ),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.native_accounts",
+      { "cmux.team_scope": "selected" },
+      () => loadNativeAccounts(selectedTeam.id, userId),
     ),
     withPrioritySpan(
       "cmux-coderouter-dashboard",
@@ -174,130 +178,35 @@ export async function CoderouterOverviewContent({
       () => loadMachineUsage(selectedTeam.id),
     ),
   ]);
-  const dateFormatter = new Intl.DateTimeFormat(locale, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 
   return (
-    <CoderouterPageFrame>
-      <div>
-        <section className="mb-4 border border-border p-3">
-          <div className="mb-2 text-xs text-muted">{t("teamSwitcherLabel")}</div>
-          <div className="flex flex-wrap gap-3">
-            {teams.map((candidate) => {
-              const selected = candidate.id === selectedTeam.id;
-              return (
-                <Link
-                  key={candidate.id}
-                  href={`/dashboard/coderouter?team=${encodeURIComponent(candidate.id)}`}
-                  className={`py-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground ${
-                    selected ? "text-foreground" : "text-muted hover:text-foreground"
-                  }`}
-                >
-                  {candidate.name}
-                </Link>
-              );
-            })}
-          </div>
-        </section>
+    <>
+      <TeamMetricsSection
+        locale={locale}
+        metrics={metrics}
+        teamName={selectedTeam.name}
+      />
 
-        <TeamMetricsSection
-          locale={locale}
-          metrics={metrics}
-          teamName={selectedTeam.name}
-        />
+      <CoderouterAccountsSection
+        key={selectedTeam.id}
+        teamId={selectedTeam.id}
+        teamName={selectedTeam.name}
+        viewerUserId={userId}
+        canManage={selectedTeam.manageAccounts}
+        canManageApiKeys={selectedTeam.manageApiKeys}
+        transferTeams={transferTeams}
+        claude={claudeAccounts}
+        native={nativeAccounts}
+        shared={sharedAccounts}
+      />
 
-        <ClaudeUpstreamSection
-          teamId={selectedTeam.id}
-          accounts={claudeUpstream.kind === "ok" ? claudeUpstream.accounts : []}
-          canManage={selectedTeam.manageAccounts}
-          loadFailed={claudeUpstream.kind === "error"}
-        />
-
-        <MachineUsageSection
-          locale={locale}
-          t={tPage}
-          teamName={selectedTeam.name}
-          usage={machineUsage}
-        />
-
-        {selectedTeam.manageAccounts ? (
-          <section className="mb-4">
-            <div className="mb-2">
-              <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
-            </div>
-            <AddAiAccountForms />
-          </section>
-        ) : null}
-
-        {accountState.kind === "notConfigured" ? (
-          <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
-        ) : accountState.kind === "migrationPending" ? (
-          <StatusPanel title={t("migrationPendingTitle")} body={t("migrationPendingBody")} />
-        ) : accountState.kind === "error" ? (
-          <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
-        ) : (
-          <section>
-            <div className="mb-2">
-              <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
-              <p className="mt-1 text-xs text-muted">
-                {t("accountsCount", { count: accountState.accounts.length })}
-              </p>
-            </div>
-
-            {accountState.accounts.length === 0 ? (
-              <div className="border border-border p-3">
-                <div className="text-sm font-medium">{t("emptyTitle")}</div>
-                <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
-              </div>
-            ) : (
-              <div className="border border-border">
-                <div className="hidden grid-cols-[1.2fr_1fr_1fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
-                  <div>{t("providerColumn")}</div>
-                  <div>{t("labelColumn")}</div>
-                  <div>{t("createdColumn")}</div>
-                  {selectedTeam.manageAccounts ? (
-                    <div className="text-right">{t("actionsColumn")}</div>
-                  ) : <div />}
-                </div>
-                {accountState.accounts.map((account) => (
-                  <div
-                    key={account.id}
-                    className="grid gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center md:gap-3"
-                  >
-                    <div>
-                      <div className="mb-1 text-xs text-muted md:hidden">
-                        {t("providerColumn")}
-                      </div>
-                      <div>{providerLabel(account.kind, t)}</div>
-                    </div>
-                    <div className="min-w-0 truncate text-muted">
-                      <div className="mb-1 text-xs text-muted md:hidden">
-                        {t("labelColumn")}
-                      </div>
-                      {account.label || t("unlabeledAccount")}
-                    </div>
-                    <div className="font-mono text-xs text-muted">
-                      <div className="mb-1 font-sans text-xs text-muted md:hidden">
-                        {t("createdColumn")}
-                      </div>
-                      {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
-                    </div>
-                    {selectedTeam.manageAccounts ? (
-                      <DeleteAiAccountButton
-                        teamId={selectedTeam.id}
-                        accountId={account.id}
-                      />
-                    ) : <div />}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-      </div>
-    </CoderouterPageFrame>
+      <MachineUsageSection
+        locale={locale}
+        t={tPage}
+        teamName={selectedTeam.name}
+        usage={machineUsage}
+      />
+    </>
   );
 }
 
@@ -317,7 +226,7 @@ async function resolveCoderouterAuthorization(
         );
         if (!user) return null;
         const [authorized, authJson] = await Promise.all([
-          authorizedSubrouterTeams(user),
+          authorizedCoderouterTeams(user),
           withStackAuthSpan(
             "get_auth_json",
             () => getStackServerApp().getAuthJson({
@@ -350,6 +259,7 @@ async function resolveCoderouterAuthorization(
         name: candidate.teamName,
         use: candidate.use,
         manageAccounts: candidate.manageAccounts,
+        manageApiKeys: candidate.manageApiKeys,
         personal: candidate.personal,
       }));
     if (teams.length === 0) {
@@ -360,18 +270,15 @@ async function resolveCoderouterAuthorization(
     const selectedTeam = selectTeam(
       teams,
       requestedTeamId,
-      coderouterOrganizationFromCookieHeader(
-        requestHeaders.get("cookie"),
-        authenticated.user.id,
-      ),
       authenticated.user.selectedTeamId,
     );
     return {
       kind: "authorized",
       value: {
-        teams,
         selectedTeam,
+        teams,
         accessToken,
+        userId: authenticated.user.id,
       },
     };
   } catch (error) {
@@ -381,12 +288,8 @@ async function resolveCoderouterAuthorization(
 }
 
 async function renderCoderouterLoadError(locale: string) {
-  const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
-  return (
-    <CoderouterPageFrame>
-      <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
-    </CoderouterPageFrame>
-  );
+  const t = await getTranslations({ locale, namespace: "dashboard.coderouterAccounts" });
+  return <StatusPanel title={t("pageErrorTitle")} body={t("pageErrorBody")} />;
 }
 
 function CoderouterPageFrame({ children }: React.PropsWithChildren) {
@@ -430,9 +333,9 @@ function TeamMetricsSection({
     style: "percent",
     maximumFractionDigits: 0,
   });
-  const coverage = metrics.totals.totalTokens > 0
-    ? metrics.totals.pricedTokens / metrics.totals.totalTokens
-    : 1;
+  const unpricedShare = metrics.totals.totalTokens > 0
+    ? metrics.totals.unpricedTokens / metrics.totals.totalTokens
+    : 0;
   const maxDailyTokens = Math.max(
     1,
     ...metrics.daily.map((day) => day.totalTokens),
@@ -452,7 +355,7 @@ function TeamMetricsSection({
         </span>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           label={copy.tokens}
           value={number.format(metrics.totals.totalTokens)}
@@ -468,10 +371,6 @@ function TeamMetricsSection({
         <MetricCard
           label={copy.apiEquivalent}
           value={currency.format(metrics.totals.apiEquivalentUsd)}
-        />
-        <MetricCard
-          label={copy.pricingCoverage}
-          value={percent.format(coverage)}
         />
       </div>
 
@@ -500,6 +399,9 @@ function TeamMetricsSection({
       </p>
       <p className="text-[11px] leading-5 text-muted">
         {copy.estimate.replace("{version}", metrics.rateCardVersion)}
+        {unpricedShare > 0
+          ? ` ${copy.unpriced.replace("{share}", percent.format(unpricedShare))}`
+          : ""}
       </p>
     </section>
   );
@@ -524,12 +426,12 @@ function metricsCopy(locale: string) {
       outputTokens: "出力トークン",
       tokens: "合計トークン",
       apiEquivalent: "API換算額",
-      pricingCoverage: "価格対応率",
+      unpriced: "全トークンの {share} は価格が不明なモデルのもので、換算額に含まれていません。",
       chartLabel: "日別のCodeRouterトークン使用量",
       privacy:
         "プロンプト、出力、アカウントラベル、メンバーIDは記録・表示しません。",
       estimate:
-        "API換算額は公開定価（レート表 {version}）による推定で、実際の請求額ではありません。価格不明のモデルは換算額から除外されます。",
+        "API換算額は、同じトークンを公開定価（レート表 {version}）で API 利用した場合の推定額で、実際の請求額ではありません。",
       unavailable: "チーム使用状況は現在利用できません。",
     };
   }
@@ -541,12 +443,12 @@ function metricsCopy(locale: string) {
     outputTokens: "Output tokens",
     tokens: "Total tokens",
     apiEquivalent: "API-equivalent value",
-    pricingCoverage: "Pricing coverage",
+    unpriced: "{share} of these tokens came from models without a list price and are left out of that value.",
     chartLabel: "Daily CodeRouter token usage",
     privacy:
       "No prompts, outputs, account labels, or member identities are recorded or shown.",
     estimate:
-      "API-equivalent value is an estimate using public list prices (rate card {version}), not actual spend. Models without a known price are excluded.",
+      "API-equivalent value is what these tokens would have cost at public API list prices (rate card {version}). It is not what you paid.",
     unavailable: "Team usage is temporarily unavailable.",
   };
 }
@@ -563,17 +465,12 @@ function StatusPanel({ title, body }: { title: string; body: string }) {
 function selectTeam(
   teams: readonly DashboardTeam[],
   requestedTeamId: string | undefined,
-  scopedTeamId: string | null,
   selectedTeamId: string | null,
 ): DashboardTeam {
   const requested = requestedTeamId?.trim();
   if (requested) {
     const selected = teams.find((team) => team.id === requested);
     if (selected) return selected;
-  }
-  if (scopedTeamId) {
-    const scoped = teams.find((team) => team.id === scopedTeamId);
-    if (scoped) return scoped;
   }
   if (selectedTeamId) {
     const selected = teams.find((team) => team.id === selectedTeamId);
@@ -584,10 +481,10 @@ function selectTeam(
   return teams[0];
 }
 
-async function loadAccounts(
+async function loadSharedAccounts(
   team: DashboardTeam,
   accessToken: string,
-): Promise<AccountState> {
+): Promise<SharedAccountsState> {
   try {
     if (!await hostedSubrouterCutoverReadyForTeam(team.id)) {
       return { kind: "migrationPending" };
@@ -609,43 +506,18 @@ async function loadAccounts(
   }
 }
 
-type ClaudeUpstreamState =
-  | { readonly kind: "ok"; readonly accounts: readonly ClaudeAccountDescription[] }
-  | { readonly kind: "error" };
-
-async function loadClaudeUpstream(teamId: string): Promise<ClaudeUpstreamState> {
+async function loadNativeAccounts(teamId: string, userId: string): Promise<NativeAccountsState> {
   try {
-    return { kind: "ok", accounts: await listClaudeAccounts(teamId) };
+    return { kind: "ok", accounts: await listNativeAccounts(teamId, { kind: "user", userId }) };
   } catch {
     return { kind: "error" };
   }
 }
 
-function providerLabel(
-  kind: string,
-  t: Awaited<ReturnType<typeof getTranslations>>,
-): string {
-  switch (kind) {
-    case "claude":
-      return t("providerClaude");
-    case "anthropic-apikey":
-      return t("providerAnthropicApiKey");
-    case "codex":
-      return t("providerCodex");
-    case "openai-apikey":
-      return t("providerOpenAiApiKey");
-    default:
-      return t("providerUnknown");
+async function loadClaudeAccounts(teamId: string, userId: string): Promise<ClaudeAccountsState> {
+  try {
+    return { kind: "ok", accounts: await listClaudeAccounts(teamId, { kind: "user", userId }) };
+  } catch {
+    return { kind: "error" };
   }
-}
-
-function formatCreatedAt(
-  createdAt: string | undefined,
-  formatter: Intl.DateTimeFormat,
-  fallback: string,
-): string {
-  if (!createdAt) return fallback;
-  const date = new Date(createdAt);
-  if (Number.isNaN(date.getTime())) return fallback;
-  return formatter.format(date);
 }

@@ -1,0 +1,85 @@
+name: Cloudflare relay
+
+# The Durable Object relay under cmux-tui/relays/cloudflare-do is verified here,
+# on the pull request that changes it.
+#
+# It used to be a job inside cmux-tui-build-package.yml behind a
+# `build_cloudflare_relay` input that defaulted to true. Four of the five callers
+# passed false, so in practice the only run that ever executed it was
+# relay-publish-npm.yml -- a publishing run. That put the verification in the
+# worst possible place twice over: it never ran when the relay changed, only when
+# something shipped; and because `publish` needs `build-package`, a red relay job
+# blocked the cmux-relay publish. `npm audit --audit-level=high` and
+# `cargo clippy -- -D warnings` both go red on a third-party advisory or a new
+# lint with no change to this repository at all, so an unrelated upstream event
+# could stop a release.
+on:
+  pull_request:
+    paths:
+      - cmux-tui/relays/cloudflare-do/**
+      - .github/actions/setup-cmux-tui-rust/**
+      - .github/workflows/cloudflare-relay.yml
+  push:
+    branches:
+      - main
+    paths:
+      - cmux-tui/relays/cloudflare-do/**
+      - .github/actions/setup-cmux-tui-rust/**
+      - .github/workflows/cloudflare-relay.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-relay-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  cloudflare-relay:
+    name: Cloudflare Durable Object relay
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: cmux-tui/relays/cloudflare-do
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22.14.0"
+          cache: npm
+          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+
+      - name: Set up pinned Rust toolchain
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install pinned Rust toolchain and Worker builder
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install --locked worker-build@0.8.5
+
+      - name: Install pinned npm dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Test and lint relay
+        run: |
+          python3 tests/validate_wrangler_config.py
+          cargo test --locked
+          cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
+      - name: Build Worker
+        run: npm run build
+
+      - name: Validate Wrangler deployment bundle
+        run: npx --no-install wrangler deploy --dry-run --outdir "$RUNNER_TEMP/cmux-cloudflare-relay"

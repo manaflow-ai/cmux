@@ -69,6 +69,7 @@ extension CmuxSettingsFileStore {
                     "minimalMode": false,
                     "keepWorkspaceOpenWhenClosingLastSurface": !SettingCatalog().app.keepWorkspaceOpenWhenClosingLastSurface.defaultValue,
                     "focusPaneOnFirstClick": PaneFirstClickFocusSettings.defaultEnabled,
+                    "paneResizeStepPixels": SettingCatalog().app.paneResizeStepPixels.defaultValue,
                     "focusHistoryIncludesPanesAndTabs": SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue,
                     "preferredEditor": "",
                     "openSupportedFilesInCmux": AppCatalogSection().openSupportedFilesInCmux.defaultValue,
@@ -136,6 +137,7 @@ extension CmuxSettingsFileStore {
                     "hideAllDetails": SettingCatalog().sidebar.hideAllDetails.defaultValue,
                     "wrapWorkspaceTitles": SidebarWorkspaceTitleWrapSettings.defaultWrap,
                     "showWorkspaceDescription": SettingCatalog().sidebar.showWorkspaceDescription.defaultValue,
+                    "workspaceDescriptionColor": NSNull(),
                     "beta": [
                         "workspaceTodos": [
                             "controls": [

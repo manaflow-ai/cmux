@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { trace, type Span } from "@opentelemetry/api";
 
 import * as analytics from "../services/coderouter/analytics";
 import {
   CODEROUTER_REQUEST_ID_HEADER,
+  CODEROUTER_SERVER_TIMING_HEADER,
   UNSCOPED_CODEROUTER_REQUEST_ID,
   classifyCoderouterFault,
   coderouterControlRoute,
@@ -13,6 +15,7 @@ import {
   recordCoderouterOutcome,
   recordCoderouterSpan,
   runWithCoderouterRequest,
+  spanned,
   traceEvents,
   withCoderouterRoute,
 } from "../services/coderouter/requestTelemetry";
@@ -380,7 +383,35 @@ describe("withCoderouterRoute", () => {
     });
     const response = await route(new Request("https://cmux.com/api/coderouter/vm-usage"), undefined);
     expect(response.headers.get(CODEROUTER_REQUEST_ID_HEADER)).toBeTruthy();
+    expect(response.headers.get(CODEROUTER_SERVER_TIMING_HEADER)).toMatch(/^total;dur=\d+\.\d$/);
     expect(await response.text()).toBe("hello");
+  });
+
+  test("reports recorded phases as Server-Timing, summed by name", async () => {
+    const route = coderouterControlRoute("accounts", "/api/coderouter/claude-upstream", async () => {
+      await spanned("auth", async () => undefined);
+      await spanned("rds", async () => undefined);
+      await spanned("rds", async () => undefined);
+      recordCoderouterSpan({ name: "provider config", startedAt: 100, endedAt: 105 });
+      return new Response(null, { status: 204 });
+    });
+    const response = await route(new Request("https://cmux.com/api/coderouter/claude-upstream"), undefined);
+    const timing = response.headers.get(CODEROUTER_SERVER_TIMING_HEADER);
+    expect(response.headers.get("server-timing")).toBe(timing);
+    const names = timing!.split(", ").map((part) => part.split(";")[0]);
+    expect(names).toEqual(["auth", "rds", "provider_config", "total"]);
+    expect(timing).toContain("provider_config;dur=5.0");
+  });
+
+  test("keeps a route's own Server-Timing", async () => {
+    const own = "auth;dur=1.0, provider;dur=2.0, total;dur=3.0";
+    const route = coderouterControlRoute("accounts", "/api/coderouter/accounts", async () => {
+      await spanned("auth", async () => undefined);
+      return new Response(null, { headers: { "server-timing": own, [CODEROUTER_SERVER_TIMING_HEADER]: own } });
+    });
+    const response = await route(new Request("https://cmux.com/api/coderouter/accounts"), undefined);
+    expect(response.headers.get(CODEROUTER_SERVER_TIMING_HEADER)).toBe(own);
+    expect(response.headers.get("server-timing")).toBe(own);
   });
 });
 
@@ -410,6 +441,7 @@ describe("route token auth spans", () => {
     expect(context.identity).toEqual({ teamId: "team-1", stackUserId: "user-1", vmId: null });
     expect(context.spans.map((span) => span.name)).toEqual(["auth"]);
     expect(context.spans[0]!.attributes.outcome).toBe("accepted");
+    expect(context.spans[0]!.attributes.auth_mode).toBe("route_token");
 
     const rejected = newCoderouterRequestContext({ request, surface: "responses", route: "/v1/responses" });
     await runWithCoderouterRequest(rejected, async () => {
@@ -417,5 +449,61 @@ describe("route token auth spans", () => {
     });
     expect(rejected.identity).toBeUndefined();
     expect(rejected.spans[0]!.error).toBe("invalid_route_token");
+  });
+
+  test("records API key auth without exposing the key or its id", async () => {
+    const key = `crk_${"A".repeat(43)}`;
+    const request = new Request("https://coderouter.dev/v1/responses", {
+      headers: { authorization: `Bearer ${key}` },
+    });
+    const context = newCoderouterRequestContext({ request, surface: "responses", route: "/v1/responses" });
+    await runWithCoderouterRequest(context, async () => {
+      const result = await authenticateRequestRouteToken(request, async () => ({
+        teamId: "team-1",
+        stackUserId: "user-1",
+        vmId: null,
+        apiKeyId: "key-opaque-id",
+      }));
+      expect(result.ok).toBe(true);
+    });
+    expect(context.identity).toEqual({
+      teamId: "team-1",
+      stackUserId: "user-1",
+      vmId: null,
+      apiKeyId: "key-opaque-id",
+    });
+    expect(context.spans[0]!.attributes).toEqual({ outcome: "accepted", auth_mode: "api_key" });
+    const events = traceEvents(context, { status: 200, durationMs: 1 });
+    expect(events[0]!.properties.coderouter_auth_mode).toBe("api_key");
+    expect(JSON.stringify(events)).not.toContain(key);
+    expect(JSON.stringify(events)).not.toContain("key-opaque-id");
+  });
+
+  test("does not label browser control-plane auth as a route token", () => {
+    const request = new Request("https://coderouter.dev/api/coderouter/accounts");
+    const context = newCoderouterRequestContext({ request, surface: "accounts", route: "/api/coderouter/accounts" });
+    runWithCoderouterRequest(context, () => {
+      recordCoderouterIdentity({ teamId: "team-1", stackUserId: "user-1", vmId: null }, "control_plane");
+    });
+    expect(traceEvents(context, { status: 200, durationMs: 1 })[0]!.properties.coderouter_auth_mode)
+      .toBe("control_plane");
+  });
+
+  test("exports control-plane auth consistently to the active trace and events", () => {
+    const request = new Request("https://coderouter.dev/api/coderouter/accounts");
+    const context = newCoderouterRequestContext({ request, surface: "accounts", route: "/api/coderouter/accounts" });
+    const attributes: Record<string, unknown> = {};
+    const span = { setAttributes: (values: Record<string, unknown>) => Object.assign(attributes, values) } as unknown as Span;
+    const activeSpan = spyOn(trace, "getActiveSpan").mockImplementation(() => span);
+    try {
+      runWithCoderouterRequest(context, () => {
+        recordCoderouterIdentity({ teamId: "team-1", stackUserId: "user-1", vmId: null }, "control_plane");
+      });
+      expect(attributes["cmux.coderouter.auth_mode"]).toBe("control_plane");
+      expect(traceEvents(context, { status: 200, durationMs: 1 })[0]!.properties.coderouter_auth_mode)
+        .toBe(attributes["cmux.coderouter.auth_mode"]);
+    } finally {
+      activeSpan.mockRestore();
+    }
   });
 });

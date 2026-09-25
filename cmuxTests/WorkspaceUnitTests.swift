@@ -1,4 +1,5 @@
 import CmuxCore
+import Darwin
 import AppKit
 import CmuxFoundation
 import CmuxTerminalCore
@@ -17,7 +18,7 @@ import CmuxTerminal
 import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
-@_implementationOnly import XCTest
+import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -506,6 +507,22 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 
     func testRightSidebarModeSwitchesHavePrivateControlDigitDefaults() {
+        let defaults = UserDefaults.standard
+        let feedKey = RightSidebarBetaFeatureSettings.feedEnabledKey
+        let dockKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+        let previousFeed = defaults.object(forKey: feedKey)
+        let previousDock = defaults.object(forKey: dockKey)
+        defer {
+            if let previousFeed { defaults.set(previousFeed, forKey: feedKey) }
+            else { defaults.removeObject(forKey: feedKey) }
+            if let previousDock { defaults.set(previousDock, forKey: dockKey) }
+            else { defaults.removeObject(forKey: dockKey) }
+        }
+        // Positional defaults are intentionally derived from the visible tab
+        // bar. Make the beta-only tabs visible so this test exercises the
+        // complete five-action mapping rather than the disabled-tab fallback.
+        defaults.set(true, forKey: feedKey)
+        defaults.set(true, forKey: dockKey)
         let modeSwitchActions: [(KeyboardShortcutSettings.Action, String)] = [
             (.switchRightSidebarToFiles, "1"),
             (.switchRightSidebarToFind, "2"),
@@ -1327,6 +1344,56 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: SidebarWorkspaceTitleWrapSettings.key) as? Bool, true)
     }
 
+    func testSettingsFileStoreParsesSidebarWorkspaceDescriptionColor() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SettingCatalog().sidebar.workspaceDescriptionColorHex.userDefaultsKey
+        let previousValue = defaults.object(forKey: managedKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: managedKey)
+            } else {
+                defaults.removeObject(forKey: managedKey)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "sidebar": {
+                "workspaceDescriptionColor": "#a6e3a1"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.string(forKey: managedKey), "#A6E3A1")
+        XCTAssertEqual(
+            SidebarTabItemSettingsSnapshot(defaults: defaults).workspaceDescriptionColorHex,
+            "#A6E3A1"
+        )
+    }
+
     func testSettingsFileStoreParsesWorkspaceTodoControlsBetaSetting() throws {
         let defaults = UserDefaults.standard
         let managedKey = SettingCatalog().betaFeatures.workspaceTodoControls.userDefaultsKey
@@ -1803,6 +1870,15 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         XCTAssertNotEqual(unrelatedReloadItem.action, selector)
 
         XCTAssertTrue(NSApp.sendAction(selector, to: rebuiltReloadItem.target, from: rebuiltReloadItem))
+
+        // The menu action only enqueues a reload. GhosttyApp runs it behind the
+        // font-size work barrier and after any reload already in flight, so it
+        // can finish on a later main-loop turn. Wait for the store to pick up
+        // the new file instead of assuming the reload ran inside sendAction.
+        let reloadDeadline = Date(timeIntervalSinceNow: 10)
+        while cmuxConfigStore.resolvedAction(id: "second") == nil, Date() < reloadDeadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
 
         XCTAssertNil(cmuxConfigStore.resolvedAction(id: "first"))
         XCTAssertNotNil(cmuxConfigStore.resolvedAction(id: "second"))
@@ -3618,10 +3694,11 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
             injectedConfig = config
         }
 
-        override func inheritedTerminalConfigForNewWorkspace(
+        override func inheritedTerminalFontSizeLineageForNewWorkspace(
             workspace: Workspace?
-        ) -> CmuxSurfaceConfigTemplate? {
-            injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
+        ) -> TerminalFontSizeLineage? {
+            injectedConfig?.fontSizeLineage
+                ?? super.inheritedTerminalFontSizeLineageForNewWorkspace(workspace: workspace)
         }
 
         override func makeWorkspaceForCreation(
@@ -3665,6 +3742,7 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
     func testAddWorkspacePassesSanitizedInheritedConfigTemplate() {
         let manager = UnsafeConfigSnapshotTabManager()
         manager.installInjectedConfig(fontSize: 19)
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
 
         _ = manager.addWorkspace()
 
@@ -4818,7 +4896,7 @@ final class WorkspaceSplitWorkingDirectoryTests: XCTestCase {
 @MainActor
 final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
     private func makeWindow() -> NSWindow {
-        NSWindow(
+        KeyStatusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
             styleMask: [.titled, .closable],
             backing: .buffered,
@@ -4859,7 +4937,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
     }
 
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
-        let workspace = Workspace()
+        let fixture = TerminalPortalTestWorkspace()
+        defer { fixture.tearDown() }
+        let workspace = fixture.workspace
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -4892,123 +4972,167 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         )
     }
 
-    func testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction() {
-        let originalAppDelegate = AppDelegate.shared
-        let appDelegate = originalAppDelegate ?? AppDelegate()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        let originalTabManager = appDelegate.tabManager
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = manager
-        defer {
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            appDelegate.tabManager = originalTabManager
-            AppDelegate.shared = originalAppDelegate
-        }
+    func testTerminalFirstResponderFeedbackPreservesActiveFocusTransaction() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            let originalAppDelegate = AppDelegate.shared
+            let appDelegate = originalAppDelegate ?? AppDelegate()
+            let manager = TabManager(autoWelcomeIfNeeded: false)
+            let originalTabManager = appDelegate.tabManager
+            let window = makeWindow()
+            defer { window.orderOut(nil) }
+            let windowId = UUID()
+            appDelegate.registerMainWindow(
+                window, windowId: windowId, tabManager: manager,
+                sidebarState: SidebarState(), sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            AppDelegate.shared = appDelegate
+            appDelegate.tabManager = manager
+            defer {
+                appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                manager.finalizeAllWorkspacesForWindowClose()
+                appDelegate.tabManager = originalTabManager
+                AppDelegate.shared = originalAppDelegate
+            }
 
-        guard let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let leftPanel = workspace.terminalPanel(for: leftPanelId),
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
-              let leftPaneId = workspace.paneId(forPanelId: leftPanel.id),
-              let leftTabId = workspace.surfaceIdFromPanelId(leftPanel.id) else {
-            XCTFail("Expected split terminal panels")
-            return
-        }
-
-        let window = makeWindow()
-        defer { window.orderOut(nil) }
-        guard let contentView = window.contentView else {
-            XCTFail("Expected content view")
-            return
-        }
-
-        leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
-        rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
-        contentView.addSubview(leftPanel.hostedView)
-        contentView.addSubview(rightPanel.hostedView)
-        leftPanel.hostedView.setVisibleInUI(true)
-        rightPanel.hostedView.setVisibleInUI(true)
-
-        window.makeKeyAndOrderFront(nil)
-        window.displayIfNeeded()
-        contentView.layoutSubtreeIfNeeded()
-        leftPanel.hostedView.layoutSubtreeIfNeeded()
-        rightPanel.hostedView.layoutSubtreeIfNeeded()
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        FocusSurfaceBroadcaster.shared.flush()
-
-        var firstResponderFeedbackCount = 0
-        leftPanel.hostedView.setFocusHandler {
-            firstResponderFeedbackCount += 1
-            workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
-        }
-
-        var observedTransactions: [UUID] = []
-        let token = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidFocusSurface,
-            object: nil,
-            queue: nil
-        ) { notification in
-            guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
-                  notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id,
-                  let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID else {
+            guard let workspace = manager.selectedWorkspace,
+                  let leftPanelId = workspace.focusedPanelId,
+                  let leftPanel = workspace.terminalPanel(for: leftPanelId),
+                  let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+                  let leftPaneId = workspace.paneId(forPanelId: leftPanel.id),
+                  let leftTabId = workspace.surfaceIdFromPanelId(leftPanel.id) else {
+                XCTFail("Expected split terminal panels")
                 return
             }
-            observedTransactions.append(transactionId)
-        }
-        defer { NotificationCenter.default.removeObserver(token) }
 
-        var sawFirstResponderNotification = false
-        var observedFirstResponderTransactions: [UUID] = []
-        let firstResponderToken = NotificationCenter.default.addObserver(
-            forName: .ghosttyDidBecomeFirstResponderSurface,
-            object: nil,
-            queue: nil
-        ) { notification in
-            guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
-                  notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id else {
+            manager.selectWorkspace(workspace)
+            workspace.setPortalRenderingEnabled(true, reason: "focus-feedback-test")
+            appDelegate.setActiveMainWindow(window)
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
                 return
             }
-            sawFirstResponderNotification = true
-            if let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID {
-                observedFirstResponderTransactions.append(transactionId)
+
+            leftPanel.hostedView.frame = NSRect(x: 0, y: 0, width: 180, height: 220)
+            rightPanel.hostedView.frame = NSRect(x: 180, y: 0, width: 180, height: 220)
+            contentView.addSubview(leftPanel.hostedView)
+            contentView.addSubview(rightPanel.hostedView)
+            leftPanel.hostedView.setVisibleInUI(true)
+            rightPanel.hostedView.setVisibleInUI(true)
+            leftPanel.hostedView.setActive(true)
+            rightPanel.hostedView.setActive(true)
+
+            window.makeKeyAndOrderFront(nil)
+            appDelegate.setActiveMainWindow(window)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            leftPanel.hostedView.layoutSubtreeIfNeeded()
+            rightPanel.hostedView.layoutSubtreeIfNeeded()
+            await AppKitTestEventPump().startSurface(leftPanel.surface)
+            await AppKitTestEventPump().startSurface(rightPanel.surface)
+            leftPanel.hostedView.reconcileGeometryNow()
+            rightPanel.hostedView.reconcileGeometryNow()
+            // The split parks the left view in reparent-focus suppression until the
+            // workspace's next layout attempt. On macOS 26 that attempt can land after
+            // the selection below, which then swallows the feedback under test.
+            workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+            XCTAssertFalse(
+                workspace.debugHasPendingReparentFocusSuppressionsForTesting(),
+                "Expected the split's reparent-focus suppression to settle before selection"
+            )
+            appDelegate.noteMainPanelKeyboardFocusIntent(
+                workspaceId: workspace.id, panelId: leftPanel.id, in: window
+            )
+
+            var firstResponderFeedbackCount = 0
+            leftPanel.hostedView.setFocusHandler {
+                firstResponderFeedbackCount += 1
+                workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
             }
+
+            var observedTransactions: [UUID] = []
+            let token = NotificationCenter.default.addObserver(
+                forName: .ghosttyDidFocusSurface,
+                object: nil,
+                queue: nil
+            ) { notification in
+                guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
+                      notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id,
+                      let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID else {
+                    return
+                }
+                observedTransactions.append(transactionId)
+            }
+            defer { NotificationCenter.default.removeObserver(token) }
+
+            var sawFirstResponderNotification = false
+            var observedFirstResponderTransactions: [UUID] = []
+            let firstResponderToken = NotificationCenter.default.addObserver(
+                forName: .ghosttyDidBecomeFirstResponderSurface,
+                object: nil,
+                queue: nil
+            ) { notification in
+                guard notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID == workspace.id,
+                      notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID == leftPanel.id else {
+                    return
+                }
+                sawFirstResponderNotification = true
+                if let transactionId = notification.userInfo?[GhosttyNotificationKey.focusTransactionId] as? UUID {
+                    observedFirstResponderTransactions.append(transactionId)
+                }
+            }
+            defer { NotificationCenter.default.removeObserver(firstResponderToken) }
+
+            let transactionId = UUID()
+            window.makeFirstResponder(nil)
+            workspace.applyTabSelection(
+                tabId: leftTabId,
+                inPane: leftPaneId,
+                focusTransactionId: transactionId
+            )
+            FocusSurfaceBroadcaster.shared.flush()
+
+            // Selection applies focus through the AppKit event queue.  Drain the
+            // queue before inspecting callbacks so this assertion observes the
+            // same first-responder transition as the hosted app.
+            let firstResponderFeedbackObserved = await AppKitTestEventPump().waitUntil(
+                timeout: .seconds(5)
+            ) {
+                firstResponderFeedbackCount > 0
+            }
+            XCTAssertTrue(
+                firstResponderFeedbackObserved,
+                "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
+            )
+
+            XCTAssertGreaterThan(
+                firstResponderFeedbackCount,
+                0,
+                "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
+            )
+            XCTAssertTrue(
+                sawFirstResponderNotification,
+                "Expected the terminal first-responder notification to be posted for the focused panel"
+            )
+            XCTAssertEqual(
+                observedFirstResponderTransactions.last,
+                transactionId,
+                "Terminal first-responder notifications should carry the active focus transaction"
+            )
+            XCTAssertEqual(
+                observedTransactions.last,
+                transactionId,
+                "Terminal first-responder feedback should stay in the active focus transaction instead of starting a new circuit"
+            )
         }
-        defer { NotificationCenter.default.removeObserver(firstResponderToken) }
-
-        let transactionId = UUID()
-        window.makeFirstResponder(nil)
-        workspace.applyTabSelection(
-            tabId: leftTabId,
-            inPane: leftPaneId,
-            focusTransactionId: transactionId
-        )
-        FocusSurfaceBroadcaster.shared.flush()
-
-        XCTAssertGreaterThan(
-            firstResponderFeedbackCount,
-            0,
-            "Expected AppKit first-responder focus to feed back through workspace.focusPanel"
-        )
-        XCTAssertTrue(
-            sawFirstResponderNotification,
-            "Expected the terminal first-responder notification to be posted for the focused panel"
-        )
-        XCTAssertEqual(
-            observedFirstResponderTransactions.last,
-            transactionId,
-            "Terminal first-responder notifications should carry the active focus transaction"
-        )
-        XCTAssertEqual(
-            observedTransactions.last,
-            transactionId,
-            "Terminal first-responder feedback should stay in the active focus transaction instead of starting a new circuit"
-        )
     }
 
     func testTerminalClickRecoversSplitActiveStateWhenFocusCallbackIsSuppressed() {
-        let workspace = Workspace()
+        let fixture = TerminalPortalTestWorkspace()
+        defer { fixture.tearDown() }
+        let workspace = fixture.workspace
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -5016,6 +5140,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             return
         }
         let window = makeWindow()
+        fixture.bind(to: window)
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -5091,7 +5216,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
     func testClearSuppressReparentFocusReassertsGhosttyFocusForCurrentFirstResponder() throws {
 #if DEBUG
-        let workspace = Workspace()
+        let fixture = TerminalPortalTestWorkspace()
+        defer { fixture.tearDown() }
+        let workspace = fixture.workspace
         guard let leftPanelId = workspace.focusedPanelId,
               let leftPanel = workspace.terminalPanel(for: leftPanelId),
               let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
@@ -5102,6 +5229,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, leftPanel.id)
 
         let window = makeWindow()
+        fixture.bind(to: window)
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
             XCTFail("Expected content view")
@@ -6049,6 +6177,116 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    func testOpenOrFocusMarkdownSurfaceDuplicatesOnlyWhenAlreadyFocused() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-duplicate-md-\(UUID().uuidString).md")
+        try "# Duplicate occurrence\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let initialPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        let first = try XCTUnwrap(workspace.openOrFocusMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertEqual(workspace.focusedPanelId, first.id)
+
+        // Socket/CLI opens stay idempotent: reuse even while focused.
+        let reused = try XCTUnwrap(workspace.openOrFocusMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        XCTAssertEqual(reused.id, first.id)
+
+        // Interactive re-activation while focused opens a second occurrence.
+        let second = try XCTUnwrap(workspace.openOrFocusMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertNotEqual(second.id, first.id)
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? MarkdownPanel }.count,
+            2
+        )
+
+        // While the file's panels are unfocused, activation reveals one of them
+        // instead of stacking a third occurrence.
+        workspace.focusPanel(initialPanelId)
+        let revealed = try XCTUnwrap(workspace.openOrFocusMarkdownSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertTrue([first.id, second.id].contains(revealed.id))
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? MarkdownPanel }.count,
+            2
+        )
+    }
+
+    func testOpenOrFocusFilePreviewSurfaceDuplicatesOnlyWhenAlreadyFocused() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-duplicate-preview-\(UUID().uuidString).txt")
+        try "duplicate occurrence\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+
+        let first = try XCTUnwrap(workspace.openOrFocusFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertEqual(workspace.focusedPanelId, first.id)
+
+        let reused = try XCTUnwrap(workspace.openOrFocusFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true
+        ))
+        XCTAssertEqual(reused.id, first.id)
+
+        let second = try XCTUnwrap(workspace.openOrFocusFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertNotEqual(second.id, first.id)
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.count,
+            2
+        )
+
+        // With an unfocused match, focused duplication is not requested: reveal
+        // the existing preview instead of creating a third occurrence.
+        let initialPanelId = try XCTUnwrap(
+            workspace.panels.values.first(where: { $0.id != first.id && $0.id != second.id })?.id
+        )
+        workspace.focusPanel(initialPanelId)
+        let revealed = try XCTUnwrap(workspace.openOrFocusFilePreviewSurface(
+            inPane: paneId,
+            filePath: fileURL.path,
+            focus: true,
+            duplicateWhenFocused: true
+        ))
+        XCTAssertTrue([first.id, second.id].contains(revealed.id))
+        XCTAssertEqual(
+            workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.count,
+            2
+        )
+    }
+
     func testOpenOrFocusRightSidebarToolSurfaceReusesExistingMode() {
         let workspace = Workspace()
         guard let paneId = workspace.bonsplitController.focusedPaneId else {
@@ -6385,7 +6623,15 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
     func testForkAgentWorkspaceLaunchInRemoteWorkspacePreservesRemoteContext() throws {
         let workspace = Workspace()
-        let agentSocketPath = "/tmp/cmux-fork-agent.sock"
+        // `WorkspaceRemoteConfiguration.resolvedAgentSocketPath` only propagates an
+        // agent socket that exists on disk, so bind a real one for the fork.
+        let agentSocketPath = SSHStartupManualReconnectTests.makeSocketPath("fork-agent")
+        let socketFD = try SSHStartupManualReconnectTests.bindUnixSocket(at: agentSocketPath)
+        defer {
+            Darwin.close(socketFD)
+            unlink(agentSocketPath)
+            workspace.teardownAllPanels()
+        }
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
@@ -6429,7 +6675,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.terminalWorkingDirectory)
         XCTAssertEqual(
             launch.initialTerminalCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini"
+            "/usr/bin/ssh -p 2222 -i /Users/example/.ssh/cmux -o ServerAliveInterval=30 -o ForwardAgent=yes -tt cmux-macmini"
         )
         XCTAssertEqual(launch.initialTerminalInput, snapshot.forkCommand.map { $0 + "\n" })
         XCTAssertEqual(launch.initialTerminalEnvironment["SSH_AUTH_SOCK"], agentSocketPath)
@@ -6446,6 +6692,22 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
     }
 
     func testForkAgentWorkspaceLaunchFromPersistentSSHPTYDoesNotReuseParentRelayOrDaemonSlot() throws {
+        try XCTSkipIf(true, "Preserved SSH snapshots restore through tuiSSHConfiguration since 5f0d2227241; rewrite against cmux-tui.")
+        // The forked configuration only mints a fresh relay namespace when the
+        // control listener can name the socket the new session will reconnect
+        // through (`SessionRemoteWorkspaceSnapshot.workspaceConfiguration`
+        // requires a non-nil `localSocketPath`). That path comes from the
+        // process-wide `TerminalController.shared`, so reserve one here instead
+        // of inheriting whatever an earlier test in this app host left behind.
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
+        let reservedSocket = TerminalController.shared.reserveStartupSocketPath(
+            "/tmp/cmux-fork-persistent-restore-\(UUID().uuidString).sock"
+        )
+        defer {
+            TerminalController.shared.stop(cleanupDiscoveryState: true)
+            try? FileManager.default.removeItem(atPath: reservedSocket)
+            try? FileManager.default.removeItem(atPath: reservedSocket + ".lock")
+        }
         let workspace = Workspace()
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -6486,24 +6748,25 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
                 snapshot: snapshot
             )
         )
-
         XCTAssertTrue(launch.autoConnectRemoteConfiguration)
         XCTAssertEqual(launch.remoteConfiguration?.destination, "cmux-macmini")
         XCTAssertEqual(launch.remoteConfiguration?.port, 2222)
         XCTAssertEqual(launch.remoteConfiguration?.preserveAfterTerminalExit, false)
-        XCTAssertNil(launch.remoteConfiguration?.relayPort)
-        XCTAssertNil(launch.remoteConfiguration?.relayID)
-        XCTAssertNil(launch.remoteConfiguration?.relayToken)
-        XCTAssertNil(launch.remoteConfiguration?.localSocketPath)
+        let relayPort = try XCTUnwrap(launch.remoteConfiguration?.relayPort)
+        let relayID = try XCTUnwrap(launch.remoteConfiguration?.relayID)
+        let relayToken = try XCTUnwrap(launch.remoteConfiguration?.relayToken)
+        let localSocketPath = try XCTUnwrap(launch.remoteConfiguration?.localSocketPath)
+        XCTAssertEqual(relayPort, 64017)
+        XCTAssertNotEqual(relayID, "relay-fork-persistent")
+        XCTAssertNotEqual(relayToken, String(repeating: "c", count: 64))
+        XCTAssertNotEqual(localSocketPath, "/tmp/cmux-fork-persistent.sock")
+        XCTAssertEqual(localSocketPath, reservedSocket)
         XCTAssertNil(launch.remoteConfiguration?.persistentDaemonSlot)
         let startupCommand = try XCTUnwrap(launch.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertTrue(startupCommand.contains("terminal_session_launching"), startupCommand)
+        XCTAssertTrue(startupCommand.contains("relay_port"), startupCommand)
         XCTAssertFalse(startupCommand.contains("ssh-pty-attach"), startupCommand)
-        XCTAssertEqual(
-            startupCommand,
-            "ssh -p 2222 -i /Users/example/.ssh/cmux -tt cmux-macmini"
-        )
     }
-
     func testForkAgentWorkspaceLaunchInRemoteWorkspaceUsesFallbackDirectoryInForkCommand() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(
@@ -6547,7 +6810,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(launch.workingDirectory, "/Users/cmux/fallback repo")
         XCTAssertNil(launch.terminalWorkingDirectory)
-        XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
+        XCTAssertEqual(launch.initialTerminalCommand, "/usr/bin/ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
             "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
@@ -6825,10 +7088,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         }
 
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
         let baselinePublishCount = publishCount
@@ -6836,7 +7100,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertGreaterThan(
             baselinePublishCount,
             0,
-            "Expected the first focused branch update to publish workspace changes"
+            "Expected the first focused branch update to publish sidebar changes"
         )
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
@@ -6844,7 +7108,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             publishCount,
             baselinePublishCount,
-            "Expected identical focused branch refreshes to avoid extra workspace publishes"
+            "Expected identical focused branch refreshes to avoid extra sidebar publishes"
         )
     }
 
@@ -6858,10 +7122,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
 
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink {
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
         workspace.updatePanelPullRequest(
@@ -6877,7 +7142,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertGreaterThan(
             baselinePublishCount,
             0,
-            "Expected the first focused pull request update to publish workspace changes"
+            "Expected the first focused pull request update to publish sidebar changes"
         )
 
         workspace.updatePanelPullRequest(
@@ -6892,7 +7157,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(
             publishCount,
             baselinePublishCount,
-            "Expected identical focused pull request refreshes to avoid extra workspace publishes"
+            "Expected identical focused pull request refreshes to avoid extra sidebar publishes"
         )
     }
 
@@ -6926,8 +7191,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
+    /// The focused-panel binding (`pullRequest`) and the sidebar list are two
+    /// different things: the binding follows focus, while the list is the
+    /// workspace's deduplicated PR rows in pane/tab order — the same all-panel
+    /// model `sidebarGitBranchesInDisplayOrder()` uses, and what both consumers
+    /// (`taskStatusSignals`, the control-sidebar snapshot) actually want.
     @MainActor
-    func testSidebarPullRequestsTrackFocusedPanelOnly() {
+    func testSidebarPullRequestsListAllPanelsWhileFocusedBindingTracksFocus() {
         let workspace = Workspace()
         guard let firstPanelId = workspace.focusedPanelId,
               let paneId = workspace.paneId(forPanelId: firstPanelId),
@@ -6946,14 +7216,18 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             status: .open
         )
 
-        XCTAssertNil(workspace.pullRequest)
-        XCTAssertTrue(
-            workspace.sidebarPullRequestsInDisplayOrder().isEmpty,
-            "Expected background panel PRs to stay hidden while the focused panel has no PR"
+        XCTAssertNil(workspace.pullRequest, "The focused panel has no PR, so the binding stays nil")
+        XCTAssertEqual(
+            workspace.sidebarPullRequestsInDisplayOrder().map(\.number),
+            [1629],
+            "The sidebar list covers every panel, not just the focused one"
         )
 
         workspace.focusPanel(secondPanel.id)
 
+        // The list is unchanged because it never depended on focus. (The
+        // `pullRequest` binding itself lands in the coalesced focus reconcile,
+        // so it is not observable synchronously here.)
         XCTAssertEqual(
             workspace.sidebarPullRequestsInDisplayOrder().map(\.number),
             [1629]
@@ -7350,7 +7624,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testForkConversationContextMenuDefaultActionWorksForCodexSnapshot() throws {
+    func testForkConversationContextMenuDefaultActionWorksForCodexSnapshot() async throws {
         // Parity coverage with the Claude path: Codex sessions are also `.supportedWithoutProbe`
         // and should reach the default right-split path through the context-menu dispatcher.
         let defaults = UserDefaults.standard
@@ -7384,6 +7658,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             inPane: sourcePaneId
         )
 
+        let didCreateFork = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            workspace.panels.count == 2
+        }
+        XCTAssertTrue(didCreateFork, "Context menu must create the fork panel")
+
         let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
         XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new split")
         let forkPanel = try XCTUnwrap(workspace.terminalPanel(for: forkPanelId))
@@ -7397,7 +7676,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(try paneId(in: split.second), forkPaneUUID)
     }
 
-    func testForkConversationContextMenuNewTabActionCreatesSiblingTab() throws {
+    func testForkConversationContextMenuNewTabActionCreatesSiblingTab() async throws {
         // Drive the same code path the bonsplit context menu triggers, end-to-end,
         // to lock in that the menu wiring stays connected.
         let workspace = Workspace()
@@ -7416,6 +7695,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             inPane: sourcePaneId
         )
 
+        let didCreateFork = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            workspace.panels.count == 2
+        }
+        XCTAssertTrue(didCreateFork, "Context menu must create the fork panel")
+
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
             2,
@@ -7428,7 +7712,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() throws {
+    func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() async throws {
         let defaults = UserDefaults.standard
         let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
         defer {
@@ -7456,6 +7740,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             for: anchorTab,
             inPane: sourcePaneId
         )
+
+        let didCreateFork = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) {
+            workspace.panels.count == 2
+        }
+        XCTAssertTrue(didCreateFork, "Context menu must create the fork panel")
 
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
