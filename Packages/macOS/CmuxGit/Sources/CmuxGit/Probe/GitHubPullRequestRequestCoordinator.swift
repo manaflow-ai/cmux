@@ -62,10 +62,10 @@ public actor GitHubPullRequestRequestCoordinator {
     private let now: @Sendable () -> Date
     private let maximumCachedResponseCount: Int
     private let maximumCachedResponseBodyBytes: Int
-    private var cachedResponseByRequestKey: [RequestKey: CachedResponse] = [:]
-    private var cachedResponseKeysInInsertionOrder: [RequestKey] = []
+    private var cachedResponseByRequestKey: [GitHubPullRequestRequestKey: CachedResponse] = [:]
+    private var cachedResponseKeysInInsertionOrder: [GitHubPullRequestRequestKey] = []
     private var cachedResponseBodyByteCount = 0
-    internal var inFlightRequestByRequestKey: [RequestKey: InFlightRequest] = [:]
+    internal var inFlightRequestByRequestKey: [GitHubPullRequestRequestKey: InFlightRequest] = [:]
     private var activeTransportCount = 0
     internal var queuedTransports: [QueuedTransport] = []
     private var rateLimitRetryDateByKey: [RateLimitKey: Date] = [:]
@@ -109,7 +109,7 @@ public actor GitHubPullRequestRequestCoordinator {
               !authHeader.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        let requestKey = RequestKey(
+        let requestKey = GitHubPullRequestRequestKey(
             endpoint: endpoint,
             body: body,
             authorizationFingerprint: githubAuthorizationFingerprint(for: authHeader),
@@ -182,7 +182,7 @@ public actor GitHubPullRequestRequestCoordinator {
 
     private func executeRequest(
         requestID: UUID,
-        requestKey: RequestKey,
+        requestKey: GitHubPullRequestRequestKey,
         authHeader: String
     ) async -> WorkspacePullRequestHTTPResponse? {
         guard await acquireTransportPermit(requestID: requestID) else { return nil }
@@ -240,7 +240,7 @@ public actor GitHubPullRequestRequestCoordinator {
 
     private func cancelWaiter(
         _ waiterID: UUID,
-        requestKey: RequestKey
+        requestKey: GitHubPullRequestRequestKey
     ) {
         guard var inFlight = inFlightRequestByRequestKey[requestKey],
               let continuation = inFlight.waiterContinuations.removeValue(forKey: waiterID) else {
@@ -258,7 +258,7 @@ public actor GitHubPullRequestRequestCoordinator {
     private func completeRequest(
         _ response: WorkspacePullRequestHTTPResponse?,
         requestID: UUID,
-        requestKey: RequestKey
+        requestKey: GitHubPullRequestRequestKey
     ) {
         guard let inFlight = inFlightRequestByRequestKey[requestKey],
               inFlight.id == requestID else { return }
@@ -356,7 +356,7 @@ public actor GitHubPullRequestRequestCoordinator {
         }
     }
 
-    private func storeCachedResponse(_ response: CachedResponse, for requestKey: RequestKey) {
+    private func storeCachedResponse(_ response: CachedResponse, for requestKey: GitHubPullRequestRequestKey) {
         removeCachedResponse(for: requestKey)
         guard maximumCachedResponseCount > 0,
               maximumCachedResponseBodyBytes > 0,
@@ -370,12 +370,12 @@ public actor GitHubPullRequestRequestCoordinator {
 
         while cachedResponseByRequestKey.count > maximumCachedResponseCount
             || cachedResponseBodyByteCount > maximumCachedResponseBodyBytes {
-            guard let oldestRequestKey = cachedResponseKeysInInsertionOrder.first else { break }
-            removeCachedResponse(for: oldestRequestKey)
+            guard let oldestGitHubPullRequestRequestKey = cachedResponseKeysInInsertionOrder.first else { break }
+            removeCachedResponse(for: oldestGitHubPullRequestRequestKey)
         }
     }
 
-    private func removeCachedResponse(for requestKey: RequestKey) {
+    private func removeCachedResponse(for requestKey: GitHubPullRequestRequestKey) {
         if let removedResponse = cachedResponseByRequestKey.removeValue(forKey: requestKey) {
             cachedResponseBodyByteCount -= removedResponse.data.count
         }
