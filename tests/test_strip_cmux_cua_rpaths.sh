@@ -7,9 +7,10 @@ TMP_DIR="$(mktemp -d "/tmp/cmux-strip-rpaths.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 FAKE_BIN="$TMP_DIR/fake-bin"
-BINARY="$TMP_DIR/cmux-cua"
+APP="$TMP_DIR/Test.app"
+BINARY="$APP/Contents/Resources/bin/cmux-cua"
 LOG="$TMP_DIR/tool.log"
-mkdir -p "$FAKE_BIN"
+mkdir -p "$FAKE_BIN" "$(dirname "$BINARY")"
 printf 'universal fixture\n' > "$BINARY"
 
 cat > "$FAKE_BIN/lipo" <<'EOF'
@@ -47,6 +48,12 @@ Load command 1
 Load command 2
       cmd LC_RPATH
      path @loader_path/../Frameworks (offset 12)
+Load command 3
+      cmd LC_RPATH
+     path /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx (offset 12)
+Load command 4
+      cmd LC_RPATH
+     path @loader_path/../../../../tmp (offset 12)
 OUTPUT
 EOF
 
@@ -63,8 +70,13 @@ CMUX_STRIP_LOG="$LOG" \
   LIPO_TOOL="$FAKE_BIN/lipo" \
   "$SCRIPT" "$BINARY" > "$TMP_DIR/output.log"
 
-if [ "$(grep -c -- 'install_name_tool -delete_rpath /Applications/Xcode_26.6.app' "$LOG")" -ne 2 ]; then
-  echo 'FAIL: every universal slice must lose the Xcode toolchain rpath' >&2
+if [ "$(grep -c -- 'install_name_tool -delete_rpath /Applications/Xcode_26.6.app' "$LOG")" -ne 4 ]; then
+  echo 'FAIL: every duplicate Xcode toolchain rpath must be removed from every universal slice' >&2
+  cat "$LOG" >&2
+  exit 1
+fi
+if [ "$(grep -c -- 'install_name_tool -delete_rpath @loader_path/../../../../tmp' "$LOG")" -ne 2 ]; then
+  echo 'FAIL: loader-relative traversal outside the bundle was accepted' >&2
   cat "$LOG" >&2
   exit 1
 fi

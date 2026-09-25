@@ -62,6 +62,14 @@ Load command 0
 BAD_LOAD
   exit 0
 fi
+if [[ "\${CMUX_FAKE_MODE:-}" == bad-bundle-path && "\$target" == */nested-macho ]]; then
+  cat <<BAD_BUNDLE_PATH
+Load command 0
+      cmd LC_LOAD_DYLIB
+     name $APP/Contents/Frameworks/nested-macho (offset 24)
+BAD_BUNDLE_PATH
+  exit 0
+fi
 cat <<'GOOD'
 Load command 0
       cmd LC_RPATH
@@ -77,7 +85,7 @@ Load command 3
      name /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation (offset 24)
 Load command 4
       cmd LC_REEXPORT_DYLIB
-     name $APP/Contents/Frameworks/nested-macho (offset 24)
+     name @loader_path/../Frameworks/nested-macho (offset 24)
 GOOD
 EOF
 chmod +x "$FAKE_BIN/file" "$FAKE_BIN/otool"
@@ -104,5 +112,11 @@ if CMUX_FAKE_MODE=bad-load run_guard > "$TMP_DIR/bad-load.log" 2>&1; then
 fi
 grep -Fq '/Users/runner/work/cmux/third-party/libbad.dylib' "$TMP_DIR/bad-load.log"
 grep -Fq 'nested-macho' "$TMP_DIR/bad-load.log"
+
+if CMUX_FAKE_MODE=bad-bundle-path run_guard > "$TMP_DIR/bad-bundle-path.log" 2>&1; then
+  echo 'FAIL: the guard accepted an absolute path inside the build-time app root' >&2
+  exit 1
+fi
+grep -Fq "$APP/Contents/Frameworks/nested-macho" "$TMP_DIR/bad-bundle-path.log"
 
 echo 'PASS: bundle load-command guard rejects bad rpaths and load paths across nested Mach-O files'

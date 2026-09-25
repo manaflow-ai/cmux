@@ -32,7 +32,7 @@ is_allowed_load_path() {
     @*)
       return 0
       ;;
-    "$APP_ROOT"|"$APP_ROOT"/*|/usr/lib|/usr/lib/*|/System|/System/*)
+    /usr/lib|/usr/lib/*|/System|/System/*)
       return 0
       ;;
     *)
@@ -54,7 +54,7 @@ check_macho() {
     [[ -n "$load_path" ]] || continue
     if ! is_allowed_load_path "$load_path"; then
       echo "error: $binary has $command outside the app/system roots: $load_path" >&2
-      echo "  allowed absolute roots: $APP_ROOT, /usr/lib, /System; @-relative paths are allowed" >&2
+      echo "  allowed absolute roots: /usr/lib, /System; bundle-internal paths must be @-relative" >&2
       return 1
     fi
   done < <(

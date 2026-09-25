@@ -18,19 +18,56 @@ for tool in "$OTOOL_TOOL" "$INSTALL_NAME_TOOL" "$LIPO_TOOL"; do
   fi
 done
 
-rpath_is_allowed() {
-  case "$1" in
-    /usr/lib/swift|@executable_path|@executable_path/*|@loader_path|@loader_path/*)
-      return 0
+relative_rpath_is_inside_bundle() {
+  local binary="$1"
+  local rpath="$2"
+  local base_dir
+  local suffix
+  case "$rpath" in
+    @loader_path*)
+      base_dir="$(dirname "$binary")"
+      suffix="${rpath#@loader_path}"
+      ;;
+    @executable_path*)
+      base_dir="$(dirname "$binary")"
+      suffix="${rpath#@executable_path}"
       ;;
     *)
       return 1
       ;;
   esac
+
+  /usr/bin/python3 - "$base_dir" "$suffix" <<'PY'
+import os
+import sys
+
+base_dir, suffix = sys.argv[1:]
+bundle_root = os.path.abspath(base_dir)
+while bundle_root != os.path.dirname(bundle_root) and not bundle_root.endswith(".app"):
+    bundle_root = os.path.dirname(bundle_root)
+if not bundle_root.endswith(".app"):
+    raise SystemExit(1)
+candidate = os.path.abspath(os.path.join(base_dir, suffix.lstrip("/")))
+try:
+    inside = os.path.commonpath((bundle_root, candidate)) == bundle_root
+except ValueError:
+    inside = False
+raise SystemExit(0 if inside else 1)
+PY
+}
+
+rpath_is_allowed() {
+  local binary="$1"
+  local rpath="$2"
+  if [[ "$rpath" == "/usr/lib/swift" ]]; then
+    return 0
+  fi
+  relative_rpath_is_inside_bundle "$binary" "$rpath"
 }
 
 strip_thin_binary() {
   local binary="$1"
+  local context_binary="${2:-$binary}"
   local rpaths
   if ! rpaths="$("$OTOOL_TOOL" -arch all -l "$binary" 2>&1)"; then
     echo "error: could not inspect Mach-O rpaths: $binary" >&2
@@ -39,7 +76,7 @@ strip_thin_binary() {
   fi
   while IFS= read -r rpath; do
     [[ -n "$rpath" ]] || continue
-    if ! rpath_is_allowed "$rpath"; then
+    if ! rpath_is_allowed "$context_binary" "$rpath"; then
       echo "Removing non-bundled cmux-cua rpath from $binary: $rpath"
       "$INSTALL_NAME_TOOL" -delete_rpath "$rpath" "$binary"
     fi
@@ -56,7 +93,7 @@ strip_thin_binary() {
         print value
         command = ""
       }
-    ' | sort -u
+    '
   )
 }
 
@@ -80,7 +117,7 @@ strip_binary() {
   mode="$(stat -f '%Lp' "$binary")"
   read -r -a arch_list <<<"$archs"
   if [[ "${#arch_list[@]}" -le 1 ]]; then
-    strip_thin_binary "$binary"
+    strip_thin_binary "$binary" "$binary"
     return 0
   fi
 
@@ -88,7 +125,7 @@ strip_binary() {
   for arch in "${arch_list[@]}"; do
     slice="$scratch/$arch"
     "$LIPO_TOOL" -thin "$arch" "$binary" -output "$slice"
-    strip_thin_binary "$slice"
+    strip_thin_binary "$slice" "$binary"
     slices+=("$slice")
   done
   rebuilt="$scratch/rebuilt"
