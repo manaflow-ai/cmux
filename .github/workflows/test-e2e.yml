@@ -513,11 +513,18 @@ jobs:
           mkdir -p "$CMUX_E2E_COMPILATION_CACHE"
           echo "::warning::E2E cache restore failed; compiling with an empty cache"
 
+      # Restore only, from the seed nightly.yml saves after a resolve. This job
+      # resolves in the canonical root, so the workspace copy is still exactly
+      # what was restored: saving it (as actions/cache did) stored a fallback
+      # restore of the previous Package.resolved under the new exact key, and
+      # every later exact hit then failed its offline resolve and fetched every
+      # remote (run 36134675453: 44 s wasted, then 86 s online).
       - name: Cache Swift packages
         id: swift-package-cache
         if: ${{ steps.reuse.outputs.hit != 'true' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: ./.github/actions/cache-restore
         with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
           path: .ci-source-packages
           key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved', 'scripts/ci/swiftpm-cache-layout') }}
           restore-keys: spm-
