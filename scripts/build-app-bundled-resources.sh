@@ -1,5 +1,7 @@
 #!/bin/bash
 set -euo pipefail
+# shellcheck source=scripts/build-phase-caller-path.sh
+. "$(dirname "${BASH_SOURCE[0]}")/build-phase-caller-path.sh"
 DEST="${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
 GHOSTTY_DEST="${DEST}/ghostty"
 TERMINFO_DEST="${DEST}/terminfo"
