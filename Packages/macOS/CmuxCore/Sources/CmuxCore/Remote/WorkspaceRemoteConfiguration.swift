@@ -473,15 +473,73 @@ extension WorkspaceRemoteConfiguration {
         return ["SSH_AUTH_SOCK": agentSocketPath]
     }
 
-    /// Full process environment for spawned ssh/scp processes with
-    /// `SSH_AUTH_SOCK` overridden, or `nil` when no agent socket is configured.
+    /// Full process environment for spawned ssh/scp processes.
+    ///
+    /// App processes launched by Finder or Dock can have a sparse environment
+    /// without `HOME`, `USER`, `LOGNAME`, or `PATH`. OpenSSH executes a local
+    /// `ProxyCommand` from that environment, so preserve the app environment
+    /// while filling the standard user context that local proxy helpers need.
     public var sshProcessEnvironment: [String: String]? {
-        guard let agentSocketPath = self.agentSocketPath else {
-            return nil
+        var environment = Self.resolvedSSHProcessEnvironment()
+        if let agentSocketPath = self.agentSocketPath {
+            environment["SSH_AUTH_SOCK"] = agentSocketPath
         }
-        var environment = ProcessInfo.processInfo.environment
-        environment["SSH_AUTH_SOCK"] = agentSocketPath
         return environment
+    }
+
+    /// Repairs the user context lost when cmux is launched outside a shell.
+    /// The inputs are injectable so the sparse-app-environment behavior stays
+    /// deterministic in package tests without changing the process environment.
+    static func resolvedSSHProcessEnvironment(
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = FileManager.default.homeDirectoryForCurrentUser.path,
+        userName: String = NSUserName()
+    ) -> [String: String] {
+        var environment = baseEnvironment
+        let resolvedHome = nonEmptyEnvironmentValue(environment["HOME"]) ?? homeDirectory
+        let resolvedUser = nonEmptyEnvironmentValue(environment["USER"]) ?? userName
+        let resolvedLogname = nonEmptyEnvironmentValue(environment["LOGNAME"]) ?? resolvedUser
+
+        if !resolvedHome.isEmpty {
+            environment["HOME"] = resolvedHome
+        }
+        if !resolvedUser.isEmpty {
+            environment["USER"] = resolvedUser
+        }
+        if !resolvedLogname.isEmpty {
+            environment["LOGNAME"] = resolvedLogname
+        }
+        if nonEmptyEnvironmentValue(environment["PATH"]) == nil {
+            environment["PATH"] = defaultSSHProcessPath(homeDirectory: resolvedHome)
+        }
+        return environment
+    }
+
+    private static func nonEmptyEnvironmentValue(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
+    }
+
+    private static func defaultSSHProcessPath(homeDirectory: String) -> String {
+        let userPaths = [
+            URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent(".local/bin", isDirectory: true).path,
+            URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent("go/bin", isDirectory: true).path,
+            URL(fileURLWithPath: homeDirectory, isDirectory: true)
+                .appendingPathComponent("bin", isDirectory: true).path,
+        ]
+        let systemPaths = [
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+            "/usr/local/sbin",
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+            "/sbin",
+        ]
+        return (userPaths + systemPaths).joined(separator: ":")
     }
 
     /// SSH options propagated to a forked agent workspace (durable subset).

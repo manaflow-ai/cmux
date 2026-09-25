@@ -424,4 +424,20 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(environment?["USER"]?.isEmpty == false)
         #expect(environment?["LOGNAME"]?.isEmpty == false)
     }
+
+    @Test("sparse app environments get the local user context needed by SSH proxy helpers")
+    func sparseSSHProcessEnvironment() {
+        let environment = WorkspaceRemoteConfiguration.resolvedSSHProcessEnvironment(
+            baseEnvironment: ["TERM": "xterm-256color"],
+            homeDirectory: "/Users/alice",
+            userName: "alice"
+        )
+
+        #expect(environment["TERM"] == "xterm-256color")
+        #expect(environment["HOME"] == "/Users/alice")
+        #expect(environment["USER"] == "alice")
+        #expect(environment["LOGNAME"] == "alice")
+        #expect(environment["PATH"]?.hasPrefix("/Users/alice/.local/bin:") == true)
+        #expect(environment["PATH"]?.contains("/usr/bin") == true)
+    }
 }
