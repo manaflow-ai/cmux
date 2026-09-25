@@ -61,7 +61,7 @@ private final class ObservedValueCoordinator<Value: Equatable>: ObservedValueCan
         }
 
         guard !cancellationFlag.isCancelled, self.read != nil else { return }
-        if shouldDeliver, hasDelivered == false || shouldDeliver && lastDelivered != value {
+        if shouldDeliver, !hasDelivered || lastDelivered != value {
             hasDelivered = true
             lastDelivered = value
             onChange?(value)
@@ -125,32 +125,50 @@ final class ObservationToken: @unchecked Sendable {
 /// than one registrar entry for the channel's source.
 @MainActor
 final class ObservedValueTracking<Value: Equatable> {
-    private let read: @MainActor () -> Value
+    private let subject: CurrentValueSubject<Value, Never>
+    private let token: ObservationToken
 
     init(read: @escaping @MainActor () -> Value) {
-        self.read = read
+        let subject = CurrentValueSubject<Value, Never>(read())
+        self.subject = subject
+        self.token = ObservationToken.start(initial: false, read: read) { value in
+            subject.send(value)
+        }
     }
 
     var publisher: AnyPublisher<Value, Never> {
-        Deferred { [read] in
-            let subject = CurrentValueSubject(read())
-            var token: ObservationToken?
-            token = ObservationToken.start(initial: false, read: read) { value in
-                subject.send(value)
-            }
-            return subject
-                .handleEvents(
-                    receiveCompletion: { _ in
-                        token?.cancel()
-                        token = nil
-                    },
-                    receiveCancel: {
-                        token?.cancel()
-                        token = nil
-                    }
-                )
-                .eraseToAnyPublisher()
-        }
-        .eraseToAnyPublisher()
+        subject.eraseToAnyPublisher()
+    }
+
+    func cancel() {
+        token.cancel()
+    }
+}
+
+/// Reuses one tracking registration while a source is rebound or its consumer
+/// is mounted repeatedly. A source swap cancels the old registration once and
+/// starts one loop for the replacement source.
+@MainActor
+final class ObservedValueObserver<Value: Equatable> {
+    private var sourceID: ObjectIdentifier?
+    private var token: ObservationToken?
+
+    func observe(
+        source: AnyObject,
+        initial: Bool = true,
+        read: @escaping @MainActor () -> Value,
+        onChange: @escaping @MainActor (Value) -> Void
+    ) {
+        let nextSourceID = ObjectIdentifier(source)
+        guard sourceID != nextSourceID || token?.isCancelled == true else { return }
+        token?.cancel()
+        sourceID = nextSourceID
+        token = ObservationToken.start(initial: initial, read: read, onChange: onChange)
+    }
+
+    func cancel() {
+        token?.cancel()
+        token = nil
+        sourceID = nil
     }
 }

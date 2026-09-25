@@ -26,7 +26,8 @@ final class CloudBrowserAccessState {
     private(set) var desktopConnected = false
     @ObservationIgnored private let connectionDeadline: MainActorDeferredActionScheduler
     @ObservationIgnored private var navigate: (@MainActor (URL) -> Void)?
-    @ObservationIgnored private var observationGeneration: UInt64 = 0
+    @ObservationIgnored private let routeObserver = ObservedValueObserver<CloudPortAccessModel.Phase>()
+    @ObservationIgnored private var routeObservationSuspended = false
     @ObservationIgnored private var preservingCommittedRoute = false
     private var activeNavigationID: ObjectIdentifier?
     @ObservationIgnored private let logID = UUID().uuidString
@@ -47,7 +48,6 @@ final class CloudBrowserAccessState {
     /// Rebinds ownership to a committed same-VM service without restarting the
     /// current WebKit navigation (for example, a POST redirect to another port).
     func adoptCommittedRoute(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID) {
-        observationGeneration &+= 1
         unavailable = nil
         self.resourceID = resourceID
         self.model = model
@@ -72,17 +72,27 @@ final class CloudBrowserAccessState {
     func retainResource(_ resource: SurfaceResourceID) { resourceID = resource }
 
     private func observeRoute() {
-        observationGeneration &+= 1
-        let generation = observationGeneration
-        guard let model, navigate != nil else { return }
-        withObservationTracking {
-            _ = model.phase
-        } onChange: { [weak self] in
-            Task { @MainActor in
-                guard let self, self.observationGeneration == generation else { return }
-                self.observeRoute()
-            }
+        guard let model, navigate != nil else {
+            routeObserver.cancel()
+            return
         }
+        routeObservationSuspended = false
+        routeObserver.observe(
+            source: model,
+            initial: false,
+            read: { [weak model] in model?.phase ?? .closed },
+            onChange: { [weak self, weak model] _ in
+                guard let self, let model, self.model === model,
+                      !self.routeObservationSuspended else { return }
+                self.evaluateRoute()
+            }
+        )
+        evaluateRoute()
+    }
+
+    private func evaluateRoute() {
+        guard !routeObservationSuspended else { return }
+        guard let model = model else { return }
         if preservingCommittedRoute {
             // The new model may still be acquiring its proxy. Keep the URL and
             // committed-document identity stable until it is ready; adoption
@@ -194,7 +204,6 @@ final class CloudBrowserAccessState {
     }
 
     func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
-        observationGeneration &+= 1
         unavailable = nil
         // WebView/profile replacement reconfigures the existing route without
         // passing the identity again. Keep the stable display ID until an
@@ -298,7 +307,7 @@ final class CloudBrowserAccessState {
               navigationID == nil || navigationID == activeNavigationID else { return }
         // Stop also applies while the shared route is still connecting. Other
         // projections can keep that route alive without restarting this pane.
-        observationGeneration &+= 1
+        routeObservationSuspended = true
         connectionDeadline.cancel()
         error = String(localized: "cloud.display.connectionCancelled", defaultValue: "The Cloud page connection was cancelled. Retry to connect.")
         hasCommittedNavigation = false
@@ -348,7 +357,8 @@ final class CloudBrowserAccessState {
     }
 
     func leave() {
-        observationGeneration &+= 1
+        routeObservationSuspended = true
+        routeObserver.cancel()
         navigate = nil
         connectionDeadline.cancel()
         desktopConnected = false
