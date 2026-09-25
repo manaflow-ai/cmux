@@ -424,7 +424,8 @@ class GitHub:
     GITHUB_TOKEN: a re-run's triggering actor must stay github-actions[bot],
     which ci-macos.yml's attempt-2 routing checks. An installation token
     lasts an hour and a watch may outlive it, so a 401 on a read drops back to
-    `token` for the rest of the watch.
+    `token` for the rest of the watch. A 403 is a read the App may not make
+    (branch_head needs contents, which it lacks): that one read uses `token`.
     """
 
     def __init__(self, token: str, repo: str, read_token: str = "") -> None:
@@ -432,8 +433,8 @@ class GitHub:
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
 
-    def request(self, method: str, path: str) -> Any:
-        headers = self.read_headers if method == "GET" else self.headers
+    def request(self, method: str, path: str, *, own_token: bool = False) -> Any:
+        headers = self.read_headers if method == "GET" and not own_token else self.headers
         request = urllib.request.Request(f"{API}/repos/{self.repo}{path}", method=method, headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
@@ -442,8 +443,11 @@ class GitHub:
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
         except urllib.error.HTTPError as error:
-            if error.code != 401 or headers is self.headers:
+            if error.code not in (401, 403) or headers is self.headers:
                 raise
+            if error.code == 403:
+                # The installation lacks this read's permission: this one read goes on GITHUB_TOKEN.
+                return self.request(method, path, own_token=True)
             self.read_headers = self.headers
             return self.request(method, path)
         return json.loads(body) if body else None
