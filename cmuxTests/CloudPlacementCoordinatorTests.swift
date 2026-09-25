@@ -1,3 +1,5 @@
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -24,11 +26,27 @@ struct CloudPlacementCoordinatorTests {
         )
     }
 
+    /// Installs the daemon graph before exercising reconciliation. The catalog deliberately
+    /// ignores a remote observation that was never accepted as its current cloud state.
+    private static func install(
+        _ catalog: SurfaceCatalog,
+        provider: CloudPlacementTestProvider,
+        snapshot: [String: Any]
+    ) throws -> CloudVMState {
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine))
+        catalog.replaceCloudState(
+            state,
+            resources: CmuxTuiSnapshotParser.resources(from: state),
+            info: provider.info
+        )
+        return state
+    }
+
     /// A catalog whose local workspace `bound` mirrors `ws_api`; every other local workspace is a viewer.
-    private static func harness(bound: UUID) -> (SurfaceCatalog, CloudPlacementTestProvider) {
-        let catalog = SurfaceCatalog(cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { id in
+    private static func harness(bound: UUID, live: LiveWorkspaceFixture? = nil) -> (SurfaceCatalog, CloudPlacementTestProvider) {
+        let catalog = SurfaceCatalog(cloudWorkspaceRenameService: live?.renameService ?? CloudWorkspaceRenameService(), cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { id in
             id == bound ? WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_api") : nil
-        }))
+        }, workspaceExists: { _, remoteID in remoteID == "ws_api" ? true : nil }))
         let provider = CloudPlacementTestProvider(machine: machine)
         catalog.register(provider)
         return (catalog, provider)
@@ -314,9 +332,33 @@ struct CloudPlacementCoordinatorTests {
                 "browsers": [], "agents": []
             ], machine: Self.machine))
         }
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "12"))
+        _ = try Self.install(catalog, provider: provider, snapshot: [
+            "cursor": ["generation": "g", "revision": "11"],
+            "workspaces": [["id": "ws_main"], ["id": "ws_api"]],
+            "screens": [["id": "screen", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [["id": "tab_1", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
+            "terminals": [["id": "term_1", "tab_ids": ["tab_1"]]], "browsers": [], "agents": [],
+        ])
+        _ = try Self.install(catalog, provider: provider, snapshot: [
+            "cursor": ["generation": "g", "revision": "12"],
+            "workspaces": [["id": "ws_main"], ["id": "ws_api"]],
+            "screens": [["id": "screen", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [["id": "tab_1", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
+            "terminals": [["id": "term_1", "tab_ids": ["tab_1"]]], "browsers": [], "agents": [],
+        ])
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "12"), observation: .current)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_api")
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "14"))
+        _ = try Self.install(catalog, provider: provider, snapshot: [
+            "cursor": ["generation": "g", "revision": "14"],
+            "workspaces": [["id": "ws_main"], ["id": "ws_api"]],
+            "screens": [["id": "screen", "workspace_id": "ws_main"]],
+            "panes": [["id": "pane", "screen_id": "screen"]],
+            "tabs": [["id": "tab_1", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
+            "terminals": [["id": "term_1", "tab_ids": ["tab_1"]]], "browsers": [], "agents": [],
+        ])
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: try state(revision: "14"), observation: .current)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == "ws_main")
         #expect(catalog.projection(forPanel: panel)?.workspaceID == bound)
     }
@@ -332,15 +374,25 @@ struct CloudPlacementCoordinatorTests {
         let viewer = UUID(), bound = UUID(), panel = UUID()
         let (catalog, provider) = Self.harness(bound: bound)
         let term = Self.terminal("term_1", views: [])
-        catalog.replaceResources([term], on: Self.machine)
-        catalog.record(SurfaceProjection(resource: term.id, workspaceID: viewer, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone"))
-        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+        let stateSnapshot: [String: Any] = [
             "cursor": ["generation": "g", "revision": "20"],
             "workspaces": [["id": "ws_main"], ["id": "ws_api"]],
             "screens": [], "panes": [], "tabs": [],
-            "terminals": [["id": "term_1", "tab_ids": []]], "browsers": [], "agents": []
-        ], machine: Self.machine))
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state)
+            "terminals": [["id": "term_1", "tab_ids": []]], "browsers": [], "agents": [],
+        ]
+        _ = try Self.install(catalog, provider: provider, snapshot: stateSnapshot)
+        // Keep the fixture's explicit detached terminal metadata after the
+        // graph install; an empty view list means the move must project a
+        // fresh tab rather than move a stale one.
+        catalog.upsert(term, from: provider)
+        // The daemon's projection reply is fenced by its mutation cursor
+        // (`CmuxTuiSnapshotParser.placedTab` requires one). When the lane drains it
+        // reconciles against the installed graph above, which predates the new tab;
+        // the cursor is what keeps that older graph from clearing the new tab ID.
+        provider.projectCursor = CloudVMCursor(generation: "g", revision: 21)
+        catalog.record(SurfaceProjection(resource: term.id, workspaceID: viewer, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone"))
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: stateSnapshot, machine: Self.machine))
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)
         catalog.moveProjections(panelID: panel, to: bound)
         await catalog.cloudPlacementCoordinator.waitForPendingMutations()
         #expect(provider.moved.isEmpty)
@@ -349,8 +401,10 @@ struct CloudPlacementCoordinatorTests {
     }
 
     @Test func openingIntoABoundWorkspaceUsesTheSharedPlacementPath() async throws {
-        let bound = UUID()
-        let (catalog, provider) = Self.harness(bound: bound)
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let bound = live.id()
+        let (catalog, provider) = Self.harness(bound: bound, live: live)
         let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.main)])
         catalog.replaceResources([term], on: Self.machine)
         _ = try await catalog.project(term.id, into: .tab(workspaceID: bound, paneID: UUID().uuidString, index: nil), focus: false, reuseExisting: false)
@@ -562,20 +616,21 @@ struct CloudPlacementCoordinatorTests {
 
     @Test func aMissingTrackedTabClearsCoordinatesEvenWhenOtherViewsRemain() throws {
         let bound = UUID(), panel = UUID()
-        let (catalog, _) = Self.harness(bound: bound)
+        let (catalog, provider) = Self.harness(bound: bound)
         let term = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_live", workspace: Self.api)])
-        catalog.replaceResources([term], on: Self.machine)
-        let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone")
-        catalog.record(previous)
-        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
+        let stateSnapshot: [String: Any] = [
             "cursor": ["generation": "g", "revision": "20"],
             "workspaces": [["id": "ws_api"]],
             "screens": [["id": "screen", "workspace_id": "ws_api"]],
             "panes": [["id": "pane", "screen_id": "screen"]],
             "tabs": [["id": "tab_live", "pane_id": "pane", "content_kind": "terminal", "content_id": "term_1"]],
-            "terminals": [["id": "term_1", "tab_ids": ["tab_live"]]], "browsers": [], "agents": []
-        ], machine: Self.machine))
-        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state)
+            "terminals": [["id": "term_1", "tab_ids": ["tab_live"]]], "browsers": [], "agents": [],
+        ]
+        _ = try Self.install(catalog, provider: provider, snapshot: stateSnapshot)
+        let previous = SurfaceProjection(resource: term.id, workspaceID: bound, panelID: panel, remoteWorkspaceID: "ws_main", remoteTabID: "tab_gone")
+        catalog.record(previous)
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: stateSnapshot, machine: Self.machine))
+        catalog.reconcileCloudRemoteState(machine: Self.machine, state: state, observation: .current)
         #expect(catalog.projection(forPanel: panel)?.remoteTabID == nil)
         #expect(catalog.projection(forPanel: panel)?.remoteWorkspaceID == nil)
     }

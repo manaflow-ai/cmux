@@ -5,8 +5,17 @@ import Foundation
 /// Status 252 has a bounded consecutive-failure budget, statuses 247–250 carry
 /// managed transport/authentication phases, and statuses 251, 254, and 255 use
 /// the general reconnect budget.
-public enum SSHPTYAttachExitCode: Int32 {
+public enum SSHPTYAttachExitCode: Int32, Sendable {
     private static let healthyBridgeUptime: Double = 30
+
+    /// The v2 error code `workspace.remote.pty_bridge` answers with when the
+    /// remote session is parked: automatic recovery has stopped and only an
+    /// explicit reconnect resumes it.
+    ///
+    /// The accompanying message is the app-localized detail the sidebar shows.
+    /// It is user-facing prose, so this code, never the wording, is what makes
+    /// the attach terminal (https://github.com/manaflow-ai/cmux/issues/12813).
+    public static let sessionParkedErrorCode = "remote_session_parked"
 
     /// A non-retryable attach failure.
     case fatal = 1
@@ -268,6 +277,11 @@ public enum SSHPTYAttachExitCode: Int32 {
             return .sessionNotFound
         }
         if normalizedCode == "pty_lifecycle_closed" {
+            return .fatal
+        }
+        if normalizedCode == sessionParkedErrorCode {
+            // The session owner already gave up and said why. Retrying would
+            // only re-park against a session that cannot become ready.
             return .fatal
         }
         if normalizedCode == "unavailable" {

@@ -17,14 +17,6 @@ enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
     case irohAdmission(CmxIrohAdmittedPeer)
 }
 
-extension MobileHostConnectionAuthorizationContext {
-    /// One policy authority for transports accepted by the legacy
-    /// private-network listener. Keeping this separate from Iroh admission
-    /// makes version-skew coverage exercise the same authorization choice as
-    /// the production listener.
-    static let legacyPrivateNetworkListener: Self = .stackBearer
-}
-
 /// Immutable trust context carried from transport admission into RPC dispatch.
 struct MobileHostRPCExecutionContext: Sendable {
     /// The per-connection identity, used to key long-lived subscriptions
@@ -252,6 +244,20 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var v2DeviceID: String?
+
+    static func updateV2DeviceID(_ deviceID: String?) {
+        lock.lock()
+        v2DeviceID = deviceID
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    static func currentV2DeviceID() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return v2DeviceID
+    }
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
@@ -301,6 +307,7 @@ enum MobileHostPublicStatusCache {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        v2DeviceID = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -311,6 +318,29 @@ enum MobileHostPublicStatusCache {
         return mergedRoutesLocked()
     }
 
+    /// One publication of this Mac: the routes a peer may dial plus the v2
+    /// installation identity those routes belong to.
+    ///
+    /// Ticket minting needs both halves of the *same* publication. Reading
+    /// ``snapshot()`` and ``currentV2DeviceID()`` separately can straddle a
+    /// concurrent republish or teardown (the runtime calls ``removeAll()`` on
+    /// every reconcile), which would bind fresh routes to a retired identity.
+    struct PublishedStatus: Sendable {
+        var routes: [CmxAttachRoute]
+        var v2DeviceID: String?
+
+        init(routes: [CmxAttachRoute], v2DeviceID: String?) {
+            self.routes = routes
+            self.v2DeviceID = v2DeviceID
+        }
+    }
+
+    static func publishedStatus() -> PublishedStatus {
+        lock.lock()
+        defer { lock.unlock() }
+        return PublishedStatus(routes: mergedRoutesLocked(), v2DeviceID: v2DeviceID)
+    }
+
     static func hasIrohRoute() -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -319,6 +349,7 @@ enum MobileHostPublicStatusCache {
 
     static func result(
         includeIdentity: Bool = false,
+        deviceID authorizedDeviceID: String? = nil,
         additionalCapabilities: Set<String> = [],
         phonePushAdmission: PhonePushAdmission = .unknown,
         phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
@@ -326,18 +357,28 @@ enum MobileHostPublicStatusCache {
     ) -> MobileHostRPCResult {
         lock.lock()
         let cachedRoutes = mergedRoutesLocked()
+        // An admitted older peer uses the account-directory identity; modern
+        // peers use the team-directory identity. One response cannot rename
+        // the other protocol's saved computer.
+        let deviceID = authorizedDeviceID ?? v2DeviceID
         lock.unlock()
-        return .ok(
-            includeIdentity
-                ? MobileHostService.identityStatusPayload(
-                    routes: cachedRoutes,
-                    additionalCapabilities: additionalCapabilities,
-                    phonePushAdmission: phonePushAdmission,
-                    phonePushQueuePersistenceStatus:
-                        phonePushQueuePersistenceStatus
-                )
-                : MobileHostService.publicStatusPayload(routes: cachedRoutes)
-        )
+        guard includeIdentity else {
+            return .ok(MobileHostService.publicStatusPayload(routes: cachedRoutes))
+        }
+        guard let deviceID, !deviceID.isEmpty else {
+            return .failure(MobileHostRPCError(
+                code: "unavailable",
+                message: "The Mac identity is still being prepared. Retry shortly.",
+                data: ["retryable": true, "retry_after_ms": 1_000]
+            ))
+        }
+        return .ok(MobileHostService.identityStatusPayload(
+            routes: cachedRoutes,
+            deviceID: deviceID,
+            additionalCapabilities: additionalCapabilities,
+            phonePushAdmission: phonePushAdmission,
+            phonePushQueuePersistenceStatus: phonePushQueuePersistenceStatus
+        ))
     }
 
     private static func mergedRoutesLocked() -> [CmxAttachRoute] {

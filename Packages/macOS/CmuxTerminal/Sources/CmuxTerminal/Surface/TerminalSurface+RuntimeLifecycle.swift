@@ -57,8 +57,8 @@ extension TerminalSurface {
             return
         }
         guard paneHost.window == nil else { return }
-        let width = max(surfaceView.bounds.width, CGFloat(800))
-        let height = max(surfaceView.bounds.height, CGFloat(600))
+        let width = max(surfaceView.bounds.width, Self.hiddenPaneDefaultSize.width)
+        let height = max(surfaceView.bounds.height, Self.hiddenPaneDefaultSize.height)
         let frame = NSRect(x: 0, y: 0, width: width, height: height)
         let window = NSWindow(
             contentRect: frame,
@@ -706,7 +706,6 @@ extension TerminalSurface {
         prepareFontSizeForDeferredConfigurationRuntimeCreation()
         createSurface(for: view, source: source)
     }
-
     /// Replays a surface creation request that could not fit in the engine's
     /// bounded reload-deferral map. The engine calls this from its incremental
     /// post-gate overflow sweep; ordinary callers should continue using
@@ -737,12 +736,19 @@ extension TerminalSurface {
         ) {
             return
         }
-        let agentShimState = agentCommandShimStateForSurface(view: view, source: source)
+        let requestedSpawnPolicy = spawnPolicyProvider.currentSpawnPolicy()
+        let agentShimState = agentCommandShimStateForSurface(
+            view: view,
+            source: source,
+            spawnPolicy: requestedSpawnPolicy
+        )
         guard agentShimState.isReady else { return }
+        let spawnPolicy = agentCommandShimSpawnPolicy ?? requestedSpawnPolicy
         if shouldPaceRuntimeSurfaceCreation(source: source) {
             enqueueRestoredRuntimeSurfaceCreation(for: view)
             return
         }
+        if parkRuntimeSurfaceCreationIfAwaitingPaneGeometry(view: view, source: source) { return }
         let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1
@@ -771,7 +777,8 @@ extension TerminalSurface {
             app: app,
             for: view,
             scaleFactors: scaleFactors,
-            agentCommandShims: agentCommandShims
+            agentCommandShims: agentCommandShims,
+            spawnPolicy: spawnPolicy
         )
         surface = runtimeSurfaceCreation.createdSurface
         let runtimeInitialInput = runtimeSurfaceCreation.runtimeInitialInput
@@ -851,7 +858,7 @@ extension TerminalSurface {
         }
 
         ghostty_surface_set_content_scale(createdSurface, scaleFactors.x, scaleFactors.y)
-        let backingSize = view.convertToBacking(NSRect(origin: .zero, size: view.bounds.size)).size
+        let backingSize = initialRuntimeBackingSize(for: view)
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {

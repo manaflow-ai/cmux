@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import textwrap
@@ -16,9 +17,58 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "xcodebuild_noninteractive.py"
 PROMPT = "Press space to interact, D to debug, or any other key to quit"
+# xcodebuild prints this and relaunches the crashed app host, resuming the run.
+# Same string as RESTART_MARKER in scripts/ci/app_host_result_accounting.py.
+RESTART = (
+    "Restarting after unexpected exit, crash, or test timeout; "
+    "summary will include totals from previous launches."
+)
+RESTART_BUDGET_EXIT_CODE = 123
+
+
+def test_compiler_timeout_evidence() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        child_pid = root / "child-pid"
+        calls = root / "sample-calls"
+        ps = root / "ps"
+        ps.write_text("#!/usr/bin/env python3\nimport os, pathlib, time\n"
+                      "if os.environ.get('STALL_PS'): time.sleep(20)\n"
+                      "pid = int(pathlib.Path(os.environ['TEST_CHILD_PID_FILE']).read_text())\n"
+                      "print(f'{pid} 1 0:02.00 00:12 S /Applications/Xcode.app/xcodebuild')\n"
+                      "print(f'{pid+1000000} {pid} 0:08.12 00:10 R /Applications/Xcode.app/swift-frontend')\n"
+                      "print('999999 1 0:20.00 00:20 R /private-secret/swift-frontend')\n")
+        ps.chmod(0o755)
+        sample = root / "sample"
+        sample.write_text("#!/usr/bin/env python3\nimport os, pathlib, sys, time\n"
+                          "if os.environ.get('STALL_SAMPLE'): time.sleep(20)\n"
+                          "pathlib.Path(os.environ['TEST_SAMPLE_CALLS']).write_text(' '.join(sys.argv[1:]))\n"
+                          "print('Command line: DO_NOT_PRINT_SECRET\\nCall graph:\\ncompiler stack fixture\\nBinary Images:\\nprivate metadata')\n")
+        sample.chmod(0o755)
+        child = "import os,time,pathlib;pathlib.Path(os.environ['TEST_CHILD_PID_FILE']).write_text(str(os.getpid()));print('SwiftCompile ContentView.swift',flush=True);time.sleep(60)"
+        env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                   TEST_CHILD_PID_FILE=str(child_pid), TEST_SAMPLE_CALLS=str(calls),
+                   CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS="0.15",
+                   CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH=str(root / "timeout.log"))
+        result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", child],
+                                env=env, capture_output=True, text=True, timeout=12)
+        assert result.returncode == 124, result.stderr
+        assert "[idle timeout] compiler process snapshot" in result.stdout, result.stdout
+        assert "swift-frontend" in result.stdout and "0:08.12" in result.stdout
+        assert "pid=999999 " not in result.stdout
+        assert "DO_NOT_PRINT_SECRET" not in result.stdout and "private metadata" not in result.stdout
+        assert result.stdout.count("compiler process snapshot") == 2
+        assert "compiler stack fixture" in (root / "timeout.log").read_text()
+        assert "compiler stack fixture" in result.stdout
+        assert calls.read_text().split()[0] == str(int(child_pid.read_text()) + 1000000)
+        for stalled_tool in ("STALL_PS", "STALL_SAMPLE"):
+            result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", child],
+                                    env={**env, stalled_tool: "1"}, capture_output=True, text=True, timeout=10)
+            assert result.returncode == 124, (stalled_tool, result.stderr)
 
 
 def main() -> int:
+    test_compiler_timeout_evidence()
     child = textwrap.dedent(
         f"""
         import sys
@@ -158,6 +208,124 @@ def main() -> int:
         print(
             "FAIL: test progress should reset the idle timeout "
             f"(expected exit 3, got {progressing_result.returncode})"
+        )
+        return 1
+
+    # A crash-looping app host restarts and resumes forever. Every restart
+    # already makes the run non-ratchetable (run_is_complete in
+    # scripts/ci/app_host_result_accounting.py), so once the budget is spent
+    # the helper must abort instead of holding a macOS concurrency slot to the
+    # job timeout. https://github.com/manaflow-ai/cmux/issues/13707
+    crash_loop_child = textwrap.dedent(
+        f"""
+        import time
+
+        for _ in range(8):
+            print("Test Case '-[cmuxTests.FooTests testOne]' started.", flush=True)
+            print({RESTART!r}, flush=True)
+            time.sleep(0.05)
+        time.sleep(600)
+        """
+    )
+    crash_loop_env = {
+        **os.environ,
+        "CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET": "2",
+    }
+    try:
+        crash_loop_result = subprocess.run(
+            [sys.executable, str(HELPER), sys.executable, "-c", crash_loop_child],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=30,
+            env=crash_loop_env,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            "FAIL: the helper resumed a restarting app host instead of "
+            "aborting it once the restart budget was spent"
+        )
+        return 1
+    if crash_loop_result.returncode != RESTART_BUDGET_EXIT_CODE:
+        print(crash_loop_result.stdout, end="")
+        print(crash_loop_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected app-host restart budget abort exit "
+            f"{RESTART_BUDGET_EXIT_CODE}, got {crash_loop_result.returncode}"
+        )
+        return 1
+    if "app-host restart budget" not in crash_loop_result.stderr:
+        print(crash_loop_result.stdout, end="")
+        print(crash_loop_result.stderr, end="", file=sys.stderr)
+        print("FAIL: restart-budget abort did not name itself in stderr")
+        return 1
+    observed = re.search(r"restarted the app host (\d+) times \(budget 2\)", crash_loop_result.stderr)
+    if observed is None or int(observed.group(1)) < 3:
+        print(crash_loop_result.stdout, end="")
+        print(crash_loop_result.stderr, end="", file=sys.stderr)
+        print("FAIL: restart-budget abort did not report the observed restart count")
+        return 1
+
+    # A shard that spends its restart headroom and still finishes keeps its own
+    # verdict. Padding straddles the helper's 4096-byte reads so a marker split
+    # across two reads is counted once, and never twice.
+    within_budget_child = textwrap.dedent(
+        f"""
+        for _ in range(2):
+            print("x" * 5000, flush=True)
+            print({RESTART!r}, flush=True)
+        print("** TEST SUCCEEDED **", flush=True)
+        """
+    )
+    within_budget_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", within_budget_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+        env={
+            **os.environ,
+            "CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET": "2",
+        },
+    )
+    if within_budget_result.returncode != 0:
+        print(within_budget_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: two restarts are within a budget of 2 and must not abort "
+            f"(got exit {within_budget_result.returncode})"
+        )
+        return 1
+
+    # A slow-but-healthy shard never restarts, so the budget must not bound it.
+    slow_healthy_child = textwrap.dedent(
+        """
+        import time
+
+        for index in range(6):
+            print(f"◇ Test example{index}() started.", flush=True)
+            time.sleep(0.25)
+        print("** TEST SUCCEEDED **", flush=True)
+        """
+    )
+    slow_healthy_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", slow_healthy_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=30,
+        env={
+            **os.environ,
+            "CMUX_XCODEBUILD_NONINTERACTIVE_RESTART_BUDGET": "2",
+        },
+    )
+    if slow_healthy_result.returncode != 0:
+        print(slow_healthy_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: a shard that never restarts must not hit the restart budget "
+            f"(got exit {slow_healthy_result.returncode})"
         )
         return 1
 
@@ -514,7 +682,8 @@ def main() -> int:
 
     print(
         "PASS: xcodebuild noninteractive helper dismisses crash prompts, "
-        "heartbeats quiet children, and idle-times out stuck children"
+        "heartbeats quiet children, idle-times out stuck children, and aborts "
+        "an app-host crash loop once its restart budget is spent"
     )
     return 0
 

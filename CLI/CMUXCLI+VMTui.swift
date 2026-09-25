@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxFoundation
 import Foundation
 
 /// Cloud machines attach through their cmux-tui remote daemon
@@ -33,7 +34,7 @@ extension CMUXCLI {
     /// How an entrypoint wants the machine's workspace shaped; the session itself is
     /// the same cmux-tui link in every case.
     struct VMTuiOpenOptions {
-        /// Sidebar title; nil means `vm:<id>`.
+        /// Explicit title; nil uses the localized Cloud VM placeholder.
         var workspaceName: String? = nil
         /// A workspace the app pre-created with a Cloud VM loading pane (`--workspace`):
         /// the link replaces that pane instead of opening a new workspace.
@@ -53,7 +54,6 @@ extension CMUXCLI {
         /// can type straight away.
         var focus: Bool = true
     }
-
     struct VMTuiDeviceRecord: Codable {
         let deviceFingerprint: String
         let updatedAtUnix: Int
@@ -219,9 +219,7 @@ extension CMUXCLI {
     }
 
     static func vmTuiDeviceName() -> String {
-        let raw = ProcessInfo.processInfo.hostName.split(separator: ".").first.map(String.init) ?? "mac"
-        let cleaned = raw.map { $0.isLetter || $0.isNumber || $0 == "-" ? $0 : Character("-") }
-        return "cmux-" + String(cleaned).prefix(40)
+        RemoteClientDeviceName().value
     }
 
     // MARK: - cmux vm tui <id>  (and the default for cmux vm shell)
@@ -321,7 +319,7 @@ extension CMUXCLI {
         if let capabilities = clientProbe?.capabilities, !capabilities.isEmpty {
             infoParams["client_capabilities"] = capabilities
         }
-        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 16 * 60)
+        let info = try client.sendV2(method: "vm.cmux_remote_info", params: infoParams, responseTimeout: 30)
         guard let route = info["route"] as? String, !route.isEmpty else {
             throw CLIError(message: "vm.cmux_remote_info returned no route")
         }
@@ -397,14 +395,16 @@ extension CMUXCLI {
         let paneFocus = options.focus || requestedTarget.map {
             !$0.isEmpty && isWorkspaceCurrentlySelected($0, windowRaw: windowRaw, client: client)
         } ?? false
+        let workspaceTitle = options.workspaceTitle
         if let target = requestedTarget, !target.isEmpty {
-            // The app pre-created this workspace with a loading pane; the link takes
-            // that pane's place (no new workspace, no title change).
+            // Plain attachment retains the loading pane until the remote terminal
+            // exists. Only the full TUI replaces it with a local client process.
             let ready: [String: Any]
             do {
                 ready = try client.sendV2(
                     method: "workspace.cloud_vm_terminal_ready",
-                    params: ["workspace_id": target, "initial_command": initialCommand, "focus": paneFocus]
+                    params: ["workspace_id": target, "initial_command": initialCommand,
+                             "defer_terminal": !options.fullClient, "focus": paneFocus]
                 )
             } catch let error as CLIError where error.message.contains("loading surface not found") {
                 // An ordinary workspace (`--workspace workspace:3` from a person or an agent),
@@ -418,10 +418,9 @@ extension CMUXCLI {
             terminalSurfaceId = ready["surface_id"] as? String
             didCreateWorkspace = false
         } else {
-            let requestedTitle = options.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             var params: [String: Any] = [
                 "initial_command": initialCommand,
-                "title": requestedTitle.isEmpty ? "vm:\(vmId)" : requestedTitle,
+                "title": workspaceTitle.value, "title_source": workspaceTitle.isGenerated ? "auto" : "user",
             ]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowRaw)
             let created = try client.sendV2(method: "workspace.create", params: params)
@@ -439,7 +438,7 @@ extension CMUXCLI {
             // panel Open, `cmux vm desktop`, the sidebar cloud button's Base reuse).
             _ = try client.sendV2(
                 method: "workspace.cloud_vm_bind",
-                params: ["workspace_id": workspaceId, "vm_id": vmId, "base": options.pinAsBase]
+                params: Self.cloudWorkspaceBindingParameters(workspaceID: workspaceId, vmID: vmId, base: options.pinAsBase, generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil)
             )
             if options.pinAsBase {
                 try pinWorkspaceToTop(workspaceId: workspaceId, windowId: windowId, client: client)
@@ -458,7 +457,20 @@ extension CMUXCLI {
             // create sessions; opening or reconnecting the machine does not.
             let terminalStartedAt = Date()
             do {
-                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "refresh": true], responseTimeout: 180)
+                // The snapshot contract creates the first remote workspace and
+                // terminal before the daemon accepts clients, so one link plus
+                // one graph read is all New Machine needs to find it.
+                //
+                // `ensure_linked` is that minimum, and it is required: a machine
+                // created a moment ago has no provider and no link in this app,
+                // so a plain cached read returns no graph and the resolver
+                // reports `.unavailable` ("The machine's sessions are
+                // unavailable"). That regression shipped once when the flag was
+                // dropped to "save work". Do not remove it, and do not upgrade it
+                // to `refresh: true`: a forced pass waits behind the fleet poll's
+                // in-flight connect and rescans ports for nothing. A reopen of a
+                // machine that is already linked costs no network at all.
+                let catalog = try client.sendV2(method: "surface.catalog", params: ["machine": vmId, "ensure_linked": true], responseTimeout: 180)
                 let opened: [String: Any]
                 switch VMRemoteWorkspaceResolver().resolveVMMachineTerminal(machine: vmId, catalog: catalog) {
                 case .resolved(let remoteWorkspaceID, let terminalID, let tabID):
@@ -492,12 +504,13 @@ extension CMUXCLI {
                 if let remoteWorkspaceId, !remoteWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     _ = try client.sendV2(
                         method: "workspace.cloud_vm_bind",
-                        params: [
-                            "workspace_id": workspaceId,
-                            "vm_id": vmId,
-                            "base": options.pinAsBase,
-                            "remote_workspace_id": remoteWorkspaceId,
-                        ]
+                        params: Self.cloudWorkspaceBindingParameters(
+                            workspaceID: workspaceId,
+                            vmID: vmId,
+                            base: options.pinAsBase,
+                            remoteWorkspaceID: remoteWorkspaceId,
+                            generatedTitle: workspaceTitle.isGenerated ? workspaceTitle.value : nil
+                        )
                     )
                 }
             } catch {
@@ -581,6 +594,7 @@ extension CMUXCLI {
 extension CMUXCLI {
     /// Where `cmux vm open <target>` points. Grammar:
     ///   <machine>                      the machine's shell (the shared vmOpenShell path)
+    ///                                  (`<machine>` is a cloud id, or `device:<uuid>@<tag>` for another Mac)
     ///   <machine>/<workspace>          a cmux-tui workspace on the machine (`ws_…` id or unique name)
     ///   <machine>/<workspace>/<term>   one terminal in it (`term_…`)
     ///   <machine>/<workspace>/<term>/<tab>  one tab of that terminal (`tab_…`)
@@ -680,10 +694,19 @@ extension CMUXCLI {
         return id
     }
 
+    /// Another Mac is addressed as `device:<uuid>@<tag>` (SurfaceMachineID's
+    /// wire form), so that colon belongs to the machine id.
+    private static let vmOpenDeviceMachinePrefix = "device:"
+
     static func parseVMOpenTarget(_ raw: String) -> VMOpenTarget? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.hasPrefix("-") else { return nil }
-        if let colon = trimmed.firstIndex(of: ":") {
+        // The `:desktop` / `:port/<n>` selector starts at the first colon after
+        // the machine id, which for a device address means after its prefix.
+        let selectorSearchStart = trimmed.hasPrefix(vmOpenDeviceMachinePrefix)
+            ? trimmed.index(trimmed.startIndex, offsetBy: vmOpenDeviceMachinePrefix.count)
+            : trimmed.startIndex
+        if let colon = trimmed[selectorSearchStart...].firstIndex(of: ":") {
             let machine = String(trimmed[..<colon])
             let selector = String(trimmed[trimmed.index(after: colon)...])
             guard !machine.isEmpty, !machine.contains("/") else { return nil }
@@ -795,7 +818,7 @@ extension CMUXCLI {
           --refresh   Re-read every provider (machine list, links, local panes) first.
           --json      Print the catalog payload ({machines, resources, projections}).
         """
-        )
+        ) + "\n\n" + cloudSidebarUsage
     }
 
     static var surfaceUsage: String {
@@ -826,7 +849,7 @@ extension CMUXCLI {
         Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]
                cmux vm open <id> <port> [--print]
 
-        Targets (copy them from `cmux vm tree`):
+        \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceTargets", defaultValue: "Targets (from `cmux vm tree`; <machine> is a cloud ID or another Mac's `device:<uuid>@<tag>`):"))
           <machine>                      the machine's shell (same as `cmux vm shell <machine>`)
           <machine>/<workspace>          a cmux-tui workspace on it (`ws_…` id or unique name; ambiguous names fail)
           <machine>/<workspace>/<term>   one terminal (`term_…`) — focuses the pane that
@@ -849,6 +872,7 @@ extension CMUXCLI {
           cmux vm open vivid-newt/main/term_2f9c…/tab_a
           cmux vm open vivid-newt:desktop
           cmux vm open vivid-newt:port/3000 --print
+          cmux vm open device:1f0c…@nightly/main/6C27…   \(CMUXDiffViewerLocalization.string("cli.vm.open.deviceExample", defaultValue: "a terminal on another Mac (from `cmux vm tree`)"))
         """
     }
 
@@ -965,6 +989,7 @@ extension CMUXCLI {
     /// their own usage fall back to the family text.
     static func vmVerbUsage(_ verb: String) -> String? {
         switch verb.lowercased() {
+        case "resize": return vmResizeUsage
         case "layout": return vmLayoutUsage
         case "env": return vmEnvUsage
         case "workspace": return vmWorkspaceUsage
@@ -1366,6 +1391,7 @@ extension CMUXCLI {
     }
 
     func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--sidebar") { try runCloudSidebarCommand(rest: rest, client: client, jsonOutput: jsonOutput); return }
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmTreeUsage)
             return
@@ -1540,8 +1566,7 @@ extension CMUXCLI {
                     placements.append((workspace, view))
                 }
             } else if let workspace = resource["remote_workspace"] as? [String: Any] {
-                // Only pre-multi-view payloads fall back to this field. An
-                // explicit empty `remote_views` is authoritative.
+                // An explicit empty `remote_views` overrides this legacy field.
                 placements.append((workspace, nil))
             }
             for placement in placements {
@@ -1761,7 +1786,8 @@ extension CMUXCLI {
         }
         let displayKey = addressKey == "key" || showFullKey ? key : String(key.prefix(8))
         var cell = "\(glyph) \(displayKey)"
-        if let title = terminal["title"] as? String, !title.isEmpty { cell += "  \(title)" }
+        let title = RemoteTerminalTitle(processTitle: terminal["title"] as? String ?? "", viewNames: (terminal["remote_views"] as? [[String: Any]])?.map { $0["name"] as? String } ?? []).poolTitle
+        if !title.isEmpty { cell += "  \(title)" }
         if let cwd = terminal["detail"] as? String, !cwd.isEmpty { cell += "  \(cwd)" }
         if let agent = terminal["agent"] as? [String: Any], let state = agent["state"] as? String, !state.isEmpty {
             let source = (agent["source"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1965,7 +1991,6 @@ extension CMUXCLI {
 
     // MARK: - cmux surface ls|open|new-terminal
 
-    /// `cmux surface <sub>` for the catalog verbs. `resume` stays in cmux.swift.
     func runSurfaceCatalogCommand(subcommand: String, rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.surfaceUsage)

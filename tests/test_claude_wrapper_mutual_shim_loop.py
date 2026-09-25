@@ -1123,6 +1123,7 @@ done
                 "FAKE_GENERATED_CLAUDE_HOOK_SETTINGS": GENERATED_HOOK_SETTINGS,
                 "TMPDIR": str(root / "tmp"),
                 "FAKE_SETTINGS_OUTPUT": str(settings_output),
+                "FAKE_GENERATED_CLAUDE_HOOK_SETTINGS": GENERATED_HOOK_SETTINGS,
             }
             result = subprocess.run(
                 [str(cmux_shim), "hello"],

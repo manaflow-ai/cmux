@@ -40,13 +40,16 @@ public final class AuthCoordinator {
     /// Whether a cached session is being restored/validated at launch.
     public private(set) var isRestoringSession = false
     /// The teams the signed-in user belongs to (refreshed on sign-in/restore).
-    public private(set) var availableTeams: [CMUXAuthTeam] = []
+    public internal(set) var availableTeams: [CMUXAuthTeam] = [] {
+        didSet { publishAuthenticatedTeamScope() }
+    }
     /// The user's selected team id. Writes persist through the injected
     /// ``CMUXAuthCore/CMUXAuthTeamSelectionStore``.
     public var selectedTeamID: String? {
         didSet {
             guard selectedTeamID != oldValue else { return }
             teamSelection.selectedTeamID = selectedTeamID
+            publishAuthenticatedTeamScope()
         }
     }
 
@@ -109,6 +112,12 @@ public final class AuthCoordinator {
     @ObservationIgnored var authenticatedSessionIdentityContinuations: [
         UUID: AsyncStream<AuthenticatedSessionIdentity?>.Continuation
     ] = [:]
+    @ObservationIgnored var authenticatedTeamScopeContinuations: [
+        UUID: AsyncStream<AuthenticatedTeamScope?>.Continuation
+    ] = [:]
+    @ObservationIgnored var authenticatedTeamsSessionGeneration: UInt64?
+    @ObservationIgnored var authenticatedTeamScopeGeneration: UInt64 = 0
+    @ObservationIgnored var lastPublishedAuthenticatedTeamScope: AuthenticatedTeamScope?
     /// Sign-in attempts that currently own a possible write to the token store.
     ///
     /// This ownership spans the whole flow, not just the credential-exchange
@@ -135,9 +144,9 @@ public final class AuthCoordinator {
     @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
     @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
+    @ObservationIgnored var teamMutationGeneration: UInt64 = 0
     @ObservationIgnored var isCapturingSignOutCredentials = false
     @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
-
     /// Begin a sign-in flow: register it as the newest attempt and capture
     /// the staleness context. Call before the flow's first await.
     private func beginSignInFlow() async throws -> SignInFlowContext {
@@ -608,7 +617,6 @@ public final class AuthCoordinator {
     }
 
     // MARK: - State helpers
-
     /// Why a signed-in user is being published, deciding whether the session
     /// generation advances.
     enum SessionPublication {
@@ -627,7 +635,6 @@ public final class AuthCoordinator {
         /// signed-out state) is still a transition and advances.
         case revalidation
     }
-
     func applySignedInUser(
         _ user: CMUXAuthUser,
         publication: SessionPublication
@@ -676,7 +683,6 @@ public final class AuthCoordinator {
             await onSignedIn()
         }
     }
-
     /// Refresh ``availableTeams`` from the client, tolerating failure so a
     /// flaky team fetch never blocks or unwinds a successful sign-in. Drops
     /// the writes when a sign-out raced the fetch, so a signed-out shell does
@@ -684,17 +690,22 @@ public final class AuthCoordinator {
     private func refreshTeams(generation: UInt64) async {
         do {
             let client = self.client
-            let teams = try await runPhase(.listTeams, timeout: timeouts.network) {
-                try await client.listTeams()
+            let (teams, serverSelectedTeamID) = try await runPhase(.listTeams, timeout: timeouts.network) {
+                async let teams = client.listTeams()
+                async let selectedTeamID: String? = try? await client.selectedTeamID()
+                return try await (teams, selectedTeamID)
             }
             guard generation == sessionGeneration else { return }
+            authenticatedTeamsSessionGeneration = generation
             availableTeams = teams
-            selectedTeamID = Self.resolveTeamID(selectedTeamID: selectedTeamID, teams: teams)
+            selectedTeamID = Self.resolveTeamID(
+                selectedTeamID: serverSelectedTeamID ?? selectedTeamID,
+                teams: teams
+            )
         } catch {
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
         }
     }
-
     private static func resolveTeamID(
         selectedTeamID: String?,
         teams: [CMUXAuthTeam]
@@ -708,7 +719,6 @@ public final class AuthCoordinator {
         }
         return teams.first?.id
     }
-
     func clearAuthState(
         preservePendingCode: Bool = false,
         sessionTransitionAlreadyAnnounced: Bool = false
@@ -728,6 +738,8 @@ public final class AuthCoordinator {
             onSessionWillTransition()
         }
         sessionGeneration &+= 1
+        authenticatedTeamsSessionGeneration = nil
+        availableTeams = []
     }
 
     /// Whether one coordinator-owned transition can legitimately observe an

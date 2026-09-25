@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import AppKit
 import SwiftUI
 import Testing
@@ -44,7 +45,7 @@ struct ComputerUseOnboardingWindowTests {
         #expect(main.frame == originalFrame)
     }
 
-    @Test @MainActor func offscreenWindowMetadataPreservesItsIdentity() throws {
+    @Test @MainActor func offscreenWindowMetadataPreservesItsIdentity() async throws {
         let window = NSWindow(
             contentRect: NSRect(x: 20, y: 20, width: 200, height: 120),
             styleMask: [.titled],
@@ -55,15 +56,27 @@ struct ComputerUseOnboardingWindowTests {
         defer { window.close() }
         window.orderBack(nil)
         let windowID = CGWindowID(window.windowNumber)
+        // Let WindowServer register the ordered window before asking for its
+        // offscreen metadata; ordering it out in the same actor turn can hide
+        // it before the server has published its first description.
+        try #require(await AppKitTestEventPump().waitUntil {
+            ExternalApplicationWindowTracker.windowSnapshot(
+                windowID: windowID,
+                processIdentifier: ProcessInfo.processInfo.processIdentifier,
+                primaryScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
+            ) != nil
+        })
         window.orderOut(nil)
+        await AppKitTestEventPump().drain()
 
-        let snapshot = ExternalApplicationWindowTracker.windowSnapshot(
+        let snapshot = try #require(ExternalApplicationWindowTracker.windowSnapshot(
             windowID: windowID,
             processIdentifier: ProcessInfo.processInfo.processIdentifier,
             primaryScreenMaxY: NSScreen.screens.first?.frame.maxY ?? 0
-        )
+        ))
 
-        #expect(snapshot?.windowID == windowID)
+        #expect(snapshot.windowID == windowID)
+        #expect(!snapshot.isOnScreen)
     }
 
     @Test @MainActor func unavailableTargetDismissesOnlyItsCompanion() throws {
@@ -118,7 +131,7 @@ struct ComputerUseOnboardingWindowTests {
         #expect(!first.hasShadow)
     }
 
-    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() async {
+    @Test @MainActor func onboardingContentCannotOutgrowItsAppKitWindow() {
         let expandedSize = CGSize(width: 600, height: 440)
         let companionSize = ComputerUsePermissionCompanionLayout.size
         let oversizedContent = Color.clear.frame(width: 680, height: 883)
@@ -152,12 +165,15 @@ struct ComputerUseOnboardingWindowTests {
                 window.setFrame(placementFrame, display: true, animate: false)
                 #expect(window.frame == placementFrame)
             }
+            // Exercise repeated layout invalidations. Each pass is synchronous
+            // and must preserve the frame, even after an earlier pass matched.
             for _ in 0..<12 {
                 contentView.invalidateIntrinsicContentSize()
                 contentView.needsLayout = true
                 contentView.layoutSubtreeIfNeeded()
                 window.displayIfNeeded()
-                await Task.yield()
+                #expect(window.frame.size == expectedSize)
+                #expect(contentView.frame.size == expectedSize)
             }
 
             #expect(window.frame.size == expectedSize)
@@ -381,8 +397,10 @@ struct ComputerUseOnboardingWindowTests {
 
     @Test @MainActor func externalWindowCompanionUsesFloatingNonactivatingPresentation() {
         var orderedWindow: NSWindow?
+        var behaviorDuringOrder: NSWindow.CollectionBehavior?
         let presenter = ExternalWindowCompanionPresenter { window in
             orderedWindow = window
+            behaviorDuringOrder = window.collectionBehavior
         }
         let companionWindow = NSPanel(
             contentRect: .zero,
@@ -398,6 +416,7 @@ struct ComputerUseOnboardingWindowTests {
         presenter.present(companionWindow)
 
         #expect(orderedWindow === companionWindow)
+        #expect(behaviorDuringOrder?.contains(.moveToActiveSpace) == true)
         #expect(companionWindow.level == .floating)
         #expect(companionWindow.hidesOnDeactivate == false)
         #expect(!companionWindow.collectionBehavior.contains(.moveToActiveSpace))
