@@ -1400,26 +1400,15 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
-    /// Re-places the divider overlay, and repaints it only when what it draws
-    /// could have moved.
+    /// Keeps the overlay above the hosted views, repainting only if that
+    /// re-placement actually moved something.
     ///
     /// The repaint is not cheap: `SplitDividerOverlayView.draw` walks the whole
     /// window view tree from `contentView` looking for split views before it
     /// consults `dirtyRect`, so a one-pixel dirty region costs a full-hierarchy
-    /// traversal. This runs from `synchronizeHostedView`, once per hosted view
-    /// per geometry tick, and it used to invalidate unconditionally — the same
-    /// shape as the window-move echo storm, work scheduled off a pass that had
-    /// nothing to do. In a 20-second sample of an idle app that walk was the
+    /// traversal. This used to invalidate unconditionally on every hosted-view
+    /// sync, and in a 20-second sample of an idle app that walk was the
     /// heaviest cmux frame on the main thread.
-    ///
-    /// Dividers move when the panes around them resize, which reaches the
-    /// portal as a changed hosted frame, and splits appearing or disappearing
-    /// change the entry set. Both are in `ExternalGeometrySignature`, which
-    /// already fingerprints exactly the geometry a sync pass reads and
-    /// deliberately excludes the window's origin, so dragging a window by its
-    /// titlebar does not repaint every tick.
-    /// Keeps the overlay above the hosted views, repainting only if that
-    /// re-placement actually moved something.
     ///
     /// Placement only, and deliberately cheap: this runs twice per
     /// `synchronizeHostedView` (once through `ensureInstalled`, once at the
