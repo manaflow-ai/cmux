@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Orders local layout intents and projects the owning Mac's accepted snapshots.
@@ -13,6 +14,69 @@ final class DeviceWorkspaceLayoutCoordinator {
         let revision: String
         let panels: Set<UUID>
         let sourceIDs: Set<String>
+    }
+    @MainActor
+    private final class CloseOperation {
+        let surfaceID: String
+        let workspaceID: UUID?
+        let result: Task<Void, Error>
+        private let continuation: AsyncThrowingStream<Void, Error>.Continuation
+        private var resolved = false
+
+        init(surfaceID: String, workspaceID: UUID?) {
+            self.surfaceID = surfaceID
+            self.workspaceID = workspaceID
+            let pair = AsyncThrowingStream<Void, Error>.makeStream()
+            continuation = pair.continuation
+            result = Task { for try await _ in pair.stream {} }
+        }
+
+        func succeed() {
+            guard !resolved else { return }
+            resolved = true
+            continuation.yield(())
+            continuation.finish()
+        }
+
+        func fail(_ error: any Error) {
+            guard !resolved else { return }
+            resolved = true
+            continuation.finish(throwing: error)
+        }
+    }
+
+    /// A FIFO queue with an advancing head avoids shifting every remaining
+    /// close when a workspace deletion contains many terminals.
+    private struct CloseQueue {
+        private var values: [CloseOperation] = []
+        private var head = 0
+
+        var isEmpty: Bool { head >= values.count }
+
+        mutating func append(_ operation: CloseOperation) {
+            values.append(operation)
+        }
+
+        mutating func popFirst() -> CloseOperation? {
+            guard head < values.count else { return nil }
+            let operation = values[head]
+            head += 1
+            if head == values.count {
+                values.removeAll(keepingCapacity: true)
+                head = 0
+            } else if head >= 32, head * 2 >= values.count {
+                values.removeFirst(head)
+                head = 0
+            }
+            return operation
+        }
+
+        mutating func removeAll() -> [CloseOperation] {
+            let remaining = Array(values.dropFirst(head))
+            values.removeAll(keepingCapacity: false)
+            head = 0
+            return remaining
+        }
     }
 
     private let machine: SurfaceMachineID
@@ -29,6 +93,7 @@ final class DeviceWorkspaceLayoutCoordinator {
     private(set) var snapshots: [String: DeviceWorkspaceLayoutSnapshot] = [:]
     private var sequences: [String: UInt64] = [:]
     private var pending: [String: Intent] = [:]
+    private var pendingCloses: [String: CloseQueue] = [:]
     private var writers: [String: Task<Void, Never>] = [:]
     private var deliveries: [UUID: Delivery] = [:]
     private var metadataRefreshes: [String: String] = [:]
@@ -83,6 +148,7 @@ final class DeviceWorkspaceLayoutCoordinator {
         for task in writers.values { task.cancel() }
         writers.removeAll()
         pending.removeAll()
+        cancelPendingCloses()
         snapshots.removeAll()
         sequences.removeAll()
         deliveries.removeAll()
@@ -100,6 +166,7 @@ final class DeviceWorkspaceLayoutCoordinator {
         if !connected {
             for task in writers.values { task.cancel() }
             pending.removeAll()
+            cancelPendingCloses()
         } else {
             scheduleReconcile()
         }
@@ -117,6 +184,107 @@ final class DeviceWorkspaceLayoutCoordinator {
     }
 
     func beginMutation(_ token: UUID) { suspended.insert(token) }
+
+    /// Only an explicit close in a synchronized whole-workspace mirror edits its owner.
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        guard reason == .paneClosed, projection.resource.machine == machine,
+              !projection.isLocalWorkspaceView, let native = workspace(projection.workspaceID), let catalog,
+              let remoteID = projection.remoteWorkspaceID,
+              let delivery = deliveries[projection.workspaceID],
+              delivery.panels.contains(projection.panelID), delivery.sourceIDs.contains(projection.resource.key) else { return }
+        // A once-synchronized workspace can acquire local or unrelated panes.
+        // Its old delivery must not turn closing a preview into a source deletion.
+        let remaining = catalog.projections.filter { $0.workspaceID == projection.workspaceID }
+        guard remaining.allSatisfy({ $0.resource.machine == machine && $0.remoteWorkspaceID == remoteID }),
+              Set(remaining.map(\.panelID)) == Set(native.panels.keys).subtracting([projection.panelID]) else { return }
+        let operation = enqueueClose(surfaceID: projection.resource.key, remoteID: remoteID, workspaceID: projection.workspaceID)
+        Task { @MainActor [weak self] in
+            do {
+                try await operation.result.value
+            } catch let error where !(error is CancellationError) {
+                guard let self else { return }
+                self.workspace(projection.workspaceID)?.presentDeviceLayoutFailure(error, machine: self.machine)
+            } catch {
+                // Disconnect and explicit teardown cancel an outstanding close.
+            }
+        }
+    }
+
+    /// Sidebar terminal deletion and mirrored-pane close use the same ordered host request.
+    func closeTerminal(surfaceID: String, remoteWorkspaceID: String) async throws {
+        try Task.checkCancellation()
+        let operation = enqueueClose(surfaceID: surfaceID, remoteID: remoteWorkspaceID, workspaceID: nil)
+        try await operation.result.value
+    }
+
+    private func enqueueClose(surfaceID: String, remoteID: String, workspaceID: UUID?) -> CloseOperation {
+        let operation = CloseOperation(surfaceID: surfaceID, workspaceID: workspaceID)
+        guard !stopped, isConnected() else {
+            operation.fail(DeviceLinkError.notConnected)
+            return operation
+        }
+        // An unsent arrangement containing a deleted terminal is no longer an
+        // applicable intent. In-flight edits finish before the close request.
+        pending[remoteID] = nil
+        pendingCloses[remoteID, default: CloseQueue()].append(operation)
+        startWriter(for: remoteID)
+        return operation
+    }
+
+    private func cancelPendingCloses() {
+        var abandoned: [CloseOperation] = []
+        for remoteID in pendingCloses.keys {
+            abandoned.append(contentsOf: pendingCloses[remoteID]?.removeAll() ?? [])
+        }
+        pendingCloses.removeAll()
+        for close in abandoned { close.fail(CancellationError()) }
+    }
+
+    private func dequeueClose(for remoteID: String) -> CloseOperation? {
+        // Mutate through the dictionary accessor so the backing array stays
+        // uniquely owned; copying the queue before removal would force COW.
+        guard let operation = pendingCloses[remoteID]?.popFirst() else { return nil }
+        if pendingCloses[remoteID]?.isEmpty == true { pendingCloses[remoteID] = nil }
+        return operation
+    }
+
+    private func performClose(_ close: CloseOperation, remoteID: String) async {
+        do {
+            try Task.checkCancellation()
+            // Fresh workspace membership prevents closing a terminal that was
+            // concurrently moved elsewhere; the RPC also scopes the target.
+            try await fetch(remoteID)
+            let present = try snapshots[remoteID]?.layout.validatedSurfaceIDs().contains {
+                $0.caseInsensitiveCompare(close.surfaceID) == .orderedSame
+            } == true
+            if !present, close.workspaceID == nil {
+                throw DeviceLinkError.malformedResponse("mobile.terminal.close")
+            }
+            if present {
+                let data = try await request("mobile.terminal.close", ["workspace_id": remoteID, "surface_id": close.surfaceID])
+                guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      reply["closed"] as? Bool == true,
+                      (reply["workspace_id"] as? String)?.caseInsensitiveCompare(remoteID) == .orderedSame,
+                      (reply["surface_id"] as? String)?.caseInsensitiveCompare(close.surfaceID) == .orderedSame else {
+                    throw DeviceLinkError.malformedResponse("mobile.terminal.close")
+                }
+                try Task.checkCancellation()
+                try await fetch(remoteID)
+            }
+            await refresh()
+            if let id = close.workspaceID { deliveries[id] = nil }
+            close.succeed()
+        } catch {
+            if !Task.isCancelled, !stopped {
+                try? await fetch(remoteID)
+                await refresh()
+                // Restore the source layout after a refused/failed close, instead
+                // of treating its missing local pane as a permanent detach.
+                if let id = close.workspaceID { deliveries[id] = nil }
+            }
+            close.fail(error)
+        }
+    }
 
     func refreshRequested() {
         fetchRequested.formUnion(snapshots.keys)
@@ -159,12 +327,18 @@ final class DeviceWorkspaceLayoutCoordinator {
             guard let self else { return }
             defer {
                 self.writers[remoteID] = nil
-                if self.pending[remoteID] != nil, self.isConnected(), !self.stopped {
+                if self.pending[remoteID] != nil || self.pendingCloses[remoteID]?.isEmpty == false,
+                   self.isConnected(), !self.stopped {
                     self.startWriter(for: remoteID)
                 }
                 self.scheduleReconcile()
             }
-            while let intent = self.pending.removeValue(forKey: remoteID) {
+            while !Task.isCancelled {
+                if let close = self.dequeueClose(for: remoteID) {
+                    await self.performClose(close, remoteID: remoteID)
+                    continue
+                }
+                guard let intent = self.pending.removeValue(forKey: remoteID) else { break }
                 do {
                     try Task.checkCancellation()
                     if self.sequences[remoteID] == nil || self.fetchRequested.remove(remoteID) != nil {
@@ -172,6 +346,10 @@ final class DeviceWorkspaceLayoutCoordinator {
                     }
                     guard let accepted = self.snapshots[remoteID], !accepted.revision.isEmpty else {
                         throw DeviceLinkError.malformedResponse("device.workspace.layout")
+                    }
+                    guard Set(try intent.layout.validatedSurfaceIDs()) == Set(try accepted.layout.validatedSurfaceIDs()) else {
+                        self.deliveries[intent.workspaceID] = nil
+                        continue
                     }
                     if accepted.layout.hasSameArrangement(as: intent.layout) { continue }
                     let layout = try JSONSerialization.jsonObject(with: JSONEncoder().encode(intent.layout))

@@ -1,5 +1,30 @@
 {
+  "agentHarness": {
+    "title": "Registreret harness-konfiguration",
+    "selectionNotice": "Valg af en udbyder starter eller aktiverer ikke disse harnesses.",
+    "selectProvider": "Vælg {provider}",
+    "foundPath": "Fandt {path}",
+    "foundCommand": "Fandt kommandoen {command}",
+    "installed": "Udbyderen er installeret",
+    "missing": "Udbyderen er ikke installeret",
+    "install": "Installer med: {command}",
+    "benefitPi": "Komprimering, hukommelse og udbyderrouting",
+    "benefitOpenagent": "Parallelle specialister og gendannelse til OpenCode",
+    "benefitClaude": "Teams og verifikation til Claude Code",
+    "benefitSuperpowers": "Planlægning, TDD, underagenter og gennemgang"
+  },
   "vmErrors": {
+    "guestInstall": {
+      "title": "Opsætning af Cloud VM blev ikke fuldført",
+      "reason": "Gæsteopsætningen af Cloud VM blev ikke fuldført.",
+      "message": "cmux kunne ikke fuldføre opsætningen af Cloud VM.",
+      "action": "Prøv igen. Kontakt support, hvis problemet fortsætter."
+    },
+    "createCleanupPending": {
+      "title": "Oprydning af Cloud VM afventer",
+      "message": "Opsætningen af Cloud VM mislykkedes, og oprydningen afventer stadig.",
+      "action": "Kontakt support med sporings-ID’et, før du opretter en ny maskine."
+    },
     "unsupported": {
       "title": "Cloud VM-handling er ikke tilgængelig",
       "reason": "Denne maskintype tilbyder ikke denne handling.",
@@ -399,6 +424,22 @@
       "savingRelaySettings": "Gemmer…"
     },
     "coderouterAccounts": {
+      "transferAction": "Overfør",
+      "transferringAction": "Overfører…",
+      "transferDialogTitle": "Overfør konto til et andet team",
+      "transferChooseBody": "Vælg det team, der skal modtage {account}. Den tilhører i dag {source}.",
+      "transferDestinationLabel": "Modtagerteam",
+      "continueAction": "Fortsæt",
+      "backAction": "Tilbage",
+      "transferConfirmTitle": "Overfør {account}?",
+      "transferConfirmBody": "{account} flyttes fra {source} til {destination}. Cloud-maskiner og medlemmer i {source} holder straks op med at bruge den. Den beholder sin nuværende delingsindstilling i {destination}.",
+      "transferConfirmAction": "Overfør konto",
+      "transferSuccess": "{account} er flyttet til {destination}.",
+      "transferError": "Kontoen kunne ikke overføres. Prøv igen.",
+      "transferForbiddenError": "Du kan ikke længere flytte konti til det team.",
+      "transferNotFoundError": "Kontoen er ikke længere i dette team. Opdater for at se, hvor den er.",
+      "transferConflictError": "Kontoen ændrede sig under flytningen. Opdater, og prøv igen.",
+      "transferUnavailableError": "Overførsler er midlertidigt utilgængelige, eller kontoen bliver opdateret. Prøv igen om et øjeblik.",
       "shareWithTeam": "Del med teamet",
       "makePrivate": "Gør privat",
       "privateImportHint": "Nye konti er private. Del en konto for at gøre den tilgængelig for teamets Cloud-VM’er.",
@@ -1248,6 +1289,10 @@
       "schemaDescriptions": {
         "root": "cmux-konfiguration. Den globale cmux.json understøtter appindstillinger, genveje, handlinger, brugerdefinerede kommandoer, notifikations-hooks og arbejdsområdelayouts. En projektspecifik .cmux/cmux.json eller cmux.json understøtter handlinger, kommandoer, notifikations-hooks, kobling af UI-handlinger, tilsidesættelser for Agent Chat, vault-agenter, tilsidesættelser for arbejdsområdegrupper samt konfiguration af opstart og knapper for arbejdsområder.",
         "rightSidebar": "Ældre og udvidelsesejet konfiguration af højre sidepanel, som bevares i cmux.json.",
+        "packs": {
+          "description": "Lokale cmux-pakkefiler eller mapper, der indlæses før denne konfiguration. Mapper peger på cmux.pack.json. Brug en stistreng eller et objekt med et path-felt.",
+          "path": "Lokal fil- eller mappesti, relativ til denne konfigurationsfil, medmindre den er absolut."
+        },
         "paneBorderColor": "Tilsidesæt farven på cmux-rudeadskilleren i opdelte arbejdsområder. Dette påvirker cmux-rudegrænser, ikke Ghosttys interne opdelinger.",
         "activePaneBorderColor": "Valgfri kantfarve, der tegnes omkring den fokuserede cmux-rude i opdelte arbejdsområder.",
         "automation": {
@@ -1259,6 +1304,7 @@
         "app": {
           "confirmQuit": "Styrer hvornår cmux beder om bekræftelse før afslutning. DEV-builds afsluttes altid straks uanset denne indstilling. Den ældre app.warnBeforeQuit accepteres stadig som boolesk fallback.",
           "windowTitleTemplate": "Valgfri skabelon for NSWindow-titlen. Tom bevarer cmux' eksisterende standardtiteladfærd, inklusive fallback til den aktuelle mappe. Understøttede pladsholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
+          "devWindowDisplay": "Skærmnavn, der kun bruges i DEBUG-builds, når nye vinduer åbnes. En tom værdi bruger systemets standard.",
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
@@ -4024,5 +4070,15 @@
     "organization": "Organisation",
     "personalAccount": "personlig konto",
     "switchAccountButton": "Brug en anden konto"
+  },
+  "MobileRelease106": {
+    "title": "Nyt i 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Opdaterede Mac-forbindelser",
+    "connectionDetail": "Denne opdatering bruger den nye forbindelsestjeneste og Iroh-transport. Ældre Mac-builds skal opdateres for at oprette forbindelse.",
+    "updateTitle": "Opdater cmux på din Mac",
+    "updateDetail": "Kræver cmux {stableVersion} eller nyere eller NIGHTLY {nightlyVersion} eller nyere. Slå iOS-parring til i Indstillinger > Mobil på hver Mac.",
+    "rollbackTitle": "Har du brug for at beholde et ældre Mac-build?",
+    "rollbackDetail": "Brug cmux BETA 1.0.5 ({rollbackBuild}) fra TestFlight > Tidligere builds, så længe det er tilgængeligt. Vælg netop dette build, da senere builds bruger en nyere forbindelsestjeneste."
   }
 }

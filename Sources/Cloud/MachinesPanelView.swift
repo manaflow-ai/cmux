@@ -1,6 +1,9 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import AppKit
 import CmuxCloudMachines
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
@@ -27,15 +30,18 @@ struct MachinesPanelView: View {
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
+    let teamPickerPresentation: CloudTeamPickerPresentation?
 
     init(
         chromeBackgroundColor: NSColor,
         machinePinStore: CloudMachinePinStore? = nil,
         devicesModel: DevicesPanelViewModel? = nil,
-        tabManager: TabManager? = nil
+        tabManager: TabManager? = nil,
+        teamPickerPresentation: CloudTeamPickerPresentation? = nil
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
+        self.teamPickerPresentation = teamPickerPresentation
         _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
             machinePinStore: machinePinStore,
             localWorkspacesProvider: { [weak tabManager] in
@@ -200,29 +206,16 @@ struct MachinesPanelView: View {
     }
 
     private var controlBar: some View {
-        HStack(spacing: 6) {
-            cloudStatus
-                .padding(.leading, 4)
-            Spacer(minLength: 4)
-            cloudAgentMenu
-            MachinesChromeIconButton(
-                symbolName: "arrow.clockwise",
-                accessibilityLabel: String(localized: "machines.refresh", defaultValue: "Refresh Machines"),
-                isBusy: viewModel.isLoading || devicesModel.isRefreshing
-            ) {
-                refreshMachines()
-            }
-            MachinesChromeIconButton(
-                symbolName: "plus",
-                accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
-                isBusy: false
-            ) {
-                requestNewMachine()
-            }
-        }
-        .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
-        .accessibilityIdentifier("CloudMachinesSectionHeader")
+        CloudTeamPickerHeader(
+            accountFlow: accountFlow,
+            presentation: teamPickerPresentation,
+            chromeBackgroundColor: chromeBackgroundColor,
+            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+            onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
+            agentMenu: { cloudAgentMenu },
+            status: { cloudStatus }
+        )
     }
 
     @ViewBuilder

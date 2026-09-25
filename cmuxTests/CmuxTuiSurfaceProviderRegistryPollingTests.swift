@@ -1,3 +1,4 @@
+import CmuxCloud
 import Foundation
 import Testing
 
@@ -346,6 +347,7 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
             wireGuardHub: h.hub,
             isCloudEnabled: { enabled },
             listPage: { nil },
+            hasCloudSession: { false },
             notificationCenter: NotificationCenter()
         )
         registry.start(catalog: SurfaceCatalog())

@@ -1,16 +1,21 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
 /// UIKit-owned workspace list with exact, non-estimated row heights.
+///
+/// Each SwiftUI update hands the coordinator a complete snapshot; see
+/// ``WorkspaceListTableCoordinator`` for how it reaches the table.
 @MainActor
 struct WorkspaceListTable: UIViewControllerRepresentable {
     #if DEBUG
     @Environment(\.releaseGateUIProbe) var releaseGateUIProbe
     @Environment(\.releaseGateSnapshotter) var releaseGateSnapshotter
     #endif
+    @Environment(\.scrollInteractionReporter) var scrollInteractionReporter
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
@@ -76,12 +81,12 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     var beginRefresh: (() -> UUID?)? = nil
     var cancelRefreshAttempt: ((UUID?) -> Void)? = nil
     var cancelRefreshAttemptOnDisappear: ((UUID?) -> Void)? = nil
-    var emptyStateLayoutChanged: (() -> Void)? = nil
     var shouldCancelRefreshOnDisappear: (() -> Bool)? = nil
     var isRetryOwnerCurrentOnDisappear: (() -> Bool)? = nil
 
     func makeCoordinator() -> WorkspaceListTableCoordinator {
         let coordinator = WorkspaceListTableCoordinator(configuration: self)
+        coordinator.scrollInteractionReporter = scrollInteractionReporter
         #if DEBUG
         coordinator.releaseGateUIProbe = releaseGateUIProbe
         coordinator.releaseGateSnapshotter = releaseGateSnapshotter
@@ -95,12 +100,8 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         tableView.separatorStyle = .none
         tableView.backgroundColor = .clear
         tableView.keyboardDismissMode = .interactive
-        tableView.estimatedRowHeight = 0
-        tableView.estimatedSectionHeaderHeight = 0
-        tableView.estimatedSectionFooterHeight = 0
         tableView.sectionHeaderHeight = 0
         tableView.sectionFooterHeight = 0
-        tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
         context.coordinator.attach(
             to: tableView,
@@ -117,6 +118,7 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
         context.coordinator.releaseGateUIProbe = releaseGateUIProbe
         context.coordinator.releaseGateSnapshotter = releaseGateSnapshotter
         #endif
+        context.coordinator.scrollInteractionReporter = scrollInteractionReporter
         context.coordinator.update(
             configuration: self,
             in: uiViewController.tableView

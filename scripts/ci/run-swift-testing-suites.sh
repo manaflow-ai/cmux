@@ -27,15 +27,17 @@ while IFS= read -r suite; do
   echo "swift test $package_path --skip-build --filter $suite"
   suite_status=0
   # Keep the child from consuming the suite-list pipe that drives this loop.
-  python3 "$script_dir/run_with_timeout.py" \
-    --timeout-seconds "$suite_timeout_seconds" \
+  # On a stall the watchdog names the tests still running, samples them, and
+  # also kills swiftpm-testing-helper, which runs in its own process group.
+  python3 "$script_dir/hung_test_watchdog.py" \
+    --timeout-seconds "$suite_timeout_seconds" --label "$suite" \
     -- swift test --package-path "$package_path" --skip-build --filter "$suite" \
     < /dev/null 2>&1 | tee "$evidence_dir/execution.log" || suite_status=$?
   if [ "$suite_status" -eq 124 ]; then
     echo "Swift test suite timed out; retrying $suite once." >&2
     suite_status=0
-    python3 "$script_dir/run_with_timeout.py" \
-      --timeout-seconds "$suite_timeout_seconds" \
+    python3 "$script_dir/hung_test_watchdog.py" \
+      --timeout-seconds "$suite_timeout_seconds" --label "$suite" \
       -- swift test --package-path "$package_path" --skip-build --filter "$suite" \
       < /dev/null 2>&1 | tee "$evidence_dir/execution.log" || suite_status=$?
   fi

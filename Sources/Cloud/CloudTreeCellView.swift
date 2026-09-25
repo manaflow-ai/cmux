@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -15,14 +16,15 @@ final class CloudTreeCellView: NSTableCellView {
     }
 
     private let displayHost = CloudTreePassthroughHostingView(rootView: AnyView(EmptyView()))
-    private var buttonsHost: NSHostingView<AnyView>?
+    private var buttonsHost: CloudTreeRowControlsHostingView?
     private var buttonsTrailingConstraint: NSLayoutConstraint?
     private var buttonsLeadingConstraint: NSLayoutConstraint?
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
+        didSet { buttonsHost?.alphaValue = hovered || keepsControlsVisible ? 1 : 0 }
     }
+    private var keepsControlsVisible = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -83,11 +85,13 @@ final class CloudTreeCellView: NSTableCellView {
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
+        if case .devicesSection = node.kind { keepsControlsVisible = true }
+        else { keepsControlsVisible = false }
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
-            buttons.alphaValue = hovered ? 1 : 0
+            buttons.alphaValue = hovered || keepsControlsVisible ? 1 : 0
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
             buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
             buttonsLeadingConstraint?.isActive = true
@@ -129,8 +133,8 @@ final class CloudTreeCellView: NSTableCellView {
         }
     }
 
-    private func makeButtonsHost(style: CloudTreeStyle) -> NSHostingView<AnyView> {
-        let host = NSHostingView(rootView: AnyView(EmptyView()))
+    private func makeButtonsHost(style: CloudTreeStyle) -> CloudTreeRowControlsHostingView {
+        let host = CloudTreeRowControlsHostingView(rootView: AnyView(EmptyView()))
         host.translatesAutoresizingMaskIntoConstraints = false
         addSubview(host)
         // Buttons sit on the name line (two-line machine cards), like the chevron
@@ -174,6 +178,11 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
         return nil
     }
 }
+
+/// The hit-testable host for a row's hover buttons. `CloudTreeNSOutlineView`
+/// hands mouse-downs inside it to SwiftUI; NSTableView otherwise keeps every
+/// click on a non-`NSControl` subview and runs the row's own click action.
+final class CloudTreeRowControlsHostingView: NSHostingView<AnyView> {}
 
 /// Row view drawing the same selection treatment as the Files sidebar.
 final class CloudTreeRowView: NSTableRowView {
