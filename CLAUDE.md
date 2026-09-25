@@ -92,6 +92,8 @@ A first pass ends when the change is implemented, [scoped verification](skills/c
 
 The main agent owns dogfood, approval, mergeability, and every pushed fix. Merging app/runtime/UI changes requires the user's explicit approval after dogfood or a direct merge directive that names the merge action (`merge`, `merge it`, `auto-merge`; `finish`, `lgtm`, and `ship it` are not); if a fix changes runtime behavior mid-dogfood, rebuild the tag and re-notify, since the earlier verdict covers only the build the user tested. After a merge directive, re-dogfood (rebuild the tag and re-notify with the checklist) when a later fix changes user-visible behavior beyond what was dogfooded; skip it for internal, test-only, or tightly scoped fixes; either way, say on the PR which you did and why.
 
+Notify with `cmux notify` when a cmux socket is available.
+
 ## Pitfalls
 
 Each of these has full detail in the skill named in parentheses.
