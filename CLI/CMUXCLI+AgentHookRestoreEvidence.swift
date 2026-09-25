@@ -68,10 +68,12 @@ extension CMUXCLI {
             return isRestorable == true || normalizedHookValue(transcriptPath) != nil
         }
         guard kind == "codex" else { return true }
+        if isRestorable == true || normalizedHookValue(transcriptPath) != nil {
+            return true
+        }
         if normalizedHookValue(launchCommand.environment?["CODEX_HOME"]) != nil {
             return true
         }
-        if normalizedHookValue(launchCommand.source)?.lowercased() == "default" { return true }
         guard !launchCommand.arguments.isEmpty else { return false }
         let source = normalizedHookValue(launchCommand.source)?.lowercased()
         if source == "environment", codexLaunchEnvironmentIsWeak(launchCommand.environment) {
