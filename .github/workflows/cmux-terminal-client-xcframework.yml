@@ -225,19 +225,25 @@ jobs:
           mkdir -p "$work"
           frameworks=(-framework CmuxTerminalClientFFI -framework Network -framework CoreFoundation -framework Security -framework SystemConfiguration)
           smoke_link() {
-            local slice="$1" sdk="$2" triple="$3"
+            local slice="$1" sdk="$2" triple="$3" archive="$4"
             local dir="$xcf/$slice"
-            local lib="$dir/CmuxTerminalClientFFI.framework/CmuxTerminalClientFFI"
             local src="$work/smoke-$slice.c"
+            # Symbols are read from the ORIGINAL archive, not the framework's
+            # copy of it: the copy is named without a .a extension, and nm
+            # fails outright on it, which under set -o pipefail ended this
+            # step with no output at all. The bytes are identical, and the
+            # link below still resolves against the framework.
+            local symbols
+            if ! symbols="$(nm -g "$archive" 2>&1)"; then
+              echo "::error::nm could not read $archive:" >&2
+              printf '%s\n' "$symbols" | head -5 >&2
+              exit 1
+            fi
             {
               echo '#include <CmuxTerminalClientFFI/cmux_terminal_client.h>'
               echo '#include <stdio.h>'
               echo 'int main(void) { const void *p[] = {'
-              # Match the text-symbol substring, not a field position: nm
-              # prefixes every line with the file name for an archive whose
-              # name has no .a extension, which shifts the columns and made a
-              # positional match silently select nothing.
-              nm -g "$lib" 2>/dev/null |
+              printf '%s\n' "$symbols" |
                 sed -n 's/.* T _\(cmux_[A-Za-z0-9_]*\)$/  (const void *)\&\1,/p' | sort -u
               printf '%s\n' '  0 }; printf("%p\n", p[0]); return 0; }'
             } > "$src"
@@ -248,7 +254,7 @@ jobs:
             echo "$slice: $count exported symbols referenced"
             if [[ "$count" -lt 1 ]]; then
               echo "::error::$slice exports no _cmux_ text symbols to reference; nm reported:" >&2
-              nm -g "$lib" 2>&1 | head -5 >&2
+              printf '%s\n' "$symbols" | head -5 >&2
               exit 1
             fi
             xcrun --sdk "$sdk" clang -target "$triple" \
@@ -257,9 +263,13 @@ jobs:
               -o "$work/smoke-$slice" "$src"
             echo "$slice: linked"
           }
-          smoke_link ios-arm64 iphoneos arm64-apple-ios18.0
-          smoke_link ios-arm64-simulator iphonesimulator arm64-apple-ios18.0-simulator
-          smoke_link macos-arm64 macosx arm64-apple-macos14.0
+          rel=cmux-tui/target
+          smoke_link ios-arm64 iphoneos arm64-apple-ios18.0 \
+            "$rel/aarch64-apple-ios/release/libcmux_terminal_client.a"
+          smoke_link ios-arm64-simulator iphonesimulator arm64-apple-ios18.0-simulator \
+            "$rel/aarch64-apple-ios-sim/release/libcmux_terminal_client.a"
+          smoke_link macos-arm64 macosx arm64-apple-macos14.0 \
+            "$rel/aarch64-apple-darwin/release/libcmux_terminal_client.a"
           "$work/smoke-macos-arm64" >/dev/null
           echo "macos-arm64: smoke binary ran"
 
