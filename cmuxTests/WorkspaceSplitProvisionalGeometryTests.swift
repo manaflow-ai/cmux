@@ -74,6 +74,36 @@ struct WorkspaceSplitProvisionalGeometryTests {
         }
     }
 
+    @Test func rootSplitUsesWorkspaceBoundsWhenOnlyTheTrailingPaneHasAPresentedTerminal() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let before = fixture.sourceFrameInWindow()
+        let sibling = try #require(fixture.workspace.newTerminalSplit(
+            from: fixture.sourcePanelId, orientation: .horizontal, focus: false
+        ))
+        TerminalWindowPortalRegistry.detach(hostedView: fixture.hosted)
+        let divider = fixture.workspace.bonsplitController.configuration.appearance.dividerThickness
+        let halfWidth = (before.width - divider) / 2
+        let anchor = NSView(frame: NSRect(
+            x: before.minX + halfWidth + divider, y: before.minY,
+            width: halfWidth, height: before.height
+        ))
+        fixture.window.contentView?.addSubview(anchor)
+        sibling.hostedView.setVisibleInUI(true)
+        TerminalWindowPortalRegistry.bind(hostedView: sibling.hostedView, to: anchor, visibleInUI: true)
+        defer {
+            TerminalWindowPortalRegistry.detach(hostedView: sibling.hostedView)
+            anchor.removeFromSuperview()
+        }
+        try #require(TerminalWindowPortalRegistry.isPresented(sibling.hostedView))
+
+        _ = try #require(fixture.workspace.newTerminalRootSplit(direction: .right, focus: false))
+
+        let after = sibling.hostedView.convert(sibling.hostedView.bounds, to: nil)
+        #expect(after.maxX <= before.midX + 1)
+        #expect(after.width > 24)
+    }
+
     @Test(arguments: [SplitDirection.right, .down])
     func rootSplitProjectsEveryExistingTerminalIntoTheShrunkenTree(direction: SplitDirection) throws {
         let fixture = try Fixture()
@@ -206,6 +236,13 @@ struct WorkspaceSplitProvisionalGeometryTests {
             window.contentView?.addSubview(anchor)
 
             let workspace = testWorkspace.workspace
+            let configuration = workspace.bonsplitController.configuration
+            let tabBarHeight = configuration.tabBarVisibility.showsTabBar(tabCount: 1)
+                ? configuration.appearance.tabBarHeight : 0
+            workspace.bonsplitController.setContainerFrame(CGRect(
+                x: 0, y: 0, width: anchor.frame.width,
+                height: anchor.frame.height + tabBarHeight
+            ))
             sourcePanelId = try #require(workspace.focusedPanelId)
             let panel = try #require(workspace.terminalPanel(for: sourcePanelId))
             hosted = panel.hostedView
