@@ -126,14 +126,45 @@ struct TerminalPaneMetricInvalidationTests {
             #expect(span.row < sample.rows)
             #expect(span.column + cellWidth <= sample.columns)
         }
-        let rows = rendered.rows
-        #expect(rows.allSatisfy { $0.count <= sample.columns })
-        let compact = rows.joined().filter { !$0.isWhitespace }
+        #expect(rendered.rows.allSatisfy { $0.count <= sample.columns })
+        // The native render-grid export is the physical reflow oracle above,
+        // but it can omit soft-wrapped text while a hidden pane is settling.
+        // Ghostty's direct reader preserves those logical lines and their
+        // markers, which is the behavior this regression path needs to prove.
+        let text = try readSurfaceText(fixture)
+        let compact = text.filter { !$0.isWhitespace }
         for index in 1...4 {
             let expected = "R\(index)" + String(repeating: "=", count: 74) + "END\(index)"
             #expect(compact.components(separatedBy: expected).count == 2)
             #expect(compact.components(separatedBy: "R\(index)").count == 2)
             #expect(compact.components(separatedBy: "END\(index)").count == 2)
         }
+    }
+
+    private func readSurfaceText(_ fixture: TerminalPaneMetricsFixture) throws -> String {
+        let runtime = try #require(fixture.surface.surface)
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(
+                tag: GHOSTTY_POINT_SURFACE,
+                coord: GHOSTTY_POINT_COORD_TOP_LEFT,
+                x: 0,
+                y: 0
+            ),
+            bottom_right: ghostty_point_s(
+                tag: GHOSTTY_POINT_SURFACE,
+                coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT,
+                x: 0,
+                y: 0
+            ),
+            rectangle: false
+        )
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_text(runtime, selection, &text) else { return "" }
+        defer { ghostty_surface_free_text(runtime, &text) }
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(
+            decoding: Data(bytes: pointer, count: Int(text.text_len)),
+            as: UTF8.self
+        )
     }
 }
