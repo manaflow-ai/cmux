@@ -8820,7 +8820,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let sourcePanelId = focusedPanelId else {
             return .failed
         }
-        clearSplitZoom()
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        if zoomedPaneId != nil {
+            clearSplitZoom()
+        }
+        func restoreSplitZoomIfNeeded() {
+            if let zoomedPaneId {
+                _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+            }
+        }
         if isRemoteTmuxMirror {
             let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
                 workspaceId: id,
@@ -8829,9 +8837,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 focusIntent: focus ? .focusCreatedPane : .preserveActivePane,
                 fullWindow: true
             ) ?? false
+            if !routed {
+                restoreSplitZoomIfNeeded()
+            }
             return routed ? .routedToRemote : .failed
         }
         if let source = cloudTerminalSourcePlacement(forPanel: sourcePanelId) {
+            restoreSplitZoomIfNeeded()
             return rejectCloudTerminalCreation(source: source, panelID: sourcePanelId)
         }
         guard let panel = newTerminalSplitLocal(
@@ -8850,6 +8862,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             allowTextBoxFocusDefault: true,
             rootSplit: true
         ) else {
+            restoreSplitZoomIfNeeded()
             return .failed
         }
         return .created(panel)
@@ -8946,21 +8959,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 #endif
         // Root splits inherit from the focused panel but target the complete
         // tree. Ordinary splits continue to target the panel's leaf pane.
-        let sourcePaneId: PaneID? = {
-            if rootSplit {
-                return bonsplitController.allPaneIds.first
-            }
-            guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
-            for paneId in bonsplitController.allPaneIds {
-                let tabs = bonsplitController.tabs(inPane: paneId)
-                if tabs.contains(where: { $0.id == sourceTabId }) {
-                    return paneId
-                }
-            }
-            return nil
-        }()
-
-        guard let paneId = sourcePaneId else { return nil }
+        // The root split targets the complete tree, but event metadata and
+        // inherited terminal configuration still belong to the pane containing
+        // the focused source panel.
+        guard let paneId = paneId(forPanelId: panelId) else { return nil }
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
