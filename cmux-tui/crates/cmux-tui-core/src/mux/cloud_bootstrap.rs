@@ -120,13 +120,23 @@ impl Mux {
                 reservation.created_path.as_ref().and_then(|path| path["terminal_id"].as_str())
             {
                 let id = TerminalPublicId::parse(id)?;
-                let live = self.with_state(|state| state.terminal_catalog.get(&id).cloned());
-                match live {
-                    Some(terminal) if !terminal.is_dead() => {}
+                // A tab can be detached or moved while its terminal keeps
+                // running. Validate the durable placement, not just process
+                // liveness, before handing an old creation path to a client.
+                let registry = self.workspace_registry.lock().unwrap();
+                let topology = registry.resource_topology_snapshot()?;
+                let state = self.state.lock().unwrap();
+                match state.terminal_catalog.get(&id) {
+                    Some(terminal) if !terminal.is_dead() => {
+                        let path = reservation.created_path.as_ref().expect("checked");
+                        if !cloud_bootstrap_placement_matches(&topology, path, &id) {
+                            // Refuse the retry without authorizing a second
+                            // terminal or moving the user's live work back.
+                            return Ok(json!({"created_path": null, "occupied": true}));
+                        }
+                    }
                     Some(_) => return Ok(json!({"created_path": null})),
                     None => {
-                        let topology =
-                            self.workspace_registry.lock().unwrap().resource_topology_snapshot()?;
                         anyhow::ensure!(
                             !topology.tabs.iter().any(|tab| {
                                 tab.content_id == ContentPublicId::Terminal(id.clone())
@@ -249,6 +259,29 @@ impl Mux {
             json!({"created_path": commit.result, "generation": generation, "revision": commit.revision.to_string()}),
         )
     }
+}
+
+fn cloud_bootstrap_placement_matches(
+    topology: &ResourceTopologySnapshot,
+    path: &Value,
+    terminal: &TerminalPublicId,
+) -> bool {
+    let Some(tab) = topology.tabs.iter().find(|tab| {
+        path["tab_id"].as_str() == Some(tab.public_id.as_str())
+            && tab.content_id == ContentPublicId::Terminal(terminal.clone())
+            && path["pane_id"].as_str() == Some(tab.pane_id.as_str())
+    }) else {
+        return false;
+    };
+    let Some(pane) = topology.panes.iter().find(|pane| {
+        pane.public_id == tab.pane_id && path["screen_id"].as_str() == Some(pane.screen_id.as_str())
+    }) else {
+        return false;
+    };
+    topology.screens.iter().any(|screen| {
+        screen.public_id == pane.screen_id
+            && path["workspace_id"].as_str() == Some(screen.workspace_id.as_str())
+    })
 }
 
 fn cloud_welcome_enabled(options: &SurfaceOptions) -> bool {

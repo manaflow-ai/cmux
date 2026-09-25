@@ -272,8 +272,9 @@ Params:
 Result: `{created_path, generation?, revision?, occupied?}`. A non-null
 `created_path` is the committed terminal placement. Repeated calls return that
 receipt without rendering or starting another shell. `occupied: true` means an
-explicit user terminal won the initial slot; callers must refresh rather than
-fall through to another create.
+explicit user terminal won the initial slot, or the live starter's original
+placement was closed or moved. Callers must refresh rather than fall through to
+another create; the running terminal and the user's placement remain intact.
 
 ### cloud-first-workspace
 
