@@ -6654,6 +6654,15 @@ describe("VM Effect workflows", () => {
       "provider-vm-default-personal",
       "provider-vm-default-team",
     ]);
+
+    const explicitlyTeamScoped = await Effect.runPromise(
+      listUserVms("user-workflow-default-scope", "team-workflow-default-scope").pipe(
+        Effect.provide(provider),
+      ),
+    );
+    expect(explicitlyTeamScoped.map((entry) => entry.providerVmId)).toEqual([
+      "provider-vm-default-team",
+    ]);
   });
 
   dbTest("does not destroy, exec, or mint SSH for another user's VM", async () => {

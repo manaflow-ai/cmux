@@ -115,6 +115,7 @@ import {
   type CloudVmLeaseKind,
   type CloudVmRow,
   type VmRepositoryShape,
+  type VmListOptions,
   type VmResizeReservation,
   type VmUsageEventInput,
 } from "./repository";
@@ -311,10 +312,10 @@ export function isRetiredProviderRow(row: Pick<CloudVmRow, "provider">): boolean
   return !isProviderId(row.provider);
 }
 
-export function listUserVms(userId: string, billingTeamId?: string | null) {
+export function listUserVms(userId: string, billingTeamId?: string | null, options?: VmListOptions) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
-    const rows = yield* repo.listUserVms(userId, billingTeamId);
+    const rows = yield* repo.listUserVms(userId, billingTeamId, options);
     return rows
       .filter((row) => row.providerVmId && !isRetiredProviderRow(row))
       .map(vmEntryFromRow);

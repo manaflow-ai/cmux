@@ -118,7 +118,12 @@ export async function GET(request: Request): Promise<Response> {
         throw err;
       }
 
-      const listed = await runVmRoute(listUserVms(user.id, billingTeamId), { request });
+      const listed = await runVmRoute(
+        !requestedBillingTeamId && !user.selectedTeamId
+          ? listUserVms(user.id, billingTeamId, { includePersonal: true })
+          : listUserVms(user.id, billingTeamId),
+        { request },
+      );
       if (!listed.ok) return listed.response;
       const entries = listed.value;
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
