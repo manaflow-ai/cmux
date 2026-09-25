@@ -5,18 +5,17 @@ import Foundation
 /// Owns one cancellable iOS workspace-view session and its auth generation.
 @MainActor
 public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing {
-    private let transport: WorkspacePresenceWebSocket
     private let tokenSource: PresenceTokenSource
     private var session: WorkspacePresenceSession
     private var runTask: Task<Void, Never>?
-    private var scope: WorkspacePresenceScope?
+    private(set) var scope: WorkspacePresenceScope?
     private var accountID: String?
     private var generation: UInt64 = 0
 
     deinit { runTask?.cancel() }
 
     /// Creates a lease publisher, or nil when the service origin is invalid.
-    public init?(
+    public convenience init?(
         serviceBaseURL: String,
         tokenSource: PresenceTokenSource,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil }
@@ -27,9 +26,12 @@ public final class MobileWorkspacePresenceAnnouncer: WorkspacePresenceAnnouncing
                 || (url.scheme == "http" && ["localhost", "127.0.0.1", "::1"].contains(url.host ?? "")) else {
             return nil
         }
-        transport = WorkspacePresenceWebSocket(baseURL: url)
-        self.tokenSource = tokenSource
         _ = teamIDProvider // Cloud team authority is carried by the validated scope.
+        self.init(transport: WorkspacePresenceWebSocket(baseURL: url), tokenSource: tokenSource)
+    }
+
+    init(transport: any WorkspacePresenceConnecting, tokenSource: PresenceTokenSource) {
+        self.tokenSource = tokenSource
         session = WorkspacePresenceSession(transport: transport)
     }
 
