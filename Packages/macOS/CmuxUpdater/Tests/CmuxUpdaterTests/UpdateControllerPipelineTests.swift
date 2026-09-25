@@ -13,6 +13,18 @@ import Testing
 /// accepted install and Sparkle's download callback.
 @MainActor
 @Suite struct UpdateControllerPipelineTests {
+    /// A settings change must reach the running Sparkle updater without requiring a relaunch.
+    /// This is the user-visible behavior behind the App settings cadence picker.
+    @Test func scheduledCheckIntervalChangesApplyToRunningUpdater() async {
+        let harness = Harness()
+        #expect(harness.updater.updateCheckInterval == 3600)
+
+        harness.defaults.set(24 * 60 * 60, forKey: UpdateSettings.scheduledCheckIntervalKey)
+        await waitUntil("scheduled interval update") {
+            harness.updater.updateCheckInterval == 24 * 60 * 60
+        }
+    }
+
     private func updateAvailable(_ version: String, replyingInto box: ChoiceBox) -> UpdateState {
         let item = SUAppcastItem(dictionary: [
             "title": "cmux \(version)",

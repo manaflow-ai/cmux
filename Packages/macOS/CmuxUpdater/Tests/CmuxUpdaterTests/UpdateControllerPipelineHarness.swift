@@ -3,6 +3,7 @@ import Foundation
 
 @MainActor
 struct Harness {
+    let defaults: UserDefaults
     let updater: FakeUpdater
     let clock: TestDeadlineClock
     let controller: UpdateController
@@ -14,6 +15,7 @@ struct Harness {
         defaults.removePersistentDomain(forName: suiteName)
         let updater = FakeUpdater()
         let clock = TestDeadlineClock()
+        self.defaults = defaults
         self.updater = updater
         self.clock = clock
         self.controller = UpdateController(
