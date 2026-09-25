@@ -47,7 +47,9 @@ import datetime as dt
 import io
 import json
 import sys
+import urllib.error
 import zipfile
+import zlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Callable
@@ -71,6 +73,8 @@ MAX_AGE_HOURS = 24
 MAX_JOB_PAGES = 3
 # Previous snapshots read, newest first, for the last one that has `warm`.
 MAX_PREVIOUS = 3
+# What a corrupt artifact raises: read, it proves nothing, never a retry.
+UNREADABLE = (ValueError, KeyError, EOFError, NotImplementedError, zipfile.BadZipFile, zlib.error)
 
 
 class Transient(Exception):
@@ -201,11 +205,15 @@ def read(client: Any, artifact: Mapping[str, Any], jobs: Sequence[Mapping[str, A
                 if len(batch) < 100:
                     break
         blob = client.download(artifact)
+    except urllib.error.HTTPError as error:
+        if error.code in (404, 410):  # gone for good: pass it over
+            return f"gone ({error.code})"
+        raise Transient(f"request failed ({error.code})") from error
     except (OSError, ValueError, RuntimeError) as error:
         raise Transient(f"request failed ({type(error).__name__})") from error
     try:
         document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(KEYS_FILE))
-    except (ValueError, KeyError, zipfile.BadZipFile) as error:
+    except UNREADABLE as error:
         return f"unreadable ({type(error).__name__})"
     return record(document, jobs)
 
@@ -225,7 +233,7 @@ def previous_warm(client: Any) -> Mapping[str, Any]:
         blob = client.download(artifact)
         try:
             document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(SNAPSHOT_FILE))
-        except (ValueError, KeyError, zipfile.BadZipFile):
+        except UNREADABLE:
             continue
         warm = document.get("warm") if isinstance(document, Mapping) else None
         if isinstance(warm, Mapping):

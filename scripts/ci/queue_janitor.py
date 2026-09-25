@@ -1441,7 +1441,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if os.environ.get("OWNED_WARM", "").strip() == "1":
             try:
                 snapshot["warm"] = owned_warm_state.sweep(PoolClient(token, args.repo), jobs_by_run, now)
-            except (RuntimeError, OSError, ValueError, TypeError) as error:
+            except Exception as error:  # noqa: BLE001 a routing hint never fails the sweep
                 print(f"queue-janitor: owned warm state: {error}", file=sys.stderr)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
 
