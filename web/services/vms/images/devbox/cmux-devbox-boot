@@ -1,0 +1,300 @@
+#!/bin/sh
+# cmux devbox boot supervisor (/usr/local/bin/cmux-devbox-boot).
+#
+# Supervises the cmux-tui session daemon, the machine's only session daemon
+# (docs/cloud-cmux-tui-daemon.md), and, on a container image without systemd,
+# the desktop session (see "Desktop" below). The Freestyle bake installs the
+# pinned files.cmux.com build in the daemon user's home (sha256-verified; see
+# web/scripts/build-devbox-freestyle.ts) and this loop starts the daemon and
+# restarts it if it ever exits. On an image without the binary (the container
+# Dockerfile) the loop waits for a driver to install it. The daemon command
+# must stay identical to cmuxTuiDaemonCommand() in
+# web/services/vms/drivers/cmuxTuiDaemon.ts; vm-devbox-image.test.ts pins
+# the equality.
+#
+# The daemon runs as the image's work user (cmux, uid 1000, passwordless
+# sudo), so every terminal pane is a non-root shell and coding agents start.
+# The command picks that layout on the machine; a machine from an image baked
+# before the work user existed keeps a root daemon and its /root state. This
+# script reads the same selection so the state it refreshes on a clone is the
+# state the daemon actually writes.
+#
+# Per-machine daemon identity. A Freestyle snapshot is a memory image: every
+# machine created from it resumes the source machine's processes, so a daemon
+# running at snapshot time would hand one Noise static identity
+# (identity.json) to every machine created from the snapshot, and nothing
+# inside the guest (boot id, MAC, addresses) tells a clone apart. The
+# platform's metadata service does (latest/meta-data/instance-id, the
+# Firecracker MMDS behind the EC2-style token dance), so the daemon identity
+# is bound to that id, cloud-init style, and re-checked every tick:
+#   * /etc/cmux/daemon-instance-id names the machine whose identity the
+#     state dir holds. A different id means "this is a clone": a running
+#     daemon (another machine's identity) is stopped and the daemon starts
+#     with a fresh identity bound to this id; any remote identity a fork
+#     inherited is dropped first. The warm first terminal survives.
+#   * /etc/cmux/bake-instance-id is the machine a snapshot is being taken
+#     from. While it matches, the daemon is kept parked so the snapshot never
+#     carries a live identity. The bake and derive scripts write it right
+#     before they snapshot; a clone has a different id and starts its daemon
+#     within one tick of resume.
+#
+# Clone detection speed is New Machine latency. A snapshot is always taken
+# while this loop is parked, so every clone resumes inside the parked branch.
+# That branch therefore ticks every PARKED_TICK (50 ms) instead of 1 s, and
+# a clone is noticed within ~50 ms plus one metadata read. Only the builder
+# (for the seconds before its snapshot) and a clone's first tick pay the fast
+# cadence; a bound machine ticks once a second as before. Do not raise
+# PARKED_TICK or move work in front of the announce without measuring New
+# Machine end to end: the owner's Mac is already dialing while this runs.
+# Without a metadata service (containers) the id is empty and the daemon
+# simply runs, keeping whatever identity the state dir already holds.
+#
+# The SSH host keys are per machine for the same reason: a clone would
+# otherwise present the builder's keys (and every other clone's). The clone
+# branch regenerates them under the machine's own name
+# (web/services/vms/images/identity.ts) in a detached subshell, so the daemon
+# start never waits on key generation (sshd is not the daemon's readiness),
+# and restarts sshd so it serves them. The new keys are staged before the old
+# ones go, so a failed generation keeps a working sshd.
+#
+# The Freestyle public-platform bake runs this script from the cmux-tui-daemon
+# systemd unit.
+#
+# Private-network announce. The provider's VPC fabric forwards to a machine
+# only after it has seen a frame FROM that machine's VPC interface, and a
+# memory-snapshot clone resumes with the interface already configured, so
+# nothing transmits on it by itself: the owner's Mac then dials a listening
+# daemon and every SYN vanishes (web/services/vms/images/network.ts has the
+# measurement). announce_network sends a gratuitous ARP burst from every
+# global IPv4 address; it runs detached when a clone is detected and every
+# 30 s for the life of the supervisor so an idle machine never ages out of
+# the fabric's table. On a clone the announce is the FIRST action, before
+# the daemon, SSH, or state work: arping -U puts its first frame on the wire
+# at once, and until that frame the Mac's SYNs are dropped by the fabric.
+# The command line is devboxNetworkAnnounceCommand() in
+# network.ts; vm-devbox-identity.test.ts pins the equality. The attach path
+# announces on its own (freestyleNetworkAnnouncement.ts).
+#
+# Resume housekeeping. The guest's realtime AND monotonic clocks jump by the
+# snapshot's age on resume, so every due timer (logrotate, man-db, fstrim,
+# dpkg-db-backup, tmpfiles-clean, apt) would fire in the clone's first second
+# and compete with the daemon start, and systemd would kill every service
+# whose watchdog "missed" a ping during the jump (logind, udevd, journald).
+# The parked branch stops those timers and switches service watchdogs off
+# (runtime state, so the memory snapshot carries it; a bake-time switch is
+# lost when a later step re-executes systemd). A clone re-arms both
+# HOUSEKEEPING_DELAY after it is bound (systemd-run), so timers still run and
+# watchdogs still guard services, just off the critical path.
+#
+# CMUX_TUI_REMOTE_WS_BIND overrides the listener bind. Default: the IPv4
+# wildcard. Freestyle sets [::]:1337 (its systemd unit / a driver drop-in)
+# because private Freestyle networks can assign either address family; a
+# dual-stack bind accepts both without public ingress.
+#
+# Desktop (container images only). On a Freestyle VM systemd's cmux-desktop
+# unit owns the desktop session (desktop/cmux-desktop.service); without
+# systemd nothing else would, so this supervisor runs the same
+# cmux-desktop-boot loop as the work user (the uid-1000 account, else root)
+# and restarts it if it ever exits. The daemon loop below is untouched by it:
+# the desktop is a sibling process, never a child of the session daemon.
+# Terminal identity for every pane the daemon opens. Children inherit the
+# daemon's environment, and the Mac app renders each pane in its embedded
+# Ghostty, so panes carry the same identity the app exports to local and SSH
+# shells: TERM=xterm-256color plus COLORTERM=truecolor (set by the daemon at
+# spawn), TERM_PROGRAM=ghostty, and TERM_PROGRAM_VERSION from the Ghostty
+# generation the bake recorded in /etc/cmux/ghostty-version. Agents gate
+# synchronized output, progress reporting, strikethrough, and Cmd-click on
+# TERM_PROGRAM; without it Claude Code treats the pane as a plain xterm.
+# The exact string is CMUX_TUI_DAEMON_TERMINAL_ENV in cmuxTuiDaemon.ts.
+# BIN is not fixed here: cmux_tui_layout() below sets it from the layout.
+DESKTOP_BOOT=/usr/local/bin/cmux-desktop-boot
+DESKTOP_RUNTIME_DIR=/run/cmux-desktop
+DESKTOP_DISPLAY=:1
+BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
+BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
+METADATA=http://169.254.169.254
+PARKED_TICK=0.05
+TEMPLATE_RUN_DIR=/run/cmux
+# Warm template terminal. The snapshot keeps the first terminal's host
+# process and its initialized shell running while every per-machine daemon
+# file is wiped (devboxParkDaemonCommand). A clone's daemon creates a fresh
+# machine id, receipt pepper, session registry and remote identity, then
+# adopts that warm host as its first terminal and writes the shell's new ids
+# to the bound file; the shell's first prompt waits for it (prompt.bash).
+# Exported so the pinned daemon command line stays unchanged; the daemon
+# removes them from its own environment at start, so no terminal inherits them.
+export CMUX_TUI_ADOPT_TEMPLATE_TERMINAL=1
+export CMUX_TUI_TEMPLATE_BOUND_FILE="$TEMPLATE_RUN_DIR/bound"
+# The bake names the template workspace Cloud; the wiped registry forgot it.
+export CMUX_TUI_TEMPLATE_WORKSPACE_NAME=Cloud
+HOUSEKEEPING_DELAY=10min
+HOUSEKEEPING_TIMERS="apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer e2scrub_all.timer fstrim.timer logrotate.timer man-db.timer motd-news.timer systemd-tmpfiles-clean.timer"
+
+# Selects the daemon's user, home and binary; keep identical to
+# cmuxTuiLayoutSelector() in web/services/vms/drivers/cmuxTuiDaemon.ts.
+cmux_tui_layout() {
+  if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then CMUX_TUI_USER=cmux; CMUX_TUI_HOME=/home/cmux; CMUX_TUI_LAYOUT=user; else CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root; fi; CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"
+  BIN="$CMUX_TUI_BIN"
+  # cmux-remote's state dir for the daemon user; identity.json lives under
+  # sessions/<session>/auth.
+  REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"
+}
+
+instance_id() {
+  token=$(curl -sf -m 1 -X PUT "$METADATA/latest/api/token" -H 'X-metadata-token-ttl-seconds: 60') || return 1
+  curl -sf -m 1 -H "X-aws-ec2-metadata-token: $token" "$METADATA/latest/meta-data/instance-id"
+}
+
+cmux_tui_layout
+
+daemon_pid=""
+desktop_pid=""
+parked=""
+
+start_desktop() {
+  [ -x "$DESKTOP_BOOT" ] || return 0
+  [ -d /run/systemd/system ] && return 0
+  if [ -n "$desktop_pid" ] && kill -0 "$desktop_pid" 2>/dev/null; then return 0; fi
+  [ -n "$desktop_pid" ] && wait "$desktop_pid" 2>/dev/null
+  desktop_user=$(getent passwd 1000 | cut -d: -f1)
+  [ -n "$desktop_user" ] || desktop_user=root
+  desktop_home=$(getent passwd "$desktop_user" | cut -d: -f6)
+  mkdir -p "$DESKTOP_RUNTIME_DIR" && chown "$desktop_user" "$DESKTOP_RUNTIME_DIR" && chmod 0755 "$DESKTOP_RUNTIME_DIR"
+  runuser -u "$desktop_user" -- env HOME="$desktop_home" USER="$desktop_user" DISPLAY="$DESKTOP_DISPLAY" \
+    CMUX_DESKTOP_RUNTIME_DIR="$DESKTOP_RUNTIME_DIR" "$DESKTOP_BOOT" >>/var/log/cmux-desktop.log 2>&1 &
+  desktop_pid=$!
+}
+
+# New host keys are generated into a staging dir on the same filesystem and
+# moved over the old ones only once all of them exist, so a failed generation
+# leaves the previous keys in place (logged to the unit's journal) and sshd is
+# never left without a key. sshd loads keys at start, so it is restarted last.
+rekey_ssh_host() {
+  command -v ssh-keygen >/dev/null 2>&1 || return 0
+  staging=$(mktemp -d /etc/ssh/.cmux-rekey.XXXXXX) || { echo "cmux-devbox-boot: could not stage new ssh host keys; keeping the existing ones" >&2; return 1; }
+  mkdir -p "$staging/etc/ssh"
+  # Lowest CPU and I/O priority: this runs beside the daemon's first start.
+  low=""; command -v nice >/dev/null 2>&1 && low="nice -n 19"
+  command -v ionice >/dev/null 2>&1 && low="$low ionice -c 3"
+  if ! $low ssh-keygen -A -f "$staging" >/dev/null 2>&1 || [ -z "$(ls "$staging"/etc/ssh/ssh_host_*_key 2>/dev/null)" ]; then
+    rm -rf "$staging"
+    echo "cmux-devbox-boot: ssh host key generation failed; keeping the existing keys" >&2
+    return 1
+  fi
+  for key in "$staging"/etc/ssh/ssh_host_*_key; do
+    mv -f "$key.pub" /etc/ssh/ && mv -f "$key" /etc/ssh/
+  done
+  rm -rf "$staging"
+  [ -d /run/systemd/system ] && systemctl try-restart ssh >/dev/null 2>&1
+  return 0
+}
+
+# Freestyle guests have no VM generation ID device, so the kernel is never
+# told it was restored: every clone resumes with the snapshot's CRNG state.
+# Mix this clone's instance id into the input pool and force a CRNG reseed
+# (RNDRESEEDCRNG, which also pulls RDSEED/RDRAND) before anything generates a
+# key. Perl is in Ubuntu's essential set and starts in a few milliseconds.
+reseed_kernel_rng() {
+  command -v perl >/dev/null 2>&1 || return 0
+  perl -e 'open(my $f, "+<", "/dev/urandom") or exit 1; syswrite($f, join(":", @ARGV, time, $$)); ioctl($f, 0x5207, 0) or exit 1' "$1" 2>/dev/null || true
+}
+
+announce_network() {
+  command -v arping >/dev/null 2>&1 && ip -o -4 addr show scope global 2>/dev/null | { while read -r _ dev _ cidr _; do case "$dev" in lo|docker*|veth*|br-*|virbr*) continue;; esac; case "$cidr" in 169.254.*) continue;; esac; arping -U -c 2 -w 2 -I "$dev" "${cidr%/*}" >/dev/null 2>&1 & done; wait; }; true
+}
+
+# A derive clone schedules a re-arm and is then parked for its own snapshot;
+# the pending transient timer must not ride into that snapshot, where the
+# clock jump would fire it on the next clone's first second.
+park_housekeeping() {
+  [ -d /run/systemd/system ] || return 0
+  # shellcheck disable=SC2086
+  systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service $HOUSEKEEPING_TIMERS >/dev/null 2>&1 || true
+  systemd-analyze service-watchdogs no >/dev/null 2>&1 || true
+}
+
+rearm_housekeeping() {
+  [ -d /run/systemd/system ] || return 0
+  systemctl stop cmux-housekeeping-rearm.timer cmux-housekeeping-rearm.service >/dev/null 2>&1 || true
+  systemd-run --quiet --no-block --collect --unit=cmux-housekeeping-rearm --on-active="$HOUSEKEEPING_DELAY" \
+    /bin/sh -c "systemd-analyze service-watchdogs yes; systemctl start $HOUSEKEEPING_TIMERS" >/dev/null 2>&1 || true
+}
+
+announce_loop() {
+  while true; do announce_network; sleep 30; done
+}
+
+stop_daemon() {
+  [ -n "$daemon_pid" ] || return 0
+  kill "$daemon_pid" 2>/dev/null
+  i=0
+  while kill -0 "$daemon_pid" 2>/dev/null && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
+  kill -9 "$daemon_pid" 2>/dev/null
+  wait "$daemon_pid" 2>/dev/null
+  daemon_pid=""
+}
+
+# Start the daemon (command identical to cmuxTuiDaemonCommand()).
+# --remote-ws-trusted-carrier: the listener is reachable only inside the
+# owner's private network, whose members are all authorized, so every link
+# gets carrier authentication with no device enrollment.
+start_daemon() {
+  (if id -u cmux >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && setpriv --reuid=cmux --regid=cmux --init-groups test -w /home/cmux 2>/dev/null && setpriv --reuid=cmux --regid=cmux --init-groups sudo -n true >/dev/null 2>&1; then CMUX_TUI_USER=cmux; CMUX_TUI_HOME=/home/cmux; CMUX_TUI_LAYOUT=user; else CMUX_TUI_USER=root; CMUX_TUI_HOME=/root; CMUX_TUI_LAYOUT=root; fi; CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"; { mkdir -p /etc/cmux 2>/dev/null; printf '%s\n' "$CMUX_TUI_LAYOUT" > /etc/cmux/daemon-layout; } 2>/dev/null; cd "$CMUX_TUI_HOME" && if [ "$CMUX_TUI_USER" = root ]; then exec env HOME="$CMUX_TUI_HOME" TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" "$CMUX_TUI_BIN" server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier; else exec setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER" SHELL=/bin/bash TERM=xterm-256color TERM_PROGRAM=ghostty TERM_PROGRAM_VERSION="$(cat /etc/cmux/ghostty-version 2>/dev/null)" "$CMUX_TUI_BIN" server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind --remote-ws-trusted-carrier; fi) &
+  daemon_pid=$!
+}
+
+announce_loop &
+
+while true; do
+  tick=1
+  start_desktop
+  # A driver can install the binary after boot, and it installs into the home
+  # this same selection names, so re-read the layout until one appears.
+  [ -x "$BIN" ] || cmux_tui_layout
+  if [ -x "$BIN" ]; then
+    id=$(instance_id 2>/dev/null) || id=""
+    if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
+      stop_daemon # the machine being snapshotted: parked until the snapshot is taken
+      [ -n "$parked" ] || { park_housekeeping; parked=1; }
+      tick=$PARKED_TICK
+    elif [ -z "$id" ] && [ -n "$parked" ]; then
+      # A clone's first metadata read can fail while the platform finishes
+      # restoring it. Stay parked and retry on the fast tick; starting now
+      # would run an unbound daemon that the next tick must restart.
+      tick=$PARKED_TICK
+    else
+      if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
+        # Announce first: the fabric drops the Mac's SYNs until it sees a frame.
+        ( announce_network & )
+        # Starts the template shell's bounded wait for the bound file.
+        mkdir -p "$TEMPLATE_RUN_DIR" 2>/dev/null && : > "$TEMPLATE_RUN_DIR/clone-started" 2>/dev/null
+        reseed_kernel_rng "$id"
+        stop_daemon
+        # A bake snapshot carries no remote identity (devboxParkDaemonCommand
+        # wiped it), but a fork or checkpoint of a running machine carries its
+        # parent's Noise identity and connection state. Drop both so this
+        # machine's daemon creates its own.
+        find "$REMOTE_STATE_DIR/sessions" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true
+        rm -rf "$REMOTE_STATE_DIR/connections" 2>/dev/null || true
+        mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
+        # Start the daemon before anything else that needs CPU: a New Machine
+        # waits on this listener, and the clone has only a couple of vCPUs.
+        # Host re-keying (RSA generation is most of a second of CPU), prompt
+        # sync (a Python start), and the timer re-arm all used to run first or
+        # beside it and slowed the listener by ~0.2 s. Do not move them back.
+        start_daemon
+        # The prompt sync is a clone-local oneshot. A memory snapshot can
+        # carry an already-active systemd unit, so explicitly restart it after
+        # the fresh instance identity is bound.
+        systemctl --no-block restart cmux-prompt-sync.service >/dev/null 2>&1 || true
+        ( rekey_ssh_host & )
+        [ -n "$parked" ] && { rearm_housekeeping; parked=""; }
+      fi
+      if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null; then
+        [ -n "$daemon_pid" ] && wait "$daemon_pid" 2>/dev/null
+        start_daemon
+      fi
+    fi
+  fi
+  sleep "$tick"
+done

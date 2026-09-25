@@ -594,6 +594,119 @@ struct FileExplorerStoreTests {
         )
     }
 
+    // MARK: - Outline refresh
+
+    @Test
+    func testOutlineReplacesNestedRowsWhenContentRevisionChangesWithoutCountChanges() async throws {
+        let rootPath = "/home/user/project"
+        let sourcePath = "\(rootPath)/Sources"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Removed.swift", path: "\(sourcePath)/Removed.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("initial root loaded") { store.rootNodes.count == 1 }
+
+        let sourceNode = try #require(store.rootNodes.first)
+        store.expand(node: sourceNode)
+        try await waitFor("initial nested file loaded") {
+            sourceNode.children?.map(\.name) == ["Removed.swift"]
+        }
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        coordinator.reloadIfNeeded()
+        let outlineView = try #require(coordinator.outlineView)
+        #expect((outlineView.item(atRow: 1) as? FileExplorerNode)?.name == "Removed.swift")
+
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Added.swift", path: "\(sourcePath)/Added.swift", isDirectory: false),
+        ])
+        store.reload()
+        try await waitFor("reloaded nested file") {
+            store.rootNodes.first?.children?.map(\.name) == ["Added.swift"]
+        }
+        coordinator.reloadIfNeeded()
+
+        let visibleNames = (0..<outlineView.numberOfRows).compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        #expect(visibleNames == ["Sources", "Added.swift"])
+        withExtendedLifetime(container) {}
+    }
+
+    @Test
+    func testRevisionReloadRestoresNestedExpansionAndSelection() async throws {
+        let rootPath = "/home/user/project"
+        let projectPath = "\(rootPath)/App"
+        let sourcePath = "\(projectPath)/Sources"
+        let keepPath = "\(sourcePath)/Keep.swift"
+        let provider = MockFileExplorerProvider()
+        provider.listings[rootPath] = .success([
+            FileExplorerEntry(name: "App", path: projectPath, isDirectory: true),
+        ])
+        provider.listings[projectPath] = .success([
+            FileExplorerEntry(name: "Sources", path: sourcePath, isDirectory: true),
+        ])
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Keep.swift", path: keepPath, isDirectory: false),
+            FileExplorerEntry(name: "Removed.swift", path: "\(sourcePath)/Removed.swift", isDirectory: false),
+        ])
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(provider)
+        store.setRootPath(rootPath)
+        try await waitFor("nested root loaded") { store.rootNodes.count == 1 }
+
+        let projectNode = try #require(store.rootNodes.first)
+        store.expand(node: projectNode)
+        try await waitFor("nested project loaded") { projectNode.children?.count == 1 }
+        let sourceNode = try #require(projectNode.children?.first)
+        store.expand(node: sourceNode)
+        try await waitFor("nested source loaded") { sourceNode.children?.count == 2 }
+        let keepNode = try #require(sourceNode.children?.first { $0.path == keepPath })
+        store.select(node: keepNode)
+
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(coordinator: coordinator, presentation: .files)
+        coordinator.reloadIfNeeded()
+        let outlineView = try #require(coordinator.outlineView)
+
+        provider.listings[sourcePath] = .success([
+            FileExplorerEntry(name: "Added.swift", path: "\(sourcePath)/Added.swift", isDirectory: false),
+            FileExplorerEntry(name: "Keep.swift", path: keepPath, isDirectory: false),
+        ])
+        store.reload()
+        try await waitFor("reloaded nested hierarchy") {
+            store.rootNodes.first?.children?.first?.children?.map(\.name) == ["Added.swift", "Keep.swift"]
+        }
+        coordinator.reloadIfNeeded()
+
+        let visibleNames = (0..<outlineView.numberOfRows).compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        let selectedNames = outlineView.selectedRowIndexes.compactMap {
+            (outlineView.item(atRow: $0) as? FileExplorerNode)?.name
+        }
+        #expect(visibleNames == ["App", "Sources", "Added.swift", "Keep.swift"])
+        #expect(selectedNames == ["Keep.swift"])
+        withExtendedLifetime(container) {}
+    }
+
     // MARK: - Collapse/Expand
 
     @Test
@@ -960,6 +1073,10 @@ struct FileSearchControllerTests {
         // updateVisibility runs on every store/content update and is unguarded; a second
         // identical pass must not invalidate layout.
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
+        // This container is windowless and never runs a layout pass, so the real invalidations
+        // above leave layout pending and `needsLayout = false` does not take effect. Run the
+        // pending pass first so each probe below measures only new invalidations.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updateVisibility(hasContent: true, isLoading: false, statusMessage: nil)
         #expect(
@@ -969,6 +1086,7 @@ struct FileSearchControllerTests {
 
         // The guard-else in updatePresentation(.find) re-runs updateSearchLayout on every
         // redundant pass (the Cmd+Shift+F re-entry path); it must be a no-op too.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updatePresentation(.find)
         #expect(
@@ -978,6 +1096,7 @@ struct FileSearchControllerTests {
 
         // Positive control: a genuine visibility change must still invalidate layout, so
         // the no-op assertions above are meaningful rather than vacuous.
+        container.layoutSubtreeIfNeeded()
         container.needsLayout = false
         container.updateVisibility(hasContent: false, isLoading: false, statusMessage: nil)
         #expect(

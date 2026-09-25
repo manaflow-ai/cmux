@@ -60,10 +60,13 @@ public struct RemoteTmuxSessionCommandBuilder: Sendable {
 
     private static let workspaceEnvironmentKeys = [
         "CMUX_BUNDLED_CLI_PATH",
+        "CMUX_PERSISTENT_PTY_EXEC_HELPER",
         "CMUX_SHELL_INTEGRATION",
         "CMUX_SHELL_INTEGRATION_DIR",
         "CMUX_SOCKET_PATH",
+        "CMUX_SSH_ATTEMPT_ID",
         "CMUX_TAB_ID",
+        "CMUX_TERMINAL_LIFECYCLE_ID",
         "CMUX_WORKSPACE_ID",
     ]
 

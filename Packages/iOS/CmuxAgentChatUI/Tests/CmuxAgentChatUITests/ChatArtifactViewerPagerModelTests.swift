@@ -83,7 +83,7 @@ struct ChatArtifactViewerPagerModelTests {
             stream: { path, onChunk in
                 let totalSize = path == logPath ? logSize : 1
                 try await onChunk(ChatArtifactChunk(
-                    data: Data("x".utf8),
+                    data: Data(repeating: 0x78, count: Int(totalSize)),
                     offset: 0,
                     totalSize: totalSize,
                     eof: true
@@ -159,7 +159,7 @@ struct ChatArtifactViewerPagerModelTests {
         )
         let identity = try #require(model.pageIdentity(for: path))
 
-        model.requestTop()
+        model.requestTop(for: path)
         let requestID = model.toolbarSnapshot.topRequestID
         let actions = model.actions(
             for: path,

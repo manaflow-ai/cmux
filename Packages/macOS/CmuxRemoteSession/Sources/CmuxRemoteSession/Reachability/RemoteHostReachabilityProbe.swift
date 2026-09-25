@@ -1,5 +1,6 @@
+internal import CmuxFoundation
 public import CmuxRemoteWorkspace
-public import Foundation
+internal import Foundation
 internal import Network
 
 /// Quick reachability probe for the SSH endpoint behind a remote workspace.
@@ -15,12 +16,9 @@ internal import Network
 /// `.indeterminate`, which the policy treats like a reachable host so the
 /// loop never suspends on a guess.
 ///
-/// Lifted from the app's `WorkspaceRemoteHostReachabilityProbe` namespace
-/// enum, converted to a value type per the no-namespace-enums convention.
-/// Each instance owns its serial callback queue (the legacy static queue was
-/// process-wide; the queue only serializes one instance's NWConnection
-/// callbacks and timeout latches, so per-instance scope changes nothing
-/// observable).
+/// Each instance owns its serial callback queue and injected command runner.
+/// The queue serializes one instance's NWConnection callbacks and timeout
+/// latches; `ssh -G` resolution runs through `CommandRunner` off that queue.
 public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
     static let defaultTimeout: TimeInterval = 2.5
     private static let sshResolveTimeout: TimeInterval = 3.0
@@ -33,12 +31,24 @@ public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
     /// Sleep seam for the probe timeout (legacy `asyncAfter`, converted per
     /// the no-`asyncAfter` rule; the 2.5s delay is identical).
     private let clock: any RemoteProxyRetryClock
+    /// Shared bounded subprocess owner for `ssh -G` resolution.
+    private let commandRunner: any CommandRunning
 
     /// Creates a probe.
     /// - Parameter clock: Sleep seam driving the TCP probe timeout
     ///   (production default: the continuous clock).
     public init(clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()) {
         self.clock = clock
+        self.commandRunner = CommandRunner()
+    }
+
+    /// Internal injection initializer for endpoint-resolution tests.
+    init(
+        clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock(),
+        commandRunner: any CommandRunning
+    ) {
+        self.clock = clock
+        self.commandRunner = commandRunner
     }
 
     /// Probe the SSH endpoint for `destination`. The completion runs on an
@@ -51,16 +61,16 @@ public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
         completion: @escaping @Sendable (RemoteHostProbeOutcome) -> Void
     ) {
         let timeout = Self.defaultTimeout
-        // Endpoint resolution shells out to `ssh -G` and can block for up to
-        // its timeout; run it on the concurrent utility pool so simultaneous
-        // probes from multiple workspaces don't serialize behind it (the
-        // serial probeQueue is reserved for NWConnection callbacks).
-        DispatchQueue.global(qos: .utility).async {
-            guard let endpoint = Self.resolveEndpoint(
+        // Endpoint resolution shells out through the cancellation-aware
+        // CommandRunner. Keep it off the caller and the serial probe queue so
+        // simultaneous workspaces do not serialize behind `ssh -G`.
+        Task.detached(priority: .utility) { [self] in
+            guard let endpoint = await Self.resolveEndpoint(
                 destination: destination,
                 port: port,
                 identityFile: identityFile,
-                sshOptions: sshOptions
+                sshOptions: sshOptions,
+                commandRunner: commandRunner
             ) else {
                 completion(.indeterminate)
                 return
@@ -97,8 +107,9 @@ public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
         port: Int?,
         identityFile: String?,
         sshOptions: [String],
-        sshConfigFile: String? = nil
-    ) -> Endpoint? {
+        sshConfigFile: String? = nil,
+        commandRunner: any CommandRunning = CommandRunner()
+    ) async -> Endpoint? {
         let trimmedDestination = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDestination.isEmpty, !trimmedDestination.hasPrefix("-") else { return nil }
 
@@ -120,7 +131,12 @@ public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
         }
         arguments.append(trimmedDestination)
 
-        guard let output = runSSHConfigResolution(arguments: arguments) else { return nil }
+        guard let output = await runSSHConfigResolution(
+            arguments: arguments,
+            commandRunner: commandRunner
+        ) else {
+            return nil
+        }
         let resolved = parseSSHConfigOutput(output)
 
         if let proxyJump = resolved.proxyJump {
@@ -132,7 +148,10 @@ public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
                 jumpArguments += ["-F", sshConfigFile]
             }
             jumpArguments.append(jump.destination)
-            guard let jumpOutput = runSSHConfigResolution(arguments: jumpArguments) else {
+            guard let jumpOutput = await runSSHConfigResolution(
+                arguments: jumpArguments,
+                commandRunner: commandRunner
+            ) else {
                 return nil
             }
             let jumpResolved = parseSSHConfigOutput(jumpOutput)
@@ -224,32 +243,16 @@ public struct RemoteHostReachabilityProbe: RemoteHostReachabilityProbing {
         return JumpSpec(destination: destination, host: host, port: port)
     }
 
-    private static func runSSHConfigResolution(arguments: [String]) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = arguments
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = Pipe()
-        // Bounded wait on the real exit signal (the legacy 20ms `usleep`
-        // poll loop, converted per the no-sleep-as-sync rule; the 3s upper
-        // bound and terminate-on-timeout behavior are identical).
-        let exitSemaphore = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in
-            exitSemaphore.signal()
-        }
-        do {
-            try process.run()
-        } catch {
-            return nil
-        }
-        guard exitSemaphore.wait(timeout: .now() + sshResolveTimeout) == .success else {
-            process.terminate()
-            return nil
-        }
-        guard process.terminationStatus == 0 else { return nil }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)
+    private static func runSSHConfigResolution(
+        arguments: [String],
+        commandRunner: any CommandRunning
+    ) async -> String? {
+        await commandRunner.runStandardOutput(
+            directory: FileManager.default.currentDirectoryPath,
+            executable: "/usr/bin/ssh",
+            arguments: arguments,
+            timeout: sshResolveTimeout
+        )
     }
 
     // First-finisher latch shared by the NWConnection state handler and the

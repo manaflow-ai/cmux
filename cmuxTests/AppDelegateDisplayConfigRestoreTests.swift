@@ -8,7 +8,7 @@ import Testing
 @testable import cmux
 #endif
 /// Round-trip coverage for per-monitor window-geometry memory (issue #2135).
-@Suite(.serialized)
+@Suite(.serialized, .exclusiveAppContext)
 @MainActor
 struct AppDelegateDisplayConfigRestoreTests {
     // MARK: fixtures
@@ -349,6 +349,18 @@ struct AppDelegateDisplayConfigRestoreTests {
         #expect(stored.entries.count == cap)
         #expect(stored.entry(for: "cfg\(cap + 2)")?.frame.cgRect.minX == 999)
         #expect(stored.entry(for: "cfg0") == nil)
+    }
+
+    @Test
+    func restoredMainWindowsRestoreAppKitKeyViewLoopAfterTopologyAssembly() {
+        let appDelegate = testAppDelegate()
+        let windowId = appDelegate.createMainWindow(
+            sessionWindowSnapshot: emptyWindowSnapshot(),
+            shouldActivate: false
+        )
+        defer { closeCreatedWindow(appDelegate, windowId: windowId) }
+
+        #expect(appDelegate.mainWindow(for: windowId)?.autorecalculatesKeyViewLoop == true)
     }
 
     @Test

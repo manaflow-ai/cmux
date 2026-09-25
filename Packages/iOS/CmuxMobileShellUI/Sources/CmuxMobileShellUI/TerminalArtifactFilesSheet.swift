@@ -2,6 +2,8 @@
 import CmuxAgentChat
 import CmuxAgentChatUI
 import CmuxMobileShell
+import CmuxMobileSupport
+import CmuxMobileToast
 import Foundation
 import SwiftUI
 
@@ -17,35 +19,33 @@ struct TerminalArtifactSelection: Identifiable, Equatable {
     let workspaceID: String
     let surfaceID: String
     let path: String
-    let sessionID: String?
 
     init(
         workspaceID: String,
         surfaceID: String,
-        path: String,
-        session: ChatSessionDescriptor?
+        path: String
     ) {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
 
         if (path as NSString).isAbsolutePath {
             self.path = (path as NSString).standardizingPath
-            sessionID = session?.id
-        } else if let session,
-                  let workingDirectory = session.workingDirectory,
-                  (workingDirectory as NSString).isAbsolutePath {
-            self.path = ((workingDirectory as NSString).appendingPathComponent(path) as NSString)
-                .standardizingPath
-            sessionID = session.id
         } else {
             self.path = path
-            sessionID = nil
         }
     }
 
-    var usesSessionAuthorization: Bool { sessionID != nil }
+    var id: String { "\(workspaceID)#\(surfaceID)#\(path)" }
+}
 
-    var id: String { "\(workspaceID)#\(surfaceID)#\(sessionID ?? "terminal")#\(path)" }
+struct TerminalArtifactGalleryFailure: Equatable {
+    let error: ChatArtifactError
+
+    static let loadFailed = Self(error: ChatArtifactError.loadFailed)
+
+    init(error: any Error) {
+        self.error = (error as? ChatArtifactError) ?? .loadFailed
+    }
 }
 
 struct TerminalArtifactFilesSheet: View {
@@ -77,7 +77,15 @@ struct TerminalArtifactFilesSheet: View {
     @State var sessionViewportIsAtTopOrFits = true
     @State var lastHandledRefreshSignal: TerminalArtifactGalleryRefreshSignal
     @Environment(MobileDisplaySettings.self) var displaySettings
+    @Environment(ToastCenter.self) private var toasts
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.mobileDiagnosticLog) private var diagnosticLog
+
+    /// Confirms a gallery row's "Copy path"; rows report through a closure so
+    /// they never hold the toast center themselves.
+    func notifyPathCopied() {
+        toasts.present(.copied(L10n.string("mobile.toast.pathCopied", defaultValue: "Path copied")))
+    }
 
     init(
         workspaceID: String,
@@ -141,6 +149,9 @@ struct TerminalArtifactFilesSheet: View {
         }
         .frame(idealWidth: 380, idealHeight: 520)
         .task(id: "\(workspaceID)#\(surfaceID)") {
+            sessionLoader = ChatArtifactLoader.unsupported(
+                diagnosticLog: diagnosticLog
+            )
             await loadInitial()
         }
         .task(id: liveRefreshTaskID) {
@@ -164,7 +175,7 @@ struct TerminalArtifactFilesSheet: View {
 
     private func loadInitial() async {
         guard let source else {
-            inViewState = .failed
+            inViewState = .failed(.loadFailed)
             scope = .inView
             return
         }
@@ -188,20 +199,24 @@ struct TerminalArtifactFilesSheet: View {
                 return
             }
             sessionID = resolvedSessionID
-            sessionLoader = ChatArtifactLoader(source: source, sessionID: resolvedSessionID)
+            sessionLoader = ChatArtifactLoader(
+                source: source,
+                sessionID: resolvedSessionID,
+                diagnosticLog: diagnosticLog
+            )
             scope = .session
             await loadFirstSessionPage(query: nil)
         } catch is CancellationError {
             return
         } catch {
-            inViewState = .failed
+            inViewState = .failed(TerminalArtifactGalleryFailure(error: error))
             scope = .inView
         }
     }
 
     func refreshInView() async {
         guard let source else {
-            inViewState = .failed
+            inViewState = .failed(.loadFailed)
             return
         }
         do {
@@ -218,7 +233,7 @@ struct TerminalArtifactFilesSheet: View {
         } catch is CancellationError {
             return
         } catch {
-            inViewState = .failed
+            inViewState = .failed(TerminalArtifactGalleryFailure(error: error))
         }
     }
 
@@ -256,10 +271,11 @@ struct TerminalArtifactFilesSheet: View {
             return
         } catch {
             if !preservingContent {
+                let failure = TerminalArtifactGalleryFailure(error: error)
                 if query == nil {
-                    sessionState = .failed
+                    sessionState = .failed(failure)
                 } else {
-                    searchState = .failed
+                    searchState = .failed(failure)
                 }
             }
         }
@@ -532,14 +548,14 @@ struct TerminalArtifactFilesSheet: View {
     enum InViewLoadState: Equatable {
         case loading
         case loaded([TerminalArtifactReference])
-        case failed
+        case failed(TerminalArtifactGalleryFailure)
     }
 
     enum SessionLoadState: Equatable {
         case idle
         case loading
         case loaded(SessionGallerySnapshot)
-        case failed
+        case failed(TerminalArtifactGalleryFailure)
     }
 
     typealias SessionGallerySnapshot = ChatArtifactGallerySnapshot

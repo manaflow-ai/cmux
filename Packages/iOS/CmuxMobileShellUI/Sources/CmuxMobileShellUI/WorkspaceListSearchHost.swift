@@ -1,30 +1,48 @@
+import CmuxMobileSupport
 import SwiftUI
 
-/// Owns the native search controller above workspace snapshots that are replaced
-/// during refresh. Stable query and focus ownership survive live row snapshots,
-/// while an explicit navigation-bar drawer keeps search at the top on iOS 26.
+/// Owns workspace search state above list snapshots that are replaced during
+/// refresh. The shell owns the query so it survives those replacements.
 @MainActor
 struct WorkspaceListSearchHost<Content: View>: View {
-    @State private var searchText = ""
+    @Binding private var searchText: String
     @FocusState private var searchIsFocused: Bool
+    private let taskComposerAction: (() -> Void)?
     private let content: (String) -> Content
 
-    init(@ViewBuilder content: @escaping (String) -> Content) {
+    init(
+        searchText: Binding<String>,
+        taskComposerAction: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping (String) -> Content
+    ) {
+        _searchText = searchText
+        self.taskComposerAction = taskComposerAction
         self.content = content
     }
 
     var body: some View {
         #if os(iOS)
-        content(searchText)
-            .searchable(
-                text: $searchText,
-                placement: .navigationBarDrawer(displayMode: .always)
-            )
-            .searchFocused($searchIsFocused)
+        iOSContent
         #else
         content(searchText)
             .searchable(text: $searchText)
             .searchFocused($searchIsFocused)
         #endif
     }
+
+    #if os(iOS)
+    @ViewBuilder
+    private var iOSContent: some View {
+        if #available(iOS 26.0, *) {
+            content(searchText)
+        } else {
+            content(searchText)
+                // The explicit navigationBarDrawer placement and focus bridge
+                // used by newer shells can wedge iOS 18's first layout pass.
+                // The default placement keeps native search available without
+                // that UIKit feedback path.
+                .searchable(text: $searchText)
+        }
+    }
+    #endif
 }

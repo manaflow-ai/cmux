@@ -1,3 +1,5 @@
+import CmuxFoundation
+import Darwin
 import Foundation
 import Testing
 import Bonsplit
@@ -152,13 +154,13 @@ struct AgentHibernationTests {
 
         let selected = AgentHibernationPlanner.selectedPanelKeys(
             inputs: [
-                .init(key: idleOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: idleNew, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
-                .init(key: runningOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: unknownOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .unknown, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: unconfirmedInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
-                .init(key: visibleOld, hasRestorableAgent: true, isLive: true, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: idleOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: idleNew, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
+                .init(key: runningOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: unknownOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .unknown, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: unconfirmedInputOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
+                .init(key: visibleOld, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
             ],
             settings: settings,
             now: now
@@ -179,7 +181,7 @@ struct AgentHibernationTests {
 
         let selected = AgentHibernationPlanner.selectedPanelKeys(
             inputs: [
-                .init(key: key, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
+                .init(key: key, hasRestorableAgent: true, isLive: true, processSafetyAllowsHibernation: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
             ],
             settings: settings,
             now: 1_000
@@ -257,6 +259,47 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
+    func testClearingMissingSupersededPIDPreservesReplacementLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.recordAgentPID(
+            key: "omp.current",
+            pid: 12345,
+            panelId: panelId,
+            refreshPorts: false
+        )
+        workspace.setAgentLifecycle(key: "omp", panelId: panelId, lifecycle: .running)
+
+        expectFalse(
+            workspace.clearAgentPID(
+                key: "omp.superseded",
+                panelId: panelId,
+                clearStatus: true,
+                requireOwnedKey: true,
+                refreshPorts: false
+            )
+        )
+        expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+        expectEqual(workspace.agentPIDs["omp.current"], 12345)
+    }
+
+    @MainActor
+    @Test
+    func testDetachedAgentRuntimeExcludesWorkspaceManualLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(key: "manual:loader", panelId: panelId, lifecycle: .running)
+        workspace.setAgentLifecycle(key: "omp", panelId: panelId, lifecycle: .idle)
+
+        let runtime = try #require(workspace.agentRuntimeState(forPanelId: panelId))
+        expectEqual(runtime.agentLifecycleStates["omp"], .idle)
+        expectNil(runtime.agentLifecycleStates["manual:loader"])
+    }
+
+    @MainActor
+    @Test
     func testClearingAgentPIDByPanelClearsOnlyThatPanelLifecycleWhenSameStatusKeyRemains() throws {
         let workspace = Workspace()
         let firstPanelId = try #require(workspace.focusedPanelId)
@@ -323,6 +366,7 @@ struct AgentHibernationTests {
         let workspaceId = UUID()
         let panelId = UUID()
         let pid = 12_345
+        let identity = AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 42, startMicroseconds: 7)
         let sessionId = "codex-live-hook-pid"
         let jsonObject: [String: Any] = [
             "version": 1,
@@ -333,6 +377,8 @@ struct AgentHibernationTests {
                     "surfaceId": panelId.uuidString,
                     "cwd": "/tmp/repo",
                     "pid": pid,
+                    "pidStartSeconds": identity.startSeconds,
+                    "pidStartMicroseconds": identity.startMicroseconds,
                     "agentLifecycle": "idle",
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": [
@@ -363,6 +409,9 @@ struct AgentHibernationTests {
                         ]
                     )
                     : nil
+            },
+            processIdentityProvider: { requestedPID in
+                requestedPID == pid ? identity : nil
             }
         )
 
@@ -382,6 +431,7 @@ struct AgentHibernationTests {
         let workspaceId = UUID()
         let panelId = UUID()
         let pid = 23_456
+        let identity = AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 43, startMicroseconds: 8)
         let sessionId = "claude-node-live-hook-pid"
         let transcriptURL = home
             .appendingPathComponent(".claude/projects/-tmp-repo", isDirectory: true)
@@ -406,6 +456,8 @@ struct AgentHibernationTests {
                     "cwd": "/tmp/repo",
                     "transcriptPath": transcriptURL.path,
                     "pid": pid,
+                    "pidStartSeconds": identity.startSeconds,
+                    "pidStartMicroseconds": identity.startMicroseconds,
                     "agentLifecycle": "idle",
                     "updatedAt": Date().timeIntervalSince1970,
                     "launchCommand": [
@@ -439,6 +491,9 @@ struct AgentHibernationTests {
                         ]
                     )
                     : nil
+            },
+            processIdentityProvider: { requestedPID in
+                requestedPID == pid ? identity : nil
             }
         )
 
@@ -838,6 +893,76 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
+    func testHibernationRetiresPanelPortsAndScannerLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-port-retirement",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+        let scannerKey = PortScanner.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let staleTTYName = "/dev/ttys9152"
+        PortScanner.shared.registerTTY(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            ttyName: staleTTYName
+        )
+        defer {
+            PortScanner.shared.unregisterPanel(workspaceId: workspace.id, panelId: panelId)
+        }
+        workspace.surfaceListeningPorts[panelId] = [4321]
+        workspace.recomputeListeningPorts()
+
+        try #require(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+
+        expectNil(workspace.surfaceListeningPorts[panelId])
+        expectTrue(workspace.listeningPorts.isEmpty)
+        expectNil(PortScanner.shared.publicationState.registeredPanelTTYName(for: scannerKey))
+        let persistedPanel = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first { $0.id == panelId }
+        )
+        expectTrue(persistedPanel.listeningPorts.isEmpty)
+    }
+
+    @MainActor
+    @Test
+    func testRestoringHibernatedPanelDiscardsPersistedPorts() throws {
+        let source = Workspace()
+        let sourcePanelId = try #require(source.focusedPanelId)
+        let sourcePanel = try #require(source.panels[sourcePanelId] as? TerminalPanel)
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-restored-port-retirement",
+            workingDirectory: "/tmp/cmux-agent-hibernation",
+            launchCommand: launch("codex", "/usr/local/bin/codex", cwd: "/tmp/cmux-agent-hibernation")
+        )
+        try #require(sourcePanel.enterAgentHibernation(
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        var legacyPanelSnapshot = try #require(
+            source.sessionSnapshot(includeScrollback: false).panels.first { $0.id == sourcePanelId }
+        )
+        try #require(legacyPanelSnapshot.terminal?.hibernation != nil)
+        legacyPanelSnapshot.listeningPorts = [4321]
+
+        let restored = Workspace()
+        let restoredPanelId = try #require(restored.focusedPanelId)
+        restored.applySessionPanelMetadata(legacyPanelSnapshot, toPanelId: restoredPanelId)
+        restored.recomputeListeningPorts()
+
+        expectNil(restored.surfaceListeningPorts[restoredPanelId])
+        expectTrue(restored.listeningPorts.isEmpty)
+    }
+
+    @MainActor
+    @Test
     func testFocusingHibernatedTerminalAutomaticallyPreparesResume() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
@@ -1090,7 +1215,7 @@ struct AgentHibernationTests {
 
     @MainActor
     @Test
-    func testResumePreparationWithoutStartupInputStillLeavesHibernation() throws {
+    func testResumePreparationWithoutCapturedLaunchQueuesRestoreSelector() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
         let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
@@ -1109,9 +1234,9 @@ struct AgentHibernationTests {
 
         let preparation = panel.prepareAgentHibernationResume()
 
-        expectEqual(preparation, .resumed(queuedStartupInput: false))
+        expectEqual(preparation, .resumed(queuedStartupInput: true))
         expectFalse(panel.isAgentHibernated)
-        expectFalse(panel.surface.debugInitialInputMetadata().hasInitialInput)
+        expectTrue(snapshot.resumeStartupInput()?.contains("restore manual-agent manual-agent-session") == true)
     }
 
 }

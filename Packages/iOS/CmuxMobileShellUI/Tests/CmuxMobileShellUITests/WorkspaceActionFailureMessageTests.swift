@@ -6,13 +6,16 @@ import Testing
 @MainActor
 @Suite struct WorkspaceActionFailureMessageTests {
     @Test func invalidWorkingDirectoryExplainsRecovery() {
-        let message = WorkspaceShellView.workspaceActionFailureMessage(
-            action: .createWorkspace,
-            failure: .invalidWorkingDirectory(hostDisplayName: "Test Mac")
+        // Failures render as a toast: bold "Couldn't <action>" title plus the
+        // reason as a standalone sentence.
+        let title = WorkspaceShellView.workspaceActionFailureTitle(action: .createWorkspace)
+        let reason = WorkspaceShellView.workspaceActionFailureReasonText(
+            .invalidWorkingDirectory(hostDisplayName: "Test Mac")
         )
 
+        #expect(title == "Couldn't create workspace")
         #expect(
-            message == "Couldn't create workspace: the working directory isn't available on your Mac; choose another directory."
+            reason == "The working directory isn't available on your Mac; choose another directory."
         )
     }
 }

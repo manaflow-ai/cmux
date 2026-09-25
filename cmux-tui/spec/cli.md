@@ -1,201 +1,473 @@
-# CLI Surface
+# Public CLI
 
-The generated CLI is `cmux-tui <verb> ...`. The current checked-in binary also has TUI server modes; this file specifies the future generated command verbs that map 1:1 to `commands.md`.
+`cmux` exposes `cmux.protocol/2` as a noun-first CLI. The public command
+tree uses the same resource hierarchy and operation catalog as the handwritten
+SDKs. The private protocol-v12 command set is available only through the
+explicit `raw command` escape.
 
-## Global Conventions
+## Process modes
 
-### Socket Resolution
+These modes start or connect a TUI process. They do not send a public resource
+request:
 
-The CLI resolves the target session in this order:
+```text
+cmux [START OPTIONS]
+cmux server start [START OPTIONS]
+cmux attach [START OPTIONS] [--terminal <terminal-id>]
+cmux relay [ROUTING OPTIONS]
+cmux machine-agent [OPTIONS]
+cmux wg hub --config <wg-quick file> --socket <unix socket>
+```
 
-| Priority | Source |
+`relay` copies private protocol bytes between standard I/O and one session
+socket. Machine connectors use it as a transport primitive. `wg hub` owns one
+in-process WireGuard tunnel and serves SOCKS5 CONNECT on an owner-only Unix
+socket so several `remote connect --wireguard-hub <socket>` clients share one
+key; it prints one `hub-ready` JSON line when listening and removes the socket
+on SIGTERM or SIGINT. `attach` opens the
+complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
+from `cmux terminal list` and renders only that terminal, without session
+chrome or unrelated event traffic. Startup attach does not accept internal
+runtime identifiers, abbreviated identifiers, names, or `current`.
+
+Interactive and headless ownership are intentionally separate:
+
+| Form | Contract |
 | --- | --- |
-| 1 | `--socket <path>` |
-| 2 | `CMUX_TUI_SOCKET` |
-| 3 | Legacy `CMUX_MUX_SOCKET` |
-| 4 | `--session <name>` using `$TMPDIR/cmux-tui-<uid>/<session>.sock` |
-| 5 | default session `main` using the default socket path |
+| `cmux` or `cmux --session NAME` | Create or attach an interactive session. |
+| `cmux server start --session NAME` | Start a headless owner. |
+| `cmux attach --session NAME` | Attach an existing owner and fail if it is absent. |
 
-`--session` and `--socket` are global flags and may appear before or after the verb.
+The explicit split prevents two clients from silently creating competing
+owners. A future attach-or-create shortcut needs a readiness and concurrency
+contract before it can be added safely.
 
-### Output Modes
+Migration from tmux or Zellij keeps the owner and client steps visible. Run the
+owner in one terminal:
 
-`--json` prints the exact command result schema from `commands.md`. For stream verbs, `--json` prints one event object per line.
+```bash
+cmux server start --session agents
+```
 
-Human output is stable, greppable, and minimal. It must not include colors, tables with box drawing, progress spinners, or localized prose. Commands that mutate state usually print nothing on success. Create commands print the new surface id. Text extraction commands print the extracted text exactly.
+Then attach from another terminal:
 
-### Exit Codes
+```bash
+cmux attach --session agents
+```
 
-| Code | Meaning |
+Callers supervise the owner. A blind attach retry cannot distinguish a missing
+owner from an owner still starting.
+
+`server` is the local durable mux owner for exactly one named session:
+
+```text
+cmux server start [START OPTIONS]
+cmux server status [--session <name>] [--socket <path>]
+cmux server stats [--session <name>] [--socket <path>] [--json]
+cmux server stop [--session <name>] [--socket <path>] [--force]
+cmux server reload-config [--session <name>] [--socket <path>]
+```
+
+`server stats` prints the `server-stats` diagnostics (registry lock contention
+with holder sites, journal writer batches and commit latency, connection
+admission); see `docs/journal-operations.md` for how to read it.
+
+`server start` is the canonical foreground spelling of `--headless`.
+The shared `--session` and `--socket` routing options can also precede the
+scope, for example `cmux --session agents server start --socket /path/to.sock`.
+Detached startup is deferred until cmux has explicit supervisor ownership,
+readiness, log, PID/state, crash, and stop contracts.
+The local socket accepts ordinary protocol clients while the owner finishes
+startup. Its `identify` response reports `lifecycle_ready`; lifecycle commands
+fail fast while this field is `false` and can be retried after the owner is ready.
+`server stop` first reads the process identity, then sends the existing PID and
+generation-fenced graceful shutdown operation. An absent server is success,
+and stopping never deletes the durable topology. `session <name>|current stop`
+is an alias for the same local operation. Opaque session IDs are not accepted
+because local socket resolution uses a session name. `--all` is intentionally
+deferred until a multi-session registry can identify every target without
+introducing a second command registry.
+
+`server status` fails when no server is listening. In contrast, `server stop`
+is idempotent and reports `not_running` as success for an absent socket. JSON
+errors use stable lifecycle codes and do not include raw transport, server, or
+filesystem error text.
+
+Authenticated network operations use `remote connect|ssh|forward|rpc`,
+`remote enroll`, and `remote known-daemons`; they cannot accept local server
+targeting. `remote connect --carrier` dials a `ws`/`wss` route with carrier
+authentication and no enrollment; only a daemon started with
+`--remote-ws-trusted-carrier` (or `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1`), whose
+listener is reachable solely from a private network of authorized members,
+accepts it. `remote stop` manages only a replaceable SSH sidecar. A listener
+embedded by `server start` stops only through `server stop`, which also stops
+the local owner and its workspaces. `server start` accepts the explicit
+remote-listener flags when the owning process also serves authenticated
+clients. Top-level remote commands and `remote-stop` remain compatibility
+aliases for one release cycle.
+
+## Public grammar
+
+```text
+cmux [GLOBAL OPTIONS] <resource> <action> [OPTIONS]
+```
+
+The public resource roots are:
+
+```text
+server   machine  session  client  workspace  screen  pane  tab
+terminal browser  notification  agent  sidebar
+pairing  projection  provider  raw
+```
+
+Structural resources may be addressed directly by opaque ID or through their
+parents:
+
+```text
+cmux pane pane_… show
+cmux workspace ws_… screen screen_… pane pane_… show
+```
+
+Both paths send `pane.get`. A direct opaque target ID may omit structural
+ancestors. A name or `current` target requires its complete parent chain. Every
+supplied ancestor is checked for containment before the operation runs.
+
+Run `cmux <resource> --help` for its exact paths and flags. Parser tests
+map every operational one-shot command and parameter in
+[`resource-operations-v2.json`](resource-operations-v2.json) to a public path.
+Sensitive renderer grants and connection-owned stream/viewer controls remain
+SDK and raw-only.
+
+## Shorthands
+
+`cmux help shorthands` lists the supported spellings. Every shorthand lowers to
+this same public resource grammar, with identical validation, idempotency keys,
+output modes, and exit codes. It never sends private protocol commands.
+
+| Short form | Canonical equivalent | Notes |
+| --- | --- | --- |
+| `ws`, `win` / `window`, `p`, `term`, `notif`, `srv` | `workspace`, `screen`, `pane`, `terminal`, `notification`, `server` | Resource positions, including nested paths |
+| `ls`, `new`, `get`, `rm`, `select` after a resource | `list`, `create`, `show`, `close`, `focus` | Only where the resource supports that action |
+| `pane split --right`, `p zoom`, `term read` | `pane current split --right`, `pane current zoom`, `terminal current read` | Omit `current` on instance actions |
+| `list-sessions` / `ls` | `session list` | Describes the selected local session, not every socket on the computer |
+| `list-windows` / `lsw` | `screen list` | `-t` / `--target` selects a workspace |
+| `list-panes` / `lsp` | `pane list` | `-t` / `--target` selects a screen |
+| `new-window` / `neww -n api` | `screen create --name api` | `-t` selects a workspace |
+| `split-window` / `splitw -h` | `pane current split --right` | Default / `-v` splits down; `-c` sets cwd; `-t` selects a pane |
+| `select-pane` / `selectp -L` | `pane current focus direction left` | One of `-L`, `-R`, `-U`, `-D`; `-t` selects a pane |
+| `select-window` / `selectw -t api` | `screen api focus` | Exact screen selector |
+| `rename-window` / `renamew -t api backend` | `screen api rename --name backend` | One new name |
+| `capture-pane` / `capturep -t term_…` | `terminal term_… screen read` | `-p` is accepted; uses normal cmux output |
+| `send-keys -t term_… C-c Enter` | `terminal term_… keys ctrl+c enter` | Named keys, including `C-`, `M-`, and `S-` modifiers |
+| `send-keys -l -- 'hello 世界'` | `terminal current write --text 'hello 世界'` | Literal arguments concatenate without inserted spaces |
+
+All `-t` values are cmux selectors. They do not interpret tmux numeric indexes,
+`%pane`, `@window`, or `session:window.pane` targets. Capture/input also accept a
+full `pane_…` ID, selecting its current tab's terminal. An omitted target uses
+`current` in the selected session, not a remembered client or shell.
+
+Explicit selector paths take precedence over shorthand actions. Use `name:` for
+names that collide with command words. Names, option values, key payloads, and
+argv after `--` are never rewritten. Resource aliases and action aliases are
+fixed spellings; partial prefixes are not automatically guessed.
+
+This is a bounded convenience vocabulary, not tmux script compatibility. Unknown
+flags, combined short flags, repeated targets, conflicting directions, arbitrary
+mixed text/key payloads, tmux formats, buffers, shell-command split arguments,
+and detached split flags are rejected. Use `send-keys -l` or `terminal write`
+for text, and `--help` for help (`splitw -h` means horizontal).
+
+There is no `new-session` alias because a cmux session owns a separate process.
+Use `cmux --session NAME` for interactive create/attach or
+`cmux server ensure --session NAME` to ensure a detached owner. `neww` creates a
+screen inside the selected session's workspace.
+
+## Selectors
+
+An instance selector accepts:
+
+- a typed opaque ID such as `ws_…`, `pane_…`, or `term_…`;
+- `current`;
+- an exact name.
+
+Names may be empty, contain Unicode or whitespace, and need not be unique.
+`name:<value>` forces name interpretation and is required for names equal to
+`current`, names containing `_`, reserved command words, and ID-shaped names.
+An ambiguous name returns `selector.ambiguous` with every candidate ID. It
+never chooses one or changes state.
+
+`--machine` and `--session` provide routing defaults. `--socket` selects an
+exact local socket. Local socket precedence is explicit `--socket`, explicit
+`--session`, inherited `CMUX_TUI_SOCKET` or `CMUX_MUX_SOCKET`, then the default
+`main` session. Thus an explicit session never targets an inherited caller
+socket from a different session.
+
+One endpoint describes exactly one local mux session. `machine list`,
+`machine get`, `session list`, `session get`, and `session open` expose that
+local route. Cross-machine discovery and provider lifecycle require a later
+broker protocol.
+
+## Output
+
+The output modes are mutually exclusive:
+
+| Flag | Output |
 | --- | --- |
-| `0` | Command succeeded |
-| `1` | Server returned `ok:false` or a stream ended with a command-level error |
-| `2` | CLI usage error, invalid flags, or invalid local argument shape |
-| `3` | Connection error, missing socket, auth failure, or transport failure before response |
+| none | Concise human text |
+| `--json` | One JSON result or structured error |
+| `--jsonl` | One JSON value per result, stream item, or stream end |
+| `--quiet` | No successful output |
 
-### Stdin
+Standard output carries successful data. Human-mode diagnostics use standard
+error. JSON modes preserve the server's error code, message, details, and
+retryable flag, including local CLI syntax errors.
 
-`send` reads stdin when neither `--text` nor `--bytes` is supplied. Stdin is read to EOF and sent as the `text` field. `--paste` applies equally to argument or stdin payloads and requires protocol 7.
+| Exit | Meaning |
+| --- | --- |
+| `0` | Success or clean stream completion |
+| `1` | Structured server error |
+| `2` | Invalid CLI syntax or local parameter validation failure |
+| `3` | Connection, framing, timeout, or protocol failure |
 
-Future commands may opt into stdin only when their command block says so. By default commands do not read stdin.
+Requests are limited to 4 MiB. Responses and stream items are limited to
+16 MiB.
 
-### Id Arguments
+## Mutations
 
-Protocol v5 CLI arguments for ids are numeric. Protocol v6 accepts numeric ids and short ids for any `IdRef` parameter. Numeric-looking strings are rejected as ambiguous when short-id mode is active.
+Every mutation sends a cryptographically random 128-bit idempotency key unless
+the caller supplies `--idempotency-key`. The CLI sends one request and never
+retries a mutation. Mutations that support optimistic concurrency expose
+`--expected-revision`.
 
-### Selector Arguments
+An explicit idempotency key contains 1 to 128 UTF-8 bytes, at least one
+Unicode scalar outside the Unicode `White_Space` property, and no Unicode
+`Cc` control scalar. Non-control whitespace is preserved when the key also
+contains a non-whitespace scalar.
 
-The generated CLI requires one of `--index` or `--delta` for `select-tab`, `select-screen`, and `select-workspace`. It rejects the bare form with exit code 2 even though protocol v5 accepts it, because the bare protocol form can only be a no-op or a useless `tree-changed` emitter.
+Repeating a committed key with the same canonical request returns the recorded
+result. Reusing it for another request returns `idempotency.conflict`.
+`mutation.indeterminate` means the server crashed during an external effect and
+will not repeat that key automatically.
 
-## Verb Table
+Commands that create a workspace, screen, pane, terminal tab, or browser tab
+accept `--correlation-key`. The key defaults to the idempotency key.
+Resolve an interrupted creation with
+`session <selector> creation <correlation-key> resolve` before retrying.
 
-| Verb | Status | Required flags/args | Optional flags | Human stdout |
-| --- | --- | --- | --- | --- |
-| `identify` | implemented | none | global flags | one metadata line |
-| `ping` | implemented | none | global flags | one liveness line |
-| `set-client-info` | implemented | none | `--name <name>`, `--kind <kind>` | none |
-| `list-clients` | implemented | none | global flags | client lines |
-| `detach-client` | implemented | `--client <id>` | global flags | none |
-| `reload-config` | implemented | none | global flags | none |
-| `set-window-title` | implemented | `--title <title>` | global flags | none |
-| `clear-window-title` | implemented | none | global flags | none |
-| `list-workspaces` | implemented | none | global flags | tree lines |
-| `export-layout` | implemented | none | `--screen <id>` | JSON result object |
-| `apply-layout` | implemented | `--layout <json>` | `--workspace <id>`, `--name <name>`, `--cols <n> --rows <n>` | screen and pane/surface lines |
-| `send` | implemented; `--paste` protocol 7 | `--surface <id>` | `--text <text>`, `--bytes <base64>`, `--paste` | none |
-| `read-screen` | implemented | `--surface <id>` | none | screen text |
-| `read-scrollback` | proposed protocol 7 | `--surface <id> --start <n> --count <n>` | none | scrollback text rows |
-| `vt-state` | implemented | `--surface <id>` | none | `cols=<n> rows=<n> data=<base64>` |
-| `new-tab` | implemented | none | `--pane <id>`, `--cwd <path>`, `--cols <n> --rows <n>` | surface id |
-| `new-browser-tab` | implemented | `--url <url>` | `--pane <id>`, `--cols <n> --rows <n>` | surface id |
-| `new-workspace` | implemented | none | `--name <name>`, `--cols <n> --rows <n>` | surface id |
-| `new-screen` | implemented | none | `--workspace <id>`, `--cols <n> --rows <n>` | surface id |
-| `new-pane` | implemented | `--pane <id>` | `--cols <n> --rows <n>` | surface id |
-| `split` | implemented | `--pane <id> --dir right|down` | `--cols <n> --rows <n>` | surface id |
-| `set-ratio` | implemented | `--pane <id> --dir right|down --ratio <n>` | none | none |
-| `set-split-ratio` | implemented | `--split <id> --ratio <n>` | none | none |
-| `pane-neighbor` | implemented | `--pane <id> --dir left|right|up|down` | none | pane id or `null` |
-| `focus-direction` | implemented | `--dir left|right|up|down` | `--pane <id>` | pane id |
-| `swap-pane` | implemented | `--pane <id>` plus one of `--dir left|right|up|down`, `--target <id>` | none | none |
-| `zoom-pane` | implemented | none | `--pane <id>`, `--mode toggle|on|off` | zoom state line |
-| `process-info` | implemented | `--surface <id>` | none | process metadata line |
-| `set-default-colors` | implemented | none | `--fg #rrggbb`, `--bg #rrggbb` | none |
-| `close-surface` | implemented | `--surface <id>` | none | none |
-| `close-pane` | implemented | `--pane <id>` | none | none |
-| `close-screen` | implemented | `--screen <id>` | none | none |
-| `close-workspace` | implemented | `--workspace <id>` | none | none |
-| `rename-pane` | implemented | `--pane <id> --name <name>` | none | none |
-| `rename-surface` | implemented | `--surface <id> --name <name>` | none | none |
-| `rename-screen` | implemented | `--screen <id> --name <name>` | none | none |
-| `rename-workspace` | implemented | `--workspace <id> --name <name>` | none | none |
-| `resize-surface` | implemented | `--surface <id> --cols <n> --rows <n>` | none | none |
-| `release-surface-size` | implemented | `--surface <id>` | none | none |
-| `focus-pane` | implemented | `--pane <id>` | none | none |
-| `select-tab` | implemented | one of `--index`, `--delta` | `--pane <id>` | none |
-| `select-screen` | implemented | one of `--index`, `--delta` | none | none |
-| `select-workspace` | implemented | one of `--index`, `--delta` | none | none |
-| `move-tab` | implemented | `--surface <id> --pane <id> --index <n>` | none | none |
-| `move-workspace` | implemented | `--workspace <id> --index <n>` | none | none |
-| `scroll-surface` | implemented | `--surface <id> --delta <n>` | none | none |
-| `subscribe` | implemented; tree deltas protocol 7 | none | `--tree-events coarse|deltas` | event JSON lines |
-| `attach-surface` | implemented; render mode protocol 7, initial sizing capability-gated | `--surface <id>` | `--mode bytes\|render`, paired `--cols <n> --rows <n>` | event JSON lines |
-| `wait-for` | implemented | `--surface <id> --pattern <regex> --timeout-ms <n>` | none | none |
-| `run` | implemented | `-- <argv...>` or `--command <cmd>` | `--pane <id>`, `--new-workspace`, `--cwd <path>`, `--name <name>` | surface id |
-| `send-key` | implemented | `--surface <id> <key>...` | none | none |
-| `copy` | implemented | `--surface <id> --mode screen\|selection\|scrollback` | none | text |
-| `ids` | implemented | none | `--kind workspace\|screen\|pane\|surface` | id lines |
-| `notify` | implemented | `--title <title> --body <body>` | `--level info\|warning\|error`, `--surface <id>` | notification id |
-| `list-agents` | implemented | none | `--surface <id>`, `--state <state>` | agent lines |
-| `report-agent` | implemented | `--surface <id> --state <state> --source socket\|hook` | `--session <id>` | none |
-| `plugin install` | implemented, CLI-only | `<git-url>` | `--name <name>`, `--force` | install summary and next step |
-| `plugin list` | implemented, CLI-only | none | `--json` | installed plugin lines |
-| `plugin use` | implemented, CLI-only | `<name>` or `--builtin` | global socket flags for best-effort reload | config write and reload status |
-| `plugin disable` | implemented, CLI-only | none | global socket flags for best-effort reload | config write and reload status |
-| `plugin update` | implemented, CLI-only | `<name>` | none | update summary |
-| `plugin remove` | implemented, CLI-only | `<name>` | global socket flags for best-effort reload when selected | removal summary |
-
-The grouped `plugin ...` verbs run entirely in the `cmux-tui` CLI process. They
-do not send plugin-specific socket commands and do not change the protocol.
-`plugin use`, `plugin use --builtin`, `plugin disable`, and selected-plugin
-removal edit the cmux-tui config locally, then best-effort send the existing
-`reload-config` command to the resolved session socket.
-
-## Worked Examples
-
-1. Identify a session:
+`workspace run` and `pane run` preserve exact argument arrays after `--`:
 
 ```bash
-cmux-tui --session main identify
+cmux workspace current run -- cargo test --workspace cmux-tui
+cmux pane current run -- sh -lc 'printf "%s\n" ready'
 ```
 
-2. Create a workspace and capture the surface id:
+The explicit shell form runs through the server platform's default shell:
 
 ```bash
-surface=$(cmux-tui new-workspace --name build)
+cmux workspace current run shell 'cargo test && printf ready'
 ```
 
-3. Send text from an argument:
+The client never reads or expands `$SHELL`.
 
-```bash
-cmux-tui send --surface "$surface" --text "cargo test"$'\r'
+Both run forms accept `--on-exit <close|keep>`. `close` (the default)
+detaches every view when the process exits and leaves only the durable exit
+receipt. `keep` retains the tab and the final screen next to that receipt
+until the terminal is closed; after a daemon restart a kept-exited terminal
+degrades to the normal detach.
+
+## Resource paths
+
+```text
+machine list
+machine <selector> show
+machine <selector> session list
+machine <selector> session <selector> open
+
+session list
+session <selector> open|show|snapshot|events|ping|shutdown
+session <name>|current stop
+session <selector> journal subscribe [--from tail|beginning]
+  [--cursor-session <session-id> --sequence <sequence>]
+  [--kinds <kind,...>] [--classes <class,...>] [--subjects <kind>:<id>,...]
+  [--max-sensitivity public|metadata|sensitive]
+  [--regex <pattern>] [--regex-field kind|subjects|payload|record|terminal_output] [--ignore-case]
+session <selector> journal read [--from beginning]
+  [--cursor-session <session-id> --sequence <sequence>] [FILTERS]
+session <selector> journal producer list
+session <selector> journal producer put --manifest-json <json> --idempotency-key <key>
+session <selector> journal append --event-json <json> --idempotency-key <key>
+session <selector> journal hook list
+session <selector> journal hook put --manifest-json <json> --idempotency-key <key>
+session <selector> journal checkpoint create --idempotency-key <key>
+session <selector> journal checkpoint list
+session <selector> journal restore preview [--checkpoint latest|<checkpoint-id>]
+session <selector> journal segment list
+session <selector> journal segment seal --through <sequence> --idempotency-key <key>
+session <name> reset-state [--force --confirm-reset <token>] [--state <path>]
+session <selector> creation <correlation-key> resolve
+session <selector> config reload
+session <selector> window title set|clear
+session <selector> terminal defaults set
+
+agent list
+agent report --terminal <selector> --state <state> --source <source>
+agent hook emit --source <provider> --event <native-event> [--terminal <id>]
+agent hook install|uninstall|status [provider...]
+
+client list
+client <selector> show|detach
+client <selector> metadata set
+client <selector> sizing set|release
+client <selector> cell pixels set
+
+workspace list|create
+workspace <selector> show|rename|move|focus|close|run
+workspace <selector> layout apply
+workspace <selector> screen ...
+
+screen list|create
+screen <selector> show|rename|focus|close
+screen <selector> layout export|undo
+screen <selector> pane ...
+
+pane list|create
+pane <selector> show|rename|focus|close|split|neighbor|swap|zoom|run
+pane <selector> focus direction <left|right|up|down>
+pane <selector> split ratio set
+pane <selector> viewport width set
+pane <selector> tab ...
+
+tab list
+tab create terminal|browser
+tab <selector> show|rename|move|focus|close
+tab <selector> terminal|browser ...
+
+terminal list
+terminal <selector> show|write|keys|mouse|copy|move|project|attach|close
+terminal <selector> focus <in|out>
+terminal <selector> screen read|wait
+terminal <selector> state read
+terminal <selector> history read|clear
+terminal <selector> output read [--after <offset>] [--max-bytes <n>]
+terminal <selector> process show|wait
+terminal <selector> viewport scroll
+
+browser list
+browser <selector> show|navigate|back|forward|reload|activate
+browser <selector> key|text|attach|close
+browser <selector> mouse|wheel --pointer-frame-seq <decimal>
+
+notification list
+notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
+notification clear [--terminal <term_id>]
+notification ack --client <id> <notification-id>...
+notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
+agent list|report
+agent plugin list|install|use|update|remove
+pairing request list
+pairing request <selector> respond <accept|reject>
+projection <selector> show|put
+
+sidebar view show|ensure|attach|input|resize|reload
+sidebar plugin list|install|use|update|remove
+
+provider authority install
+
 ```
 
-4. Send a script from stdin:
+`notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
+work unchanged inside a machine: `--title` (default `Notification`, at most
+512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
+`--clear`, `--surface`, `--workspace`, `--json`; `--window` and `--id-format`
+are accepted and ignored. The target defaults to the caller's own terminal
+(`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
+current` says the same, `--surface <term_id>` names another terminal of this
+session, and `--workspace` alone posts a session-level row with no terminal.
+A machine can only address its own session. `--clear` removes the retained
+rows for that target on the machine (`notification.clear`), so every attached
+client drops them. `--reply` is refused: a reply would type into a terminal,
+and that channel does not cross the link. Every row is bounded because each
+one is pushed to every attached client.
 
-```bash
-printf 'printf "ready\\n"\r' | cmux-tui send --surface "$surface"
+`notification ack --client <id> <notification-id>...` records that one client
+install has read the listed notifications. `--client` is the durable client
+id (1 to 128 printable ASCII bytes) that the client also reports through
+`client-focus`. Read state is per client: every notification row carries
+`read_by`, the sorted client ids that acknowledged it, and a second client
+keeps its own unread state. The shared `unread` marker on the console tree is
+unchanged by an acknowledgement. Ids the bounded ledger no longer retains are
+returned under `unknown`, not rejected, so a late acknowledgement after
+eviction is complete.
+
+`terminal <selector> output read` returns a bounded plain-text window of the
+terminal's journaled output stream: `{text, start_offset, next_offset,
+complete}`. Offsets are `terminal.output` stream byte offsets; pass a previous
+`next_offset` as `--after` to resume exactly, and omit it to read from the
+earliest still-retained byte. `complete` is false when `--max-bytes` (default
+262144, maximum 4194304) truncated the window. The command works on live
+terminals and on exited ones under both exit policies; after exit, reads
+before the durable exit snapshot's coverage answer with the snapshot's screen
+projection (`start_offset` 0), so the read never needs unbounded record
+retention. Escape sequences never appear in `text`, though a window that
+starts mid-stream may carry escape-state artifacts at its leading edge.
+
+Workspace creation starts with one terminal unless `--empty` is present.
+`terminal <selector> project` requires destination `--workspace`, `--screen`,
+`--pane`, and `--index` values and creates an unfocused tab placement. Tab,
+pane, screen, and workspace closes detach PTY views; only `terminal close`
+ends the session-owned process and removes all of its placements.
+`client <selector> metadata set` leaves an omitted field unchanged and clears
+one passed as null. A non-null name or kind preserves its exact value, contains
+at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.
+`screen layout undo` requires `--confirm-close` when the recorded change would
+close created panes. The read-only response includes an opaque confirmation
+token, the current global revision, and pane IDs. A confirmed retry sends that
+exact token and revision with a new idempotency key. The server revalidates the
+token under the mutation lock, so tab or layout changes make it stale and
+close nothing.
+
+Terminal and sidebar attachments stream styled render snapshots and patches.
+Browser attachments stream browser state and frames. Public attachments never
+expose raw PTY bytes. Each frame includes a nullable `pointer_frame_seq`.
+Pointer commands require the exact non-null token from the rendered frame.
+Stream cancellation and terminal/browser viewer leases remain owned by the
+long-lived attachment connection. SDK attachment objects manage those
+connection controls; one-shot CLI paths do not advertise them. `raw operation`
+remains available for transport testing.
+
+## Local sidebar plugins
+
+`sidebar plugin` commands read and write local plugin installation state. They
+never open a protocol connection or send a plugin ID to a session. Optional
+plugin names are slugs matching `[a-z0-9-_]+`.
+
+## Local agent plugins
+
+`agent plugin` commands read and write local installation state. They clone
+and build the selected package, validate its `kind = "agent"` manifest, and
+write the selected background command to `agents.plugin`. They do not open a
+protocol connection or send a plugin ID to a session. Run `cmux server
+reload-config` after changing the selection. The running plugin uses the
+generic journal producer and append operations over the server socket. Use
+`agent plugin use --builtin` to disable the selected userland plugin and return
+to no agent detector.
+
+`provider authority install` is a local Linux host-administration action. It
+installs the credential for an already running provider-managed session and is
+not a transported resource operation or cross-machine discovery API.
+
+## Raw access
+
+```text
+cmux raw operation <dotted.name> [--params-json <object>]
+  [--mutation --idempotency-key <value>] [--stream]
+
+cmux raw command --request-json <private-protocol-object>
 ```
 
-5. Wait for a prompt, then send a command:
+`raw operation` sends a generic `cmux.protocol/2` request. Known operations
+still use their catalog class. `raw command` sends a private protocol-v12
+object and has no compatibility promise.
 
-```bash
-cmux-tui wait-for --surface "$surface" --pattern 'ready' --timeout-ms 5000
-cmux-tui send --surface "$surface" --text "echo ok"$'\r'
-```
-
-6. Run a tool in a new tab and poll the screen:
-
-```bash
-surface=$(cmux-tui run --name server -- python3 -m http.server)
-until cmux-tui read-screen --surface "$surface" | rg -q 'Serving HTTP'; do
-  sleep 0.2
-done
-```
-
-7. Split a pane and resize the split:
-
-```bash
-new_surface=$(cmux-tui split --pane 2 --dir right)
-split=$(cmux-tui --json export-layout | jq -r '.layout.split')
-cmux-tui set-split-ratio --split "$split" --ratio 0.65
-```
-
-8. Subscribe to events and react to bells:
-
-```bash
-cmux-tui subscribe |
-  jq -rc 'select(.event == "bell") | .surface' |
-  while read -r surface; do
-    cmux-tui notify --title "Bell" --body "Surface $surface rang" --surface "$surface"
-  done
-```
-
-9. Watch agent states from a shell script:
-
-```bash
-cmux-tui subscribe |
-  jq -rc 'select(.event == "agent-state-changed") | select(.state == "blocked")' |
-  while read -r event; do
-    surface=$(jq -r '.surface' <<<"$event")
-    cmux-tui notify --title "Agent blocked" --body "Surface $surface needs attention" --level warning --surface "$surface"
-  done
-```
-
-10. Use short ids when protocol v6 is available:
-
-```bash
-sid=$(cmux-tui ids --kind surface | awk 'NR == 1 {print $3}')
-cmux-tui send-key --surface "$sid" enter
-```
-
-`sidebar-plugin` has no CLI verb: it is client-internal, issued by attach clients to obtain and size the sidebar plugin surface.
+The old action-first commands are removed. They fail locally with exit code 2
+before opening a socket.

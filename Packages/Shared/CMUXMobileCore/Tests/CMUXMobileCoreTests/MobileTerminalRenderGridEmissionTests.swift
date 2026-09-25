@@ -18,7 +18,7 @@ import Testing
 
     let emission = try frame.renderGridEmission(comparedTo: previous)
 
-    #expect(emission == nil)
+    #expect(emission == .none)
 }
 
 @Test func renderGridEmissionKeepsCursorOnlyOriginModeUpdatesAsDeltas() throws {
@@ -48,7 +48,7 @@ import Testing
         ]
     )
 
-    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous).emitted)
 
     #expect(!emission.frame.full)
     #expect(emission.frame.rowSpans.isEmpty)
@@ -82,7 +82,7 @@ import Testing
         ]
     )
 
-    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous).emitted)
 
     #expect(emission.frame.full)
     #expect(emission.frame.rowSpans == next.rowSpans)
@@ -108,7 +108,7 @@ import Testing
         activeScreen: .alternate
     )
 
-    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous).emitted)
 
     #expect(emission.frame.full)
     #expect(emission.frame.activeScreen == .alternate)
@@ -131,7 +131,7 @@ import Testing
         text: "new\nsame"
     )
 
-    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous).emitted)
 
     #expect(!emission.frame.full)
     #expect(emission.frame.clearedRows == [0])
@@ -161,7 +161,7 @@ import Testing
         terminalTheme: light
     )
 
-    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous).emitted)
 
     #expect(emission.frame.full)
     #expect(emission.frame.terminalTheme == light)
@@ -191,7 +191,7 @@ import Testing
         terminalConfigTheme: newConfig
     )
 
-    let emission = try #require(try next.renderGridEmission(comparedTo: previous))
+    let emission = try #require(try next.renderGridEmission(comparedTo: previous).emitted)
 
     #expect(emission.frame.full)
     #expect(emission.frame.terminalConfigTheme == newConfig)

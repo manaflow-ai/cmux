@@ -26,13 +26,14 @@ extension RemoteTmuxControlConnection {
 
     /// Registers a consumer's callbacks and returns a token to deregister them.
     ///
-    /// Multiple consumers (e.g. a mirrored workspace and a single-pane display
-    /// tab) can observe the same shared connection concurrently; every callback
+    /// Multiple mirrored workspaces can observe the same shared connection
+    /// concurrently; every callback
     /// fires for every event. Pass the returned token to ``removeObserver(_:)``
     /// when the consumer goes away.
     ///
     /// - Parameters:
     ///   - onPaneOutput: receives every `%output` (raw, octal-unescaped bytes).
+    ///   - onPaneSeed: receives an authoritative snapshot and its ordered live cutover.
     ///   - onPaneCwd: receives a pane's working directory (`pane_current_path`),
     ///     both the initial value and live changes (see ``requestPanePath(paneId:)``
     ///     and ``subscribePanePath(paneId:)``).
@@ -40,6 +41,8 @@ extension RemoteTmuxControlConnection {
     ///     reflow on resize for alt-screen / inline-TUI panes like claude; `false`
     ///     = a plain shell whose primary-screen scrollback may reflow), both the
     ///     initial value and live changes (see ``subscribePaneReflow(paneId:)``).
+    ///   - onPaneTitleChanged: fires when one pane's deliberate tmux title changes,
+    ///     without requiring a full topology rebuild.
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
@@ -57,8 +60,10 @@ extension RemoteTmuxControlConnection {
     @discardableResult
     func addObserver(
         onPaneOutput: ((_ paneId: Int, _ data: Data) -> Void)? = nil,
+        onPaneSeed: ((_ paneId: Int, _ seed: RemoteTmuxPaneSeed) -> Void)? = nil,
         onPaneCwd: ((_ paneId: Int, _ path: String) -> Void)? = nil,
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
+        onPaneTitleChanged: ((_ paneId: Int) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
@@ -68,8 +73,10 @@ extension RemoteTmuxControlConnection {
     ) -> ObserverToken {
         observers.add(
             onPaneOutput: onPaneOutput,
+            onPaneSeed: onPaneSeed,
             onPaneCwd: onPaneCwd,
             onPaneReflow: onPaneReflow,
+            onPaneTitleChanged: onPaneTitleChanged,
             onActivePaneChanged: onActivePaneChanged,
             onSessionChanged: onSessionChanged,
             onTopologyChanged: onTopologyChanged,

@@ -59,6 +59,53 @@ import Testing
         await session.tearDown(error: .connectionClosed)
     }
 
+    @Test func concurrentPurposeUpdatesCannotCloseTheInstalledCandidate()
+        async throws {
+        let transport = PurposeBarrierConnectTransport()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            initialTransportSessionPurpose: .backgroundControl
+        )
+        let first = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "first-purpose-waiter"
+        )
+        let second = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            params: [:],
+            id: "second-purpose-waiter"
+        )
+        let deadline =
+            DispatchTime.now().uptimeNanoseconds + 60 * 1_000_000_000
+
+        let firstTask = Task {
+            try await session.send(
+                payload: first,
+                requestID: "first-purpose-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        #expect(await transport.waitUntilConnectStarted())
+        let secondTask = Task {
+            try await session.send(
+                payload: second,
+                requestID: "second-purpose-waiter",
+                deadlineUptimeNanoseconds: deadline
+            )
+        }
+        await transport.releaseConnect()
+
+        _ = try await firstTask.value
+        _ = try await secondTask.value
+        #expect(!(await transport.closed()))
+        #expect(try await Set(transport.sentRequests().compactMap(\.id)) == [
+            "first-purpose-waiter",
+            "second-purpose-waiter",
+        ])
+        await session.tearDown(error: .connectionClosed)
+    }
+
     @Test func connectTimeoutDoesNotCancelOtherWaiters() async throws {
         let transport = ReleasableConnectTransport()
         let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59130)
@@ -316,11 +363,13 @@ import Testing
     }
 
     private func waitUntilClosed(_ transport: ReleasableConnectTransport) async -> Bool {
-        for _ in 0..<100 {
+        // Time-bounded polling, not bare yields: under suite load 100 yields
+        // can elapse before the session's async close task is ever scheduled.
+        for _ in 0..<200 {
             if await transport.closed() {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(nanoseconds: 1_000_000)
         }
         return await transport.closed()
     }

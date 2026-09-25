@@ -273,10 +273,25 @@ final class RemoteTmuxController {
     /// Mirrors each not-yet-mirrored session into `manager` (one failure must not
     /// abort the rest). Applies ``unmirroredSessions(_:host:)`` stable-id de-dup
     /// itself so every bulk entrypoint survives a rename race with raw input.
-    func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager) {
+    ///
+    /// `workspaceName` (`cmux ssh-tmux --name`) applies to the first
+    /// newly-mirrored session only: a bulk mirror has no unambiguous target.
+    func mirrorSessions(_ sessions: [RemoteTmuxSession], host: RemoteTmuxHost, into manager: TabManager, workspaceName: String? = nil) {
+        // Not loop position: an earlier session can throw or no-op
+        // (`mirrorSession` returns false), silently swallowing the name.
+        var appliedWorkspaceName = workspaceName == nil
         for session in unmirroredSessions(sessions, host: host) {
             do {
-                try mirrorSession(host: host, sessionName: session.name, sessionId: Self.tmuxSessionNumericId(session.id), into: manager)
+                let mirrored = try mirrorSession(
+                    host: host,
+                    sessionName: session.name,
+                    sessionId: Self.tmuxSessionNumericId(session.id),
+                    into: manager,
+                    customTitle: appliedWorkspaceName ? nil : workspaceName
+                )
+                if mirrored, !appliedWorkspaceName {
+                    appliedWorkspaceName = true
+                }
             } catch {
                 #if DEBUG
                 cmuxDebugLog("remote-tmux: mirror session failed")
@@ -287,25 +302,52 @@ final class RemoteTmuxController {
 
     /// Mirrors a single tmux session into a new workspace in `tabManager` (idempotent).
     /// `sessionId` seeds discovery's stable id for de-dup before the stream reports it.
+    /// `customTitle` is a local-only display title: unlike an interactive rename
+    /// of a mirrored workspace it must not `rename-session` on the remote host.
     @discardableResult
     func mirrorSession(
         host: RemoteTmuxHost,
         sessionName: String,
         sessionId: Int? = nil,
-        into tabManager: TabManager
+        into tabManager: TabManager,
+        customTitle: String? = nil
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
-        // Attach (and start the ssh process) BEFORE creating the workspace, so a
-        // failed connection doesn't leave an orphaned empty mirror workspace in
-        // the sidebar.
-        let connection = try attach(host: host, sessionName: sessionName)
-        let workspace = tabManager.addWorkspace(
-            title: sessionName,
-            select: false,
-            autoWelcomeIfNeeded: false
-        )
+        // Admit the connection and workspace as one active-manager acquisition:
+        // a finalized window must start neither the ssh process nor a workspace.
+        guard let acquisition = try tabManager.acquireOptionalWorkspaceIfActive({ () throws -> (
+            connection: RemoteTmuxControlConnection,
+            workspace: Workspace
+        )? in
+            let connection = try attach(host: host, sessionName: sessionName)
+            guard let workspace = tabManager.addWorkspaceIfActive(
+                title: sessionName,
+                titleSource: .auto,
+                select: false,
+                autoWelcomeIfNeeded: false,
+                applyCreationTitleAsCustomTitle: false
+            ) else {
+                connection.stop()
+                return nil
+            }
+            return (connection: connection, workspace: workspace)
+        }) else {
+            return false
+        }
+        let connection = acquisition.connection
+        let workspace = acquisition.workspace
         workspace.isRemoteTmuxMirror = true
+        // Identity pairs the connection pushes into the remote SESSION
+        // environment on attach and every reconnect (issue #833). Workspace id
+        // is published under both keys, matching the SSH-workspace bootstrap
+        // convention (`CMUX_TAB_ID` is the legacy alias). No socket path: the
+        // ssh-tmux transport has no relay, so a local path would be dead on the
+        // remote — see ``RemoteTmuxControlConnection/pushMirrorSessionEnvironment()``.
+        connection.setMirrorEnvironment([
+            "CMUX_WORKSPACE_ID": workspace.id.uuidString,
+            "CMUX_TAB_ID": workspace.id.uuidString,
+        ])
         workspace.remoteTmuxWindowOrderSync = { [weak self, weak workspace] orderedPanelIds, verification in
             guard let self, let workspace else { return false }
             return self.handleMirrorWindowsReordered(
@@ -322,8 +364,18 @@ final class RemoteTmuxController {
             tabManager: tabManager,
             workspace: workspace,
             onControlPaneRemoved: TerminalController.remoteTmuxControlPaneRemovalHandler(),
-            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler()
+            onControlSurfaceRemoved: TerminalController.remoteTmuxControlSurfaceRemovalHandler(
+                workspaceID: workspace.id
+            )
         )
+        if let customTitle, !customTitle.isEmpty {
+            tabManager.setCustomTitle(
+                tabId: workspace.id,
+                title: customTitle,
+                source: .user,
+                propagateToRemoteTmux: false
+            )
+        }
         return true
     }
 
@@ -604,7 +656,11 @@ final class RemoteTmuxController {
                 // Preserve a usable owning window when the remote disappears.
                 // The replacement is local and must not inherit the remote path.
                 if manager.tabs.count == 1 {
-                    _ = manager.addWorkspace(inheritWorkingDirectory: false, select: false)
+                    guard manager.acquireOptionalWorkspaceIfActive({
+                        manager.addWorkspaceIfActive(inheritWorkingDirectory: false, select: false)
+                    }) != nil else {
+                        return
+                    }
                 }
                 manager.closeWorkspace(workspace)
             case .explicitDetach:
@@ -661,7 +717,9 @@ final class RemoteTmuxController {
         var jobs: [(transport: RemoteTmuxSSHTransport, target: String)] = []
         for windowId in windowRegistry.windowsMarkedForKillOnClose() {
             guard windowRegistry.consumeKillSessionsOnClose(windowId: windowId) else { continue }
-            let closingWorkspaceIds = Set(AppDelegate.shared?.tabManagerFor(windowId: windowId)?.tabs.map(\.id) ?? [])
+            let closingWorkspaceIds = Set(
+                AppDelegate.shared?.tabManagerForWindowTeardown(windowId: windowId)?.tabs.map(\.id) ?? []
+            )
             let mirrorsInWindow = sessionMirrors.filter { _, mirror in
                 mirror.mirroredWorkspaceId.map(closingWorkspaceIds.contains) == true
             }
@@ -765,6 +823,17 @@ final class RemoteTmuxController {
             return
         }
         removeCachedConnection(forKey: key)?.stop()
+    }
+
+    /// `DisableRemoteConnections` (MDM): detaches every control client and
+    /// closes each mirror workspace it drove, then exits the shared SSH
+    /// masters through ``detachAll()``. Remote tmux sessions stay alive on
+    /// their hosts; only cmux's connections to them end.
+    func detachAllForManagedPolicy() {
+        for mirror in Array(sessionMirrors.values) {
+            detach(host: mirror.host, sessionName: mirror.sessionName)
+        }
+        detachAll()
     }
 
     /// Detaches every control connection on app quit and closes the shared SSH

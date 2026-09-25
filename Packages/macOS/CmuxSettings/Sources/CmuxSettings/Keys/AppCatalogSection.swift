@@ -41,6 +41,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Folder the Open Folder panel starts in. Empty keeps the active
+    /// workspace's directory. Supports a leading `~`.
+    public let defaultWorkspacePath = DefaultsKey<String>(
+        id: "app.defaultWorkspacePath",
+        defaultValue: "",
+        userDefaultsKey: "defaultWorkspacePath"
+    )
+
     public let workspaceInheritWorkingDirectory = DefaultsKey<Bool>(
         id: "app.workspaceInheritWorkingDirectory",
         defaultValue: true,
@@ -68,6 +76,21 @@ public struct AppCatalogSection: SettingCatalogSection {
         id: "app.focusPaneOnFirstClick",
         defaultValue: false,
         userDefaultsKey: "paneFirstClickFocus.enabled"
+    )
+
+    /// Number of points moved by each keyboard pane-resize step.
+    public let paneResizeStepPixels = DefaultsKey<Int>(
+        id: "app.paneResizeStepPixels",
+        defaultValue: PaneResizeStepSettings.defaultPixels,
+        userDefaultsKey: PaneResizeStepSettings.key
+    )
+
+    /// Whether focus history includes pane and tab changes within a workspace.
+    /// Defaults to workspace-only navigation.
+    public let focusHistoryIncludesPanesAndTabs = DefaultsKey<Bool>(
+        id: "app.focusHistoryIncludesPanesAndTabs",
+        defaultValue: false,
+        userDefaultsKey: "focusHistoryIncludesPanesAndTabs"
     )
 
     public let preferredEditor = DefaultsKey<String>(
@@ -132,7 +155,22 @@ public struct AppCatalogSection: SettingCatalogSection {
     public let warnBeforeClosingTab = DefaultsKey<Bool>(
         id: "app.warnBeforeClosingTab",
         defaultValue: true,
-        userDefaultsKey: "warnBeforeClosingTabShortcut"
+        userDefaultsKey: "warnBeforeClosingTabShortcut",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.warnBeforeClosingTab",
+                defaultValue: "Warn Before Closing Tab"
+            ),
+            section: .app,
+            searchID: "warn-before-closing-tab",
+            searchKeywords: ["close", "tab", "confirmation", "command-w", "cmd-w", "terminal", "surface"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "warnBeforeClosingTab",
+                    keywords: ["warn", "close", "tab", "confirmation", "cmd-w"]
+                )
+            ))
+        )
     )
 
     public let warnBeforeClosingTabXButton = DefaultsKey<Bool>(
@@ -144,13 +182,43 @@ public struct AppCatalogSection: SettingCatalogSection {
     public let hideTabCloseButton = DefaultsKey<Bool>(
         id: "app.hideTabCloseButton",
         defaultValue: false,
-        userDefaultsKey: "hideTabCloseButton"
+        userDefaultsKey: "hideTabCloseButton",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.hideTabCloseButton",
+                defaultValue: "Hide Tab Close Button"
+            ),
+            section: .app,
+            searchID: "hide-tab-close-button",
+            searchKeywords: ["hide", "x", "button", "close", "tab", "terminal", "surface"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "hideTabCloseButton",
+                    keywords: ["hide", "close", "tab", "x", "button"]
+                )
+            ))
+        )
     )
 
     public let renameSelectsExistingName = DefaultsKey<Bool>(
         id: "app.renameSelectsExistingName",
         defaultValue: true,
-        userDefaultsKey: "commandPalette.renameSelectAllOnFocus"
+        userDefaultsKey: "commandPalette.renameSelectAllOnFocus",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.renameSelectsName",
+                defaultValue: "Rename Selects Existing Name"
+            ),
+            section: .app,
+            searchID: "rename-selects-name",
+            searchKeywords: ["rename", "select", "all", "existing", "title", "command", "palette", "workspace", "name", "text", "selection"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "renameSelectsExistingName",
+                    keywords: ["rename", "select", "name", "title", "command", "palette"]
+                )
+            ))
+        )
     )
 
     public let commandPaletteSearchesAllSurfaces = DefaultsKey<Bool>(
