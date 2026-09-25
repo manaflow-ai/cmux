@@ -556901,7 +556901,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Projekt"
+            "value": "Projekat"
           }
         },
         "da": {
@@ -556961,7 +556961,7 @@
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Демонструвати"
+            "value": "Проєкт"
           }
         }
       }
@@ -557038,7 +557038,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collocamento"
+            "value": "Impostazione"
           }
         },
         "km": {
@@ -557062,7 +557062,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Contexto"
+            "value": "Configuração"
           }
         },
         "ru": {
@@ -557151,7 +557151,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Target"
+            "value": "Cilj"
           }
         },
         "da": {
@@ -557526,7 +557526,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Target"
+            "value": "Cilj"
           }
         },
         "da": {
@@ -559026,7 +559026,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compile"
+            "value": "Kompilacija"
           }
         },
         "da": {
@@ -559276,7 +559276,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Framework"
+            "value": "Okvir"
           }
         },
         "da": {
@@ -559401,7 +559401,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Header"
+            "value": "Zaglavlje"
           }
         },
         "da": {
@@ -559431,7 +559431,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chodnikowiec"
+            "value": "Nagłówek"
           }
         },
         "pt-BR": {
@@ -559556,7 +559556,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ratunek"
+            "value": "Zasób"
           }
         },
         "pt-BR": {
@@ -561026,7 +561026,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bundle"
+            "value": "Paket"
           }
         },
         "da": {
@@ -561401,7 +561401,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Framework"
+            "value": "Okvir"
           }
         },
         "da": {
@@ -562026,67 +562026,67 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aplikacija za gledanje"
+            "value": "Aplikacija Watch"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se app"
+            "value": "Watch-app"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guarda l'app"
+            "value": "App Watch"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មើលកម្មវិធី"
+            "value": "កម្មវិធី Watch"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se app"
+            "value": "Watch-app"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oglądaj aplikację"
+            "value": "Aplikacja Watch"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Assistir aplicativo"
+            "value": "App Watch"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Смотреть приложение"
+            "value": "Приложение Watch"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ดูแอป"
+            "value": "แอป Watch"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uygulamayı izle"
+            "value": "Watch uygulaması"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дивитися додаток"
+            "value": "Програма Watch"
           }
         }
       }
@@ -562151,67 +562151,67 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Produžetak za sat"
+            "value": "Proširenje Watch"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Urudvidelse"
+            "value": "Watch-udvidelse"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Guarda l'estensione"
+            "value": "Estensione Watch"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មើលផ្នែកបន្ថែម"
+            "value": "ផ្នែកបន្ថែម Watch"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se utvidelse"
+            "value": "Watch-utvidelse"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obejrzyj rozszerzenie"
+            "value": "Rozszerzenie Watch"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Extensão de exibição"
+            "value": "Extensão Watch"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Расширение для просмотра"
+            "value": "Расширение Watch"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ส่วนขยายการรับชม"
+            "value": "ส่วนขยาย Watch"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uzantıyı izle"
+            "value": "Watch uzantısı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Розширення годинника"
+            "value": "Розширення Watch"
           }
         }
       }
@@ -563276,7 +563276,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build"
+            "value": "Izgradnja"
           }
         },
         "da": {
@@ -563651,7 +563651,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deploy min"
+            "value": "Min. implementacije"
           }
         },
         "da": {
@@ -564401,7 +564401,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "bundle"
+            "value": "paket"
           }
         },
         "da": {
@@ -564651,7 +564651,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "min"
+            "value": "minimum"
           }
         },
         "da": {
@@ -564669,7 +564669,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "នាទី"
+            "value": "អប្បបរមា"
           }
         },
         "nb": {
@@ -564699,13 +564699,13 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "นาที"
+            "value": "ขั้นต่ำ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "dk."
+            "value": "minimum"
           }
         },
         "uk": {
@@ -566155,13 +566155,13 @@
                 "one": {
                   "stringUnit": {
                     "state": "translated",
-                    "value": "deps: %d"
+                    "value": "zavisnosti: %d"
                   }
                 },
                 "other": {
                   "stringUnit": {
                     "state": "translated",
-                    "value": "deps: %d"
+                    "value": "zavisnosti: %d"
                   }
                 }
               }
@@ -566191,13 +566191,13 @@
                 "one": {
                   "stringUnit": {
                     "state": "translated",
-                    "value": "dipende: %d"
+                    "value": "dipendenze: %d"
                   }
                 },
                 "other": {
                   "stringUnit": {
                     "state": "translated",
-                    "value": "dipende: %d"
+                    "value": "dipendenze: %d"
                   }
                 }
               }
@@ -566317,13 +566317,13 @@
                 "one": {
                   "stringUnit": {
                     "state": "translated",
-                    "value": "derinlikler: %d"
+                    "value": "bağımlılıklar: %d"
                   }
                 },
                 "other": {
                   "stringUnit": {
                     "state": "translated",
-                    "value": "derinlikler: %d"
+                    "value": "bağımlılıklar: %d"
                   }
                 }
               }

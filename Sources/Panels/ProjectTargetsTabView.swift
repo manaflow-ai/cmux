@@ -55,7 +55,7 @@ struct ProjectTargetsTabView: View {
                         Text(target.displayName)
                             .cmuxFont(size: 12, weight: .semibold)
                         Spacer()
-                        Text(ProjectPanelLocalization.productTypeLabel(target.productType))
+                        Text(panel.productTypeLabel(target.productType))
                             .cmuxFont(size: 10)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
@@ -124,7 +124,7 @@ struct ProjectTargetsTabView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(selected.target.displayName)
                                 .cmuxFont(size: 14, weight: .semibold)
-                            Text(ProjectPanelLocalization.productTypeLabel(selected.target.productType))
+                            Text(panel.productTypeLabel(selected.target.productType))
                                 .cmuxFont(size: 10)
                                 .foregroundStyle(.secondary)
                         }
@@ -162,7 +162,7 @@ struct ProjectTargetsTabView: View {
         VStack(alignment: .leading, spacing: 4) {
             row(
                 label: String(localized: "projectTargets.detail.product", defaultValue: "Product"),
-                value: ProjectPanelLocalization.productTypeLabel(target.productType)
+                value: panel.productTypeLabel(target.productType)
             )
             row(
                 label: String(localized: "projectTargets.detail.platforms", defaultValue: "Platforms"),

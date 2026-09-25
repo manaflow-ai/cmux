@@ -438,7 +438,7 @@ private struct ProjectFilesDetailStrip: View {
                 .cmuxFont(size: 12)
             Text(String.localizedStringWithFormat(
                 String(localized: "projectFiles.membership.roleFormat", defaultValue: "· %@"),
-                ProjectPanelLocalization.membershipRoleLabel(membership.role)
+                panel.membershipRoleLabel(membership.role)
             ))
                 .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)

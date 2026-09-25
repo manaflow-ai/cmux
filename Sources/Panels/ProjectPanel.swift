@@ -7,85 +7,6 @@ import SwiftUI
 
 nonisolated private let projectPanelLogger = Logger(subsystem: "com.cmuxterm.app", category: "ProjectPanel")
 
-/// Localized presentation for values that are shared by the project panel's
-/// tabs. Parser errors intentionally expose only a stable, localized summary;
-/// the adapter's raw reason is logged by ``ProjectPanel`` for diagnostics.
-enum ProjectPanelLocalization {
-    nonisolated static func loadErrorMessage(for error: Error, projectURL: URL) -> String {
-        if let loadError = error as? ProjectLoadError {
-            switch loadError {
-            case let .unreadable(url):
-                return String.localizedStringWithFormat(
-                    String(localized: "projectPanel.loadError.unreadable", defaultValue: "Cannot read project at %@"),
-                    url.path
-                )
-            case let .unsupported(url):
-                return String.localizedStringWithFormat(
-                    String(localized: "projectPanel.loadError.unsupported", defaultValue: "Unsupported project at %@"),
-                    url.path
-                )
-            case let .parseFailure(url, _):
-                return String.localizedStringWithFormat(
-                    String(localized: "projectPanel.loadError.parseFailure", defaultValue: "Unable to parse project at %@"),
-                    url.path
-                )
-            }
-        }
-        return String.localizedStringWithFormat(
-            String(localized: "projectPanel.loadError.generic", defaultValue: "Unable to load project at %@"),
-            projectURL.path
-        )
-    }
-
-    nonisolated static func productTypeLabel(_ productType: TargetProductType) -> String {
-        switch productType {
-        case .application:
-            return String(localized: "projectTargets.productType.application", defaultValue: "Application")
-        case .framework:
-            return String(localized: "projectTargets.productType.framework", defaultValue: "Framework")
-        case .staticLibrary:
-            return String(localized: "projectTargets.productType.staticLibrary", defaultValue: "Static library")
-        case .dynamicLibrary:
-            return String(localized: "projectTargets.productType.dynamicLibrary", defaultValue: "Dynamic library")
-        case .bundle:
-            return String(localized: "projectTargets.productType.bundle", defaultValue: "Bundle")
-        case .unitTest:
-            return String(localized: "projectTargets.productType.unitTest", defaultValue: "Unit test")
-        case .uiTest:
-            return String(localized: "projectTargets.productType.uiTest", defaultValue: "UI test")
-        case .commandLineTool:
-            return String(localized: "projectTargets.productType.commandLineTool", defaultValue: "Command-line tool")
-        case .appExtension:
-            return String(localized: "projectTargets.productType.appExtension", defaultValue: "App extension")
-        case .watchApp:
-            return String(localized: "projectTargets.productType.watchApp", defaultValue: "Watch app")
-        case .watchExtension:
-            return String(localized: "projectTargets.productType.watchExtension", defaultValue: "Watch extension")
-        case .xcFramework:
-            return String(localized: "projectTargets.productType.xcFramework", defaultValue: "XCFramework")
-        case .other:
-            return String(localized: "projectTargets.productType.other", defaultValue: "Other")
-        }
-    }
-
-    nonisolated static func membershipRoleLabel(_ role: TargetMembershipRole) -> String {
-        switch role {
-        case .compile:
-            return String(localized: "projectFiles.membership.role.compile", defaultValue: "Compile")
-        case .resource:
-            return String(localized: "projectFiles.membership.role.resource", defaultValue: "Resource")
-        case .copy:
-            return String(localized: "projectFiles.membership.role.copy", defaultValue: "Copy")
-        case .framework:
-            return String(localized: "projectFiles.membership.role.framework", defaultValue: "Framework")
-        case .header:
-            return String(localized: "projectFiles.membership.role.header", defaultValue: "Header")
-        case .script:
-            return String(localized: "projectFiles.membership.role.script", defaultValue: "Script")
-        }
-    }
-}
-
 /// Which tab is active inside a ``ProjectPanel``.
 public enum ProjectPanelTab: String, Sendable, Hashable, CaseIterable {
     case files
@@ -194,9 +115,9 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
 
     private func applyLoadError(_ error: Error, previousModel: ProjectModel?) {
         projectPanelLogger.error(
-            "Project load failed at \(projectURL.path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))"
+            "Project load failed at \(self.projectURL.path, privacy: .private(mask: .hash)): \(String(describing: error), privacy: .private(mask: .hash))"
         )
-        lastLoadError = ProjectPanelLocalization.loadErrorMessage(for: error, projectURL: projectURL)
+        lastLoadError = loadErrorMessage(for: error, projectURL: projectURL)
         if let previousModel {
             loadState = .loaded(previousModel)
         } else {
@@ -204,6 +125,81 @@ public final class ProjectPanel: NSObject, Panel, ObservableObject {
                 String(localized: "projectPanel.loadError.generic", defaultValue: "Unable to load project at %@"),
                 projectURL.path
             ))
+        }
+    }
+
+    /// Formats a localized error without exposing the adapter's parser reason.
+    private func loadErrorMessage(for error: Error, projectURL: URL) -> String {
+        if let loadError = error as? ProjectLoadError {
+            switch loadError {
+            case let .unreadable(url):
+                return String.localizedStringWithFormat(
+                    String(localized: "projectPanel.loadError.unreadable", defaultValue: "Cannot read project at %@"),
+                    url.path
+                )
+            case let .unsupported(url):
+                return String.localizedStringWithFormat(
+                    String(localized: "projectPanel.loadError.unsupported", defaultValue: "Unsupported project at %@"),
+                    url.path
+                )
+            case let .parseFailure(url, _):
+                return String.localizedStringWithFormat(
+                    String(localized: "projectPanel.loadError.parseFailure", defaultValue: "Unable to parse project at %@"),
+                    url.path
+                )
+            }
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "projectPanel.loadError.generic", defaultValue: "Unable to load project at %@"),
+            projectURL.path
+        )
+    }
+
+    nonisolated func productTypeLabel(_ productType: TargetProductType) -> String {
+        switch productType {
+        case .application:
+            return String(localized: "projectTargets.productType.application", defaultValue: "Application")
+        case .framework:
+            return String(localized: "projectTargets.productType.framework", defaultValue: "Framework")
+        case .staticLibrary:
+            return String(localized: "projectTargets.productType.staticLibrary", defaultValue: "Static library")
+        case .dynamicLibrary:
+            return String(localized: "projectTargets.productType.dynamicLibrary", defaultValue: "Dynamic library")
+        case .bundle:
+            return String(localized: "projectTargets.productType.bundle", defaultValue: "Bundle")
+        case .unitTest:
+            return String(localized: "projectTargets.productType.unitTest", defaultValue: "Unit test")
+        case .uiTest:
+            return String(localized: "projectTargets.productType.uiTest", defaultValue: "UI test")
+        case .commandLineTool:
+            return String(localized: "projectTargets.productType.commandLineTool", defaultValue: "Command-line tool")
+        case .appExtension:
+            return String(localized: "projectTargets.productType.appExtension", defaultValue: "App extension")
+        case .watchApp:
+            return String(localized: "projectTargets.productType.watchApp", defaultValue: "Watch app")
+        case .watchExtension:
+            return String(localized: "projectTargets.productType.watchExtension", defaultValue: "Watch extension")
+        case .xcFramework:
+            return String(localized: "projectTargets.productType.xcFramework", defaultValue: "XCFramework")
+        case .other:
+            return String(localized: "projectTargets.productType.other", defaultValue: "Other")
+        }
+    }
+
+    nonisolated func membershipRoleLabel(_ role: TargetMembershipRole) -> String {
+        switch role {
+        case .compile:
+            return String(localized: "projectFiles.membership.role.compile", defaultValue: "Compile")
+        case .resource:
+            return String(localized: "projectFiles.membership.role.resource", defaultValue: "Resource")
+        case .copy:
+            return String(localized: "projectFiles.membership.role.copy", defaultValue: "Copy")
+        case .framework:
+            return String(localized: "projectFiles.membership.role.framework", defaultValue: "Framework")
+        case .header:
+            return String(localized: "projectFiles.membership.role.header", defaultValue: "Header")
+        case .script:
+            return String(localized: "projectFiles.membership.role.script", defaultValue: "Script")
         }
     }
 
