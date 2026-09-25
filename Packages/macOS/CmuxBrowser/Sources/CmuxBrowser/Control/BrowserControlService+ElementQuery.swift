@@ -11,6 +11,7 @@ extension BrowserControlService {
         const __cmuxSelectorParts = (selector) => {
           const source = String(selector || '');
           const parts = [];
+          let crossesShadowRoot = false;
           let start = 0;
           let quote = null;
           let escaped = false;
@@ -73,13 +74,16 @@ extension BrowserControlService {
             if (brackets === 0 && parentheses === 0
                 && character === '>' && source[index + 1] === '>'
                 && source[index + 2] === '>') {
-              parts.push(source.slice(start, index).trim());
+              const part = source.slice(start, index).trim();
+              if (part) parts.push({ selector: part, crossesShadowRoot });
               index += 2;
               start = index + 1;
+              crossesShadowRoot = true;
             }
           }
-          parts.push(source.slice(start).trim());
-          return parts.filter(Boolean);
+          const part = source.slice(start).trim();
+          if (part) parts.push({ selector: part, crossesShadowRoot });
+          return parts;
         };
         const __cmuxCollectMatches = (root, selector, output, seen) => {
           if (!root || typeof root.querySelectorAll !== 'function') return;
@@ -100,21 +104,24 @@ extension BrowserControlService {
           if (!parts.length) return [];
           let roots = [document];
           for (let index = 0; index < parts.length; index += 1) {
+            const part = parts[index];
             const matches = [];
             const seen = new Set();
-            for (const root of roots) {
-              __cmuxCollectMatches(root, parts[index], matches, seen);
+            if (index === 0 || !part.crossesShadowRoot) {
+              for (const root of roots) {
+                __cmuxCollectMatches(root, part.selector, matches, seen);
+              }
+            } else {
+              for (const root of roots) {
+                // New paths use >>> only at an open shadow boundary. Keep a
+                // light-DOM fallback for refs emitted by older cmux versions
+                // that used >>> for every ancestor hop.
+                const shadowRoot = root.shadowRoot;
+                __cmuxCollectMatches(shadowRoot || root, part.selector, matches, seen);
+              }
             }
             if (index === parts.length - 1) return matches;
-            // Generated paths use > for direct light-DOM hops and >>> when
-            // crossing an open shadow root. Keep both the matched element and
-            // its open root as search roots so older refs that used >>> for
-            // every hop remain compatible.
-            roots = matches.flatMap((element) => {
-              const nextRoots = [element];
-              if (element.shadowRoot) nextRoots.push(element.shadowRoot);
-              return nextRoots;
-            });
+            roots = matches;
           }
           return [];
         };

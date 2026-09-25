@@ -106,6 +106,7 @@ struct BrowserControlServiceTests {
         #expect(queryPrelude.contains("const __cmuxSelectorParts"))
         #expect(queryPrelude.contains("escapedOutsideQuote"))
         #expect(queryPrelude.contains("const __cmuxCollectMatches"))
+        #expect(queryPrelude.contains("crossesShadowRoot"))
     }
 
     @Test("evaluationScript binds the selected same-origin frame document")
