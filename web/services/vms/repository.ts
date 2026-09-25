@@ -92,6 +92,10 @@ export type VmResizeReservation = {
 };
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
+export type VmListOptions = {
+  /** Include the caller's personal scope when a team scope is also requested. */
+  readonly includePersonal?: boolean;
+};
 // Reaper batches are capped at 100. Keep repository calls bounded even if a
 // future caller passes a malformed or oversized name list.
 const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
@@ -122,7 +126,7 @@ export type BillingGrantClaim =
   | { readonly kind: "already_claimed" };
 
 export type VmRepositoryShape = {
-  readonly listUserVms: (userId: string, billingTeamId?: string | null) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly listUserVms: (userId: string, billingTeamId?: string | null, options?: VmListOptions) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /**
    * Private-network and tunnel bookkeeping. Optional as a group so test
    * doubles built before the feature keep compiling; the live layer always
@@ -831,8 +835,12 @@ function idempotencyScopeWhere(input: {
 function accountScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
+  readonly includePersonal?: boolean;
 }) {
-  return eq(cloudVms.ownerTeamId, input.billingTeamId?.trim() || input.userId);
+  const teamId = input.billingTeamId?.trim();
+  const scope = eq(cloudVms.ownerTeamId, teamId || input.userId);
+  if (!input.includePersonal || !teamId || teamId === input.userId) return scope;
+  return or(scope, eq(cloudVms.ownerTeamId, input.userId));
 }
 
 function positiveReservationInteger(value: unknown): number | null {
@@ -1472,7 +1480,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       return rows.length > 0;
     }),
 
-  listUserVms: (userId, billingTeamId) =>
+  listUserVms: (userId, billingTeamId, options) =>
     dbEffect("listUserVms", async () => {
       const db = cloudDb();
       const teamId = billingTeamId?.trim();
@@ -1480,7 +1488,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .select()
         .from(cloudVms)
         .where(and(
-          accountScopeWhere({ userId, billingTeamId: teamId }),
+          accountScopeWhere({ userId, billingTeamId: teamId, includePersonal: options?.includePersonal }),
           ne(cloudVms.status, "destroyed"),
         ))
         .orderBy(desc(cloudVms.createdAt));
