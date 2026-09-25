@@ -1028,7 +1028,9 @@ class FakeActions:
 
     def pull_request_runs_since(self, since, *, exclude_run_id):
         self._call("ci.yml runs")
-        return self.pool.pr_runner_pool.count_in_flight(self.state["pr_runs"], exclude_run_id=exclude_run_id)
+        # Runs with a created_at are filtered like the API's created>= query.
+        runs = [run for run in self.state["pr_runs"] if str(run.get("created_at") or since) >= since]
+        return self.pool.pr_runner_pool.count_in_flight(runs, exclude_run_id=exclude_run_id)
 
 
 class WorkflowRunnerPoolTests(unittest.TestCase):
@@ -1376,12 +1378,14 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         stamp = lambda moment: moment.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
         old, new = stamp(window - __import__("datetime").timedelta(minutes=5)), stamp(NOW)
         title = f"cmuxTests/A on {MINI} @ main"
-        older = [{"id": n, "status": "in_progress", "display_title": title, "created_at": old} for n in range(5)]
-        # Five older E2E runs on the pool are already busy runners: one idle machine is still free.
-        self.assertEqual(self.live(1, e2e_runs=older)[0], MINI)
-        # One of this window's runs has not reached its runner yet: it takes the idle machine.
-        recent = [{"id": 9, "status": "queued", "display_title": title, "created_at": new}]
-        self.assertIn(self.live(1, e2e_runs=older + recent)[0], self.pool.E2E_POOLS)
+        # Five older PR runs are Blacksmith-only by now: one idle machine is still free.
+        prs = [{"id": 100 + n, "status": "in_progress", "created_at": old} for n in range(5)]
+        self.assertEqual(self.live(1, pr_runs=prs)[0], MINI)
+        # An older E2E run naming the pool may still be waiting in `sibling` with no Mac:
+        # it keeps its machine, so the one idle runner is taken.
+        waiting = [{"id": 9, "status": "in_progress", "display_title": title, "created_at": old}]
+        self.assertIn(self.live(1, e2e_runs=waiting)[0], self.pool.E2E_POOLS)
+        self.assertEqual(self.live(2, e2e_runs=waiting)[0], MINI)
         # The window costs one more runs listing, and nothing else.
         self.assertEqual(self.live(1)[2].paths, ["artifacts", "artifact zip", "test-e2e.yml runs", "ci.yml runs",
                                                   "ci.yml runs"])
