@@ -113,6 +113,8 @@ jobs:
           # Owned pools on: read each candidate run's owned-pool marker for the
           # peak it declared. Not copied into the snapshot; forks never use them.
           PR_POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          # 1: attempt 2 may hold the light pool, so its marker is read too.
+          OWNED_LIGHT_RETRY: ${{ vars.CI_OWNED_LIGHT_RETRY }}
         run: python3 scripts/ci/queue_janitor.py
 
       # What this sweep saw on each macOS pool. ci.yml's `changes` job reads
