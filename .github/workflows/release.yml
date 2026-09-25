@@ -13,7 +13,6 @@ permissions:
 
 concurrency:
   group: stable-appcast-publication
-  queue: max
   cancel-in-progress: false
 
 env:
