@@ -658,7 +658,20 @@ class OwnedPools(unittest.TestCase):
                 with unittest.mock.patch("sys.stdout", stdout):
                     pool.main([], env)
                 self.assertEqual("::error title=CI_OWNED_POOL_SLOTS::" in stdout.getvalue(), warned, owned)
-                self.assertEqual("**Warning:**" in Path(tmp, "summary").read_text(), warned, owned)
+                self.assertEqual("**Error:**" in Path(tmp, "summary").read_text(), warned, owned)
+
+    def test_slots_take_a_bare_count_or_a_class_for_the_lane_pin(self):
+        pin = "/Applications/Xcode_26.6.app"
+        for raw in ("40", " 40\n", '{"std": 40}'):
+            self.assertEqual(pool.slots(raw, pin), {MINI: 40}, raw)
+            self.assertEqual(pool.slot_problems(raw, pin), [], raw)
+        self.assertEqual(pool.slots('{"std": 40, "light": 4}', pin), {MINI: 40, LIGHT: 4})
+        self.assertEqual(pool.slots('{"std": 40, "%s": 36}' % MINI, pin), {MINI: 36})
+        self.assertEqual(pool.slots("40", ""), {})
+        self.assertIn("names no Xcode version", pool.slot_problems("40", "")[0])
+        self.assertEqual(pool.slots("0", pin), {})
+        self.assertEqual(pool.slots("true", pin), {})
+        self.assertEqual(owned_choice(fleet(), owned_slots="40").runner, MINI)
 
     def test_slots_ignore_anything_malformed(self):
         self.assertEqual(pool.slots('{"%s": 11, "blacksmith-6vcpu-macos-26": 5, "glaeda-std-xcode-26.3": 0,'
