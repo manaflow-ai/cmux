@@ -2210,13 +2210,14 @@ class TerminalController {
                 await writer.cancelAndWait()
                 _ = self.transport.configureBlocking(socket)
                 await releaseWorkerCapacity()
+                let streamPasswordAuthorization = passwordAuthorization
                 await self.runBlockingSocketBody {
                     self.handleEventsStreamRequest(
                         trimmed,
                         socket: socket,
                         authorizationGeneration: authorizationGeneration,
                         authorizationRevocationSignal: authorizationRevocationSignal,
-                        passwordAuthorization: passwordAuthorization
+                        passwordAuthorization: streamPasswordAuthorization
                     )
                 }
                 return
