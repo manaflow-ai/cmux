@@ -13,7 +13,7 @@ import Testing
 @Suite(.serialized)
 struct TerminalLocalImageTransferFileLifetimeTests {
     private static let onePixelPNGBase64 =
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lS2cWQAAAABJRU5ErkJggg=="
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="
 
     private struct HostedTerminal {
         let surface: TerminalSurface

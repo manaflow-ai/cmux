@@ -19,33 +19,6 @@ extension CmuxTuiSurfaceProvider {
         update(summary: next)
     }
 
-    static func info(
-        from summary: VMSummary,
-        linkState: SurfaceLinkState,
-        linkError: String?,
-        stats: VMStats?,
-        remoteWorkspaces: [SurfaceRemoteWorkspace]? = nil,
-        portDiscoveryState: CloudPortDiscoveryState = .notRequested
-    ) -> SurfaceMachineInfo {
-        SurfaceMachineInfo(
-            id: .cloud(summary.id),
-            name: summary.preferredName,
-            status: summary.status,
-            image: summary.image,
-            hasDesktop: summary.resolvedKind.hasDesktop,
-            memoryMb: stats?.memoryTotalMb,
-            diskMb: stats?.diskTotalMb,
-            linkState: linkState,
-            linkError: linkError,
-            cpuPercent: stats?.cpuPercent,
-            memoryUsedMb: stats?.memoryUsedMb,
-            diskUsedMb: stats?.diskUsedMb,
-            remoteWorkspaces: remoteWorkspaces,
-            privateAddress: summary.preferredPrivateAddress,
-            portDiscoveryState: portDiscoveryState
-        )
-    }
-
     func ports(
         link: CloudMachineLink,
         socketPath: String,

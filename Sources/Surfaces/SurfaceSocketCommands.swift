@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxControlSocket
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 
 // The socket face of the surface catalog: `surface.catalog`, `surface.project`,
@@ -28,10 +30,20 @@ extension TerminalController {
         case "surface.catalog":
             let machine = Self.surfaceMachineFilter(params["machine"])
             if let machine, machine.cloudMachineID != nil, let error = cloudDisabledSocketError(id: id) { return error }
-            let refresh = Self.surfaceBool(params["refresh"]) ?? false
+            // `refresh` forces a provider pass; `ensure_linked` only connects a
+            // machine that has no live graph yet (a just-created VM) and is free
+            // for one that is already linked. `refresh` wins when both are sent.
+            let mode: SurfaceCatalogReadMode
+            if Self.surfaceBool(params["refresh"]) == true {
+                mode = .forced
+            } else if Self.surfaceBool(params["ensure_linked"]) == true {
+                mode = .linked
+            } else {
+                mode = .cached
+            }
             return v2VmCall(id: id, timeoutSeconds: 120) {
                 let query = await Self.surfaceCatalogQuery(catalog: .shared)
-                let export = await query.read(machine: machine, refresh: refresh)
+                let export = await query.read(machine: machine, mode: mode)
                 return Self.surfaceCatalogPayload(export, machine: machine)
             }
 
@@ -1331,12 +1343,4 @@ extension TerminalController {
         guard let array = raw as? [Any] else { return [] }
         return array.compactMap { surfaceString($0) }
     }
-}
-
-extension SurfaceResourceID {
-    /// The key every provider uses for a machine's one VNC display (T10 makes this a list).
-    static let desktopDisplayKey = "display:1"
-
-    /// The key for the browser that shows a forwarded HTTP port.
-    static func portKey(_ port: Int) -> String { "port:\(port)" }
 }

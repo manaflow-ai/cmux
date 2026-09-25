@@ -7,6 +7,9 @@ public import SwiftUI
 /// macOS 27 so native pointer movement reaches WebKit. The host is supplied by
 /// `NSViewRepresentable`, which keeps AppKit portal children out of the
 /// `NSHostingView` view tree itself.
+///
+/// This view owns empty-space pass-through; keep its SwiftUI ancestors hit-test
+/// enabled so native events can reach browser content and interactive overlays.
 @MainActor
 public final class WindowContentOverlayBrowserHostView: NSView {
     public static let identifier = NSUserInterfaceItemIdentifier("cmux.windowContentOverlay.browserHost")

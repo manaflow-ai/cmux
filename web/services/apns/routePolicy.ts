@@ -29,8 +29,8 @@ export type ApnsBundlePolicy = {
  * mirror (the default; older Macs never send `kind`). `dismiss` is the cold
  * lane of Mac→iOS dismiss-sync: a banner-less `content-available` push carrying
  * the dismissed ids plus the authoritative badge, fanned out to every
- * registered device in the selected app namespace (idempotent on devices that
- * got the live event).
+ * registered device, or to every registered app namespace when the Mac sends
+ * an account-wide fanout (idempotent on devices that got the live event).
  */
 export type PushKind = "notify" | "dismiss";
 
@@ -107,6 +107,23 @@ function boundedString(value: unknown, maxChars: number): string | null {
   const text = stringValue(value);
   if (text.length > maxChars) return null;
   return text;
+}
+
+/**
+ * The APNs environment to store for one registration. A production bundle
+ * defaults to the production host, but a Simulator or development-signed
+ * install of that bundle only receives sandbox tokens and declares
+ * `environment: "sandbox"`; sending those to the production host fails with
+ * BadDeviceToken and prunes the row. Development bundles stay sandbox-only.
+ */
+export function registrationApnsBundle(
+  bundle: ApnsBundlePolicy | null,
+  requestedEnvironment: unknown,
+): ApnsBundlePolicy | null {
+  if (bundle?.environment === "production" && requestedEnvironment === "sandbox") {
+    return { bundleId: bundle.bundleId, environment: "sandbox" };
+  }
+  return bundle;
 }
 
 export function normalizeApnsBundle(bundleId: string): ApnsBundlePolicy | null {

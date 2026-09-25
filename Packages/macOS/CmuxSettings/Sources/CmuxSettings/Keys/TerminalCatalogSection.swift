@@ -43,6 +43,16 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Whether macOS text-editing gestures are replayed as their line-editor
+    /// equivalents: Command and Option arrow motion, and the Command and Option
+    /// deletion chords. Off by default, because the mode claims chords the
+    /// running application would otherwise receive.
+    public let textEditingGestures = DefaultsKey<Bool>(
+        id: "terminal.textEditingGestures",
+        defaultValue: false,
+        userDefaultsKey: "terminal.textEditingGestures"
+    )
+
     /// Whether cmux supplies its appearance-adaptive managed palette for an
     /// Ghostty config without authored themes or terminal colors. Font and
     /// behavior settings preserve the managed palette; it is enabled by default.

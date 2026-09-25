@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 /// Scroll view + outline host for the Cloud tree.

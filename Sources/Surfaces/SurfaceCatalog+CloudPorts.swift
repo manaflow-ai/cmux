@@ -1,91 +1,7 @@
+import CmuxCloud
 import CmuxFoundation
+import CmuxSurfaceCatalogModel
 import Foundation
-
-extension CmuxTuiSnapshotParser {
-    /// One local socket binding from `ss -ltn` or `netstat -ltn`.
-    struct ListeningPortBinding: Hashable, Sendable {
-        let port: Int
-        let address: String
-
-        /// Loopback-only listeners cannot be reached through a machine's
-        /// private network address. A port with any wildcard/non-loopback
-        /// binding remains reachable even if another process also binds loopback.
-        var isLoopbackOnly: Bool {
-            let normalized = address
-                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                .split(separator: "%", maxSplits: 1, omittingEmptySubsequences: true)
-                .first
-                .map(String.init)
-                .map { $0.lowercased() } ?? ""
-            if normalized == "localhost" || normalized == "::1" { return true }
-            // Linux may print an IPv4 loopback listener as an IPv4-mapped IPv6
-            // address (`::ffff:127.0.0.1`). Treat every mapped 127/8 address
-            // as loopback before deciding that a private-address preview is
-            // reachable.
-            if let mappedIPv4 = normalized.split(separator: ":").last,
-               mappedIPv4.split(separator: ".").count == 4 {
-                let octets = mappedIPv4.split(separator: ".")
-                if octets.first == "127" { return true }
-            }
-            let octets = normalized.split(separator: ".")
-            return octets.count == 4 && octets[0] == "127"
-        }
-    }
-
-    /// Parses local address/port pairs while retaining the bind address for
-    /// providers that open services directly over a private network.
-    static func listeningPortBindings(fromSocketListing text: String) -> [ListeningPortBinding] {
-        var byPort: [Int: Set<String>] = [:]
-        for line in text.split(separator: "\n") {
-            let columns = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            guard columns.count >= 4 else { continue }
-            // `ss`: State Recv-Q Send-Q Local:Port …; `netstat`: Proto Recv-Q
-            // Send-Q Local:Port … . The first numeric port in the local prefix
-            // is the local endpoint; peer ports are intentionally ignored.
-            for column in columns.prefix(5) {
-                guard let colon = column.lastIndex(of: ":"),
-                      let port = Int(column[column.index(after: colon)...]),
-                      (1...65_535).contains(port) else { continue }
-                let address = String(column[..<colon])
-                byPort[port, default: []].insert(address)
-                break
-            }
-        }
-        return byPort
-            .flatMap { entry in
-                entry.value.map { address in
-                    ListeningPortBinding(port: entry.key, address: address)
-                }
-            }
-            .sorted {
-                $0.port != $1.port ? $0.port < $1.port : $0.address < $1.address
-            }
-    }
-
-    /// Whether a listener can be opened through the authenticated guest-loopback browser proxy.
-    static func reachableListeningPorts(
-        fromSocketListing text: String,
-        privateAddress: String?
-    ) -> [Int] {
-        CloudPortScanResult(socketListing: text)?.ports ?? []
-    }
-}
-
-extension SurfaceResourceID {
-    /// The numeric port encoded by the canonical cloud forwarded-port identity.
-    /// Snapshot browser views that visit localhost are normalized to this key so
-    /// the machine port and its workspace row share one resource identity.
-    var forwardedPort: Int? {
-        guard kind == .browser, key.hasPrefix("port:") else { return nil }
-        let value = key.dropFirst("port:".count)
-        guard let port = Int(value), (1...65_535).contains(port) else { return nil }
-        guard key == SurfaceResourceID.portKey(port) else { return nil }
-        return port
-    }
-
-    /// Whether this id is the machine-level forwarded-port resource.
-    var isForwardedPort: Bool { forwardedPort != nil }
-}
 
 extension SurfaceCatalog {
     /// Localized destination error shared by the sidebar and socket open paths.
@@ -129,7 +45,7 @@ extension SurfaceCatalog {
     ) async throws -> (projection: SurfaceProjection, reused: Bool) {
         let id = SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port))
         try validateOwnership(of: [id], at: destination)
-        guard case .cloud = machine, (1...65_535).contains(port) else {
+        guard machine.tuiMachineID != nil, (1...65_535).contains(port) else {
             throw SurfaceCatalogError.unsupported(
                 String(localized: "cloudTree.port.invalidMachine", defaultValue: "Ports can only be opened on a cloud machine.")
             )
@@ -238,10 +154,13 @@ extension SurfaceCatalog {
         let refreshedIDs = Set(refreshed.map(\.id))
         let previousIDs = Set(previous.map(\.id))
         let projectedResourceIDs = Set(projections.map(\.resource))
+        let displayPortsOwned = machineInfo(for: machine)?.hasDesktop == true
+            || previous.contains { $0.kind == .display }
         var result = refreshed
         for candidate in snapshot.resources(on: machine)
         where candidate.id.isForwardedPort
             && !CmuxTuiSnapshotParser.internalPorts.contains(candidate.id.forwardedPort ?? -1)
+            && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains(candidate.id.forwardedPort ?? -1))
             && !refreshedIDs.contains(candidate.id) {
             let wasAddedDuringRefresh = !previousIDs.contains(candidate.id)
             let remainsProjected = projectedResourceIDs.contains(candidate.id)
@@ -253,14 +172,27 @@ extension SurfaceCatalog {
 }
 
 extension CmuxTuiSurfaceProvider {
-    /// Classifies listeners for the authenticated browser proxy, which dials guest 127.0.0.1.
-    nonisolated static func portScan(from result: VMExecResult, privateAddress: String? = nil) -> CloudPortScanResult? {
-        guard result.exitCode == 0 else { return nil }
-        return CloudPortScanResult(socketListing: result.stdout)
+    /// Classifies the authenticated loopback route, excluding provider-owned display ports.
+    nonisolated static func portScan(
+        from result: VMExecResult,
+        privateAddress: String? = nil,
+        displayPortsOwned: Bool = false
+    ) -> CloudPortScanResult? {
+        guard result.exitCode == 0, let scan = CloudPortScanResult(socketListing: result.stdout) else { return nil }
+        let excluded = displayPortsOwned ? CmuxTuiSnapshotParser.displayPorts : []
+        return CloudPortScanResult(
+            ports: scan.ports.filter { !excluded.contains($0) },
+            loopbackOnlyPorts: scan.loopbackOnlyPorts.filter { !excluded.contains($0) },
+            otherBindingPorts: scan.otherBindingPorts.filter { !excluded.contains($0) }
+        )
     }
 
-    nonisolated static func ports(from result: VMExecResult, privateAddress: String? = nil) -> [Int]? {
-        portScan(from: result, privateAddress: privateAddress)?.ports
+    nonisolated static func ports(
+        from result: VMExecResult,
+        privateAddress: String? = nil,
+        displayPortsOwned: Bool = false
+    ) -> [Int]? {
+        portScan(from: result, privateAddress: privateAddress, displayPortsOwned: displayPortsOwned)?.ports
     }
 
     /// Reconciles one machine's port scan with its prior catalog values.
@@ -272,13 +204,15 @@ extension CmuxTuiSurfaceProvider {
         machine: SurfaceMachineID,
         scannedPorts: [Int]?,
         previousResources: [SurfaceResource],
-        privateAddress: String?
+        privateAddress: String?,
+        displayPortsOwned: Bool = false
     ) -> [SurfaceResource] {
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
             uniqueKeysWithValues: previousResources
                 .filter {
-                    $0.machine == machine && $0.id.isForwardedPort
+                    $0.id.isForwardedPort
                         && !CmuxTuiSnapshotParser.internalPorts.contains($0.id.forwardedPort ?? -1)
+                        && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains($0.id.forwardedPort ?? -1))
                 }
                 .map { ($0.id, $0) }
         )
@@ -299,6 +233,7 @@ extension CmuxTuiSurfaceProvider {
         return scannedPorts
             .filter { (port: Int) in
                 (1...65_535).contains(port) && seen.insert(port).inserted
+                    && (!displayPortsOwned || !CmuxTuiSnapshotParser.displayPorts.contains(port))
             }
             .sorted(by: <)
             .map { (port: Int) -> SurfaceResource in

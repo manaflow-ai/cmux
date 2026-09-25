@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 /// Composition of the app-managed Cloud tunnel: built once at startup next to
@@ -9,24 +10,6 @@ import AppKit
 /// the coordinator, decides whether the NetworkExtension controller may exist
 /// at launch, and brings the tunnel down when Cloud Machines is turned off.
 extension AppDelegate {
-    @MainActor
-    func configureCloudServices(auth: MacAuthComposition) -> CloudOperationRecorder {
-        let uploader = CloudTelemetryUploader(
-            auth: auth.coordinator, baseURL: AuthEnvironment.vmAPIBaseURL, client: .current()
-        )
-        let operations = CloudOperationRecorder(uploader: uploader, identity: { [weak coordinator = auth.coordinator] in
-            coordinator?.authenticatedSessionIdentity
-        })
-        cloudOperations = operations
-        let tunnel = makeCloudTunnelCoordinator()
-        cloudTunnelCoordinator = tunnel
-        cloudVPNSetupWindowController?.attachIfNeeded(tunnel)
-        CmuxTuiSurfaceProviderRegistry.shared.portAccess.coordinator = tunnel
-        VMClient.bootstrap(auth: auth.coordinator, operations: operations)
-        TerminalController.shared.cloudTunnel = tunnel
-        return operations
-    }
-
     /// Ports and Settings open the same informational window; only its controls activate the VPN.
     @MainActor
     func openCloudVPNSetupWindow() {
@@ -40,7 +23,10 @@ extension AppDelegate {
     @MainActor
     func makeCloudTunnelCoordinator() -> CloudTunnelCoordinator {
         let tunnelManager = VMTunnelManager()
-        let activation = CloudActivationPolicy.live(browserTunnel: tunnelManager)
+        let activation = CloudActivationPolicy.live(
+            browserTunnel: tunnelManager,
+            remoteEnabled: { CmuxFeatureFlags.offMainEffectiveValue(for: CmuxFeatureFlags.cloudMachinesFlag) }
+        )
         let coordinator = CloudTunnelCoordinator.live(
             consumers: CloudTunnelAppConsumers(),
             tunnelManager: tunnelManager,

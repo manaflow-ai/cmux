@@ -17,6 +17,7 @@ extension TerminalController {
         switch info.id {
         case .local: kind = "local"
         case .cloud: kind = "cloud"
+        case .ssh: kind = "ssh"
         case .device: kind = "device"
         }
         return [

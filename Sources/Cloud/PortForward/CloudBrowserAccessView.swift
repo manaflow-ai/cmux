@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -19,19 +20,25 @@ struct CloudBrowserAccessView<Content: View>: View {
                             message: nil,
                             onRetry: nil
                         )
-                    } else if state.showsPage || state.failureMessage == nil { content() } else {
+                    } else if state.showsPage || state.failureMessage == nil {
+                        VStack(spacing: 0) {
+                            if state.isDesktop && !state.desktopConnected && state.failureMessage == nil {
+                                ProgressView(String(localized: "cloud.display.connecting", defaultValue: "Connecting to Cloud display…"))
+                                    .controlSize(.small).padding(12)
+                                    .accessibilityIdentifier("CloudDisplayConnecting")
+                            }
+                            content()
+                        }
+                    } else {
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
                             message: state.failureMessage ?? model.failureMessage,
                             onRetry: {
                                 _ = panel.reload()
-                                navigateIfReady()
                             }
                         )
                     }
                 }
-                .task(id: model.phase) { navigateIfReady() }
-                .task(id: state.remoteURL) { navigateIfReady() }
             } else if let message = state.unavailable {
                 CloudBrowserConnectionCard(address: "", message: message, onRetry: state.unavailableRetryAction)
             } else {
@@ -51,7 +58,6 @@ struct CloudBrowserAccessView<Content: View>: View {
             if state.model != nil {
                 Button(String(localized: "common.retry", defaultValue: "Retry")) {
                     _ = panel.reload()
-                    navigateIfReady()
                 }
             }
             Button(String(localized: "common.close", defaultValue: "Close"), role: .cancel) { state.dismissFailure() }
@@ -68,10 +74,5 @@ struct CloudBrowserAccessView<Content: View>: View {
         return state.unavailable != nil
             || state.failureMessage != nil
             || (state.isDesktop && !state.showsPage)
-    }
-
-    private func navigateIfReady() {
-        guard let url = panel.cloudAccess.nextURL() else { return }
-        _ = panel.navigate(to: url)
     }
 }

@@ -12,6 +12,7 @@ extension TerminalSurface {
     ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
     ///   - surfaceId: The terminal surface that owns the generated shim directory.
     ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - enabledCommands: Bundled agent commands that should receive a shim.
     ///   - hermesProfileAliasDirectoryURL: The Hermes-owned wrapper directory to inspect for profile aliases.
     ///   - fileManager: The filesystem implementation used for discovery and installation.
     /// - Returns: The installed shim set, or `nil` when no bundled wrapper can be installed.
@@ -19,6 +20,7 @@ extension TerminalSurface {
         wrapperDirectoryURL: URL?,
         surfaceId: UUID,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        enabledCommands: Set<TerminalSurfaceAgentCommand> = Set(TerminalSurfaceAgentCommand.allCases),
         hermesProfileAliasDirectoryURL: URL? = nil,
         computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager = .default
@@ -34,6 +36,7 @@ extension TerminalSurface {
             wrapperDirectoryURL: wrapperDirectoryURL,
             surfaceId: surfaceId,
             temporaryDirectory: temporaryDirectory,
+            enabledCommands: enabledCommands,
             hermesProfileAliases: aliases,
             computerUseSettingFileURL: computerUseSettingFileURL,
             fileManager: fileManager
@@ -49,6 +52,7 @@ extension TerminalSurface {
     ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
     ///   - surfaceId: The terminal surface that owns the generated shim directory.
     ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - enabledCommands: Bundled agent commands that should receive a shim.
     ///   - hermesProfileAliasCatalog: The process-owned Hermes alias discovery cache.
     ///   - fileManager: The filesystem implementation used for shim installation.
     /// - Returns: The installed shim set, or `nil` when no bundled wrapper can be installed.
@@ -56,6 +60,7 @@ extension TerminalSurface {
         wrapperDirectoryURL: URL?,
         surfaceId: UUID,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        enabledCommands: Set<TerminalSurfaceAgentCommand> = Set(TerminalSurfaceAgentCommand.allCases),
         hermesProfileAliasCatalog: HermesProfileAliasCatalog,
         computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager = .default
@@ -68,6 +73,7 @@ extension TerminalSurface {
             wrapperDirectoryURL: wrapperDirectoryURL,
             surfaceId: surfaceId,
             temporaryDirectory: temporaryDirectory,
+            enabledCommands: enabledCommands,
             hermesProfileAliases: aliases,
             computerUseSettingFileURL: computerUseSettingFileURL,
             fileManager: fileManager
@@ -82,6 +88,7 @@ extension TerminalSurface {
         wrapperDirectoryURL: URL,
         surfaceId: UUID,
         temporaryDirectory: URL,
+        enabledCommands: Set<TerminalSurfaceAgentCommand>,
         hermesProfileAliases: [HermesProfileAliasResolver.Alias],
         computerUseSettingFileURL: URL? = nil,
         fileManager: FileManager
@@ -91,6 +98,7 @@ extension TerminalSurface {
             wrapperURL: URL
         )] = []
         for definition in TerminalSurfaceAgentCommandShimDefinition.bundled {
+            guard enabledCommands.contains(definition.command) else { continue }
             let wrapperURL = wrapperDirectoryURL
                 .appendingPathComponent(definition.wrapperName, isDirectory: false)
                 .standardizedFileURL
@@ -247,12 +255,11 @@ extension TerminalSurface {
         if [[ -r "$cmux_computer_use_setting" ]]; then
             IFS= read -r cmux_computer_use_enabled < "$cmux_computer_use_setting" || true
         fi
-        # App authority and the user's documented kill switch are separate:
-        # app state may disable attachment, but enabling it never clears a
-        # user-exported CMUX_COMPUTER_USE_MCP_DISABLED=1.
-        case "$cmux_computer_use_enabled" in
-            0) export CMUX_COMPUTER_USE_MCP_DISABLED=1 ;;
-        esac
+        # A functional `$cmux-cua` request is the explicit opt-in. Keep the
+        # live setting available to the app for first-use reconciliation, but
+        # do not turn an ordinary settings-off value into the hard kill switch.
+        # Only CMUX_COMPUTER_USE_MCP_DISABLED=1 (or managed policy in cmux)
+        # blocks attachment.
         if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
             cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/\(definition.wrapperName)"
             if [[ -x "$cmux_candidate" ]]; then
