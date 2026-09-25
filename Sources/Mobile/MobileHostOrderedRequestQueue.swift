@@ -94,7 +94,7 @@ struct MobileTerminalInputOrderingTicket: Sendable {
 /// authority.
 @MainActor
 final class MobileTerminalInputOrdering {
-    enum Rejection: Equatable, Sendable {
+    enum Rejection: Error, Equatable, Sendable {
         case inactiveConnection
         case staleSequence
     }
