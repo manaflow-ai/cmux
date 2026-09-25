@@ -275,6 +275,10 @@ lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_pi_wrapper.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_pi_compacted_feed.py"
 lane = "macos-cli-no-socket-post-fish"
 requirements = ["cmux-cli"]
