@@ -1,16 +1,19 @@
+import CmuxSettings
 import Foundation
 
 /// Top-level navigation targets for the settings window.
 ///
 /// The cmux app exposes a fixed set of section panes. Each section gets
-/// its own SwiftUI view in `Sections/`; the sidebar lists them in
-/// declaration order, the search index filters across all of them.
+/// its own SwiftUI view in `Sections/`; visible sections appear in the
+/// taxonomy and the search index filters across them. Legacy raw-value
+/// aliases may remain here for deep-link compatibility without owning a pane.
 ///
 /// Adding a section means: add a case here, add its title and icon in
 /// the `SettingsSectionID` extension below, and add a view file in
 /// `Sections/`.
 public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Hashable {
     case account
+    /// Legacy raw-value target; the visible destination is ``mobile``.
     case computers
     case app
     case terminal
@@ -40,6 +43,17 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
 
     public var id: Self { self }
 
+    /// Maps the catalog-owned destination into this package's navigation id.
+    ///
+    /// Keep this switch exhaustive as UserFacingSettingSection grows so
+    /// catalog metadata can never refer to an unknown Settings destination.
+    public init(userFacingSection section: UserFacingSettingSection) {
+        switch section {
+        case .app:
+            self = .app
+        }
+    }
+
     /// User-facing section title shown in the sidebar.
     public var title: String {
         switch self {
@@ -56,7 +70,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .customSidebars: return String(localized: "settings.section.customSidebars", defaultValue: "Custom Sidebars")
         case .betaFeatures: return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation: return String(localized: "settings.section.automation", defaultValue: "Automation")
-        case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
+        case .computerUse: return String(localized: "settings.section.computerUse", defaultValue: "cmux Computer Use")
         case .browser: return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport: return String(localized: "settings.browser.import", defaultValue: "Import Browser Data")
         case .globalHotkey: return String(localized: "settings.section.globalHotkey", defaultValue: "Global Hotkey")

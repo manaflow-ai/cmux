@@ -488,6 +488,44 @@ class WorkloadProfileTests(unittest.TestCase):
 
         self.assertEqual(value["commit"], "1" * 40)
 
+    def test_source_identity_accepts_real_checkout_with_clean_submodule(self) -> None:
+        # The first line of real `git submodule status` output begins with a
+        # space for a clean gitlink, so the reader must keep leading whitespace.
+        def git(cwd: Path, *arguments: str) -> None:
+            subprocess.run(
+                [
+                    "/usr/bin/git",
+                    "-c", "user.name=cmux",
+                    "-c", "user.email=cmux@example.invalid",
+                    "-c", "protocol.file.allow=always",
+                    "-c", "init.defaultBranch=main",
+                    *arguments,
+                ],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+                env={**profile.git_environment(), "GIT_CONFIG_NOSYSTEM": "1"},
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            child = base / "child"
+            parent = base / "parent"
+            child.mkdir()
+            parent.mkdir()
+            git(child, "init", "-q")
+            (child / "file.txt").write_text("child\n", encoding="utf-8")
+            git(child, "add", "file.txt")
+            git(child, "commit", "-q", "-m", "child")
+            git(parent, "init", "-q")
+            git(parent, "submodule", "add", "-q", str(child), "vendor/child")
+            git(parent, "commit", "-q", "-m", "parent")
+
+            with mock.patch.object(profile, "ROOT", parent):
+                value = profile.source_identity(None, None)
+
+        self.assertEqual(value["repository"], "manaflow-ai/cmux")
+
     def test_comparison_rejects_toolchain_identity_observation_mismatch(self) -> None:
         value = valid_result()
         value["toolchain"]["observations"]["python"] = "changed"
@@ -732,9 +770,6 @@ class WorkloadProfileTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(syntax.returncode, 0, syntax.stderr.decode())
-
-    def test_unused_legacy_result_validator_is_absent(self) -> None:
-        self.assertFalse(hasattr(profile, "validate_result_document"))
 
     def test_runtime_product_tree_rejects_external_or_dangling_symlinks(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

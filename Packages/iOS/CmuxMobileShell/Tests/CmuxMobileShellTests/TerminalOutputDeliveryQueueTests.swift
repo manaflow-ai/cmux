@@ -548,7 +548,7 @@ import Testing
 
     let replayCountAfterExhaustion = await router.count(of: "mobile.terminal.replay")
     await router.enqueueReplayTexts(["resync-replay"])
-    store.requestTerminalReplay(surfaceID: surfaceID)
+    store.requestTerminalReplay(surfaceID: surfaceID, trigger: .coldAttach)
 
     let genericReplayRequested = await waitForReplayRequestCount(router, atLeast: replayCountAfterExhaustion + 1)
     #expect(genericReplayRequested, "generic resync must still work after fail-open clears the barrier")
@@ -966,7 +966,8 @@ private func waitForReplayRequestCount(
     #expect(queue.enqueue(second) == nil)
     #expect(queue.pendingCount == 2)
 
-    let batched = try #require(queue.completeInFlight())
+    let completed = queue.completeInFlight()
+    let batched = try #require(completed)
     #expect(String(decoding: batched.bytes, as: UTF8.self) == "first-second")
     #expect(batched.endSequence == 12)
     #expect(queue.pendingCount == 0)

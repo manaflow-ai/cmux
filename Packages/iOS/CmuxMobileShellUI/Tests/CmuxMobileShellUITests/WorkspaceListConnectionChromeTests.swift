@@ -23,6 +23,18 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
+    @Test func reconnectingHidesWorkspaceEmptyState() {
+        #expect(!chrome(
+            isRecoveringWorkspaceList: true,
+            connectionStatus: .unavailable
+        ).showsWorkspaceEmptyState)
+        #expect(!chrome(connectionStatus: .reconnecting).showsWorkspaceEmptyState)
+    }
+
+    @Test func idleUnavailableShowsWorkspaceEmptyState() {
+        #expect(chrome(connectionStatus: .unavailable).showsWorkspaceEmptyState)
+    }
+
     @Test func unavailableStatusShowsNotConnectedStatusLine() {
         #expect(chrome(connectionStatus: .unavailable) == .statusLine(.notConnected))
     }

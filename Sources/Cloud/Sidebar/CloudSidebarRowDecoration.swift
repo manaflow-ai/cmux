@@ -1,39 +1,42 @@
+import CmuxCloud
+import CmuxFoundation
 import SwiftUI
 
-/// An optional leading pin and an unread badge over the icon, with no empty
-/// leading column. Read/unread changes never move the row's icon or title.
+/// An unread badge in the leading identity column, followed by an optional pin.
+/// Read rows keep the compact identity edge; unread rows reserve the badge slot.
 /// Immutable input keeps AppKit cell reuse independent of observable stores.
 struct CloudSidebarRowDecoration: ViewModifier {
     let isPinned: Bool
     let showsAttentionSlot: Bool
     let hasUnreadNotification: Bool
+    var attentionSlot: CGFloat = CloudTreeStyle.compact.rowGrid.attentionSlot
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     func body(content: Content) -> some View {
-        // Keep the pin in the same compact leading cluster as the row icon.
-        // Four points made the unread badge spill past the narrow sidebar's
-        // identity column; two points matches the tree's shared gaps.
+        // Keep read rows flush with the outline's content edge. A row earns the
+        // leading slot only while it has unread attention, so the compact tree
+        // does not carry an empty gutter between the caret and its identity.
         HStack(spacing: 2) {
+            if showsAttentionSlot && hasUnreadNotification {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 6, height: 6)
+                    .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
+                    .help(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
+                    .frame(width: GlobalFontMagnification.scaledSize(attentionSlot, percent: magnification))
+                    .allowsHitTesting(false)
+            }
             if isPinned {
-                Image(systemName: "pin.fill")
-                    .cmuxFont(size: 9, weight: .semibold)
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                    .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
+                CmuxSystemSymbolImage(
+                    magnified: "pin.fill",
+                    pointSize: 9,
+                    weight: .semibold,
+                    tint: Color(nsColor: .secondaryLabelColor)
+                )
+                .fixedSize()
+                .accessibilityLabel(String(localized: "taskManager.row.pinned", defaultValue: "Pinned"))
             }
             content
-                .overlay(alignment: .topLeading) {
-                    if showsAttentionSlot {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 6, height: 6)
-                            .opacity(hasUnreadNotification ? 1 : 0)
-                            .accessibilityHidden(!hasUnreadNotification)
-                            .accessibilityLabel(String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification"))
-                            .help(hasUnreadNotification
-                                ? String(localized: "cloudTree.organization.unread", defaultValue: "Unread notification") : "")
-                            .allowsHitTesting(false)
-                    }
-                }
         }
     }
 }

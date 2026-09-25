@@ -28,6 +28,22 @@ class WebValidationTests(unittest.TestCase):
                 self.assertTrue(gate.requires_web([path, "README.md"]))
         self.assertFalse(gate.requires_web(["README.md", "docs/cli.md", "Sources/AppDelegate.swift"]))
 
+    def test_native_artifact_transport_does_not_select_web(self):
+        paths = [
+            ".github/workflows/ci-artifact-transport.yml",
+            ".github/workflows/ci-macos.yml",
+            "scripts/ci/app_host_layer_transport.py",
+            "scripts/ci/parallel_artifact_download.py",
+            "scripts/ci/restore-app-host-test-product.sh",
+            "tests/test-execution.toml",
+            "tests/test_ci_change_areas.py",
+            "tests/test_ci_parallel_artifact_transport.py",
+            "tests/test_ci_selective_layer_wiring.py",
+        ]
+        self.assertFalse(gate.requires_web(paths))
+        self.assertTrue(gate.requires_web(paths + ["web/app/page.tsx"]))
+        self.assertTrue(gate.requires_web(["scripts/ci/future_unknown_helper.py"]))
+
     def test_pull_request_routes_from_the_merge_parent_when_the_event_base_is_gone(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory)

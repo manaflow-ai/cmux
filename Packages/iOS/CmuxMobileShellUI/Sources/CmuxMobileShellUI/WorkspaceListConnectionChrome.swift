@@ -69,6 +69,12 @@ enum WorkspaceListConnectionChrome: Equatable {
         return nil
     }
 
+    /// The empty-state actions are only useful when the list is idle. During
+    /// an active reconnect, the picker status line owns the recovery surface.
+    var showsWorkspaceEmptyState: Bool {
+        self != .statusLine(.reconnecting)
+    }
+
     /// Whether the toolbar shows the Mac-update hint indicator. The hint is a
     /// healthy-connection affordance: while reauth, restore, or degraded chrome
     /// is on screen, an update suggestion would compete with recovery (and

@@ -22,8 +22,8 @@ struct CloudMachineWorkspaceResolutionTests {
         let resolver = VMRemoteWorkspaceResolver()
         #expect(resolver.resolveVMMachineTerminal(machine: "machine", catalog: catalog)
             == .resolved(workspaceID: "ws-later", terminalID: "term-later", tabID: "tab-later"))
-        #expect(resolver.resolveVMRemoteTerminalPlacement("first", machine: "machine", workspaceID: "ws-first", in: catalog)
+        #expect(resolver.resolveVMRemoteTerminalPlacement("term-first", machine: "machine", workspaceID: "ws-first", in: catalog)
             == .resolved(terminalID: "term-first", tabID: "tab-first"))
-        #expect(resolver.resolveVMRemoteTerminalPlacement("first", machine: "machine", workspaceID: "deleted", in: catalog) == .notFound)
+        #expect(resolver.resolveVMRemoteTerminalPlacement("term-first", machine: "machine", workspaceID: "deleted", in: catalog) == .notFound)
     }
 }
