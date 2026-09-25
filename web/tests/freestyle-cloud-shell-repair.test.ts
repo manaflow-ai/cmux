@@ -11,6 +11,12 @@ const SOURCE = {
   sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
   commit: "0123456789abcdef0123456789abcdef01234567",
   builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64),
+  agentPlugin: {
+    url: "https://files.cmux.com/cmux-agent-screen-detection/test/cmux-agent-screen-detection-x86_64-unknown-linux-musl",
+    sha256: "2".repeat(64),
+    commit: "0123456789abcdef0123456789abcdef01234567",
+    manifestUrl: "https://files.cmux.com/cmux-agent-screen-detection/test/manifest.json",
+  },
 } as const;
 
 describe("Freestyle Cloud VM daemon repair", () => {

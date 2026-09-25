@@ -700,21 +700,86 @@ exists. See docs/vm-identity-edge-auth.md.
 
 ## Coding-agent hooks on a machine
 
-Every machine ships the cmux-tui hooks for Claude Code and Codex, installed
-for the daemon user (`/home/cmux`): the bake and the create-time install both
-run `cmux-tui agent hook install claude codex` right after the binary
-(`cmuxTuiInstallCommand`), with the `cmux-tui-hook` helper downloaded from the
-same manifest commit as the daemon and placed beside it. A machine whose daemon
-is healthy but predates this gets the hooks on attach (`ensureAgentHooks` in
-`freestyle.ts`), using the helper of the commit in `/etc/cmux/cmux-tui-pin`;
-the daemon keeps running because it already exports `CMUX_TUI_HOOK` into
-every pane. The readiness probe (`cmuxTuiHooksReadyCommand`) requires the
-installed helper to be byte-equal to the pinned one and the cmux marker in
-`~/.claude/settings.json`, `~/.codex/hooks.json`, and the `[hooks]` trust
-table in `~/.codex/config.toml`. `agent-config.sh` adds the codex model
-provider around that trust table at the first login that sees a boot env, so
-the two writers of `config.toml` compose in either order. The bake's
-`agent-hooks` step proves all of it on the snapshot.
+Every machine ships the cmux-tui hooks for Claude Code, Codex, OpenCode, and
+pi, installed for the daemon user (`/home/cmux`): the bake runs
+`cmux-tui agent hook install claude codex opencode pi` right after the binary
+(`cmuxTuiInstallCommand`, list in `CMUX_TUI_HOOK_PROVIDERS`), with the
+`cmux-tui-hook` helper downloaded from the same manifest commit as the daemon
+and placed beside it. Claude Code and Codex get hook entries; OpenCode and pi
+get a cmux-owned plugin (`~/.config/opencode/plugins/cmux-tui-journal.js`,
+`~/.pi/agent/extensions/cmux-tui-journal.ts`). Hooks report an agent only from
+its first hook event (Codex emits its first one at the first prompt), so launch
+detection comes from the agent screen-detection plugin (next section). The Freestyle driver never installs or repairs anything on create
+or attach (see the NO-WORK invariant in `freestyle.ts`), so a machine gets a
+new provider only from a rebaked snapshot; `cmuxTuiAgentHooksInstallCommand` is
+the hooks-only install for an explicit operator repair of an existing machine.
+The readiness probe (`cmuxTuiHooksReadyCommand`) requires the installed helper
+to be byte-equal to the pinned one and the installer's own status to report
+every provider `installed` (marker in `~/.claude/settings.json` and
+`~/.codex/hooks.json`, the `[hooks]` trust table in `~/.codex/config.toml`,
+and the current plugin files). `agent-config.sh` adds the codex model provider
+around that trust table at the first login that sees a boot env, so the two
+writers of `config.toml` compose in either order. The bake's `agent-hooks`
+step proves all of it on the snapshot.
+
+## Agent detection at launch: the screen-detection plugin
+
+cmux-tui runs a userland journal plugin configured as `agents.plugin` in the
+daemon user's `~/.config/cmux/cmux-tui.json`. The daemon starts it after it
+serves the session, supplies `CMUX_PLUGIN_ID` from `agents.plugin.id`, and
+restarts it when it exits. The reference plugin
+(`cmux-tui/bindings/examples/rust-agent-screen-detection`, binary
+`cmux-agent-screen-detection`) reads each terminal's process identity and
+screen and appends `plugin.agent-screen-detection.agent.*` journal events, so
+Claude Code, Codex, OpenCode, and pi are detected when they launch, before any
+hook fires. Hooks still carry the richer lifecycle (stop, permission,
+question).
+
+Publication: `cmux-tui-artifacts.yml` builds the plugin on the same matrix
+legs as cmux-tui (`build_agent_plugin: true`, macOS and Linux musl; Windows is
+excluded because the plugin's SDK transport is Unix-only) and publishes it
+commit-addressed to R2:
+
+```text
+cmux-agent-screen-detection/<commit>/cmux-agent-screen-detection-<rust-target>
+cmux-agent-screen-detection/<commit>/cmux-agent-screen-detection-checksums.txt
+cmux-agent-screen-detection/<commit>/manifest.json
+cmux-agent-screen-detection/latest/...        (main pushes only)
+```
+
+The manifest has the same provenance schema as the cmux-tui manifest and is
+verified before upload, after the immutable upload, and after `latest/`. The
+Linux build is static musl with the default x86-64 baseline, so it runs on the
+Freestyle AMD EPYC hosts without a CPU-feature flag.
+
+Install: the bake resolves the daemon from the cmux-tui manifest and the plugin
+from `https://files.cmux.com/cmux-agent-screen-detection/<that commit>/manifest.json`
+(`resolveCmuxTuiInstallSource`); a commit without a plugin, or a plugin
+manifest for another commit, fails the bake. `cmuxTuiInstallCommand` downloads
+the sha256-pinned binary to `~/.cmux/bin/cmux-agent-screen-detection` beside
+the daemon and merges, as the daemon user,
+
+```json
+{ "agents": { "plugin": { "id": "agent-screen-detection", "command": ["/home/cmux/.cmux/bin/cmux-agent-screen-detection"], "revision": "<sha256>" } } }
+```
+
+into the config file the daemon reads (`cmux-tui.json`, or legacy `mux.json`
+when only that exists). Every other key is kept, an unparsable file fails the
+install instead of being replaced, and an unchanged selection is not
+rewritten. The daemon reads its config only at start; the bake writes it
+before the daemon's first start, so no restart is needed. An install into a
+machine with a running daemon takes effect at the daemon's next start.
+
+Readiness: the install proves the binary runs and bundles the claude, codex,
+opencode, and pi detectors (`cmux-agent-screen-detection list`) and that the
+config selects it. `cmuxAgentPluginReadyCommand` (bake step
+`cmux-agent-plugin-running`, and the image verifier on a fresh clone) also
+waits for a direct child of the daemon running that binary with
+`CMUX_PLUGIN_ID=agent-screen-detection`, and for the plugin's producer in
+`cmux-tui --session cloud --json session current journal producer list`. The
+bake records `/etc/cmux/cmux-agent-plugin-pin` (`<sha256> <commit>`) and the
+manifest entry records `cmuxAgentPluginCommit` (always equal to
+`cmuxTuiCommit`) and `cmuxAgentPluginSha256`.
 
 ## Notifications from a machine
 

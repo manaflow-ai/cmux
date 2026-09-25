@@ -133,8 +133,22 @@ export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
 export const CMUX_TUI_HOOK_LINUX_TARGET = "cmux-tui-hook-x86_64-unknown-linux-musl";
 /** The marker every cmux-owned coding-agent hook entry carries (agent_hook_install.rs COMMAND_MARKER). */
 export const CMUX_TUI_HOOK_MARKER = "cmux-tui-journal-hook";
-/** Coding agents whose hooks every machine ships with; `cmux-tui agent hook install` names them. */
-export const CMUX_TUI_HOOK_PROVIDERS = ["claude", "codex"] as const;
+/**
+ * Coding agents whose hooks every machine ships with; `cmux-tui agent hook install`
+ * names them. Claude Code and Codex take hook entries in their settings
+ * (codex also a trust table in config.toml); OpenCode and pi take a cmux-owned
+ * plugin file (~/.config/opencode/plugins/cmux-tui-journal.js,
+ * ~/.pi/agent/extensions/cmux-tui-journal.ts). The image ships all four agents.
+ */
+export const CMUX_TUI_HOOK_PROVIDERS = ["claude", "codex", "opencode", "pi"] as const;
+
+/** Files each provider install writes under the daemon user's HOME (agent_hook_install.rs PROVIDERS). */
+export const CMUX_TUI_HOOK_PROVIDER_FILES: Readonly<Record<(typeof CMUX_TUI_HOOK_PROVIDERS)[number], readonly string[]>> = {
+  claude: [".claude/settings.json"],
+  codex: [".codex/hooks.json", ".codex/config.toml"],
+  opencode: [".config/opencode/plugins/cmux-tui-journal.js"],
+  pi: [".pi/agent/extensions/cmux-tui-journal.ts"],
+};
 export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/latest/manifest.json";
 const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
 
@@ -241,6 +255,123 @@ export function resetCmuxTuiSourceCache(): void {
 }
 
 /**
+ * The userland agent screen-detection plugin (cmux-tui
+ * bindings/examples/rust-agent-screen-detection). The daemon runs it as its
+ * `agents.plugin` journal plugin: it samples every terminal's process identity
+ * and screen, so codex, pi, opencode and claude are detected when they launch,
+ * not only at their first hook event (codex emits its first hook at the first
+ * prompt). The artifacts workflow publishes it commit-addressed next to
+ * cmux-tui, at `cmux-agent-screen-detection/<commit>/manifest.json`.
+ */
+export const CMUX_AGENT_PLUGIN_ID = "agent-screen-detection";
+export const CMUX_AGENT_PLUGIN_BINARY = "cmux-agent-screen-detection";
+export const CMUX_AGENT_PLUGIN_ARTIFACT_PREFIX = "cmux-agent-screen-detection";
+export const CMUX_AGENT_PLUGIN_LINUX_TARGET = "cmux-agent-screen-detection-x86_64-unknown-linux-musl";
+/** `<sha256> <commit>` of the baked plugin, written by the bake and read by the image verifier. */
+export const CMUX_AGENT_PLUGIN_PIN_PATH = "/etc/cmux/cmux-agent-plugin-pin";
+/** Coding agents the plugin must detect on a Cloud machine; the image ships all four. */
+export const CMUX_AGENT_PLUGIN_REQUIRED_DETECTORS = CMUX_TUI_HOOK_PROVIDERS;
+
+/** One commit's Linux build of the agent screen-detection plugin. */
+export type CmuxAgentPluginSource = {
+  readonly url: string;
+  readonly sha256: string;
+  readonly commit: string;
+  readonly manifestUrl: string;
+};
+
+/** A cmux-tui build plus the agent plugin of the SAME commit: what an image installs. */
+export type CmuxTuiInstallSource = CmuxTuiSource & { readonly agentPlugin: CmuxAgentPluginSource };
+
+/**
+ * The plugin manifest of one commit, derived from the cmux-tui manifest URL so
+ * a deployment pin on another origin keeps its origin and query:
+ * `<base>/cmux-tui/<pointer>/manifest.json` becomes
+ * `<base>/cmux-agent-screen-detection/<commit>/manifest.json`. A cmux-tui
+ * manifest outside a `cmux-tui/` prefix has no known plugin location, so it
+ * fails closed instead of guessing.
+ */
+export function cmuxAgentPluginManifestUrl(commit: string, provider: ProviderId = "freestyle"): string {
+  const url = new URL(cmuxTuiPinnedManifestUrl(commit, provider));
+  const segments = url.pathname.split("/");
+  if (segments.length < 4 || segments.at(-3) !== "cmux-tui") {
+    throw new ProviderError(
+      provider,
+      `cmux-tui manifest URL ${url.href} is not under a cmux-tui/ prefix; the agent plugin manifest cannot be derived from it`,
+    );
+  }
+  segments[segments.length - 3] = CMUX_AGENT_PLUGIN_ARTIFACT_PREFIX;
+  url.pathname = segments.join("/");
+  return url.href;
+}
+
+/** Parses a plugin manifest; the commit must equal the daemon's so the two never drift apart. */
+export function parseCmuxAgentPluginManifest(
+  manifestUrl: string,
+  manifest: unknown,
+  expectedCommit: string,
+  provider: ProviderId = "freestyle",
+): CmuxAgentPluginSource {
+  const record = manifest && typeof manifest === "object" ? manifest as Record<string, unknown> : {};
+  const commit = typeof record.commit === "string" ? record.commit : "";
+  if (commit !== expectedCommit) {
+    throw new ProviderError(
+      provider,
+      `agent plugin manifest at ${manifestUrl} is for commit ${JSON.stringify(commit)}, not the daemon's ${expectedCommit}`,
+    );
+  }
+  const binaries = record.binaries && typeof record.binaries === "object" ? record.binaries as Record<string, unknown> : {};
+  const raw = binaries[CMUX_AGENT_PLUGIN_LINUX_TARGET];
+  const sha256 = typeof raw === "string" ? raw.toLowerCase() : "";
+  if (!/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new ProviderArtifactUnavailableError(provider, { manifestUrl, target: CMUX_AGENT_PLUGIN_LINUX_TARGET });
+  }
+  return {
+    url: `${manifestUrl.replace(/\/manifest\.json(\?.*)?$/, "")}/${CMUX_AGENT_PLUGIN_LINUX_TARGET}`,
+    sha256,
+    commit,
+    manifestUrl,
+  };
+}
+
+/** The plugin build published for `commit` (the pinned cmux-tui commit). */
+export async function resolveCmuxAgentPluginSource(
+  commit: string,
+  provider: ProviderId = "freestyle",
+): Promise<CmuxAgentPluginSource> {
+  const manifestUrl = cmuxAgentPluginManifestUrl(commit, provider);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  let manifest: unknown;
+  try {
+    const response = await fetch(manifestUrl, { signal: controller.signal, cache: "no-store" });
+    if (!response.ok) {
+      throw new ProviderError(provider, `agent plugin manifest fetch ${manifestUrl} -> ${response.status}`);
+    }
+    manifest = await response.json();
+  } catch (err) {
+    throw err instanceof ProviderError ? err : new ProviderError(provider, `agent plugin manifest fetch ${manifestUrl} failed`, err);
+  } finally {
+    clearTimeout(timer);
+  }
+  return parseCmuxAgentPluginManifest(manifestUrl, manifest, commit, provider);
+}
+
+/**
+ * The daemon build and the agent plugin of the same commit. An image bake
+ * requires both: a machine without the plugin would only see agents after
+ * their first hook event.
+ */
+export async function resolveCmuxTuiInstallSource(
+  provider: ProviderId = "freestyle",
+  manifestUrl: string = cmuxTuiManifestUrl(provider),
+): Promise<CmuxTuiInstallSource> {
+  const source = await resolveCmuxTuiSource(provider, manifestUrl);
+  const agentPlugin = await resolveCmuxAgentPluginSource(source.commit, provider);
+  return { ...source, agentPlugin };
+}
+
+/**
  * Installs the pinned cmux-tui binary onto the machine, skipping the download when
  * the installed copy already matches the pin. The VM fetches the ~50 MB static musl
  * binary itself (in-region, seconds) instead of the driver pushing a base64 payload
@@ -251,9 +382,11 @@ export function resetCmuxTuiSourceCache(): void {
  * keeps the one it already has.
  *
  * The same command installs the coding-agent hooks (`cmuxTuiAgentHooksInstallCommand`),
- * so a machine from the bake and a machine healed on attach both ship them.
+ * so a machine from the bake and a machine healed on attach both ship them,
+ * and the agent screen-detection plugin of the same commit, configured as
+ * the daemon user's `agents.plugin` (see agentPluginInstallSteps).
  */
-export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
+export function cmuxTuiInstallCommand(source: CmuxTuiInstallSource): string {
   const bin = '"$CMUX_TUI_BIN"';
   const tmp = '"$CMUX_TUI_TMP"';
   return [
@@ -263,10 +396,201 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
     `if [ -x ${bin} ] && ${pinnedFile(source.sha256, bin)}; then :; else ${fetchTo(tmp, source.url)} && ${pinnedFile(source.sha256, tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
     `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
     ...hookHelperInstallSteps(source),
+    ...agentPluginBinaryInstallSteps(source.agentPlugin),
     // Only the nodes this install created, never the daemon's state tree.
-    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} 2>/dev/null || true; fi`,
+    `if [ "$CMUX_TUI_USER" != root ]; then chown "$CMUX_TUI_USER:$CMUX_TUI_USER" "$CMUX_TUI_HOME/.cmux" "$CMUX_TUI_HOME/.cmux/bin" ${bin} ${HOOK_BIN} ${AGENT_PLUGIN_BIN} 2>/dev/null || true; fi`,
     `${bin} --version`,
     ...agentHooksInstallSteps(),
+    ...agentPluginConfigSteps(source.agentPlugin),
+  ].join(" && ");
+}
+
+const AGENT_PLUGIN_BIN = '"$CMUX_AGENT_PLUGIN_BIN"';
+const AGENT_PLUGIN_TMP = '"$CMUX_AGENT_PLUGIN_TMP"';
+
+/** Sets CMUX_AGENT_PLUGIN_BIN beside the daemon binary; needs cmuxTuiLayoutSelector first. */
+function agentPluginBinVar(): string {
+  return `CMUX_AGENT_PLUGIN_BIN="$(dirname "$CMUX_TUI_BIN")/${CMUX_AGENT_PLUGIN_BINARY}"`;
+}
+
+/** The plugin binary beside the daemon binary, with the same pin discipline. */
+function agentPluginBinaryInstallSteps(plugin: CmuxAgentPluginSource): string[] {
+  return [
+    agentPluginBinVar(),
+    `CMUX_AGENT_PLUGIN_TMP="$CMUX_AGENT_PLUGIN_BIN.tmp"`,
+    `if [ -x ${AGENT_PLUGIN_BIN} ] && ${pinnedFile(plugin.sha256, AGENT_PLUGIN_BIN)}; then :; else ${fetchTo(AGENT_PLUGIN_TMP, plugin.url)} && ${pinnedFile(plugin.sha256, AGENT_PLUGIN_TMP)} && chmod 755 ${AGENT_PLUGIN_TMP} && mv -f ${AGENT_PLUGIN_TMP} ${AGENT_PLUGIN_BIN}; fi`,
+  ];
+}
+
+/**
+ * Merges `agents.plugin` into the daemon user's cmux-tui config, the same way
+ * cmux-tui's own `write_agent_plugin_at_path` does: every other key is kept,
+ * an unreadable or non-object file fails the install instead of being
+ * replaced, and an unchanged file is not rewritten. The daemon reads
+ * `$HOME/.config/cmux/cmux-tui.json`, or legacy `mux.json` when only that
+ * exists; the daemon's environment sets neither XDG_CONFIG_HOME nor
+ * CMUX_TUI_CONFIG, so neither is consulted here. The revision is the plugin's
+ * sha256, so a daemon that re-reads its config restarts a replaced plugin.
+ *
+ * argv: plugin id, absolute plugin path, revision.
+ */
+const AGENT_PLUGIN_CONFIG_SCRIPT = [
+  "import json, os, sys, tempfile",
+  "plugin_id, command, revision = sys.argv[1:4]",
+  'directory = os.path.join(os.environ["HOME"], ".config", "cmux")',
+  "os.makedirs(directory, exist_ok=True)",
+  'preferred = os.path.join(directory, "cmux-tui.json")',
+  'legacy = os.path.join(directory, "mux.json")',
+  "path = legacy if not os.path.exists(preferred) and os.path.exists(legacy) else preferred",
+  "root = {}",
+  "if os.path.exists(path):",
+  '    with open(path, encoding="utf-8") as handle:',
+  "        text = handle.read()",
+  "    if text.strip():",
+  "        root = json.loads(text)",
+  "if not isinstance(root, dict):",
+  '    sys.exit(path + " must contain a JSON object")',
+  'agents = root.get("agents")',
+  "if not isinstance(agents, dict):",
+  "    agents = {}",
+  'wanted = {"id": plugin_id, "command": [command], "revision": revision}',
+  'if root.get("agents") is agents and agents.get("plugin") == wanted:',
+  "    sys.exit(0)",
+  'agents["plugin"] = wanted',
+  'root["agents"] = agents',
+  "mode = os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o644",
+  'descriptor, temporary = tempfile.mkstemp(dir=directory, prefix=".cmux-tui.json.")',
+  "try:",
+  '    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:',
+  "        json.dump(root, handle, indent=2)",
+  '        handle.write("\\n")',
+  "    os.chmod(temporary, mode)",
+  "    os.replace(temporary, path)",
+  "except BaseException:",
+  "    os.unlink(temporary)",
+  "    raise",
+].join("\n");
+
+/** Shell that runs the config merge; needs CMUX_AGENT_PLUGIN_BIN and HOME set. */
+export function cmuxAgentPluginConfigWriteCommand(revision: string): string {
+  return `python3 -c ${shellQuote(AGENT_PLUGIN_CONFIG_SCRIPT)} ${shellQuote(CMUX_AGENT_PLUGIN_ID)} ${AGENT_PLUGIN_BIN} ${shellQuote(revision)}`;
+}
+
+/** Creates `dir` as the daemon user's when it does not exist (root creates it; the work user may not own its parent yet). */
+function ensureDaemonUserDir(dir: string): string {
+  return `{ [ -d ${dir} ] || { mkdir -m 755 ${dir} && { [ "$CMUX_TUI_USER" = root ] || chown "$CMUX_TUI_USER:$CMUX_TUI_USER" ${dir}; }; }; }`;
+}
+
+/**
+ * Writes the daemon user's `agents.plugin` = {id, command: [<plugin path>],
+ * revision: <sha256>} and proves the result. The daemon reads its config only
+ * at start, so the bake writes this before it first starts the daemon
+ * (cmux-tui-daemon-unit); an install into a machine whose daemon is already
+ * running takes effect at the daemon's next start.
+ */
+function agentPluginConfigSteps(plugin: CmuxAgentPluginSource): string[] {
+  return [
+    ensureDaemonUserDir('"$CMUX_TUI_HOME/.config"'),
+    ensureDaemonUserDir('"$CMUX_TUI_HOME/.config/cmux"'),
+    cmuxTuiAsDaemonUser(cmuxAgentPluginConfigWriteCommand(plugin.sha256)),
+    cmuxAgentPluginInstalledCheck(),
+  ];
+}
+
+/**
+ * Reads the config file the daemon would read and exits 0 when its
+ * `agents.plugin` names this plugin id and exactly the installed binary.
+ */
+const AGENT_PLUGIN_CONFIG_CHECK_SCRIPT = [
+  "import json, os, sys",
+  "plugin_id, command = sys.argv[1:3]",
+  'directory = os.path.join(os.environ["HOME"], ".config", "cmux")',
+  'preferred = os.path.join(directory, "cmux-tui.json")',
+  'legacy = os.path.join(directory, "mux.json")',
+  "path = legacy if not os.path.exists(preferred) and os.path.exists(legacy) else preferred",
+  "with open(path, encoding=\"utf-8\") as handle:",
+  "    plugin = json.load(handle)[\"agents\"][\"plugin\"]",
+  'sys.exit(0 if plugin.get("id") == plugin_id and plugin.get("command") == [command] else path + ": agents.plugin is " + json.dumps(plugin))',
+].join("\n");
+
+/** Exit 0 when the bundled detectors of every required agent are present in the plugin's `list` output. */
+const AGENT_PLUGIN_LIST_CHECK_SCRIPT = [
+  "import json, sys",
+  "required = set(sys.argv[1:])",
+  'found = {entry.get("id") for entry in json.load(sys.stdin).get("manifests", [])}',
+  'sys.exit(0 if required <= found else "missing detectors: " + ", ".join(sorted(required - found)))',
+].join("\n");
+
+/**
+ * The installed half of plugin readiness (no daemon needed): the binary
+ * beside the daemon is executable, runs on this machine (a static musl build
+ * with the default x86-64 baseline) and carries a detector for every shipped
+ * agent, and the daemon user's config selects it. Needs the layout selector
+ * and CMUX_AGENT_PLUGIN_BIN.
+ */
+function cmuxAgentPluginInstalledCheck(): string {
+  return [
+    `test -x ${AGENT_PLUGIN_BIN}`,
+    cmuxTuiAsDaemonUser(`${AGENT_PLUGIN_BIN} list`) +
+      ` | python3 -c ${shellQuote(AGENT_PLUGIN_LIST_CHECK_SCRIPT)} ${CMUX_AGENT_PLUGIN_REQUIRED_DETECTORS.join(" ")}`,
+    cmuxTuiAsDaemonUser(
+      `python3 -c ${shellQuote(AGENT_PLUGIN_CONFIG_CHECK_SCRIPT)} ${shellQuote(CMUX_AGENT_PLUGIN_ID)} ${AGENT_PLUGIN_BIN}`,
+    ),
+  ].join(" && ");
+}
+
+/** Exit 0 when the installed plugin matches its pin. */
+export function cmuxAgentPluginPinCheckCommand(plugin: Pick<CmuxAgentPluginSource, "sha256">): string {
+  return `${cmuxTuiLayoutSelector()} && ${agentPluginBinVar()} && test -x ${AGENT_PLUGIN_BIN} && ${pinnedFile(plugin.sha256, AGENT_PLUGIN_BIN)}`;
+}
+
+/** Exit 0 when a journal producer list (any JSON shape) contains the plugin's producer id. */
+const AGENT_PLUGIN_PRODUCER_CHECK_SCRIPT = [
+  "import json, sys",
+  "wanted = sys.argv[1]",
+  "def walk(value):",
+  "    if isinstance(value, dict):",
+  '        return value.get("producer_id") == wanted or any(walk(item) for item in value.values())',
+  "    if isinstance(value, list):",
+  "        return any(walk(item) for item in value)",
+  "    return False",
+  "sys.exit(0 if walk(json.load(sys.stdin)) else 1)",
+].join("\n");
+
+/**
+ * Plugin readiness on a machine with a running daemon, for the bake and the
+ * image verifier. Beyond the installed checks, it waits up to `attempts`
+ * seconds for both runtime proofs:
+ *  - the daemon supervises the plugin: a direct child of the process serving
+ *    the cloud session runs the installed binary with
+ *    CMUX_PLUGIN_ID=agent-screen-detection in its environment (the daemon
+ *    supplies it from `agents.plugin.id`; the plugin exits without it);
+ *  - the plugin reached the daemon: the session's journal producer list holds
+ *    the plugin's producer, which it registers only after connecting.
+ * The producer registration is durable, so on a clone the child-process proof
+ * is the one that shows this daemon started it.
+ */
+export function cmuxAgentPluginReadyCommand(options?: { readonly attempts?: number }): string {
+  const attempts = options?.attempts ?? 30;
+  const producers = cmuxTuiAsDaemonUser(
+    `"$CMUX_TUI_BIN" --session ${CMUX_TUI_SESSION} --json session current journal producer list`,
+  );
+  const childRunsPlugin =
+    `for c in $(pgrep -P "$p" 2>/dev/null); do ` +
+    `if [ "$(readlink -f "/proc/$c/exe" 2>/dev/null)" = "$(readlink -f ${AGENT_PLUGIN_BIN})" ] && ` +
+    `tr '\\0' '\\n' < "/proc/$c/environ" 2>/dev/null | grep -qx ${shellQuote(`CMUX_PLUGIN_ID=${CMUX_AGENT_PLUGIN_ID}`)}; then ` +
+    `cmux_agent_plugin_child=$c; fi; done`;
+  return [
+    cmuxTuiLayoutSelector(),
+    agentPluginBinVar(),
+    cmuxAgentPluginInstalledCheck(),
+    `cmux_agent_plugin_ready=''; for cmux_agent_plugin_try in $(seq 1 ${attempts}); do ` +
+      `cmux_agent_plugin_child=''; ${cmuxTuiDaemonPidSelector()}; ` +
+      `if [ -n "$p" ]; then ${childRunsPlugin}; fi; ` +
+      `if [ -n "$cmux_agent_plugin_child" ] && { ${producers}; } | python3 -c ${shellQuote(AGENT_PLUGIN_PRODUCER_CHECK_SCRIPT)} ${shellQuote(CMUX_AGENT_PLUGIN_ID)}; then ` +
+      `cmux_agent_plugin_ready=1; break; fi; sleep 1; done`,
+    `[ -n "$cmux_agent_plugin_ready" ]`,
+    `echo "agent-plugin-running pid=$cmux_agent_plugin_child"`,
   ].join(" && ");
 }
 
@@ -301,7 +625,8 @@ function hookHelperInstallSteps(source: CmuxTuiSource): string[] {
 }
 
 /**
- * Writes the Claude Code and Codex hook entries for the daemon user and copies
+ * Writes the hook entries (Claude Code, Codex) and plugin files (OpenCode, pi)
+ * of every CMUX_TUI_HOOK_PROVIDERS agent for the daemon user and copies
  * the helper into that user's data dir, then proves it: the installed helper
  * is byte-equal to the pinned one and every provider config carries the
  * cmux marker. Idempotent (the installer rewrites nothing that already matches).

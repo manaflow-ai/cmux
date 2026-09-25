@@ -22,4 +22,16 @@ extension SurfaceCatalog {
         guard tab.iconAsset != asset else { return }
         workspace.bonsplitController.updateTab(tabID, iconAsset: .some(asset))
     }
+
+    /// A tab opened after its terminal's process title was set takes that
+    /// title now; later titles arrive through remote-state reconciliation.
+    func syncCloudTerminalTabTitle(_ projection: SurfaceProjection) {
+        guard !projection.resource.machine.isLocal, projection.resource.kind == .terminal,
+              let resource = resources[projection.resource],
+              let workspace = cloudWorkspaceRenameService.environment.workspace(projection.workspaceID),
+              workspace.panels[projection.panelID] != nil else { return }
+        let title = resource.cloudProcessDisplayTitle
+        guard workspace.panelTitles[projection.panelID] != title else { return }
+        _ = workspace.updatePanelTitle(panelId: projection.panelID, title: title)
+    }
 }

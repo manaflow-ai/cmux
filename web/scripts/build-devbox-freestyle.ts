@@ -88,14 +88,18 @@ import { guestBrowserInstallCommand } from "../services/vms/guestBrowser";
 import { guestCliDistributionCommand } from "../services/vms/guestCliDistribution";
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH } from "../services/vms/guestCli";
 import {
+  CMUX_AGENT_PLUGIN_PIN_PATH,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   CMUX_TUI_SESSION,
   CMUX_TUI_HOOK_PROVIDERS,
+  CMUX_TUI_HOOK_PROVIDER_FILES,
+  cmuxAgentPluginPinCheckCommand,
+  cmuxAgentPluginReadyCommand,
   cmuxTuiHooksReadyCommand,
   cmuxTuiInstallCommand,
   cmuxTuiPinCheckCommand,
   cmuxTuiRunCommand,
-  resolveCmuxTuiSource,
+  resolveCmuxTuiInstallSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   DEVBOX_DESKTOP_INSTALLS,
@@ -161,7 +165,10 @@ const replaceSlug = hasFlag("--replace-slug");
 
 const preflight = bakePreflight({ desktop: withDesktop });
 // Resolved before the builder exists so a manifest outage fails the bake for free.
-const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
+// The agent screen-detection plugin comes from the SAME commit as the daemon;
+// a commit published without it fails here rather than baking an image that
+// detects agents only after their first hook event.
+const cmuxTuiSource = await resolveCmuxTuiInstallSource("freestyle");
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -362,7 +369,7 @@ try {
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
   await put("cmux-opencode", "/etc/cmux/opencode", 0o755);
-  await step("opencode-launcher", 'mkdir -p /usr/local/libexec && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real && rm -f /usr/local/bin/opencode && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode');
+  await step("opencode-launcher", 'mkdir -p /usr/local/libexec/cmux-opencode && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode/opencode && rm -f /usr/local/bin/opencode && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode');
   await step(
     "agent-config",
     `bash -n /etc/cmux/agent-config.sh && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${rc}`).join(" && ")} && rm -rf /tmp/agent-config-check && mkdir -p /tmp/agent-config-check && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml && grep -q 'supports_websockets = false' /tmp/agent-config-check/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/agent-config-check/.pi/agent/models.json && ! grep -q crt_ /tmp/agent-config-check/.pi/agent/models.json && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json && node -e 'const j = JSON.parse(require("fs").readFileSync("/tmp/agent-config-check/.claude.json","utf8")); if (!(j.hasCompletedOnboarding === true && j.bypassPermissionsModeAccepted === true && j.projects["/"].hasTrustDialogAccepted === true && Array.isArray(j.customApiKeyResponses.approved) && j.customApiKeyResponses.approved.includes("-vm-edge-placeholder"))) process.exit(1)' && [ "$(stat -c %a /tmp/agent-config-check/.claude.json)" = "600" ] && [ "$(bash -lc 'echo $CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER')" = "1:1:1" ] && rm -rf /tmp/agent-config-check && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && test ! -e ${WORK_HOME}/.codex/config.toml`,
@@ -473,11 +480,20 @@ try {
 
   // The pinned cmux-tui build, installed with the driver's own command so the
   // bake and the attach-time heal can never disagree about path or digest.
+  // The same command installs the agent screen-detection plugin beside the
+  // daemon and writes the work user's `agents.plugin` config, before the
+  // daemon's first start below (cmux-tui-daemon-unit), so the daemon starts
+  // supervising the plugin without a restart.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
+  console.log(`agent plugin pin: commit ${cmuxTuiSource.agentPlugin.commit} sha256 ${cmuxTuiSource.agentPlugin.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
   await step(
     "cmux-tui-pin",
     `${cmuxTuiPinCheckCommand(cmuxTuiSource)} && mkdir -p /etc/cmux && printf '%s %s\n' ${cmuxTuiSource.sha256} ${cmuxTuiSource.commit} > /etc/cmux/cmux-tui-pin && cat /etc/cmux/cmux-tui-pin`,
+  );
+  await step(
+    "cmux-agent-plugin-pin",
+    `${cmuxAgentPluginPinCheckCommand(cmuxTuiSource.agentPlugin)} && printf '%s %s\n' ${cmuxTuiSource.agentPlugin.sha256} ${cmuxTuiSource.agentPlugin.commit} > ${CMUX_AGENT_PLUGIN_PIN_PATH} && cat ${CMUX_AGENT_PLUGIN_PIN_PATH}`,
   );
 
   // The runtime VM path must not upload or install guest integration. These
@@ -492,9 +508,10 @@ try {
   await step("guest-resource-reporter", guestResourceReporterInstallCommand());
 
   // The install above also wrote the work user's Claude Code and Codex hooks
-  // (cmux-tui agent hook install), so a Stop, permission request, or question
-  // in either agent reaches the daemon journal and the owner's Mac as a
-  // notification with no per-machine setup. Prove the four artifacts and that
+  // and the OpenCode and pi journal plugins (cmux-tui agent hook install), so
+  // a Stop, permission request, or question in any of them reaches the daemon
+  // journal and the owner's Mac as a notification with no per-machine setup,
+  // and the agent is detected in its terminal. Prove every artifact and that
   // the daemon user's own status verb agrees; then prove the two writers of
   // ~/.codex/config.toml compose: hooks first (bake), then the provider block
   // agent-config.sh adds at the first login that sees a boot env, with the
@@ -505,7 +522,7 @@ try {
       cmuxTuiHooksReadyCommand(),
       `${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json`,
       `node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); const rows = r.providers || []; const by = Object.fromEntries(rows.map((p) => [p.provider, p])); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { if (!by[id] || by[id].state !== "installed") { console.error(id, by[id]); process.exit(1); } }'`,
-      `test "$(stat -c %U ${WORK_HOME}/.claude/settings.json ${WORK_HOME}/.codex/hooks.json ${WORK_HOME}/.codex/config.toml | sort -u)" = ${WORK_USER}`,
+      `test "$(stat -c %U ${Object.values(CMUX_TUI_HOOK_PROVIDER_FILES).flat().map((file) => `${WORK_HOME}/${file}`).join(" ")} | sort -u)" = ${WORK_USER}`,
       `! grep -q '^model_provider = ' ${WORK_HOME}/.codex/config.toml`,
       `rm -rf /tmp/hook-merge-check && mkdir -p /tmp/hook-merge-check/.codex && cp ${WORK_HOME}/.codex/config.toml /tmp/hook-merge-check/.codex/config.toml`,
       `env HOME=/tmp/hook-merge-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true'`,
@@ -607,6 +624,9 @@ try {
   // WebSocket/Noise/RPC/PTY path before this machine can become a snapshot.
   await step("cmux-tui-ready", devboxWaitForDaemonCommand());
   await step("cmux-tui-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
+  // The daemon supervises the agent screen-detection plugin and the plugin
+  // registered its journal producer: agents are detected at launch.
+  await step("cmux-agent-plugin-running", cmuxAgentPluginReadyCommand());
   // Seed the durable first workspace and terminal while the daemon is already
   // hot. A clone keeps this journaled layout, then cmux-prompt-sync clears the
   // builder's rendered prompt and interrupts it after the clone name arrives.
@@ -722,12 +742,14 @@ emitBakeResult({
       "FREESTYLE_SANDBOX_SNAPSHOT",
       metadata,
       withDesktop
-        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ${WORK_USER}; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`
-        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)}, identity bound to the instance id, no create-time bootstrap.`,
+        ? `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner, and the desktop layer (openbox/TigerVNC 5901, noVNC 6901, Ghostty, Chrome, Thunar) run by the cmux-desktop systemd unit as ${WORK_USER}; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)} with its agent screen-detection plugin, identity bound to the instance id, no create-time bootstrap.`
+        : `Devbox on the Freestyle public platform (api.freestyle.sh) from ${builderSnapshot}: the base's Node/Bun/Python/uv/Docker plus pinned agents, devtools, Chrome + cua-driver, ble.sh devshell, cmux login banner; ${WORK_USER} (uid 1000, NOPASSWD sudo) is the work user and the daemon's session user, so terminals are non-root; hostname ${DEVBOX_HOSTNAME} (static, live, 127.0.1.1 alias; SSH host keys regenerated under it; journal reset); baked cmux-tui daemon ${cmuxTuiSource.commit.slice(0, 10)} with its agent screen-detection plugin, identity bound to the instance id, no create-time bootstrap.`,
       withDesktop ? "desktop" : "base",
     ),
     cmuxTuiCommit: cmuxTuiSource.commit,
     cmuxTuiSha256: cmuxTuiSource.sha256,
+    cmuxAgentPluginCommit: cmuxTuiSource.agentPlugin.commit,
+    cmuxAgentPluginSha256: cmuxTuiSource.agentPlugin.sha256,
   },
   next: `bun scripts/verify-devbox-image.ts freestyle ${snapshotId}`,
 });

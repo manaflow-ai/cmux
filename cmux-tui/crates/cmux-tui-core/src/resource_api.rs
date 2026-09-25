@@ -408,6 +408,7 @@ pub(crate) fn public_terminal_snapshot(
     durable: &RegistryTerminal,
     surface: Option<&crate::Surface>,
     tab_ids: Vec<TabPublicId>,
+    persisted_title: Option<&str>,
 ) -> anyhow::Result<Value> {
     let lifecycle = match durable.lifecycle {
         TerminalLifecycle::Launching | TerminalLifecycle::Adopting => "launching",
@@ -431,7 +432,10 @@ pub(crate) fn public_terminal_snapshot(
         "id": terminal_id,
         "tab_id": tab_ids.first(),
         "tab_ids": tab_ids,
-        "title": surface.map(crate::Surface::title).unwrap_or_default(),
+        "title": match surface {
+            Some(surface) => surface.presented_title(persisted_title),
+            None => persisted_title.unwrap_or_default().to_owned(),
+        },
         "cols": cols.max(1),
         "rows": rows.max(1),
         "running": durable.lifecycle == TerminalLifecycle::Running,
@@ -489,6 +493,7 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
         let terminal_resource_ids = registry.live_terminal_resource_ids()?;
+        let terminal_titles = registry.live_terminal_titles()?;
         let public_projections = registry.public_projections()?;
         anyhow::ensure!(
             registry_snapshot.generation == topology.generation
@@ -673,7 +678,13 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                     format!("terminal {terminal_id} references missing {host_id}")
                 })?;
                 let tab_ids = tab_ids_by_terminal.remove(&terminal_id).unwrap_or_default();
-                public_terminal_snapshot(&terminal_id, durable, surface.map(Arc::as_ref), tab_ids)
+                public_terminal_snapshot(
+                    &terminal_id,
+                    durable,
+                    surface.map(Arc::as_ref),
+                    tab_ids,
+                    terminal_titles.get(&terminal_id).map(String::as_str),
+                )
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
@@ -1172,6 +1183,142 @@ mod tests {
         wait_for_cwd(Some("/srv/live"), "OSC 7 cwd never reached the public graph");
         surface.write_bytes(b"\n").unwrap();
         wait_for_cwd(None, "an empty OSC 7 report never cleared the published cwd");
+        mux.shutdown();
+    }
+
+    fn terminal_title_batches(mux: &Mux, after: u64) -> Vec<(u64, u64, Value)> {
+        mux.resource_events_after(after)
+            .unwrap()
+            .batches
+            .into_iter()
+            .map(|batch| (batch.previous_revision, batch.revision, batch.changes))
+            .collect()
+    }
+
+    fn wait_for_revision_after(mux: &Mux, after: u64) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let epoch = mux.resource_event_epoch();
+            if !mux.resource_events_after(after).unwrap().batches.is_empty() {
+                return;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            assert!(!remaining.is_zero(), "title report never committed a resource revision");
+            mux.wait_for_resource_event(epoch, remaining);
+        }
+    }
+
+    fn snapshot_revision(mux: &Mux) -> u64 {
+        public_session_snapshot(mux).unwrap()["cursor"]["revision"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap()
+    }
+
+    #[test]
+    fn cloud_title_reports_publish_one_coalesced_terminal_delta() {
+        let mux = Mux::new_for_test("cloud-title-events", SurfaceOptions::default());
+        // Hold the throttle open so the trailing edge is released only by the
+        // explicit flush below.
+        mux.set_terminal_title_interval_for_test(std::time::Duration::from_secs(3600));
+        let surface = mux.new_workspace(Some("title".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap().clone();
+        let mut revision = snapshot_revision(&mux);
+
+        // Leading edge: the first report after a quiet interval publishes.
+        surface.set_test_title("first");
+        wait_for_revision_after(&mux, revision);
+        let batches = terminal_title_batches(&mux, revision);
+        assert_eq!(batches.len(), 1);
+        let (previous, next, changes) = &batches[0];
+        assert_eq!(*previous, revision);
+        assert_eq!(changes.as_array().unwrap().len(), 1);
+        assert_eq!(changes[0]["kind"], "upsert");
+        assert_eq!(changes[0]["resource"], "terminal");
+        assert_eq!(changes[0]["id"], terminal_id.as_str());
+        assert_eq!(changes[0]["value"]["title"], "first");
+        revision = *next;
+
+        // A burst inside the interval commits nothing until the trailing edge,
+        // which publishes only the latest title.
+        for frame in ["⠋ working", "⠙ working", "⠹ working", "done"] {
+            surface.set_test_title(frame);
+        }
+        assert!(terminal_title_batches(&mux, revision).is_empty());
+        assert_eq!(public_session_snapshot(&mux).unwrap()["terminals"][0]["title"], "done");
+        mux.flush_terminal_titles_for_test();
+        let batches = terminal_title_batches(&mux, revision);
+        assert_eq!(batches.len(), 1, "a burst must coalesce into one revision");
+        let (previous, next, changes) = &batches[0];
+        assert_eq!(*previous, revision);
+        assert_eq!(*next, revision + 1);
+        assert_eq!(changes[0]["value"]["title"], "done");
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        assert_eq!(changes[0]["value"], snapshot["terminals"][0]);
+
+        // Reporting the published title again spends no revision.
+        surface.set_test_title("done");
+        mux.flush_terminal_titles_for_test();
+        assert!(terminal_title_batches(&mux, *next).is_empty());
+        mux.shutdown();
+    }
+
+    #[test]
+    fn cloud_title_survives_restart_until_the_program_reports_again() {
+        let mux = Mux::new_for_test("cloud-title-restore", SurfaceOptions::default());
+        mux.set_terminal_title_interval_for_test(std::time::Duration::from_secs(3600));
+        let surface = mux.new_workspace(Some("title".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().unwrap().clone();
+        let title =
+            |mux: &Mux| public_session_snapshot(mux).unwrap()["terminals"][0]["title"].clone();
+        surface.set_test_title("agent: fixing tests");
+        mux.flush_terminal_titles_for_test();
+        let stored = |mux: &Mux| {
+            mux.with_resource_projection(|registry, _| registry.terminal_title(&terminal_id))
+                .unwrap()
+        };
+        assert_eq!(stored(&mux).as_deref(), Some("agent: fixing tests"));
+
+        // A runtime adopted after a daemon restart or host reattach rebuilds
+        // its parser from a VT replay that carries no title. The persisted
+        // title presents instead of an empty one.
+        surface.forget_title_for_test();
+        assert_eq!(surface.title(), "");
+        assert_eq!(title(&mux), "agent: fixing tests");
+
+        // A new program report replaces the persisted title.
+        let revision = snapshot_revision(&mux);
+        surface.set_test_title("agent: idle");
+        mux.flush_terminal_titles_for_test();
+        assert_eq!(title(&mux), "agent: idle");
+        assert_eq!(stored(&mux).as_deref(), Some("agent: idle"));
+        let batches = terminal_title_batches(&mux, revision);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].2[0]["value"]["title"], "agent: idle");
+
+        // An explicit empty title is a real report: it clears the title and
+        // the clear itself persists across a restart.
+        surface.set_test_title("");
+        mux.flush_terminal_titles_for_test();
+        assert_eq!(title(&mux), "");
+        assert_eq!(stored(&mux).as_deref(), Some(""));
+        surface.forget_title_for_test();
+        assert_eq!(title(&mux), "");
+
+        // Before the runtime is adopted at all, the durable title presents.
+        surface.set_test_title("before restart");
+        mux.flush_terminal_titles_for_test();
+        mux.remove_surface_runtime_for_test(surface.id).unwrap();
+        mux.remove_terminal_catalog_for_test(&terminal_id).unwrap();
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap();
+        assert_eq!(terminal["title"], "before restart");
         mux.shutdown();
     }
 

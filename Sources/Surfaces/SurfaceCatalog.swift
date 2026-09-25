@@ -1112,6 +1112,7 @@ final class SurfaceCatalog {
         insertSupersedingLocalPlaceholder(cloudPlacementCoordinator.projectionInCurrentWorkspace(projection))
         reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         reconcileCloudProjection(projection)
+        syncCloudTerminalTabTitle(projection)
         syncCloudTerminalTabIcon(projection)
         notifyChange()
     }

@@ -47,7 +47,14 @@ impl Mux {
             )
             .remove(id)
             .unwrap_or_default();
-        let mut value = public_terminal_snapshot(id, &durable, Some(&current), tabs)?;
+        let persisted_title = registry.terminal_title(id)?;
+        let mut value = public_terminal_snapshot(
+            id,
+            &durable,
+            Some(&current),
+            tabs,
+            persisted_title.as_deref(),
+        )?;
         let fields = value.as_object_mut().context("terminal snapshot is not an object")?;
         if let Some(directory) = &directory {
             fields.insert("cwd".into(), serde_json::json!(directory));

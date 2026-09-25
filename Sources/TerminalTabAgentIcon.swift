@@ -1,7 +1,7 @@
 import Bonsplit
 import Foundation
 
-/// Resolves the provider mark for a local terminal tab from the same agent
+/// Resolves a provider mark from the same agent
 /// definitions used by process and hook detection.
 struct TerminalTabAgentIconResolver {
     func assetName(forStatusKey statusKey: String) -> String? {
@@ -16,29 +16,12 @@ struct TerminalTabAgentIconResolver {
 }
 
 extension Workspace {
-    /// Returns the current provider mark for one terminal panel, if known.
+    /// Returns the provider mark for a Cloud terminal tab. The agent runs on
+    /// the remote machine, so its projected resource is the owner. Local
+    /// terminal tabs keep the plain terminal icon.
     func terminalTabAgentIconAsset(forPanelId panelId: UUID) -> String? {
-        let resolver = TerminalTabAgentIconResolver()
-        let statusKeys = agentPIDKeysByPanelId[panelId, default: []]
-            .map(agentStatusKey(forAgentPIDKey:))
-            .sorted()
-        if let asset = statusKeys.compactMap(resolver.assetName(forStatusKey:)).first {
-            return asset
-        }
-        // A restored snapshot outlives its agent (completed sessions stay for
-        // history), so it only names the tab while that agent is running.
-        guard let restored = restoredAgentSnapshotsByPanelId[panelId],
-              restoredAgentIsRunning(panelId: panelId) else { return nil }
-        return restored.registration?.iconAssetName ?? resolver.assetName(forStatusKey: restored.kind.rawValue)
-    }
-
-    private func restoredAgentIsRunning(panelId: UUID) -> Bool {
-        switch restoredAgentResumeStatesByPanelId[panelId] {
-        case .autoResumeCommandRunning, .observedAgentCommandRunning:
-            return true
-        case .manualResumeAvailable, .awaitingAutoResumeCommand, .completedAgentExit, nil:
-            return false
-        }
+        guard let remote = cloudProjectedResource(forPanel: panelId), remote.kind == .terminal else { return nil }
+        return remote.terminalAgentIconAssetName
     }
 
     /// Reconciles a terminal tab's provider mark after agent lifecycle state changes.

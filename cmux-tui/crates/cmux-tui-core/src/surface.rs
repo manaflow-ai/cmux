@@ -1549,6 +1549,14 @@ pub struct PtyTerminalRuntime {
     /// frontend when it draws.
     dirty: AtomicBool,
     title: Mutex<String>,
+    /// The last title the program set through OSC 0/2 in this runtime,
+    /// including an explicit empty title. A VT replay after a host reattach
+    /// may rebuild the parser without its title; this report survives that,
+    /// and before any report the persisted title presents instead.
+    reported_title: Mutex<Option<String>>,
+    /// The title most recently committed to the resource store by this
+    /// runtime. Publication skips a report equal to it.
+    published_title: Mutex<Option<String>>,
     pwd: Mutex<Option<String>>,
     published_directory: Mutex<PublishedDirectory>,
     directory_pending: AtomicBool,
@@ -2469,6 +2477,8 @@ impl Surface {
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
+                reported_title: Mutex::new(None),
+                published_title: Mutex::new(None),
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
@@ -2588,9 +2598,10 @@ impl Surface {
                             }
                             if title_changed.swap(false, Ordering::Relaxed) {
                                 let title = term.title().unwrap_or_default();
-                                *pty.title.lock().unwrap() = title.clone();
+                                pty.record_reported_title(title.clone());
                                 if let Some(mux) = mux.upgrade() {
                                     mux.emit_terminal_title(surface.id, title.into());
+                                    mux.schedule_terminal_title_publication(&surface);
                                 }
                             }
                             pty.record_directory(term.pwd());
@@ -2908,6 +2919,9 @@ impl Surface {
         }
         let initial_color_revision = term.color_revision();
         let initial_cursor_activity = term.cursor_activity().ok();
+        // The replay rebuilds state. Its title, if it carries one, seeds the
+        // runtime report below instead of reaching the reader as a change.
+        title_changed.store(false, Ordering::Relaxed);
         let title = term.title().unwrap_or_default();
         let pwd = term.pwd();
         let mut mouse_encoders = MouseEncoders::new()?;
@@ -2979,7 +2993,9 @@ impl Surface {
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(true),
+                reported_title: Mutex::new((!title.is_empty()).then(|| title.clone())),
                 title: Mutex::new(title),
+                published_title: Mutex::new(None),
                 directory_reported: AtomicBool::new(pwd.is_some()),
                 pwd: Mutex::new(pwd),
                 published_directory: Mutex::new(PublishedDirectory::Unreported),
@@ -3191,7 +3207,7 @@ impl Surface {
                                     };
                                     if title_changed.swap(false, Ordering::Relaxed) {
                                         let title = term.title().unwrap_or_default();
-                                        *pty.title.lock().unwrap() = title.clone();
+                                        pty.record_reported_title(title.clone());
                                         title_update = Some(title);
                                     }
                                     pty.record_directory(term.pwd());
@@ -3223,6 +3239,7 @@ impl Surface {
                                     && let Some(mux) = mux.upgrade()
                                 {
                                     mux.emit_terminal_title(surface.id, title.into());
+                                    mux.schedule_terminal_title_publication(&surface);
                                 }
                                 if let Some((offset, at_bottom)) = scroll_changed
                                     && let Some(mux) = mux.upgrade()
@@ -3334,7 +3351,7 @@ impl Surface {
                                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(term);
                                     *geometry = next_geometry;
                                     pty.journal_geometry(next_geometry);
-                                    *pty.title.lock().unwrap() = title.clone();
+                                    pty.record_replayed_title(title.clone());
                                     pty.record_directory(pwd);
                                     *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
                                     applied_color_overrides = colors;
@@ -3366,6 +3383,7 @@ impl Surface {
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
                                     mux.emit_terminal_title(surface.id, title.into());
+                                    mux.schedule_terminal_title_publication(&surface);
                                     mux.emit_terminal_resized(surface.id, cols, rows, None);
                                     if let Some((offset, at_bottom)) = scroll_changed {
                                         mux.emit_terminal_scroll(surface.id, offset, at_bottom);
@@ -3646,7 +3664,7 @@ impl Surface {
                             *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
-                            *pty.title.lock().unwrap() = title.clone();
+                            pty.record_replayed_title(title.clone());
                             pty.record_directory(pwd);
                             *pty.kitty_graphics_limits.lock().unwrap() =
                                 replacement_snapshot.kitty_state.limits;
@@ -3740,6 +3758,7 @@ impl Surface {
                         );
                         surface.publish_pending_directory();
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
+                        reconnect_mux.schedule_terminal_title_publication(&surface);
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,
                             replacement_snapshot.cols,
@@ -4039,6 +4058,8 @@ impl Surface {
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
                 dirty: AtomicBool::new(true),
                 title: Mutex::new(String::new()),
+                reported_title: Mutex::new(None),
+                published_title: Mutex::new(None),
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
@@ -4280,6 +4301,8 @@ impl Surface {
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
                 dirty: AtomicBool::new(false),
                 title: Mutex::new(String::new()),
+                reported_title: Mutex::new(None),
+                published_title: Mutex::new(None),
                 pwd: Mutex::new(None),
                 published_directory: Mutex::new(PublishedDirectory::Reported(None)),
                 directory_pending: AtomicBool::new(true),
@@ -5574,6 +5597,55 @@ impl Surface {
             Surface::Pty(pty) => pty.title.lock().unwrap().clone(),
             Surface::Browser(browser) => browser.title(),
         }
+    }
+
+    /// The title the public resource graph presents. A title the program
+    /// reported in this runtime always wins, including an explicit empty
+    /// title. Otherwise a non-empty replayed title wins, and an empty one
+    /// falls back to the last title the program published before a daemon
+    /// restart or host reattach.
+    pub(crate) fn presented_title(&self, persisted: Option<&str>) -> String {
+        let Some(pty) = self.as_pty() else { return self.title() };
+        if let Some(reported) = pty.reported_title.lock().unwrap().clone() {
+            return reported;
+        }
+        let live = pty.title.lock().unwrap().clone();
+        if live.is_empty() { persisted.unwrap_or_default().to_owned() } else { live }
+    }
+
+    /// The reported title that awaits publication, or `None` when the live
+    /// title is not a program report or is already committed.
+    pub(crate) fn unpublished_reported_title(&self) -> Option<String> {
+        let pty = self.as_pty()?;
+        let reported = pty.reported_title.lock().unwrap().clone()?;
+        (pty.published_title.lock().unwrap().as_deref() != Some(reported.as_str()))
+            .then_some(reported)
+    }
+
+    pub(crate) fn commit_published_title(&self, title: String) {
+        if let Some(pty) = self.as_pty() {
+            *pty.published_title.lock().unwrap() = Some(title);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_title(self: &Arc<Self>, title: &str) {
+        let pty = self.as_pty().expect("test PTY surface");
+        pty.record_reported_title(title.to_owned());
+        if let Some(mux) = pty.mux.upgrade() {
+            mux.emit_terminal_title(pty.event_surface_id, title.into());
+            mux.schedule_terminal_title_publication(self);
+        }
+    }
+
+    /// Mirror a runtime freshly adopted after a daemon restart: its VT replay
+    /// carries no title and it has neither reported nor published one.
+    #[cfg(test)]
+    pub(crate) fn forget_title_for_test(&self) {
+        let pty = self.as_pty().expect("test PTY surface");
+        pty.record_replayed_title(String::new());
+        *pty.reported_title.lock().unwrap() = None;
+        *pty.published_title.lock().unwrap() = None;
     }
 
     pub fn pwd(&self) -> Option<String> {

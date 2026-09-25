@@ -752,11 +752,9 @@ fn scan_terminal(
         manifest.detect(DetectionInput { screen: &screen.text, osc_title, osc_progress });
     // Flowing PTY output is a working signal for the screen source. It only
     // upgrades an idle read and owes one expiry re-evaluation; hooks still
-    // win in the core roster reducer.
-    if !detection.skip_state_update
-        && detection.state == crate::manifest::ScreenState::Idle
-        && state.tracker.output_active(&terminal_id, now)
-    {
+    // win in the core roster reducer. An idle the agent reports in its own
+    // title stands: codex animates its idle prompt, so output keeps flowing.
+    if activity_upgrades(&detection) && state.tracker.output_active(&terminal_id, now) {
         detection.state = crate::manifest::ScreenState::Working;
         state.tracker.note_activity_upgrade(&terminal_id);
     }
@@ -778,6 +776,15 @@ fn scan_terminal(
         return Ok(());
     }
     Ok(())
+}
+
+/// Whether flowing PTY output may upgrade this screen read to working. Only a
+/// screen-derived idle qualifies; an idle the agent reports through its own
+/// OSC title or progress is authoritative over raw output.
+fn activity_upgrades(detection: &crate::manifest::Detection) -> bool {
+    !detection.skip_state_update
+        && detection.state == crate::manifest::ScreenState::Idle
+        && !detection.agent_reported
 }
 
 fn prepare_emission(
@@ -1037,6 +1044,38 @@ fn emission_idempotency_key(nonce: &str, sequence: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn idle_read(agent_reported: bool) -> crate::manifest::Detection {
+        crate::manifest::Detection {
+            state: crate::manifest::ScreenState::Idle,
+            skip_state_update: false,
+            matched_rule: Some("idle".into()),
+            visible_idle: true,
+            visible_blocker: false,
+            visible_working: false,
+            agent_reported,
+        }
+    }
+
+    #[test]
+    fn output_activity_does_not_override_an_agent_reported_idle() {
+        assert!(activity_upgrades(&idle_read(false)));
+        assert!(!activity_upgrades(&idle_read(true)));
+    }
+
+    #[test]
+    fn codex_idle_title_is_agent_reported_and_its_spinner_is_working() {
+        let manifests = ManifestSet::bundled();
+        let codex = manifests.identify("codex").expect("bundled codex manifest");
+        let screen = "\u{203a} Ask Codex to do anything\n  gpt-6-astra default \u{b7} ~";
+        let idle = codex.detect(DetectionInput { screen, osc_title: "cmux", osc_progress: "" });
+        assert_eq!(idle.state, crate::manifest::ScreenState::Idle);
+        assert!(idle.agent_reported);
+        assert!(!activity_upgrades(&idle));
+        let busy =
+            codex.detect(DetectionInput { screen, osc_title: "\u{280b} cmux", osc_progress: "" });
+        assert_eq!(busy.state, crate::manifest::ScreenState::Working);
+    }
 
     #[test]
     fn configured_session_selector_does_not_fall_back_to_current() {

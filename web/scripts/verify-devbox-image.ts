@@ -8,7 +8,8 @@
  * contract on a desktop image), then asserts the
  * daemon contract with NO bootstrap of its own: the baked cmux-tui daemon must
  * come up by itself after resume, bound to this machine's instance id, with
- * the binary at the current files.cmux.com pin. A second machine from the same
+ * the binary at the current files.cmux.com pin, and the agent screen-detection
+ * plugin pinned beside it and running under the daemon. A second machine from the same
  * snapshot must hold a different daemon identity (the snapshot is a memory
  * image; see cmux-devbox-boot). Both sandboxes are deleted.
  *
@@ -26,8 +27,11 @@ import { agentLaunchCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
+  CMUX_AGENT_PLUGIN_PIN_PATH,
   CMUX_TUI_HOOK_PROVIDERS,
   CMUX_TUI_LAYOUT_MARKER_PATH,
+  cmuxAgentPluginPinCheckCommand,
+  cmuxAgentPluginReadyCommand,
   CMUX_TUI_SESSION,
   cmuxTuiHooksReadyCommand,
   cmuxTuiLayoutSelector,
@@ -119,10 +123,10 @@ const CHECKS: readonly string[] = [
   // Quiet-marks smoke: the bashrc blanks ble.sh's status marks and pins USER
   // so no [ble: ...] or "insane environment" text ever renders.
   "tmux new-session -d -s marks -x 100 -y 24 && sleep 3 && tmux send-keys -t marks not-a-command Enter && sleep 2 && tmux send-keys -t marks 'printf no-newline' Enter && sleep 2 && out=$(tmux capture-pane -pt marks); tmux kill-session -t marks 2>/dev/null; printf '%s\\n' \"$out\" | grep -E '\\[ble:|ble\\.sh:' && exit 1; echo no-ble-marks",
-  // Coding-agent hooks: the work user's Claude Code and Codex hooks are
-  // installed and current (helper byte-equal to the pinned one, cmux marker
-  // in both provider configs, codex trust table), and the daemon user's own
-  // status verb reports both providers installed.
+  // Coding-agent hooks: the work user's Claude Code, Codex, OpenCode, and pi
+  // hooks are installed and current (helper byte-equal to the pinned one, cmux
+  // marker in every provider config or plugin, codex trust table), and the
+  // daemon user's own status verb reports every provider installed.
   `${cmuxTuiHooksReadyCommand()} && ${cmuxTuiRunCommand(`--json agent hook status ${CMUX_TUI_HOOK_PROVIDERS.join(" ")}`)} > /tmp/hook-status.json && node -e 'const r = JSON.parse(require("fs").readFileSync("/tmp/hook-status.json","utf8")); for (const id of ${JSON.stringify([...CMUX_TUI_HOOK_PROVIDERS])}) { const p = (r.providers || []).find((x) => x.provider === id); if (!p || p.state !== "installed") { console.error(id, p); process.exit(1); } }' && rm -f /tmp/hook-status.json && echo agent-hooks-ok`,
   // Agent-config generator: a login shell under a throwaway HOME with fake
   // model-plane env (placeholder keys, never a token) materializes the codex
@@ -166,6 +170,9 @@ const DAEMON_CHECKS: readonly string[] = [
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
   "test -x /usr/local/bin/cmux-prompt-sync && python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync >/dev/null && echo prompt-sync-contract-ok",
   cmuxTuiWebsocketSmokeCommand(),
+  // The resumed daemon started the agent screen-detection plugin from its
+  // config and the plugin reached it: agents are detected at launch.
+  cmuxAgentPluginReadyCommand(),
 ];
 
 // The desktop layer (Freestyle bakes; /etc/cmux/image-stamp says "desktop"),
@@ -422,6 +429,21 @@ if (provider === "freestyle") {
     if (pin.exitCode !== 0) {
       throw new Error(`baked cmux-tui does not match the pin recorded at bake time: ${pin.output.slice(-500)}`);
     }
+    // The agent screen-detection plugin is the same commit's build, pinned
+    // at bake time beside the daemon.
+    const pluginPin = await exec(`cat ${CMUX_AGENT_PLUGIN_PIN_PATH}`, 30_000);
+    const [pluginSha, pluginCommit] = pluginPin.output.trim().split(/\s+/);
+    if (pluginPin.exitCode !== 0 || !/^[0-9a-f]{64}$/.test(pluginSha ?? "")) {
+      throw new Error(`image carries no readable ${CMUX_AGENT_PLUGIN_PIN_PATH}: ${pluginPin.output.slice(-300)}`);
+    }
+    if (pluginCommit !== bakedCommit) {
+      throw new Error(`baked agent plugin commit ${pluginCommit} differs from the baked cmux-tui commit ${bakedCommit}`);
+    }
+    const pluginPinned = await exec(`${cmuxAgentPluginPinCheckCommand({ sha256: pluginSha })} && echo baked-agent-plugin-pin-ok`, 30_000);
+    if (pluginPinned.exitCode !== 0) {
+      throw new Error(`baked agent plugin does not match the pin recorded at bake time: ${pluginPinned.output.slice(-500)}`);
+    }
+    console.log(`agent plugin pin: ${pluginCommit} (${pluginSha.slice(0, 12)}…)`);
     const live = await resolveCmuxTuiSource("freestyle");
     console.log(
       live.sha256 === bakedSha

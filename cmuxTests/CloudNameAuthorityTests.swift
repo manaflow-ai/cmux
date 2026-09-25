@@ -165,6 +165,44 @@ extension SetAutoTitleSocketTests {
         }
     }
 
+    /// The fixture's next accepted snapshot: same generation, next revision.
+    private func nextFixtureState(
+        _ fixture: CloudNameAuthorityFixture,
+        edit: (inout [String: Any]) throws -> Void
+    ) throws -> CloudVMState {
+        var document = try #require(fixture.provider.graph.snapshotObject())
+        let cursor = try #require(fixture.provider.graph.cursor)
+        document["cursor"] = ["generation": cursor.generation, "revision": String(cursor.revision + 1)]
+        try edit(&document)
+        return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: document, machine: fixture.provider.machine))
+    }
+
+    @Test("A local OSC title update keeps the Cloud agent's tab icon")
+    func cloudAgentTabIconSurvivesTitleUpdate() async throws {
+        try await withCloudNameFixture { fixture in
+            #expect(fixture.provider.install(try nextFixtureState(fixture) { document in
+                document["agents"] = [["terminal_id": "term_a", "state": "working", "source": "hook", "agent": "claude"]]
+            }))
+            let tabID = try #require(fixture.workspace.surfaceIdFromPanelId(fixture.panelID))
+            // Ghostty reports the agent's OSC title for the mirrored pane; the
+            // tab mark must come from the Cloud resource, not local PID state.
+            _ = fixture.workspace.updatePanelTitle(panelId: fixture.panelID, title: "✳ Claude Code")
+            #expect(fixture.workspace.bonsplitController.tab(tabID)?.iconAsset == "AgentIcons/Claude")
+        }
+    }
+
+    @Test("A local agent process leaves the local terminal tab icon unchanged")
+    func localAgentKeepsPlainTabIcon() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        defer { for panel in workspace.panels.values { panel.close() } }
+        let panelID = try #require(workspace.focusedPanelId)
+        let tabID = try #require(workspace.surfaceIdFromPanelId(panelID))
+        workspace.recordAgentPID(key: "claude_code", pid: getpid(), panelId: panelID, refreshPorts: false)
+        _ = workspace.updatePanelTitle(panelId: panelID, title: "✳ Claude Code")
+        #expect(workspace.bonsplitController.tab(tabID)?.iconAsset == nil)
+    }
+
     @Test("A user confirming the same agent text claims the name")
     func cloudSameTextClaimsUserOwnership() async throws {
         try await withCloudNameFixture { fixture in

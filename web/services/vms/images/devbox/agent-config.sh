@@ -194,6 +194,17 @@ def unavailable():
     print("cmux: OpenCode provider configuration is unavailable; retry in one minute.", file=sys.stderr)
     sys.exit(75)
 
+def unconfigured(message):
+    # A definitive answer (no account OpenCode can use, a rejected machine
+    # credential): retrying cannot help, so OpenCode starts without cmux
+    # configuration instead of refusing to launch. Nothing is cached, so the
+    # next launch picks up an account added in the meantime.
+    print("cmux: starting OpenCode without cmux model configuration: " + message, file=sys.stderr)
+    sys.exit(0)
+
+class Retryable(Exception):
+    pass
+
 def redact(value):
     if isinstance(value, dict):
         return {k: redact(v) for k, v in value.items()}
@@ -217,12 +228,25 @@ with (state / "opencode-config.lock").open("a") as lock:
         pass
     try:
         result = subprocess.run(
-            ["curl", "-fsS", "--connect-timeout", "2", "-m", "10",
+            ["curl", "-sS", "--connect-timeout", "2", "-m", "10",
              "-H", "authorization: Bearer " + key,
+             "-w", "\n%{http_code}",
              origin + "/api/coderouter/opencode/config"],
             capture_output=True, timeout=12, check=True,
         )
-        document = json.loads(result.stdout)
+        body, _, status = result.stdout.decode("utf-8", "replace").rpartition("\n")
+        if not status.startswith("2"):
+            try:
+                answer = json.loads(body)
+            except ValueError:
+                answer = None
+            # The server's 401 text names `cr login`, which the guest lacks.
+            if status == "401":
+                unconfigured("the coderouter rejected this machine's credential")
+            if isinstance(answer, dict) and answer.get("retryable") is False:
+                unconfigured(str(answer.get("message") or answer.get("error") or "HTTP " + status))
+            raise Retryable("HTTP " + status)
+        document = json.loads(body)
         if not isinstance(document, dict) or not isinstance(document.get("provider"), dict) or not document["provider"]:
             raise ValueError("missing provider catalog")
         document = redact(document)
@@ -243,7 +267,7 @@ with (state / "opencode-config.lock").open("a") as lock:
         finally:
             os.unlink(temporary)
         failure.unlink(missing_ok=True)
-    except (OSError, ValueError, subprocess.SubprocessError):
+    except (OSError, ValueError, Retryable, subprocess.SubprocessError):
         if config.exists() or config.is_symlink():
             sys.exit(0)
         failure.write_text(str(time.time()))

@@ -62,6 +62,7 @@ pub use public_projection_store::RegistryPublicProjections;
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 #[cfg(test)]
 pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
+pub(crate) use resource_store::MAX_TERMINAL_TITLE_BYTES;
 pub(crate) use resource_store::validate_registry_screen_projection;
 pub(crate) use resource_store::{
     AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookPendingFailure, AgentHookProjectionState,

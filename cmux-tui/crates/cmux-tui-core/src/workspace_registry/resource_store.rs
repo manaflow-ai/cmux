@@ -287,7 +287,28 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
            ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
-    migrate_tab_name_authority(transaction)
+    migrate_tab_name_authority(transaction)?;
+    migrate_terminal_title(transaction)
+}
+
+/// Longest terminal title the store keeps, in bytes. Publication truncates a
+/// longer OSC 0/2 title at a character boundary before it reaches the store.
+pub(crate) const MAX_TERMINAL_TITLE_BYTES: usize = 4096;
+
+/// Additive migration: the last OSC 0/2 title a terminal program published.
+/// NULL means no title was ever published; an empty string is an explicit
+/// clear by the program. Older daemons never read or write the column.
+pub(super) fn migrate_terminal_title(connection: &Connection) -> anyhow::Result<()> {
+    let has_title = connection
+        .prepare("PRAGMA table_info(resource_terminals)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "title");
+    if !has_title {
+        connection.execute_batch("ALTER TABLE resource_terminals ADD COLUMN title TEXT;")?;
+    }
+    Ok(())
 }
 
 /// Additive migration: pre-authority labels remain user-owned.
@@ -1344,6 +1365,36 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    /// The last title each live terminal program published, keyed by public
+    /// id. Terminals that never published a title are absent.
+    pub fn live_terminal_titles(&self) -> anyhow::Result<HashMap<TerminalPublicId, String>> {
+        let mut statement = self.connection.prepare(
+            "SELECT public_id, title FROM resource_terminals
+             WHERE deleted_revision IS NULL AND title IS NOT NULL",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .map(|row| {
+                let (public_id, title) = row?;
+                Ok((TerminalPublicId::parse(public_id)?, title))
+            })
+            .collect()
+    }
+
+    /// The last title a live terminal program published, if any.
+    pub fn terminal_title(&self, public_id: &TerminalPublicId) -> anyhow::Result<Option<String>> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT title FROM resource_terminals
+                 WHERE public_id = ?1 AND deleted_revision IS NULL",
+                [public_id.as_str()],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
     /// Resolve the immutable resource-to-host relationship, including after
     /// explicit close, so lifecycle reads can distinguish tombstones from
     /// identifiers that never existed.
@@ -2132,6 +2183,12 @@ pub enum ResourceChange {
         public_id: TerminalPublicId,
         expected_incarnation: Option<String>,
     },
+    /// Persist the last title a live terminal program published (OSC 0/2).
+    /// An empty title is an explicit clear and is stored as such.
+    SetTerminalTitle {
+        public_id: TerminalPublicId,
+        title: String,
+    },
     UpsertBrowser(RegistryBrowser),
     TombstoneBrowser {
         public_id: BrowserPublicId,
@@ -2405,6 +2462,12 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
             ResourceChange::TombstoneTerminal { public_id, expected_incarnation } => {
                 if let Some(incarnation) = expected_incarnation {
                     validate_terminal_identity("terminal incarnation", incarnation)?;
+                }
+                format!("terminal:{public_id}")
+            }
+            ResourceChange::SetTerminalTitle { public_id, title } => {
+                if title.len() > MAX_TERMINAL_TITLE_BYTES {
+                    anyhow::bail!("terminal title exceeds {MAX_TERMINAL_TITLE_BYTES} bytes");
                 }
                 format!("terminal:{public_id}")
             }
@@ -2775,6 +2838,9 @@ pub(super) fn apply_resource_patch(
             }
             ResourceChange::UpsertBrowser(browser) => {
                 upsert_resource_browser(transaction, browser, revision)?;
+            }
+            ResourceChange::SetTerminalTitle { public_id, title } => {
+                set_resource_terminal_title(transaction, public_id, title, revision)?;
             }
             _ => {}
         }
@@ -4063,6 +4129,9 @@ fn validate_touched_resource_invariants(
                 terminals.insert(public_id.to_string());
                 collect_content_tab_scope(transaction, public_id.as_str(), &mut tabs, &mut panes)?;
             }
+            ResourceChange::SetTerminalTitle { public_id, .. } => {
+                terminals.insert(public_id.to_string());
+            }
             ResourceChange::UpsertBrowser(browser) => {
                 browsers.insert(browser.public_id.to_string());
                 collect_content_tab_scope(
@@ -4425,6 +4494,22 @@ fn validate_touched_tab(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::
         anyhow::bail!("tab {tab_id} references closed {content_kind} {content_id}");
     }
     validate_identity_state(transaction, &content_id, &content_kind, true)
+}
+
+fn set_resource_terminal_title(
+    transaction: &Transaction<'_>,
+    public_id: &TerminalPublicId,
+    title: &str,
+    revision: i64,
+) -> anyhow::Result<()> {
+    let updated = transaction.execute(
+        "UPDATE resource_terminals SET title = ?1, updated_revision = ?2
+         WHERE public_id = ?3 AND deleted_revision IS NULL",
+        params![title, revision, public_id.as_str()],
+    )?;
+    anyhow::ensure!(updated == 1, "unknown live terminal resource {public_id}");
+    upsert_resource_identity(transaction, public_id.as_str(), "terminal", revision)?;
+    Ok(())
 }
 
 fn validate_touched_terminal(

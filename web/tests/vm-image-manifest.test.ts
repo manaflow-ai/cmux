@@ -46,6 +46,26 @@ const passedEntry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManife
   ...overrides,
 });
 
+describe("agent plugin record", () => {
+  const tuiCommit = "5a4780614cecd8e8ef040a24478f928ef31cc4ae";
+  const record = { cmuxTuiCommit: tuiCommit, cmuxTuiSha256: "c".repeat(64) };
+  const problems = (overrides: Partial<DevboxManifestEntry>) =>
+    imageManifestProblems({ schemaVersion: 1, images: [passedEntry({ ...record, ...overrides })] } as DevboxImageManifest);
+
+  test("is optional for images baked before the plugin shipped", () => {
+    expect(problems({})).toEqual([]);
+  });
+
+  test("records the daemon's own commit and a digest, together", () => {
+    expect(problems({ cmuxAgentPluginCommit: tuiCommit, cmuxAgentPluginSha256: "a".repeat(64) })).toEqual([]);
+    expect(problems({ cmuxAgentPluginCommit: tuiCommit }).join("\n")).toContain("recorded together");
+    expect(problems({ cmuxAgentPluginCommit: "f".repeat(40), cmuxAgentPluginSha256: "a".repeat(64) }).join("\n"))
+      .toContain("differs from cmuxTuiCommit");
+    expect(problems({ cmuxAgentPluginCommit: tuiCommit, cmuxAgentPluginSha256: "xyz" }).join("\n"))
+      .toContain("not a sha256 digest");
+  });
+});
+
 describe("checked-in image manifest", () => {
   test("holds its invariants", () => {
     expect(imageManifestProblems(readImageManifest())).toEqual([]);

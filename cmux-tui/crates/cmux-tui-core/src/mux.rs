@@ -5,6 +5,7 @@ mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
+mod terminal_title;
 
 pub(crate) use resource_content::ResourceEffectProjection;
 
@@ -2471,6 +2472,8 @@ pub struct Mux {
     terminal_adoption_insert_failures: AtomicU64,
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
+    /// Throttled, durable publication of program-reported terminal titles.
+    terminal_titles: Arc<terminal_title::TerminalTitlePublisher>,
     pub(crate) control_clients: crate::server::ClientRegistry,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
@@ -2873,6 +2876,7 @@ impl Mux {
             ),
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
+            terminal_titles: Arc::default(),
             control_clients: crate::server::ClientRegistry::new(),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
@@ -2884,6 +2888,7 @@ impl Mux {
             test_surface_runtime,
             session,
         });
+        mux.terminal_titles.bind(Arc::downgrade(&mux));
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {
             let Some(mux) = weak_mux.upgrade() else { return };
@@ -10641,6 +10646,7 @@ impl Mux {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
         self.config_reload_changed.notify_all();
+        self.stop_terminal_title_publisher();
         self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;

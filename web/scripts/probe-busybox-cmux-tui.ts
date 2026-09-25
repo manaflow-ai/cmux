@@ -12,7 +12,7 @@
  *   FREESTYLE_API_KEY=... bun scripts/probe-busybox-cmux-tui.ts [--fx]
  */
 import { Freestyle, type FirewallSpec } from "freestyle";
-import { cmuxTuiInstallCommand, resolveCmuxTuiSource } from "../services/vms/drivers/cmuxTuiDaemon";
+import { cmuxTuiInstallCommand, resolveCmuxTuiInstallSource } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const withFx = process.argv.includes("--fx");
 const apiKey = process.env.FREESTYLE_API_KEY?.trim();
@@ -20,7 +20,7 @@ if (!apiKey) throw new Error("set FREESTYLE_API_KEY");
 
 const fs = new Freestyle({ apiKey, baseUrl: process.env.FREESTYLE_API_URL?.trim() || undefined });
 const firewall: FirewallSpec = { rules: [{ action: "allow", source: {}, destination: { public: true } }] };
-const source = await resolveCmuxTuiSource("freestyle");
+const source = await resolveCmuxTuiInstallSource("freestyle");
 const result: Record<string, unknown> = {
   image: "freestyle/busybox",
   cmuxTuiCommit: source.commit,

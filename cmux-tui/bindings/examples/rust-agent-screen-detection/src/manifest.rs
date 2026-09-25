@@ -219,6 +219,9 @@ pub struct Detection {
     pub visible_idle: bool,
     pub visible_blocker: bool,
     pub visible_working: bool,
+    /// The matched rule read the agent's own OSC title or progress. That is
+    /// the agent reporting its state, so it outranks raw output activity.
+    pub agent_reported: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -377,6 +380,7 @@ impl CompiledManifest {
                 visible_idle: false,
                 visible_blocker: false,
                 visible_working: false,
+                agent_reported: false,
             };
         };
         let state = rule.state.map(ScreenState::from).unwrap_or(ScreenState::Unknown);
@@ -387,6 +391,7 @@ impl CompiledManifest {
             visible_idle: rule.visible_idle && state == ScreenState::Idle,
             visible_blocker: rule.visible_blocker && state == ScreenState::Blocked,
             visible_working: rule.visible_working && state == ScreenState::Working,
+            agent_reported: matches!(rule.region.as_str(), "osc_title" | "osc_progress"),
         }
     }
 

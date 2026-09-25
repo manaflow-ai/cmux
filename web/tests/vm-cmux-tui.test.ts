@@ -1,10 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   CMUX_TUI_DAEMON_TERMINAL_ENV,
+  CMUX_TUI_HOOK_PROVIDERS,
+  CMUX_TUI_HOOK_PROVIDER_FILES,
   CMUX_TUI_LAYOUT_MARKER_PATH,
   cmuxTuiDaemonCommand,
   cmuxTuiAgentHooksInstallCommand,
@@ -20,6 +22,14 @@ import {
   cmuxTuiAttachBundleCommand,
   cmuxTuiTrustedListenerProbe,
   parseCmuxTuiAttachBundle,
+  CMUX_AGENT_PLUGIN_ID,
+  cmuxAgentPluginConfigWriteCommand,
+  cmuxAgentPluginManifestUrl,
+  cmuxAgentPluginPinCheckCommand,
+  cmuxAgentPluginReadyCommand,
+  parseCmuxAgentPluginManifest,
+  resetCmuxTuiSourceCache,
+  resolveCmuxTuiInstallSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
@@ -28,6 +38,11 @@ const MANIFEST = `https://files.cmux.com/cmux-tui/${COMMIT}/manifest.json`;
 const URL = `https://files.cmux.com/cmux-tui/${COMMIT}/cmux-tui-x86_64-unknown-linux-musl`;
 const HOOK_SHA = "9f2e4c1a7b3d5e6f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f5a6b7";
 const HOOK_URL = `https://files.cmux.com/cmux-tui/${COMMIT}/cmux-tui-hook-x86_64-unknown-linux-musl`;
+const PLUGIN_SHA = "4b8e0f1d2c3a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e";
+const PLUGIN_MANIFEST = `https://files.cmux.com/cmux-agent-screen-detection/${COMMIT}/manifest.json`;
+const PLUGIN_URL = `https://files.cmux.com/cmux-agent-screen-detection/${COMMIT}/cmux-agent-screen-detection-x86_64-unknown-linux-musl`;
+const AGENT_PLUGIN = { url: PLUGIN_URL, sha256: PLUGIN_SHA, commit: COMMIT, manifestUrl: PLUGIN_MANIFEST };
+const INSTALL_SOURCE = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64), agentPlugin: AGENT_PLUGIN };
 
 function withEnv(values: Record<string, string | undefined>, run: () => void) {
   const previous: Record<string, string | undefined> = {};
@@ -88,7 +103,7 @@ describe("cmux-tui daemon source", () => {
 
 describe("cmux-tui install and daemon commands", () => {
   test("installs into the daemon's own home, verifies the pin before and after download, and probes the binary", () => {
-    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
+    const command = cmuxTuiInstallCommand(INSTALL_SOURCE);
     // One runtime selection, shared with the daemon launch, so install and
     // launch can never disagree about where the binary lives.
     expect(command).toContain(cmuxTuiLayoutSelector());
@@ -106,18 +121,18 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain('"$CMUX_TUI_BIN" --version');
   });
 
-  test("installs the hook helper beside the daemon from the same pin and writes the Claude Code and Codex hooks as the daemon user", () => {
-    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
+  test("installs the hook helper beside the daemon from the same pin and writes every shipped agent's hooks as the daemon user", () => {
+    const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA, agentPlugin: AGENT_PLUGIN };
     const command = cmuxTuiInstallCommand(source);
     // Beside the binary: the one place `agent hook install` finds it without a PATH search.
     expect(command).toContain('CMUX_TUI_HOOK_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-tui-hook"');
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
     expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_TUI_HOOK_TMP" '${HOOK_URL}'`);
     expect(command).toContain(`'${HOOK_SHA}' "$CMUX_TUI_HOOK_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
-    expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" 2>/dev/null || true');
+    expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" "$CMUX_AGENT_PLUGIN_BIN" 2>/dev/null || true');
     // The hooks are the daemon user's (HOME=/home/cmux), never root's: root's
     // settings are invisible to the terminals the daemon spawns.
-    const install = cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" agent hook install claude codex >/dev/null');
+    const install = cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" agent hook install claude codex opencode pi >/dev/null');
     expect(command).toContain(install);
     expect(command.indexOf('"$CMUX_TUI_BIN" --version')).toBeLessThan(command.indexOf(install));
     // And proven, not assumed: helper installed and byte-equal to the pin,
@@ -125,8 +140,8 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
     expect(command).toContain('cmp -s "$CMUX_TUI_HOOK_BIN" "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
     // Structured status, not a text grep: a user-edited entry reports partial and is repaired.
-    expect(command).toContain(cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" --json agent hook status claude codex'));
-    expect(command).toContain('all(s.get(i) == "installed" for i in ["claude","codex"])');
+    expect(command).toContain(cmuxTuiAsDaemonUser('"$CMUX_TUI_BIN" --json agent hook status claude codex opencode pi'));
+    expect(command).toContain('all(s.get(i) == "installed" for i in ["claude","codex","opencode","pi"])');
     expect(command).not.toContain("grep -q cmux-tui-journal-hook");
   });
 
@@ -139,6 +154,11 @@ describe("cmux-tui install and daemon commands", () => {
       expect(() => cmuxTuiPinnedManifestUrl(COMMIT)).toThrow(/manifest\.json/));
   });
 
+  test("every shipped hook provider names the files the bake proves are the work user's", () => {
+    expect(Object.keys(CMUX_TUI_HOOK_PROVIDER_FILES).sort()).toEqual([...CMUX_TUI_HOOK_PROVIDERS].sort());
+    expect(CMUX_TUI_HOOK_PROVIDERS).toEqual(["claude", "codex", "opencode", "pi"]);
+  });
+
   test("the hooks-only install never touches the daemon binary", () => {
     const source = { url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: HOOK_URL, hookSha256: HOOK_SHA };
     const command = cmuxTuiAgentHooksInstallCommand(source);
@@ -147,7 +167,7 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).not.toContain(URL);
     expect(command).not.toContain("ln -sfn");
     expect(command).not.toContain("--version");
-    expect(command).toContain("agent hook install claude codex");
+    expect(command).toContain("agent hook install claude codex opencode pi");
     expect(cmuxTuiHooksReadyCommand()).toContain(cmuxTuiLayoutSelector());
     expect(cmuxTuiHooksReadyCommand()).toContain('test -x "$CMUX_TUI_HOME/.local/share/cmux-tui/bin/cmux-tui-hook"');
   });
@@ -155,7 +175,7 @@ describe("cmux-tui install and daemon commands", () => {
   // Regression: `sha256sum -c -s` is BusyBox-only. GNU coreutils (the xfce-vnc desktop
   // image) rejects `-s` ("invalid option -- 's'"), which failed every create with a 502.
   test("the pin check never uses the BusyBox-only sha256sum -s flag", () => {
-    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
+    const command = cmuxTuiInstallCommand(INSTALL_SOURCE);
     expect(command).not.toMatch(/sha256sum[^|&;]*\s-s\b/);
     expect(command).not.toContain("--status");
     expect(command).toContain("sha256sum -c >/dev/null 2>&1");
@@ -385,5 +405,154 @@ describe("cmux-tui attach bundle", () => {
       "freestyle", "vm-1", "fp-1",
     );
     expect(revoked.enrolled).toBe(false);
+  });
+});
+
+describe("agent screen-detection plugin", () => {
+  test("the plugin manifest is the daemon commit's sibling under the plugin prefix", () => {
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: undefined }, () =>
+      expect(cmuxAgentPluginManifestUrl(COMMIT)).toBe(PLUGIN_MANIFEST));
+    // A pin on another origin keeps its origin and query.
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://mirror.example/bin/cmux-tui/latest/manifest.json?token=abc" }, () =>
+      expect(cmuxAgentPluginManifestUrl(COMMIT)).toBe(`https://mirror.example/bin/cmux-agent-screen-detection/${COMMIT}/manifest.json?token=abc`));
+    // No cmux-tui/ prefix: the plugin location is unknown, so fail closed.
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://files.example/tui/latest/manifest.json" }, () =>
+      expect(() => cmuxAgentPluginManifestUrl(COMMIT)).toThrow(/cmux-tui\/ prefix/));
+    withEnv({ CMUX_VM_CMUX_TUI_MANIFEST_URL: "https://mirror.example/manifest.json" }, () =>
+      expect(() => cmuxAgentPluginManifestUrl(COMMIT)).toThrow(/cmux-tui\/ prefix/));
+  });
+
+  test("takes the linux musl plugin of the daemon's own commit and fails closed otherwise", () => {
+    const binaries = {
+      "cmux-agent-screen-detection-aarch64-apple-darwin": "a".repeat(64),
+      "cmux-agent-screen-detection-x86_64-unknown-linux-musl": PLUGIN_SHA.toUpperCase(),
+    };
+    expect(parseCmuxAgentPluginManifest(PLUGIN_MANIFEST, { commit: COMMIT, binaries }, COMMIT)).toEqual(AGENT_PLUGIN);
+    // A plugin of another generation never pairs with this daemon.
+    expect(() => parseCmuxAgentPluginManifest(PLUGIN_MANIFEST, { commit: "f".repeat(40), binaries }, COMMIT)).toThrow(/not the daemon's/);
+    expect(() => parseCmuxAgentPluginManifest(PLUGIN_MANIFEST, { commit: COMMIT, binaries: { "cmux-agent-screen-detection-aarch64-unknown-linux-musl": PLUGIN_SHA } }, COMMIT)).toThrow(/vm_artifact_unavailable/);
+    expect(() => parseCmuxAgentPluginManifest(PLUGIN_MANIFEST, "nonsense", COMMIT)).toThrow();
+  });
+
+  test("the install source resolves the plugin for the commit the daemon manifest pins", async () => {
+    resetCmuxTuiSourceCache();
+    const requested: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      requested.push(url);
+      const body = url.includes("/cmux-tui/")
+        ? { commit: COMMIT, binaries: { "cmux-tui-x86_64-unknown-linux-musl": SHA, "cmux-tui-hook-x86_64-unknown-linux-musl": HOOK_SHA } }
+        : { commit: COMMIT, binaries: { "cmux-agent-screen-detection-x86_64-unknown-linux-musl": PLUGIN_SHA } };
+      return new Response(JSON.stringify(body), { status: 200 });
+    }) as typeof fetch;
+    try {
+      const source = await resolveCmuxTuiInstallSource("freestyle", "https://files.cmux.com/cmux-tui/latest/manifest.json");
+      expect(requested).toEqual(["https://files.cmux.com/cmux-tui/latest/manifest.json", PLUGIN_MANIFEST]);
+      expect(source.commit).toBe(COMMIT);
+      expect(source.agentPlugin).toEqual(AGENT_PLUGIN);
+    } finally {
+      globalThis.fetch = originalFetch;
+      resetCmuxTuiSourceCache();
+    }
+  });
+
+  test("installs the pinned plugin beside the daemon and selects it as the daemon user's agents.plugin", () => {
+    const command = cmuxTuiInstallCommand(INSTALL_SOURCE);
+    expect(command).toContain('CMUX_AGENT_PLUGIN_BIN="$(dirname "$CMUX_TUI_BIN")/cmux-agent-screen-detection"');
+    expect(command).toContain(`'${PLUGIN_SHA}' "$CMUX_AGENT_PLUGIN_BIN" | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain(`curl -fsSL --retry 3 -o "$CMUX_AGENT_PLUGIN_TMP" '${PLUGIN_URL}'`);
+    expect(command).toContain(`'${PLUGIN_SHA}' "$CMUX_AGENT_PLUGIN_TMP" | sha256sum -c >/dev/null 2>&1 && chmod 755`);
+    expect(command).toContain('"$CMUX_TUI_BIN" "$CMUX_TUI_HOOK_BIN" "$CMUX_AGENT_PLUGIN_BIN" 2>/dev/null || true');
+    // The config is the daemon user's file, written by that user.
+    const write = cmuxTuiAsDaemonUser(cmuxAgentPluginConfigWriteCommand(PLUGIN_SHA));
+    expect(command).toContain(write);
+    expect(command.indexOf("agent hook install")).toBeLessThan(command.indexOf(write));
+    // Proven: the binary runs here and detects every shipped agent, and the config selects it.
+    expect(command).toContain(cmuxTuiAsDaemonUser('"$CMUX_AGENT_PLUGIN_BIN" list'));
+    expect(command).toContain(" claude codex opencode pi");
+  });
+
+  /** Runs the config merge as a user whose HOME is `home`. */
+  function writeConfig(home: string, plugin = "/home/cmux/.cmux/bin/cmux-agent-screen-detection") {
+    return spawnSync("/bin/sh", ["-c", cmuxAgentPluginConfigWriteCommand(PLUGIN_SHA)], {
+      encoding: "utf8",
+      env: { ...process.env, HOME: home, CMUX_AGENT_PLUGIN_BIN: plugin },
+    });
+  }
+
+  test("the config merge keeps every other key, is idempotent, and never clobbers an unreadable file", () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-agent-plugin-config-"));
+    try {
+      const dir = join(home, ".config", "cmux");
+      const path = join(dir, "cmux-tui.json");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path, JSON.stringify({ theme: "dark", agents: { other: true, plugin: { id: "stale", command: ["/x"] } } }));
+      expect(writeConfig(home).status).toBe(0);
+      const merged = JSON.parse(readFileSync(path, "utf8"));
+      expect(merged).toEqual({
+        theme: "dark",
+        agents: {
+          other: true,
+          plugin: { id: CMUX_AGENT_PLUGIN_ID, command: ["/home/cmux/.cmux/bin/cmux-agent-screen-detection"], revision: PLUGIN_SHA },
+        },
+      });
+      // A second run finds the selection current and does not rewrite the file.
+      const before = statSync(path);
+      expect(writeConfig(home).status).toBe(0);
+      const after = statSync(path);
+      expect(after.ino).toBe(before.ino);
+      expect(after.mtimeMs).toBe(before.mtimeMs);
+      // An unparsable config fails the install and stays byte-identical.
+      writeFileSync(path, "{ not json");
+      const broken = writeConfig(home);
+      expect(broken.status).not.toBe(0);
+      expect(readFileSync(path, "utf8")).toBe("{ not json");
+      writeFileSync(path, "[]");
+      expect(writeConfig(home).status).not.toBe(0);
+      expect(readFileSync(path, "utf8")).toBe("[]");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("the config merge creates the file on a fresh home and follows a legacy mux.json the daemon would read", () => {
+    const home = mkdtempSync(join(tmpdir(), "cmux-agent-plugin-config-"));
+    try {
+      expect(writeConfig(home).status).toBe(0);
+      const fresh = JSON.parse(readFileSync(join(home, ".config", "cmux", "cmux-tui.json"), "utf8"));
+      expect(fresh.agents.plugin.id).toBe(CMUX_AGENT_PLUGIN_ID);
+
+      const legacyHome = join(home, "legacy");
+      const legacyDir = join(legacyHome, ".config", "cmux");
+      mkdirSync(legacyDir, { recursive: true });
+      writeFileSync(join(legacyDir, "mux.json"), JSON.stringify({ agents: "not-an-object", keep: 1 }));
+      expect(writeConfig(legacyHome).status).toBe(0);
+      expect(existsSync(join(legacyDir, "cmux-tui.json"))).toBe(false);
+      const legacy = JSON.parse(readFileSync(join(legacyDir, "mux.json"), "utf8"));
+      expect(legacy.keep).toBe(1);
+      expect(legacy.agents.plugin.command).toEqual(["/home/cmux/.cmux/bin/cmux-agent-screen-detection"]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("readiness requires a daemon-supervised plugin process and its registered journal producer", () => {
+    const ready = cmuxAgentPluginReadyCommand();
+    expect(ready).toContain(cmuxTuiLayoutSelector());
+    // A direct child of the daemon serving the cloud session runs the installed binary...
+    expect(ready).toContain("pgrep -f 'cmux-tui server [s]tart'");
+    expect(ready).toContain('pgrep -P "$p"');
+    expect(ready).toContain('readlink -f "/proc/$c/exe"');
+    // ...with the namespace the daemon supplies from agents.plugin.id.
+    expect(ready).toContain("'CMUX_PLUGIN_ID=agent-screen-detection'");
+    // The plugin reached the daemon: its producer is registered on the session journal.
+    expect(ready).toContain('"$CMUX_TUI_BIN" --session cloud --json session current journal producer list');
+    expect(ready).toContain("$(seq 1 30)");
+    expect(ready).toContain('[ -n "$cmux_agent_plugin_ready" ]');
+    expect(cmuxAgentPluginReadyCommand({ attempts: 5 })).toContain("$(seq 1 5)");
+    const pin = cmuxAgentPluginPinCheckCommand({ sha256: PLUGIN_SHA });
+    expect(pin).toContain(cmuxTuiLayoutSelector());
+    expect(pin).toContain(`'${PLUGIN_SHA}' "$CMUX_AGENT_PLUGIN_BIN" | sha256sum -c`);
   });
 });

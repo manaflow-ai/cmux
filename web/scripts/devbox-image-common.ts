@@ -824,6 +824,13 @@ export type DevboxManifestEntry = {
   /** The cmux-tui build baked in the daemon user's home (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
   cmuxTuiCommit?: string;
   cmuxTuiSha256?: string;
+  /**
+   * The agent screen-detection plugin baked beside the daemon and configured as
+   * its `agents.plugin`. Always the same commit as cmuxTuiCommit. Absent on
+   * images baked before the plugin shipped (they detect agents only from hooks).
+   */
+  cmuxAgentPluginCommit?: string;
+  cmuxAgentPluginSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   repoCommit?: string;
   /** The Dockerfile's CMUX_IMAGE_EPOCH at bake time; older entries carry it in `notes` only (see manifestEntryEpoch). */
@@ -1123,6 +1130,30 @@ export function promoteImageManifestEntry(
  * Invariants the checked-in manifest must hold; tests/vm-image-manifest.test.ts
  * runs this against the real file, promote-devbox-image.ts against its output.
  */
+/**
+ * The plugin record is all or nothing, digest-shaped, and pinned to the
+ * daemon's commit: the bake resolves the plugin from the daemon's commit, so
+ * any other commit means the entry was edited by hand or the bake is broken.
+ */
+function agentPluginRecordProblems(entry: DevboxManifestEntry): string[] {
+  const { cmuxAgentPluginCommit: commit, cmuxAgentPluginSha256: sha256 } = entry;
+  if (commit === undefined && sha256 === undefined) return [];
+  const problems: string[] = [];
+  if (commit === undefined || sha256 === undefined) {
+    problems.push(`${entry.version}: cmuxAgentPluginCommit and cmuxAgentPluginSha256 must be recorded together`);
+  }
+  if (commit !== undefined && !/^[0-9a-f]{40}$/.test(commit)) {
+    problems.push(`${entry.version}: cmuxAgentPluginCommit ${commit} is not a full commit sha`);
+  }
+  if (sha256 !== undefined && !/^[0-9a-f]{64}$/.test(sha256)) {
+    problems.push(`${entry.version}: cmuxAgentPluginSha256 ${sha256} is not a sha256 digest`);
+  }
+  if (commit !== undefined && commit !== entry.cmuxTuiCommit) {
+    problems.push(`${entry.version}: cmuxAgentPluginCommit ${commit} differs from cmuxTuiCommit ${String(entry.cmuxTuiCommit)}`);
+  }
+  return problems;
+}
+
 export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   const problems: string[] = [];
   const defaults = new Map<string, DevboxManifestEntry[]>();
@@ -1136,6 +1167,7 @@ export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
     if (entry.kind !== undefined && entry.kind !== "desktop" && entry.kind !== "base") {
       problems.push(`${entry.version}: kind ${String(entry.kind)} is not desktop|base`);
     }
+    problems.push(...agentPluginRecordProblems(entry));
     if (entry.size !== undefined) {
       const { name, cpu, memoryMb, storageMb } = entry.size;
       if (vmImageSizeRank(name) < 0) problems.push(`${entry.version}: size ${String(name)} is not on the ladder`);

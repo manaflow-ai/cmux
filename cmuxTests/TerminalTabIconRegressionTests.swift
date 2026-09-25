@@ -74,10 +74,9 @@ struct TerminalTabIconRegressionTests {
         )
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
         #expect(workspace.restoredAgentResumeStatesByPanelId[panel.id] == .autoResumeCommandRunning)
-        // The resumed agent marks the tab, so the check below cannot pass
-        // just because no mark was ever applied.
-        let runningTab = try #require(workspace.bonsplitController.tab(tabId))
-        #expect(runningTab.iconAsset == "AgentIcons/Codex")
+        // Agent marks are for Cloud terminal tabs only: a local resumed
+        // agent keeps the plain terminal icon while it runs, too.
+        try expectNoAgentMark(workspace: workspace, panel: panel, tabId: tabId)
 
         // The agent quits and the shell prompt returns.
         workspace.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
