@@ -1,4 +1,4 @@
-/// A bounded executor for accepted control-socket connection jobs.
+/// A bounded executor for control-socket connection or command jobs.
 ///
 /// The socket listener already delivers accepted descriptors through an
 /// ``AsyncStream``. This actor adds admission control at the next boundary:
@@ -114,6 +114,29 @@ public actor ControlClientWorkerPool {
         }
         pendingJobs.append(job)
         return .queued
+    }
+
+    /// Runs a command with the same bounded admission as connection jobs.
+    ///
+    /// Use a separate pool for commands so an idle persistent connection does
+    /// not occupy an execution slot. For example:
+    ///
+    /// ```swift
+    /// let response = await commands.perform { await handler.reply() }
+    /// ```
+    ///
+    /// - Parameter operation: The asynchronous command that owns its slot until completion.
+    /// - Returns: Its result, or `nil` when admission is rejected or stopped before execution.
+    public func perform<Value: Sendable>(
+        _ operation: @escaping @Sendable () async -> Value
+    ) async -> Value? {
+        await withCheckedContinuation { continuation in
+            _ = submit {
+                continuation.resume(returning: await operation())
+            } onDrop: {
+                continuation.resume(returning: nil)
+            }
+        }
     }
 
     /// Stops admission, cancels live operations, and drops queued operations.
