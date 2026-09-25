@@ -23,9 +23,7 @@ concurrency:
 
 jobs:
   canary:
-    # GitHub-hosted runners are free for this public repository; the job is
-    # network-bound and needs no Blacksmith capacity.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     # Only the Stack keys and the notify token live here: no reviewers (a
     # scheduled run cannot wait for approval), deployments from main only.
