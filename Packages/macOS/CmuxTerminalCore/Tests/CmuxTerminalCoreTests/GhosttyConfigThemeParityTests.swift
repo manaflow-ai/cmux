@@ -162,20 +162,31 @@ import Testing
             )
 
         case .fullExplicitColors:
-            let expected = snapshot(
-                foreground: "#FDFDFD",
-                background: "#020304",
-                palette: Self.fullExplicitPalette
-            )
             return ScenarioFixture(
                 configContents: themeContents(
-                    foreground: expected.foreground,
-                    background: expected.background,
+                    foreground: "#FDFDFD",
+                    background: "#020304",
                     palette: Self.fullExplicitPalette
                 ),
-                light: expected,
-                dark: expected,
-                changesWithAppearance: false
+                light: snapshot(
+                    foreground: "#FDFDFD",
+                    background: "#020304",
+                    cursor: "#98989D",
+                    cursorText: "#FFFFFF",
+                    selectionBackground: "#ABD8FF",
+                    selectionForeground: "#000000",
+                    palette: Self.fullExplicitPalette
+                ),
+                dark: snapshot(
+                    foreground: "#FDFDFD",
+                    background: "#020304",
+                    cursor: "#98989D",
+                    cursorText: "#FFFFFF",
+                    selectionBackground: "#3F638B",
+                    selectionForeground: "#FFFFFF",
+                    palette: Self.fullExplicitPalette
+                ),
+                changesWithAppearance: true
             )
 
         case .singleTheme:
