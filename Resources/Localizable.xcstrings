@@ -556793,7 +556793,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Programmtitel, die vom Programm gesetzt werden, mit dem Namen des aktuellen Verzeichnisses voranstellen."
+            "value": "Vom Programm gesetzten Terminaltiteln den Namen des aktuellen Verzeichnisses voranstellen."
           }
         },
         "fr": {

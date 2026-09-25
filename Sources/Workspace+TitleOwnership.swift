@@ -139,10 +139,14 @@ extension Workspace {
         guard remote != nil || shouldApplyRestoredPanelTitle(panelId: panelId, rawTitle: rawTrimmed) else {
             return false
         }
-        let prefixedTitle = remote == nil && prefixesProgramTitlesWithDirectory
-            ? Self.titlePrefixedWithDirectoryName(rawTrimmed, directory: panelDirectories[panelId])
-            : rawTrimmed
-        let trimmed = AutomaticTerminalTitle(prefixedTitle)?.value ?? rawTrimmed
+        let trimmed: String
+        if panels[panelId]?.panelType == .terminal,
+           remote == nil, prefixesProgramTitlesWithDirectory {
+            let prefixedTitle = Self.titlePrefixedWithDirectoryName(rawTrimmed, directory: panelDirectories[panelId])
+            trimmed = AutomaticTerminalTitle(prefixedTitle)?.value ?? rawTrimmed
+        } else {
+            trimmed = rawTrimmed
+        }
         var didMutate = false
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
