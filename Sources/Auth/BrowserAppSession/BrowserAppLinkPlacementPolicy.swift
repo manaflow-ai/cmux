@@ -10,10 +10,10 @@ final class BrowserAppLinkPlacementPolicy {
     typealias RequestPlacement = (URLRequest, WKWebsiteDataStore) -> Bool
     typealias URLPlacement = (URL, WKWebsiteDataStore) -> Bool
 
-    private let openInSystemBrowser: (URL) -> Bool
+    private let openInSystemBrowser: @MainActor (URL) -> Bool
 
     init(
-        openInSystemBrowser: @escaping (URL) -> Bool = {
+        openInSystemBrowser: @escaping @MainActor (URL) -> Bool = {
             BrowserExternalAppOpener().open($0)
         }
     ) {

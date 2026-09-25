@@ -5945,7 +5945,7 @@ final class BrowserPanel: Panel, ObservableObject {
         request: URLRequest,
         url: URL,
         intent: BrowserInsecureHTTPNavigationIntent,
-        recordTypedNavigation: Bool, openExternalURL: (URL) -> Bool = { BrowserExternalAppOpener().open($0) },
+        recordTypedNavigation: Bool, openExternalURL: @escaping @MainActor (URL) -> Bool = { BrowserExternalAppOpener().open($0) },
         onResolution: (BrowserInsecureHTTPNavigationResolution) -> Void,
         onNavigationStarted: ((WKNavigation?) -> Void)? = nil
     ) {
