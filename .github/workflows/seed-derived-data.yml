@@ -71,12 +71,20 @@ jobs:
           SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           SEED_POOL_2: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
           SEED_POOL_3: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+          # The owned std minis compile at -j14, and a j12 seed re-emits
+          # every module there (cmuxterm-hq#590). Their j14 seed comes from a
+          # trusted-only runner (glaeda-trusted-std-xcode-<version>, glaeda
+          # docs/CMUX_MINI_RUNNER.md 2e) on a mini that runs no pull-request
+          # jobs, since this job holds the ci-cache-writer credentials. Its
+          # job-started hook admits only a push to main, so the pool joins
+          # only then. Empty (the default) leaves it out.
+          SEED_TRUSTED_POOL: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || '' }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           # Each pool's Xcode as the seed job picks it (its CMUX_CI_XCODE_APP).
           pools=()
-          for pool in "$SEED_POOL_1" "$SEED_POOL_2" "$SEED_POOL_3"; do
+          for pool in "$SEED_POOL_1" "$SEED_POOL_2" "$SEED_POOL_3" "$SEED_TRUSTED_POOL"; do
             case "$pool" in
               *vcpu-macos-15) pools+=(--pool "$pool=${XCODE_APP_MACOS_15:-$XCODE_APP}") ;;
               *) pools+=(--pool "$pool=$XCODE_APP") ;;
@@ -104,14 +112,16 @@ jobs:
     # any other MACOS_RUNNER_PR. The third is the macOS 15 pool, which
     # pr_runner_pool.py overflows pull requests to, on its own Xcode
     # (CMUX_CI_XCODE_APP_MACOS_15): without a seed of its own every admission
-    # there compiled cold for 17 to 25 minutes (2026-09-24). GitHub names these
-    # jobs "seed (<pool>)"; seed_decide.py and reuse_app_host_products.py match
+    # there compiled cold for 17 to 25 minutes (2026-09-24). The fourth, when
+    # CI_SEED_TRUSTED_POOL names one, is a trusted-only owned mini that seeds
+    # j14 for the owned std pool on the lane's Xcode. GitHub names these jobs
+    # "seed (<pool>)"; seed_decide.py and reuse_app_host_products.py match
     # that.
     strategy:
       fail-fast: false
       matrix:
         # The pools decide found without a seed for this push's build inputs
-        # (SEED_POOL_1..3 there), in that order.
+        # (SEED_POOL_1..3 and SEED_TRUSTED_POOL there), in that order.
         pool: ${{ fromJSON(needs.decide.outputs.pools) }}
     runs-on: ${{ matrix.pool }}
     # One seed at a time per pool, and never cancel-in-progress. main takes
