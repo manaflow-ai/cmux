@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -40,6 +41,7 @@ VARIABLE_ENV = "CMUX_MACOS_RUNNER_TESTS"
 OVERFLOW_ENV = "CMUX_" + pool.OVERFLOW_VARIABLE
 ORDER_ENV = "CMUX_" + pool.ORDER_VARIABLE
 MAX_QUEUED_ENV = "CMUX_" + pool.MAX_QUEUED_VARIABLE
+QUEUE_ROUNDS_ENV = "CMUX_" + pool.QUEUE_ROUNDS_VARIABLE
 OWNED_ENV = "CMUX_" + pool.OWNED_VARIABLE
 SLOTS_ENV = "CMUX_" + pool.SLOTS_VARIABLE
 PR_XCODE_ENV = "CMUX_" + pool.PR_XCODE_VARIABLE
@@ -388,6 +390,8 @@ def routed_runner(default: str | None, test_target: str | None = None) -> str | 
             if test_target in (None, "cmuxTests")
             or (repository_variable(pool.OWNED_UI_VARIABLE, OWNED_UI_ENV) or "").strip() == "1" else "",
             repository_variable(pool.PR_XCODE_VARIABLE, PR_XCODE_ENV),
+            # Unset is pull request CI's default rounds, as test-e2e.yml passes it.
+            repository_variable(pool.QUEUE_ROUNDS_VARIABLE, QUEUE_ROUNDS_ENV) or "",
         ),
         measure=lambda: pool.measure_load(GhApi(), now=now),
         now=now,
@@ -691,10 +695,27 @@ def reuse_ci_products(commit: str, entries: list[str], workflow_ref: str | None,
         run = find_run(commit, only_testing, dispatch_id, cancel_event=cancel_event, workflow=RERUN_WORKFLOW)
     print(f"Run: {run['url']}", flush=True)
     if wait:
-        return subprocess.run([
-            "gh", "run", "watch", "--repo", REPO, str(run["databaseId"]), "--exit-status",
-        ], cwd=ROOT).returncode
+        return watch_run(run["databaseId"])
     return 0
+
+
+def watch_run(run_id: int) -> int:
+    """Wait for a run's verdict: 0 success, nonzero otherwise.
+
+    Every agent shares one GitHub account and its API quota, and parallel
+    `gh run watch` loops (3 s default) emptied it on 2026-09-25. glaeda-gh, where
+    installed, answers from one shared poller at no per-waiter cost; its 0 and 1
+    are the verdict, anything else (timeout, daemon down) falls back to polling
+    at a 300 s interval.
+    """
+    glaeda = shutil.which("glaeda-gh")
+    if glaeda:
+        code = subprocess.run([glaeda, "wait", "run", f"{REPO}/{run_id}", "--timeout", "14400"], cwd=ROOT).returncode
+        if code in (0, 1, 130):  # a verdict, or an interrupt: never fall back to polling then
+            return code
+    return subprocess.run([
+        "gh", "run", "watch", "--repo", REPO, str(run_id), "--exit-status", "--interval", "300",
+    ], cwd=ROOT).returncode
 
 
 def main() -> int:
@@ -832,10 +853,7 @@ def main() -> int:
                 )
                 print(f"Run: {live['url']}", flush=True)
                 if args.wait:
-                    return subprocess.run([
-                        "gh", "run", "watch", "--repo", REPO, str(live["databaseId"]),
-                        "--exit-status",
-                    ], cwd=ROOT).returncode
+                    return watch_run(live["databaseId"])
                 return 0
 
         # Refuse per entry: one already-red selector makes the whole batch a
@@ -906,10 +924,7 @@ def main() -> int:
         )
     print(f"Run: {run['url']}", flush=True)
     if args.wait:
-        return subprocess.run([
-            "gh", "run", "watch", "--repo", REPO, str(run["databaseId"]),
-            "--exit-status",
-        ], cwd=ROOT).returncode
+        return watch_run(run["databaseId"])
     return 0
 
 
