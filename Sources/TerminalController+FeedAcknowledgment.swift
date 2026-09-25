@@ -21,39 +21,34 @@ extension TerminalController {
             for: events,
             timeout: deliveryTimeout
         ) { result in
-            let ingestion: FeedBatchIngestion? = self.v2MainSync {
-                let committed: FeedBatchIngestion? = result.commit {
-                    guard ContinuousClock.now < deliveryDeadline else { return .unavailable }
-                    guard FeedCoordinator.shared.store != nil else { return .unavailable }
-                    let authoritativeEvents: [WorkstreamEvent]
-                    switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
-                    case .accepted(let events):
-                        authoritativeEvents = events
-                    case .notFound:
-                        return .notFound
-                    case .unavailable:
-                        return .unavailable
+            let authoritativeEvents: [WorkstreamEvent]? = self.v2MainSync {
+                switch FeedCoordinator.shared.resolveDeliveryTarget(for: events) {
+                case .accepted(let events): return events
+                case .notFound, .unavailable: return nil
+                }
+            }
+            let ingestion: FeedBatchIngestion? = result.commit {
+                guard ContinuousClock.now < deliveryDeadline,
+                      let authoritativeEvents else { return .unavailable }
+                var itemIds: [UUID] = []
+                itemIds.reserveCapacity(authoritativeEvents.count)
+                for event in authoritativeEvents {
+                    guard let item = FeedCoordinator.shared.ingestFromIngress(event) else {
+                        continue
                     }
-
-                    var itemIds: [UUID] = []
-                    itemIds.reserveCapacity(authoritativeEvents.count)
+                    itemIds.append(item.id)
+                }
+                guard itemIds.count == authoritativeEvents.count else { return .unavailable }
+                return .accepted(events: authoritativeEvents, itemIds: itemIds)
+            }
+            if let ingestion,
+               case .accepted(let authoritativeEvents, _) = ingestion {
+                self.v2MainSync {
                     for event in authoritativeEvents {
                         self.v2ApplyIMessageModeSideEffects(for: event)
-                        guard let item = FeedCoordinator.shared.ingestRevalidatedOnMainActor(event) else {
-                            continue
-                        }
-                        itemIds.append(item.id)
                     }
-                    if itemIds.count != authoritativeEvents.count {
-                        return .unavailable
-                    }
-                    return .accepted(events: authoritativeEvents, itemIds: itemIds)
-                }
-                if let committed,
-                   case .accepted(let authoritativeEvents, _) = committed {
                     self.v2NoteAcceptedFeedEvents(authoritativeEvents)
                 }
-                return committed
             }
 
             if let ingestion,
