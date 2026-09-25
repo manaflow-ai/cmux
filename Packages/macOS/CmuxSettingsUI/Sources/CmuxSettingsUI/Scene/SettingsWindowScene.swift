@@ -486,14 +486,8 @@ public struct SettingsWindowRoot: View {
         }
     }
 
-    /// Mirrors legacy `SettingsView.applySettingsNavigation`: scrolls
-    /// to the section header first, then — when the navigation request
-    /// carries a deep anchor and `highlight` is set — scrolls that
-    /// specific anchor into the vertical center of the viewport.
-    ///
-    /// Section-level navigation posts (e.g. external `navigate(to:)`
-    /// calls that don't carry a meaningful highlight) only get the
-    /// section-top scroll, matching the legacy snap-to-top behavior.
+    /// Scrolls to a section header at the top or centers a subsection/row
+    /// anchor, resolving legacy destinations before mounting their content.
     ///
     /// A monotonically increasing `settingsNavigationGeneration`
     /// guards against stale scrolls when navigation requests pile up:
@@ -504,9 +498,12 @@ public struct SettingsWindowRoot: View {
     private func applyScrollNavigation(_ notification: Notification, proxy: ScrollViewProxy) {
         guard
             let rawValue = notification.userInfo?["target"] as? String,
-            let target = SettingsSectionID(rawValue: rawValue)?.canonicalSection
+            let requestedSection = SettingsSectionID(rawValue: rawValue)
         else { return }
-        let anchorID = SettingsSectionID.canonicalNavigationAnchor(rawValue: rawValue, providedAnchor: notification.userInfo?["anchor"] as? String, visibleAnchor: self.anchorID(for: target))
+        let target = requestedSection.canonicalSection
+        let anchorID = requestedSection.canonicalNavigationAnchor(
+            providedAnchor: notification.userInfo?["anchor"] as? String
+        )
         let shouldHighlight = (notification.userInfo?["highlight"] as? Bool) ?? false
         let sectionID = self.anchorID(for: target)
         settingsNavigationGeneration += 1

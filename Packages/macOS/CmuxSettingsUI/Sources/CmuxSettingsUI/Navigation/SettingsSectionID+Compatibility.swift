@@ -28,30 +28,18 @@ extension SettingsSectionID {
     /// Stable anchor for the Computers subsection inside Mobile.
     static let computersSubsectionAnchorID = "setting:mobile:computers"
 
-    /// Rewrites anchors emitted by the former top-level Computers section.
+    /// Resolves this destination's scroll anchor, including legacy requests
+    /// that omitted their anchor entirely.
     ///
     /// Older callers used either the section anchor or the section's pairing
     /// row anchor. Both now resolve to the nested subsection so search hits,
     /// persisted requests, and `cmux settings open computers` remain useful.
-    static func canonicalAnchorID(_ anchorID: String) -> String {
+    func canonicalNavigationAnchor(providedAnchor: String?) -> String {
+        let anchorID = providedAnchor ?? "section:\(rawValue)"
         if anchorID == "section:computers"
-            || anchorID == "setting:computers:pair"
             || anchorID.hasPrefix("setting:computers:") {
-            return computersSubsectionAnchorID
+            return Self.computersSubsectionAnchorID
         }
         return anchorID
-    }
-
-    /// Resolves an external navigation request, including old requests that
-    /// omitted their anchor entirely.
-    static func canonicalNavigationAnchor(
-        rawValue: String,
-        providedAnchor: String?,
-        visibleAnchor: String
-    ) -> String {
-        if rawValue == computers.rawValue, providedAnchor == nil {
-            return computersSubsectionAnchorID
-        }
-        return canonicalAnchorID(providedAnchor ?? visibleAnchor)
     }
 }
