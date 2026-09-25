@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd. */
+/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -16,7 +16,7 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
-export type AgentSource = "detected" | "socket" | "hook";
+export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
 
@@ -30,6 +30,16 @@ export type ApplyLayoutResult = {
   "screen": Id;
 };
 
+export type AttachedViewOutcomeResult = {
+  "outcome": ViewAttachmentOutcome;
+};
+
+export type AttachedViewResizeResult = {
+  "accepted": boolean;
+  "outcome": ViewAttachmentOutcome;
+  "reservation_id": (bigint) | null;
+};
+
 export type Base64 = string;
 
 export type BrowserFrame = {
@@ -37,6 +47,27 @@ export type BrowserFrame = {
   "height": number;
   "seq": bigint;
   "width": number;
+};
+
+export type BrowserProviderAuthentication = "none" | "bearer";
+
+export type BrowserProviderSnapshot = {
+  "authentication"?: BrowserProviderAuthentication;
+  "available": boolean;
+  "clients"?: bigint;
+  "endpoint"?: string;
+  "provider_id"?: string;
+  "revision": bigint;
+  "targets": Array<BrowserProviderTarget>;
+};
+
+export type BrowserProviderTarget = {
+  "tab_id": string;
+  "target_id": string;
+};
+
+export type BrowserProviderUnregisterResult = {
+  "removed": boolean;
 };
 
 export type CellPixelFailure = {
@@ -49,6 +80,12 @@ export type CellPixelResize = {
   "reservation_id": bigint;
   "rows": number;
   "surface": Id;
+};
+
+export type CellPixelSurface = {
+  "height_px": number;
+  "surface": Id;
+  "width_px": number;
 };
 
 export type ClientInfo = {
@@ -129,6 +166,39 @@ export type FocusDirectionResult = {
   "pane": Id;
 };
 
+export type FrontendFocusTarget = "pane" | "machine_rail" | "workspace_rail" | "tabs_rail" | "projection_rail";
+
+export type FrontendJournalEvent = ({ "kind": "focus" } & {
+  "content_id"?: (string) | null;
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "focus";
+  "pane_id"?: (string) | null;
+  "screen_id"?: (string) | null;
+  "tab_id"?: (string) | null;
+  "target": FrontendFocusTarget;
+  "workspace_id"?: (string) | null;
+}) | ({ "kind": "resize" } & {
+  "cell_height": number;
+  "cell_width": number;
+  "cols": number;
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "resize";
+  "rows": number;
+}) | ({ "kind": "viewport" } & {
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "viewport";
+  "offset": bigint;
+  "screen_id"?: (string) | null;
+  "settled": boolean;
+  "target": bigint;
+});
+
 export type FrontendProjection = {
   "frontend": string;
   "projection": (JsonValue) | null;
@@ -137,6 +207,28 @@ export type FrontendProjection = {
   "schema_version": number;
   "scope": string;
   "subject_key": string;
+};
+
+export type GetCellPixelsResult = {
+  "height_px": number;
+  "surfaces": Array<CellPixelSurface>;
+  "width_px": number;
+};
+
+export type GuestUrlAcknowledgeResult = {
+  "accepted": boolean;
+};
+
+export type GuestUrlClaimResult = {
+  "claimed": boolean;
+};
+
+export type GuestUrlOpenResult = {
+  "opened": boolean;
+};
+
+export type GuestUrlSubscribeResult = {
+  "url_open_ready": boolean;
 };
 
 export type Id = bigint;
@@ -154,6 +246,7 @@ export type IdentifyResult = {
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
+  "lifecycle_ready"?: boolean;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -165,6 +258,23 @@ export type IdentifyResult = {
 
 export type IdsResult = {
   "ids": Array<IdMapping>;
+};
+
+export type KittyGraphicsState = {
+  "alternate_next_image_id": number;
+  "alternate_replay_next_image_id": number;
+  "image_bytes": bigint;
+  "images": bigint;
+  "inflight_bytes": bigint;
+  "placements": bigint;
+  "primary_next_image_id": number;
+  "primary_replay_next_image_id": number;
+  "replay_cursor_offset": number;
+};
+
+export type KittyImageAlias = {
+  "image_id": number;
+  "image_number": number;
 };
 
 export type Layout = ({ "type": "leaf" } & {
@@ -221,9 +331,26 @@ export type LivePane = {
   "tabs": Array<Tab>;
 };
 
+export type MachineListeningTcpResult = {
+  "stdout": string;
+};
+
+export type MachineUsage = {
+  "api_equivalent_usd": number;
+  "as_of": (string) | null;
+  "period_days": number;
+  "total_tokens": bigint;
+  "vm_id": string;
+};
+
+export type MachineUsageResult = {
+  "usage": (MachineUsage) | null;
+};
+
 export type MintTerminalRendererResult = {
   "endpoint": string;
   "incarnation": string;
+  "protocol_version": number;
   "rights": number;
   "terminal_id": string;
   "token": string;
@@ -277,6 +404,10 @@ export type PingResult = {
 export type ProcessInfoResult = {
   "command": (string) | null;
   "cwd": (string) | null;
+  /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_cwd"?: (string) | null;
+  /** Executable path or name of the PTY foreground process-group leader, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_executable"?: (string) | null;
   "pid": (number) | null;
 };
 
@@ -291,6 +422,7 @@ export type ReadScreenResult = {
 };
 
 export type ReadScrollbackResult = {
+  "epoch": bigint;
   "rows": Array<RenderRow>;
   "start": number;
   "total": number;
@@ -303,6 +435,55 @@ export type RenderCursor = {
   "visible": boolean;
   "x": number;
   "y": number;
+};
+
+export type RenderGraphicFormat = "rgb" | "rgba";
+
+export type RenderGraphicImage = {
+  "data": Base64;
+  "format": RenderGraphicFormat;
+  "generation": bigint;
+  "height": number;
+  "id": number;
+  "width": number;
+};
+
+export type RenderGraphicPlacement = {
+  "anchor_col"?: number;
+  "anchor_row"?: number;
+  "columns": number;
+  "grid_cols": number;
+  "grid_rows": number;
+  "image_id": number;
+  "ordinal": number;
+  "pixel_height": number;
+  "pixel_width": number;
+  "placement_id": number;
+  "rows": number;
+  "source_height": number;
+  "source_width": number;
+  "source_x": number;
+  "source_y": number;
+  "viewport_col": number;
+  "viewport_row": number;
+  "viewport_visible": boolean;
+  "x_offset": number;
+  "y_offset": number;
+  "z": number;
+};
+
+export type RenderGraphics = {
+  "generation": bigint;
+  "images"?: Array<RenderGraphicImage>;
+  "placements": Array<RenderGraphicPlacement>;
+  "removed_image_ids"?: Array<number>;
+};
+
+export type RenderGraphicsDelta = {
+  "generation": bigint;
+  "images"?: Array<RenderGraphicImage>;
+  "placements"?: Array<RenderGraphicPlacement>;
+  "removed_image_ids"?: Array<number>;
 };
 
 export type RenderRow = {
@@ -334,7 +515,7 @@ export type ResizeSurfaceResult = {
 };
 
 export type ResolveTerminalResult = {
-  "exit": (JsonValue) | null;
+  "exit": (TerminalExit) | null;
   "generation": string;
   "launch_spec": JsonValue;
   "lifecycle": TerminalLifecycle;
@@ -346,13 +527,36 @@ export type ResolveTerminalResult = {
   "workspace_key": string;
 };
 
+export type ResourceSelectors = {
+  "agent"?: (string) | null;
+  "browser"?: (string) | null;
+  "client"?: (string) | null;
+  "frontend_projection"?: (string) | null;
+  "machine"?: (string) | null;
+  "notification"?: (string) | null;
+  "pairing_request"?: (string) | null;
+  "pane"?: (string) | null;
+  "screen"?: (string) | null;
+  "session"?: (string) | null;
+  "sidebar_view"?: (string) | null;
+  "split"?: (string) | null;
+  "stream"?: (string) | null;
+  "tab"?: (string) | null;
+  "terminal"?: (string) | null;
+  "workspace"?: (string) | null;
+};
+
 export type RunResult = {
-  "pane": Id;
-  "screen": Id;
-  "surface": Id;
-  "terminal_id": (string) | null;
+  "already_exited": boolean;
+  "exit": (TerminalExit) | null;
+  "lifecycle": TerminalLifecycle;
+  "pane": (Id) | null;
+  "screen": (Id) | null;
+  "surface": (Id) | null;
+  "terminal_id": string;
   "terminal_incarnation": (string) | null;
-  "workspace": Id;
+  "terminal_revision": bigint;
+  "workspace": (Id) | null;
 };
 
 export type Screen = {
@@ -365,6 +569,77 @@ export type Screen = {
   "short_id"?: string;
   "zoomed_pane": (Id) | null;
 };
+
+export type ServerStatsConnections = {
+  "accepted": bigint;
+  "active": bigint;
+  "limit": bigint;
+  "peak": bigint;
+  "refused": bigint;
+};
+
+export type ServerStatsHistogram = {
+  "count": bigint;
+  "max": bigint;
+  "mean": bigint;
+  "p50": bigint;
+  "p90": bigint;
+  "p99": bigint;
+};
+
+export type ServerStatsJournalWriter = {
+  "batch_size": ServerStatsHistogram;
+  "batches": bigint;
+  "commit_failures": bigint;
+  "commit_lock_wait_us": ServerStatsHistogram;
+  "commit_us": ServerStatsHistogram;
+  "deadline_expiries": bigint;
+  "durable_events": bigint;
+  "durable_queued": bigint;
+  "phase": ServerStatsWriterPhase;
+  "phase_for_us": bigint;
+  "receipt_wait_us": ServerStatsHistogram;
+  "terminal_events": bigint;
+  "terminal_queued": bigint;
+};
+
+export type ServerStatsLockHolder = {
+  "held_for_us": bigint;
+  "site": string;
+};
+
+export type ServerStatsLockSite = {
+  "acquisitions": bigint;
+  "hold_max_us": bigint;
+  "hold_total_us": bigint;
+  "site": string;
+};
+
+export type ServerStatsLockStall = {
+  "blocker": (string) | null;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsRegistryLock = {
+  "contended_acquisitions": bigint;
+  "hold_us": ServerStatsHistogram;
+  "holder": (ServerStatsLockHolder) | null;
+  "last_stall": (ServerStatsLockStall) | null;
+  "stalls": bigint;
+  "top_sites": Array<ServerStatsLockSite>;
+  "wait_us": ServerStatsHistogram;
+};
+
+export type ServerStatsResult = {
+  "connections": ServerStatsConnections;
+  "journal_writer": (ServerStatsJournalWriter) | null;
+  "registry_lock": ServerStatsRegistryLock;
+  "schema": number;
+  "uptime_ms": bigint;
+};
+
+export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;
@@ -415,12 +690,19 @@ export type Tab = {
   "title": string;
 };
 
+export type TerminalColorOverrides = {
+  "bg": (ColorHex) | null;
+  "cursor": (ColorHex) | null;
+  "fg": (ColorHex) | null;
+};
+
 export type TerminalColors = {
   "bg": (ColorHex) | null;
   "cursor"?: (ColorHex) | null;
   "cursor_blink"?: (boolean) | null;
   "cursor_style"?: (CursorStyle) | null;
   "fg": (ColorHex) | null;
+  "overrides"?: TerminalColorOverrides;
   "palette"?: Record<string, ColorHex>;
   "selection_bg": (ColorHex) | null;
   "selection_fg": (ColorHex) | null;
@@ -432,6 +714,23 @@ export type TerminalEventsResult = {
   "registry_id": string;
   "terminal_revision": bigint;
 };
+
+export type TerminalExit = {
+  "exited_at_ms": bigint;
+  "outcome": TerminalExitOutcome;
+};
+
+export type TerminalExitOutcome = ({ "kind": "exit" } & {
+  "code": number;
+  "kind": "exit";
+}) | ({ "kind": "signal" } & {
+  "core_dumped": boolean;
+  "kind": "signal";
+  "signal": number;
+}) | ({ "kind": "unknown" } & {
+  "kind": "unknown";
+  "reason": string;
+});
 
 export type TerminalKey = "unidentified" | "backquote" | "backslash" | "bracket-left" | "bracket-right" | "comma" | "digit0" | "digit1" | "digit2" | "digit3" | "digit4" | "digit5" | "digit6" | "digit7" | "digit8" | "digit9" | "equal" | "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "minus" | "period" | "quote" | "semicolon" | "slash" | "backspace" | "enter" | "space" | "tab" | "delete" | "end" | "home" | "insert" | "page-down" | "page-up" | "arrow-down" | "arrow-left" | "arrow-right" | "arrow-up" | "numpad0" | "numpad1" | "numpad2" | "numpad3" | "numpad4" | "numpad5" | "numpad6" | "numpad7" | "numpad8" | "numpad9" | "numpad-add" | "numpad-backspace" | "numpad-comma" | "numpad-decimal" | "numpad-divide" | "numpad-enter" | "numpad-equal" | "numpad-multiply" | "numpad-subtract" | "numpad-up" | "numpad-down" | "numpad-right" | "numpad-left" | "numpad-begin" | "numpad-home" | "numpad-end" | "numpad-insert" | "numpad-delete" | "numpad-page-up" | "numpad-page-down" | "escape" | "f1" | "f2" | "f3" | "f4" | "f5" | "f6" | "f7" | "f8" | "f9" | "f10" | "f11" | "f12" | "f13" | "f14" | "f15" | "f16" | "f17" | "f18" | "f19" | "f20";
 
@@ -462,22 +761,24 @@ export type TerminalModifiers = {
 };
 
 export type TerminalPlacement = {
+  "already_exited": boolean;
+  "exit": (TerminalExit) | null;
   "generation": string;
   "key": string;
-  "lifecycle": ("running") | null;
-  "pane": Id;
+  "lifecycle": TerminalLifecycle;
+  "pane": (Id) | null;
   "registry_id": string;
   "replayed": boolean;
-  "screen": Id;
-  "surface": Id;
-  "terminal_id": (string) | null;
+  "screen": (Id) | null;
+  "surface": (Id) | null;
+  "terminal_id": string;
   "terminal_incarnation": (string) | null;
   "terminal_revision": bigint;
-  "workspace": Id;
+  "workspace": (Id) | null;
 };
 
 export type TerminalRecord = {
-  "exit": (JsonValue) | null;
+  "exit": (TerminalExit) | null;
   "launch_spec": JsonValue;
   "lifecycle": TerminalLifecycle;
   "terminal_id": string;
@@ -504,9 +805,13 @@ export type Tree = {
   "workspaces": Array<Workspace>;
 };
 
+export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
+
 export type VtStateResult = {
   "cols": number;
   "data": Base64;
+  "kitty_graphics_state"?: KittyGraphicsState;
+  "kitty_image_aliases"?: Array<KittyImageAlias>;
   "rows": number;
 };
 

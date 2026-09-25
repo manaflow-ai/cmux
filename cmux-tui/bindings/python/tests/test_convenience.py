@@ -175,9 +175,9 @@ class RenderAndScrollbackTests(unittest.TestCase):
     def test_read_scrollback_tail_probes_then_reads_tail(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         calls = []
-        tail = ReadScrollbackResult(rows=[], start=7, total=10)
+        tail = ReadScrollbackResult(epoch=1, rows=[], start=7, total=10)
         responses = [
-            ReadScrollbackResult(rows=[], start=0, total=10),
+            ReadScrollbackResult(epoch=1, rows=[], start=0, total=10),
             tail,
         ]
 
@@ -193,7 +193,7 @@ class RenderAndScrollbackTests(unittest.TestCase):
     def test_read_scrollback_tail_reuses_probe_when_it_contains_tail(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         calls = []
-        probe = ReadScrollbackResult(rows=[], start=0, total=2)
+        probe = ReadScrollbackResult(epoch=1, rows=[], start=0, total=2)
 
         def read_scrollback(surface, start, count):
             calls.append((surface, start, count))

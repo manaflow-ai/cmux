@@ -25,7 +25,7 @@ PYTHONPATH=cmux-tui/bindings/python:cmux-tui/bindings/examples/python-dev-orches
   python3 cmux-tui/bindings/examples/python-dev-orchestrator/offline_demo.py
 ```
 
-The fake implements the server side of `cmux.protocol/1`, including typed
+The fake implements the server side of `cmux.protocol/2`, including typed
 snapshots and deltas, revision conflicts, replayed receipts, indeterminate
 results, correlation lookup, terminal output waits, typed terminal exits,
 stream cancellation, and cleanup. Production code does not encode protocol
@@ -43,7 +43,7 @@ PYTHONPATH=cmux-tui/bindings/python \
   --plan cmux-tui/bindings/examples/python-dev-orchestrator/plan.example.json
 ```
 
-Without `--socket`, the SDK resolves `--socket-session`. The v1 endpoint
+Without `--socket`, the SDK resolves `--socket-session`. The v2 endpoint
 exposes one local machine and session; the example still retains their typed
 IDs. Duplicate workspace names require `--workspace-id`.
 

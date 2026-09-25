@@ -10,10 +10,8 @@ struct CommandRunnerDescriptorLifecycleTests {
 
     @Test("Capture pipes are close-on-exec and close before success returns")
     func capturePipesAreCloseOnExecAndCloseAfterSuccess() async throws {
-        weak var releasedProcess: Process?
-        var execution: CommandExecution? = try makeExecution(executable: "/usr/bin/true")
-        releasedProcess = execution?.process
-        let descriptors = try snapshotDescriptors(of: #require(execution))
+        let execution = try makeExecution(executable: "/usr/bin/true")
+        let descriptors = try snapshotDescriptors(of: execution)
         #expect(descriptors.count == 8)
         for descriptor in descriptors {
             let flags = fcntl(descriptor.fileDescriptor, F_GETFD)
@@ -24,15 +22,10 @@ struct CommandRunnerDescriptorLifecycleTests {
             )
         }
 
-        let result: CommandResult
-        do {
-            let activeExecution = try #require(execution)
-            result = await activeExecution.run(timeout: 5)
-        }
+        let result = await execution.run(timeout: 5)
         #expect(result.exitStatus == 0)
         expectDescriptorsClosed(descriptors)
-        execution = nil
-        #expect(releasedProcess == nil)
+        #expect(execution.process.terminationHandler == nil)
     }
 
     @Test("Launch failure closes capture pipes")
@@ -112,7 +105,10 @@ struct CommandRunnerDescriptorLifecycleTests {
         let result = await command.value
         #expect(result.timedOut == false)
         #expect(result.executionError != nil)
-        #expect(kill(pid, 0) == -1 && errno == ESRCH)
+        let killResult = kill(pid, 0)
+        let killErrno = errno
+        #expect(killResult == -1)
+        #expect(killErrno == ESRCH)
 
         expectDescriptorsClosed(descriptors)
     }
@@ -164,7 +160,8 @@ struct CommandRunnerDescriptorLifecycleTests {
                     "CommandRunner retained pipe descriptor \(descriptor.fileDescriptor)"
                 )
             } else {
-                #expect(errno == EBADF)
+                let fstatErrno = errno
+                #expect(fstatErrno == EBADF)
             }
         }
     }

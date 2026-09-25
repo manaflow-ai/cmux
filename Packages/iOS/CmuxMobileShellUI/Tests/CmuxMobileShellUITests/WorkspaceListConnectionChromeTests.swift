@@ -16,6 +16,25 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
+    @Test func workspaceListRecoveryShowsReconnectingStatusLine() {
+        #expect(chrome(
+            isRecoveringWorkspaceList: true,
+            connectionStatus: .unavailable
+        ) == .statusLine(.reconnecting))
+    }
+
+    @Test func reconnectingHidesWorkspaceEmptyState() {
+        #expect(!chrome(
+            isRecoveringWorkspaceList: true,
+            connectionStatus: .unavailable
+        ).showsWorkspaceEmptyState)
+        #expect(!chrome(connectionStatus: .reconnecting).showsWorkspaceEmptyState)
+    }
+
+    @Test func idleUnavailableShowsWorkspaceEmptyState() {
+        #expect(chrome(connectionStatus: .unavailable).showsWorkspaceEmptyState)
+    }
+
     @Test func unavailableStatusShowsNotConnectedStatusLine() {
         #expect(chrome(connectionStatus: .unavailable) == .statusLine(.notConnected))
     }
@@ -58,11 +77,14 @@ import Testing
         ) == .statusLine(.reconnecting))
     }
 
-    @Test func storeRecoveryFailureWithConnectedStatusShowsStatusLine() {
+    /// A stale recovery-failed flag never overrides a connected aggregate:
+    /// the visible list is healthy (for example through a secondary Mac), so
+    /// claiming Not Connected would be untruthful chrome.
+    @Test func storeRecoveryFailureWithConnectedStatusShowsNoChrome() {
         #expect(chrome(
             connectionRecoveryFailed: true,
             connectionStatus: .connected
-        ) == .statusLine(.notConnected))
+        ) == .none)
     }
 
     @Test func initialConnectionLoadingShowsMacStatusRow() {
@@ -84,6 +106,22 @@ import Testing
             connectionRequiresReauth: true,
             connectionStatus: .reconnecting,
             isInitialConnectionLoading: true
+        ) == .recoveryBanner)
+    }
+
+    @Test func missingTailscaleAuthorizationShowsCompactStatusBeforeRestoreChrome() {
+        #expect(chrome(
+            connectionStatus: .reconnecting,
+            tailscalePairingRequired: true,
+            isInitialConnectionLoading: true
+        ) == .statusLine(.notConnected))
+    }
+
+    @Test func reauthOutranksMissingTailscaleAuthorization() {
+        #expect(chrome(
+            connectionRequiresReauth: true,
+            connectionStatus: .unavailable,
+            tailscalePairingRequired: true
         ) == .recoveryBanner)
     }
 
@@ -151,9 +189,13 @@ import Testing
         #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionRequiresReauth: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(isRecoveringConnection: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
-        #expect(!chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .unavailable).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionStatus: .reconnecting).showsMacUpdateHintIndicator)
+        #expect(!chrome(
+            connectionStatus: .connected,
+            tailscalePairingRequired: true
+        ).showsMacUpdateHintIndicator)
     }
 
     @Test func statusLineAccessorExposesOnlyStatusLineCases() {
@@ -168,6 +210,32 @@ import Testing
             connectionStatus: .reconnecting,
             isInitialConnectionLoading: true
         ).statusLine == nil)
+        #expect(chrome(
+            connectionStatus: .connected,
+            tailscalePairingRequired: true
+        ).statusLine == .notConnected)
+    }
+
+    @Test func workspaceDetailReconnectMenuItemGating() {
+        // Reauthentication owns recovery through its blocking banner.
+        #expect(!WorkspaceDetailView.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: .unavailable,
+            connectionRequiresReauth: true
+        ))
+        // An active reconnect owns recovery. A connected session can still
+        // have stale terminal contents and needs a manual refresh entry.
+        #expect(!WorkspaceDetailView.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: .reconnecting,
+            connectionRequiresReauth: false
+        ))
+        #expect(WorkspaceDetailView.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: .connected,
+            connectionRequiresReauth: false
+        ))
+        #expect(WorkspaceDetailView.canReconnectFromTitleMenu(
+            effectiveConnectionStatus: .unavailable,
+            connectionRequiresReauth: false
+        ))
     }
 
     private func chrome(
@@ -175,7 +243,9 @@ import Testing
         connectionRequiresReauth: Bool = false,
         connectionRecoveryFailed: Bool = false,
         isRecoveringConnection: Bool = false,
+        isRecoveringWorkspaceList: Bool = false,
         connectionStatus: MobileMacConnectionStatus,
+        tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
         initialConnectionTimedOut: Bool = false
     ) -> WorkspaceListConnectionChrome {
@@ -184,7 +254,9 @@ import Testing
             connectionRequiresReauth: connectionRequiresReauth,
             connectionRecoveryFailed: connectionRecoveryFailed,
             isRecoveringConnection: isRecoveringConnection,
+            isRecoveringWorkspaceList: isRecoveringWorkspaceList,
             connectionStatus: connectionStatus,
+            tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut
         )

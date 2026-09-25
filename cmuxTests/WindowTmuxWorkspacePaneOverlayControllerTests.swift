@@ -24,7 +24,8 @@ struct WindowTmuxWorkspacePaneOverlayControllerTests {
                 activePaneBorderRect: nil,
                 activePaneBorderColorHex: nil,
                 flashStartedAt: nil,
-                flashReason: nil
+                flashReason: nil,
+                workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
             )
         )
         overlayHostingView.frame = ordinaryHostingView.frame

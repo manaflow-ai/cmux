@@ -13,6 +13,7 @@ import Testing
 @Suite(.serialized)
 struct GhosttyPhysicalInputFocusReassertionTests {
     private struct HostedTerminal {
+        let fixture: TerminalPortalTestWorkspace
         let surface: TerminalSurface
         let hostedView: GhosttySurfaceScrollView
         let surfaceView: GhosttyNSView
@@ -26,6 +27,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     @Test
     func printableKeyDownReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
+        defer { terminal.fixture.tearDown() }
         defer { terminal.window.orderOut(nil) }
         let hasLiveSurface = terminal.surface.hasLiveSurface
 
@@ -73,6 +75,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     @Test
     func directCommittedTextReassertsGhosttyFocusWhenFirstResponderSurfaceFocusDrifted() throws {
         let terminal = try makeHostedTerminal()
+        defer { terminal.fixture.tearDown() }
         defer { terminal.window.orderOut(nil) }
         let hasLiveSurface = terminal.surface.hasLiveSurface
 
@@ -114,6 +117,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     @Test
     func directCommittedTextDoesNotReassertGhosttyFocusWhenDescendantOverlayOwnsFirstResponder() throws {
         let terminal = try makeHostedTerminal()
+        defer { terminal.fixture.tearDown() }
         defer { terminal.window.orderOut(nil) }
 
         try focusTerminal(terminal)
@@ -144,19 +148,16 @@ struct GhosttyPhysicalInputFocusReassertionTests {
     private func makeHostedTerminal() throws -> HostedTerminal {
         _ = NSApplication.shared
 
-        let surface = TerminalSurface(
-            tabId: UUID(),
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: nil,
-            workingDirectory: nil
-        )
-        let hostedView = surface.hostedView
+        let fixture = TerminalPortalTestWorkspace()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
+        fixture.bind(to: window)
+        let surface = try #require(fixture.workspace.focusedTerminalPanel?.surface)
+        let hostedView = surface.hostedView
 
         let contentView = try #require(window.contentView)
         hostedView.frame = contentView.bounds
@@ -172,6 +173,7 @@ struct GhosttyPhysicalInputFocusReassertionTests {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
         return HostedTerminal(
+            fixture: fixture,
             surface: surface,
             hostedView: hostedView,
             surfaceView: try #require(findGhosttyNSView(in: hostedView)),
@@ -183,6 +185,9 @@ struct GhosttyPhysicalInputFocusReassertionTests {
         #expect(terminal.window.makeFirstResponder(terminal.surfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         #expect(terminal.hostedView.isSurfaceViewFirstResponder())
+        // This standalone surface has no panel onFocus callback to record
+        // model focus when the test host has not created a native surface.
+        terminal.surface.setFocus(true)
         #expect(
             terminal.surface.debugDesiredFocusState(),
             "Focused terminal should start with desired Ghostty focus"

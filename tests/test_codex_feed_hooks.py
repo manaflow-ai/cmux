@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from unittest.mock import patch
 
 from claude_teams_test_utils import resolve_cmux_cli
 
@@ -86,6 +87,7 @@ class FakeCmuxSocket:
         surface_delivery_target: tuple[str, str] | None = None,
         method_errors: dict[str, tuple[str, str]] | None = None,
         single_batch_item_id: bool = False,
+        method_delays: dict[str, float] | None = None,
     ):
         self.path = path
         self.decision = decision
@@ -99,6 +101,7 @@ class FakeCmuxSocket:
         self.surface_delivery_target = surface_delivery_target
         self.method_errors = method_errors or {}
         self.single_batch_item_id = single_batch_item_id
+        self.method_delays = method_delays or {}
         self._dropped_surface_list = False
         self.frames: list[dict] = []
         self.frames_with_connection: list[tuple[int, dict]] = []
@@ -140,6 +143,21 @@ class FakeCmuxSocket:
                 threading.Thread(target=self._handle_conn, args=(conn, connection_id), daemon=True).start()
 
     def _handle_conn(self, conn: socket.socket, connection_id: int) -> None:
+        # A closed peer must not stop the drain: like the real app's
+        # per-connection worker, buffered request lines that were written
+        # before the peer hung up are still read and recorded — only the
+        # replies are skipped.
+        can_reply = True
+
+        def reply(payload: bytes) -> None:
+            nonlocal can_reply
+            if not can_reply:
+                return
+            try:
+                conn.sendall(payload)
+            except OSError:
+                can_reply = False
+
         with conn:
             data = b""
             while not self._stop.is_set():
@@ -158,13 +176,12 @@ class FakeCmuxSocket:
                         self.frames.append({"raw": raw_line})
                         if self.raw_response_delay > 0:
                             time.sleep(self.raw_response_delay)
-                        try:
-                            conn.sendall(b"OK\n")
-                        except OSError:
-                            return
+                        reply(b"OK\n")
                         continue
                     self.frames.append(frame)
                     self.frames_with_connection.append((connection_id, frame))
+                    if delay := self.method_delays.get(frame.get("method")):
+                        time.sleep(delay)
                     if method_error := self.method_errors.get(frame.get("method")):
                         code, message = method_error
                         response = {
@@ -175,10 +192,7 @@ class FakeCmuxSocket:
                                 "message": message,
                             },
                         }
-                        try:
-                            conn.sendall(json.dumps(response).encode("utf-8") + b"\n")
-                        except BrokenPipeError:
-                            return
+                        reply(json.dumps(response).encode("utf-8") + b"\n")
                         continue
                     if frame.get("method") == "feed.push":
                         self.feed_frame_received.set()
@@ -236,11 +250,7 @@ class FakeCmuxSocket:
                             "code": "feed_rejected",
                             "message": "Feed rejected the event",
                         }
-                    encoded_response = json.dumps(response).encode("utf-8") + b"\n"
-                    try:
-                        conn.sendall(encoded_response)
-                    except BrokenPipeError:
-                        return
+                    reply(json.dumps(response).encode("utf-8") + b"\n")
 
 
 def monitor_pids_for_session(session_id: str) -> list[int]:
@@ -2173,6 +2183,32 @@ def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Pat
         raise AssertionError(f"wrong PreToolUse event: {frame!r}")
 
 
+def test_computer_use_pretool_preserves_surface_scope(cli_path: str, root: Path) -> None:
+    # Exercise the built CLI's wire event, rather than constructing a Swift
+    # WorkstreamEvent which silently fills in the field the real hook omitted.
+    for source in ("codex", "claude"):
+        with patch.dict(os.environ, {
+            "PATH": os.defpath,
+            "HOME": str(root),
+            "CODEX_HOME": str(root / "codex"),
+            "CMUX_AGENT_HOOK_STATE_DIR": str(root / "hooks"),
+        }, clear=True):
+            stdout, frame = run_feed_hook(
+                cli_path, root / f"cua-{source}.sock",
+                {"session_id": "synthetic-cua-session",
+                 "hook_event_name": "PreToolUse",
+                 "tool_name": "mcp__cmux_cua__get_app_state",
+                 "tool_input": {"app": "com.example.synthetic"}},
+                None, source=source,
+            )
+        event = frame["params"]["event"]
+        assert stdout == {}, "Telemetry must not answer an approval request"
+        assert event.get("workspace_id") == FAKE_WORKSPACE_ID
+        assert event.get("surface_id") == FAKE_SURFACE_ID, (
+            f"{source}: first-use hook lost its terminal surface: {event.get('surface_id')!r}"
+        )
+
+
 def test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path: str, root: Path) -> None:
     event_payloads = {
         "PostToolUse": {
@@ -4018,6 +4054,7 @@ def main() -> int:
             test_codex_permission_request_is_nonblocking_telemetry(cli_path, root)
             test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
+            test_computer_use_pretool_preserves_surface_scope(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
             test_codex_post_tool_use_accepts_native_event_label(cli_path, root)

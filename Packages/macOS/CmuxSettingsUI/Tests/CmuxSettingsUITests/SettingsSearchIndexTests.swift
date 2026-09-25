@@ -55,13 +55,41 @@ struct SettingsSearchIndexTests {
         UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
     }
 
+    /// Verifies the representative catalog descriptors drive search identity and lookup.
+    @Test func canonicalUserFacingAppTogglesDriveSearchMetadata() throws {
+        let catalog = SettingCatalog()
+        let index = SettingsSearchIndex(catalog: catalog)
+        let keys = [
+            catalog.app.warnBeforeClosingTab,
+            catalog.app.hideTabCloseButton,
+            catalog.app.renameSelectsExistingName,
+        ]
+
+        for key in keys {
+            let descriptor = try #require(key.userFacing)
+            let expectedID = "setting:\(descriptor.section.rawValue):\(descriptor.searchID)"
+            let entry = try #require(index.entries.first { $0.id == expectedID })
+
+            #expect(entry.title == descriptor.title)
+            #expect(index.anchorID(forSettingsPath: key.id) == expectedID)
+            #expect(index.match(descriptor.searchKeywords[0]).contains { $0.id == expectedID })
+        }
+    }
+
+    @Test(arguments: ["text", "selection"])
+    func renameSettingPreservesLegacySearchAliases(query: String) {
+        let result = SettingsSearchIndex(catalog: SettingCatalog()).match(query)
+        #expect(result.contains { $0.id == "setting:app:rename-selects-name" })
+    }
+
     @Test func emptyQueryReturnsAllSectionEntries() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("")
         let sectionCount = result.filter {
             if case .section = $0.kind { return true } else { return false }
         }.count
-        #expect(sectionCount == SettingsSectionID.allCases.count)
+        #expect(sectionCount == SettingsSectionID.allCases.count - 1)
+        #expect(result.contains { $0.id == "section:computers" } == false)
     }
 
     @Test func tokenizedQueryFiltersBothSectionsAndSettings() {
@@ -69,6 +97,36 @@ struct SettingsSearchIndexTests {
         let result = index.match("automation")
         // At minimum the Automation section itself should match.
         #expect(result.contains(where: { $0.title == "Automation" }))
+    }
+
+    @Test func exactComputersSearchTargetsMobileSubsection() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = try #require(index.match("Computers").first)
+
+        #expect(result.id == "section:computers")
+        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
+        #expect(result.kind == .section)
+    }
+
+    @Test(arguments: ["devices", "mac", "tailscale", "remote"])
+    func computersSectionAliasesPreserveSearchRanking(query: String) throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let result = try #require(index.match(query).first { $0.kind == .section })
+
+        #expect(result.id == "section:computers")
+        #expect(result.anchorID == SettingsSectionID.computersSubsectionAnchorID)
+    }
+
+    /// `devices` legitimately ranks the phone-push row first because its
+    /// subtitle contains an exact `devices` token. The Computers section
+    /// must still outrank the less-specific Mobile Pairing result.
+    @Test func devicesAliasRanksComputersAboveMobilePairing() throws {
+        let index = SettingsSearchIndex(catalog: SettingCatalog())
+        let results = index.match("devices")
+        let computersIndex = try #require(results.firstIndex { $0.id == "section:computers" })
+        let mobilePairingIndex = try #require(results.firstIndex { $0.id == "setting:mobile:pairDevice" })
+
+        #expect(computersIndex < mobilePairingIndex)
     }
 
     /// Typing an exact section name navigates to that section first.
@@ -86,6 +144,16 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("hotkey hint chips")
         #expect(result.contains { $0.id == "setting:keyboardShortcuts:modifier-hold-hints" })
+    }
+
+    @Test(arguments: ["push", "notifications", "iphone"])
+    func pushNotificationQueriesFindTheMobileForwardingRow(query: String) {
+        let result = SettingsSearchIndex(catalog: SettingCatalog()).match(
+            query
+        )
+        #expect(result.contains {
+            $0.id == "setting:mobile:phone-push-forwarding"
+        })
     }
 
     @Test(arguments: [
@@ -114,6 +182,7 @@ struct SettingsSearchIndexTests {
             "setting:browser:search-engine",
             "setting:browser:terminal-links",
             "setting:browser:http-allowlist",
+            "setting:browser:url-allowlist",
         ]),
         ("notification settings", [
             "setting:app:dock-badge",

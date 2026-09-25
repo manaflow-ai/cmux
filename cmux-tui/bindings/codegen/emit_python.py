@@ -133,7 +133,7 @@ COMMAND_FIELD_ORDER = {
         "complete",
     ),
     "set-split-ratio": ("split", "ratio"),
-    "shutdown-daemon": ("pid", "generation"),
+    "shutdown-daemon": ("pid", "generation", "force"),
     "subscribe": ("surface", "tree_events"),
 }
 

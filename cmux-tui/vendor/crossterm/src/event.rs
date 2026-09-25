@@ -255,6 +255,22 @@ pub fn read() -> std::io::Result<Event> {
     }
 }
 
+/// Parse one buffered terminal event without reading from the process input stream.
+///
+/// `input_available` has the same meaning as [`poll`]: when true, an isolated
+/// Escape byte remains pending so a following byte can complete its sequence.
+#[doc(hidden)]
+#[cfg(unix)]
+pub fn parse_event_from_bytes(
+    bytes: &[u8],
+    input_available: bool,
+) -> std::io::Result<Option<Event>> {
+    match sys::unix::parse::parse_event(bytes, input_available)? {
+        Some(InternalEvent::Event(event)) => Ok(Some(event)),
+        Some(_) | None => Ok(None),
+    }
+}
+
 /// Polls to check if there are any `InternalEvent`s that can be read within the given duration.
 pub(crate) fn poll_internal<F>(timeout: Option<Duration>, filter: &F) -> std::io::Result<bool>
 where

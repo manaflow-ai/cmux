@@ -17,14 +17,12 @@
 #      when the queue is empty, and while non-empty each drain run itself polls
 #      (--wait/--interval), so reconnects land within ~10s.
 #
-# The agent runs a STABLE COPY of iphone-install-queue.sh from the queue dir
-# (copied at install time), never a path inside a worktree, so pruning the
-# worktree that installed it cannot break the agent. Re-run install after
-# updating the script to refresh the copy.
+# The agent runs stable copies of the queue, process, credential, attach, and
+# mobile-launch tools from the queue dir. A queued feature worktree supplies
+# source/debug-CLI context only, never the auth policy implementation.
 #
-# --checkout bakes CMUX_IPHONE_QUEUE_CHECKOUT into the agent: the fallback cmux
-# checkout used for the signed launch (mobile-dev-launch.sh) when the enqueuing
-# worktree no longer exists. Defaults to this script's own repo root.
+# --checkout bakes CMUX_IPHONE_QUEUE_CHECKOUT into the agent as fallback source
+# context when an enqueuing worktree is pruned. Defaults to this repo root.
 set -euo pipefail
 
 LABEL="dev.cmux.iphone-install-queue"
@@ -60,12 +58,24 @@ cmd_install() {
       *) echo "install: unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
   done
-  [[ -x "$checkout/scripts/mobile-dev-launch.sh" ]] \
-    || { echo "error: --checkout $checkout has no scripts/mobile-dev-launch.sh" >&2; exit 1; }
+  [[ -x "$checkout/scripts/cmux-debug-cli.sh" ]] \
+    || { echo "error: --checkout $checkout has no scripts/cmux-debug-cli.sh" >&2; exit 1; }
+  for required in \
+      "$SCRIPT_DIR/iphone-install-queue.sh" \
+      "$SCRIPT_DIR/ios-device-process.sh" \
+      "$SCRIPT_DIR/mobile-dev-launch.sh" \
+      "$SCRIPT_DIR/lib/dev-secrets.sh" \
+      "$SCRIPT_DIR/lib/mobile-attach.sh"; do
+    [[ -f "$required" ]] || { echo "error: missing queue control-plane file: $required" >&2; exit 1; }
+  done
 
-  mkdir -p "$QUEUE_DIR/bin" "$QUEUE_DIR/logs" "$QUEUE_DIR/pending" \
+  mkdir -p "$QUEUE_DIR/bin/lib" "$QUEUE_DIR/logs" "$QUEUE_DIR/pending" \
     "$HOME/Library/LaunchAgents"
   install -m 0755 "$SCRIPT_DIR/iphone-install-queue.sh" "$QUEUE_DIR/bin/iphone-install-queue.sh"
+  install -m 0755 "$SCRIPT_DIR/ios-device-process.sh" "$QUEUE_DIR/bin/ios-device-process.sh"
+  install -m 0755 "$SCRIPT_DIR/mobile-dev-launch.sh" "$QUEUE_DIR/bin/mobile-dev-launch.sh"
+  install -m 0644 "$SCRIPT_DIR/lib/dev-secrets.sh" "$QUEUE_DIR/bin/lib/dev-secrets.sh"
+  install -m 0644 "$SCRIPT_DIR/lib/mobile-attach.sh" "$QUEUE_DIR/bin/lib/mobile-attach.sh"
 
   # idVendor 1452 = 0x05AC (Apple). Matching any Apple USB device is fine: the
   # drain exits immediately when the queue is empty or the device is not the

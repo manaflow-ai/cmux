@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxMobileHost
 import Foundation
 
 /// Resolves the transcript JSONL path for an agent session.

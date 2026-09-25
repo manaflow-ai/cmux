@@ -37,7 +37,7 @@ from .models import Cursor, StreamEnd, StreamItem
 from .transport import JsonLineConnection
 
 
-PROTOCOL = "cmux.protocol/1"
+PROTOCOL = "cmux.protocol/2"
 MAX_REQUEST_BYTES = 4 * 1024 * 1024
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_STREAM_MESSAGES = 256
@@ -123,6 +123,7 @@ class _Pending:
     value: Optional[Mapping[str, Any]] = None
     error: Optional[BaseException] = None
     on_resource_error: Optional[Callable[[], None]] = None
+    abandoned_result_decoder: Optional[Callable[[Any], Any]] = None
     abandoned_error: Optional[BaseException] = None
     response_received: bool = False
     cleanup_started: bool = False
@@ -140,9 +141,14 @@ class _StreamState(Generic[ItemT]):
         stream_id: StreamId,
         decode_item: Callable[[Any], ItemT],
         cancel_route: Mapping[str, str],
+        validate_item: Optional[
+            Callable[[ItemT, Optional[Cursor]], None]
+        ] = None,
     ) -> None:
         self.stream_id = stream_id
+        self.attachment_lease: Optional[str] = None
         self.decode_item = decode_item
+        self.validate_item = validate_item
         self.cancel_route = dict(cancel_route)
         # The extra queue entry is reserved for the end-of-stream control message.
         self.values: "queue.Queue[object]" = queue.Queue(MAX_STREAM_MESSAGES + 1)
@@ -274,10 +280,13 @@ class _StreamState(Generic[ItemT]):
     ) -> bool:
         """Queues one item without blocking. Returns false after local overflow."""
         try:
+            decoded_item = self.decode_item(payload)
+            if self.validate_item is not None:
+                self.validate_item(decoded_item, cursor)
             item = StreamItem(
                 self.stream_id,
                 sequence,
-                self.decode_item(payload),
+                decoded_item,
                 cursor,
             )
         except (KeyError, TypeError, ValueError, ProtocolError) as error:
@@ -365,13 +374,14 @@ class _StreamState(Generic[ItemT]):
 class ProtocolConnection:
     """One multiplexed synchronous resource-protocol connection."""
 
-    def __init__(self, socket_path: str, timeout: float) -> None:
+    def __init__(self, socket_path: str, timeout: float, *, fallback_path: Optional[str] = None) -> None:
         self.socket_path = socket_path
         self.timeout = timeout
         self._wire = JsonLineConnection(
             socket_path,
             timeout,
             max_line_bytes=MAX_RESPONSE_BYTES + 1,
+            fallback_path=fallback_path,
         )
         # Per-request deadlines are enforced by Pending events. The one shared
         # reader must remain idle indefinitely between requests and events.
@@ -408,6 +418,7 @@ class ProtocolConnection:
         _on_dispatched: Optional[Callable[[], None]] = None,
         _on_send_error: Optional[Callable[[BaseException], None]] = None,
         _on_resource_error: Optional[Callable[[], None]] = None,
+        _abandoned_result_decoder: Optional[Callable[[Any], Any]] = None,
         _bounded_dispatch: bool = False,
         _dispatch_guard: Optional[Callable[[], bool]] = None,
         _skip_request_cleanup_gate: bool = False,
@@ -448,6 +459,7 @@ class ProtocolConnection:
         pending = _Pending(
             threading.Event(),
             on_resource_error=_on_resource_error,
+            abandoned_result_decoder=_abandoned_result_decoder,
         )
         claimed_dispatch = False
         with self._request_cleanup_condition:
@@ -625,6 +637,7 @@ class ProtocolConnection:
                 with self._lock:
                     response_received = pending.response_received
                     response_error = pending.error
+                    response_value = pending.value
                 if not response_received:
                     if response_error is not None:
                         raise response_error
@@ -632,6 +645,15 @@ class ProtocolConnection:
                         "request cancellation did not receive the completed "
                         "target response"
                     )
+                if response_error is None:
+                    if response_value is None:
+                        raise ProtocolError(
+                            "request cancellation received no completed "
+                            "target response value"
+                        )
+                    result = _decode_response(response_value)
+                    if pending.abandoned_result_decoder is not None:
+                        pending.abandoned_result_decoder(result)
         except BaseException as error:
             if not self.closed:
                 failure: BaseException
@@ -667,6 +689,9 @@ class ProtocolConnection:
         *,
         timeout: Optional[float] = None,
         cancel_event: Optional[_CancellationSignal] = None,
+        validate_item: Optional[
+            Callable[[ItemT, Optional[Cursor]], None]
+        ] = None,
     ) -> "ResourceStream[ItemT]":
         stream_id = StreamId(f"stream_{secrets.token_hex(16)}")
         cancel_route = {
@@ -682,6 +707,7 @@ class ProtocolConnection:
             stream_id,
             decode_item,
             cancel_route,
+            validate_item,
         )
         with self._lock:
             if self._closed:
@@ -702,7 +728,11 @@ class ProtocolConnection:
             if state.open_send_failed:
                 assert state.open_send_error is not None
                 raise state.open_send_error
-            _validate_stream_open_result(operation, stream_id, opened)
+            state.attachment_lease = _validate_stream_open_result(
+                operation,
+                stream_id,
+                opened,
+            )
             with self._lock:
                 if self._closed:
                     raise self._closed_error()
@@ -873,18 +903,21 @@ class ProtocolConnection:
                 response_error = error
             request_id = envelope["id"]
             assert isinstance(request_id, str)
+            # Response state, wakeup, and route removal are published under
+            # one lock so a simultaneous local deadline cannot observe an
+            # absent route before the typed response is available.
             with self._lock:
-                pending = self._pending.pop(request_id, None)
+                pending = self._pending.get(request_id)
                 if pending is not None:
                     pending.response_received = True
-            if pending is not None:
-                if response_error is not None:
-                    if pending.on_resource_error is not None:
-                        pending.on_resource_error()
-                    pending.error = response_error
-                else:
-                    pending.value = envelope
-                pending.event.set()
+                    if response_error is not None:
+                        if pending.on_resource_error is not None:
+                            pending.on_resource_error()
+                        pending.error = response_error
+                    else:
+                        pending.value = envelope
+                    pending.event.set()
+                    self._pending.pop(request_id, None)
             return
         if envelope_type in {"stream_item", "stream_end"}:
             raw_stream_id = envelope.get("stream_id")
@@ -1127,6 +1160,11 @@ class ResourceStream(Generic[ItemT], Iterator[StreamItem[ItemT]]):
         return self._state.stream_id
 
     @property
+    def attachment_lease(self) -> Optional[str]:
+        """Lease required to size or release a terminal/browser attachment."""
+        return self._state.attachment_lease
+
+    @property
     def end(self) -> Optional[StreamEnd]:
         return self._state.end
 
@@ -1237,10 +1275,14 @@ def _validate_stream_open_result(
     operation: str,
     expected_stream_id: StreamId,
     value: Any,
-) -> None:
+) -> Optional[str]:
     if not isinstance(value, Mapping):
         raise ProtocolError(f"{operation} stream-open result must be an object")
-    unknown = set(value) - {"stream_id", "cursor"}
+    view_attachment = operation in {"terminal.attach", "browser.attach"}
+    allowed = {"stream_id", "cursor"}
+    if view_attachment:
+        allowed.add("attachment_lease")
+    unknown = set(value) - allowed
     if unknown:
         field = min(unknown)
         raise ProtocolError(
@@ -1256,6 +1298,24 @@ def _validate_stream_open_result(
         ) from error
     if returned_stream_id != expected_stream_id:
         raise ProtocolError(f"{operation} returned a different stream_id")
+    attachment_lease: Optional[str] = None
+    if view_attachment:
+        raw_lease = value.get("attachment_lease")
+        if not isinstance(raw_lease, str):
+            raise ProtocolError(
+                f"{operation} stream-open result omitted attachment_lease"
+            )
+        try:
+            lease_bytes = len(raw_lease.encode("utf-8"))
+        except UnicodeEncodeError as error:
+            raise ProtocolError(
+                f"{operation} returned an invalid attachment_lease"
+            ) from error
+        if not 1 <= lease_bytes <= 128:
+            raise ProtocolError(
+                f"{operation} attachment_lease must contain 1 to 128 UTF-8 bytes"
+            )
+        attachment_lease = raw_lease
     if "cursor" in value:
         if value["cursor"] is None:
             raise ProtocolError(f"{operation} returned a null stream cursor")
@@ -1265,6 +1325,7 @@ def _validate_stream_open_result(
             raise ProtocolError(
                 f"{operation} returned an invalid stream cursor: {error}"
             ) from error
+    return attachment_lease
 
 
 def _decode_cursor(value: Any) -> Optional[Cursor]:

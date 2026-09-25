@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { t } from "../i18n";
 import type { ConnectionConfig } from "../hooks/useCmuxClient";
 import { initialConnectionConfig, rememberWebSocketUrl } from "../lib/connectionDefaults";
-import type { PairingChallenge } from "cmux/browser";
+import type { PairingChallenge } from "cmux/raw";
 
 interface ConnectScreenProps {
   connecting: boolean;

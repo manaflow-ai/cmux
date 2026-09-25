@@ -6,7 +6,7 @@ rust-version = "1.88"
 publish = false
 
 [dependencies]
-cmux-client = { version = "1.0.0", path = "../../rust" }
+cmux-sdk = { version = "=1.0.0", path = "../../rust" }
 cmux-sidebar = { version = "1.0.0", path = "../../rust-sidebar" }
 crossterm = "0.29"
 ratatui = "0.30"

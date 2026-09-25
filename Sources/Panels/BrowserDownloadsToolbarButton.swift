@@ -1,4 +1,39 @@
+import AppKit
+import CmuxBrowser
 import SwiftUI
+
+/// Adapts a completed browser download to the app's existing file drop path.
+///
+/// The browser owns the immutable download record; this adapter only exports
+/// the already materialized file URL. It never reads or copies file contents,
+/// and it fails closed when a record is still in flight or its file has gone
+/// away from disk.
+enum BrowserDownloadDragSource {
+    static func fileURL(
+        for record: BrowserDownloadRecord,
+        fileManager: FileManager = .default
+    ) -> URL? {
+        guard record.state == .saved,
+              let fileURL = record.fileURL?.standardizedFileURL,
+              fileURL.isFileURL,
+              fileManager.fileExists(atPath: fileURL.path),
+              let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+              values.isRegularFile == true else {
+            return nil
+        }
+        return fileURL
+    }
+
+    static func provider(
+        for record: BrowserDownloadRecord,
+        fileManager: FileManager = .default
+    ) -> NSItemProvider? {
+        guard let fileURL = fileURL(for: record, fileManager: fileManager) else {
+            return nil
+        }
+        return NSItemProvider(object: fileURL as NSURL)
+    }
+}
 
 /// Safari/Chrome-style downloads button for the browser omnibar. Shows a
 /// popover listing recent downloads with Open / Show in Finder actions.
@@ -7,6 +42,8 @@ import SwiftUI
 /// (`BrowserDownloadRecord`) plus action closures — no `BrowserPanel` store
 /// crosses the popover's `ForEach` boundary (CLAUDE.md snapshot-boundary rule).
 struct BrowserDownloadsToolbarButton: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     let downloads: [BrowserDownloadRecord]
     let isDownloading: Bool
     let iconPointSize: CGFloat
@@ -73,6 +110,9 @@ struct BrowserDownloadsToolbarButton: View {
         .buttonStyle(OmnibarAddressButtonStyle())
         .safeHelp(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
         .accessibilityLabel(String(localized: "browser.downloads.title", defaultValue: "Downloads"))
+        #if DEBUG
+        .modifier(BrowserDownloadsPopoverAppearanceUITestPresenter(isPresented: $isPresented))
+        #endif
         .onChange(of: isPresented) { _, presented in
             if presented {
                 seenIDs = Set(downloads.map(\.id))
@@ -85,6 +125,7 @@ struct BrowserDownloadsToolbarButton: View {
                 onReveal: onReveal,
                 onClear: onClear
             )
+            .browserChromePopoverAppearance(colorScheme)
         }
     }
 }
@@ -135,6 +176,9 @@ private struct BrowserDownloadsPopoverContent: View {
             }
         }
         .frame(width: 340)
+        #if DEBUG
+        .background(BrowserDownloadsPopoverAppearanceUITestRecorder())
+        #endif
     }
 }
 
@@ -144,6 +188,11 @@ private struct BrowserDownloadRow: View {
     let onReveal: (BrowserDownloadRecord) -> Void
 
     var body: some View {
+        rowContent
+    }
+
+    @ViewBuilder
+    private var rowContent: some View {
         HStack(spacing: 10) {
             leadingIcon
                 .frame(width: 24, height: 24)
@@ -184,6 +233,7 @@ private struct BrowserDownloadRow: View {
                 onOpen(record)
             }
         }
+        .modifier(BrowserDownloadDragModifier(record: record))
     }
 
     @ViewBuilder
@@ -213,6 +263,21 @@ private struct BrowserDownloadRow: View {
                 return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
             }
             return record.fileURL?.deletingLastPathComponent().lastPathComponent ?? ""
+        }
+    }
+}
+
+private struct BrowserDownloadDragModifier: ViewModifier {
+    let record: BrowserDownloadRecord
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if BrowserDownloadDragSource.fileURL(for: record) != nil {
+            content.onDrag {
+                BrowserDownloadDragSource.provider(for: record) ?? NSItemProvider()
+            }
+        } else {
+            content
         }
     }
 }

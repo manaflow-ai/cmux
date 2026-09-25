@@ -18,10 +18,10 @@ import java.util.stream.Collectors;
 
 public final class GeneratedCoverageTest {
     public static void main(String[] args) throws Exception {
-        check(Protocol.VERSION == 10, "protocol version");
+        check(Protocol.VERSION == 12, "protocol version");
         check("1.0.0".equals(Protocol.SDK_VERSION), "SDK release version");
-        check(Commands.ALL.size() == 91, "all 91 commands generated");
-        check(Events.ALL.size() == 44, "all 44 events generated");
+        check(Commands.ALL.size() == 112, "all 112 commands generated");
+        check(Events.ALL.size() == 49, "all 49 events generated");
 
         Map<String, Method> methods = Arrays.stream(GeneratedCmuxClient.class.getDeclaredMethods())
             .filter(method -> Modifier.isPublic(method.getModifiers()))
@@ -62,6 +62,7 @@ public final class GeneratedCoverageTest {
             }
         }
         verifyLayoutCommandRequests();
+        verifyPasteImageRedaction();
         verifyLayoutUndoVariants();
         verifyBrowserInputCommandRequests();
 
@@ -121,6 +122,31 @@ public final class GeneratedCoverageTest {
                 .keySet()
                 .equals(Set.of("confirm_close", "pane", "revision")),
             "undo-layout wire fields"
+        );
+    }
+
+    private static void verifyPasteImageRedaction() {
+        PasteImageRequest request = PasteImageRequest.builder()
+            .data("clipboard-secret")
+            .lease("lease-secret")
+            .mime("image/png")
+            .op("chunk")
+            .offset(UInt64.of(0))
+            .size(UInt64.of(16))
+            .surface(UInt64.of(1))
+            .terminalId("terminal")
+            .uploadId("0123456789abcdef0123456789abcdef")
+            .build();
+        String rendered = request.toString();
+        check(!rendered.contains("clipboard-secret"), "paste-image data redaction");
+        check(!rendered.contains("lease-secret"), "paste-image lease redaction");
+        check(
+            "clipboard-secret".equals(request.toWire().get("data")),
+            "paste-image wire data preserved"
+        );
+        check(
+            "lease-secret".equals(request.toWire().get("lease")),
+            "paste-image wire lease preserved"
         );
     }
 

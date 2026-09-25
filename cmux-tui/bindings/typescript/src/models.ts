@@ -115,7 +115,7 @@ export interface TabSnapshot extends Snapshot<TabId> {
 }
 export type TerminalLifecycle = "launching" | "running" | "exited";
 export interface TerminalSnapshot extends Snapshot<TerminalId> {
-  readonly tabId: TabId;
+  readonly tabIds: readonly TabId[];
   readonly title: string;
   readonly cwd?: string;
   readonly cols: number;
@@ -158,7 +158,7 @@ export interface AgentSnapshot extends Snapshot<AgentId> {
   readonly sessionId: SessionId;
   readonly terminalId: TerminalId;
   readonly state: "working" | "blocked" | "idle" | "done" | "unknown";
-  readonly source: "hook" | "socket" | "detected";
+  readonly source: "hook" | "socket" | "detected" | "plugin";
   readonly updatedAtMs: DecimalString;
   readonly sourceSession: string | null;
 }
@@ -193,7 +193,11 @@ export interface PairingRequestSnapshot extends Snapshot<PairingRequestId> {
 }
 export interface FrontendProjectionSnapshot extends Snapshot<ProjectionId> {
   readonly sessionId: SessionId;
+  readonly frontendId: string;
+  readonly windowId: string;
+  readonly generation: string;
   readonly projection: JsonValue;
+  readonly projectionRevision: DecimalString;
 }
 export interface SidebarViewSnapshot extends Snapshot<SidebarViewId> {
   readonly sessionId: SessionId;
@@ -251,6 +255,10 @@ export interface PaneNeighborResult {
 
 export interface TerminalScreenResult {
   readonly text: string;
+  /** Coalesced PTY output revision, when supplied; null means unavailable. */
+  readonly revision?: DecimalString | null;
+  /** Bounded OSC 9 progress text, when supplied; null means unavailable. */
+  readonly oscProgress?: string | null;
   readonly cols: number;
   readonly rows: number;
   readonly cursorRow: number;
@@ -333,6 +341,14 @@ export interface ProcessInfoResult {
   readonly executable?: string;
   readonly argv: readonly string[];
   readonly cwd?: string;
+  /**
+   * Working directory of the process group that owns the PTY, read at
+   * request time. Null when the lookup fails or when an older server
+   * omits the field.
+   */
+  readonly foregroundCwd: string | null;
+  /** Executable path or name of the PTY foreground process-group leader. */
+  readonly foregroundExecutable: string | null;
   readonly children: readonly number[];
 }
 
@@ -346,11 +362,19 @@ export interface CellPixelsResult {
 export interface ViewerResizeResult {
   readonly accepted: boolean;
   readonly size: Size;
+  readonly outcome: ViewAttachmentOutcome;
 }
 
 export interface BrowserViewerResizeResult {
   readonly accepted: boolean;
   readonly size: PixelSize;
+  readonly outcome: ViewAttachmentOutcome;
+}
+
+export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
+
+export interface ViewerReleaseResult {
+  readonly outcome: ViewAttachmentOutcome;
 }
 
 export interface ExactCommand {
@@ -632,6 +656,97 @@ export interface SessionDelta {
 }
 
 export type SessionEvent = SessionSnapshotItem | SessionDelta | Unknown;
+
+export type JournalClass = "state" | "observation" | "effect" | "checkpoint";
+export type JournalReplayPolicy = "required" | "advisory" | "never";
+export type JournalSensitivity = "public" | "metadata" | "sensitive" | "secret";
+
+export interface JournalProducer {
+  readonly kind: string;
+  readonly id: string;
+}
+
+export interface JournalAuthority {
+  readonly principalId: string;
+  readonly leaseId: string;
+  readonly generation: string;
+  readonly role: string;
+}
+
+export interface JournalSubject {
+  readonly kind: string;
+  readonly id: string;
+}
+
+export interface JournalEventSchema {
+  readonly kind: string;
+  readonly schemaVersion: number;
+  readonly class: JournalClass;
+  readonly replay: JournalReplayPolicy;
+  readonly sensitivity: JournalSensitivity;
+  readonly payloadSchema: JsonValue;
+}
+
+export interface JournalProducerManifest {
+  readonly producerId: string;
+  readonly namespace: string;
+  readonly manifestVersion: number;
+  readonly maxSensitivity: JournalSensitivity;
+  readonly permissions: readonly string[];
+  readonly events: readonly JournalEventSchema[];
+}
+
+export interface JournalIngress {
+  readonly producerId: string;
+  readonly manifestVersion: number;
+  readonly kind: string;
+  readonly schemaVersion: number;
+  readonly occurredAtMs?: DecimalString;
+  readonly subjects?: readonly JournalSubject[];
+  readonly sensitivity?: JournalSensitivity;
+  readonly payload: JsonValue;
+  readonly causationId?: string;
+  readonly correlationId?: string;
+}
+
+export interface JournalProducerPutResult {
+  readonly producerId: string;
+  readonly manifestVersion: number;
+  readonly namespace: string;
+  readonly sequence: DecimalString;
+  readonly eventId: string;
+}
+
+export interface JournalProducerListResult {
+  readonly producers: readonly JournalProducerManifest[];
+}
+
+export interface JournalAppendResult {
+  readonly producerId: string;
+  readonly sequence: DecimalString;
+  readonly eventId: string;
+}
+
+export interface SessionJournalRecord {
+  readonly sequence: DecimalString;
+  readonly eventId: string;
+  readonly schemaVersion: number;
+  readonly kind: string;
+  readonly class: JournalClass;
+  readonly replay: JournalReplayPolicy;
+  readonly occurredAtMs: DecimalString;
+  readonly committedAtMs: DecimalString;
+  readonly producer: JournalProducer;
+  readonly authority: JournalAuthority | null;
+  readonly causationId: string | null;
+  readonly correlationId: string | null;
+  readonly causationDepth: number;
+  readonly subjects: readonly JournalSubject[];
+  readonly sensitivity: JournalSensitivity;
+  readonly payload: JsonValue;
+  readonly resourceRevision: DecimalString | null;
+  readonly previousResourceRevision: DecimalString | null;
+}
 
 export interface RenderCursor {
   readonly x: number;

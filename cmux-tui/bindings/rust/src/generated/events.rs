@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd.
+// cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -8,6 +8,19 @@ use crate::{EventMetadata, Nullable, Optional};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentChangedEvent {
+    /// Adapter identity when the producer knows it; absent from protocol-11 event senders and null when no adapter was identified.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
+    pub session: Nullable<String>,
+    pub source: T::AgentSource,
+    pub state: T::AgentState,
+    pub surface: T::Id,
+    pub updated_at_ms: u64,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -91,6 +104,8 @@ pub struct ColorsChangedEvent {
     pub cursor_style: Optional<T::CursorStyle>,
     pub fg: Nullable<T::ColorHex>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub overrides: Option<T::TerminalColorOverrides>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub palette: Option<BTreeMap<String, T::ColorHex>>,
     pub selection_bg: Nullable<T::ColorHex>,
     pub selection_fg: Nullable<T::ColorHex>,
@@ -101,6 +116,11 @@ pub struct ColorsChangedEvent {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConfigReloadRequestedEvent {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DaemonShutdownEvent {
 }
 
 #[rustfmt::skip]
@@ -136,9 +156,46 @@ pub struct FrontendProjectionChangedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GraphicsStatusEventKind {
+    #[serde(rename = "kitty-image-budget-worker-start-failed")]
+    KittyImageBudgetWorkerStartFailed,
+    #[serde(rename = "kitty-image-budget-update-failed")]
+    KittyImageBudgetUpdateFailed,
+    #[serde(rename = "cell-pixel-update-retries-exhausted")]
+    CellPixelUpdateRetriesExhausted,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GraphicsStatusEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub attempts: Option<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cell_height: Option<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub cell_width: Option<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub kind: GraphicsStatusEventKind,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub retry_exhausted: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChangedEvent {
     pub screen: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineUsageChangedEvent {
+    pub usage: Nullable<T::MachineUsage>,
 }
 
 #[rustfmt::skip]
@@ -214,6 +271,10 @@ pub struct RenderDeltaEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub default_fg: Option<T::ColorHex>,
     pub full: bool,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub graphics: Option<T::RenderGraphicsDelta>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub history_epoch: Option<u64>,
     pub rows: Vec<T::RenderRow>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub scrollback_rows: Option<u32>,
@@ -228,6 +289,9 @@ pub struct RenderStateEvent {
     pub cursor: T::RenderCursor,
     pub default_bg: T::ColorHex,
     pub default_fg: T::ColorHex,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub graphics: Option<T::RenderGraphics>,
+    pub history_epoch: u64,
     pub rows: Vec<T::RenderRow>,
     pub scrollback_rows: u32,
     pub size: T::Size,
@@ -243,6 +307,10 @@ pub struct ResizedEvent {
     /// Protocol 6 compatibility field.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub data: Option<T::Base64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_graphics_state: Option<T::KittyGraphicsState>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub replay: Option<T::Base64>,
     pub rows: u16,
@@ -377,11 +445,23 @@ pub struct TreeChangedEvent {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UrlOpenEvent {
+    pub request_id: String,
+    pub terminal_id: String,
+    pub url: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateEvent {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub colors: Option<T::TerminalColors>,
     pub cols: u16,
     pub data: T::Base64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_graphics_state: Option<T::KittyGraphicsState>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_image_aliases: Option<Vec<T::KittyImageAlias>>,
     pub rows: u16,
     pub surface: T::Id,
 }
@@ -463,6 +543,7 @@ pub struct UnknownEvent {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
+    AgentChanged(AgentChangedEvent),
     Bell(BellEvent),
     BrowserState(BrowserStateEvent),
     ClientAttached(ClientAttachedEvent),
@@ -471,11 +552,14 @@ pub enum Event {
     ClientListInvalidated(ClientListInvalidatedEvent),
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
+    DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
     Empty(EmptyEvent),
     Frame(FrameEvent),
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
+    GraphicsStatus(GraphicsStatusEvent),
     LayoutChanged(LayoutChangedEvent),
+    MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
     Output(OutputEvent),
     Overflow(OverflowEvent),
@@ -501,6 +585,7 @@ pub enum Event {
     TerminalRegistryChanged(TerminalRegistryChangedEvent),
     TitleChanged(TitleChangedEvent),
     TreeChanged(TreeChangedEvent),
+    UrlOpen(UrlOpenEvent),
     VtState(VtStateEvent),
     WindowTitleRequested(WindowTitleRequestedEvent),
     WorkspaceAdded(WorkspaceAddedEvent),
@@ -514,6 +599,7 @@ pub enum Event {
 impl Event {
     pub fn wire_name(&self) -> Option<&str> {
         match self {
+            Self::AgentChanged(_) => Some("agent-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BrowserState(_) => Some("browser-state"),
             Self::ClientAttached(_) => Some("client-attached"),
@@ -522,11 +608,14 @@ impl Event {
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
+            Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
             Self::Frame(_) => Some("frame"),
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
+            Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::LayoutChanged(_) => Some("layout-changed"),
+            Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
             Self::Output(_) => Some("output"),
             Self::Overflow(_) => Some("overflow"),
@@ -552,6 +641,7 @@ impl Event {
             Self::TerminalRegistryChanged(_) => Some("terminal-registry-changed"),
             Self::TitleChanged(_) => Some("title-changed"),
             Self::TreeChanged(_) => Some("tree-changed"),
+            Self::UrlOpen(_) => Some("url-open"),
             Self::VtState(_) => Some("vt-state"),
             Self::WindowTitleRequested(_) => Some("window-title-requested"),
             Self::WorkspaceAdded(_) => Some("workspace-added"),
@@ -564,6 +654,7 @@ impl Event {
 
     pub fn metadata(&self) -> Option<&'static EventMetadata> {
         match self {
+            Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
             Self::ClientAttached(_) => Some(&CLIENT_ATTACHED_EVENT_METADATA),
@@ -572,11 +663,14 @@ impl Event {
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
+            Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
+            Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
+            Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
             Self::Output(_) => Some(&OUTPUT_EVENT_METADATA),
             Self::Overflow(_) => Some(&OVERFLOW_EVENT_METADATA),
@@ -602,6 +696,7 @@ impl Event {
             Self::TerminalRegistryChanged(_) => Some(&TERMINAL_REGISTRY_CHANGED_EVENT_METADATA),
             Self::TitleChanged(_) => Some(&TITLE_CHANGED_EVENT_METADATA),
             Self::TreeChanged(_) => Some(&TREE_CHANGED_EVENT_METADATA),
+            Self::UrlOpen(_) => Some(&URL_OPEN_EVENT_METADATA),
             Self::VtState(_) => Some(&VT_STATE_EVENT_METADATA),
             Self::WindowTitleRequested(_) => Some(&WINDOW_TITLE_REQUESTED_EVENT_METADATA),
             Self::WorkspaceAdded(_) => Some(&WORKSPACE_ADDED_EVENT_METADATA),
@@ -617,6 +712,14 @@ impl Event {
 pub fn decode_event(raw: Value) -> Event {
     let name = raw.get("event").and_then(Value::as_str).map(str::to_owned);
     match name.as_deref() {
+        Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("bell") => match serde_json::from_value::<BellEvent>(raw.clone()) {
             Ok(event) => Event::Bell(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -681,6 +784,14 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("daemon-shutdown") => match serde_json::from_value::<DaemonShutdownEvent>(raw.clone()) {
+            Ok(event) => Event::DaemonShutdown(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("detached") => match serde_json::from_value::<DetachedEvent>(raw.clone()) {
             Ok(event) => Event::Detached(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -713,8 +824,24 @@ pub fn decode_event(raw: Value) -> Event {
                 decode_error: Some(error.to_string()),
             }),
         },
+        Some("graphics-status") => match serde_json::from_value::<GraphicsStatusEvent>(raw.clone()) {
+            Ok(event) => Event::GraphicsStatus(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("layout-changed") => match serde_json::from_value::<LayoutChangedEvent>(raw.clone()) {
             Ok(event) => Event::LayoutChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("machine-usage-changed") => match serde_json::from_value::<MachineUsageChangedEvent>(raw.clone()) {
+            Ok(event) => Event::MachineUsageChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -915,6 +1042,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("tree-changed") => match serde_json::from_value::<TreeChangedEvent>(raw.clone()) {
             Ok(event) => Event::TreeChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("url-open") => match serde_json::from_value::<UrlOpenEvent>(raw.clone()) {
+            Ok(event) => Event::UrlOpen(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

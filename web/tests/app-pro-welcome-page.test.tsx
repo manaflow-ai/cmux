@@ -35,7 +35,13 @@ describe("app pro welcome page", () => {
 
   test("shows TestFlight as the current Pro benefit inside the cmux app", async () => {
     const element = await AppProWelcomePage({
-      searchParams: Promise.resolve({ cmux_app: "1", appearance: "dark" }),
+      searchParams: Promise.resolve({
+        cmux_app: "1",
+        appearance: "dark",
+        background: "#112233",
+        foreground: "#ddeeff",
+        accent: "#0091ff",
+      }),
     });
     const html = renderToStaticMarkup(element);
 
@@ -59,6 +65,12 @@ describe("app pro welcome page", () => {
     expect(html).not.toContain('href="/dashboard/subrouter"');
     expect(html).not.toContain('href="/dashboard/ai-accounts"');
     expect(html).toContain('data-app-pro-welcome-appearance="dark"');
+    expect(html).toContain('data-cmux-app-theme="true"');
+    expect(html).toContain("--ghostty-background:#112233");
+    expect(html).toContain("--ghostty-foreground:#ddeeff");
+    expect(html).toContain("--cmux-product-blue:#0091ff");
+    expect(html).toContain("--cmux-product-blue-on-background:#0091ff");
+    expect(html).toContain("--cmux-product-blue-on-foreground:#006CBF");
   });
 
   test("uses the active web locale for the Pro welcome", async () => {
