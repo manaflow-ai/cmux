@@ -101,6 +101,16 @@ public actor MobileRPCConnectAttemptRegistry {
         routeStates[key] = state
     }
 
+    public func resetRouteHealthForNetworkChange() {
+        // Current main keeps only active leases and physical cleanup debt. Those
+        // are ownership facts, not route-health strikes, so a network change must
+        // not erase them and accidentally admit duplicate dials.
+        for (key, state) in routeStates
+            where state.activeLeaseID == nil && state.physicalCleanupTasks.isEmpty {
+            routeStates[key] = nil
+        }
+    }
+
     private func physicalCleanupDidFinish(
         key: MobileRPCConnectAttemptKey,
         cleanupID: UUID

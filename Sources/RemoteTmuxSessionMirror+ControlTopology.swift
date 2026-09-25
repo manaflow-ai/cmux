@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxRemoteSession
 import Foundation
 
 @MainActor
@@ -170,18 +171,16 @@ extension RemoteTmuxSessionMirror {
     }
 
     func sendInput(toPane tmuxPaneID: Int, text: String) -> Bool {
-        guard controlPaneIdByPane[tmuxPaneID] != nil,
-              let data = text.data(using: .utf8) else { return false }
-        return connection.sendKeys(paneId: tmuxPaneID, data: data)
+        guard let data = text.data(using: .utf8) else { return false }
+        return sendInputBytes(data, toPane: tmuxPaneID)
     }
 
     func sendKey(
         toPane tmuxPaneID: Int,
         name: String
     ) -> RemoteTmuxControlKeySendResult {
-        guard controlPaneIdByPane[tmuxPaneID] != nil else { return .rejected }
-        guard let key = RemoteTmuxWindowMirror.tmuxKeyName(name) else { return .unknownKey }
-        return connection.send("send-keys -t %\(tmuxPaneID) \(key)") ? .sent : .rejected
+        guard let key = RemoteTmuxKeyName(rawName: name) else { return .unknownKey }
+        return sendNamedKey(key, toPane: tmuxPaneID) ? .sent : .rejected
     }
 
     func requestSplit(

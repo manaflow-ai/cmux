@@ -63,9 +63,17 @@ extension DockSplitStore {
            transfer.remoteTerminalLifecycleID == terminalLifecycleID {
             return false
         }
+        let beginsNewRuntime =
+            transfer.remoteTerminalLifecycleID != terminalLifecycleID ||
+            (transfer.remoteTerminalAttemptID != attemptID &&
+                transfer.remoteTerminalAuthority?.preservesRemotePTYAcrossAttachAttempts != true)
         transfer.remoteTerminalSessionPhase = .launching
         transfer.remoteTerminalLifecycleID = terminalLifecycleID
         transfer.remoteTerminalAttemptID = attemptID
+        if beginsNewRuntime {
+            transfer.ttyNameWasReportedByCurrentRuntime = false
+            transfer.ttyReportRuntimeSurfaceGeneration = nil
+        }
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }
@@ -106,6 +114,82 @@ extension DockSplitStore {
         // launched. Container moves retarget `workspaceId`, but restore
         // identity remains bound to that terminal process.
         return transfer.sessionRestoreWorkspaceId == presentationWorkspaceID
+    }
+
+    static func registerReportedRemoteSurfaceTTYName(
+        _ ttyName: String,
+        panelId: UUID,
+        presentationWorkspaceID: UUID,
+        authenticatedWorkspaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> Bool {
+        let owners = liveRemoteTerminalStores(
+            presentationWorkspaceID: presentationWorkspaceID
+        ).filter {
+            $0.ownsRemoteTerminalTransfer(
+                panelId: panelId,
+                presentationWorkspaceID: presentationWorkspaceID
+            )
+        }
+        guard owners.count == 1 else { return false }
+        return owners[0].registerReportedRemoteSurfaceTTYName(
+            ttyName,
+            panelId: panelId,
+            presentationWorkspaceID: presentationWorkspaceID,
+            authenticatedWorkspaceID: authenticatedWorkspaceID,
+            terminalLifecycleID: terminalLifecycleID,
+            attemptID: attemptID
+        )
+    }
+
+    func runtimeReportedRemoteTTYCandidates(
+        presentationWorkspaceID: UUID
+    ) -> [(binding: TerminalCallerTTYBinding, ttyName: String)] {
+        detachedSurfaceTransfersByPanelId.compactMap { panelId, transfer in
+            guard panels[panelId] != nil,
+                  transfer.isRemoteTerminal,
+                  transfer.sessionRestoreWorkspaceId == presentationWorkspaceID,
+                  transfer.remoteTerminalSessionPhase != .ended,
+                  transfer.ttyNameWasReportedByCurrentRuntime,
+                  transfer.ttyReportRuntimeSurfaceGeneration
+                    == (panels[panelId] as? TerminalPanel)?.surface.runtimeSurfaceGeneration,
+                  let ttyName = transfer.ttyName else {
+                return nil
+            }
+            return (
+                binding: TerminalCallerTTYBinding(
+                    workspaceId: workspaceId,
+                    surfaceId: panelId
+                ),
+                ttyName: ttyName
+            )
+        }
+    }
+
+    private func registerReportedRemoteSurfaceTTYName(
+        _ ttyName: String,
+        panelId: UUID,
+        presentationWorkspaceID: UUID,
+        authenticatedWorkspaceID: UUID,
+        terminalLifecycleID: UUID,
+        attemptID: UUID
+    ) -> Bool {
+        guard let terminal = panels[panelId] as? TerminalPanel,
+              var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              transfer.isRemoteTerminal,
+              transfer.sessionRestoreWorkspaceId == presentationWorkspaceID,
+              transfer.sessionRestoreWorkspaceId == authenticatedWorkspaceID,
+              transfer.remoteTerminalSessionPhase != .ended,
+              terminal.surface.terminalLifecycleId == terminalLifecycleID,
+              transfer.remoteTerminalAttemptID == attemptID else {
+            return false
+        }
+        transfer.ttyName = ttyName
+        transfer.ttyNameWasReportedByCurrentRuntime = true
+        transfer.ttyReportRuntimeSurfaceGeneration = terminal.surface.runtimeSurfaceGeneration
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        return true
     }
 
     func markRemoteTerminalSessionEnded(panelId: UUID, relayPort: Int?) -> Bool {
@@ -152,6 +236,8 @@ extension DockSplitStore {
         transfer.remoteTerminalLifecycleID =
             terminalLifecycleID ?? transfer.remoteTerminalLifecycleID
         transfer.remoteTerminalAttemptID = nil
+        transfer.ttyNameWasReportedByCurrentRuntime = false
+        transfer.ttyReportRuntimeSurfaceGeneration = nil
         setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
         return true
     }

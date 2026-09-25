@@ -45,9 +45,9 @@ import Testing
             group("c", anchor: "c"),
         ]
         #expect(MobileWorkspaceListItem.items(workspaces: workspaces, groups: groups) == [
-            .groupHeader(groups[0], hasUnread: false),
-            .groupHeader(groups[1], hasUnread: false),
-            .groupHeader(groups[2], hasUnread: false),
+            .groupHeader(groups[0], unread: .read),
+            .groupHeader(groups[1], unread: .read),
+            .groupHeader(groups[2], unread: .read),
         ])
     }
 
@@ -121,6 +121,81 @@ import Testing
                     #expect(optimistic.map(\.groupID) == simulatedHost.map(\.groupID))
                 }
             }
+        }
+    }
+
+    @Test func joinAtEndIntentsMatchIndependentHostSimulator() throws {
+        let fixtures: [(
+            workspaces: [MobileWorkspacePreview],
+            groups: [MobileWorkspaceGroupPreview],
+            movedWorkspaceID: MobileWorkspacePreview.ID,
+            targetGroupID: MobileWorkspaceGroupPreview.ID
+        )] = [
+            (
+                [
+                    workspace("anchor", group: "g"),
+                    workspace("member", group: "g"),
+                    workspace("dragged"),
+                    workspace("tail"),
+                ],
+                [group("g", anchor: "anchor")],
+                "dragged",
+                "g"
+            ),
+            (
+                [
+                    workspace("a-anchor", group: "a"),
+                    workspace("dragged", group: "a"),
+                    workspace("g-anchor", group: "g"),
+                    workspace("g-member", group: "g"),
+                    workspace("tail"),
+                ],
+                [group("a", anchor: "a-anchor"), group("g", anchor: "g-anchor")],
+                "dragged",
+                "g"
+            ),
+            (
+                [
+                    workspace("anchor", group: "g"),
+                    workspace("member", group: "g"),
+                    workspace("dragged"),
+                    workspace("tail"),
+                ],
+                [group("g", anchor: "anchor", collapsed: true)],
+                "dragged",
+                "g"
+            ),
+            (
+                [workspace("anchor", group: "g"), workspace("dragged"), workspace("tail")],
+                [group("g", anchor: "anchor")],
+                "dragged",
+                "g"
+            ),
+        ]
+
+        for fixture in fixtures {
+            let move = try #require(MobileWorkspaceMovePolicy(
+                workspaces: fixture.workspaces,
+                groups: fixture.groups
+            ).normalizedIntent(
+                MobileWorkspaceMoveIntent(
+                    groupID: fixture.targetGroupID,
+                    beforeWorkspaceID: nil
+                ),
+                movedWorkspaceID: fixture.movedWorkspaceID
+            ))
+            let optimistic = fixture.workspaces.applyingWorkspaceMoveIntent(
+                move,
+                movedWorkspaceID: fixture.movedWorkspaceID,
+                groups: fixture.groups
+            )
+            let simulatedHost = MobileWorkspaceHostOrderSimulator(
+                workspaces: fixture.workspaces,
+                groups: fixture.groups
+            ).applying(move, movedWorkspaceID: fixture.movedWorkspaceID)
+
+            #expect(optimistic.map(\.id) == simulatedHost.map(\.id))
+            #expect(optimistic.map(\.groupID) == simulatedHost.map(\.groupID))
         }
     }
 

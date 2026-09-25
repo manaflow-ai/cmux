@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import Foundation
 
 @MainActor
@@ -102,42 +103,9 @@ extension RemoteTmuxWindowMirror {
     }
 
     func sendKey(toPane tmuxPaneID: Int, name: String) -> RemoteTmuxControlKeySendResult {
-        guard let key = Self.tmuxKeyName(name) else { return .unknownKey }
-        return sendControlCommand("send-keys -t %\(tmuxPaneID) \(key)") ? .sent : .rejected
-    }
-
-    static func tmuxKeyName(_ raw: String) -> String? {
-        let normalized = raw.lowercased().replacingOccurrences(of: "+", with: "-")
-        let aliases: [String: String] = [
-            "enter": "Enter", "return": "Enter", "tab": "Tab",
-            "escape": "Escape", "esc": "Escape", "backspace": "BSpace",
-            "delete": "DC", "del": "DC", "forward_delete": "DC",
-            "up": "Up", "arrow_up": "Up", "arrowup": "Up",
-            "down": "Down", "arrow_down": "Down", "arrowdown": "Down",
-            "left": "Left", "arrow_left": "Left", "arrowleft": "Left",
-            "right": "Right", "arrow_right": "Right", "arrowright": "Right",
-            "shift-tab": "BTab", "backtab": "BTab", "home": "Home",
-            "end": "End", "pageup": "PPage", "page_up": "PPage",
-            "pagedown": "NPage", "page_down": "NPage", "space": "Space",
-            "sigint": "C-c", "eof": "C-d", "sigtstp": "C-z", "sigquit": "C-\\",
-        ]
-        if let alias = aliases[normalized] { return alias }
-        let parts = normalized.split(separator: "-").map(String.init)
-        guard let base = parts.last, base.utf8.count == 1,
-              let byte = base.utf8.first,
-              (byte >= 48 && byte <= 57) || (byte >= 97 && byte <= 122) else {
-            return nil
-        }
-        let modifiers = parts.dropLast().compactMap { modifier -> String? in
-            switch modifier {
-            case "ctrl", "control": return "C"
-            case "shift": return "S"
-            case "alt", "opt", "option": return "M"
-            default: return nil
-            }
-        }
-        guard modifiers.count == parts.count - 1 else { return nil }
-        return (modifiers + [base]).joined(separator: "-")
+        guard let key = RemoteTmuxKeyName(rawName: name) else { return .unknownKey }
+        guard let connection else { return .rejected }
+        return connection.sendKey(paneId: tmuxPaneID, key: key) ? .sent : .rejected
     }
 
     /// Requests pane selection. The next tmux publication remains authoritative

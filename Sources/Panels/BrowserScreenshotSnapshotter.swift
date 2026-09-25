@@ -1,5 +1,6 @@
 import AppKit
 import CmuxBrowser
+import CmuxFoundation
 import WebKit
 
 enum BrowserScreenshotCaptureBounds {
@@ -83,9 +84,15 @@ enum BrowserScreenshotCaptureBounds {
 
 @MainActor
 enum BrowserScreenshotWebViewSnapshotter {
+    /// Upper bound on the per-tile scroll settle wait. A web view that is not
+    /// on screen never receives animation frames, so this timer — not the two
+    /// requested frames — decides how long each stitched tile waits.
+    nonisolated static let defaultScrollSettleTimeout: TimeInterval = 0.25
+
     static func captureFullPage(
         from webView: WKWebView,
         afterScreenUpdates: Bool = true,
+        scrollSettleTimeout: TimeInterval = defaultScrollSettleTimeout,
         onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
         try Task.checkCancellation()
@@ -119,6 +126,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             from: webView,
             metrics: metrics,
             afterScreenUpdates: afterScreenUpdates,
+            scrollSettleTimeout: scrollSettleTimeout,
             onProgress: onProgress
         )
     }
@@ -129,6 +137,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         from webView: WKWebView,
         maximumPixelCount: Int,
         afterScreenUpdates: Bool = true,
+        scrollSettleTimeout: TimeInterval = defaultScrollSettleTimeout,
         onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
         try Task.checkCancellation()
@@ -176,19 +185,22 @@ enum BrowserScreenshotWebViewSnapshotter {
             metrics: metrics,
             maximumPixelCount: maximumPixelCount,
             afterScreenUpdates: afterScreenUpdates,
+            scrollSettleTimeout: scrollSettleTimeout,
             onProgress: onProgress
         )
     }
 
     static func captureVisibleViewport(
         from webView: WKWebView,
-        afterScreenUpdates: Bool = true
+        afterScreenUpdates: Bool = true,
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
         let renderer = viewportSnapshotRenderer(for: webView)
         return try await captureVisibleViewport(
             from: webView,
             afterScreenUpdates: afterScreenUpdates,
-            renderer: renderer
+            renderer: renderer,
+            timeout: timeout
         )
     }
 
@@ -196,6 +208,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         _ rect: NSRect,
         from webView: WKWebView,
         afterScreenUpdates: Bool = true,
+        scrollSettleTimeout: TimeInterval = defaultScrollSettleTimeout,
         onProgress: @escaping @MainActor () -> Void = {}
     ) async throws -> NSImage {
         try Task.checkCancellation()
@@ -222,6 +235,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             metrics: metrics,
             maximumPixelCount: Int(BrowserScreenshotCaptureBounds.maximumSelectionPixels),
             afterScreenUpdates: afterScreenUpdates,
+            scrollSettleTimeout: scrollSettleTimeout,
             onProgress: onProgress
         )
     }
@@ -271,6 +285,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         from webView: WKWebView,
         metrics: BrowserViewportContentMetrics,
         afterScreenUpdates: Bool,
+        scrollSettleTimeout: TimeInterval,
         onProgress: @escaping @MainActor () -> Void
     ) async throws -> NSImage {
         let contentSize = metrics.contentSize
@@ -306,7 +321,11 @@ enum BrowserScreenshotWebViewSnapshotter {
                     guard let origin = tilePlan.origin(column: column, row: row) else {
                         throw BrowserScreenshotError.webContentMetricsUnavailable
                     }
-                    let actualOrigin = try await scroll(webView, to: origin)
+                    let actualOrigin = try await scroll(
+                        webView,
+                        to: origin,
+                        settleTimeout: scrollSettleTimeout
+                    )
                     onProgress()
                     try Task.checkCancellation()
                     let tile = try await captureVisibleViewport(
@@ -334,7 +353,11 @@ enum BrowserScreenshotWebViewSnapshotter {
         // must not leave the user's page scrolled to an intermediate tile.
         let restoration = Task { @MainActor [weak webView] in
             guard let webView else { return }
-            _ = try? await scroll(webView, to: metrics.scrollOffset)
+            _ = try? await scroll(
+                webView,
+                to: metrics.scrollOffset,
+                settleTimeout: scrollSettleTimeout
+            )
         }
         await restoration.value
         onProgress()
@@ -359,6 +382,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         metrics: BrowserViewportContentMetrics,
         maximumPixelCount: Int,
         afterScreenUpdates: Bool,
+        scrollSettleTimeout: TimeInterval,
         onProgress: @escaping @MainActor () -> Void
     ) async throws -> NSImage {
         let pageRect = NSRect(origin: .zero, size: metrics.contentSize)
@@ -396,7 +420,8 @@ enum BrowserScreenshotWebViewSnapshotter {
                         to: NSPoint(
                             x: captureRegion.minX + relativeOrigin.x,
                             y: captureRegion.minY + relativeOrigin.y
-                        )
+                        ),
+                        settleTimeout: scrollSettleTimeout
                     )
                     onProgress()
                     try Task.checkCancellation()
@@ -425,7 +450,11 @@ enum BrowserScreenshotWebViewSnapshotter {
         // never leaves the page at an intermediate stitched-capture offset.
         let restoration = Task { @MainActor [weak webView] in
             guard let webView else { return }
-            _ = try? await scroll(webView, to: metrics.scrollOffset)
+            _ = try? await scroll(
+                webView,
+                to: metrics.scrollOffset,
+                settleTimeout: scrollSettleTimeout
+            )
         }
         await restoration.value
         onProgress()
@@ -531,6 +560,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         _ webView: WKWebView,
         viewportSize: NSSize,
         expectedURL: URL?,
+        timingBudget: BrowserScreenshotTimingBudget = .init(),
         operation: () async throws -> T
     ) async throws -> T {
         let renderHost = BrowserOffscreenRenderHost(
@@ -539,7 +569,11 @@ enum BrowserScreenshotWebViewSnapshotter {
         )
         defer { renderHost.restore() }
 
-        try await prepareForVisualCapture(webView, expectedURL: expectedURL)
+        try await prepareForVisualCapture(
+            webView,
+            expectedURL: expectedURL,
+            timingBudget: timingBudget
+        )
         return try await operation()
     }
 
@@ -548,46 +582,69 @@ enum BrowserScreenshotWebViewSnapshotter {
         viewportSize: NSSize,
         expectedURL: URL?,
         timeout: TimeInterval,
-        operation: @escaping (@escaping (Result<T, Error>) -> Void) -> Void,
-        completion: @escaping (Result<T, Error>) -> Void
+        timingBudget: BrowserScreenshotTimingBudget = .init(),
+        operation: @escaping @MainActor () async throws -> T,
+        completion: @escaping @MainActor @Sendable (Result<T, Error>) -> Void
     ) {
         let renderHost = BrowserOffscreenRenderHost(
             webView: webView,
             viewportSize: viewportSize
         )
 
-        var didFinish = false
         var timeoutTimer: Timer?
-        let finish: (Result<T, Error>) -> Void = { result in
-            guard !didFinish else { return }
-            didFinish = true
+        let lease = BrowserScreenshotRenderLease<T>(
+            teardown: {
+                renderHost.restore()
+            },
+            completion: completion
+        )
+        let finish: @MainActor (Result<T, Error>) -> Void = { result in
+            guard lease.finish(result) else { return }
             timeoutTimer?.invalidate()
             timeoutTimer = nil
-            renderHost.restore()
-            completion(result)
         }
 
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { _ in
-            finish(.failure(BrowserScreenshotError.automationTimedOut))
+        let timer = Timer(timeInterval: timeout, repeats: false) { _ in
+            MainActor.assumeIsolated {
+                finish(.failure(BrowserScreenshotError.automationTimedOut))
+            }
         }
-        prepareForVisualCapture(webView, expectedURL: expectedURL) { result in
-            switch result {
-            case .success:
-                guard !didFinish else { return }
-                operation(finish)
-            case .failure(let error):
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        let operationTask = Task { @MainActor in
+            do {
+                try await prepareForVisualCapture(
+                    webView,
+                    expectedURL: expectedURL,
+                    timingBudget: timingBudget
+                )
+                try Task.checkCancellation()
+                finish(.success(try await operation()))
+            } catch {
                 finish(.failure(error))
             }
         }
+        lease.installOperationTask(operationTask)
     }
 
-    static func prepareForVisualCapture(_ webView: WKWebView, expectedURL: URL?) async throws {
-        try await waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL)
+    static func prepareForVisualCapture(
+        _ webView: WKWebView,
+        expectedURL: URL?,
+        timingBudget: BrowserScreenshotTimingBudget = .init()
+    ) async throws {
+        try await waitForExpectedURLIfNeeded(
+            webView,
+            expectedURL: expectedURL,
+            timeout: timingBudget.expectedURLAllowance
+        )
 
         forceAppKitLayout(for: webView)
 
         do {
-            _ = try await webView.evaluateJavaScript(visualCaptureLayoutFlushScript, contentWorld: .page)
+            _ = try await BrowserScreenshotJavaScriptRequest(
+                webView: webView,
+                timeout: timingBudget.preparationJavaScriptAllowance
+            ).evaluate(script: visualCaptureLayoutFlushScript)
         } catch {
             #if DEBUG
             cmuxDebugLog("browser.screenshot.prepare.failed error=\(error.localizedDescription)")
@@ -595,30 +652,6 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
 
         forceAppKitLayout(for: webView)
-    }
-
-    static func prepareForVisualCapture(
-        _ webView: WKWebView,
-        expectedURL: URL?,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        waitForExpectedURLIfNeeded(webView, expectedURL: expectedURL) { result in
-            switch result {
-            case .success:
-                forceAppKitLayout(for: webView)
-                webView.evaluateJavaScript(visualCaptureLayoutFlushScript) { _, error in
-                    if let error {
-                        #if DEBUG
-                        cmuxDebugLog("browser.screenshot.prepare.failed error=\(error.localizedDescription)")
-                        #endif
-                    }
-                    forceAppKitLayout(for: webView)
-                    completion(.success(()))
-                }
-            case .failure(let error):
-                completion(.failure(error))
-            }
-        }
     }
 
     private static func isAcceptableFullContentSnapshot(
@@ -742,7 +775,11 @@ enum BrowserScreenshotWebViewSnapshotter {
     }
 
     @discardableResult
-    private static func scroll(_ webView: WKWebView, to point: NSPoint) async throws -> CGPoint {
+    private static func scroll(
+        _ webView: WKWebView,
+        to point: NSPoint,
+        settleTimeout: TimeInterval
+    ) async throws -> CGPoint {
         let value = try await webView.callAsyncJavaScript(
             """
             const doc = document.documentElement;
@@ -761,8 +798,16 @@ enum BrowserScreenshotWebViewSnapshotter {
             const expectedY = Math.min(Math.max(0, y), maximumY);
             window.scrollTo({ left: x, top: y, behavior: "instant" });
             document.documentElement?.getBoundingClientRect();
+            // Two frames let layout and paint settle, but a page in a web view
+            // that is not visible never gets animation frames, so a timer
+            // bounds the wait instead of leaving the capture hung.
             await new Promise((resolve) => {
-              requestAnimationFrame(() => requestAnimationFrame(resolve));
+              let settled = false;
+              const finish = () => {
+                if (!settled) { settled = true; resolve(); }
+              };
+              requestAnimationFrame(() => requestAnimationFrame(finish));
+              setTimeout(finish, settleTimeoutMilliseconds);
             });
             return {
               x: window.scrollX || 0,
@@ -774,6 +819,7 @@ enum BrowserScreenshotWebViewSnapshotter {
             arguments: [
                 "x": Double(point.x),
                 "y": Double(point.y),
+                "settleTimeoutMilliseconds": max(0, settleTimeout * 1000),
             ],
             in: nil,
             contentWorld: .page
@@ -799,32 +845,22 @@ enum BrowserScreenshotWebViewSnapshotter {
     private static func takeSnapshot(
         from webView: WKWebView,
         configuration: WKSnapshotConfiguration,
-        renderer: BrowserViewportSnapshotRenderer? = nil
+        renderer: BrowserViewportSnapshotRenderer? = nil,
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
-        try await withCheckedThrowingContinuation { continuation in
-            webView.takeSnapshot(with: configuration) { image, error in
-                if let image {
-                    guard let renderer else {
-                        continuation.resume(returning: image)
-                        return
-                    }
-                    guard let normalized = renderer.normalizedImage(image) else {
-                        continuation.resume(throwing: BrowserScreenshotError.invalidImageRepresentation)
-                        return
-                    }
-                    continuation.resume(returning: normalized)
-                    return
-                }
-
-                continuation.resume(throwing: error ?? BrowserScreenshotError.emptySnapshot)
-            }
-        }
+        try await BrowserScreenshotSnapshotRequest(
+            webView: webView,
+            configuration: configuration,
+            renderer: renderer,
+            timeout: timeout
+        ).capture()
     }
 
     private static func captureVisibleViewport(
         from webView: WKWebView,
         afterScreenUpdates: Bool,
-        renderer: BrowserViewportSnapshotRenderer?
+        renderer: BrowserViewportSnapshotRenderer?,
+        timeout: TimeInterval? = nil
     ) async throws -> NSImage {
         let configuration = WKSnapshotConfiguration()
         configuration.afterScreenUpdates = afterScreenUpdates
@@ -832,7 +868,8 @@ enum BrowserScreenshotWebViewSnapshotter {
         return try await takeSnapshot(
             from: webView,
             configuration: configuration,
-            renderer: renderer
+            renderer: renderer,
+            timeout: timeout
         )
     }
 
@@ -860,12 +897,16 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
     }
 
-    private static func waitForExpectedURLIfNeeded(_ webView: WKWebView, expectedURL: URL?) async throws {
+    private static func waitForExpectedURLIfNeeded(
+        _ webView: WKWebView,
+        expectedURL: URL?,
+        timeout: TimeInterval
+    ) async throws {
         guard let expectedURL else { return }
         let waiter = BrowserScreenshotExpectedURLWaiter(
             webView: webView,
             expectedAbsoluteString: expectedURL.absoluteString,
-            timeout: 5.0
+            timeout: timeout
         )
 
         try await withTaskCancellationHandler {
@@ -874,26 +915,6 @@ enum BrowserScreenshotWebViewSnapshotter {
             Task { @MainActor in
                 waiter.cancel()
             }
-        }
-    }
-
-    private static func waitForExpectedURLIfNeeded(
-        _ webView: WKWebView,
-        expectedURL: URL?,
-        completion: @escaping (Result<Void, Error>) -> Void
-    ) {
-        guard let expectedURL else {
-            completion(.success(()))
-            return
-        }
-        let waiter = BrowserScreenshotExpectedURLWaiter(
-            webView: webView,
-            expectedAbsoluteString: expectedURL.absoluteString,
-            timeout: 5.0
-        )
-        waiter.wait { [waiter] result in
-            _ = waiter
-            completion(result)
         }
     }
 
@@ -1043,7 +1064,6 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
     private let expectedAbsoluteString: String
     private let timeout: TimeInterval
     private var continuation: CheckedContinuation<Void, Error>?
-    private var completion: ((Result<Void, Error>) -> Void)?
     private var urlObservation: NSKeyValueObservation?
     private var loadingObservation: NSKeyValueObservation?
     private var timeoutTimer: Timer?
@@ -1071,23 +1091,6 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
             if isReady {
                 finish(.success(()))
             }
-        }
-    }
-
-    func wait(completion: @escaping (Result<Void, Error>) -> Void) {
-        if isReady {
-            completion(.success(()))
-            return
-        }
-
-        self.completion = completion
-        installObservers()
-        if isCancelled {
-            finish(.failure(CancellationError()))
-            return
-        }
-        if isReady {
-            finish(.success(()))
         }
     }
 
@@ -1131,7 +1134,7 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
                 }
             }
         }
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
             guard let self else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
@@ -1139,6 +1142,8 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
                 }
             }
         }
+        timeoutTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func finishIfReady() {
@@ -1148,24 +1153,18 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
     }
 
     private func finish(_ result: Result<Void, Error>) {
-        guard continuation != nil || completion != nil else { return }
-        let continuation = self.continuation
-        let completion = self.completion
+        guard let continuation else { return }
         self.continuation = nil
-        self.completion = nil
         urlObservation = nil
         loadingObservation = nil
         timeoutTimer?.invalidate()
         timeoutTimer = nil
 
-        if let continuation {
-            switch result {
-            case .success:
-                continuation.resume()
-            case .failure(let error):
-                continuation.resume(throwing: error)
-            }
+        switch result {
+        case .success:
+            continuation.resume()
+        case .failure(let error):
+            continuation.resume(throwing: error)
         }
-        completion?(result)
     }
 }

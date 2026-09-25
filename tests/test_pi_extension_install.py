@@ -6,20 +6,62 @@ Regression test: the generated Pi extension is importable and emits cmux hook ca
 from __future__ import annotations
 
 import base64
+import fcntl
 import json
 import os
+import signal
 import shutil
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 
-from claude_teams_test_utils import install_pi_extension, resolve_cmux_cli
+from claude_teams_test_utils import (
+    FOCUSED_SURFACE_ID,
+    FOCUSED_WORKSPACE_ID,
+    install_pi_extension,
+    resolve_cmux_cli,
+)
+
+NONBLOCKING_LOCK_TIMEOUT_SECONDS = 5.0
 
 
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o755)
+
+
+def communicate_or_terminate(
+    process: subprocess.Popen[str],
+    *,
+    input_text: str | None = None,
+    timeout: float = 20,
+) -> tuple[str, str]:
+    try:
+        return process.communicate(input=input_text, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            process.communicate(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                process.communicate(timeout=2)
+            except subprocess.TimeoutExpired:
+                for pipe in (process.stdin, process.stdout, process.stderr):
+                    if pipe is not None:
+                        pipe.close()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass
+        raise
 
 
 def wait_for_text(
@@ -41,9 +83,9 @@ def wait_for_text(
 
 def payloads_from_log(text: str) -> list[dict[str, object]]:
     payloads: list[dict[str, object]] = []
-    for raw in text.split("\n---\n"):
+    for raw in text.splitlines():
         raw = raw.strip()
-        if not raw:
+        if not raw or raw == "---":
             continue
         try:
             payload = json.loads(raw)
@@ -85,6 +127,191 @@ def main() -> int:
         if "@earendil-works/pi-coding-agent" not in extension_text:
             print("FAIL: generated Pi extension does not import the current Pi package")
             return 1
+
+        extension_path.write_text(
+            "// cmux-pi-session-extension-marker v2\n"
+            "// stale managed fixture using synchronous hook dispatch\n"
+            'import { spawnSync } from "node:child_process";\n',
+            encoding="utf-8",
+        )
+        refresh_env = os.environ.copy()
+        isolated_home = root / "home"
+        isolated_home.mkdir()
+        refresh_env["HOME"] = str(isolated_home)
+        refresh_env["CFFIXED_USER_HOME"] = str(isolated_home)
+        refresh_env["PI_CODING_AGENT_DIR"] = str(config_dir)
+        refresh_env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
+        refresh_env["CMUX_SURFACE_ID"] = FOCUSED_SURFACE_ID
+        refresh_command = [
+            cli_path,
+            "--socket",
+            str(root / "missing-pi-refresh.sock"),
+            "hooks",
+            "pi",
+            "session-start",
+            "--workspace",
+            FOCUSED_WORKSPACE_ID,
+            "--surface",
+            FOCUSED_SURFACE_ID,
+        ]
+        refresh_payload = json.dumps(
+            {
+                "session_id": "pi-managed-extension-refresh",
+                "cwd": str(root),
+                "hook_event_name": "SessionStart",
+                "event": "SessionStart",
+            }
+        )
+        refresh_result = subprocess.run(
+            refresh_command,
+            input=refresh_payload,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if refresh_result.returncode == 0:
+            print("FAIL: Pi refresh fixture unexpectedly connected to its missing socket")
+            return 1
+        if extension_path.read_text(encoding="utf-8") != extension_text:
+            print("FAIL: Pi session-start did not refresh the stale cmux-managed extension")
+            return 1
+
+        extension_path.write_text("", encoding="utf-8")
+        empty_refresh_result = subprocess.run(
+            refresh_command,
+            input=refresh_payload,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if empty_refresh_result.returncode == 0:
+            print("FAIL: empty Pi refresh fixture unexpectedly connected to its missing socket")
+            return 1
+        if extension_path.read_text(encoding="utf-8") != extension_text:
+            print("FAIL: Pi session-start did not repair an empty managed extension")
+            return 1
+
+        extension_path.write_text(
+            "// cmux-pi-session-extension-marker v2\n// stale managed race fixture\n",
+            encoding="utf-8",
+        )
+        lock_path = extension_path.parent / ".cmux-session.lock"
+        replacement = "// user replacement without the cmux ownership marker\n"
+        with lock_path.open("a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            blocked_refresh = subprocess.Popen(
+                refresh_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=refresh_env,
+                start_new_session=True,
+            )
+            extension_path.write_text(replacement, encoding="utf-8")
+            try:
+                communicate_or_terminate(
+                    blocked_refresh,
+                    input_text=refresh_payload,
+                    timeout=NONBLOCKING_LOCK_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                print("FAIL: Pi session-start refresh blocked on its advisory lock")
+                return 1
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        if extension_path.read_text(encoding="utf-8") != replacement:
+            print("FAIL: in-flight Pi refresh overwrote a replacement extension")
+            return 1
+
+        extension_path.unlink()
+        extension_path = install_pi_extension(config_dir, cli_path)
+        extension_text = extension_path.read_text(encoding="utf-8")
+        extension_path.write_text(
+            "// cmux-pi-session-extension-marker v2\n// stale uninstall race fixture\n",
+            encoding="utf-8",
+        )
+        with lock_path.open("a", encoding="utf-8") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            blocked_refresh = subprocess.Popen(
+                refresh_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=refresh_env,
+                start_new_session=True,
+            )
+            blocked_uninstall = subprocess.Popen(
+                [cli_path, "hooks", "pi", "uninstall"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=refresh_env,
+                start_new_session=True,
+            )
+            refresh_timed_out = False
+            try:
+                communicate_or_terminate(
+                    blocked_refresh,
+                    input_text=refresh_payload,
+                    timeout=NONBLOCKING_LOCK_TIMEOUT_SECONDS,
+                )
+            except subprocess.TimeoutExpired:
+                refresh_timed_out = True
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        try:
+            uninstall_stdout, uninstall_stderr = communicate_or_terminate(blocked_uninstall)
+        except subprocess.TimeoutExpired:
+            print("FAIL: concurrent Pi uninstall timed out")
+            return 1
+        if refresh_timed_out:
+            print("FAIL: concurrent Pi refresh blocked behind uninstall")
+            return 1
+        if blocked_uninstall.returncode != 0:
+            print(
+                "FAIL: concurrent Pi uninstall failed: "
+                f"stdout={uninstall_stdout!r} stderr={uninstall_stderr!r}"
+            )
+            return 1
+        if extension_path.exists():
+            print("FAIL: in-flight Pi refresh recreated an uninstalled extension")
+            return 1
+        extension_path = install_pi_extension(config_dir, cli_path)
+        extension_text = extension_path.read_text(encoding="utf-8")
+
+        stale_symlink_fixture = (
+            "// cmux-pi-session-extension-marker v2\n"
+            "// stale lock symlink fixture\n"
+        )
+        extension_path.write_text(stale_symlink_fixture, encoding="utf-8")
+        lock_path.unlink(missing_ok=True)
+        lock_target = root / "redirected-lock-target"
+        lock_target.write_text("sentinel\n", encoding="utf-8")
+        lock_path.symlink_to(lock_target)
+        symlink_result = subprocess.run(
+            [cli_path, "hooks", "pi", "install", "--yes"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if symlink_result.returncode == 0:
+            print("FAIL: Pi install followed a symlinked mutation lock")
+            return 1
+        if extension_path.read_text(encoding="utf-8") != stale_symlink_fixture:
+            print("FAIL: Pi install mutated the extension through a symlinked lock")
+            return 1
+        if lock_target.read_text(encoding="utf-8") != "sentinel\n":
+            print("FAIL: Pi install mutated the symlinked lock target")
+            return 1
+        lock_path.unlink()
+        extension_path = install_pi_extension(config_dir, cli_path)
+        extension_text = extension_path.read_text(encoding="utf-8")
 
         bin_dir = root / "bin"
         bin_dir.mkdir()
@@ -131,8 +358,7 @@ def main() -> int:
 set -euo pipefail
 printf '%s\n' "$*" >> "$CMUX_TEST_PI_ARGS_LOG"
 payload="$(cat)"
-printf '%s' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
-printf '\n---\n' >> "$CMUX_TEST_PI_STDIN_LOG"
+printf '%s\n' "$payload" >> "$CMUX_TEST_PI_STDIN_LOG"
 {
   printf 'kind=%s\n' "${CMUX_AGENT_LAUNCH_KIND-}"
   printf 'cwd=%s\n' "${CMUX_AGENT_LAUNCH_CWD-}"
@@ -158,6 +384,10 @@ case "$*" in
       exit 42
     fi
     printf '{}\n'
+    ;;
+  *"hooks pi session-start"*)
+    printf '{"resume_binding":{"kind":"pi","checkpoint_id":"pi-session-test","source":"agent-hook","auto_resume":true,"approval_policy":"auto"}}\n' > "$CMUX_TEST_PI_BINDING_FILE"
+    printf '{"workspace_id":"workspace-pi-test","surface_id":"surface-pi-test"}\n'
     ;;
   *"surface resume get"*)
     if [ -f "$CMUX_TEST_PI_BINDING_FILE" ]; then
@@ -270,6 +500,14 @@ async function completionHookCount() {
   const lines = (await Bun.file(path).text()).split("\\n");
   return lines.filter((line) => line.includes("hooks pi notification") || line.includes("hooks pi stop")).length;
 }
+async function waitForCompletionHookCount(expectedCount) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (await completionHookCount() === expectedCount) return;
+    await Bun.sleep(10);
+  }
+  throw new Error(`timed out waiting for ${expectedCount} completion hooks`);
+}
 async function waitForFeedEvent(eventName, expectedCount) {
   const path = process.env.CMUX_TEST_PI_ARGS_LOG;
   const deadline = Date.now() + 5000;
@@ -283,8 +521,25 @@ async function waitForFeedEvent(eventName, expectedCount) {
   }
   throw new Error(`timed out waiting for ${expectedCount} ${eventName} Feed events`);
 }
+async function waitForArgument(fragment) {
+    const path = process.env.CMUX_TEST_PI_ARGS_LOG;
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const lines = path && Bun.file(path).size
+        ? (await Bun.file(path).text()).split("\\n")
+        : [];
+      if (lines.some((line) => line.includes(fragment))) return;
+      await Bun.sleep(10);
+    }
+  throw new Error(`timed out waiting for ${fragment}`);
+}
 await handlers.get("session_start")({}, ctx);
 await handlers.get("before_agent_start")({ prompt: "hello pi" }, ctx);
+await waitForArgument("hooks pi prompt-submit");
+const sessionStartBinding = JSON.parse(await Bun.file(process.env.CMUX_TEST_PI_BINDING_FILE).text()).resume_binding;
+if (sessionStartBinding?.auto_resume !== true || sessionStartBinding?.approval_policy !== "auto") {
+  throw new Error(`Pi session-start downgraded its resume binding: ${JSON.stringify(sessionStartBinding)}`);
+}
 await handlers.get("tool_execution_start")({
   id: "tool-event-start-should-not-be-turn-id",
   toolCallId: "tool-call-1",
@@ -372,11 +627,62 @@ if (await completionHookCount() !== completionCount) throw new Error("busy settl
 agentIdle = true;
 await handlers.get("agent_settled")({}, ctx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("agent_settled did not emit notification and stop");
+await waitForCompletionHookCount(completionCount);
 await handlers.get("agent_settled")({}, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("duplicate agent_settled emitted completion twice");
 await handlers.get("session_shutdown")({ reason: "quit" }, ctx);
 if (await completionHookCount() !== completionCount) throw new Error("shutdown after settlement emitted a duplicate stop");
+const abortedCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-aborted"; }
+  }
+};
+await handlers.get("session_start")({}, abortedCtx);
+await handlers.get("before_agent_start")({ prompt: "abort me" }, abortedCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "abort me" },
+    { role: "assistant", content: "partial response", stopReason: "aborted" }
+  ]
+}, abortedCtx);
+await handlers.get("agent_settled")({}, abortedCtx);
+completionCount += 1;
+await waitForCompletionHookCount(completionCount);
+await handlers.get("agent_settled")({}, abortedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("duplicate aborted settlement emitted completion twice");
+await handlers.get("session_shutdown")({ reason: "quit" }, abortedCtx);
+if (await completionHookCount() !== completionCount) throw new Error("aborted shutdown emitted a duplicate stop");
+const immediateSubmitCtx = {
+  cwd: "/tmp/pi-project",
+  isIdle() { return true; },
+  sessionManager: {
+    getSessionId() { return "pi-session-immediate-submit"; }
+  }
+};
+await handlers.get("session_start")({}, immediateSubmitCtx);
+await handlers.get("before_agent_start")({ prompt: "replace me" }, immediateSubmitCtx);
+completionCount = await completionHookCount();
+await handlers.get("agent_end")({
+  messages: [
+    { role: "user", content: "replace me" },
+    {
+      role: "assistant",
+      content: "partial response",
+      stopReason: "stop",
+      cmuxSuppressNotification: true
+    }
+  ]
+}, immediateSubmitCtx);
+await handlers.get("agent_settled")({}, immediateSubmitCtx);
+completionCount += 1;
+await waitForCompletionHookCount(completionCount);
+await handlers.get("agent_settled")({}, immediateSubmitCtx);
+if (await completionHookCount() !== completionCount) throw new Error("duplicate immediate-submit settlement emitted completion twice");
+await handlers.get("session_shutdown")({ reason: "quit" }, immediateSubmitCtx);
+if (await completionHookCount() !== completionCount) throw new Error("immediate-submit shutdown emitted a duplicate stop");
 const interruptedCtx = {
   cwd: "/tmp/pi-project",
   isIdle() { return true; },
@@ -430,7 +736,7 @@ await handlers.get("agent_end")({
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was attempted before settlement");
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("settlement did not attempt failed notification and stop");
+await waitForCompletionHookCount(completionCount);
 await handlers.get("agent_settled")({}, notificationFailureCtx);
 if (await completionHookCount() !== completionCount) throw new Error("failed notification was retried after duplicate settlement");
 process.argv.splice(
@@ -454,7 +760,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, legacyCtx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("legacy Pi agent_end did not emit completion fallback");
+await waitForCompletionHookCount(completionCount);
 process.argv.splice(
   0,
   process.argv.length,
@@ -476,7 +782,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, unknownCtx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("unknown Pi agent_end did not emit completion fallback");
+await waitForCompletionHookCount(completionCount);
 process.argv.splice(
   0,
   process.argv.length,
@@ -498,7 +804,7 @@ await handlers.get("agent_end")({
   stopReason: "completed"
 }, malformedCtx);
 completionCount += 2;
-if (await completionHookCount() !== completionCount) throw new Error("malformed Pi agent_end did not emit completion fallback");
+await waitForCompletionHookCount(completionCount);
 """
         check = subprocess.run(
             [bun, "--eval", check_source],
@@ -518,17 +824,17 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
 
         args_log = wait_for_text(
             fake_args_log,
-            38,
+            50,
             timeout=20.0,
             expected_substrings=("hooks feed --source pi --event PostToolUse",),
         )
         stdin_log = wait_for_text(
             fake_stdin_log,
-            62,
+            50,
             timeout=20.0,
             expected_substrings=('"hook_event_name":"PostToolUse"',),
         )
-        env_log = wait_for_text(fake_env_log, 38 * 3, timeout=20.0)
+        env_log = wait_for_text(fake_env_log, 50 * 3, timeout=20.0)
         for expected in [
             "hooks pi session-start",
             "hooks pi prompt-submit",
@@ -539,8 +845,6 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             "hooks feed --source pi --event PostCompact",
             "hooks feed --source pi --event SubagentStart",
             "hooks feed --source pi --event SubagentStop",
-            "surface resume get",
-            "surface resume set",
             "surface resume clear",
         ]:
             if expected not in args_log:
@@ -557,23 +861,13 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             elif "surface resume clear" in line:
                 resume_ops.append("clear")
         expected_resume_ops = [
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
             "clear",
-            "set",
-            "get",
-            "set",
-            "get",
-            "set",
-            "get",
-            "set",
-            "get",
+            "clear",
+            "clear",
         ]
         if resume_ops != expected_resume_ops:
-            print(f"FAIL: extension did not verify resume binding after set, got {resume_ops!r}")
+            print(f"FAIL: extension emitted unexpected resume binding operations, got {resume_ops!r}")
             return 1
         payloads = payloads_from_log(stdin_log)
         for session_id in [
@@ -592,6 +886,23 @@ if (await completionHookCount() !== completionCount) throw new Error("malformed 
             ]
             if completion_events != ["Notification", "Stop"]:
                 print(f"FAIL: completion hooks were out of order for {session_id}: {completion_events!r}")
+                return 1
+        for session_id in ["pi-session-aborted", "pi-session-immediate-submit"]:
+            completion_payloads = [
+                payload
+                for payload in payloads
+                if payload.get("session_id") == session_id
+                and payload.get("hook_event_name") in {"Notification", "Stop"}
+            ]
+            completion_events = [payload.get("hook_event_name") for payload in completion_payloads]
+            if completion_events != ["Stop"]:
+                print(f"FAIL: interrupted Pi turn emitted a completion notification for {session_id}: {completion_events!r}")
+                return 1
+            if completion_payloads[0].get("cmux_notification_routed") is not True:
+                print(
+                    f"FAIL: interrupted Pi stop did not suppress the native notification fallback for {session_id}: "
+                    f"{completion_payloads[0]!r}"
+                )
                 return 1
         if not any(payload.get("session_id") == "pi-session-test" for payload in payloads):
             print(f"FAIL: extension did not pass session id, got {payloads!r}")
