@@ -181,11 +181,17 @@ allowed = {
     ("build", "seed", "Adopt the DerivedData seed", ""),
     ("build", None, "Forget the adopted-build inode override", ""),
     ("test", "parallel-product", "Read the compiled test product over parallel range requests", ""),
+    # The git object seed: a miss leaves checkout to fetch everything, and a
+    # checkout the seed breaks is retried without it by the next steps.
+    ("build", None, "Restore git object seed", ""),
+    ("build", "checkout", "Checkout", "actions/checkout"),
+    ("test", None, "Restore git object seed", ""),
+    ("test", "checkout", "Checkout", "actions/checkout"),
     # The owned-pool rescue marker: without it the run is only not watched.
     ("runner", "marker", "Mark a run on a persistent macOS pool", ""),
     ("runner", None, "Upload the persistent pool marker", "actions/upload-artifact"),
-    # Its dispatch: without it the run is only not watched.
-    ("owned-pool-watch", None, "Dispatch the persistent pool rescue", ""),
+    # The sweeper's fixed-name marker: without it the run is only not watched.
+    ("runner", None, "Upload the owned-pool watch marker", "actions/upload-artifact"),
 }
 for job_id, job in document["jobs"].items():
     if "continue-on-error" in job:
@@ -274,7 +280,10 @@ check_release_build_disk_cleanup() {
 }
 
 check_release_helper_artifact_from_package_lane() {
-  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
+  # The one arm besides the dual-Xcode pool: the side label, else the owned
+  # label, only when the picker placed ' swift-package ' in pr_owned_jobs,
+  # which it does only for a run that skips the SDK 15 helper steps (pr_runner_pool.package_lane_owned()).
+  if ! awk -v dual_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(inputs.pr_owned_jobs, ' swift-package ') && (github.run_attempt == 1 && (inputs.pr_side_runner || inputs.pr_runner) || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && (inputs.pr_side_runner || inputs.pr_refused_retry_runner)) || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15') }}" '
     /^  swift-package-tests:/ { in_job=1; next }
     in_job && /^  [^[:space:]#][^:]*:[[:space:]]*(#.*)?$/ { in_job=0 }
 
@@ -1632,8 +1641,6 @@ import yaml
 EXEMPT = {
     ("iroh-release-gate.yml", "tailscale-version-skew", "CMUX_CI_XCODE_APP"):
         "uses the macOS 15 Xcode configuration; runs on MACOS_RUNNER_15 for paid overflow or blacksmith-6vcpu-macos-15 otherwise",
-    ("ci-macos.yml", "swift-package-tests", "CMUX_CI_XCODE_APP"):
-        "builds the SDK 15 Ghostty helper; stays on MACOS_RUNNER_DUAL_XCODE",
     ("ci-macos.yml", "swift-package-tests", "CMUX_CI_HELPER_XCODE_APP"):
         "same job's SDK 15 release-helper pin",
     ("ci.yml", "changes", "CMUX_CI_XCODE_APP_MACOS_15"):
