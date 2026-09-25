@@ -35,10 +35,6 @@
       "classification": "host/display dependency",
       "issue": 13948
     },
-    "CloudDesktopOpenActionTests/capturesClickDestination(hasRemoteView:menu:)": {
-      "classification": "timeout/hang",
-      "issue": 13879
-    },
     "CloudNativeLayoutProjectionTests/nativeMirrorTabInsertionHonorsTheSourceOrder()": {
       "classification": "product bug",
       "issue": 13998

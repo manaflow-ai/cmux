@@ -114,6 +114,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_build_only_keeps_tagged_app.sh
 
+      - name: Validate reload resolves the cmux-tui client before building
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_resolves_cmux_tui_client_before_build.sh
+
       - name: Validate docs deployment authentication guard
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_docs_deploy_auth_guard.py

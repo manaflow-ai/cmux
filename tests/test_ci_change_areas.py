@@ -4658,7 +4658,28 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
-    assert "for scheme in cmux cmux-unit cmux-numeric-locale cmux-cli-tests; do" in compile_script
+    import product_input_identity as identity
+
+    # The scheme list moved into PRODUCT_PROFILES so the build and the product
+    # identity cannot drift; assert the real invariant rather than the literal
+    # loop. A partial build under a full product's key is the failure this
+    # guards against.
+    assert 'product_input_identity.py" schemes' in compile_script
+    assert 'for scheme in "${schemes[@]}"' in compile_script
+    assert identity.PRODUCT_PROFILES["app-host"] == (
+        "cmux",
+        "cmux-unit",
+        "cmux-numeric-locale",
+        "cmux-cli-tests",
+    )
+    assert identity.PRODUCT_PROFILES["cli"] == ("cmux-cli-tests",)
+    # Every profile must be distinguishable in the identity, or one profile's
+    # product answers another profile's cache lookup.
+    seen = {
+        name: identity.identity_from_tree_lines([], workflow, profile=name)
+        for name in identity.PRODUCT_PROFILES
+    }
+    assert len({json.dumps(v, sort_keys=True) for v in seen.values()}) == len(seen)
     assert "actions/cache@27d5ce7" in admission or "uses: ./.github/actions/cache-restore" in admission
     assert "steps.upload-products.outputs.artifact-id" in admission
     assert "steps.upload-products.outputs.artifact-digest" in admission
