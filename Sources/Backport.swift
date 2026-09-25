@@ -29,18 +29,47 @@ enum BackportKeyPressResult {
 }
 
 extension Backport where Content: View {
+    /// Applies a cursor style on macOS 15 and falls back to an AppKit cursor
+    /// update on macOS 14, where SwiftUI does not expose `pointerStyle`.
     func pointerStyle(_ style: BackportPointerStyle?) -> some View {
+        content.modifier(BackportPointerStyleModifier(style: style))
+    }
+}
+
+private struct BackportPointerStyleModifier: ViewModifier {
+    let style: BackportPointerStyle?
+    @Environment(\.isEnabled) private var isEnabled
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let effectiveStyle = PointingHandCursorPolicy.pointerStyle(
+            isEnabled: isEnabled,
+            requested: style
+        )
         #if canImport(AppKit)
         if #available(macOS 15, *) {
-            return content.pointerStyle(style?.official)
+            content.pointerStyle(effectiveStyle?.official)
         } else {
-            return content
+            content.onHover { isHovering in
+                guard isHovering else {
+                    NSCursor.arrow.set()
+                    return
+                }
+                switch effectiveStyle {
+                case .link:
+                    NSCursor.pointingHand.set()
+                default:
+                    NSCursor.arrow.set()
+                }
+            }
         }
         #else
-        return content
+        content
         #endif
     }
+}
 
+extension Backport where Content: View {
     /// Backported onKeyPress that works on macOS 14+ and is a no-op on macOS 13.
     func onKeyPress(_ key: KeyEquivalent, action: @escaping (EventModifiers) -> BackportKeyPressResult) -> some View {
         #if canImport(AppKit)
@@ -60,7 +89,7 @@ extension Backport where Content: View {
     }
 }
 
-enum BackportPointerStyle {
+enum BackportPointerStyle: Equatable {
     case `default`
     case grabIdle
     case grabActive

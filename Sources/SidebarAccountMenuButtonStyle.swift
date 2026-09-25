@@ -8,5 +8,6 @@ struct SidebarAccountMenuButtonStyle: ButtonStyle {
         configuration.label
             .frame(minHeight: Self.rowHeight, alignment: .leading)
             .contentShape(Rectangle())
+            .backport.pointerStyle(.link)
     }
 }

@@ -147,6 +147,7 @@ private struct BrowserDownloadsPopoverContent: View {
                         onClear()
                     }
                     .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
                     .font(.callout)
                 }
             }
@@ -213,6 +214,7 @@ private struct BrowserDownloadRow: View {
                     onOpen(record)
                 }
                 .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
                 .font(.callout)
 
                 Button {
@@ -221,6 +223,7 @@ private struct BrowserDownloadRow: View {
                     Image(systemName: "magnifyingglass")
                 }
                 .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
                 .help(String(localized: "browser.downloads.showInFinder", defaultValue: "Show in Finder"))
                 .accessibilityLabel(String(localized: "browser.downloads.showInFinder", defaultValue: "Show in Finder"))
             }

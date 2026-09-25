@@ -60,6 +60,7 @@ struct TitlebarNewWorkspaceSplitButton: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .frame(width: primaryWidth, height: config.buttonSize)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
@@ -99,6 +100,7 @@ struct TitlebarNewWorkspaceSplitButton: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
             .frame(width: dropdownWidth, height: config.buttonSize)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)

@@ -201,6 +201,7 @@ struct TextBoxSendButtonStyle: ButtonStyle {
                     .fill(backgroundColor(isPressed: configuration.isPressed))
             )
             .scaleEffect(configuration.isPressed && canSend ? 0.94 : 1.0)
+            .backport.pointerStyle(.link)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 
@@ -910,6 +911,7 @@ private struct TextBoxAttachmentPreviewOpenButtonStyle: ButtonStyle {
                     .fill(Color.white.opacity(configuration.isPressed ? 0.28 : 0.22))
             }
             .contentShape(Capsule(style: .continuous))
+            .backport.pointerStyle(.link)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
             .animation(.easeOut(duration: 0.10), value: configuration.isPressed)
     }

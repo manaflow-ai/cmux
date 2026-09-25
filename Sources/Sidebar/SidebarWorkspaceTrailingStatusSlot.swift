@@ -44,6 +44,7 @@ struct SidebarWorkspaceTrailingStatusSlot: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
                 .safeHelp(closeButtonTooltip)
                 .opacity(showsCloseButton ? 1 : 0)
                 .allowsHitTesting(showsCloseButton)

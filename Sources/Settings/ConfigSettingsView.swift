@@ -109,24 +109,28 @@ struct ConfigSettingsView: View {
                     openCurrentSourceInEditor()
                 }
                 .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                 .controlSize(.small)
 
                 Button(revealFinderButtonTitle) {
                     revealCurrentSourceInFinder()
                 }
                 .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                 .controlSize(.small)
 
                 Button(String(localized: "settings.config.action.reload", defaultValue: "Reload")) {
                     reloadFromDisk()
                 }
                 .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                 .controlSize(.small)
 
                 Button(String(localized: "settings.config.action.save", defaultValue: "Save")) {
                     saveCmuxConfig()
                 }
                 .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
                 .controlSize(.small)
                 .disabled(configSource != .cmux || !hasUnsavedCmuxChanges)
             }

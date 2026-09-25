@@ -1942,6 +1942,7 @@ struct BrowserPanelView: View {
                 .padding(.horizontal, 6)
             }
             .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
             .controlSize(.regular)
             .safeHelp(String(localized: "browser.reload", defaultValue: "Reload"))
             .accessibilityIdentifier("BrowserWebContentRecoveryButton")
@@ -2349,6 +2350,7 @@ struct BrowserPanelView: View {
             presentImportDialogFromHint()
         }
         .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
         .controlSize(.small)
         .accessibilityIdentifier("BrowserImportHintImportButton")
     }

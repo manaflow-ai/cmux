@@ -369,6 +369,7 @@ private struct FileExternalOpenHeaderMenuButton: View {
             PanelHeaderIconGlyph(systemName: "square.and.arrow.up")
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
         .foregroundColor(.secondary)
         .disabled(isDisabled)
         .help(helpText)
@@ -2052,6 +2053,7 @@ private struct FilePreviewPDFSidebarChromeView: View {
             FilePreviewChromeSidebarMenuLabel()
         }
         .buttonStyle(.plain)
+            .backport.pointerStyle(.link)
     }
 
     @ViewBuilder
@@ -2162,6 +2164,7 @@ private struct FilePreviewChromeHoverButtonStyle: ButtonStyle {
                     .fill(Color.white.opacity(configuration.isPressed ? 0.24 : (isHovered ? 0.14 : 0)))
                     .frame(width: 32, height: 32)
             }
+            .backport.pointerStyle(.link)
     }
 }
 

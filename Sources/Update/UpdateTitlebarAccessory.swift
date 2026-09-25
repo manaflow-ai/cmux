@@ -915,6 +915,7 @@ private struct TitlebarControlButtonStyleBody: View {
                     isHovering = hovering
                 }
             }
+            .backport.pointerStyle(.link)
     }
 
     private var foregroundOpacity: Double {

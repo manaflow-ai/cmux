@@ -58,6 +58,7 @@ struct CmuxTaskManagerView: View {
                 isOn: $model.includesProcesses
             )
             .toggleStyle(.checkbox)
+            .backport.pointerStyle(.link)
 
             Button {
                 model.refresh(force: true)

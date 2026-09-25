@@ -176,6 +176,7 @@ struct DockEmptyPaneView: View {
                 }
             }
             .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
             .controlSize(.small)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -210,6 +211,7 @@ private struct DockTrustView: View {
                 onTrust()
             }
             .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
             .controlSize(.small)
         }
         .padding(20)

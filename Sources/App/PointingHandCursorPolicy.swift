@@ -1,36 +1,36 @@
-import AppKit
+import SwiftUI
 
-/// Identifies native controls that should advertise clickability with the pointing-hand cursor.
+/// Keeps the cursor affordance tied to the semantic enabled state of a control.
 struct PointingHandCursorPolicy {
-    /// Returns whether an accessibility role represents a click target.
-    static func shouldUsePointingHand(
-        forRole role: NSAccessibility.Role?,
-        isEnabled: Bool
-    ) -> Bool {
-        guard isEnabled, let role else { return false }
-        return pointingHandRoleRawValues.contains(role.rawValue)
+    static func pointerStyle(
+        isEnabled: Bool,
+        requested: BackportPointerStyle?
+    ) -> BackportPointerStyle? {
+        isEnabled ? requested : .default
     }
+}
 
-    /// Returns whether a view or one of its ancestors is a native click target.
-    static func shouldUsePointingHand(for view: NSView) -> Bool {
-        var candidate: NSView? = view
-        while let current = candidate {
-            let isEnabled = (current as? NSControl)?.isEnabled ?? true
-            if shouldUsePointingHand(forRole: current.accessibilityRole(), isEnabled: isEnabled) {
-                return true
-            }
-            candidate = current.superview
-        }
-        return false
+/// Applies the pointing-hand cursor to the rendered body of a primitive button style.
+struct PointingHandPrimitiveButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        DefaultButtonStyle().makeBody(configuration: configuration)
+            .backport.pointerStyle(.link)
     }
+}
 
-    private static let pointingHandRoleRawValues: Set<String> = [
-        "AXButton",
-        "AXCheckBox",
-        "AXLink",
-        "AXMenuButton",
-        "AXPopUpButton",
-        "AXRadioButton",
-        "AXTab",
-    ]
+/// Applies the pointing-hand cursor to the default toggle style.
+struct PointingHandToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        DefaultToggleStyle().makeBody(configuration: configuration)
+            .backport.pointerStyle(.link)
+    }
+}
+
+extension View {
+    /// Applies pointing-hand cursors to controls that use SwiftUI's default
+    /// button and toggle styles while preserving disabled controls' arrow cursor.
+    func cmuxPointingHandButtons() -> some View {
+        buttonStyle(PointingHandPrimitiveButtonStyle())
+            .toggleStyle(PointingHandToggleStyle())
+    }
 }

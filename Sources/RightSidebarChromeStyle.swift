@@ -240,6 +240,7 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
             )
             .onHover { isHovering = $0 }
+            .backport.pointerStyle(.link)
     }
 
     private var foregroundOpacity: Double {

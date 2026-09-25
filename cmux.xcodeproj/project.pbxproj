@@ -2497,6 +2497,7 @@
 		8672F0068672F0068672F006 /* PiFeedV2CallResultBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672F0058672F0058672F005 /* PiFeedV2CallResultBox.swift */; };
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
 		C12758000000000000000008 /* PlainPastePTYFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12758000000000000000009 /* PlainPastePTYFixture.swift */; };
+		F70160010000000000000001 /* PointingHandCursorPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70160010000000000000002 /* PointingHandCursorPolicy.swift */; };
 		CD7A3246D7B5520B143D7A5C /* PointingHandCursorPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44BB70FB70635A4C30E45CEC /* PointingHandCursorPolicyTests.swift */; };
 		5B0C00010000000000000005 /* PortalDividerCursorOcclusionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */; };
 		B1D5CEE0407545B6B57E3B0E /* PortalHitTestingPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */; };
@@ -6514,6 +6515,7 @@
 		8672F0058672F0058672F005 /* PiFeedV2CallResultBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiFeedV2CallResultBox.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		C12758000000000000000009 /* PlainPastePTYFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlainPastePTYFixture.swift; sourceTree = "<group>"; };
+		F70160010000000000000002 /* PointingHandCursorPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/PointingHandCursorPolicy.swift; sourceTree = "<group>"; };
 		44BB70FB70635A4C30E45CEC /* PointingHandCursorPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "PointingHandCursorPolicyTests.swift"; sourceTree = "<group>"; };
 		5B0C00010000000000000006 /* PortalDividerCursorOcclusionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalDividerCursorOcclusionTests.swift; sourceTree = "<group>"; };
 		4335E241A33344C48361AD51 /* PortalHitTestingPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalHitTestingPerformanceTests.swift; sourceTree = "<group>"; };
@@ -9294,6 +9296,7 @@
 					C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */,
 					C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */,
 					2F0C07000000000000000001 /* CmuxMainWindow.swift */,
+					F70160010000000000000002 /* PointingHandCursorPolicy.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
 				A6D1F0200000000000000001 /* WindowCloseObserver.swift */,
 				A6D1F0300000000000000001 /* MainWindowVisibilityController+Lifecycle.swift */,
@@ -14359,6 +14362,7 @@
 				D1F0A0990000000000000001 /* PhoneReplyInboxClient.swift in Sources */,
 				D1F0A0990000000000000003 /* PhoneReplyInboxCoordinator.swift in Sources */,
 				B79500210000000000000001 /* PIDPresence.swift in Sources */,
+				F70160010000000000000001 /* PointingHandCursorPolicy.swift in Sources */,
 				D0C658660000000000000004 /* PortalSplitDividerCacheInvalidator.swift in Sources */,
 				D0C658660000000000000002 /* PortalSplitDividerRegion.swift in Sources */,
 				B79500310000000000000001 /* PortLsofScanResult.swift in Sources */,

@@ -197,6 +197,7 @@ struct MobilePairingView: View {
                 )
             }
             .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
         }
         .frame(maxWidth: .infinity, minHeight: 200)
     }
@@ -213,6 +214,7 @@ struct MobilePairingView: View {
                 Task { await model.refresh() }
             }
             .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
         }
         .frame(maxWidth: .infinity, minHeight: 200)
     }
@@ -313,6 +315,7 @@ struct MobilePairingView: View {
             Task { await model.refresh() }
         }
         .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
         .controlSize(.small)
     }
 
@@ -396,6 +399,7 @@ struct MobilePairingView: View {
             destination: Self.tailscaleDownloadURL
         )
         .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
         refreshButton
     }
 

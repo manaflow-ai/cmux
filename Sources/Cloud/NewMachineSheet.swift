@@ -119,6 +119,7 @@ struct NewMachineSheet: View {
                     }
                     .controlSize(.small)
                     .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                     .accessibilityIdentifier("NewMachineSheet.size.upgrade")
                 }
             }
@@ -186,6 +187,7 @@ struct NewMachineSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                 .accessibilityIdentifier("NewMachineSheet.cancel")
                 Button(createTitle) {
                     model.create()
@@ -193,6 +195,7 @@ struct NewMachineSheet: View {
                 .disabled(model.hasNoAllowedMemoryOptions)
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
+            .backport.pointerStyle(.link)
                 .accessibilityIdentifier("NewMachineSheet.create")
             }
         }
@@ -362,6 +365,7 @@ private struct NewMachinePickerVariationsPreview: View {
                             Image(systemName: "minus")
                         }
                         .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                         Text(selectedSize.menuTitle)
                         Button {
                             selectedMemoryMb = Self.sizes[min(selectedIndex + 1, Self.sizes.count - 1)].memoryMb
@@ -369,6 +373,7 @@ private struct NewMachinePickerVariationsPreview: View {
                             Image(systemName: "plus")
                         }
                         .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                     }
                 }
             }

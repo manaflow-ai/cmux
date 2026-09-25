@@ -136,6 +136,7 @@ struct MarkdownTypographyControl: View {
                 }
             }
             .buttonStyle(.link)
+            .backport.pointerStyle(.link)
         }
         .padding(14)
         .frame(width: 272)

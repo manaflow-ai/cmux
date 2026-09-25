@@ -3032,6 +3032,7 @@ private struct SidebarFooterOpticalBalanceStudy: View {
                 isOn: $showsCellGuides
             )
             .toggleStyle(.checkbox)
+            .backport.pointerStyle(.link)
             .cmuxFont(size: 11)
 
             Divider()

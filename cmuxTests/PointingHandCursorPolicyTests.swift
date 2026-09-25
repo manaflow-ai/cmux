@@ -1,4 +1,3 @@
-import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,28 +8,15 @@ import Testing
 
 @MainActor
 @Suite struct PointingHandCursorPolicyTests {
-    @Test func enabledButtonRoleUsesPointingHandCursor() {
-        #expect(PointingHandCursorPolicy.shouldUsePointingHand(forRole: .button, isEnabled: true))
+    @Test func enabledControlsUsePointingHandCursor() {
+        #expect(PointingHandCursorPolicy.pointerStyle(isEnabled: true, requested: .link) == .link)
     }
 
-    @Test func disabledButtonRoleKeepsTheArrowCursor() {
-        #expect(!PointingHandCursorPolicy.shouldUsePointingHand(forRole: .button, isEnabled: false))
+    @Test func disabledControlsKeepTheArrowCursor() {
+        #expect(PointingHandCursorPolicy.pointerStyle(isEnabled: false, requested: .link) == .default)
     }
 
-    @Test func textRoleKeepsTheArrowCursor() {
-        #expect(!PointingHandCursorPolicy.shouldUsePointingHand(forRole: .textField, isEnabled: true))
-    }
-
-    @Test func enabledButtonViewUsesPointingHandCursor() {
-        let button = NSButton(title: "", target: nil, action: nil)
-
-        #expect(PointingHandCursorPolicy.shouldUsePointingHand(for: button))
-    }
-
-    @Test func disabledButtonViewKeepsTheArrowCursor() {
-        let button = NSButton(title: "", target: nil, action: nil)
-        button.isEnabled = false
-
-        #expect(!PointingHandCursorPolicy.shouldUsePointingHand(for: button))
+    @Test func enabledControlsPreserveAnUnspecifiedCursorStyle() {
+        #expect(PointingHandCursorPolicy.pointerStyle(isEnabled: true, requested: nil) == nil)
     }
 }

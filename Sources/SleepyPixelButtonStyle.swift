@@ -22,6 +22,7 @@ struct SleepyPixelButtonStyle: ButtonStyle {
             .shadow(color: .black.opacity(0.5), radius: 0, x: 0, y: pressed ? 1 : 4)
             .offset(y: pressed ? 2 : 0)
             .contentShape(Rectangle())
+            .backport.pointerStyle(.link)
             .animation(.easeOut(duration: 0.08), value: pressed)
     }
 

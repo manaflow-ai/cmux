@@ -29,6 +29,7 @@ struct DockEmptyView: View {
                         )
                     }
                     .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                     .controlSize(.small)
                     .help(String(localized: "dock.empty.copyPrompt.help", defaultValue: "Copy a prompt you can paste into an AI coding agent"))
 
@@ -38,6 +39,7 @@ struct DockEmptyView: View {
                         Image(systemName: "info.circle")
                     }
                     .buttonStyle(.borderless)
+            .backport.pointerStyle(.link)
                     .controlSize(.small)
                     .accessibilityLabel(String(localized: "dock.empty.promptInfo", defaultValue: "Show Agent Prompt"))
                     .help(String(localized: "dock.empty.promptInfo.help", defaultValue: "Show the prompt that will be copied"))
@@ -55,6 +57,7 @@ struct DockEmptyView: View {
                     )
                 }
                 .buttonStyle(.bordered)
+            .backport.pointerStyle(.link)
                 .controlSize(.small)
                 .help(String(localized: "dock.empty.openDocs.help", defaultValue: "Open the Dock documentation"))
             }
