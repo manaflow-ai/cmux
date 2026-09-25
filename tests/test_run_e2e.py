@@ -1285,13 +1285,8 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         paths = checkout["with"]["sparse-checkout"].split()
         self.assertEqual(sorted(paths), ["scripts/ci/e2e_runner_pool.py", "scripts/ci/pr_runner_pool.py"])
         self.assertIs(checkout["with"]["persist-credentials"], False)
-        # No other job gained write access for this. owned-pool-watch only
-        # dispatches ci-owned-pool-rescue.yml and runs no repository code.
-        self.assertEqual(self.jobs["owned-pool-watch"]["permissions"], {"actions": "write"})
-        self.assertTrue(all("uses" not in step for step in self.jobs["owned-pool-watch"]["steps"]))
+        # No job gained write access for this: the rescue sweeper finds the run by its marker.
         for name, other in self.jobs.items():
-            if name == "owned-pool-watch":
-                continue
             for scope, level in (other.get("permissions") or {}).items():
                 with self.subTest(job=name, scope=scope):
                     self.assertEqual(level, "read")
