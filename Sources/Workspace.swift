@@ -349,6 +349,9 @@ extension Workspace {
         isMuted = snapshot.isMuted ?? false
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
+        // Restore status inputs as one snapshot so session startup cannot emit
+        // an inferred-done notification while panels are being rebuilt.
+        _ = taskStatusSignalOwner.reset()
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -370,13 +373,18 @@ extension Workspace {
         }
         progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
         let hasCloudProvenance = cloudVMBinding != nil || (snapshot.surfaceProjections ?? []).contains { !$0.resource.machine.isLocal }
-        gitBranch = hasCloudProvenance
+        sidebarMetadata.gitBranch = hasCloudProvenance
             ? nil
             : snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }
 
         recomputeListeningPorts()
 
         restoreCanvasState(from: snapshot, oldToNewPanelIds: oldToNewPanelIds)
+        taskStatusSignalOwner.restoreGitState(
+            workspaceBranch: sidebarMetadata.gitBranch,
+            panelBranches: panelGitBranches,
+            validPanelIds: Set(panels.keys)
+        )
 
         if let focusedOldPanelId = snapshot.focusedPanelId,
            let focusedNewPanelId = oldToNewPanelIds[focusedOldPanelId],
@@ -3071,7 +3079,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     var gitBranch: SidebarGitBranchState? {
         get { sidebarMetadata.gitBranch }
-        set { sidebarMetadata.gitBranch = newValue }
+        set {
+            sidebarMetadata.gitBranch = newValue
+            handleTaskStatusSignalTransition(taskStatusSignalOwner.setWorkspaceGitBranch(newValue))
+        }
     }
     var panelGitBranches: [UUID: SidebarGitBranchState] {
         get { sidebarMetadata.panelGitBranches }
@@ -3079,7 +3090,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     var pullRequest: SidebarPullRequestState? {
         get { sidebarMetadata.pullRequest }
-        set { sidebarMetadata.pullRequest = newValue }
+        set {
+            sidebarMetadata.pullRequest = newValue
+            handleTaskStatusSignalTransition(taskStatusSignalOwner.setWorkspacePullRequest(newValue))
+        }
     }
     var panelPullRequests: [UUID: SidebarPullRequestState] {
         get { sidebarMetadata.panelPullRequests }
@@ -3239,6 +3253,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let cloudBindingState = WorkspaceCloudBindingState()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
+    /// Owns authoritative live inputs for todo-status inference and publishes
+    /// duplicate-filtered transitions to panes and other consumers.
+    let taskStatusSignalOwner = WorkspaceTaskStatusSignalOwner()
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
@@ -6318,6 +6335,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return
         }
         let state = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+        let signalTransition = taskStatusSignalOwner.setPanelGitBranch(state, panelId: panelId)
         let existing = panelGitBranches[panelId]
         let branchChanged = existing?.branch != nil && existing?.branch != branch
         if existing?.branch != branch || existing?.isDirty != isDirty {
@@ -6334,9 +6352,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if panelId == focusedPanelId, gitBranch != state {
             gitBranch = state
         }
+        handleTaskStatusSignalTransition(signalTransition)
     }
 
     func clearPanelGitBranch(panelId: UUID) {
+        let signalTransition = taskStatusSignalOwner.setPanelGitBranch(nil, panelId: panelId)
         if panelGitBranches[panelId] != nil {
             panelGitBranches.removeValue(forKey: panelId)
         }
@@ -6351,6 +6371,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 pullRequest = nil
             }
         }
+        handleTaskStatusSignalTransition(signalTransition)
     }
 
     /// Applies sidebar pull-request state unless the panel belongs to a Cloud machine.
@@ -6394,22 +6415,26 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             branch: resolvedBranch,
             isStale: isStale
         )
+        let signalTransition = taskStatusSignalOwner.setPanelPullRequest(state, panelId: panelId)
         if existing != state {
             panelPullRequests[panelId] = state
         }
         if panelId == focusedPanelId, pullRequest != state {
             pullRequest = state
         }
+        handleTaskStatusSignalTransition(signalTransition)
     }
 
     /// Removes pull-request metadata for one panel.
     func clearPanelPullRequest(panelId: UUID) {
+        let signalTransition = taskStatusSignalOwner.setPanelPullRequest(nil, panelId: panelId)
         if panelPullRequests[panelId] != nil {
             panelPullRequests.removeValue(forKey: panelId)
         }
         if panelId == focusedPanelId, pullRequest != nil {
             pullRequest = nil
         }
+        handleTaskStatusSignalTransition(signalTransition)
     }
 
     /// Removes all sidebar pull-request metadata.
@@ -6417,8 +6442,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         if !panelPullRequests.isEmpty {
             panelPullRequests.removeAll()
         }
-        if pullRequest != nil {
-            pullRequest = nil
+        if sidebarMetadata.pullRequest != nil {
+            sidebarMetadata.pullRequest = nil
         }
     }
 
@@ -6428,8 +6453,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelGitBranches.removeAll()
         }
         clearSidebarPullRequestMetadata()
-        if gitBranch != nil {
-            gitBranch = nil
+        if sidebarMetadata.gitBranch != nil {
+            sidebarMetadata.gitBranch = nil
         }
     }
 
@@ -6459,6 +6484,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelGitBranches.removeAll()
         pullRequest = nil
         panelPullRequests.removeAll()
+        handleTaskStatusSignalTransition(taskStatusSignalOwner.reset())
         surfaceListeningPorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
@@ -6553,6 +6579,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             validSurfaceIds.contains($0.key)
         }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
+        handleTaskStatusSignalTransition(taskStatusSignalOwner.prunePanels(validPanelIds: validSurfaceIds))
         let staleAgentPIDPanelIds = agentPIDKeysByPanelId.keys.filter { !validSurfaceIds.contains($0) }
         var didClearStaleAgentRuntime = false
         for panelId in staleAgentPIDPanelIds {

@@ -50,6 +50,25 @@ extension Workspace {
         )
     }
 
+    /// Posts once when live signals enter the inferred done lane.
+    func postInferredDoneNotification() {
+        AppDelegate.shared?.notificationStore?.addNotification(
+            tabId: id,
+            surfaceId: nil,
+            title: String(
+                localized: "workspace.todo.notification.inferredDoneTitle",
+                defaultValue: "Workspace complete"
+            ),
+            subtitle: title,
+            body: String(
+                localized: "workspace.todo.notification.inferredDoneBody",
+                defaultValue: "All tracked pull requests are merged or closed."
+            ),
+            cooldownKey: "workspace-todo-inferred-done-\(id.uuidString)",
+            cooldownInterval: Self.todoNotificationCooldown
+        )
+    }
+
     /// Coalesce window so the same transition posted from two entry points in
     /// one tick delivers a single notification.
     private static let todoNotificationCooldown: TimeInterval = 3

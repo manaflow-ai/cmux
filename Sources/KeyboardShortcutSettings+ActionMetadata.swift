@@ -5,6 +5,7 @@ extension KeyboardShortcutSettings.Action {
         self != .fileExplorerOpenSelection
             && self != .fileExplorerOpenSelectionFinderAlias
             && self != .cycleTextBoxSubmitAction
+            && self != .toggleChecklistItemComplete
     }
 
     func displayedShortcutString(for shortcut: StoredShortcut) -> String {
