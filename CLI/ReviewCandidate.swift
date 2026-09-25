@@ -28,7 +28,7 @@ struct ReviewCandidate {
             return String(key[..<suffix])
         })
         let filterOverrides = filters.sorted().flatMap { filter in
-            ["-c", "\(filter).clean=", "-c", "\(filter).smudge=", "-c", "\(filter).process=", "-c", "\(filter).required=false"]
+            ["-c", "\(filter).clean=/usr/bin/cat", "-c", "\(filter).smudge=/usr/bin/cat", "-c", "\(filter).process=", "-c", "\(filter).required=false"]
         }
         _ = try Self.git(repository, filterOverrides + ["add", "--all", "--", "."], index: index)
         let tree = try Self.git(repository, ["write-tree"], index: index)
