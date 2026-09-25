@@ -12,12 +12,26 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `c5c31ce819`, the upstream Ghostty
-merge commit for PR #218 after the embedded-environment lifetime fix from PR
-#227 was merged. It preserves cmux's Cloud loopback link-detection changes
-while adding the localhost-port punctuation fix and owned POSIX environment
-snapshots for embedded hosts. This SHA is reachable from `manaflow-ai/ghostty`
-main and is the release target for cmux's GhosttyKit build workflow.
+### Cloud restore replay trailing rows
+
+- Commit: `a3e9304c5d19c8667f58a342830f774579c74472`
+- Summary: preserve trailing physical blank rows until the VT cursor/state
+  restoration footer when replay requests cursor restoration. Normal formatter
+  output and soft-wrap behavior are unchanged.
+- Verification: hosted Ghostty test workflow passed before the GhosttyKit build;
+  the cmux replay regression is `vt_replay_preserves_blank_tail_after_history`.
+- Artifact:
+  https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-a3e9304c5d19c8667f58a342830f774579c74472-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+
+The submodule pinned by this branch is `a3e9304c5d`, a cmux-only replay fix on
+top of `c5c31ce819`, the upstream Ghostty merge commit for PR #218 after the
+embedded-environment lifetime fix from PR #227 was merged. The replay fix
+preserves physical blank rows until cursor/state restoration completes, so a
+restored Cloud grid cannot regain stale history rows. The base SHA preserves
+cmux's Cloud loopback link-detection changes while adding the localhost-port
+punctuation fix and owned POSIX environment snapshots for embedded hosts.
 
 The previous pin `35ae29b7c2` is the merge of fork `main` at `3869e81a0` into the
 Cloud loopback link-detection branch (`46428d790`, bare localhost port links,
@@ -34,7 +48,7 @@ fork changes below, including tokened iOS render dispositions, VT formatter
 cursor restoration, VT stream-boundary visibility, and Hangul canonical font
 resolution.
 
-### Current feature pin
+### Base feature pin
 
 - Branch:
   - https://github.com/manaflow-ai/ghostty/tree/main (contains the Hangul fix
@@ -42,7 +56,8 @@ resolution.
     fork `main`, on the Cloud loopback link-detection branch)
 - Commit:
   - `c5c31ce819` (upstream merge of Ghostty #218 after #227; preserves Cloud
-    loopback behavior and is reachable from `manaflow-ai/ghostty:main`)
+    loopback behavior and is reachable from `manaflow-ai/ghostty:main`; the
+    current branch adds `a3e9304c5d` above it)
 - Summary:
   - Fixes localhost-port sentence punctuation and owns POSIX environment
     snapshots retained by embedded Ghostty, on top of the
