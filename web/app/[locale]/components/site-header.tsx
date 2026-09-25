@@ -44,6 +44,10 @@ export function SiteHeader({
                     width={24}
                     height={24}
                     className="rounded-md"
+                    // Keep this static logo out of /_next/image. Safari's
+                    // cache mishandles the optimizer's Vary: Accept response
+                    // (issue #5819), while the raw PNG is reliable.
+                    unoptimized
                   />
                   <span className="text-sm font-semibold tracking-tight">
                     cmux

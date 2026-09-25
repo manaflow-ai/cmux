@@ -106,6 +106,9 @@ function HomeContent() {
               width={48}
               height={48}
               className="rounded-xl"
+              // The static logo must bypass /_next/image because Safari's
+              // cache mishandles its Vary: Accept response (issue #5819).
+              unoptimized
             />
           </BrandLogoLink>
           <h1 className="text-2xl font-semibold tracking-tight">cmux</h1>

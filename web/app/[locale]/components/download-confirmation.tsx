@@ -55,8 +55,8 @@ export function DownloadConfirmation() {
             Chrome rendered it (issue #5819): WebKit's HTTP cache mishandles the
             optimizer's `Vary: Accept` responses (compounded by the `priority`
             preload and `?dpl=`-pinned URLs across deploys), surfacing the
-            broken-image glyph. The site header already serves /logo.png as a
-            plain <img> and renders fine in Safari — this matches it.
+            broken-image glyph. The site header also uses an unoptimized logo
+            and renders fine in Safari — this matches it.
             fetchPriority="high" preserves the above-the-fold load hint that
             `priority` provided. */}
         {/* oxlint-disable-next-line react-doctor/nextjs-no-img-element */}
