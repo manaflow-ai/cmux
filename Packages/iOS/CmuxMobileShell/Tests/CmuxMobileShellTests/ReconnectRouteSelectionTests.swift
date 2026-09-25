@@ -376,6 +376,7 @@ import Testing
         #expect(store.activeRoute?.id == "good")
         // The pool is keyed by exact build identity (#10179), and the scripted
         // host authenticates as tag "default", so read that pairing's entry.
+        #expect(store.activeMacInstanceTag == "default")
         let pooledKey = MacPairingKey(
             macDeviceID: "test-mac",
             instanceTag: store.activeMacInstanceTag
