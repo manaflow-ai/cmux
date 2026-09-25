@@ -27,7 +27,7 @@ jobs:
     # network-bound and needs no Blacksmith capacity.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # Only the Stack keys and the Slack webhook live here: no reviewers (a
+    # Only the Stack keys and the notify token live here: no reviewers (a
     # scheduled run cannot wait for approval), deployments from main only.
     environment: cloud-vm-canary
     defaults:
@@ -74,7 +74,13 @@ jobs:
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
-          SLACK_WEBHOOK_URL: ${{ secrets.CMUX_AUTOMATIONS_SLACK_WEBHOOK_URL }}
+          # The same notify-only token the iOS connectivity monitor uses; the
+          # Slack bot token stays in the cmux Internal Tools worker
+          # (cmuxterm-hq tools/testflight-slackbot, POST /api/notify).
+          CMUX_NOTIFY_TOKEN: ${{ secrets.CMUX_NOTIFY_TOKEN }}
+          CMUX_NOTIFY_URL: https://cmux-testflight-founders.debussy.workers.dev
+          # #cmux-automations
+          CMUX_NOTIFY_CHANNEL: C0BA32V49FD
           OUTCOME: ${{ steps.canary.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -93,8 +99,10 @@ jobs:
             echo "state unchanged ($previous -> $OUTCOME); no message"
             exit 0
           fi
-          if [ -z "${SLACK_WEBHOOK_URL:-}" ]; then
-            echo "::warning::CMUX_AUTOMATIONS_SLACK_WEBHOOK_URL is not set; not posting: $text"
-            exit 0
+          if [ -z "${CMUX_NOTIFY_TOKEN:-}" ]; then
+            echo "::error::CMUX_NOTIFY_TOKEN is not set; not posting: $text"
+            exit 1
           fi
-          jq -n --arg text "$text" '{text: $text}' | curl -fsS -X POST -H 'content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"
+          jq -n --arg text "$text" --arg channel "$CMUX_NOTIFY_CHANNEL" '{text: $text, sender: "cloud-vm-canary", channel: $channel}' |
+            curl -fsS -X POST -H "authorization: Bearer $CMUX_NOTIFY_TOKEN" -H 'content-type: application/json' \
+              --data @- "$CMUX_NOTIFY_URL/api/notify" | jq -e '.ok == true' >/dev/null
