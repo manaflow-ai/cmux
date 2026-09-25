@@ -168,20 +168,21 @@ struct CloudDesktopAccessTests {
         let local = try #require(state.nextURL())
         state.didCommit(url: local)
         state.didFinish(url: local)
-        state.desktopConnectionDidChange(url: URL(string: "http://127.0.0.1:46902/vnc.html")!, isConnected: false)
+        state.desktopConnectionDidChange(url: URL(string: "http://127.0.0.1:46902/vnc.html")!, state: .failed)
         #expect(!state.showsFailureAlert, "A stale listener cannot fail the new page")
-        state.desktopConnectionDidChange(url: local, isConnected: false)
-        #expect(state.showsFailureAlert && state.showsPage)
+        state.desktopConnectionDidChange(url: local, state: .failed)
+        #expect(state.showsFailureAlert)
+        #expect(!state.showsPage, "A desktop that cannot take input is not presented as a working page")
         state.dismissFailure()
-        state.desktopConnectionDidChange(url: local, isConnected: false)
+        state.desktopConnectionDidChange(url: local, state: .failed)
         #expect(!state.showsFailureAlert, "The same failure cannot reopen a dismissed modal")
         _ = browser.reload()
         #expect(await wait { model.isReady && starts == 2 })
         #expect(state.desktopFailure == nil && state.nextURL() == local)
         state.didCommit(url: local)
-        state.desktopConnectionDidChange(url: local, isConnected: false)
+        state.desktopConnectionDidChange(url: local, state: .failed)
         #expect(state.showsFailureAlert, "A failed explicit retry is a new attempt")
-        state.desktopConnectionDidChange(url: local, isConnected: true)
+        state.desktopConnectionDidChange(url: local, state: .connected)
         #expect(!state.showsFailureAlert)
         browser.hardReload()
         #expect(await wait { model.isReady && starts == 3 })
@@ -197,9 +198,9 @@ struct CloudDesktopAccessTests {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         defer { webView.stopLoading() }
         let url = URL(string: "http://127.0.0.1:46901/vnc.html")!
-        CloudDesktopConnectionObserver.install(on: webView) { reportedURL, isConnected in
+        CloudDesktopConnectionObserver.install(on: webView, documentIdentity: "status-bridge") { reportedURL, state, _ in
             #expect(reportedURL == url)
-            if isConnected { connected.resolve(true) } else { failed.resolve(true) }
+            if state.isConnected { connected.resolve(true) } else { failed.resolve(true) }
         }
         webView.loadHTMLString("""
             <!doctype html><html><body>

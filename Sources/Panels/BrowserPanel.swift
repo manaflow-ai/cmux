@@ -5429,7 +5429,7 @@ final class BrowserPanel: Panel, ObservableObject {
         var leaveCloudRouteAfterValidation = false
         if cloudAccess.model != nil && cloudAccess.owns(url) {
             if cloudAccess.model?.isReady != true { return nil }
-            prepareCloudBrowserNavigation()
+            prepareCloudBrowserNavigation(beginningDesktopDocument: true)
         } else if let provider = SurfaceCatalog.shared.machines.values.first(where: {
             $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]")) == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }),

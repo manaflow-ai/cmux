@@ -10,6 +10,11 @@ struct CloudBrowserRouting {
     /// Test the service through the same authenticated carrier the page will use.
     /// A healthy desktop needs no control-plane exec. This short-lived stream is
     /// closed after the headers; no listener or persistent connection is added.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     static func desktopIsReachable(
         endpoint: CloudBrowserProxyEndpoint,
         address: String,
@@ -31,7 +36,8 @@ struct CloudBrowserRouting {
                     try await connection.sendAll(Data("CONNECT \(authority) HTTP/1.1\r\nHost: \(authority)\r\nProxy-Authorization: Basic \(credential)\r\n\r\n".utf8))
                     guard try await responseStatus(connection) == 200 else { return false }
                     try await connection.sendAll(Data("HEAD /vnc.html HTTP/1.1\r\nHost: \(authority)\r\nConnection: close\r\n\r\n".utf8))
-                    return try await responseStatus(connection) == 200
+                    guard try await responseStatus(connection) == 200 else { return false }
+                    return try await webSocketIsReachable(endpoint: endpoint, authority: authority, timeout: timeout, clock: clock)
                 }
             } onCancel: {
                 connection.cancel()
@@ -39,6 +45,39 @@ struct CloudBrowserRouting {
         } catch {
             try Task.checkCancellation()
             return false
+        }
+    }
+
+    /// Probe the token-authenticated bridge used by noVNC, in addition to the
+    /// HTTP page. A carrier can serve `/vnc.html` while its WebSocket route or
+    /// token is stale; that is the failure mode that drops every pointer event.
+    private static func webSocketIsReachable(
+        endpoint: CloudBrowserProxyEndpoint,
+        authority: String,
+        timeout: Duration,
+        clock: any Clock<Duration>
+    ) async throws -> Bool {
+        guard let token = endpoint.websocketToken else { return true }
+        let connection = NWConnection(host: NWEndpoint.Host(endpoint.host), port: .init(rawValue: endpoint.port)!, using: .tcp)
+        defer { connection.cancel() }
+        let key = Data(UUID().uuidString.utf8).base64EncodedString()
+        let path = "/__cmux_ws__/\(authority)/websockify"
+        return try await withTaskCancellationHandler {
+            try await withDeadline(timeout, clock: clock) {
+                try await connection.startAndWaitUntilReady(queue: probeQueue)
+                try await connection.sendAll(Data((
+                    "GET \(path) HTTP/1.1\r\n" +
+                    "Host: \(authority)\r\n" +
+                    "Upgrade: websocket\r\n" +
+                    "Connection: Upgrade\r\n" +
+                    "Sec-WebSocket-Version: 13\r\n" +
+                    "Sec-WebSocket-Key: \(key)\r\n" +
+                    "Sec-WebSocket-Protocol: cmux-proxy-\(token)\r\n\r\n"
+                ).utf8))
+                return try await responseStatus(connection) == 101
+            }
+        } onCancel: {
+            connection.cancel()
         }
     }
 

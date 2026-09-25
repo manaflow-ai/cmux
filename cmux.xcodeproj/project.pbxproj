@@ -716,6 +716,7 @@
 		D25659386CE4EADF862B34DF /* CloudDesktopOpenActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52476C8E96AAA6928BA35B95 /* CloudDesktopOpenActionTests.swift */; };
 		CAE95580C578F1FB95314907 /* CloudDesktopOpenFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC9CBF6AD1163240A7A1E161 /* CloudDesktopOpenFixture.swift */; };
 		BC63CEC928E5FA0E49950A7C /* CloudDesktopOpenTestProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C09C35915CA32C6A8B13F0A0 /* CloudDesktopOpenTestProvider.swift */; };
+		6AD0E6D82DD406B9F956B1EE /* CloudDesktopRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3EAD867DD3B93855F257BD6 /* CloudDesktopRecoveryTests.swift */; };
 		9A1261600000000000000006 /* CloudDesktopWebSocketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A1261600000000000000005 /* CloudDesktopWebSocketTests.swift */; };
 		010CCC9F785F4023BAE36375 /* CloudDiagnosticFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAA7706F1C9AA61982A48AAA /* CloudDiagnosticFailure.swift */; };
 		E60073D256A0581591C1DC89 /* CloudDiagnosticReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2A67E6985DCC6DB34736D74 /* CloudDiagnosticReport.swift */; };
@@ -4977,6 +4978,7 @@
 		52476C8E96AAA6928BA35B95 /* CloudDesktopOpenActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDesktopOpenActionTests.swift"; sourceTree = "<group>"; };
 		AC9CBF6AD1163240A7A1E161 /* CloudDesktopOpenFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDesktopOpenFixture.swift"; sourceTree = "<group>"; };
 		C09C35915CA32C6A8B13F0A0 /* CloudDesktopOpenTestProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDesktopOpenTestProvider.swift"; sourceTree = "<group>"; };
+		D3EAD867DD3B93855F257BD6 /* CloudDesktopRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDesktopRecoveryTests.swift"; sourceTree = "<group>"; };
 		9A1261600000000000000005 /* CloudDesktopWebSocketTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDesktopWebSocketTests.swift"; sourceTree = "<group>"; };
 		FAA7706F1C9AA61982A48AAA /* CloudDiagnosticFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDiagnosticFailure.swift"; sourceTree = "<group>"; };
 		F2A67E6985DCC6DB34736D74 /* CloudDiagnosticReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudDiagnosticReport.swift"; sourceTree = "<group>"; };
@@ -12511,6 +12513,7 @@
 				A6D3896BB28B4549B3D33A82 /* CloudPortForwardAddressReuseTests.swift */,
 				9A1261600000000000000005 /* CloudDesktopWebSocketTests.swift */,
 				9A1261600000000000000003 /* CloudDesktopAccessTests.swift */,
+				D3EAD867DD3B93855F257BD6 /* CloudDesktopRecoveryTests.swift */,
 				6B7DF8AE123341DEBA066731 /* CloudDisplayCatalogTests.swift */,
 				A6D3896BB28B4549B3D33A83 /* CloudPortAccessLateCoordinatorTests.swift */,
 				C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */,
@@ -16508,6 +16511,7 @@
 				D25659386CE4EADF862B34DF /* CloudDesktopOpenActionTests.swift in Sources */,
 				CAE95580C578F1FB95314907 /* CloudDesktopOpenFixture.swift in Sources */,
 				BC63CEC928E5FA0E49950A7C /* CloudDesktopOpenTestProvider.swift in Sources */,
+				6AD0E6D82DD406B9F956B1EE /* CloudDesktopRecoveryTests.swift in Sources */,
 				9A1261600000000000000006 /* CloudDesktopWebSocketTests.swift in Sources */,
 				5910F6B0C9704B8DB8607318 /* CloudDirectoryLifecycleTests.swift in Sources */,
 				F3FAB983EE90414CAA90F970 /* CloudDirectoryTestFixture.swift in Sources */,

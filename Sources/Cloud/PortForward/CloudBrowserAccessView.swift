@@ -14,9 +14,12 @@ struct CloudBrowserAccessView<Content: View>: View {
             if let model = state.model {
                 Group {
                     if state.isDesktop && !state.showsPage && state.failureMessage == nil {
+                        // A viewer that lost its session keeps its last
+                        // framebuffer painted while dropping every click, so
+                        // say what is happening instead of showing that page.
                         CloudBrowserConnectionCard(
                             address: state.remoteURL?.absoluteString ?? "",
-                            message: nil,
+                            message: state.desktopStatusMessage,
                             onRetry: nil
                         )
                     } else if state.showsPage || state.failureMessage == nil {
@@ -39,7 +42,10 @@ struct CloudBrowserAccessView<Content: View>: View {
                         )
                     }
                 }
-                .task(id: model.phase) { navigateIfReady() }
+                .task(id: model.phase) {
+                    panel.cloudDesktopRouteDidChange()
+                    navigateIfReady()
+                }
                 .task(id: state.remoteURL) { navigateIfReady() }
             } else if let message = state.unavailable {
                 CloudBrowserConnectionCard(address: "", message: message, onRetry: nil)
