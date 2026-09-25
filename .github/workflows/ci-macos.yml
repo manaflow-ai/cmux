@@ -2738,6 +2738,7 @@ jobs:
             CmuxAgentChat
             CmuxAgentSessionStore
             CmuxAuthRuntime
+            CmuxWorkspacePresence
             CmuxIrohTransport
             CmuxIrxTransport
             CmuxHive
