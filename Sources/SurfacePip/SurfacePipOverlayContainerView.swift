@@ -121,7 +121,7 @@ final class SurfacePipOverlayContainerView: NSView {
             }
             return self
         }
-        return nil
+        return super.hitTest(point)
     }
 
     override func mouseDown(with event: NSEvent) {

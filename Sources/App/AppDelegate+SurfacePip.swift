@@ -59,6 +59,11 @@ extension AppDelegate {
         action: SurfacePipAction,
         tabManager routedTabManager: TabManager? = nil
     ) -> Result<SurfacePipActionState, SurfacePipActionError> {
+        if let panelId,
+           let routedTabManager,
+           !surfacePipController.panelBelongsToTabManager(panelId, tabManager: routedTabManager) {
+            return .failure(.surfaceNotFound)
+        }
         switch action {
         case .pop:
             let resolvedPanelId = panelId

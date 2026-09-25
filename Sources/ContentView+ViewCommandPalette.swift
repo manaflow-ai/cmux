@@ -113,10 +113,10 @@ extension ContentView {
             SleepyModeController.shared.activate()
         }
         registry.register(commandId: "palette.surfacePip.pop") {
-            _ = AppDelegate.shared?.performSurfacePipAction(panelId: nil, action: .pop)
+            _ = AppDelegate.shared?.performSurfacePipAction(panelId: nil, action: .pop, tabManager: tabManager)
         }
         registry.register(commandId: "palette.surfacePip.return") {
-            _ = AppDelegate.shared?.performSurfacePipAction(panelId: nil, action: .return)
+            _ = AppDelegate.shared?.performSurfacePipAction(panelId: nil, action: .return, tabManager: tabManager)
         }
     }
 }

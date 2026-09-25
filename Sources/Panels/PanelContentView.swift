@@ -61,7 +61,7 @@ struct PanelContentView: View {
                     paneId: paneId,
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
-                    portalPaneOwnershipResolver: terminalPaneOwnershipResolver,
+                    portalPaneOwnershipResolver: resolvedTerminalPaneOwnershipResolver,
                     portalPriority: portalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
@@ -233,6 +233,13 @@ struct PanelContentView: View {
             }
 
         }
+    }
+
+    private var resolvedTerminalPaneOwnershipResolver: (@MainActor () -> Bool)? {
+        guard let paneOwnershipOverride else {
+            return terminalPaneOwnershipResolver
+        }
+        return { @MainActor in paneOwnershipOverride }
     }
 
     @ViewBuilder

@@ -74,6 +74,16 @@ final class SurfacePipController {
         }
     }
 
+    func panelBelongsToTabManager(_ panelId: UUID, tabManager: TabManager) -> Bool {
+        if let record = recordsByPanelId[panelId] {
+            return workspace(id: record.homeWorkspaceId)?.tabManager === tabManager
+        }
+        guard let owner = appDelegate?.workspaceContainingPanel(panelId: panelId) else {
+            return false
+        }
+        return owner.tabManager === tabManager
+    }
+
     func canPopOut(panel: any Panel) -> Bool {
         guard !isInPip(panelId: panel.id) else { return false }
         switch panel.panelType {
@@ -176,7 +186,7 @@ final class SurfacePipController {
             panelId: panelId,
             hostingWindowId: host.windowId,
             window: host.window,
-            title: resolvedTitle(for: detached.panel),
+            title: resolvedTitle(for: detached),
             frame: frame,
             corner: lastCorner,
             contentView: hostView,
@@ -276,7 +286,16 @@ final class SurfacePipController {
         activePanelOrder.append(panelId)
     }
 
-    private func resolvedTitle(for panel: any Panel) -> String {
+    private func resolvedTitle(for detached: Workspace.DetachedSurfaceTransfer) -> String {
+        if let customTitle = detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !customTitle.isEmpty {
+            return customTitle
+        }
+        let transferredTitle = detached.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !transferredTitle.isEmpty {
+            return transferredTitle
+        }
+        let panel = detached.panel
         let title = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         if !title.isEmpty { return title }
         return String(localized: "surfacePip.window.titleFallback", defaultValue: "Picture in Picture")
@@ -290,7 +309,7 @@ final class SurfacePipController {
     private func nextFrame(in bounds: NSRect) -> NSRect {
         let size = lastFrame?.size ?? NSSize(width: 480, height: 320)
         let base = lastFrame ?? cornerFrame(corner: lastCorner, size: size, in: bounds)
-        let offset = CGFloat(recordsByPanelId.count) * 24
+        let offset = CGFloat(recordsByPanelId.count) * 32
         let direction = offsetDirection(for: lastCorner)
         return clampedFrame(
             base.offsetBy(dx: direction.width * offset, dy: direction.height * offset),

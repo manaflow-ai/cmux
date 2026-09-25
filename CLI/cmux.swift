@@ -9361,14 +9361,14 @@ struct CMUXCLI {
         let (actionArg, rem1) = parseOption(rem0, name: "--action")
         let (windowArg, rem2) = parseOption(rem1, name: "--window")
         if let unknown = rem2.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "surface pip: unknown flag '\(unknown)'")
+            throw CLIError(message: String(format: String(localized: "cli.surfacePip.error.unknownFlag", defaultValue: "surface pip: unknown flag '%@'"), unknown))
         }
         if let unexpected = rem2.first {
-            throw CLIError(message: "surface pip: unexpected argument '\(unexpected)'")
+            throw CLIError(message: String(format: String(localized: "cli.surfacePip.error.unexpectedArgument", defaultValue: "surface pip: unexpected argument '%@'"), unexpected))
         }
         let action = actionArg ?? "toggle"
         guard ["pop", "return", "toggle"].contains(action) else {
-            throw CLIError(message: #"surface pip --action must be "pop", "return", or "toggle""#)
+            throw CLIError(message: String(localized: "cli.surfacePip.error.action", defaultValue: #"surface pip --action must be "pop", "return", or "toggle""#))
         }
 
         var params: [String: Any] = ["action": action]
@@ -9379,13 +9379,18 @@ struct CMUXCLI {
         // routed PiP floater when no explicit surface context is supplied.
         let surfaceRaw = surfaceArg ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
         if surfaceArg != nil || surfaceRaw != nil {
+            let workspaceID = try normalizeWorkspaceHandle(
+                ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                client: client,
+                windowHandle: windowID
+            )
             guard let surfaceID = try normalizeSurfaceHandle(
                 surfaceRaw,
                 client: client,
-                workspaceHandle: nil,
+                workspaceHandle: workspaceID,
                 windowHandle: windowID
             ) else {
-                throw CLIError(message: "surface pip: invalid surface handle")
+                throw CLIError(message: String(localized: "cli.surfacePip.error.invalidSurface", defaultValue: "surface pip: invalid surface handle"))
             }
             params["surface_id"] = surfaceID
         }
@@ -9393,9 +9398,11 @@ struct CMUXCLI {
         let payload = try client.sendV2(method: "surface.pip", params: params)
         let formattedSurface = formatTabHandle(payload, idFormat: idFormat) ?? "surface"
         let inPip = (payload["in_picture_in_picture"] as? Bool) == true
-        let fallback = inPip
-            ? "Popped out \(formattedSurface) into Picture in Picture"
-            : "Returned \(formattedSurface) from Picture in Picture"
+        let fallbackKey = inPip ? "cli.surfacePip.result.popped" : "cli.surfacePip.result.returned"
+        let fallbackFormat = inPip
+            ? String(localized: fallbackKey, defaultValue: "Popped out %@ into Picture in Picture")
+            : String(localized: fallbackKey, defaultValue: "Returned %@ from Picture in Picture")
+        let fallback = String(format: fallbackFormat, formattedSurface)
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: fallback)
     }
 
