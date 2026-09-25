@@ -49,6 +49,9 @@
       <FileRef
          location = "group:CmuxTerminalPrediction">
       </FileRef>
+      <FileRef
+         location = "group:CmuxWorkspacePresence">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
