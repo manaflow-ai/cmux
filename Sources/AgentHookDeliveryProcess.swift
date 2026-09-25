@@ -50,7 +50,7 @@ struct AgentHookDeliveryProcess: Sendable {
     func deliver(_ event: AgentHookDeliveryEvent) async {
         guard let executableURL = executableURLProvider(),
               FileManager.default.isExecutableFile(atPath: executableURL.path) else {
-            logMessage("Bundled hook-delivery CLI is unavailable")
+            agentHookDeliveryProcessLogger.error("Bundled hook-delivery CLI is unavailable")
             return
         }
 
@@ -192,11 +192,15 @@ struct AgentHookDeliveryProcess: Sendable {
         case .exited(0), .cancelled, .deadline:
             return
         case .exited(let status):
-            logMessage("Hook delivery exited with status \(status)")
+            agentHookDeliveryProcessLogger.error("Hook delivery exited with status \(status)")
         case .inputFailure(let message):
-            logMessage("Could not stage hook input: \(message)")
+            agentHookDeliveryProcessLogger.error(
+                "Could not stage hook input: \(message, privacy: .private)"
+            )
         case .launchFailure(let message):
-            logMessage("Could not launch hook delivery: \(message)")
+            agentHookDeliveryProcessLogger.error(
+                "Could not launch hook delivery: \(message, privacy: .private)"
+            )
         }
     }
 
