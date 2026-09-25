@@ -9,7 +9,7 @@ import Foundation
 /// same comments.
 @MainActor
 final class DiffCommentStore {
-    static let shared = DiffCommentStore()
+    static let shared = DiffCommentStore(eventBus: .shared)
 
     private struct RepoCommentsFile: Codable {
         var repoRoot: String
@@ -17,10 +17,15 @@ final class DiffCommentStore {
     }
 
     private let directoryURL: URL?
+    private let eventBus: CmuxEventBus?
     private var cacheByRepoKey: [String: RepoCommentsFile] = [:]
 
-    init(directoryURL: URL? = DiffCommentStore.defaultDirectoryURL()) {
+    init(
+        directoryURL: URL? = DiffCommentStore.defaultDirectoryURL(),
+        eventBus: CmuxEventBus? = nil
+    ) {
         self.directoryURL = directoryURL
+        self.eventBus = eventBus
     }
 
     func comments(repoRoot: String) -> [DiffComment] {
@@ -31,13 +36,18 @@ final class DiffCommentStore {
     func upsert(_ comment: DiffComment, repoRoot: String) -> DiffComment {
         var file = loadFile(repoRoot: repoRoot)
         var stored = comment
+        let eventName: String
         if let index = file.comments.firstIndex(where: { $0.id == comment.id }) {
             stored.createdAt = file.comments[index].createdAt
+            guard stored != file.comments[index] else { return stored }
             file.comments[index] = stored
+            eventName = "comment.updated"
         } else {
             file.comments.append(stored)
+            eventName = "comment.created"
         }
         saveFile(file, repoRoot: repoRoot)
+        publishLifecycleEvent(eventName, comment: stored, repoRoot: file.repoRoot)
         return stored
     }
 
@@ -47,24 +57,52 @@ final class DiffCommentStore {
         guard !ids.isEmpty else { return }
         var file = loadFile(repoRoot: repoRoot)
         let idSet = Set(ids)
-        var changed = false
+        var consumedComments: [DiffComment] = []
         for index in file.comments.indices where idSet.contains(file.comments[index].id) {
+            guard file.comments[index].consumedAt == nil else { continue }
             file.comments[index].consumedAt = date
-            changed = true
+            consumedComments.append(file.comments[index])
         }
-        if changed {
+        if !consumedComments.isEmpty {
             saveFile(file, repoRoot: repoRoot)
+            for comment in consumedComments {
+                publishLifecycleEvent("comment.consumed", comment: comment, repoRoot: file.repoRoot)
+            }
         }
     }
 
     @discardableResult
     func delete(id: UUID, repoRoot: String) -> Bool {
         var file = loadFile(repoRoot: repoRoot)
-        let countBefore = file.comments.count
-        file.comments.removeAll { $0.id == id }
-        guard file.comments.count != countBefore else { return false }
+        guard let index = file.comments.firstIndex(where: { $0.id == id }) else { return false }
+        let comment = file.comments.remove(at: index)
         saveFile(file, repoRoot: repoRoot)
+        publishLifecycleEvent("comment.deleted", comment: comment, repoRoot: file.repoRoot)
         return true
+    }
+
+    private func publishLifecycleEvent(_ name: String, comment: DiffComment, repoRoot: String) {
+        guard let eventBus else { return }
+        var payload: [String: Any] = [
+            "repo_root": repoRoot,
+            "comment_id": comment.id.uuidString,
+            "file_path": comment.filePath,
+            "side": comment.side,
+            "start_line": comment.startLine,
+            "end_line": comment.endLine,
+            "message": NSNull(),
+            "message_length": comment.message.count,
+            "redacted_fields": ["message"]
+        ]
+        if let endSide = comment.endSide {
+            payload["end_side"] = endSide
+        }
+        eventBus.publish(
+            name: name,
+            category: "comment",
+            source: "diff-comments",
+            payload: payload
+        )
     }
 
     private func loadFile(repoRoot: String) -> RepoCommentsFile {

@@ -76820,121 +76820,121 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "الاستخدام: cmux comments <subcommand> [options]\n\nمراجعة التعليقات المحفوظة من عارض الفروق (diff viewer)، والمخزنة لكل مستودع git.\n\nالأوامر الفرعية:\n  list [--repo <path>] [--all] [--json]\n    إدراج تعليقات المراجعة لمستودع ما (الافتراضي: مستودع git\n    الذي يحتوي على الدليل الحالي). يدرج التعليقات المعلقة فقط؛\n    تتضمن --all التعليقات التي تم تسليمها بالفعل للوكيل عبر\n    إرسال TextBox."
+            "value": "الاستخدام: cmux comments <subcommand> [options]\n\nمراجعة التعليقات المحفوظة من عارض الفروق (diff viewer)، والمخزنة لكل مستودع git.\n\nالأوامر الفرعية:\n  list [--repo <path>] [--all] [--json]\n    إدراج تعليقات المراجعة لمستودع ما (الافتراضي: مستودع git\n    الذي يحتوي على الدليل الحالي). يدرج التعليقات المعلقة فقط؛\n    تتضمن --all التعليقات التي تم تسليمها بالفعل للوكيل عبر\n    إرسال TextBox.\n  export [--repo <path>] [--format json|markdown]\n    تصدير جميع تعليقات المراجعة بتنسيق JSON أو Markdown ثابت."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Upotreba: cmux comments <subcommand> [options]\n\nKomentari pregleda sačuvani iz diff prikaza, čuvaju se po git repozitoriju.\n\nPotkomande:\n  list [--repo <path>] [--all] [--json]\n    Ispisuje komentare pregleda za repozitorij (podrazumijevano: git\n    repozitorij koji sadrži trenutni direktorij). Ispisuje samo komentare\n    na čekanju; --all uključuje i one već predane agentu putem TextBox\n    slanja."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Brug: cmux comments <subcommand> [options]\n\nGennemgangskommentarer gemt fra diff-visningen, lagret pr. git-repository.\n\nUnderkommandoer:\n  list [--repo <path>] [--all] [--json]\n    Viser gennemgangskommentarerne for et repository (standard: det\n    git-repository der indeholder den aktuelle mappe). Viser kun\n    afventende kommentarer; --all medtager også dem der allerede er\n    leveret til en agent via en TextBox-indsendelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verwendung: cmux comments <subcommand> [options]\n\nIm Diff-Viewer gespeicherte Review-Kommentare, abgelegt pro Git-Repository.\n\nUnterbefehle:\n  list [--repo <path>] [--all] [--json]\n    Listet die Review-Kommentare eines Repositorys auf (Standard: das\n    Git-Repository des aktuellen Verzeichnisses). Zeigt nur offene\n    Kommentare; mit --all auch die, die per TextBox-Übermittlung schon an\n    einen Agenten übergeben wurden."
+            "value": "Verwendung: cmux comments <subcommand> [options]\n\nIm Diff-Viewer gespeicherte Review-Kommentare, abgelegt pro Git-Repository.\n\nUnterbefehle:\n  list [--repo <path>] [--all] [--json]\n    Listet die Review-Kommentare eines Repositorys auf (Standard: das\n    Git-Repository des aktuellen Verzeichnisses). Zeigt nur offene\n    Kommentare; mit --all auch die, die per TextBox-Übermittlung schon an\n    einen Agenten übergeben wurden.\n  export [--repo <path>] [--format json|markdown]\n    Exportiert alle Review-Kommentare in einem stabilen JSON- oder Markdown-Format."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission."
+            "value": "Usage: cmux comments <subcommand> [options]\n\nReview comments saved from the diff viewer, stored per git repository.\n\nSubcommands:\n  list [--repo <path>] [--all] [--json]\n    List review comments for a repository (default: the git repository\n    containing the current directory). Lists pending comments only;\n    --all includes comments already delivered to an agent through a\n    TextBox submission.\n  export [--repo <path>] [--format json|markdown]\n    Export all review comments in a stable JSON or Markdown format."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uso: cmux comments <subcommand> [options]\n\nComentarios de revisión guardados desde el visor de diferencias, almacenados por repositorio git.\n\nSubcomandos:\n  list [--repo <path>] [--all] [--json]\n    Lista los comentarios de revisión de un repositorio (por defecto: el\n    repositorio git que contiene el directorio actual). Muestra solo los\n    comentarios pendientes; --all incluye los ya entregados a un agente\n    mediante un envío de TextBox."
+            "value": "Uso: cmux comments <subcommand> [options]\n\nComentarios de revisión guardados desde el visor de diferencias, almacenados por repositorio git.\n\nSubcomandos:\n  list [--repo <path>] [--all] [--json]\n    Lista los comentarios de revisión de un repositorio (por defecto: el\n    repositorio git que contiene el directorio actual). Muestra solo los\n    comentarios pendientes; --all incluye los ya entregados a un agente\n    mediante un envío de TextBox.\n  export [--repo <path>] [--format json|markdown]\n    Exporta todos los comentarios en un formato JSON o Markdown estable."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilisation : cmux comments <subcommand> [options]\n\nCommentaires de revue enregistrés depuis la visionneuse de diff, stockés par dépôt git.\n\nSous-commandes :\n  list [--repo <path>] [--all] [--json]\n    Liste les commentaires de revue d'un dépôt (par défaut : le dépôt git\n    contenant le répertoire courant). N'affiche que les commentaires en\n    attente ; --all inclut aussi ceux déjà transmis à un agent via un\n    envoi TextBox."
+            "value": "Utilisation : cmux comments <subcommand> [options]\n\nCommentaires de revue enregistrés depuis la visionneuse de diff, stockés par dépôt git.\n\nSous-commandes :\n  list [--repo <path>] [--all] [--json]\n    Liste les commentaires de revue d'un dépôt (par défaut : le dépôt git\n    contenant le répertoire courant). N'affiche que les commentaires en\n    attente ; --all inclut aussi ceux déjà transmis à un agent via un\n    envoi TextBox.\n  export [--repo <path>] [--format json|markdown]\n    Exporte tous les commentaires dans un format JSON ou Markdown stable."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Uso: cmux comments <subcommand> [options]\n\nCommenti di revisione salvati dal visualizzatore di diff, memorizzati per repository git.\n\nSottocomandi:\n  list [--repo <path>] [--all] [--json]\n    Elenca i commenti di revisione di un repository (predefinito: il\n    repository git che contiene la directory corrente). Elenca solo i\n    commenti in sospeso; --all include anche quelli già consegnati a un\n    agente tramite un invio TextBox."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用方法: cmux comments <subcommand> [options]\n\ndiff ビューアから保存された、Git リポジトリごとに格納されているレビューコメント。\n\nサブコマンド:\n  list [--repo <path>] [--all] [--json]\n    リポジトリのレビューコメントを一覧表示します（デフォルト: 現在のディレクトリを\n    含む Git リポジトリ）。保留中のコメントのみを一覧表示します。\n    --all を指定すると、TextBox の送信を介してすでにエージェントに\n    配信されたコメントも含まれます。"
+            "value": "使用方法: cmux comments <subcommand> [options]\n\ndiff ビューアから保存された、Git リポジトリごとに格納されているレビューコメント。\n\nサブコマンド:\n  list [--repo <path>] [--all] [--json]\n    リポジトリのレビューコメントを一覧表示します（デフォルト: 現在のディレクトリを\n    含む Git リポジトリ）。保留中のコメントのみを一覧表示します。\n    --all を指定すると、TextBox の送信を介してすでにエージェントに\n    配信されたコメントも含まれます。\n  export [--repo <path>] [--format json|markdown]\n    すべてのレビューコメントを安定した JSON または Markdown 形式で書き出します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "របៀប​ប្រើ: cmux comments <subcommand> [options]\n\nមតិ​ត្រួតពិនិត្យ​ដែល​បាន​រក្សាទុក​ពី​កម្មវិធី​មើល diff ត្រូវ​បាន​ទុក​តាម​ឃ្លាំង git។\n\nអនុ​បញ្ជា:\n  list [--repo <path>] [--all] [--json]\n    បង្ហាញ​មតិ​ត្រួតពិនិត្យ​របស់​ឃ្លាំង (លំនាំដើម: ឃ្លាំង git ដែល​មាន\n    ថត​បច្ចុប្បន្ន)។ បង្ហាញ​តែ​មតិ​ដែល​រង់ចាំ; --all រួម​បញ្ចូល​មតិ​ដែល​បាន\n    ប្រគល់​ទៅ​ភ្នាក់ងារ​តាម​ការ​ផ្ញើ TextBox រួច​ហើយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용법: cmux comments <subcommand> [options]\n\ngit 저장소별로 저장된 diff 뷰어의 리뷰 의견(comments)을 검토합니다.\n\n하위 명령:\n  list [--repo <path>] [--all] [--json]\n    저장소의 리뷰 의견 목록을 표시합니다 (기본값: 현재 디렉토리를\n    포함하는 git 저장소). 보류 중인 의견만 나열하며,\n    --all은 이미 TextBox 제출을 통해 에이전트에 전달된\n    의견까지 포함합니다."
+            "value": "사용법: cmux comments <subcommand> [options]\n\ngit 저장소별로 저장된 diff 뷰어의 리뷰 의견(comments)을 검토합니다.\n\n하위 명령:\n  list [--repo <path>] [--all] [--json]\n    저장소의 리뷰 의견 목록을 표시합니다 (기본값: 현재 디렉토리를\n    포함하는 git 저장소). 보류 중인 의견만 나열하며,\n    --all은 이미 TextBox 제출을 통해 에이전트에 전달된\n    의견까지 포함합니다.\n  export [--repo <path>] [--format json|markdown]\n    모든 리뷰 의견을 안정적인 JSON 또는 Markdown 형식으로 내보냅니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Bruk: cmux comments <subcommand> [options]\n\nGjennomgangskommentarer lagret fra diff-visningen, lagret per git-repository.\n\nUnderkommandoer:\n  list [--repo <path>] [--all] [--json]\n    Lister gjennomgangskommentarene for et repository (standard:\n    git-repositoryet som inneholder gjeldende katalog). Lister bare\n    ventende kommentarer; --all tar også med dem som alt er levert til en\n    agent via en TextBox-sending."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Użycie: cmux comments <subcommand> [options]\n\nKomentarze przeglądu zapisane w podglądzie diff, przechowywane dla każdego repozytorium git.\n\nPodkomendy:\n  list [--repo <path>] [--all] [--json]\n    Wypisuje komentarze przeglądu repozytorium (domyślnie: repozytorium\n    git zawierające bieżący katalog). Pokazuje tylko oczekujące\n    komentarze; --all obejmuje także te już przekazane agentowi przez\n    wysłanie TextBox."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Uso: cmux comments <subcommand> [options]\n\nComentários de revisão salvos no visualizador de diff, armazenados por repositório git.\n\nSubcomandos:\n  list [--repo <path>] [--all] [--json]\n    Lista os comentários de revisão de um repositório (padrão: o\n    repositório git que contém o diretório atual). Lista apenas os\n    comentários pendentes; --all inclui os já entregues a um agente por\n    um envio do TextBox."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Использование: cmux comments <subcommand> [options]\n\nКомментарии ревью, сохранённые в просмотрщике diff, хранятся по git-репозиториям.\n\nПодкоманды:\n  list [--repo <path>] [--all] [--json]\n    Выводит комментарии ревью репозитория (по умолчанию — git-репозиторий\n    текущего каталога). Показывает только ожидающие комментарии; с --all\n    также те, что уже переданы агенту через отправку TextBox."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "วิธีใช้: cmux comments <subcommand> [options]\n\nคอมเมนต์รีวิวที่บันทึกจากตัวดูส่วนต่าง จัดเก็บแยกตามที่เก็บโค้ด git\n\nคำสั่งย่อย:\n  list [--repo <path>] [--all] [--json]\n    แสดงคอมเมนต์รีวิวของที่เก็บโค้ด (ค่าเริ่มต้น: ที่เก็บโค้ด git\n    ที่มีไดเรกทอรีปัจจุบันอยู่) โดยแสดงเฉพาะคอมเมนต์ที่รอดำเนินการ\n    ส่วน --all จะรวมคอมเมนต์ที่ส่งให้เอเจนต์ผ่าน TextBox แล้วด้วย"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Kullanım: cmux comments <subcommand> [options]\n\nDiff görüntüleyicide kaydedilen inceleme yorumları, git deposu başına saklanır.\n\nAlt komutlar:\n  list [--repo <path>] [--all] [--json]\n    Bir deponun inceleme yorumlarını listeler (varsayılan: geçerli\n    dizini içeren git deposu). Yalnızca bekleyen yorumları listeler;\n    --all bir TextBox gönderimiyle bir aracıya zaten teslim edilmiş\n    olanları da içerir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "Використання: cmux comments <subcommand> [options]\n\nКоментарі рецензування, збережені у переглядачі diff, зберігаються за git-репозиторіями.\n\nПідкоманди:\n  list [--repo <path>] [--all] [--json]\n    Виводить коментарі рецензування репозиторію (типово — git-репозиторій\n    поточного каталогу). Показує лише ті, що очікують; з --all також ті,\n    що вже передані агентові через надсилання TextBox."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法: cmux comments <subcommand> [options]\n\n审查保存在 Diff 查看器中的评论，按 git 仓库进行存储。\n\n子命令：\n  list [--repo <path>] [--all] [--json]\n    列出仓库的评审评论（默认：包含当前目录的 git\n    仓库）。仅列出待处理的评论；\n    --all 包含已通过 TextBox\n    提交交付给智能体的评论。"
+            "value": "用法: cmux comments <subcommand> [options]\n\n审查保存在 Diff 查看器中的评论，按 git 仓库进行存储。\n\n子命令：\n  list [--repo <path>] [--all] [--json]\n    列出仓库的评审评论（默认：包含当前目录的 git\n    仓库）。仅列出待处理的评论；\n    --all 包含已通过 TextBox\n    提交交付给智能体的评论。\n  export [--repo <path>] [--format json|markdown]\n    以稳定的 JSON 或 Markdown 格式导出所有评审评论。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "用法：cmux comments <subcommand> [options]\n\n審閱從 diff 檢視器儲存的註解，依 git 儲存庫儲存。\n\n子命令：\n  list [--repo <path>] [--all] [--json]\n    列出儲存庫的審閱註解 (預設值：包含\n    目前目錄的 git 儲存庫)。僅列出待處理的註解；\n    --all 包含已透過 TextBox 提交\n    傳送給代理的註解。"
+            "value": "用法：cmux comments <subcommand> [options]\n\n審閱從 diff 檢視器儲存的註解，依 git 儲存庫儲存。\n\n子命令：\n  list [--repo <path>] [--all] [--json]\n    列出儲存庫的審閱註解 (預設值：包含\n    目前目錄的 git 儲存庫)。僅列出待處理的註解；\n    --all 包含已透過 TextBox 提交\n    傳送給代理的註解。\n  export [--repo <path>] [--format json|markdown]\n    以穩定的 JSON 或 Markdown 格式匯出所有審閱註解。"
           }
         }
       }
@@ -556656,6 +556656,124 @@
                 }
             }
         }
+    },
+    "cli.comments.error.invalidFormat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported comments export format '%@'. Use json or markdown."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht unterstütztes Exportformat für Kommentare '%@'. Verwende json oder markdown."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Format d'exportation des commentaires non pris en charge : '%@'. Utilisez json ou markdown."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنسيق تصدير التعليقات غير مدعوم '%@'. استخدم json أو markdown."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formato de exportación de comentarios no compatible: '%@'. Usa json o markdown."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支援的註解匯出格式「%@」。請使用 json 或 markdown。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不支持的评论导出格式“%@”。请使用 json 或 markdown。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원되지 않는 댓글 내보내기 형식 '%@'입니다. json 또는 markdown을 사용하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コメントのエクスポート形式「%@」はサポートされていません。json または markdown を使用してください。"
+          }
+        }
+      }
+    },
+    "cli.comments.export.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unexpected argument '%@' for cmux comments export. Supported: --repo <path>, --format json|markdown"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unerwartetes Argument '%@' für cmux comments export. Unterstützt: --repo <path>, --format json|markdown"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argument inattendu '%@' pour cmux comments export. Options prises en charge : --repo <path>, --format json|markdown"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وسيطة غير متوقعة '%@' في cmux comments export. المدعوم: --repo <path> و--format json|markdown"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Argumento inesperado '%@' en cmux comments export. Admitidos: --repo <path>, --format json|markdown"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments export 收到未預期的參數「%@」。支援：--repo <path>、--format json|markdown"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments export 收到意外参数“%@”。支持：--repo <path>、--format json|markdown"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments export에 예상치 못한 인자 '%@'입니다. 사용 가능: --repo <path>, --format json|markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux comments export に予期しない引数「%@」が指定されました。使用できるのは --repo <path>、--format json|markdown です"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -113,7 +113,7 @@ Environment:
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
 | `workspace` | Namespace for workspace verbs: `list`, `create`, `env`, `close`, `rename`, `select`, `status`, `reconnect`, `disconnect`, `group`. `workspace status` prints the workspace's todo lifecycle status (effective, inferred, override); `workspace status set <todo\|working\|needs-attention\|review\|done\|auto>` pins a manual lane (`auto` clears it; a pinned lane auto-clears once the inferred lane changes). `workspace env` prints a workspace's configured environment variables (see [Workspace environment variables](#workspace-environment-variables)); pass `--mask` to redact the values. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. `env`, `reconnect`, and `disconnect` accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
 | `todo` | Per-workspace checklist namespace: `add "text" [--state <pending\|in-progress\|completed>] [--origin <user\|agent>]`, `list`, `check <index\|id>`, `uncheck <index\|id>`, `start <index\|id>` (in-progress), `edit <index\|id> "text"`, `rm <index\|id>`, `clear`, `set ['<json>']` (atomic replace from a JSON item array, inline or piped on stdin), `open` (open or focus the workspace's todo pane). Targets the caller's workspace by default with `--workspace <id\|ref\|index>` override; `<index>` is the 1-based number printed by `todo list`. Items cap at 50 per workspace. See [Workspace todos](#workspace-todos). |
-| `comments` | Diff review comments namespace: `list` (alias `ls`) `[--repo <path>] [--all] [--json]` — read-only listing of review comments saved from the diff viewer for one git repository (default: the repository containing the current directory). Pending comments only by default; `--all` includes comments already delivered to an agent through a TextBox submission. Backed by the socket v2 method `comments.list`. |
+| `comments` | Diff review comments namespace: `list` (alias `ls`) `[--repo <path>] [--all] [--json]` lists pending comments from one git repository; `--all` includes consumed comments. `export [--repo <path>] [--format json\|markdown]` exports all comments (JSON by default). Both use the socket v2 method `comments.list`; the default repository is the one containing the current directory. |
 | `review` | Read local adversarial-review receipts from the repository Git metadata without connecting to the cmux socket. `list` enumerates runs newest first; `show [<id\|latest>]` prints one receipt; `findings [<id\|latest>] [--all]` prints surfaced findings and hides refuted/suppressed findings by default. All subcommands accept `--repo <path>` and `--json`. |
 | `vault` | Vault session-index namespace: `sessions [--agent <id>] [--folder <path>] [--limit <n>]` lists indexed agent sessions newest first; `search <query>` searches them with `agent:`/`repo:`/`ws:`/`before:`/`after:` operators; `checkpoints --agent <id> --session <id>` lists a session's checkpoint timeline (derived turn checkpoints + manual ones); `checkpoint … [--name <text>]` creates a manual checkpoint (capturing the workspace git HEAD when available); `fork … (--checkpoint <id> \| --turn <n>) [--open]` forks a new session from a checkpoint and prints the new session id (plus its resume command when one is available) (`--open` also opens it in a new workspace). Backed by the socket v2 methods `vault.sessions`, `vault.search`, `vault.checkpoints`, `vault.checkpoint`, and `vault.fork`; all support `--json`. |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
@@ -685,6 +685,22 @@ Config subcommands:
 such as `$.app.appearance`) and a localized `message` string. `issues` is absent
 when there are none.
 
+Comment exports:
+
+`cmux comments export` and `cmux comments list --all --json` return the same JSON
+object: `repo_root` (canonical repository path), `count`, and `comments` in saved
+order. Each comment has `id`, `filePath`, `side`, `startLine`, `endLine`,
+`lineText`, `message`, `submissionText`, `createdAt`, and `updatedAt`.
+`endSide` and `consumedAt` are omitted when absent. Dates use ISO 8601 UTC.
+Reading or exporting does not consume comments. Consumption records TextBox
+delivery or dismissal, not proof that the agent addressed the comment.
+
+`--format markdown` writes a level-three heading for each file/range and state,
+a `cmux-comment` HTML comment containing the UUID, a fenced anchor snapshot,
+and a block-quoted message. An empty repository produces an empty Markdown
+document. `--format` takes precedence over the global `--json` presentation flag.
+Use JSON for parsing; Markdown state labels follow the app's language.
+
 Events command:
 
 | Option | Contract |
@@ -834,6 +850,7 @@ the expected text without connecting to a cmux socket.
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude|agent> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux comments --help` -> `Usage: cmux comments <subcommand> [options]`
+- `cmux comments export --help` -> `export [--repo <path>] [--format json|markdown]`
 - `cmux review --help` -> `Usage: cmux review <subcommand> [options]`
 - `cmux vault --help` -> `Usage: cmux vault <subcommand> [options]`
 - `cmux help --help` -> `Usage: cmux help`
