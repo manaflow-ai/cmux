@@ -29,8 +29,9 @@ final class CloudTreeCellView: NSTableCellView {
     private var buttonsTopConstraint: NSLayoutConstraint?
     private var buttonsCenterConstraint: NSLayoutConstraint?
     private var hovered = false {
-        didSet { buttonsHost?.alphaValue = hovered ? 1 : 0 }
+        didSet { buttonsHost?.alphaValue = hovered || keepsControlsVisible ? 1 : 0 }
     }
+    private var keepsControlsVisible = false
 
     override convenience init(frame frameRect: NSRect) {
         self.init(frame: frameRect, collaborators: { machine, workspaceID in
@@ -146,11 +147,13 @@ final class CloudTreeCellView: NSTableCellView {
         // than the last fitting size, so ask AppKit to re-measure the host.
         displayHost.invalidateIntrinsicContentSize()
         needsLayout = true
+        if case .devicesSection = node.kind { keepsControlsVisible = true }
+        else { keepsControlsVisible = false }
         if CloudTreeRowHoverButtons.hasButtons(for: node.kind) {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
             buttons.rootView = AnyView(CloudTreeRowHoverButtons(kind: node.kind, machineActions: machineActions, nodeActions: nodeActions))
             buttons.isHidden = false
-            buttons.alphaValue = hovered ? 1 : 0
+            buttons.alphaValue = hovered || keepsControlsVisible ? 1 : 0
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
             buttonsTrailingConstraint?.constant = -style.rowGrid.trailingPadding
             buttonsLeadingConstraint?.isActive = true

@@ -1129,6 +1129,19 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         label, calls, _ = self.decide(queue(), variable=OLD)
         self.assertEqual((label, calls), (OLD, []))
 
+    def test_a_tart_request_runs_as_auto_while_the_tart_fleet_is_off(self):
+        # 2026-09-25: every Tart VM was offline and tart-small jobs queued for hours.
+        for fleet in ("", "0"):
+            with self.subTest(fleet=fleet):
+                client = FakeActions(queue())
+                label = self.pool.resolve(
+                    "tart-small", "", overflow="", order="", max_queued="",
+                    measure=lambda: self.pool.measure_load(client, now=NOW), now=NOW, tart_fleet=fleet)
+                self.assertEqual(label, self.decide(queue())[0])
+        label = self.pool.resolve("tart-small", "", overflow="", order="", max_queued="",
+                                  measure=lambda: None, now=NOW, tart_fleet="1")
+        self.assertEqual(label, "tart-small")
+
     def test_the_commit_does_not_decide(self):
         for commit in self.COMMITS:
             with self.subTest(commit=commit):
@@ -1222,7 +1235,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         return next(step for step in steps if "e2e_runner_pool.py" in step.get("run", ""))
 
     def run_pool_step(self, *, requested="auto", variable="", overflow="", order="",
-                      max_queued=""):
+                      max_queued="", tart_fleet=""):
         """Run the workflow's own step script with the values GitHub would pass.
 
         No token reaches it, so a decision that reads the queue fails safe.
@@ -1242,6 +1255,7 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
             "${{ vars.CMUX_CI_XCODE_APP_PR }}": "/Applications/Xcode_26.6.app",
             "${{ inputs.test_filter }}": "cmuxTests/ExampleTests",
             "${{ vars.CI_E2E_OWNED_UI }}": "",
+            "${{ vars.CI_TART_FLEET }}": tart_fleet,
         }
         for name, expression in step["env"].items():
             self.assertIn(expression, values, f"unexpected input {name}: {expression}")
@@ -1262,7 +1276,11 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         self.assertIn("could not read the runner queue", stderr)
         self.assertEqual(self.run_pool_step(overflow="0")[0], SMALL)
         self.assertEqual(self.run_pool_step(order=OLD)[0], SMALL)
-        self.assertEqual(self.run_pool_step(requested="tart-small")[0], "tart-small")
+        # The Tart VMs are off unless vars.CI_TART_FLEET is 1: a tart pick runs as auto.
+        label, stderr = self.run_pool_step(requested="tart-small")
+        self.assertEqual(label, SMALL)
+        self.assertIn("CI_TART_FLEET is not 1", stderr)
+        self.assertEqual(self.run_pool_step(requested="tart-small", tart_fleet="1")[0], "tart-small")
         self.assertEqual(self.run_pool_step(requested=LARGE)[0], LARGE)
         self.assertEqual(self.run_pool_step(requested=MINI)[0], MINI)
         self.assertEqual(self.run_pool_step(variable="blacksmith-6vcpu-macos-15")[0],
@@ -1285,8 +1303,13 @@ class WorkflowRunnerPoolTests(unittest.TestCase):
         paths = checkout["with"]["sparse-checkout"].split()
         self.assertEqual(sorted(paths), ["scripts/ci/e2e_runner_pool.py", "scripts/ci/pr_runner_pool.py"])
         self.assertIs(checkout["with"]["persist-credentials"], False)
-        # No other job gained write access for this.
+        # No other job gained write access for this. owned-pool-watch only
+        # dispatches ci-owned-pool-rescue.yml and runs no repository code.
+        self.assertEqual(self.jobs["owned-pool-watch"]["permissions"], {"actions": "write"})
+        self.assertTrue(all("uses" not in step for step in self.jobs["owned-pool-watch"]["steps"]))
         for name, other in self.jobs.items():
+            if name == "owned-pool-watch":
+                continue
             for scope, level in (other.get("permissions") or {}).items():
                 with self.subTest(job=name, scope=scope):
                     self.assertEqual(level, "read")

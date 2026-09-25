@@ -130,9 +130,14 @@ job picks one pool for the whole pull request run with
 reads it: compile admission and its product consumers, `tests-build-and-lag`,
 `claude-wrapper` and `remote-daemon.yml`. A run is
 never split across pools, so the app-host product always meets the Xcode that
-linked it. The run takes the first pool in `CI_PR_POOL_ORDER` that has a
-machine free for it and no queued release or nightly job, so a full pool
-rolls over to the next one every time, the macOS 15 pool included. A pool's
+linked it. The run takes the pool in `CI_PR_POOL_ORDER` with the least
+expected wait and no queued release or nightly job: the queue its job joins
+in rounds (queued jobs over capacity) times a job's length there (5 minutes
+on 12vcpu, 10 elsewhere). Owned pools come first and take the run while its
+jobs start there no later than on the best Blacksmith pool, within
+`CI_PR_POOL_QUEUE_ROUNDS` job lengths, and while everything the runs holding
+the pool will need at their peak, plus this run's, stays within machines x
+(1 + rounds). A pool's
 capacity is what it ran at most while jobs queued behind it
 (`POOL_CAPACITIES`): 5 for 12vcpu, 10 for each 6vcpu pool. At 23:16Z on
 2026-09-24, counted at 10, 12vcpu ran 3 with 18 queued while macOS 15 ran 1
@@ -145,7 +150,8 @@ run there compiles cold, 10 to 20 minutes longer, about one job's length.
 | --- | --- | --- |
 | `CI_PR_POOL_OVERFLOW` | unset (on) | `0` turns the preference off; every job takes its `MACOS_RUNNER_PR` route |
 | `CI_PR_POOL_ORDER` | `blacksmith-12vcpu-macos-26,blacksmith-6vcpu-macos-26,blacksmith-6vcpu-macos-15` | preference order; only pools whose Xcode pin `pr_runner_pool.py` knows are accepted, and an unknown label turns the preference off |
-| `CI_PR_POOL_MAX_QUEUED` | `0` | a pool still takes a run with up to this many macOS jobs queued once it arrives; `0` rolls over as soon as a pool is full |
+| `CI_PR_POOL_MAX_QUEUED` | `0` | with `CI_PR_POOL_QUEUE_ROUNDS=0` only: a Blacksmith pool still takes a run with up to this many macOS jobs queued once it arrives |
+| `CI_PR_POOL_QUEUE_ROUNDS` | `1` | the most job lengths a run's jobs may expect to wait on an owned pool (at most `3`); within that they queue there while they would start no later than on Blacksmith, and the peaks of the runs holding it stay within machines x (1 + rounds). `0` is the kill switch and restores the old rule exactly: an owned pool only when the run's peak is free counting every run's peak, and a full Blacksmith pool rolls over at once |
 
 The two macOS 26 pools share the lane's Xcode. A run on
 `blacksmith-6vcpu-macos-15` builds with `CMUX_CI_XCODE_APP_MACOS_15`, the pool
@@ -183,19 +189,20 @@ Xcode on it. With `CI_PR_POOL_OWNED=1` the default order is
 `CI_OWNED_POOL_SLOTS`, and the janitor's snapshot counts the jobs queued and
 running on that label. A pull request run puts several macOS jobs on its pool
 at once, each on its own machine, so a run takes the owned pool only when its
-own peak is free at once. The picker runs after the suite choice and counts
+own peak fits there by the expected wait above. The picker runs after the suite choice and counts
 that peak from the run's routing: the Claude wrapper and remote daemon lanes,
 beside the larger of compile admission alone or what follows it (a full
 suite's seven app-host shards, tests-build-and-lag and cli-product-tests, 11
 jobs in all; a changed-suites run's one shard; a CLI
-change's cli-product-tests). Taken is the larger of the jobs the janitor
-saw on the pool and `committed`, the peaks the runs holding it declared, so a
-run whose later jobs do not exist yet still counts them. A run created since
-the snapshot has an unknown peak: any that could have taken the pool is
-assumed to, and charged 3 machines, a compile-only run with every side lane,
-which is what the default pull request policy runs. A full-suite run among
-them is under-counted until the next snapshot; a job that then finds its
-mini busy is refused or queued, and the rescue below moves it to Blacksmith.
+change's cli-product-tests). The wait counts the jobs the janitor saw queued
+and running there, and each run created since the snapshot at what it holds:
+admission and its side lanes while it is younger than a job length (10
+minutes), its whole marker peak after, when its shards exist. A run still
+picking counts 3 machines. So an idle mini is never held for a shard that
+does not exist yet; the shard joins the label's queue when it does, and
+GitHub hands out runners in queue order. The peaks (the janitor's `committed`
+and the markers) bound the queue. With `CI_PR_POOL_QUEUE_ROUNDS=0` every
+run counts its whole peak against the machines, as before.
 It is skipped when the snapshot is older than 20
 minutes or the label has no slots, and it is never the fewest-queued fallback.
 Fork runs and retry attempts never take it. While `CI_PR_POOL_OWNED` is off,
@@ -209,8 +216,28 @@ names no owned pool.
 | --- | --- | --- |
 | `CI_PR_POOL_OWNED` | unset (off) | `1` puts owned pools first and turns on the rescue below |
 | `CI_OWNED_POOL_SLOTS` | unset (no slots) | JSON, owned pool label to machine count, the `conforming_count` from `glaeda-mini-fleet pools --json`: `{"glaeda-std-xcode-26.6": 12, "glaeda-light-xcode-26.6": 2}`. A class (`{"std": 12, "light": 2}`) or a bare count (`12`, the std class) means that class at the lane's Xcode pin |
-| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online, idle runners carrying an owned label are that pool's free machines, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces `CI_OWNED_POOL_SLOTS` and the snapshot's owned counts and age. Any failure falls back to them |
+| `CI_OWNED_MAIN_RESERVE` | `0` | machines, and root runners, main's full-suite dispatch leaves free for pull requests; above 0 it takes an owned pool only whole (below) |
+| `GLAEDA_ROUTE_APP_ID` + secret `GLAEDA_ROUTE_APP_KEY` | unset (snapshot only) | the org's `manaflow-glaeda-route` App. `ci.yml`'s `changes` job mints a token with `administration: read` for same-repository pull requests and main's full-suite dispatch only, on its ephemeral Linux runner, and the picker lists the repository's runners: the online, idle runners carrying an owned label are that pool's free machines, less what runs of the last `LIVE_WINDOW_MINUTES` took. That replaces `CI_OWNED_POOL_SLOTS` and the snapshot's owned counts and age. Any failure falls back to them |
 | `CI_OWNED_LIGHT_RETRY` | unset (off) | `1` lets attempt 2, the full re-run the rescue starts for a job stuck on a full `std` pool, take the `light` pool when the run's whole owned peak is free there and `github-actions[bot]` started the re-run (a person's re-run of attempt 2 stays on Blacksmith). The rescue watches that attempt like attempt 1, and a job stuck or refused there goes to Blacksmith on attempt 3. Only while it is on do the janitor and the picker look up attempt 2's marker. Order: std, light, Blacksmith |
+
+Main's full suite: `ci-main-full-suite.yml` dispatches `ci.yml` on main about
+32 times a day, each a full suite. Until this change every one ran compile
+admission and the seven app-host shards on Blacksmith (p50 wall about 37
+minutes; admission 887 s on 6vcpu against 663 s on a mini with a 2 s queue).
+The dispatch runs main's own code, so the picker places it like a
+same-repository pull request, split and the `CI_PR_POOL_QUEUE_ROUNDS` queue
+allowance included, on the owned pools only: jobs that do not fit keep
+`MACOS_RUNNER_PR` as before. Its run holds 9 root runners
+at peak (admission's, then 7 shards, tests-build-and-lag and cli-product-tests);
+the Claude wrapper and remote daemon lanes route only for pull requests, so they
+are not counted. `CI_OWNED_MAIN_RESERVE` above 0 holds that many machines and
+root runners back for pull requests, and then main takes the pool only whole
+and only while its peak is free now, with no queue allowance. Main's CI concurrency group
+runs one dispatch at a time, so main never holds more than one run's machines.
+Its marker, the janitor's `committed` count, the route replay in newer picks,
+the owned Mac's kept build state and the rescue all treat it like a
+same-repository pull request run. A retry attempt, a dispatch on another
+branch, or `CI_PR_POOL_OWNED` off keeps its route.
 
 Each entry of `CI_OWNED_POOL_SLOTS` that is not an owned label or class with a
 positive whole number of machines counts as none. A full label wins over its
@@ -252,11 +279,19 @@ re-routes a queued job: one queued there waits for that pool however long it
 stays busy. An offline mini still counts as a slot, and the snapshot can be
 minutes old. When the picker chooses a persistent pool, `changes`
 uploads a `macos-pool-persistent-<run>-<attempt>-<jobs>-<pool>` marker (the
-janitor reads the run's peak and pool from its name), and
-`ci-owned-pool-rescue.yml` (from `main`, with Actions write) watches that run.
+janitor reads the run's peak and pool from its name), and the
+`owned-pool-watch` job dispatches `ci-owned-pool-rescue.yml` (from `main`, with
+Actions write) to watch that run. A run on an ephemeral pool starts no watcher.
 If one of its jobs waits for a persistent runner longer than
-`CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600), the watcher confirms the
-pull request head has not moved, cancels the run, and re-runs it. A retry
+`CI_OWNED_POOL_RESCUE_SECONDS` (default 90, 30 to 600) past the wait a CI
+run's owned job may expect (900 seconds per `CI_PR_POOL_QUEUE_ROUNDS` round,
+since any of its jobs may queue behind runs accepted later), the watcher
+confirms the
+pull request head has not moved, cancels the run, and re-runs it. For main's
+full-suite dispatch it checks main's HEAD instead: once main has moved past
+the run's commit, the run is cancelled but not re-run, because its completion
+makes `ci-main-full-suite.yml` dispatch the newer HEAD; a refused job on
+main's run gets its failed jobs re-run whether or not main moved. A retry
 attempt never takes a persistent pool, so the re-run lands on Blacksmith as a
 whole, and so does a manual "Re-run all jobs".
 
@@ -302,8 +337,8 @@ minutes on the ephemeral flow instead (run 36048804178). Any mismatch or miss
 falls back to that flow, and a DerivedData over 40 GB is dropped. Only a
 successful compile's DerivedData is kept, cloned right after the compile,
 before the staging and packaging steps rewrite Build/Products. Only pull
-request runs keep or read this state, so main's full-suite dispatch never
-builds on it. Moves are renames on one volume, glaeda's host lock keeps one job
+request runs and main's full-suite dispatch keep or read this state; a main
+run leaves the Mac warm for the main commit the next pull requests merge onto. Moves are renames on one volume, glaeda's host lock keeps one job
 per Mac, and nothing is uploaded: an owned run writes only its own Mac's state.
 The four steps are non-product recipe steps (`product_input_identity.py`), so
 no pool's product key changes. Blacksmith and fork runs never take them.
@@ -314,7 +349,7 @@ every sweep whatever the queue, which frees minis for current work. The other
 categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
 on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
 janitor also lists the artifacts of each in-flight attempt-1, same-repository
-pull request CI run (one request per run, more only past 100 artifacts) to
+pull request CI run or main full-suite dispatch (one request per run, more only past 100 artifacts) to
 read its marker's peak into `committed`. A run's other macOS jobs do not rule
 it out: `swift-package-tests` always runs on Blacksmith beside a full suite on
 an owned pool.
@@ -322,7 +357,7 @@ an owned pool.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `CI_OWNED_POOL_RESCUE` | unset (on while `CI_PR_POOL_OWNED` is 1) | `0` turns the watcher off |
-| `CI_OWNED_POOL_RESCUE_SECONDS` | `90` | how long a job may wait for a persistent runner before the run moves to Blacksmith |
+| `CI_OWNED_POOL_RESCUE_SECONDS` | `90` | how long a job may wait for a persistent runner before the run moves to Blacksmith; a CI run's owned job gets 900 s more per `CI_PR_POOL_QUEUE_ROUNDS` round, the wait it may expect |
 
 The watcher makes no API request while owned pools are off. A run on an
 ephemeral pool costs it a few jobs listings until `changes` finishes, plus one
@@ -333,7 +368,9 @@ The guard keeps the picker the only way onto an owned pool.
 text, and `runner_label_policy.py` refuses one in any `*RUNNER*` variable, so
 neither a workflow edit nor `MACOS_RUNNER_PR` can send a job there.
 `check_owned_pools_route_through_picker` requires the picked label to reach
-jobs only as `pr_runner` or on a `pull_request` `runs-on` branch.
+jobs only as `pr_runner` or on a `pull_request` `runs-on` branch. `ci-macos.yml`
+reads those inputs for a `workflow_dispatch` on `refs/heads/main` too, which
+the picker fills only for main's full-suite dispatch.
 `CI_PR_POOL_ORDER` is the one variable that may name owned labels (the guard's
 `owned` pattern, which must match `pr_runner_pool.OWNED_LABEL`), and the CI
 health report checks every other entry in it against the workflow policy.
