@@ -5,7 +5,25 @@ run-name: >-
   on ${{ inputs.runner || 'auto' }}
 
 on:
-  # Temporarily manual-only beginning 2026-07-13 to pause automatic CI.
+  # Pull requests that touch the iOS app or its packages run again (paused
+  # 2026-07-13 to cut CI load). A same-repository pull request takes an idle
+  # simulator mini through the `runner` job like an `auto` dispatch, with
+  # Blacksmith as overflow; a fork's never reaches an owned Mac.
+  # detect-ios-changes narrows further (and decides the conventions lint).
+  pull_request:
+    paths:
+      - "ios/**"
+      - "Packages/**"
+      - "Sources/Mobile/**"
+      - "vendor/stack-auth-swift-sdk-prerelease/**"
+      - "scripts/lint-ios-package-conventions*"
+      - "scripts/lint_swift_namespaces.py"
+      - "scripts/lint-namespace-types-baseline.txt"
+      - "scripts/swift_source_mask.py"
+      - "scripts/tests/test_ios_package_conventions.py"
+      - "scripts/ci/ios_runner_pool.py"
+      - "scripts/ci/select_ios_simulator.py"
+      - ".github/workflows/test-ios.yml"
   workflow_dispatch:
     inputs:
       ref:
@@ -80,6 +98,12 @@ permissions:
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
+
+# A newer push to the same pull request replaces its run; dispatches never
+# cancel each other.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('test-ios-pr-{0}', github.event.pull_request.number) || format('test-ios-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   runner:
     # The macOS pool mobile-core-package, ios-simulator-build and ios-simulator
@@ -135,11 +159,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
           IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
-          PR_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR }}
+          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
           POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
           POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
           IOS_VERSION: ${{ inputs.ios_version }}
@@ -150,6 +175,7 @@ jobs:
           set -euo pipefail
           route="$(python3 scripts/ci/ios_runner_pool.py \
             --lane test-ios \
+            --fork "$FORK_PULL_REQUEST" \
             --requested "$REQUESTED_RUNNER" \
             --variable "$RUNNER_VARIABLE" \
             --ios-owned "$IOS_OWNED" \
@@ -305,7 +331,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -363,7 +389,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
       SWIFT_TEST_FILTER: ${{ inputs.test_filter }}
       FOCUSED_SWIFT_PACKAGE: ${{ inputs.swift_package }}
       # A hung test otherwise runs to the job ceiling, which GitHub reports as
@@ -535,7 +561,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     outputs:
       artifact_id: ${{ steps.upload-product.outputs.artifact-id }}
       artifact_digest: ${{ steps.upload-product.outputs.artifact-digest }}
@@ -587,9 +613,11 @@ jobs:
         # An owned Mac outlives the job, so it keeps this job's DerivedData and
         # resolved packages instead of downloading the packages from R2 and
         # compiling cold every time: on cmux7s the R2 restore took 273 s and
-        # the resolve 282 s (run 36108107919). The state is per runner
-        # instance (one job at a time, and the kept packages carry this
-        # instance's paths), under a separate root from ci-macos.yml's.
+        # the resolve 282 s (run 36108107919). DerivedData is per runner
+        # instance (one job at a time, and it carries this instance's paths);
+        # the packages are per Mac, so every instance on it starts with them
+        # (the sanitize step below drops the one file with absolute paths).
+        # Both live under a separate root from ci-macos.yml's.
         # scripts/ci/owned_build_state.py has the rules; nothing is uploaded.
         id: owned-state
         continue-on-error: true
@@ -600,10 +628,12 @@ jobs:
             *) echo "Not an owned Mac: $RUNNER_NAME"; exit 0 ;;
           esac
           store="/Users/Shared/cmux-build-fleet/ci-ios/$RUNNER_NAME"
+          packages="/Users/Shared/cmux-build-fleet/ci-ios-packages"
           fingerprint="$( { echo ios-owned-v1; xcodebuild -version; echo "$PWD"; echo "$RUNNER_TEMP"; } | shasum -a 256 | cut -d' ' -f1)"
           echo "IOS_OWNED_STORE=$store" >> "$GITHUB_ENV"
+          echo "IOS_OWNED_PACKAGES=$packages" >> "$GITHUB_ENV"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
-          python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$PWD"
+          python3 scripts/ci/owned_build_state.py check "$store" "$fingerprint" "$PWD" "$packages"
           # check clones the kept packages to ci-macos.yml's directory name.
           if [ -d .ci-source-packages ]; then
             rm -rf .ci-ios-source-packages
@@ -621,8 +651,8 @@ jobs:
             ios-spm-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Sanitize iOS SwiftPM cache
-        # Kept packages have only ever lived at this runner's paths.
-        if: ${{ steps.owned-state.outputs.packages != 'true' }}
+        # R2's and a Mac's kept packages were resolved at another checkout's
+        # paths; the resolve recreates the dropped state from the checkouts.
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py "$IOS_SPM_CACHE"
 
       - name: Ensure iOS simulator runtime
@@ -874,7 +904,7 @@ jobs:
       - name: Save this owned Mac's iOS packages
         if: ${{ always() && steps.owned-state.outputs.fingerprint != '' }}
         continue-on-error: true
-        run: python3 scripts/ci/owned_build_state.py save "$IOS_OWNED_STORE" "$IOS_SPM_CACHE" "$PWD"
+        run: python3 scripts/ci/owned_build_state.py save "$IOS_OWNED_STORE" "$IOS_SPM_CACHE" "$PWD" "$IOS_OWNED_PACKAGES"
 
       - name: Upload producer log
         if: ${{ always() && env.IOS_DERIVED_DATA != '' }}
@@ -914,7 +944,7 @@ jobs:
       # test-e2e.yml does; a re-run on Blacksmith keeps it, so a product built
       # on the mini still matches its consumer. Elsewhere select-ci-xcode.sh
       # keeps its pool default.
-      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && vars.CMUX_CI_XCODE_APP_PR || '' }}
+      CMUX_CI_XCODE_APP: ${{ startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     strategy:
       fail-fast: false
       matrix:

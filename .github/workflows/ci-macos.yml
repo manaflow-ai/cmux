@@ -139,6 +139,12 @@ on:
         required: false
         default: ""
         type: string
+    secrets:
+      # The org's manaflow-glaeda-route App key (read-only on runners), for
+      # late-placement's live read of idle root runners. Optional: without it
+      # the jobs keep their run-start placement.
+      GLAEDA_ROUTE_APP_KEY:
+        required: false
 
 permissions:
   contents: read
@@ -533,8 +539,14 @@ jobs:
           path: GhosttyKit.xcframework
           key: ghosttykit-sentry-off-v1-${{ steps.ghostty-revision.outputs.sha }}
 
+      # An owned Mac keeps the verified archive between jobs (one pinned
+      # sha256 per ghostty revision), so a warm root skips the ~27 s download
+      # it otherwise paid on every admission at near-idle CPU. Both roots share
+      # the one directory; the script re-verifies every cached use.
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.reuse-products.outputs.hit != 'true' && steps.cache-ghosttykit-admission.outputs.cache-hit != 'true'
+        env:
+          GHOSTTYKIT_ARCHIVE_CACHE_DIR: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && '/Users/Shared/cmux-build-fleet/ci/ghosttykit-archives' || '' }}
         run: ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
@@ -717,10 +729,14 @@ jobs:
       - name: Compile app-host test product
         id: hosted-compile
         if: steps.reuse-products.outputs.hit != 'true'
-        # A glaeda Mac compiles in 1 to 8 minutes, 19 on a contended one; one
-        # sat 63 minutes in this step until cancelled (job 107921038609). Stop
-        # it at 20. Other runners keep the job's own limit.
-        timeout-minutes: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && 20 || 100 }}
+        # A glaeda Mac compiles an incremental change in 1 to 8 minutes, but a
+        # package or CLI/cmux.swift change rebuilds the whole app even from warm
+        # DerivedData (kept_rebuilds_app): 11 minutes on cmux14, 19 to 21 on the
+        # slower minis (jobs 108035990055 passed at 19.1, 108035869414 and
+        # 108055858553 timed out at 20). One sat 63 minutes in this step until
+        # cancelled (job 107921038609), so keep a cap, at 35. Other runners keep
+        # the job's own limit.
+        timeout-minutes: ${{ startsWith(env.CMUX_PRODUCT_RUNNER, 'glaeda-') && 35 || 100 }}
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
@@ -1355,6 +1371,81 @@ jobs:
               ;;
           esac
 
+  late-placement:
+    # The picker (pr_runner_pool.py) places every job when the run starts, but
+    # the shards, tests-build-and-lag and cli-product-tests start only after
+    # compile admission, often ten minutes later. When the owned pool was full
+    # at the start they are committed to Blacksmith and queue there even after
+    # root runners drain. This re-reads the idle root runners live once
+    # admission succeeds and moves the jobs that are not already owned onto
+    # them, one per idle runner (scripts/ci/late_placement.py). They reuse
+    # admission's uploaded products there, as after an owned admission. Any
+    # failure outputs {} and leaves every job where the picker put it.
+    # Pull requests only: main's full-suite dispatch already runs on the owned
+    # pools and keeps CI_OWNED_MAIN_RESERVE's machines for pull requests.
+    needs:
+      - macos-compile-admission
+    if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.run_attempt == 1 && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (!startsWith(needs.macos-compile-admission.outputs.runner, 'glaeda-') || !contains(inputs.pr_owned_jobs, ' cli-product ')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      runners: ${{ steps.place.outputs.runners || '{}' }}
+    steps:
+      # The picker's code from the base branch, as ci.yml's changes job uses it.
+      - name: Check out the trusted picker
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+      - name: Mint the owned-pool routing token
+        id: route-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+      - name: Place the jobs after admission
+        id: place
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          MACOS: ${{ inputs.macos }}
+          CLI: ${{ inputs.cli }}
+          FULL_SUITE: ${{ inputs.full_suite }}
+          UNIT_SUITE: ${{ inputs.unit_suite }}
+          UNIT_IN_ADMISSION: ${{ inputs.unit_in_admission }}
+          UNIT_SELECTORS: ${{ inputs.unit_selectors }}
+          OWNED_JOBS: ${{ inputs.pr_owned_jobs }}
+          POOL_OWNED_GUI: ${{ vars.CI_PR_POOL_OWNED_GUI }}
+          ADMISSION_RUNNER: ${{ needs.macos-compile-admission.outputs.runner }}
+          ADMISSION_XCODE_APP: ${{ needs.macos-compile-admission.outputs.xcode_app }}
+        run: python3 scripts/ci/late_placement.py
+      # A moved job waits for a root runner, which another run may take first.
+      # ci.yml's owned-pool-watch starts the rescue for a run that might get
+      # here, and this marker tells it jobs moved (owned_pool_rescue.py,
+      # LATE_MARKER_PREFIX), so it watches them like any owned job.
+      - name: Record the moved jobs
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
+        continue-on-error: true
+        env:
+          RUNNERS: ${{ steps.place.outputs.runners }}
+        run: mkdir -p "$RUNNER_TEMP/late-placement" && printf '%s\n' "$RUNNERS" > "$RUNNER_TEMP/late-placement/runners.json"
+      - name: Upload the late placement marker
+        if: steps.place.outputs.runners != '' && steps.place.outputs.runners != '{}'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/late-placement/runners.json
+          retention-days: 1
+
   app-host-unit-tests:
     permissions:
       contents: read
@@ -1362,6 +1453,7 @@ jobs:
       id-token: write
     needs:
       - macos-compile-admission
+      - late-placement
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
     # jobs that legitimately skip (web/go/agent-session paths), and that
@@ -1389,7 +1481,7 @@ jobs:
     # Xcode with more room, and admission's own pool when it is empty. A
     # placed shard takes the admission's runner, which is pr_root_runner
     # when the pool has one.
-    runs-on: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
+    runs-on: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 75
     strategy:
       # A pull request wants every shard's failures in one run. A merge group
@@ -1473,7 +1565,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')[format('shard-{0}', matrix.shard)] || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard)) && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, format(' shard-{0} ', matrix.shard))) && inputs.pr_retry_runner || inputs.pr_shard_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -2401,6 +2493,7 @@ jobs:
       id-token: write
     needs:
       - macos-compile-admission
+      - late-placement
     # Targeted CLI routing consumes the shared compiled product even when prior
     # compile admission exists; it does not enable the app-host/full-suite lanes.
     # Same !cancelled() reasoning as app-host-unit-tests: the implicit success()
@@ -2414,7 +2507,7 @@ jobs:
     # on the pool and Xcode that built it: the test bundle only loads under
     # the Xcode that linked it. On an owned-pool run it may take
     # pr_retry_runner instead, as the shards do.
-    runs-on: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' cli-product ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+    runs-on: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['cli-product'] || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' cli-product ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
     timeout-minutes: 40
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -2430,7 +2523,7 @@ jobs:
       - name: Verify GitHub-hosted route
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
-          REQUESTED_RUNNER: ${{ github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' cli-product ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
+          REQUESTED_RUNNER: ${{ github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['cli-product'] || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' cli-product ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' cli-product ')) && inputs.pr_retry_runner || needs.macos-compile-admission.outputs.runner }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
@@ -3168,6 +3261,7 @@ jobs:
       id-token: write
     needs:
       - macos-compile-admission
+      - late-placement
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
     # jobs that legitimately skip (web/go/agent-session paths), and that
@@ -3182,7 +3276,7 @@ jobs:
     # full-suite dispatch follows admission onto the pull-request pool and
     # Xcode. The product consumer guard in the CI change-area tests fails when
     # the two drift.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' lag ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['lag'] || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' lag ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
     timeout-minutes: 75
     env:
       CMUX_NODE_PRODUCT_CACHE_ROOT: ${{ vars.CMUX_NODE_PRODUCT_CACHE_ROOT }}
@@ -3195,7 +3289,7 @@ jobs:
     steps:
       - name: Validate display runner identity
         env:
-          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' lag ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
+          REQUESTED_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && fromJSON(needs.late-placement.outputs.runners || '{}')['lag'] || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner || 'blacksmith-6vcpu-macos-15') || (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && (github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]' && contains(inputs.pr_owned_jobs, ' lag ') && (inputs.pr_root_runner || inputs.pr_refused_retry_runner) || (github.run_attempt > 1 || !contains(inputs.pr_owned_jobs, ' lag ')) && inputs.pr_retry_runner || inputs.pr_root_runner || inputs.pr_runner || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15') || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15') }}
           RUNNER_CONTEXT_NAME: ${{ runner.name }}
         run: |
           set -euo pipefail
