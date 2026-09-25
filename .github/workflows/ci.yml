@@ -161,7 +161,7 @@ jobs:
       # CI_DELTA_SINCE_GREEN to 0 to turn it off.
       - name: Diff from the last green head when this push only merged main
         id: delta
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_DELTA_SINCE_GREEN != '0' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (vars.CI_DELTA_SINCE_GREEN || '1') != '0' }}
         continue-on-error: true
         timeout-minutes: 3
         env:
