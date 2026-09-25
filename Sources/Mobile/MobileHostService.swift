@@ -664,7 +664,9 @@ final class MobileHostService {
             }
             resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
             if result.overflowed {
-                Task { await connection.close(reason: "event queue overflow") }
+                if result.startDrain {
+                    Task { await connection.drainQueuedEvents() }
+                }
                 continue
             }
             if result.startDrain {
@@ -2291,6 +2293,10 @@ actor MobileHostConnection {
     /// connection closes, lane negotiation pauses delivery, or a delivery
     /// fails (which closes the unusable control session).
     func drainQueuedEvents() async {
+        if eventQueue.consumeOverflow() {
+            await close(reason: "event queue overflow")
+            return
+        }
         while true {
             if isClosed || independentEventNegotiationInProgress {
                 eventQueue.abandonDrain()

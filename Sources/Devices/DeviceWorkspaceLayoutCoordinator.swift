@@ -385,8 +385,17 @@ final class DeviceWorkspaceLayoutCoordinator {
     private func target(for id: UUID) -> (remoteID: String, mapping: [String: String], projections: [SurfaceProjection])? {
         guard let catalog, let native = workspace(id) else { return nil }
         let projections = catalog.projections.filter { $0.workspaceID == id && $0.resource.machine == machine }
-        guard !projections.isEmpty, Set(projections.map(\.panelID)) == Set(native.panels.keys) else { return nil }
+        guard !projections.isEmpty else { return nil }
+        let projectedPanelIDs = Set(projections.map(\.panelID))
+        let pending = native.cloudPendingCreations.values.filter {
+            $0.machine == machine && $0.remoteWorkspaceID != nil
+        }
+        let pendingPanelIDs = Set(pending.map(\.panelID))
+        let nativePanelIDs = Set(native.panels.keys)
+        guard projectedPanelIDs.isSubset(of: nativePanelIDs),
+              nativePanelIDs.subtracting(projectedPanelIDs).isSubset(of: pendingPanelIDs) else { return nil }
         let remoteIDs = Set(projections.compactMap(\.remoteWorkspaceID))
+            .union(pending.compactMap(\.remoteWorkspaceID))
         guard remoteIDs.count == 1, let remoteID = remoteIDs.first,
               projections.allSatisfy({ $0.remoteWorkspaceID == remoteID }) else { return nil }
         let mapping = Dictionary(projections.map { ($0.panelID.uuidString, $0.resource.key) }, uniquingKeysWith: { first, _ in first })
