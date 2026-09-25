@@ -112,6 +112,10 @@ class FakeCmuxState:
                             "ref": self.workspace["ref"],
                             "index": self.workspace["index"],
                             "title": self.workspace["title"],
+                            "pane_count": sum(
+                                bool(pane["surface_ids"])
+                                for pane in self.panes
+                            ),
                         }
                     ]
                 }
@@ -286,6 +290,7 @@ def main() -> int:
         window_target_log = tmp / "window-target.log"
         split_pane_log = tmp / "split-pane.log"
         pane_list_log = tmp / "pane-list.log"
+        window_panes_log = tmp / "window-panes.log"
 
         make_executable(
             real_bin / "claude",
@@ -297,6 +302,8 @@ window_target="$(tmux display-message -t "${TMUX_PANE}" -p '#{session_name}:#{wi
 printf '%s\\n' "$window_target" > "$FAKE_WINDOW_TARGET_LOG"
 split_pane="$(tmux split-window -t "${TMUX_PANE}" -h -l 70% -P -F '#{pane_id}')"
 printf '%s\\n' "$split_pane" > "$FAKE_SPLIT_PANE_LOG"
+window_panes="$(tmux display-message -t "${TMUX_PANE}" -p '#{window_panes}')"
+printf '%s\\n' "$window_panes" > "$FAKE_WINDOW_PANES_LOG"
 tmux select-layout -t "$window_target" main-vertical
 tmux resize-pane -t "${TMUX_PANE}" -x 30%
 tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
@@ -314,6 +321,7 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         env["FAKE_WINDOW_TARGET_LOG"] = str(window_target_log)
         env["FAKE_SPLIT_PANE_LOG"] = str(split_pane_log)
         env["FAKE_PANE_LIST_LOG"] = str(pane_list_log)
+        env["FAKE_WINDOW_PANES_LOG"] = str(window_panes_log)
 
         try:
             proc = subprocess.run(
@@ -361,6 +369,11 @@ tmux list-panes -t "$window_target" -F '#{pane_id}' > "$FAKE_PANE_LIST_LOG"
         split_pane = read_text(split_pane_log)
         if split_pane != f"%{new_pane_token}":
             print(f"FAIL: expected split-window to print %{new_pane_token}, got {split_pane!r}")
+            return 1
+
+        window_panes = read_text(window_panes_log)
+        if window_panes != "2":
+            print(f"FAIL: expected #{{window_panes}}=2 after teammate split, got {window_panes!r}")
             return 1
 
         pane_lines = pane_list_log.read_text(encoding="utf-8").splitlines()
