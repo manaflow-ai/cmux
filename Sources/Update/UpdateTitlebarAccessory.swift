@@ -1956,10 +1956,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private var windowGeometryObservers: [NSObjectProtocol] = []
     private let viewModel = TitlebarControlsViewModel()
     private var userDefaultsObserver: NSObjectProtocol?
-    private var lastShowsWorkspaceTitlebar = !WorkspacePresentationModeSettings.isMinimal()
+    private var lastShowsWorkspaceTitlebar = !WorkspaceTitlebarSettings().isHidden
     private var lastTitlebarDebugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
-    private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
+    private var showsWorkspaceTitlebar: Bool { !WorkspaceTitlebarSettings().isHidden }
 
     init(
         notificationStore: TerminalNotificationStore,
@@ -2749,7 +2749,7 @@ final class UpdateTitlebarAccessoryController {
     private var startupScanWorkItems: [DispatchWorkItem] = []
     private let controlsIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarControls")
     private let controlsControllers = NSHashTable<TitlebarControlsAccessoryViewController>.weakObjects()
-    private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
+    private var lastKnownTitlebarHidden = WorkspaceTitlebarSettings().isHidden
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
 
@@ -2869,11 +2869,11 @@ final class UpdateTitlebarAccessoryController {
 
     private func reattachIfPresentationModeChanged() {
 
-        let currentMode = WorkspacePresentationModeSettings.mode()
-        guard currentMode != lastKnownPresentationMode else { return }
-        lastKnownPresentationMode = currentMode
+        let isTitlebarHidden = WorkspaceTitlebarSettings().isHidden
+        guard isTitlebarHidden != lastKnownTitlebarHidden else { return }
+        lastKnownTitlebarHidden = isTitlebarHidden
 
-        if currentMode == .standard {
+        if !isTitlebarHidden {
             attachToExistingWindows()
         }
         for window in attachedWindows.allObjects {
@@ -2977,7 +2977,7 @@ final class UpdateTitlebarAccessoryController {
             pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
             return
         }
-        let shouldHide = WorkspacePresentationModeSettings.mode() == .minimal
+        let shouldHide = WorkspaceTitlebarSettings().isHidden
             || window.styleMask.contains(.fullScreen)
         for accessory in window.titlebarAccessoryViewControllers
             where accessory.view.identifier == controlsIdentifier {

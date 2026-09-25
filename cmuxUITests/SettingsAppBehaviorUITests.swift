@@ -197,6 +197,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     // local state.
     private static let touchedKeys = [
         "workspacePresentationMode",          // Minimal Mode (default .standard)
+        "workspaceTitlebarVisible",           // Independent title preference (default true)
         "workspaceInheritWorkingDirectory",   // Inherit CWD (default true)
         "menuBarOnly",                        // Menu Bar Only (default false)
         "showMenuBarExtra",                   // Show in Menu Bar (gated row)
@@ -220,7 +221,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
 
     private enum Subtitle {
         static let minimalOn = "Hide the workspace title bar and move workspace controls into the sidebar."
-        static let minimalOff = "Use the standard workspace title bar and controls."
+        static let minimalOff = "Use standard workspace controls with your title bar preference."
 
         static let inheritOn = "New workspaces start in the focused workspace's working directory."
         static let inheritOff = "New workspaces use Ghostty's working-directory setting instead."
@@ -300,7 +301,7 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     // MARK: - TIER 1: Minimal Mode subtitle swap
 
     /// Toggling Minimal Mode flips the row subtitle between the
-    /// standard-title-bar and the hidden-title-bar wording. This proves
+    /// standard-controls and the hidden-title-bar wording. This proves
     /// the stored `workspacePresentationMode` propagated through the
     /// view-model and re-rendered the row, which is the observable effect
     /// of the setting inside Settings.
@@ -314,8 +315,17 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             "Expected standard-mode subtitle at default"
         )
 
+        let titlebar = toggle(window, id: "SettingsShowWorkspaceTitleBarToggle")
+        XCTAssertTrue(titlebar.isEnabled)
+        XCTAssertEqual(titlebar.value as? String, "1")
+        titlebar.click()
+        XCTAssertTrue(poll(timeout: 4.0) { titlebar.value as? String == "0" })
+
         let minimal = toggle(window, id: "SettingsMinimalModeToggle")
         minimal.click()
+
+        XCTAssertTrue(poll(timeout: 4.0) { !titlebar.isEnabled })
+        XCTAssertEqual(titlebar.value as? String, "0")
 
         XCTAssertTrue(
             poll(timeout: 4.0) { subtitleText(window, Subtitle.minimalOn).exists },
@@ -333,6 +343,8 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
             poll(timeout: 4.0) { subtitleText(window, Subtitle.minimalOff).exists },
             "Disabling Minimal Mode should restore the standard-mode subtitle"
         )
+        XCTAssertTrue(poll(timeout: 4.0) { titlebar.isEnabled })
+        XCTAssertEqual(titlebar.value as? String, "0", "Leaving Minimal Mode must preserve the hidden-title preference")
 
         closeSettings(app, window)
     }

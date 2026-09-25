@@ -252,10 +252,10 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "workspaceButtonsFadeMode"
     )
 
-    /// Workspace titlebar visibility. Legacy `WorkspaceTitlebarSettings`
-    /// stores a `Bool` (default `true`) under `workspaceTitlebarVisible`.
+    /// Shows the workspace title strip independently of pane tabs.
+    /// Minimal Mode hides the strip regardless of this stored preference.
     public let workspaceTitlebarVisibility = DefaultsKey<Bool>(
-        id: "app.workspaceTitlebarVisibility",
+        id: "app.showWorkspaceTitleBar",
         defaultValue: true,
         userDefaultsKey: "workspaceTitlebarVisible"
     )

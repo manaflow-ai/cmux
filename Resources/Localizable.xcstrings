@@ -299861,6 +299861,131 @@
         }
       }
     },
+    "settings.app.minimalMode.subtitleStandardControls": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام عناصر التحكم القياسية لمساحة العمل مع تفضيلك لشريط العنوان."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi standardne kontrole radnog prostora uz odabranu postavku naslovne trake."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug standardkontroller for arbejdsområdet med din indstilling for titellinjen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Steuerelemente des Arbeitsbereichs mit Ihrer Titelleisten-Einstellung verwenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use standard workspace controls with your title bar preference."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar los controles estándar del espacio de trabajo con tu preferencia de barra de título."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser les commandes standard de l’espace de travail selon votre préférence de barre de titre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa i controlli standard dello spazio di lavoro con la tua preferenza per la barra del titolo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルバーの設定に従って、標準のワークスペース操作を使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 표시줄 설정에 따라 표준 작업 공간 컨트롤을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk standardkontroller for arbeidsområdet med din innstilling for tittellinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Używaj standardowych elementów sterujących obszaru roboczego z wybraną opcją paska tytułu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar os controles padrão do espaço de trabalho com sua preferência de barra de título."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать стандартные элементы управления рабочим пространством с выбранной настройкой заголовка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ตัวควบคุมมาตรฐานของพื้นที่ทำงานตามค่าที่เลือกสำหรับแถบชื่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlık çubuğu tercihinizle standart çalışma alanı denetimlerini kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовувати стандартні елементи керування робочим простором із вибраною опцією заголовка."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用标准工作区控件，并遵循您的标题栏偏好设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用標準工作區控制項，並遵循您的標題列偏好設定。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រើឧបករណ៍បញ្ជាកន្លែងធ្វើការស្តង់ដារ ជាមួយចំណូលចិត្តរបារចំណងជើងរបស់អ្នក។"
+          }
+        }
+      }
+    },
     "settings.app.newWorkspacePlacement": {
       "extractionState": "manual",
       "localizations": {
@@ -304848,6 +304973,256 @@
           "stringUnit": {
             "state": "translated",
             "value": "작업 공간 제목 아래에 맞춤 작업 공간 설명을 표시합니다."
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceTitleBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار شريط عنوان مساحة العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži naslovnu traku radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis arbejdsområdets titellinje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich-Titelleiste anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Workspace Title Bar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar la barra de título del espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la barre de titre de l’espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra la barra del titolo dello spazio di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースのタイトルバーを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 제목 표시줄 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis arbeidsområdets tittellinje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż pasek tytułu obszaru roboczego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar barra de título do espaço de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать строку заголовка рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแถบชื่อพื้นที่ทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma Alanı Başlık Çubuğunu Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати рядок заголовка робочого простору"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示工作区标题栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示工作區標題列"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញរបារចំណងជើងកន្លែងធ្វើការ"
+          }
+        }
+      }
+    },
+    "settings.app.showWorkspaceTitleBar.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى علامات تبويب اللوحات ظاهرة. يخفي الوضع المصغّر شريط العنوان دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kartice panela ostaju vidljive. Minimalni način uvijek skriva naslovnu traku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rudernes faner forbliver synlige. Minimal tilstand skjuler altid titellinjen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich-Tabs bleiben sichtbar. Der Minimalmodus blendet die Titelleiste immer aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane tabs stay visible. Minimal Mode always hides the title bar."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las pestañas de los paneles siguen visibles. El modo mínimo siempre oculta la barra de título."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les onglets des volets restent visibles. Le mode minimal masque toujours la barre de titre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le schede dei riquadri restano visibili. La modalità minimale nasconde sempre la barra del titolo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのタブは表示されたままです。ミニマルモードでは常にタイトルバーが非表示になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널 내의 탭은 계속 표시됩니다. 최소 모드에서는 제목 표시줄이 항상 숨겨집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fanene i rutene forblir synlige. Minimalmodus skjuler alltid tittellinjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karty paneli pozostają widoczne. Tryb minimalny zawsze ukrywa pasek tytułu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As abas dos painéis continuam visíveis. O modo mínimo sempre oculta a barra de título."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки панелей остаются видимыми. Минимальный режим всегда скрывает строку заголовка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บของบานหน้าต่างยังคงแสดงอยู่ โหมดมินิมัลจะซ่อนแถบชื่อเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme sekmeleri görünür kalır. Minimal Mod başlık çubuğunu her zaman gizler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладки панелей залишаються видимими. Мінімальний режим завжди приховує рядок заголовка."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格标签页会保持可见。极简模式始终隐藏标题栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格分頁會保持可見。極簡模式一律隱藏標題列。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងក្នុងបន្ទះនៅតែបង្ហាញ។ របៀបអប្បបរមាតែងតែលាក់របារចំណងជើង។"
           }
         }
       }
@@ -358185,6 +358560,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.workspaceInheritWorkingDirectory 작업 공간 cwd 디렉토리 상속 현재 포커스 ghostty 작업 디렉토리 app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused ghostty working-directory"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.workspace-title-bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar إخفاء إظهار مساحة العمل نافذة مجلد مجموعة شريط عنوان لوحة علامات تبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar sakrij prikaži radni prostor prozor mapa grupa naslovna traka panel kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar skjul vis arbejdsområde vindue mappe gruppe titellinje rude faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar ausblenden anzeigen Arbeitsbereich Fenster Ordner Gruppe Titelleiste Bereich Tabs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar hide show workspace window folder group title bar pane tabs chrome"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar ocultar mostrar espacio de trabajo ventana carpeta grupo barra título panel pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar masquer afficher espace de travail fenêtre dossier groupe barre de titre volet onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar nascondi mostra spazio lavoro finestra cartella gruppo barra titolo riquadro schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar 非表示 表示 ワークスペース ウインドウ フォルダ グループ タイトルバー ペイン タブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar 숨기기 표시 작업 공간 윈도우 폴더 그룹 제목 표시줄 창 탭 패널"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar skjul vis arbeidsområde vindu mappe gruppe tittellinje rute faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar ukryj pokaż obszar roboczy okno folder grupa pasek tytułu panel karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar ocultar mostrar espaço trabalho janela pasta grupo barra título painel abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar скрыть показать рабочее пространство окно папка группа строка заголовка панель вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar ซ่อน แสดง พื้นที่ทำงาน หน้าต่าง โฟลเดอร์ กลุ่ม แถบชื่อ บานหน้าต่าง แท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar gizle göster çalışma alanı pencere klasör grup başlık çubuğu bölme sekmeler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar приховати показати робочий простір вікно тека група рядок заголовка панель вкладки"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar 隐藏 显示 工作区 窗口 文件夹 分组 标题栏 窗格 标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar 隱藏 顯示 工作區 視窗 資料夾 群組 標題列 窗格 分頁"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.showWorkspaceTitleBar លាក់ បង្ហាញ កន្លែងធ្វើការ បង្អួច ថត ក្រុម របារចំណងជើង ផ្ទាំងក្នុងបន្ទះ"
           }
         }
       }

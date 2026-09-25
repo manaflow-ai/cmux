@@ -1308,6 +1308,7 @@
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
+          "showWorkspaceTitleBar": "Çalışma alanı başlık satırını bölme sekmelerinden bağımsız gösterir. Başlık satırının kapladığı alanı geri kazanırken sekmeleri ve standart kenar çubuğu denetimlerini korumak için bu seçeneği ve app.minimalMode değerini false yapın. Pencere denetimleri kenar çubuğunun kompakt alanında, kenar çubuğu gizliyken tam ekran modunda ise sekmelerin yanında görünür. Minimal Mod başlığı her zaman gizler ve diğer mevcut davranışlarını korur; moddan çıkınca bu tercih yeniden uygulanır. Değişiklikler hemen uygulanır ve yeniden başlatmalarda korunur. Kenar çubuğu kapalıyken pencere düğmelerinin çevresindeki ayrılmış alandan pencereyi sürükleyebilirsiniz. Bölme sekmelerine çift tıklama standart eylemlerini korur.",
           "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder.",
           "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
         },

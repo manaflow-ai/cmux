@@ -1308,6 +1308,7 @@
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
+          "showWorkspaceTitleBar": "Prikazuje red naslova radnog prostora nezavisno od kartica panela. Postavite ovu opciju i app.minimalMode na false da oslobodite prostor reda uz zadržavanje kartica i standardnih kontrola bočne trake. Kontrole prozora koriste kompaktno područje bočne trake ili se pojavljuju pored kartica u prikazu preko cijelog ekrana kada je bočna traka skrivena. Minimalni način uvijek skriva naslov i zadržava ostalo postojeće ponašanje; izlaskom iz njega ponovo se primjenjuje ova postavka. Promjene se primjenjuju odmah i ostaju sačuvane nakon ponovnog pokretanja. Kada je bočna traka zatvorena, prozor se i dalje može povlačiti za rezervirano područje oko njegovih dugmadi. Dvostruki klikovi na kartice panela zadržavaju standardne radnje.",
           "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta.",
           "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
         },

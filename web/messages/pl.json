@@ -1309,6 +1309,7 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
+          "showWorkspaceTitleBar": "Pokazuje wiersz tytułu obszaru roboczego niezależnie od kart paneli. Ustaw tę opcję i app.minimalMode na false, aby odzyskać miejsce zajmowane przez tytuł, zachowując karty i standardowe elementy sterujące paska bocznego. Elementy sterujące oknem zajmują zwarty obszar paska bocznego, a w trybie pełnoekranowym z ukrytym paskiem bocznym pojawiają się obok kart. Tryb minimalny zawsze ukrywa tytuł i zachowuje pozostałe dotychczasowe zachowania; po jego wyłączeniu ponownie obowiązuje ta preferencja. Zmiany są natychmiastowe i pozostają zapisane po ponownym uruchomieniu. Gdy pasek boczny jest zamknięty, okno można przeciągać za zarezerwowany obszar wokół przycisków okna. Dwukrotne kliknięcia kart paneli zachowują standardowe działania.",
           "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
           "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
         },

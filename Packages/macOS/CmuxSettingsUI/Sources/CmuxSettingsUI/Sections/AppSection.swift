@@ -263,7 +263,6 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // Inherit Working Directory
             SettingsCardRow(
                 configurationReview: .json("app.workspaceInheritWorkingDirectory"),
                 String(localized: "settings.app.workspaceInheritWorkingDirectory", defaultValue: "Inherit Workspace Working Directory"),
@@ -278,13 +277,14 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // Minimal Mode
+            WorkspaceTitlebarSettingsRow()
+            SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .json("app.minimalMode"),
                 String(localized: "settings.app.minimalMode", defaultValue: "Minimal Mode"),
                 subtitle: minimalMode.current == .minimal
                     ? String(localized: "settings.app.minimalMode.subtitleOn", defaultValue: "Hide the workspace title bar and move workspace controls into the sidebar.")
-                    : String(localized: "settings.app.minimalMode.subtitleOff", defaultValue: "Use the standard workspace title bar and controls.")
+                    : String(localized: "settings.app.minimalMode.subtitleStandardControls", defaultValue: "Use standard workspace controls with your title bar preference.")
             ) {
                 Toggle("", isOn: Binding(
                     get: { minimalMode.current == .minimal },
@@ -312,7 +312,6 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // Focus Pane on First Click
             SettingsCardRow(
                 configurationReview: .json("app.focusPaneOnFirstClick"),
                 String(localized: "settings.app.paneFirstClickFocus", defaultValue: "Focus Pane on First Click"),
