@@ -17345,7 +17345,7 @@ fn restore_focus_identity(state: &mut State, focus: Option<FocusIdentity>) {
 
 /// Launch spec of a Cloud snapshot's warm terminal host claimed by a fresh
 /// registry (Mux::claim_template_terminal).
-fn template_terminal_launch_spec() -> serde_json::Value {
+fn template_terminal_launch_spec() -> Value {
     serde_json::json!({"template_terminal": true})
 }
 
