@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -17,6 +18,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var beforeCreate: (@MainActor () async throws -> Void)?
     var afterCreateWorkspace: (@MainActor (SurfaceRemoteWorkspace) async throws -> Void)?
     var usesReceipt = false
+    var adoptsReservation = true
     var includesStarter = true
     var terminalError: Error?
     var terminalCreates = 0
@@ -26,6 +28,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     var adoptedPanels: [UUID] = []
     var closedTerminalIDs: [SurfaceResourceID] = []
     var closedWorkspaceIDs: [String] = []
+    var onRemoteClose: (@MainActor () -> Void)?
 
     init(catalog: SurfaceCatalog) {
         self.catalog = catalog
@@ -81,14 +84,19 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
 
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         closedTerminalIDs.append(id)
+        onRemoteClose?()
     }
 
     func closeRemoteWorkspace(id: String) async throws {
         closedWorkspaceIDs.append(id)
+        onRemoteClose?()
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
-        let pane = try SurfacePaneFactory.makeTerminalPane(initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
+        let pane = try SurfacePaneFactory.makeCloudManualMirrorPane(
+            at: destination, focus: focus, onInput: { _ in }, keyNameResolver: nil,
+            onResize: { _ in }, onRuntimeReady: {}, onFocus: {}
+        )
         return SurfaceProjection(resource: resource.id, workspaceID: pane.workspaceID, panelID: pane.panelID,
                                  remoteWorkspaceID: resource.remoteWorkspace?.id, remoteTabID: resource.remoteViews?.first?.tabID)
     }
@@ -96,7 +104,7 @@ final class CloudWorkspaceCreationSidebarProvider: SurfaceProvider {
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination,
                      focus: Bool, adopting reservation: CloudTerminalPaneReservation?) async throws -> SurfaceProjection {
         try await beforeMaterialize?(resource, reservation)
-        guard let reservation else { return try await materialize(resource, at: destination, focus: focus) }
+        guard let reservation, adoptsReservation else { return try await materialize(resource, at: destination, focus: focus) }
         adoptedPanels.append(reservation.panelID)
         return SurfaceProjection(resource: resource.id, workspaceID: reservation.workspaceID, panelID: reservation.panelID,
                                  remoteWorkspaceID: resource.remoteWorkspace?.id, remoteTabID: resource.remoteViews?.first?.tabID)

@@ -1,8 +1,10 @@
 name: Seed DerivedData
 
 # Keeps a warm DerivedData for every main commit that changes the app-host
-# build, so pull-request compile admission starts from its base commit's build
-# instead of a cold compile (ci-macos.yml "Adopt the nightly DerivedData seed").
+# build, so pull-request compile admission starts from its base commit's build,
+# and main's full-suite run (ci-main-full-suite.yml) from its own commit's or
+# the newest earlier one, instead of a cold compile (ci-macos.yml "Adopt the
+# nightly DerivedData seed").
 #
 # Each seed builds incrementally from the newest earlier seed, so a merge costs
 # the Mac time of its own diff: 30-130 s for one to five app files, measured in
@@ -32,68 +34,138 @@ permissions:
 env:
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
 
-# One seed at a time per runner pool, and never cancel-in-progress. main
-# takes several merges an hour and a cold seed takes 15-20 minutes, so
-# cancelling the running seed for each newer push would starve publishing for
-# as long as merges keep arriving. With `false`, the running seed always
-# finishes and publishes, GitHub keeps at most one pending run, and a newer
-# push replaces that pending run, so the published seed is never more than
-# about one build behind main. tests/test_seed_derived_data.py pins this.
-concurrency:
-  group: seed-derived-data-${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
-  cancel-in-progress: false
 
 jobs:
   decide:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
     outputs:
       build: ${{ steps.inputs.outputs.build }}
+      pools: ${{ steps.inputs.outputs.pools }}
+      matrix: ${{ steps.inputs.outputs.matrix }}
+      # The pool that publishes the app-host product when it builds.
+      publisher: ${{ steps.inputs.outputs.publisher }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          fetch-depth: 2
+          # seed_decide.py walks back up to ANCESTOR_LIMIT (30) commits.
+          fetch-depth: 32
 
-      # A push that leaves the build fingerprint unchanged (docs, web, another
-      # workflow) builds exactly what its parent's seed holds, and pull
-      # requests fall back to that seed by prefix. Skip the Mac entirely.
-      - name: Compare build inputs with the parent commit
+      # A push whose build fingerprint equals that of an existing seed (docs,
+      # web, another workflow) builds exactly what that seed holds, and pull
+      # requests fall back to it by prefix. Skip the Mac only then. The parent
+      # is not enough: a newer push replaces a pending seed run, so the parent
+      # often has no seed. seed_decide.py compares with the nearest seeded
+      # ancestor instead, and builds on any doubt.
+      - name: Compare build inputs with the nearest seed
         id: inputs
         env:
+          GH_TOKEN: ${{ github.token }}
           XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          XCODE_APP_MACOS_15: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+          # The pools that seed; see the seed job. Each decides alone, so one
+          # pool's failing seed never makes every push rebuild the others.
+          SEED_POOL_1: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          SEED_POOL_2: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+          SEED_POOL_3: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-15' }}
+          # The owned std minis compile at -j14, and a j12 seed re-emits
+          # every module there (cmuxterm-hq#590). Their j14 seed comes from a
+          # trusted-only runner (glaeda-trusted-std-xcode-<version>, glaeda
+          # docs/CMUX_MINI_RUNNER.md 2e) on a mini with no pull-request
+          # runners, since this job holds the ci-cache-writer credentials
+          # (the host choice is on cmuxterm-hq#590). Its job-started hook
+          # admits only a push to main, so the pool joins only then. Empty
+          # (the default) leaves it out.
+          SEED_TRUSTED_POOL: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || '' }}
+          # How many canonical roots the trusted pool seeds. An owned Mac's
+          # second compile slot builds in /private/tmp/cmux-ci-2, which is
+          # part of the seed key, so it never adopts a root 1 seed and
+          # compiled cold (471 s, 98 re-emits, cmuxterm-hq#590). Each extra
+          # root is one more job per push on the trusted pool, so raise it
+          # only with a trusted runner to take it. Unset means 1.
+          SEED_TRUSTED_ROOTS: ${{ vars.CI_SEED_TRUSTED_ROOTS || '1' }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = workflow_dispatch ] || ! git rev-parse -q --verify 'HEAD^1' >/dev/null; then
-            echo "build=true" >> "$GITHUB_OUTPUT"
-            exit 0
+          # Each pool's Xcode as the seed job picks it (its CMUX_CI_XCODE_APP).
+          pools=()
+          lanes=()
+          if [ -n "$SEED_TRUSTED_POOL" ]; then
+            case "$SEED_TRUSTED_ROOTS" in
+              [1-9]) ;;
+              *) echo "::error::CI_SEED_TRUSTED_ROOTS must be 1 to 9, not $SEED_TRUSTED_ROOTS"; exit 1 ;;
+            esac
+            for ((k = 2; k <= SEED_TRUSTED_ROOTS; k++)); do
+              lanes+=("$SEED_TRUSTED_POOL@$k")
+            done
           fi
-          head="$(python3 scripts/ci/build_input_fingerprint.py --revision HEAD --extra "xcode=$XCODE_APP")"
-          parent="$(python3 scripts/ci/build_input_fingerprint.py --revision 'HEAD^1' --extra "xcode=$XCODE_APP")"
-          if [ "$head" = "$parent" ]; then
-            echo "Build inputs unchanged since the parent commit; its seed already covers this one."
-            echo "build=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "build=true" >> "$GITHUB_OUTPUT"
-          fi
+          for pool in "$SEED_POOL_1" "$SEED_POOL_2" "$SEED_POOL_3" "$SEED_TRUSTED_POOL" ${lanes[@]+"${lanes[@]}"}; do
+            case "$pool" in
+              *vcpu-macos-15) pools+=(--pool "$pool=${XCODE_APP_MACOS_15:-$XCODE_APP}") ;;
+              *) pools+=(--pool "$pool=$XCODE_APP") ;;
+            esac
+          done
+          python3 scripts/ci/seed_decide.py --repository "$GITHUB_REPOSITORY" "${pools[@]}" \
+            --event-name "$EVENT_NAME" --github-output "$GITHUB_OUTPUT"
+          echo "publisher=$SEED_POOL_1" >> "$GITHUB_OUTPUT"
 
   seed:
     needs: decide
     if: needs.decide.outputs.build == 'true'
-    # Must match pull-request compile admission: the seed key carries the
-    # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
-    # The 12 vCPU macOS 26 pool runs the same image and Xcode as the 6 vCPU
-    # one admission uses, but pull requests do not queue on it: on 2026-09-24
-    # seeds waited 19-25 minutes for a 6 vCPU runner while 12 vCPU jobs
-    # started in 15 s. Neither key names the runner size.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_PR == 'blacksmith-6vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_PR || 'blacksmith-6vcpu-macos-15' }}
+    # Must match pull-request and main full-suite compile admission: the seed
+    # key carries the toolchain and the build paths, so a mismatch is a miss,
+    # not a wrong hit. tests/test_seed_derived_data.py evaluates both routes.
+    #
+    # A seed serves only the width it was built at: Swift Build passes the
+    # runner's CPU count to swift-driver as -j<n>, so a 12 vCPU seed reran
+    # every SwiftDriver task and re-emitted 62 modules on a 6 vCPU admission
+    # (run 36043267820). Admission takes the 12 vCPU pool when it is free and
+    # the 6 vCPU one otherwise, so both seed, and seed_derived_data.py keys
+    # each seed by its width. The first entry is the 12 vCPU pool of the same
+    # image and Xcode, which starts in seconds and alone publishes the
+    # product; the second is admission's own pool, the same pool again under
+    # any other MACOS_RUNNER_PR. The third is the macOS 15 pool, which
+    # pr_runner_pool.py overflows pull requests to, on its own Xcode
+    # (CMUX_CI_XCODE_APP_MACOS_15): without a seed of its own every admission
+    # there compiled cold for 17 to 25 minutes (2026-09-24). The fourth, when
+    # CI_SEED_TRUSTED_POOL names one, is a trusted-only owned mini that seeds
+    # j14 for the owned std pool on the lane's Xcode, and with
+    # CI_SEED_TRUSTED_ROOTS above 1, once more per extra canonical root
+    # (matrix.root). nightly.yml writes no cold j14 seed, so the j14 chain
+    # only ever builds on its own last seed (or cold when none is near).
+    # GitHub names these jobs "seed (<pool>)", or "seed (<pool>, <root>)";
+    # seed_decide.py and reuse_app_host_products.py match that.
+    strategy:
+      fail-fast: false
+      # The pools decide found without a seed for this push's build inputs
+      # (SEED_POOL_1..3, SEED_TRUSTED_POOL and its extra roots there), in
+      # that order: {"include": [{"pool": ...}, {"pool": ..., "root": "2"}]}.
+      matrix: ${{ fromJSON(needs.decide.outputs.matrix) }}
+    runs-on: ${{ matrix.pool }}
+    # One seed at a time per pool, and never cancel-in-progress. main takes
+    # several merges an hour and a cold seed takes 15-20 minutes, so
+    # cancelling the running seed for each newer push would starve publishing
+    # for as long as merges keep arriving. With `false`, the running seed
+    # always finishes and publishes, GitHub keeps at most one pending job, and
+    # a newer push replaces it, so the published seed is never more than about
+    # one build behind main. Per pool, so the 6 vCPU queue never holds back
+    # the 12 vCPU seed. tests/test_seed_derived_data.py pins this.
+    concurrency:
+      group: seed-derived-data-${{ matrix.pool }}${{ matrix.root && '-root-' || '' }}${{ matrix.root }}
+      cancel-in-progress: false
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     timeout-minutes: 60
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      # The macOS 15 pool compiles with its own Xcode, as a pull request run
+      # pr_runner_pool.py overflows there does; every other pool, the lane's.
+      CMUX_CI_XCODE_APP: ${{ endsWith(matrix.pool, 'vcpu-macos-15') && vars.CMUX_CI_XCODE_APP_MACOS_15 || vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
+      CMUX_SEED_ROOT: ${{ matrix.root }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -110,11 +182,25 @@ jobs:
           submodules: recursive
 
       - name: Prepare admission build paths
+        env:
+          MATRIX_POOL: ${{ matrix.pool }}
+          TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
         run: |
           set -euo pipefail
           # The same paths as ci-macos.yml compile admission: they are part of
-          # the seed key.
+          # the seed key. A root lane builds where an owned Mac's second
+          # compile slot does. glaeda pins this job (one it does not know) to
+          # root 1, and the trusted runner runs nothing else, so the root is
+          # this job's alone.
           root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          if [ -n "$CMUX_SEED_ROOT" ]; then
+            case "$CMUX_SEED_ROOT:$MATRIX_POOL" in
+              [2-9]:"$TRUSTED_POOL") ;;
+              *) echo "::error::root $CMUX_SEED_ROOT is only for the trusted pool, not $MATRIX_POOL"; exit 1 ;;
+            esac
+            root="/private/tmp/cmux-ci-$CMUX_SEED_ROOT"
+            echo "CMUX_CI_CANONICAL_ROOT=$root" >> "$GITHUB_ENV"
+          fi
           rm -rf "$root/derived-data-compile-admission" "$root/compile-admission-cas"
           echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission" >> "$GITHUB_ENV"
           echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas" >> "$GITHUB_ENV"
@@ -127,7 +213,12 @@ jobs:
         run: |
           set -euo pipefail
           fingerprint="$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")"
-          echo "prefix=admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-" >> "$GITHUB_OUTPUT"
+          prefix="admission-derived-data-v1-${RUNNER_OS}-${RUNNER_ARCH}-${fingerprint}-"
+          # Adoption scopes the prefix itself; the save names this width.
+          scoped="$(python3 scripts/ci/seed_derived_data.py scope "$prefix")"
+          test -n "$scoped"
+          echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+          echo "scoped=$scoped" >> "$GITHUB_OUTPUT"
 
       - name: Install compilation dependencies
         run: |
@@ -152,24 +243,74 @@ jobs:
       - name: Sanitize Swift package cache
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
+      # SwiftPM's evaluated-manifest cache, which compile admission restores
+      # read-only (scripts/ci/swiftpm-manifest-cache.sh). Exact key only: a
+      # miss starts empty so the saved cache holds just this revision's
+      # manifests, at the canonical path admission resolves from.
+      - name: Compute SwiftPM manifest cache key
+        id: swiftpm-manifest-key
+        run: scripts/ci/swiftpm-manifest-cache.sh key >> "$GITHUB_OUTPUT"
+
+      - name: Restore SwiftPM manifest cache
+        id: swiftpm-manifest-restore
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
+
+      - name: Install SwiftPM manifest cache
+        run: |
+          set -euo pipefail
+          if [ "$MANIFEST_CACHE_HIT" = true ]; then
+            scripts/ci/swiftpm-manifest-cache.sh install "$RUNNER_TEMP/swiftpm-manifests"
+          else
+            scripts/ci/swiftpm-manifest-cache.sh clear
+          fi
+        env:
+          MANIFEST_CACHE_HIT: ${{ steps.swiftpm-manifest-restore.outputs.cache-hit }}
+
       - name: Resolve Swift packages
         run: |
           set -euo pipefail
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
             "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$PWD/.ci-source-packages"
 
-      # Build on the newest earlier seed. A miss is a cold build, which is
-      # still a correct seed, just a slower one.
+      - name: Stage SwiftPM manifest cache
+        id: swiftpm-manifest-stage
+        if: steps.swiftpm-manifest-restore.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        run: scripts/ci/swiftpm-manifest-cache.sh stage "$RUNNER_TEMP/swiftpm-manifests"
+
+      - name: Save SwiftPM manifest cache
+        if: steps.swiftpm-manifest-stage.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        with:
+          backend: ${{ vars.CI_CACHE_BACKEND || 'r2' }}
+          path: ${{ runner.temp }}/swiftpm-manifests
+          key: ${{ steps.swiftpm-manifest-key.outputs.key }}
+
+      # Build on the nearest earlier seed in this commit's history, not the
+      # newest pointer: nightly.yml's cold seed of an older main can hold that.
+      # A miss is a cold build, which is still a correct seed, just a slower one.
       - name: Adopt the newest seed
         id: adopt
         continue-on-error: true
         timeout-minutes: 8
         env:
           PREFIX: ${{ steps.key.outputs.prefix }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci/seed_derived_data.py adopt \
             "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            "$PREFIX$GITHUB_SHA" "$PREFIX"
+            "$PREFIX" "$GITHUB_SHA"
 
       - name: Record seed inputs
         id: record
@@ -206,17 +347,20 @@ jobs:
         with:
           backend: r2
           path: ${{ env.CMUX_COMPILE_ADMISSION_DERIVED_DATA }}
-          key: ${{ steps.key.outputs.prefix }}${{ github.sha }}
+          key: ${{ steps.key.outputs.scoped }}${{ github.sha }}
 
       # Publish the product exactly as ci-macos.yml compile admission does
       # (tests/test_seed_derived_data.py pins the copy). Staging and relocation
       # rewrite Build/Products, so these follow "Save seed". Only a main push
       # is a producer pull requests trust; a dispatch would publish a product
       # nothing adopts. A failure here costs pull requests the adoption, never
-      # the seed.
+      # the seed. The product does not depend on the width, so only the first
+      # pool (decide's publisher) publishes it, under the one artifact name
+      # admission looks up. When that pool skips, its seed's commit has these
+      # build inputs, and so the product pull requests already adopt.
       - name: Stage compiled package frameworks
         id: stage-products
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.pool == needs.decide.outputs.publisher
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -264,6 +408,24 @@ jobs:
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
+
+      # macOS jobs start their checkout from these objects, so a pull request
+      # fetches only what changed since this main commit instead of the whole
+      # tree and its submodules (scripts/ci/git-seed.sh). A failure costs them
+      # the head start, never this seed. Not from the trusted owned runner:
+      # its reused workspace .git grows across checkouts, and the Blacksmith
+      # pools already save the same key.
+      - name: Save git object seed
+        id: git-seed
+        if: github.ref == 'refs/heads/main' && matrix.pool != vars.CI_SEED_TRUSTED_POOL
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
+        run: scripts/ci/git-seed.sh save "$GITHUB_WORKSPACE"
 
       - name: Summarize
         if: always()

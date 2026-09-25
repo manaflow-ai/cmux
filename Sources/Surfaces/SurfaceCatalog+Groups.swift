@@ -1,4 +1,5 @@
 import CmuxCore
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A collection of resources that travels as one drag or one "open all": a cmux-tui

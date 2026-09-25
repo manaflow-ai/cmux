@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxFoundation
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Owns one ``CmuxTuiSurfaceProvider`` per cloud machine and keeps the catalog's machine

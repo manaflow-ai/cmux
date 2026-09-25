@@ -424,6 +424,22 @@
       "savingRelaySettings": "Enregistrement…"
     },
     "coderouterAccounts": {
+      "transferAction": "Transférer",
+      "transferringAction": "Transfert…",
+      "transferDialogTitle": "Transférer le compte vers une autre équipe",
+      "transferChooseBody": "Choisissez l’équipe qui recevra {account}. Il appartient actuellement à {source}.",
+      "transferDestinationLabel": "Équipe de destination",
+      "continueAction": "Continuer",
+      "backAction": "Retour",
+      "transferConfirmTitle": "Transférer {account} ?",
+      "transferConfirmBody": "{account} passe de {source} à {destination}. Les machines cloud et les membres de {source} cessent immédiatement de l’utiliser. Il conserve son paramètre de partage actuel dans {destination}.",
+      "transferConfirmAction": "Transférer le compte",
+      "transferSuccess": "{account} a été déplacé vers {destination}.",
+      "transferError": "Impossible de transférer ce compte. Réessayez.",
+      "transferForbiddenError": "Vous ne pouvez plus déplacer de comptes vers cette équipe.",
+      "transferNotFoundError": "Ce compte n’est plus dans cette équipe. Actualisez pour voir où il se trouve.",
+      "transferConflictError": "Le compte a changé pendant le transfert. Actualisez et réessayez.",
+      "transferUnavailableError": "Les transferts sont temporairement indisponibles, ou le compte est en cours d’actualisation. Réessayez dans un instant.",
       "shareWithTeam": "Partager avec l’équipe",
       "makePrivate": "Rendre privé",
       "privateImportHint": "Les nouveaux comptes sont privés. Partagez un compte pour le rendre accessible aux VM Cloud de cette équipe.",
@@ -4059,5 +4075,15 @@
     "organization": "Organisation",
     "personalAccount": "compte personnel",
     "switchAccountButton": "Utiliser un autre compte"
+  },
+  "MobileRelease106": {
+    "title": "Nouveautés de la version 1.0.6",
+    "releaseLabel": "1.0.6 · Septembre 2026",
+    "connectionTitle": "Connexions Mac mises à jour",
+    "connectionDetail": "Cette mise à jour utilise le nouveau service de connexion et le transport Iroh. Les anciennes versions Mac doivent être mises à jour pour se connecter.",
+    "updateTitle": "Mettez à jour cmux sur votre Mac",
+    "updateDetail": "Nécessite cmux {stableVersion} ou version ultérieure, ou NIGHTLY {nightlyVersion} ou version ultérieure. Activez le jumelage iOS dans Réglages > Mobile sur chaque Mac.",
+    "rollbackTitle": "Vous devez conserver une ancienne version Mac ?",
+    "rollbackDetail": "Utilisez cmux BETA 1.0.5 ({rollbackBuild}) dans TestFlight > Versions précédentes tant qu’elle reste disponible. Choisissez exactement cette version, car les suivantes utilisent un service de connexion plus récent."
   }
 }

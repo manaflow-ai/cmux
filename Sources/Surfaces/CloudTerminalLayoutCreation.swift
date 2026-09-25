@@ -1,3 +1,6 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// Creates one terminal beside an exact daemon tab from a fresh operation snapshot.

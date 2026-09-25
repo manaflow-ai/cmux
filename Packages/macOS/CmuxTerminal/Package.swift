@@ -12,6 +12,12 @@ let package = Package(
             name: "CmuxTerminal",
             targets: ["CmuxTerminal"]
         ),
+        // Lets other packages' test targets that link CmuxTerminal satisfy the
+        // libghostty symbols the same way CmuxTerminalTests does.
+        .library(
+            name: "GhosttyRuntimeTestStubs",
+            targets: ["GhosttyRuntimeTestStubs"]
+        ),
     ],
     dependencies: [
         .package(path: "../CmuxFoundation"),

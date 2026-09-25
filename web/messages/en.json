@@ -414,6 +414,22 @@
       }
     },
     "coderouterAccounts": {
+      "transferAction": "Transfer",
+      "transferringAction": "Transferring…",
+      "transferDialogTitle": "Transfer account to another team",
+      "transferChooseBody": "Choose which team should receive {account}. It currently belongs to {source}.",
+      "transferDestinationLabel": "Destination team",
+      "continueAction": "Continue",
+      "backAction": "Back",
+      "transferConfirmTitle": "Transfer {account}?",
+      "transferConfirmBody": "{account} moves from {source} to {destination}. Cloud machines and members of {source} stop using it right away. It keeps its current sharing setting in {destination}.",
+      "transferConfirmAction": "Transfer account",
+      "transferSuccess": "Moved {account} to {destination}.",
+      "transferError": "Could not transfer this account. Try again.",
+      "transferForbiddenError": "You can no longer move accounts into that team.",
+      "transferNotFoundError": "This account is no longer in this team. Refresh to see where it is.",
+      "transferConflictError": "This account changed while it was moving. Refresh and try again.",
+      "transferUnavailableError": "Transfers are temporarily unavailable, or the account is refreshing. Try again in a moment.",
       "title": "Accounts",
       "description": "Shared accounts are available to this team’s Cloud VMs. Private accounts stay with the person who added them.",
       "accountsCount": "{count, plural, one {# account} other {# accounts}}",
@@ -5860,5 +5876,15 @@
     "organization": "Organization",
     "personalAccount": "personal account",
     "switchAccountButton": "Use a different account"
+  },
+  "MobileRelease106": {
+    "title": "What's New in 1.0.6",
+    "releaseLabel": "1.0.6 · September 2026",
+    "connectionTitle": "Updated Mac connections",
+    "connectionDetail": "This update uses the new connection service and Iroh transport. Older Mac builds need an update to connect.",
+    "updateTitle": "Update cmux on your Mac",
+    "updateDetail": "Requires cmux {stableVersion} or later, or NIGHTLY {nightlyVersion} or later. Enable iOS pairing in Settings > Mobile on each Mac.",
+    "rollbackTitle": "Need to keep an older Mac build?",
+    "rollbackDetail": "Use cmux BETA 1.0.5 ({rollbackBuild}) from TestFlight > Previous Builds while it remains available. Choose that exact build, since later builds use a newer connection service."
   }
 }

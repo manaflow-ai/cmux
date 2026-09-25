@@ -40,6 +40,7 @@ struct TerminalKeyboardFullHeightPinTests {
             coordinator.snapshot(inputs: TerminalViewportInputs(
                 bounds: CGSize(width: 402, height: 874),
                 keyboardHeight: keyboard,
+                gridKeyboardHeight: 0,
                 composerBandHeight: 44,
                 reservedToolbarHeight: 34,
                 toolbarFrameHeight: 34,
@@ -85,6 +86,7 @@ struct TerminalKeyboardFullHeightPinTests {
             coordinator.snapshot(inputs: TerminalViewportInputs(
                 bounds: bounds,
                 keyboardHeight: 0,
+                gridKeyboardHeight: 0,
                 composerBandHeight: 44,
                 reservedToolbarHeight: 34,
                 toolbarFrameHeight: 34,

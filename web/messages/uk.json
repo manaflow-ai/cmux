@@ -424,6 +424,22 @@
       "savingRelaySettings": "Збереження…"
     },
     "coderouterAccounts": {
+      "transferAction": "Перенести",
+      "transferringAction": "Перенесення…",
+      "transferDialogTitle": "Перенести акаунт до іншої команди",
+      "transferChooseBody": "Виберіть команду, яка отримає {account}. Зараз він належить команді {source}.",
+      "transferDestinationLabel": "Команда призначення",
+      "continueAction": "Продовжити",
+      "backAction": "Назад",
+      "transferConfirmTitle": "Перенести {account}?",
+      "transferConfirmBody": "{account} переходить з команди {source} до команди {destination}. Хмарні машини та учасники {source} одразу перестануть ним користуватися. У {destination} збережеться його поточне налаштування спільного доступу.",
+      "transferConfirmAction": "Перенести акаунт",
+      "transferSuccess": "{account} перенесено до {destination}.",
+      "transferError": "Не вдалося перенести цей акаунт. Спробуйте ще раз.",
+      "transferForbiddenError": "Ви більше не можете переносити акаунти до цієї команди.",
+      "transferNotFoundError": "Цього акаунта більше немає в цій команді. Оновіть сторінку, щоб побачити, де він.",
+      "transferConflictError": "Акаунт змінився під час перенесення. Оновіть сторінку й спробуйте ще раз.",
+      "transferUnavailableError": "Перенесення тимчасово недоступне або акаунт оновлюється. Спробуйте ще раз за мить.",
       "shareWithTeam": "Поділитися з командою",
       "makePrivate": "Зробити приватним",
       "privateImportHint": "Нові облікові записи приватні. Поділіться записом, щоб він став доступним хмарним ВМ цієї команди.",
@@ -4131,5 +4147,15 @@
     "organization": "Організація",
     "personalAccount": "особистий обліковий запис",
     "switchAccountButton": "Використати інший обліковий запис"
+  },
+  "MobileRelease106": {
+    "title": "Що нового у 1.0.6",
+    "releaseLabel": "1.0.6 · Вересень 2026",
+    "connectionTitle": "Оновлені підключення до Mac",
+    "connectionDetail": "Це оновлення використовує новий сервіс підключення та транспорт Iroh. Старі збірки для Mac потрібно оновити, щоб підключатися.",
+    "updateTitle": "Оновіть cmux на Mac",
+    "updateDetail": "Потрібен cmux {stableVersion} або новіший чи NIGHTLY {nightlyVersion} або новіший. Увімкніть спарювання з iOS у Параметри > Мобільні пристрої на кожному Mac.",
+    "rollbackTitle": "Потрібно зберегти стару збірку для Mac?",
+    "rollbackDetail": "Використовуйте cmux BETA 1.0.5 ({rollbackBuild}) із TestFlight > Попередні збірки, доки вона доступна. Виберіть саме цю збірку, оскільки пізніші використовують новіший сервіс підключення."
   }
 }

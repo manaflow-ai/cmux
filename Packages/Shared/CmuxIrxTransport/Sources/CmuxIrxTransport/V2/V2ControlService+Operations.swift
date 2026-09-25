@@ -108,6 +108,7 @@ extension V2ControlService {
             var seenCursors = Set<String>()
             var devices: [V2DeviceRecord] = []
             var inboundPeers: [V2InboundPeerPermission] = []
+            var rules: Set<String>?
             var inconsistent = false
             repeat {
                 let request = V2DirectoryRequest(cursor: cursor, haveRevision: first?.revision, requestID: UUID().uuidString.lowercased(), schemaID: .directoryRequestV1)
@@ -122,7 +123,16 @@ extension V2ControlService {
                 let page = response.directory
                 guard page.teamID == descriptor.identity.teamID else { throw V2ControlFailure.scopeMismatch }
                 if let first, first.revision != page.revision { inconsistent = true; break }
-                if first == nil { first = page }
+                if first == nil {
+                    first = page
+                    rules = page.rules.map(Set.init)
+                } else if let currentRules = rules, let pageRules = page.rules {
+                    rules = currentRules.intersection(pageRules)
+                } else {
+                    // Mixed-version pagination must fail closed. A later page
+                    // without the rule cannot inherit page one's capabilities.
+                    rules = nil
+                }
                 devices.append(contentsOf: page.devices)
                 inboundPeers.append(contentsOf: page.inboundPeers ?? [])
                 guard devices.count <= 4096, inboundPeers.count <= 4096 else { throw V2ControlFailure.capacityExceeded }
@@ -133,7 +143,7 @@ extension V2ControlService {
             let directory = V2Directory(
                 devices: devices, inboundPeers: inboundPeers, issuedAt: first.issuedAt, nextCursor: nil,
                 permissionExpiresAt: first.permissionExpiresAt, relayURLs: first.relayURLs,
-                revision: first.revision, teamID: first.teamID
+                revision: first.revision, rules: rules?.sorted(), teamID: first.teamID
             )
             cache.directory = directory
             failure = nil

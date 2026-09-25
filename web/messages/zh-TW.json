@@ -424,6 +424,22 @@
       "savingRelaySettings": "正在儲存…"
     },
     "coderouterAccounts": {
+      "transferAction": "轉移",
+      "transferringAction": "正在轉移…",
+      "transferDialogTitle": "將帳號轉移到其他團隊",
+      "transferChooseBody": "選擇接收 {account} 的團隊。它目前屬於 {source}。",
+      "transferDestinationLabel": "目標團隊",
+      "continueAction": "繼續",
+      "backAction": "返回",
+      "transferConfirmTitle": "要轉移 {account} 嗎？",
+      "transferConfirmBody": "{account} 將從 {source} 轉移到 {destination}。{source} 的雲端機器和成員將立即停止使用它。它在 {destination} 中會保留目前的共用設定。",
+      "transferConfirmAction": "轉移帳號",
+      "transferSuccess": "已將 {account} 轉移到 {destination}。",
+      "transferError": "無法轉移此帳號，請再試一次。",
+      "transferForbiddenError": "你已無法將帳號轉移到該團隊。",
+      "transferNotFoundError": "此帳號已不在此團隊中。請重新整理以查看其目前位置。",
+      "transferConflictError": "轉移過程中帳號有所變更。請重新整理後再試一次。",
+      "transferUnavailableError": "轉移暫時無法使用，或帳號正在更新。請稍後再試。",
       "shareWithTeam": "與團隊共用",
       "makePrivate": "設為私人",
       "privateImportHint": "新帳戶預設為私人。共用帳戶後，此團隊的雲端虛擬機即可使用。",
@@ -4056,5 +4072,15 @@
     "organization": "組織",
     "personalAccount": "個人帳戶",
     "switchAccountButton": "使用其他帳號"
+  },
+  "MobileRelease106": {
+    "title": "1.0.6 更新內容",
+    "releaseLabel": "1.0.6 · 2026年9月",
+    "connectionTitle": "Mac 連線已更新",
+    "connectionDetail": "此更新使用新的連線服務與 Iroh 傳輸。較舊的 Mac 組建需要更新才能連線。",
+    "updateTitle": "更新 Mac 上的 cmux",
+    "updateDetail": "需要 cmux {stableVersion} 或更新版本，或 NIGHTLY {nightlyVersion} 或更新版本。請在每台 Mac 的「設定」>「行動裝置」中啟用 iOS 配對。",
+    "rollbackTitle": "需要保留較舊的 Mac 組建？",
+    "rollbackDetail": "在仍可用時，從 TestFlight > 先前的組建中使用 cmux BETA 1.0.5 ({rollbackBuild})。請選擇此確切組建，因為後續組建使用更新的連線服務。"
   }
 }

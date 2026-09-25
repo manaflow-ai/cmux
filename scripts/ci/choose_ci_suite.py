@@ -159,29 +159,48 @@ def wants_unit_suite(
 
 
 def strict_steps(workflow: str, suites: Iterable[str]) -> list[str] | None:
-    """Names of the app-host steps that run `suites` a strict step owns.
+    """Names of the app-host steps a changed-suites run of `suites` must run.
 
-    Such a suite gets an app host and settings of its own from its step, so a
-    changed-suites run runs that step rather than putting the suite in its
-    shared batch. None when a selected strict suite has no step that names it.
+    A suite a strict step owns (FOCUSED_GATE_SELECTORS) gets an app host and
+    settings of its own from its step, so a changed-suites run runs that step
+    rather than putting the suite in its shared batch.
+
+    Any other shard step that names a suite with `-only-testing:` runs part of
+    it in a way the shared batch cannot, such as the renderer memory
+    regression, which skips itself unless its step sets
+    CMUX_RENDERER_MEMORY_REGRESSION=1. The suite stays in the shared batch and
+    that step runs too: otherwise the edited test reports "skipped" and the
+    run passes without executing it.
+
+    None when a selected strict suite has no step that names it, or when a
+    step that must run cannot be selected because its `if:` does not read
+    `unit_strict_steps`. The caller then runs every shard, where each such
+    step runs on its own shard.
     """
     job = workflow[workflow.index("\n  app-host-unit-tests:\n") :]
     job = job[: re.search(r"\n  [A-Za-z0-9_-]+:\n", job[1:]).start() + 1]
     owners: dict[str, set[str]] = {}
+    selectable: set[str] = set()
     for block in job.split("\n      - name: ")[1:]:
         name = block.split("\n", 1)[0].strip()
         condition = re.search(r"^        if: (.*)$", block, re.M)
         if condition is None or "_SHARD)" not in condition.group(1) or "!=" in condition.group(1):
             continue
+        if f"contains(inputs.unit_strict_steps, '|{name}|')" in condition.group(1):
+            selectable.add(name)
         for selector in FOCUSED_GATE_SELECTORS:
             if re.search(rf"\b{selector.split('/', 1)[1]}\b", block):
                 owners.setdefault(selector, set()).add(name)
+        for suite in re.findall(r"-only-testing:[\"']?(cmuxTests/[A-Za-z0-9_]+)", block):
+            owners.setdefault(suite, set()).add(name)
     names: set[str] = set()
     for suite in suites:
-        if suite in FOCUSED_GATE_SELECTORS:
-            if suite not in owners:
-                return None
+        if suite in owners:
             names |= owners[suite]
+        elif suite in FOCUSED_GATE_SELECTORS:
+            return None
+    if not names <= selectable:
+        return None
     return sorted(names)
 
 

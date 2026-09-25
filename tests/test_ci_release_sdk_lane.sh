@@ -44,7 +44,7 @@ require_job_contains \
 require_job_contains \
   "$CI_FILE" \
   "release-build" \
-  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || (vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
+  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-26'\'' || vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'') }}' \
   "CI release-build must use GitHub-hosted macOS on forks and the macOS 26 runner variable upstream"
 
 for workflow in "$CI_FILE" "$RELEASE_FILE"; do
@@ -73,7 +73,7 @@ swift_package_section="$(job_section "$CI_FILE" "swift-package-tests")"
 # Every event, pull requests included: this job builds the Release Ghostty CLI
 # helper against an SDK 15 Xcode, which only the macos-15 image carries, so it
 # must not follow MACOS_RUNNER_PR onto whatever pool that lane points at.
-if [[ "$swift_package_section" != *'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-15'\'' || (vars.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'') }}'* ]]; then
+if [[ "$swift_package_section" != *'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-15'\'' || (github.event_name == '\''pull_request'\'' && github.event.pull_request.head.repo.full_name != github.repository && '\''blacksmith-6vcpu-macos-15'\'' || vars.CI_PAID_MACOS_OVERFLOW == '\''1'\'' && vars.MACOS_RUNNER_DUAL_XCODE || '\''blacksmith-6vcpu-macos-15'\'') }}'* ]]; then
   echo "FAIL: CI swift-package-tests must use the dual-Xcode runner lane on every event" >&2
   exit 1
 fi

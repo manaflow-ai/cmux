@@ -424,6 +424,22 @@
       "savingRelaySettings": "កំពុងរក្សាទុក…"
     },
     "coderouterAccounts": {
+      "transferAction": "ផ្ទេរ",
+      "transferringAction": "កំពុងផ្ទេរ…",
+      "transferDialogTitle": "ផ្ទេរគណនីទៅក្រុមផ្សេង",
+      "transferChooseBody": "ជ្រើសរើសក្រុមដែលនឹងទទួល {account}។ បច្ចុប្បន្នវាជាកម្មសិទ្ធិរបស់ {source}។",
+      "transferDestinationLabel": "ក្រុមគោលដៅ",
+      "continueAction": "បន្ត",
+      "backAction": "ថយក្រោយ",
+      "transferConfirmTitle": "ផ្ទេរ {account} មែនទេ?",
+      "transferConfirmBody": "{account} នឹងផ្លាស់ពី {source} ទៅ {destination}។ ម៉ាស៊ីន Cloud និងសមាជិករបស់ {source} នឹងឈប់ប្រើវាភ្លាមៗ។ វារក្សាការកំណត់ការចែករំលែកបច្ចុប្បន្ននៅក្នុង {destination}។",
+      "transferConfirmAction": "ផ្ទេរគណនី",
+      "transferSuccess": "បានផ្លាស់ {account} ទៅ {destination} ហើយ។",
+      "transferError": "មិនអាចផ្ទេរគណនីនេះបានទេ។ សូមព្យាយាមម្តងទៀត។",
+      "transferForbiddenError": "អ្នកមិនអាចផ្លាស់គណនីទៅក្រុមនោះបានទៀតទេ។",
+      "transferNotFoundError": "គណនីនេះលែងនៅក្នុងក្រុមនេះហើយ។ សូមផ្ទុកឡើងវិញដើម្បីមើលថាវានៅឯណា។",
+      "transferConflictError": "គណនីបានផ្លាស់ប្តូរពេលកំពុងផ្លាស់ទី។ សូមផ្ទុកឡើងវិញ ហើយព្យាយាមម្តងទៀត។",
+      "transferUnavailableError": "ការផ្ទេរមិនអាចប្រើបានជាបណ្តោះអាសន្ន ឬគណនីកំពុងធ្វើបច្ចុប្បន្នភាព។ សូមព្យាយាមម្តងទៀតបន្តិចទៀត។",
       "shareWithTeam": "ចែករំលែកជាមួយក្រុម",
       "makePrivate": "កំណត់ជាឯកជន",
       "privateImportHint": "គណនីថ្មីជាគណនីឯកជន។ ចែករំលែកគណនី ដើម្បីឱ្យ Cloud VM របស់ក្រុមនេះអាចប្រើបាន។",
@@ -4055,5 +4071,15 @@
     "organization": "ស្ថាប័ន",
     "personalAccount": "គណនីផ្ទាល់ខ្លួន",
     "switchAccountButton": "ប្រើគណនីផ្សេងទៀត"
+  },
+  "MobileRelease106": {
+    "title": "អ្វីដែលថ្មីក្នុង 1.0.6",
+    "releaseLabel": "1.0.6 · ខែកញ្ញា 2026",
+    "connectionTitle": "ការតភ្ជាប់ Mac ត្រូវបានធ្វើបច្ចុប្បន្នភាព",
+    "connectionDetail": "ការអាប់ដេតនេះប្រើសេវាតភ្ជាប់ថ្មី និងការបញ្ជូន Iroh។ កំណែ Mac ចាស់ត្រូវអាប់ដេតដើម្បីតភ្ជាប់។",
+    "updateTitle": "អាប់ដេត cmux នៅលើ Mac របស់អ្នក",
+    "updateDetail": "ត្រូវការ cmux {stableVersion} ឬថ្មីជាងនេះ ឬ NIGHTLY {nightlyVersion} ឬថ្មីជាងនេះ។ បើកការផ្គូផ្គង iOS ក្នុង ការកំណត់ > ទូរសព្ទ នៅលើ Mac នីមួយៗ។",
+    "rollbackTitle": "ត្រូវការរក្សាកំណែ Mac ចាស់មែនទេ?",
+    "rollbackDetail": "ប្រើ cmux BETA 1.0.5 ({rollbackBuild}) ពី TestFlight > កំណែមុន ខណៈដែលវានៅអាចប្រើបាន។ ជ្រើសរើសកំណែនេះឱ្យបានច្បាស់ ព្រោះកំណែក្រោយប្រើសេវាតភ្ជាប់ថ្មីជាង។"
   }
 }

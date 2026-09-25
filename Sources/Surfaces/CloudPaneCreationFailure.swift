@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// The latest cloud terminal creation failure shown by its owning workspace.

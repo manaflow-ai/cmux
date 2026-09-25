@@ -1,3 +1,4 @@
+import CmuxSurfaceCatalogModel
 import Foundation
 import CMUXAgentLaunch
 import CmuxAgentJournal
@@ -4196,7 +4197,11 @@ struct CMUXCLI {
     /// Restored terminals start the app and then race its listener bind. Keep
     /// the implicit restore connection alive long enough for that lifecycle,
     /// while explicit socket paths retain their immediate failure semantics.
-    private static let restoreSocketStartupTimeoutSeconds: TimeInterval = 45
+    ///
+    /// ``SocketStartupWaiter`` owns the default window and its environment
+    /// override, so the CLI and the socket package cannot drift apart.
+    private static let restoreSocketStartupTimeoutSeconds: TimeInterval =
+        SocketClient.appStartupWaitTimeoutSeconds
     // Stable per-user slot for the pinned Cloud VM. This value is intentionally reused as
     // both the backend create idempotency key and the local daemon slot so every open,
     // reconnect, session restore, and mobile attach targets the same provider VM once
@@ -11628,19 +11633,7 @@ struct CMUXCLI {
             sshOptions.skipDaemonBootstrap &&
             sshOptions.pinWorkspaceToTop &&
             vmIDForSplitAttach != nil
-        let usesPersistentSSHPTY =
-            !sshOptions.skipDaemonBootstrap &&
-            effectiveTerminalTransport == .ssh &&
-            !sshOptions.remoteCommand.disablesTTY(
-                in: remoteSSHOptions,
-                hostRequestTTY: resolvedHostRequestTTY
-            ) &&
-            sshOptions.remoteCommand.arguments.isEmpty &&
-            remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
-            deferredRemoteReconnectCommandScript != nil
-        let persistentDaemonSlot = usesPersistentSSHPTY
-            ? "ssh-\(UUID().uuidString.lowercased())"
-            : (usesPersistentFreestyleCloud ? Self.persistentCloudVMSlotID : nil)
+        let persistentDaemonSlot = usesPersistentFreestyleCloud ? Self.persistentCloudVMSlotID : nil
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -11710,18 +11703,6 @@ struct CMUXCLI {
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
         }
-        if usesPersistentSSHPTY,
-           let remoteTerminalBootstrapScript {
-            let ptyStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
-                options: sshOptions,
-                remoteShellCommand: remoteTerminalBootstrapScript,
-                localCommandScript: combinedLocalCommandScript,
-                foregroundAuthToken: deferredRemoteReconnectToken,
-                passwordCredential: sshOptions.passwordCredential
-            )
-            initialSSHStartupCommand = ptyStartupCommand
-            remoteTerminalSSHStartupCommand = ptyStartupCommand
-        }
         if effectiveTerminalTransport == .mosh {
             initialSSHStartupCommand = buildMoshTerminalStartupCommand(
                 options: sshOptions,
@@ -11790,7 +11771,6 @@ struct CMUXCLI {
             : nil
         let workspaceId: String
         let workspaceWindowId: String?
-        var workspaceInitialSurfaceId: String?
         let didCreateWorkspace: Bool
         if let existingPinnedWorkspace {
             workspaceId = existingPinnedWorkspace.workspaceId
@@ -11817,26 +11797,6 @@ struct CMUXCLI {
                 throw CLIError(message: "workspace.create did not return workspace_id")
             }
             workspaceId = createdWorkspaceId
-            let rawWorkspaceInitialSurfaceId = (workspaceCreate["surface_id"] as? String)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            workspaceInitialSurfaceId = rawWorkspaceInitialSurfaceId?.isEmpty == false
-                ? rawWorkspaceInitialSurfaceId
-                : nil
-            if usesPersistentSSHPTY && workspaceInitialSurfaceId == nil {
-                do {
-                    workspaceInitialSurfaceId = try resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
-                } catch {
-                    do {
-                        _ = try client.sendV2(method: "workspace.close", params: ["workspace_id": workspaceId])
-                    } catch {
-                        let warning = "Warning: failed to rollback workspace \(workspaceId): \(error)\n"
-                        cliWriteStderr(warning)
-                    }
-                    throw CLIError(
-                        message: "cmux could not resolve the initial terminal surface for persistent SSH PTY startup"
-                    )
-                }
-            }
             workspaceWindowId = (workspaceCreate["window_id"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             didCreateWorkspace = true
@@ -12000,9 +11960,6 @@ struct CMUXCLI {
         payload["terminal_profile"] = sshOptions.terminalProfile.kind.rawValue
         if let tmuxSessionName = sshOptions.terminalProfile.tmuxSessionName {
             payload["terminal_tmux_session"] = tmuxSessionName
-        }
-        if usesPersistentSSHPTY, let workspaceInitialSurfaceId {
-            payload["ssh_pty_session_id"] = "ssh-\(workspaceId)-\(workspaceInitialSurfaceId)"
         }
         if let persistentDaemonSlot {
             payload["persistent_daemon_slot"] = persistentDaemonSlot
@@ -12809,42 +12766,6 @@ struct CMUXCLI {
             "exit $cmux_status",
         ]
         return lines.joined(separator: "\n")
-    }
-
-    private func buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
-        options: SSHCommandOptions,
-        remoteShellCommand: String,
-        localCommandScript: String?,
-        foregroundAuthToken: String,
-        passwordCredential: String?
-    ) -> String {
-        let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
-            destination: options.destination,
-            port: options.port,
-            identityFile: normalizedSSHIdentityPath(options.identityFile),
-            sshOptions: effectiveSSHOptions(
-                options.sshOptions,
-                remoteRelayPort: options.remoteRelayPort
-            ),
-            token: foregroundAuthToken,
-            postAuthenticationCommand: localCommandScript
-        )
-        let attachCommand = SSHPTYAttachStartupCommandBuilder.command(
-            foregroundAuth: foregroundAuth,
-            remoteCommand: remoteShellCommand,
-            requireExisting: false
-        )
-        return buildReusableSSHStartupCommand(
-            sshCommand: attachCommand,
-            shellFeatures: "",
-            remoteRelayPort: options.remoteRelayPort,
-            isShellSnippet: false,
-            passwordCredential: passwordCredential,
-            controlPathPreflightShellFunction: nil,
-            oneTimeCommand: nil,
-            retryPTYAttachStatus: true,
-            retryOnFailure: false
-        )
     }
 
     /// Open an interactive cmux-managed shell on a Cloud VM. Automatic opens use
@@ -17169,7 +17090,6 @@ struct CMUXCLI {
             }
             return
         }
-
 
         if subcommand == "find" {
             let sid = try requireSurface()
@@ -37299,7 +37219,8 @@ export default CMUXSessionRestore;
         enrichUserPromptSubmitFeedEvent(
             &event,
             hookEventName: hookEventName,
-            promptText: promptText
+            promptText: promptText,
+            promptLength: feedPromptLength(from: parsedInput.object, compacted: true)
         )
         event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
 
@@ -37496,16 +37417,17 @@ export default CMUXSessionRestore;
     private func enrichUserPromptSubmitFeedEvent(
         _ event: inout [String: Any],
         hookEventName: String,
-        promptText: String?
+        promptText: String?,
+        promptLength: Int?
     ) {
-        guard hookEventName == "UserPromptSubmit",
-              let promptText else { return }
-        if var toolInput = event["tool_input"] as? [String: Any] {
-            toolInput["prompt"] = promptText
-            event["tool_input"] = toolInput
-        } else {
-            event["tool_input"] = ["prompt": promptText]
-        }
+        guard hookEventName == "UserPromptSubmit" else { return }
+        var toolInput = event["tool_input"] as? [String: Any] ?? [:]
+        if let promptText { toolInput["prompt"] = promptText }
+        if let promptLength, (0...1_048_576).contains(promptLength) {
+            toolInput["prompt_length"] = promptLength
+        } else { toolInput.removeValue(forKey: "prompt_length") }
+        if !toolInput.isEmpty { event["tool_input"] = toolInput }
+        guard let promptText else { return }
         var context = event["context"] as? [String: Any] ?? [:]
         if context["lastUserMessage"] == nil {
             setFeedContext(
@@ -37515,11 +37437,8 @@ export default CMUXSessionRestore;
                 maxLength: 1_000
             )
         }
-        if !context.isEmpty {
-            event["context"] = context
-        }
+        if !context.isEmpty { event["context"] = context }
     }
-
     private func feedContext(from raw: [String: Any]) -> [String: Any] {
         var context: [String: Any] = [:]
         setFeedContext(
@@ -39350,7 +39269,7 @@ export default CMUXSessionRestore;
     /// leaves ``feedAttentionSendReserveSeconds`` of the shared deadline for
     /// the essential send — a stalled probe degrades to ambient addressing,
     /// never to a starved notification.
-    private func resolvedAttentionDeliveryTarget(
+    func resolvedAttentionDeliveryTarget(
         workspaceId: String?,
         surfaceId: String?,
         client: SocketClient,
@@ -39438,13 +39357,6 @@ export default CMUXSessionRestore;
                 probe.close()
                 return nil
             }
-        }
-
-        // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
-        // Also matches the graceful-fallback pattern of the other hooks.
-        guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
-            print("{}")
-            return
         }
 
         let commandEvent = optionValue(commandArgs, name: "--event")
@@ -39696,21 +39608,37 @@ export default CMUXSessionRestore;
                 return
             }
         }
-
+        let claimedWorkspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"])
+        let claimedSurfaceId = firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
+            ?? normalizedHookValue(env["CMUX_SURFACE_ID"])
+        // Telemetry must not wait for a routing response. Carry its scope to
+        // the host, where Computer Use checks live local ownership before
+        // presenting setup. Blocking decisions resolve their target first.
+        if isActionable, validatedCodexFeedTarget == nil,
+           let activeClient = client ?? makeLifecycleProbeClient(),
+           let target = resolvedFeedDeliveryTarget(
+               workspaceId: claimedWorkspaceId,
+               surfaceId: claimedSurfaceId,
+               agentPid: agentPid,
+               relayOrigin: env[agentHookRelayOriginEnvironmentKey] == "1",
+               client: activeClient,
+               deadline: Date.now.addingTimeInterval(
+                   Self.feedAttentionSendReserveSeconds
+                       + Self.feedAttentionProbeTimeoutCapSeconds
+               )
+           ) { validatedCodexFeedTarget = target }
+        guard !isActionable || validatedCodexFeedTarget != nil else { print("{}"); return }
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
             "hook_event_name": hookEventName,
             "_source": source,
         ]
-        if agentPid > 0 {
-            eventDict["_ppid"] = agentPid
-        }
-        if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
+        if agentPid > 0 { eventDict["_ppid"] = agentPid }
+        if let workspaceId = validatedCodexFeedTarget?.workspaceId ?? claimedWorkspaceId {
             eventDict["workspace_id"] = workspaceId
         }
-        if let validatedCodexFeedTarget {
-            eventDict["workspace_id"] = validatedCodexFeedTarget.workspaceId
-            eventDict["surface_id"] = validatedCodexFeedTarget.surfaceId
+        if let surfaceId = validatedCodexFeedTarget?.surfaceId ?? claimedSurfaceId {
+            eventDict["surface_id"] = surfaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
         let postToolUseResponseInput = stdinObj["tool_response"]
@@ -39758,7 +39686,8 @@ export default CMUXSessionRestore;
         enrichUserPromptSubmitFeedEvent(
             &eventDict,
             hookEventName: hookEventName,
-            promptText: promptText
+            promptText: promptText,
+            promptLength: feedPromptLength(from: stdinObj, compacted: false)
         )
         let causalEvidence = Self.semanticAttentionContext(stdinObj)
         let requestId = stdinObj["_opencode_request_id"] as? String
