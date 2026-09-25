@@ -128,6 +128,47 @@ struct MobileHostOrderedInputTests {
     }
 
     @Test
+    func equivalentSurfaceUUIDSpellingsShareOneOrderingDomain() async throws {
+        let transport = OrderedInputRecordingTransport()
+        let gate = CanonicalSurfaceInputGate()
+        let connection = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await gate.handle(request)
+                return .ok(["handled": request.id ?? NSNull()])
+            },
+            onClose: { _ in }
+        )
+        let surfaceID = UUID()
+        let batch = try Self.framedBatch(
+            [
+                ("input-1", "terminal.input"),
+                ("input-2", "terminal.input"),
+            ],
+            surfaceIDsByRequestID: [
+                "input-1": surfaceID.uuidString.uppercased(),
+                "input-2": surfaceID.uuidString.lowercased(),
+            ]
+        )
+
+        await connection.debugHandleReceiveDataForTesting(batch)
+        await gate.waitUntilFirstInputStarts()
+        // Both spellings identify the same UUID. The second write must wait
+        // behind the first even though the wire strings differ.
+        for _ in 0..<100 {
+            #expect(!(await gate.secondInputStarted()))
+            if await gate.secondInputStarted() { break }
+            await Task.yield()
+        }
+        await gate.releaseFirstInput()
+        _ = await transport.waitForResponseCount(2)
+        await connection.close(reason: "test complete")
+    }
+
+    @Test
     func stalledResponseWriteDoesNotBlockLaterOrderedInput() async throws {
         let transport = OrderedInputRecordingTransport()
         await transport.setHoldSends(true)
@@ -193,6 +234,44 @@ struct MobileHostOrderedInputTests {
             ))
         }
         return batch
+    }
+}
+
+private actor CanonicalSurfaceInputGate {
+    private var firstInputStarted = false
+    private var didSecondInputStart = false
+    private var firstInputRelease: CheckedContinuation<Void, Never>?
+    private var firstInputWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func handle(_ request: MobileHostRPCRequest) async {
+        switch request.id as? String {
+        case "input-1":
+            firstInputStarted = true
+            resume(&firstInputWaiters)
+            await withCheckedContinuation { firstInputRelease = $0 }
+        case "input-2":
+            didSecondInputStart = true
+        default:
+            break
+        }
+    }
+
+    func waitUntilFirstInputStarts() async {
+        if firstInputStarted { return }
+        await withCheckedContinuation { firstInputWaiters.append($0) }
+    }
+
+    func secondInputStarted() -> Bool { didSecondInputStart }
+
+    func releaseFirstInput() {
+        firstInputRelease?.resume()
+        firstInputRelease = nil
+    }
+
+    private func resume(_ waiters: inout [CheckedContinuation<Void, Never>]) {
+        let pending = waiters
+        waiters = []
+        for waiter in pending { waiter.resume() }
     }
 }
 
