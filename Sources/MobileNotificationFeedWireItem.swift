@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct MobileNotificationFeedWireItem: Sendable {
+struct MobileNotificationFeedWireItem: Sendable {
     let id: String
     let workspaceID: String
     let surfaceID: String?

@@ -10,6 +10,14 @@ send input to an active terminal session from iPhone or iPad.
 
 Official App Store Connect app: Apple ID `6783338052`.
 
+Demonstration mode: the review demo account is server-flagged
+(`cmuxReviewDemoContent: true` in Stack `clientReadOnlyMetadata`, set with
+`web/scripts/set-review-demo-content.ts`). After sign-in the app shows a local
+"Demo Mac" with sample developer workspaces, notifications, and interactive
+canned terminals through the same UI as a live Mac, so the reviewer can
+exercise the full app even if the prepared review Mac or its network route is
+temporarily unreachable. Real computers still appear alongside it.
+
 Reviewer access:
 
 - Use the demo account entered in App Store Connect Review Information. Do not
@@ -67,7 +75,8 @@ Primary review path:
 2. For email-code sign-in, open the Mailinator public inbox URL supplied in ASC
    Review Information and enter the newest one-time code from the email subject.
 3. Wait for the prepared review Mac to appear. If the ASC notes include a manual
-   fallback, use Add Computer with the exact fallback values supplied there.
+   fallback, select Tailscale Only under Settings > Connection Method, then use
+   Add Computer with the exact fallback values supplied there.
 4. Open the workspace list, then open the `App Review` workspace detail.
 5. Send `echo app-review-ok` from the message box.
 6. Enable phone notifications and verify the opt-in prompt, then disable them

@@ -1,0 +1,106 @@
+name: CI health report
+
+# Where CI time went, on a schedule, so waste stops being something somebody
+# has to go and discover by querying the Actions API by hand.
+#
+# scripts/ci/ci_health_report.py holds the whole report: runner minutes by
+# workflow, job and runner label split by conclusion; queue wait (created ->
+# started) percentiles per runner label; the wasteful patterns worth acting on;
+# and the same headline numbers for the previous window so a regression shows
+# up as a change. docs/ci/health-report.md says what each number means and
+# which threshold should make somebody do something.
+#
+# This workflow only reads. Cancelling wasted demand belongs to
+# .github/workflows/ci-queue-janitor.yml, which is why the token here has
+# `actions: read` and no write scope on runs.
+#
+# Output is the step summary always. When the repository variable
+# CI_HEALTH_REPORT_ISSUE names a tracking issue whose title starts with
+# "[CI Health]", the report also refreshes one marker-delimited comment on that
+# issue in place. No issue is ever opened automatically: create the tracking
+# issue by hand and point the variable at it.
+on:
+  schedule:
+    - cron: "37 2,8,14,20 * * *"
+  workflow_dispatch:
+    inputs:
+      window_hours:
+        description: "Hours to report on (the previous window of the same length is the baseline)"
+        required: false
+        default: "6"
+        type: string
+      skip_issue:
+        description: "Render to the step summary only, leaving the tracking issue untouched"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  issues: write
+  contents: read
+
+# The report refreshes one comment in place, so two runs must not read the same
+# comment and then overwrite each other.
+concurrency:
+  group: ci-health-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Report CI health
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Measured against this repo: a window's run listings plus ~160 job
+    # listings is a few hundred calls, and the Actions API answers each one
+    # in seconds on a repo this size. 15 minutes was not enough headroom.
+    timeout-minutes: 30
+    steps:
+      - name: Check out trusted report code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Measure the window and refresh the report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WINDOW_HOURS: ${{ inputs.window_hours || '6' }}
+          MAX_RUN_PAGES: ${{ vars.CI_HEALTH_MAX_RUN_PAGES }}
+          MAX_JOB_LISTINGS: ${{ vars.CI_HEALTH_MAX_JOB_LISTINGS }}
+          JOBS_PER_WORKFLOW: ${{ vars.CI_HEALTH_JOBS_PER_WORKFLOW }}
+          WINDOW_SLICES: ${{ vars.CI_HEALTH_WINDOW_SLICES }}
+          # An empty value means "step summary only". `a && b || c` returns c
+          # whenever b is falsy, so the skip has to be written as the negative:
+          # only a dispatch that did not ask to skip passes the issue through.
+          CI_HEALTH_REPORT_ISSUE: ${{ (inputs.skip_issue != true) && vars.CI_HEALTH_REPORT_ISSUE || '' }}
+          # Every other number here is measured from jobs that already ran, so
+          # it can only show a runner variable drifting after the minutes are
+          # spent. This is the configuration itself. The expression context
+          # serves variable values without any token scope, which is what lets
+          # a report whose token is `actions: read` see them at all.
+          #
+          # Named one by one rather than `toJSON(vars)`: a step's env is printed
+          # at the top of its public log, and only runner labels belong there.
+          # tests/test_runner_label_policy.py fails if a workflow reads a
+          # runner variable this list leaves out. The background lane carries
+          # its fallback because test_ci_self_hosted_guard.sh requires it on
+          # every read; `macos-15` is an approved label either way.
+          # CI_PR_POOL_ORDER is the one list that may also name owned pools.
+          CMUX_CI_RUNNER_VARIABLES: |
+            CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
+            CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
+            CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
+            LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
+            LINUX_RUNNER=${{ vars.LINUX_RUNNER }}
+            MACOS_RUNNER_15=${{ vars.MACOS_RUNNER_15 }}
+            MACOS_RUNNER_26=${{ vars.MACOS_RUNNER_26 }}
+            MACOS_RUNNER_26_LARGE=${{ vars.MACOS_RUNNER_26_LARGE }}
+            MACOS_RUNNER_BACKGROUND=${{ vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+            MACOS_RUNNER_DISPLAY=${{ vars.MACOS_RUNNER_DISPLAY }}
+            MACOS_RUNNER_DUAL_XCODE=${{ vars.MACOS_RUNNER_DUAL_XCODE }}
+            MACOS_RUNNER_IOS=${{ vars.MACOS_RUNNER_IOS }}
+            MACOS_RUNNER_PR=${{ vars.MACOS_RUNNER_PR }}
+            MACOS_RUNNER_TESTS=${{ vars.MACOS_RUNNER_TESTS }}
+            WINDOWS_RUNNER=${{ vars.WINDOWS_RUNNER }}
+        run: python3 scripts/ci/ci_health_report.py

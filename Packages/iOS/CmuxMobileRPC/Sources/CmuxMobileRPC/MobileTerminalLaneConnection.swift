@@ -6,6 +6,8 @@ public protocol MobileTerminalLaneConnection: Sendable {
     func receiveOutput() async throws -> MobileTerminalLaneOutputFrame?
     /// Sends one exact terminal-input operation.
     func sendInput(_ input: String) async throws
+    /// Sends an opaque marker when the host supports latency metadata.
+    func sendInput(_ input: String, sequence: UInt64?) async throws
     /// Aborts both stream halves.
     func close() async
 }
@@ -16,3 +18,9 @@ public typealias MobileTerminalLaneProvider = @Sendable (
     _ surfaceID: String,
     _ cursor: UInt64?
 ) async throws -> any MobileTerminalLaneConnection
+
+extension MobileTerminalLaneConnection {
+    public func sendInput(_ input: String, sequence: UInt64?) async throws {
+        try await sendInput(input)
+    }
+}

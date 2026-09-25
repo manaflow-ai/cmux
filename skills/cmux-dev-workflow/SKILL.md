@@ -1,50 +1,57 @@
 ---
 name: cmux-dev-workflow
-description: "Contributor workflow rules for cmux setup, Xcode project normalization, tagged sidebar ExtensionKit development, and dev builds. Use when setting up the cmux repo, changing Xcode project files, adding sidebar extensions, or working with tagged debug builds."
+description: "Contributor workflow for native cmux setup, tagged dev builds, Xcode project normalization and sidebar extensions. Use for native build inputs, setup or tagged app verification."
 ---
 
 # cmux Dev Workflow
 
-## Initial setup
+## Scope and routing
 
-`./scripts/setup.sh` initializes submodules, builds GhosttyKit, and installs the pbxproj normalization pre-commit hook.
+Run repository commands only from a [trusted checkout](../../docs/contributor-verification.md#trust-boundary);
+even `verify-local.py --help` and `--list` load repository code.
 
-## Tagged local dev
+[Choose verification for the change](../cmux-testing/references/local-vs-ci-validation.md)
+before preparing a native build. Fast feedback starts with
+`python3 scripts/verify-local.py`; portable-tooling and documentation changes use
+their scoped checks without an unrelated app build.
 
-Build the Debug app after every code change:
+For native app or build-input changes, follow the current root `AGENTS.md`
+build routing and capacity owner. Setup (`./scripts/setup.sh`) initializes
+submodules, builds GhosttyKit and installs the project-normalization hook;
+it is not a prerequisite for portable static checks.
 
-```bash
+## Tagged local development
+
+When local native execution is authorized:
+
+```sh
 ./scripts/reload.sh --tag <short-tag>
+CMUX_TAG=<short-tag> scripts/cmux-debug-cli.sh list-workspaces
 ```
 
-It builds without launching; pass `--launch` only when you need the app open. Never run bare `xcodebuild` or open an untagged `cmux DEV.app`: untagged builds share the default debug socket and bundle ID with other agents, causing conflicts and stealing focus.
+Reload builds without launching; add `--launch` when live verification is needed.
+Never use bare `xcodebuild` or open an untagged `cmux DEV.app`: tags isolate bundle
+IDs, sockets and build output from other sessions. Do not use `/tmp/cmux-cli`,
+which follows the most recently reloaded app. See [tagged builds](references/tagged-builds.md).
 
-For CLI or socket dogfood against a tagged Debug app:
+An app build does not establish test-target compilation or execution. Follow
+[the test guide](../cmux-testing/references/local-vs-ci-validation.md) for those claims.
 
-```bash
-CMUX_TAG=<tag> scripts/cmux-debug-cli.sh list-workspaces
-```
+## Toolchain and project files
 
-Do not use `/tmp/cmux-cli` for tagged dogfood; that symlink points at the most recently reloaded build. See [references/tagged-builds.md](references/tagged-builds.md).
+`.xcode-version` owns the Xcode major; `cmux.xcodeproj/project.pbxproj` currently
+uses objectVersion 60. The Intel/macOS 14 fallback uses Xcode 16.2/Swift 6.0;
+keep app-linked code compatible as specified in root `AGENTS.md`.
 
-## Xcode toolchain
+The installed pre-commit hook normalizes staged project files and registers new
+Python tests in `tests/test-execution.toml`. Preserve it and
+run `python3 scripts/verify-local.py --only project` after project edits. Toolchain
+pin changes are deliberate team decisions; see [project normalization](references/xcode-project-normalization.md).
 
-The team is pinned to Xcode 26.x. `.xcode-version` is the single source of truth for the major; `cmux.xcodeproj/project.pbxproj` carries `objectVersion = 60`, what Xcode 26 writes by default. (`objectVersion = 77` is reserved for synchronized folder groups, which cmux does not use.)
+## Sidebar extension tags
 
-`scripts/setup.sh` installs the tracked `scripts/git-hooks/pre-commit`, which runs `scripts/normalize-pbxproj.py` on any staged `project.pbxproj` so Xcode's nondeterministic reordering never reaches a commit. The hook is idempotent. CI runs `scripts/check-pbxproj.sh` to enforce both the `objectVersion` pin and normalization, so skipping the hook gives a clear PR failure. Bumping the pin is a deliberate team decision: see [references/xcode-project-normalization.md](references/xcode-project-normalization.md).
-
-## Sidebar extension point (dev tagging)
-
-Each tagged dev build gets its own ExtensionKit sidebar extension point so concurrent dev builds do not collide. Three build settings drive it:
-
-- `CMUX_SIDEBAR_EXTENSION_POINT_ID` (default `com.cmuxterm.app.cmux.sidebar`): the extension point identifier baked into Info.plist at build time.
-- `CMUX_BUNDLE_ID_SUFFIX` (default empty): inserted into the app and appex bundle ids so a tagged extension gets a distinct identity that pkd records separately.
-- `CMUX_DISPLAY_NAME_SUFFIX` (default empty): appended to the appex `CFBundleDisplayName`. The OS groups sidebar extensions by display name for the enable/disable and availability counts the host reads, so two same-named appexes installed side by side are treated as one logical extension and toggling one perturbs the other.
-
-The host resolves its point id at runtime from the Info.plist key `CMUXSidebarExtensionPointIdentifier` via `CmuxSidebarExtensionPoint.identifier(in:)`. `./scripts/reload.sh --tag <tag>` scopes the host point to `com.cmuxterm.app.debug.<tag>.cmux.sidebar`. Build a matching tag-scoped sample extension with:
-
-```bash
-./scripts/reload-extension.sh --tag <tag> [--host-bundle-id <id>] [--example sample|tabs|both]
-```
-
-See [references/sidebar-extension-tagging.md](references/sidebar-extension-tagging.md) for the settings it passes, the no-re-signing rule, and the checklist for authoring a new tag-ready sample extension.
+Keep the extension-point ID, bundle-ID suffix and display-name suffix distinct
+for each tag. Build extensions through `scripts/reload-extension.sh --tag <tag>`
+with the matching host; do not repair a mismatched tag by re-signing. The exact
+settings, helper arguments and verification checklist live in
+[sidebar extension tagging](references/sidebar-extension-tagging.md).

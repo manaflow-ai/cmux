@@ -6,30 +6,101 @@ struct ProcessDetectedResumeIndexes: Sendable {
 
     static func load(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager, maximumSnapshotAge: 5)
-        }.value
+        await loadOnWorker(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            maximumSnapshotAge: 5,
+            ttyDeviceBindings: ttyDeviceBindings
+        )
     }
 
     /// Loads current hook stores and captures an uncached process snapshot off-main.
     static func loadFresh(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
-        await Task.detached(priority: .utility) {
-            loadFreshSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
-        }.value
+        await loadFreshOnWorker(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            ttyDeviceBindings: ttyDeviceBindings
+        )
     }
 
-    /// Synchronous implementation for detached loading and focused tests.
-    /// Main-actor lifecycle paths must call ``loadFresh(homeDirectory:fileManager:)``.
-    static func loadFreshSynchronously(
+    /// Loads fresh process state with a bounded lifecycle deadline.
+    @MainActor
+    static func loadFreshWithDeadline(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
-    ) -> ProcessDetectedResumeIndexes {
-        loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+        fileManager: FileManager = .default,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:],
+        deadline: Duration = .seconds(5),
+        onWorkerCreated: @escaping @MainActor @Sendable (
+            Task<ProcessDetectedResumeIndexes, Never>
+        ) -> Void = { _ in },
+        sleepUntilDeadline: @escaping @Sendable (Duration) async -> Bool = { duration in
+            do {
+                // Genuine recovery deadline; cancellation returns the fail-closed result.
+                try await ContinuousClock().sleep(for: duration)
+                return true
+            } catch {
+                return false
+            }
+        }
+    ) async -> ProcessDetectedResumeIndexes? {
+        let (workerFinished, workerFinishedContinuation) =
+            AsyncStream<Void>.makeStream()
+        // The synchronous worker cannot be interrupted in the middle of a
+        // process/filesystem call. Its owner retains the handle until it
+        // finishes so a later recovery pass cannot overlap another scan.
+        let worker = Task.detached(priority: .utility) {
+            let result = await loadFreshOnWorker(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                ttyDeviceBindings: ttyDeviceBindings
+            )
+            workerFinishedContinuation.yield(())
+            return result
+        }
+        onWorkerCreated(worker)
+
+        // Race two cancellable child tasks. The worker signal child is separate
+        // from the synchronous worker, so canceling the race never waits for a
+        // timed-out process/filesystem scan.
+        return await withTaskGroup(of: Int.self) { group in
+            group.addTask {
+                var iterator = workerFinished.makeAsyncIterator()
+                _ = await iterator.next()
+                return 0 // worker finished
+            }
+            group.addTask {
+                await sleepUntilDeadline(deadline) ? 1 : 2
+            }
+            let winner = await group.next() ?? 2
+            workerFinishedContinuation.finish()
+            group.cancelAll()
+            guard winner == 0 else {
+                worker.cancel()
+                return nil
+            }
+            return await worker.value
+        }
+    }
+
+    /// Worker implementation for detached loading and focused tests.
+    /// Main-actor lifecycle paths must call ``loadFresh(homeDirectory:fileManager:)``.
+    static func loadFreshOnWorker(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+    ) async -> ProcessDetectedResumeIndexes {
+        await loadOnWorker(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            ttyDeviceBindings: ttyDeviceBindings
+        )
     }
 
     /// Returns the last published agent index without filesystem or process capture.
@@ -45,18 +116,27 @@ struct ProcessDetectedResumeIndexes: Sendable {
         )
     }
 
-    static func loadSynchronously(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    static func loadOnWorker(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         maximumSnapshotAge: TimeInterval? = nil,
-        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
-    ) -> ProcessDetectedResumeIndexes {
-        let capturedAt = Date().timeIntervalSince1970
+        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
+    ) async -> ProcessDetectedResumeIndexes {
         let processSnapshot = if let maximumSnapshotAge {
-            CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, maximumAge: maximumSnapshotAge)
+            await CmuxTopProcessSnapshot.captureCached(includeProcessDetails: true, includeResources: false, maximumAge: maximumSnapshotAge)
         } else {
-            CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+            await CmuxTopProcessSnapshot.capture(includeProcessDetails: true, includeResources: false)
         }
+        guard processSnapshot.captureIsAvailable, processSnapshot.enumerationIsComplete, !Task.isCancelled else {
+            return ProcessDetectedResumeIndexes(restorableAgentIndex: .unavailable, surfaceResumeBindingIndex: .unavailable)
+        }
+        let capturedAt = processSnapshot.sampledAt.timeIntervalSince1970
         let restorableAgentIndex: RestorableAgentSessionIndex
         if let cachedRestorableAgentIndex {
             restorableAgentIndex = cachedRestorableAgentIndex.revalidatingCachedProcesses(
@@ -83,7 +163,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            ttyDeviceBindings: ttyDeviceBindings
         )
         return ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,

@@ -149,7 +149,6 @@ TerminalLifecycle = Literal["launching", "running", "exited"]
 
 @dataclass(frozen=True)
 class TerminalSnapshot(Snapshot[TerminalId]):
-    tab_id: Optional[TabId]
     tab_ids: Tuple[TabId, ...]
     title: str
     cols: int
@@ -205,7 +204,7 @@ class AgentSnapshot(Snapshot[AgentId]):
     session_id: SessionId
     terminal_id: TerminalId
     state: Literal["working", "blocked", "idle", "done", "unknown"]
-    source: Literal["hook", "socket", "detected"]
+    source: Literal["hook", "socket", "detected", "plugin"]
     updated_at_ms: str
     source_session: Optional[str]
     extra: JsonObject = field(default_factory=dict)
@@ -244,7 +243,11 @@ class PairingRequestSnapshot(Snapshot[PairingRequestId]):
 @dataclass(frozen=True)
 class FrontendProjectionSnapshot(Snapshot[ProjectionId]):
     session_id: SessionId
+    frontend_id: str
+    window_id: str
+    generation: str
     projection: Any
+    projection_revision: str
     extra: JsonObject = field(default_factory=dict)
 
 
@@ -330,6 +333,10 @@ class TerminalScreenResult:
     cursor_col: int
     cursor_visible: bool
     extra: JsonObject = field(default_factory=dict)
+    # Optional metadata was appended to preserve positional construction for
+    # clients of the original screen-result shape.
+    revision: Optional[str] = None
+    osc_progress: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -387,19 +394,33 @@ class ProcessInfoResult:
     executable: Optional[str]
     argv: Tuple[str, ...]
     cwd: Optional[str]
+    foreground_cwd: Optional[str]
     children: Tuple[int, ...]
+    # Executable path or name of the PTY foreground process-group leader. Older
+    # servers may omit this field.
+    foreground_executable: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class ViewerResizeResult:
     accepted: bool
     size: "Size"
+    outcome: "ViewAttachmentOutcome"
 
 
 @dataclass(frozen=True)
 class BrowserViewerResizeResult:
     accepted: bool
     size: "PixelSize"
+    outcome: "ViewAttachmentOutcome"
+
+
+ViewAttachmentOutcome = Literal["applied", "passive", "superseded"]
+
+
+@dataclass(frozen=True)
+class ViewerReleaseResult:
+    outcome: ViewAttachmentOutcome
 
 
 @dataclass(frozen=True)
@@ -758,6 +779,116 @@ class SessionDelta:
 
 SessionEvent = Union[SessionSnapshotItem, SessionDelta, Unknown]
 
+JournalClass = Literal["state", "observation", "effect", "checkpoint"]
+JournalReplayPolicy = Literal["required", "advisory", "never"]
+JournalSensitivity = Literal["public", "metadata", "sensitive", "secret"]
+
+
+@dataclass(frozen=True)
+class JournalProducer:
+    kind: str
+    id: str
+
+
+@dataclass(frozen=True)
+class JournalAuthority:
+    principal_id: str
+    lease_id: str
+    generation: str
+    role: str
+
+
+@dataclass(frozen=True)
+class JournalSubject:
+    kind: str
+    id: str
+
+
+@dataclass(frozen=True)
+class JournalEventSchema:
+    kind: str
+    schema_version: int
+    class_: JournalClass
+    replay: JournalReplayPolicy
+    sensitivity: JournalSensitivity
+    payload_schema: Any
+
+
+@dataclass(frozen=True)
+class JournalProducerManifest:
+    producer_id: str
+    namespace: str
+    manifest_version: int
+    max_sensitivity: JournalSensitivity
+    permissions: Tuple[str, ...]
+    events: Tuple[JournalEventSchema, ...]
+
+
+@dataclass(frozen=True)
+class JournalIngress:
+    producer_id: str
+    manifest_version: int
+    kind: str
+    schema_version: int
+    payload: Any
+    occurred_at_ms: Optional[str] = None
+    subjects: Tuple[JournalSubject, ...] = ()
+    sensitivity: Optional[JournalSensitivity] = None
+    causation_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class JournalProducerPutResult:
+    producer_id: str
+    manifest_version: int
+    namespace: str
+    sequence: str
+    event_id: str
+
+
+@dataclass(frozen=True)
+class JournalProducerListResult:
+    producers: Tuple[JournalProducerManifest, ...]
+
+
+@dataclass(frozen=True)
+class JournalAppendResult:
+    producer_id: str
+    sequence: str
+    event_id: str
+
+
+# Compatibility names from the first agent-plugin SDK preview.
+AgentPluginEventSchema = JournalEventSchema
+AgentPluginManifest = JournalProducerManifest
+AgentPluginSubject = JournalSubject
+AgentPluginIngress = JournalIngress
+AgentPluginListResult = JournalProducerListResult
+JournalEventSubject = JournalSubject
+
+
+@dataclass(frozen=True)
+class SessionJournalRecord:
+    sequence: str
+    event_id: str
+    schema_version: int
+    kind: str
+    class_: JournalClass
+    replay: JournalReplayPolicy
+    occurred_at_ms: str
+    committed_at_ms: str
+    producer: JournalProducer
+    authority: Optional[JournalAuthority]
+    causation_id: Optional[str]
+    correlation_id: Optional[str]
+    causation_depth: int
+    subjects: Tuple[JournalSubject, ...]
+    sensitivity: JournalSensitivity
+    payload: Any
+    resource_revision: Optional[str]
+    previous_resource_revision: Optional[str]
+
 
 @dataclass(frozen=True)
 class RenderCursor:
@@ -907,6 +1038,11 @@ SidebarAttachItem = Union[
 
 __all__ = [
     "AgentSnapshot",
+    "AgentPluginEventSchema",
+    "AgentPluginIngress",
+    "AgentPluginListResult",
+    "AgentPluginManifest",
+    "AgentPluginSubject",
     "BrowserAttachFrame",
     "BrowserAttachItem",
     "BrowserAttachSnapshot",
@@ -963,6 +1099,20 @@ __all__ = [
     "SessionSnapshotItem",
     "SessionDelta",
     "SessionEvent",
+    "JournalAppendResult",
+    "JournalAuthority",
+    "JournalClass",
+    "JournalEventSchema",
+    "JournalEventSubject",
+    "JournalIngress",
+    "JournalProducer",
+    "JournalProducerListResult",
+    "JournalProducerManifest",
+    "JournalProducerPutResult",
+    "JournalReplayPolicy",
+    "JournalSensitivity",
+    "JournalSubject",
+    "SessionJournalRecord",
     "ShellCommand",
     "SidebarAttachItem",
     "SidebarAttachPatch",
@@ -996,6 +1146,8 @@ __all__ = [
     "TerminalAttachSnapshot",
     "Unknown",
     "ViewerResizeResult",
+    "ViewerReleaseResult",
+    "ViewAttachmentOutcome",
     "WorkspaceSnapshot",
     "exact",
     "shell",

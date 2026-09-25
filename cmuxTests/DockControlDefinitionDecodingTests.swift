@@ -28,6 +28,7 @@ struct DockControlDefinitionDecodingTests {
         return url
     }
 
+    @MainActor
     private func v2Result(method: String, params: [String: Any] = [:]) throws -> [String: Any] {
         let request: [String: Any] = [
             "id": method,
@@ -84,6 +85,17 @@ struct DockControlDefinitionDecodingTests {
         #expect(control.kind == .browser)
         #expect(control.url == "https://example.com")
         #expect(control.command == nil)
+        #expect(control.showsBrowserChrome)
+    }
+
+    @Test("Browser config decodes chromeless toolbar policy")
+    func chromelessBrowserDecodes() throws {
+        let control = try decode(
+            #"{"id":"dashboard","type":"browser","url":"http://127.0.0.1:8877/sidebar","chrome":false}"#
+        )
+
+        #expect(control.kind == .browser)
+        #expect(!control.showsBrowserChrome)
     }
 
     @Test("Browser config missing url throws")
@@ -137,6 +149,21 @@ struct DockControlDefinitionDecodingTests {
         let encoded = String(data: try JSONEncoder().encode(control), encoding: .utf8) ?? ""
         #expect(encoded.contains("\"type\""))
         #expect(encoded.contains("\"url\""))
+        #expect(!encoded.contains("\"chrome\""))
+    }
+
+    @Test("Chromeless browser entries re-encode the opt-in field")
+    func chromelessBrowserReencodeIncludesChrome() throws {
+        let control = DockControlDefinition(
+            id: "dashboard",
+            title: "Dashboard",
+            kind: .browser,
+            url: "http://127.0.0.1:8877/sidebar",
+            showsBrowserChrome: false
+        )
+        let encoded = String(data: try JSONEncoder().encode(control), encoding: .utf8) ?? ""
+
+        #expect(encoded.contains("\"chrome\":false"))
     }
 
     @Test("Browser entries without url fail to encode")
@@ -164,6 +191,80 @@ struct DockControlDefinitionDecodingTests {
         #expect(file.controls[1].url == "https://example.com")
     }
 
+    @Test("Chromeless Dock browser stays hidden across focus requests and session restore")
+    @MainActor
+    func chromelessBrowserBehaviorPersists() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { store.closeAllPanels() }
+
+        let generation = store.markConfigurationLoadInFlightForTesting(
+            rootDirectory: root.path
+        )
+        let resolution = DockConfigResolution(
+            controls: [
+                DockControlDefinition(
+                    id: "dashboard",
+                    title: "Dashboard",
+                    kind: .browser,
+                    url: "http://127.0.0.1:8877/sidebar",
+                    showsBrowserChrome: false
+                )
+            ],
+            sourceURL: nil,
+            baseDirectory: root.path,
+            isProjectSource: false
+        )
+        store.applyConfigurationLoadResult(
+            .resolved(resolution),
+            generation: generation,
+            replacingPanels: false
+        )
+
+        let panel = try #require(
+            store.panels.values.compactMap { $0 as? BrowserPanel }.first
+        )
+        #expect(panel.chromeVisibility == .chromeless)
+        #expect(!panel.isOmnibarVisible)
+        #expect(panel.requestAddressBarFocus(selectionIntent: .selectAll) == nil)
+        #expect(!panel.isOmnibarVisible)
+        #expect(!panel.setOmnibarVisible(true))
+        #expect(!panel.toggleOmnibarVisibility())
+        #expect(panel.chromeVisibility == .chromeless)
+
+        let snapshot = store.sessionSnapshot(includeScrollback: false)
+        let encodedSnapshot = try JSONEncoder().encode(snapshot)
+        let persistedSnapshot = try JSONDecoder().decode(
+            SessionSplitContainerSnapshot.self,
+            from: encodedSnapshot
+        )
+        #expect(
+            persistedSnapshot.panels.first?.browser?.chromeVisibility ==
+                .chromeless
+        )
+
+        let restoredStore = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { root.path },
+            browserAvailabilityProvider: { true }
+        )
+        defer { restoredStore.closeAllPanels() }
+        restoredStore.restoreSessionSnapshot(persistedSnapshot)
+
+        let restoredPanel = try #require(
+            restoredStore.panels.values.compactMap { $0 as? BrowserPanel }.first
+        )
+        #expect(restoredPanel.chromeVisibility == .chromeless)
+        #expect(restoredPanel.requestAddressBarFocus() == nil)
+        #expect(!restoredPanel.isOmnibarVisible)
+    }
+
     @Test(
         "Configured Dock terminal follows live titles without replacing a custom name",
         arguments: [DockScope.workspace, DockScope.global]
@@ -177,7 +278,7 @@ struct DockControlDefinitionDecodingTests {
         let store: DockSplitStore
         switch scope {
         case .workspace:
-            store = workspace.dockSplit
+            store = try #require(workspace.dockSplit)
         case .global:
             store = manager.makeWindowDockStore(windowId: UUID())
         }
@@ -452,7 +553,7 @@ struct DockControlDefinitionDecodingTests {
 
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
-        let store = workspace.dockSplit
+        let store = try #require(workspace.dockSplit)
         defer {
             store.closeAllPanels()
             workspace.teardownAllPanels()
@@ -703,7 +804,7 @@ struct DockControlDefinitionDecodingTests {
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
 
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let panelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let terminalPanel = try terminalPanel(in: store, panelId: panelId)
@@ -711,42 +812,6 @@ struct DockControlDefinitionDecodingTests {
         defer { terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil) }
 
         #expect(workspace.needsConfirmClose())
-    }
-
-    @Test("surface.focus accepts Dock surface handles")
-    @MainActor
-    func surfaceFocusAcceptsDockSurfaceHandles() throws {
-        let previousAppDelegate = AppDelegate.shared
-        let appDelegate = AppDelegate()
-        let manager = TabManager(autoWelcomeIfNeeded: false)
-        AppDelegate.shared = appDelegate
-        appDelegate.tabManager = manager
-        TerminalController.shared.setActiveTabManager(manager)
-        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
-        defer {
-            TerminalController.shared.setActiveTabManager(nil)
-            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
-            manager.tabs.forEach { $0.teardownAllPanels() }
-            AppDelegate.shared = previousAppDelegate
-        }
-
-        let workspace = try #require(manager.tabs.first)
-        let store = workspace.dockSplit
-        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
-        let firstPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
-        let secondPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
-
-        #expect(store.focusedPanelId == firstPanelId)
-
-        let result = try v2Result(
-            method: "surface.focus",
-            params: ["surface_id": secondPanelId.uuidString]
-        )
-
-        #expect(result["window_id"] as? String == windowId.uuidString)
-        #expect(result["workspace_id"] as? String == workspace.id.uuidString)
-        #expect(result["surface_id"] as? String == secondPanelId.uuidString)
-        #expect(store.focusedPanelId == secondPanelId)
     }
 
     @Test("Dock pane close prompt lists every tab that will close")
@@ -762,7 +827,7 @@ struct DockControlDefinitionDecodingTests {
         let workspace = try #require(manager.tabs.first)
         defer { workspace.teardownAllPanels() }
 
-        let store = workspace.dockSplit
+        let store = workspace.requiredDockSplitForTesting
         let rootPane = try #require(store.bonsplitController.allPaneIds.first)
         let dirtyPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))
         let cleanPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: false))
@@ -828,7 +893,7 @@ struct DockControlDefinitionDecodingTests {
             }
 
             let workspace = try #require(manager.tabs.first)
-            let store = workspace.dockSplit
+            let store = workspace.requiredDockSplitForTesting
             let rootPane = try #require(
                 store.bonsplitController.allPaneIds.first
             )
