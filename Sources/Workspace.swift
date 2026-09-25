@@ -4389,9 +4389,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     /// Resolves the `app.tabBarVisibility` setting to bonsplit's visibility
-    /// mode for pane split controllers.
+    /// mode for pane split controllers. Minimal mode keeps the bar: there the
+    /// top pane's tab bar is the titlebar row (traffic-light inset and window
+    /// drag area), so hiding it would put content under the window controls.
     static func tabBarVisibility(defaults: UserDefaults) -> TabBarVisibility {
-        AppCatalogSection().tabBarVisibility.value(in: defaults).bonsplitVisibility
+        if WorkspacePresentationModeSettings.isMinimal(defaults: defaults) { return .always }
+        return AppCatalogSection().tabBarVisibility.value(in: defaults).bonsplitVisibility
     }
 
     func applySurfaceTabBarButtons(
