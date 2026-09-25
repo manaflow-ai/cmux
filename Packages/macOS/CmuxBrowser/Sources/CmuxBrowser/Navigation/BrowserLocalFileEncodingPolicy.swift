@@ -24,6 +24,8 @@ public final class BrowserLocalFileEncodingPolicy {
     ///
     /// - Parameter url: The main-frame destination whose bytes should be classified.
     public func prepare(for url: URL) async {
+        guard preferences.responds(to: Self.defaultTextEncodingSelector),
+              fallbackEncodingName != nil else { return }
         preparationID &+= 1
         let currentPreparationID = preparationID
         let encodingName = await Self.preferredEncodingName(for: url)
