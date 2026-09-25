@@ -244,7 +244,7 @@ extension AgentRestoreLiveOwnerAdmissionTests {
         )
     }
 
-    nonisolated private static func writeOwnerStore(
+    nonisolated static func writeOwnerStore(
         at storeURL: URL,
         kind: RestorableAgentKind,
         sessionID: String,

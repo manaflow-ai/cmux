@@ -29,10 +29,10 @@ struct AgentRestoreLiveOwnerAdmissionTests {
     }
 
     @Test(
-        "A live unscoped owner suppresses autoresume and leaves a takeover notice",
+        "A live owner preserves the restore selector for execution admission without typing a notice",
         arguments: [RestorableAgentKind.grok, RestorableAgentKind.amp]
     )
-    func liveUnscopedOwnerSuppressesAutoresumeWithNotice(kind: RestorableAgentKind) throws {
+    func liveUnscopedOwnerKeepsExecutionAdmission(kind: RestorableAgentKind) throws {
         // Amp's argv never names its thread; the hook record that recorded the
         // PID generation is the identity (#12158: a resumed Amp that outlives
         // the previous cmux must be reported, not silently skipped).
@@ -41,10 +41,9 @@ struct AgentRestoreLiveOwnerAdmissionTests {
 
         let input = try restoredStartupInput(fixture)
 
-        #expect(!input.contains(" restore \(kind.rawValue) \(fixture.sessionID)"), Comment(rawValue: input))
-        #expect(input.contains("already running in process \(fixture.processID)"), Comment(rawValue: input))
-        #expect(input.contains("stop process \(fixture.processID)"), Comment(rawValue: input))
-        #expect(input.contains("cmux restore --surface"), Comment(rawValue: input))
+        #expect(input.contains(" restore \(kind.rawValue) \(fixture.sessionID)"), Comment(rawValue: input))
+        #expect(!input.contains("/usr/bin/printf"), Comment(rawValue: input))
+        #expect(!input.contains("stop process"), Comment(rawValue: input))
     }
 
     @Test(
