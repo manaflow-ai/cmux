@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import type { Locale } from "../../../../i18n/routing";
 import { getTranslations } from "next-intl/server";
 import { legalMetadata } from "../legal-metadata";
 
@@ -11,16 +10,8 @@ export const metadata: Metadata = legalMetadata(
   "Terms of service for the cmux website and macOS application",
 );
 
-export default async function TermsOfServicePage({
-  params,
-}: {
-  readonly params: Promise<{ readonly locale: string }>;
-}) {
-  const { locale } = await params;
-  const t = await getTranslations({
-    locale: locale as Locale,
-    namespace: "legal",
-  });
+export default async function TermsOfServicePage() {
+  const t = await getTranslations("legal");
 
   return (
     <>
