@@ -50,7 +50,7 @@ struct WorkspaceSplitProvisionalGeometryTests {
         #expect(root.orientation == direction.orientation.rawValue)
         let rootPanel = try #require(fixture.workspace.terminalPanel(for: rootSplit.id))
         let rootSurfaceID = try #require(fixture.workspace.surfaceIdFromPanelId(rootPanel.id))
-        #expect(newPane.tabs.contains { $0.id == rootSurfaceID.id.uuidString })
+        #expect(newPane.tabs.contains { $0.id == rootSurfaceID.uuid.uuidString })
     }
 
     @Test(arguments: [SplitDirection.right, .down])
