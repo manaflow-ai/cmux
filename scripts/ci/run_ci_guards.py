@@ -263,7 +263,9 @@ def run_steps(
 ) -> list[StepResult]:
     """Run steps in order in one job-like sandbox (RUNNER_TEMP, GITHUB_ENV...)."""
     results: list[StepResult] = []
-    with tempfile.TemporaryDirectory(prefix="cmux-guard-") as temp:
+    # Not "cmux-": tests rewrite the workflows' fixed /tmp/cmux-* paths, and on
+    # Linux this directory is under /tmp, so a nested temp path would match.
+    with tempfile.TemporaryDirectory(prefix="guard-steps-") as temp:
         temp_path = Path(temp)
         env_file = temp_path / "github_env"
         path_file = temp_path / "github_path"
