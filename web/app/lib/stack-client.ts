@@ -1,6 +1,7 @@
 "use client";
 
-import { StackClientApp } from "@stackframe/stack";
+import { StackClientApp } from "@hexclave/next";
+import { reportHexclaveSetupOverlays } from "./hexclave-overlay-guard";
 
 const projectId = process.env.NEXT_PUBLIC_STACK_PROJECT_ID;
 const publishableClientKey = process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
@@ -13,6 +14,11 @@ export const stackClientApp = projectId && publishableClientKey
       urls: {
         afterSignIn: "/handler/after-sign-in",
         afterSignUp: "/handler/after-sign-in",
+        accountSettings: "/dashboard/team",
       },
     })
   : null;
+
+if (stackClientApp && typeof window !== "undefined") {
+  reportHexclaveSetupOverlays();
+}

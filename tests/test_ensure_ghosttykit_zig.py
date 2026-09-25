@@ -66,7 +66,7 @@ class EnsureGhosttyKitZigTests(unittest.TestCase):
         sha = subprocess.check_output(
             ["git", "-C", str(ghostty), "rev-parse", "HEAD"], env=env, text=True,
         ).strip()
-        key = f"{sha}-crashsubdir-cmux-crash-sentry-off-v1"
+        key = f"{sha}-crashsubdir-cmux-crash-sentry-off-noi18n-v2"
 
         if zig_version is not None:
             zig = bin_dir / "zig"

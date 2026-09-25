@@ -12,10 +12,6 @@ import os
         var diagnosticFailureKind: DiagnosticFailureKind { .admissionDenied }
     }
 
-    /// Await the log's drain task until its ring reports `expected` events, so a
-    /// test can assert on a deterministic post-drain state without sleeping. The
-    /// drain task runs on the cooperative pool; `Task.yield()` lets it advance.
-    /// Bounded so a regression that never drains fails instead of hanging.
     /// Await the drain task processing at least `expected` total events, so a
     /// test can assert on a deterministic post-drain state without sleeping.
     /// ``DiagnosticLog/processedCount()`` only grows (eviction does not lower
@@ -30,6 +26,23 @@ import os
         #expect(
             await log.processedCount() >= expected,
             "diagnostic drain did not reach the required barrier"
+        )
+    }
+
+    /// Await the observer itself instead of treating the ring's processed
+    /// count as a callback-delivery barrier. The store increments that count
+    /// before the drain task invokes the tap, so those are separate events.
+    private func waitForTappedEvents(
+        _ received: OSAllocatedUnfairLock<[DiagnosticEvent]>,
+        count expected: Int
+    ) async {
+        for _ in 0..<1_000_000 {
+            if received.withLock({ $0.count }) >= expected { return }
+            await Task.yield()
+        }
+        #expect(
+            received.withLock({ $0.count }) >= expected,
+            "diagnostic event tap did not reach the required barrier"
         )
     }
 
@@ -142,6 +155,91 @@ import os
             .privateNetwork,
         ])
         #expect(report.events[1].diagnosticSessionLifecycleKind == .established)
+    }
+
+    @Test func selectedPathSnapshotsKeepDifferentPeersAndSessions() async {
+        let log = DiagnosticLog(capacity: 16)
+        for (surface, session) in [(UInt32(1), 1), (1, 2), (2, 2), (2, 2)] {
+            log.record(DiagnosticEvent(
+                .selectedPathChanged, surface: surface,
+                a: DiagnosticPathKind.relay.rawValue, c: session
+            ))
+        }
+        await waitForProcessed(log, 4)
+        let events = await log.snapshot().events
+        #expect(events.map(\.surface) == [1, 1, 2])
+        #expect(events.map(\.c) == [1, 2, 2])
+    }
+
+    @Test func transportPathLifecycleKeepsDistinctOperationsOnOnePathClass() async {
+        let log = DiagnosticLog(capacity: 16)
+        let events = [
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 1_000,
+                a: 1,
+                b: DiagnosticPathKind.relay.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 2_000,
+                a: 3,
+                b: DiagnosticPathKind.relay.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 3_000,
+                a: 1,
+                b: DiagnosticPathKind.privateNetwork.rawValue,
+                c: 9
+            ),
+            DiagnosticEvent(
+                code: .transportPathEvent,
+                tNanos: 4_000,
+                a: 3,
+                b: DiagnosticPathKind.privateNetwork.rawValue,
+                c: 9
+            ),
+        ]
+        for event in events {
+            log.record(event)
+        }
+        await waitForProcessed(log, events.count)
+
+        let report = await log.snapshot()
+        #expect(report.events == events)
+    }
+
+    @Test func interleavedSessionsDeduplicateTheirOwnSelectedPathSnapshots() async {
+        let log = DiagnosticLog(capacity: 16)
+        let selections: [(Int, DiagnosticPathKind)] = [
+            (1, .relay), (2, .relay), (1, .relay), (2, .relay),
+            (1, .privateNetwork), (2, .relay), (1, .privateNetwork), (2, .direct),
+        ]
+        for (session, path) in selections {
+            log.record(DiagnosticEvent(.selectedPathChanged, surface: 8, a: path.rawValue, c: session))
+        }
+        await waitForProcessed(log, selections.count)
+        let events = await log.snapshot().events
+        #expect(events.map(\.c) == [1, 2, 1, 2])
+        #expect(events.compactMap(\.diagnosticPathKind) == [.relay, .relay, .privateNetwork, .direct])
+    }
+
+    @Test func selectedPathDeduplicationExpiresWithItsRetainedSnapshot() async {
+        let log = DiagnosticLog(capacity: 2)
+        let events = [
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 1, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+            DiagnosticEvent(code: .connect, tNanos: 2),
+            DiagnosticEvent(code: .connect, tNanos: 3),
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 4, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+            DiagnosticEvent(code: .selectedPathChanged, tNanos: 5, surface: 8, a: DiagnosticPathKind.relay.rawValue, c: 1),
+        ]
+        for (index, event) in events.enumerated() {
+            await recordAndDrain(log, event, processedAfter: index + 1)
+        }
+        #expect(await log.snapshot().events.map(\.tNanos) == [3, 4])
     }
 
     @Test func ringEvictionDropsOldest() async {
@@ -301,7 +399,52 @@ import os
         #expect(DiagnosticEventCode.transportSessionLifecycle.rawValue == 51)
         #expect(DiagnosticEventCode.transportCloseAttribution.rawValue == 54)
         #expect(DiagnosticEventCode.transportPathEvent.rawValue == 55)
+        #expect(DiagnosticEventCode.browserStreamLifecycle.rawValue == 56)
+        #expect(DiagnosticEventCode.browserInputReplayed.rawValue == 57)
+        #expect(DiagnosticEventCode.browserEditableFocus.rawValue == 58)
+        #expect(DiagnosticEventCode.browserPanelCreateResolved.rawValue == 59)
+        #expect(DiagnosticEventCode.simulatorStreamLifecycle.rawValue == 60)
+        #expect(DiagnosticEventCode.simulatorFrameLifecycle.rawValue == 61)
+        #expect(DiagnosticEventCode.simulatorInputLifecycle.rawValue == 62)
+        #expect(DiagnosticEventCode.simulatorCoordinateMapped.rawValue == 63)
+        #expect(DiagnosticEventCode.simulatorOwnershipChanged.rawValue == 64)
+        #expect(DiagnosticEventCode.appFeatureAction.rawValue == 65)
+        #expect(DiagnosticEventCode.transportDialSessionLinked.rawValue == 77)
+        #expect(DiagnosticEventCode.transportDialCancelled.rawValue == 78)
+        #expect(DiagnosticEventCode.transportCloseReason.rawValue == 79)
         #expect(Set(DiagnosticEventCode.allCases.map(\.rawValue)).count == DiagnosticEventCode.allCases.count)
+    }
+
+    @Test func appEventCorrelationIsStableWithinProcessAndDoesNotRetainRawIdentifier() async {
+        let log = DiagnosticLog(capacity: 4)
+        let opaqueIdentifier = "workspace-sensitive-identifier"
+
+        log.recordAppEvent(.workspaceOpenStarted, correlationID: opaqueIdentifier)
+        log.recordAppEvent(.workspaceOpenSucceeded, correlationID: opaqueIdentifier)
+
+        await waitForProcessed(log, 2)
+        let report = await log.snapshot()
+        #expect(report.events.count == 2)
+        #expect(report.events[0].surface == report.events[1].surface)
+        #expect(report.events[0].surface != nil)
+        let encoded = try? JSONEncoder().encode(report)
+        let text = encoded.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        #expect(!text.contains(opaqueIdentifier))
+    }
+
+    @Test func typedAppEventDetailKeepsCategoricalValuesOutOfTheCountAPI() async {
+        let log = DiagnosticLog(capacity: 2)
+
+        log.recordAppEvent(
+            .terminalShortcutChanged,
+            detail: .toolbarConfigurationAction(.shortcutReordered)
+        )
+
+        await waitForProcessed(log, 1)
+        let report = await log.snapshot()
+        #expect(report.events.count == 1)
+        #expect(report.events[0].a == DiagnosticAppEventKind.terminalShortcutChanged.rawValue)
+        #expect(report.events[0].c == DiagnosticToolbarConfigurationAction.shortcutReordered.rawValue)
     }
 
     @Test func closeAttributionAndPathEventsExposeTypedPayloads() {
@@ -339,6 +482,25 @@ import os
         #expect(DiagnosticFailureKind.admissionRevalidationFailed.rawValue == 23)
         #expect(DiagnosticFailureKind.sendQueueOverflow.rawValue == 24)
         #expect(DiagnosticFailureKind.routeGated.rawValue == 25)
+        #expect(DiagnosticFailureKind.payloadTooLarge.rawValue == 26)
+        #expect(DiagnosticFailureKind.resourceLimitReached.rawValue == 27)
+        #expect(DiagnosticFailureKind.attachmentCountLimitReached.rawValue == 28)
+        #expect(DiagnosticFailureKind.attachmentAggregateSizeLimitReached.rawValue == 29)
+        #expect(DiagnosticFailureKind.localStateUnavailable.rawValue == 30)
+        #expect(DiagnosticAppEventKind.onboardingStageViewed.rawValue == 41)
+        #expect(DiagnosticAppEventKind.fileDiffCacheHit.rawValue == 352)
+        #expect(DiagnosticAppEventKind.photoPickerDismissed.rawValue == 459)
+        #expect(DiagnosticAppEventKind.toastPresented.rawValue == 537)
+        #expect(DiagnosticAppEventKind.toastDismissed.rawValue == 541)
+        #expect(DiagnosticAppEventKind.irohSettingsOpened.rawValue == 610)
+        #expect(DiagnosticAppEventKind.verboseDiagnosticsShared.rawValue == 636)
+        #expect(DiagnosticAppEventKind.dictationStopTimedOut.rawValue == 659)
+        #expect(DiagnosticAppEventKind.pairedMacStoreWriteStarted.rawValue == 660)
+        #expect(DiagnosticSimulatorStreamLifecycle.stopFailed.rawValue == 12)
+        #expect(
+            Set(DiagnosticAppEventKind.allCases.map(\.rawValue)).count
+                == DiagnosticAppEventKind.allCases.count
+        )
         #expect(
             Set(DiagnosticFailureKind.allCases.map(\.rawValue)).count
                 == DiagnosticFailureKind.allCases.count
@@ -730,6 +892,7 @@ import os
         log.record(first)
         log.record(second)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 2)
 
         #expect(received.withLock { $0 } == [first, second])
     }
@@ -754,6 +917,7 @@ import os
         log.record(relay)
         log.record(repeatRelay)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 1)
 
         #expect(received.withLock { $0 } == [relay])
     }
@@ -781,6 +945,7 @@ import os
         let live = DiagnosticEvent(code: .pairOk, tNanos: UInt64(burst + 1))
         log.record(live)
         await waitForProcessed(log, burst + 1)
+        await waitForTappedEvents(received, count: 1)
         #expect(received.withLock { $0 } == [live])
     }
 
@@ -796,11 +961,30 @@ import os
         let live = DiagnosticEvent(code: .pairOk, tNanos: 2)
         log.record(live)
         await waitForProcessed(log, 2)
+        await waitForTappedEvents(received, count: 1)
         #expect(received.withLock { $0 } == [live])
 
         log.setEventTap(nil)
         log.record(DiagnosticEvent(code: .pairFail, tNanos: 3))
         await waitForProcessed(log, 3)
         #expect(received.withLock { $0 } == [live])
+    }
+
+    @Test func terminalTraceAdmissionIsRateLimitedAndCarriesOpaqueID() async {
+        let log = DiagnosticLog(capacity: 256)
+        let traceID = DiagnosticTerminalTraceID(rawValue: 0x1234)!
+        for _ in 0..<121 {
+            log.recordTerminalTrace(
+                operation: .replay,
+                phase: .requestSent,
+                traceID: traceID
+            )
+        }
+        await waitForProcessed(log, 120)
+        let report = await log.snapshot()
+        #expect(report.events.count == 120)
+        #expect(report.events.allSatisfy { $0.code == .terminalTrace })
+        #expect(report.events.allSatisfy { $0.traceID == traceID.rawValue })
+        #expect(DiagnosticEventPresentation(locale: englishLocale).summary(report.events[0]).contains("0000000000001234"))
     }
 }

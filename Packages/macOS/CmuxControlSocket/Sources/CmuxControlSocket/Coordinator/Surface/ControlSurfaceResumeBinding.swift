@@ -31,6 +31,8 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
     /// Whether the binding allows automatic resume
     /// (`effectiveBinding.allowsAutomaticResume`).
     public let autoResume: Bool
+    /// Verified Codex hook provenance, when this binding came from a checked hook.
+    public let resumeEvidenceProvenance: String?
     /// The approval policy's raw value, if any.
     public let approvalPolicyRawValue: String?
     /// The approval record identifier, if any.
@@ -64,6 +66,7 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
     ///   - remoteSurfaceID: The owning remote surface.
     ///   - remotePTYSessionID: The persistent remote PTY session.
     ///   - updatedAt: The last-updated timestamp.
+    ///   - resumeEvidenceProvenance: The verified Codex hook provenance, when present.
     public init(
         name: String?,
         kind: String?,
@@ -81,7 +84,8 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
         remoteWorkspaceID: UUID?,
         remoteSurfaceID: UUID?,
         remotePTYSessionID: String?,
-        updatedAt: Double
+        updatedAt: Double,
+        resumeEvidenceProvenance: String? = nil
     ) {
         self.name = name
         self.kind = kind
@@ -93,6 +97,7 @@ public struct ControlSurfaceResumeBinding: Sendable, Equatable {
         self.launchCommand = launchCommand
         self.permissionMode = permissionMode
         self.autoResume = autoResume
+        self.resumeEvidenceProvenance = resumeEvidenceProvenance
         self.approvalPolicyRawValue = approvalPolicyRawValue
         self.approvalRecordID = approvalRecordID
         self.executionLocationRawValue = executionLocationRawValue

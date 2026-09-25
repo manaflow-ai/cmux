@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import CmuxSettings
@@ -42,6 +43,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     var placement: FileExplorerPanelPlacement = .rightSidebar
     var onFocus: (() -> Void)?
     var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -56,12 +58,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
+        container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         context.coordinator.containerView = container
         context.coordinator.onContainerChange?(container)
         return container
     }
 
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
+        container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         context.coordinator.store = store
         context.coordinator.state = state
         context.coordinator.onOpenFilePreview = onOpenFilePreview
@@ -77,7 +81,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: FileExplorerContainerView, coordinator: Coordinator) {
-        _ = nsView
+        // A native source is still allowed to own the container through its
+        // matching `endedAt` callback. When no session was promoted, however,
+        // clear any stale delegate marker so a dismantled search table does not
+        // retain an obsolete native-session identity.
+        nsView.clearNativeDragMarkersIfIdle()
         coordinator.onContainerChange?(nil)
     }
 
@@ -97,6 +105,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
+        private var needsReloadAfterContextMenu = false
+        // Keep one coordinator-level record for the promoted native source.
+        // The source view can be replaced during SwiftUI reconstruction, so
+        // view-local markers alone cannot reclaim a lost endedAt callback.
+        private weak var activeNativeDragSourceView: NSView?
+        private weak var activeNativeDragWriter: FilePreviewDragPasteboardWriter?
+        private var activeNativeDragSession: NSDraggingSession?
+        private var activeNativeDragOwnerships: [FilePreviewNativeDragOwnership] = []
+        private lazy var pendingPreviewDrag = FilePreviewNativeDragPendingOwnership { [weak self] tokenID in
+            self?.previewWriterDidDeallocate(tokenID: tokenID)
+        }
 
         init(
             store: FileExplorerStore,
@@ -178,8 +197,17 @@ struct FileExplorerPanelView: NSViewRepresentable {
             containerView?.updateVisibility(
                 hasContent: !store.rootPath.isEmpty,
                 isLoading: store.isRootLoading,
-                statusMessage: store.rootStatusMessage
+                statusMessage: store.rootStatusMessage,
+                showsRemoteTarget: store.provider is any RemoteFileExplorerProvider
             )
+
+            // Reloading rows under an open context menu crashes AppKit's
+            // highlight drawing (#12914). Catch up once the menu closes.
+            if (outlineView as? FileExplorerNSOutlineView)?.isContextMenuOpen == true {
+                needsReloadAfterContextMenu = true
+                return
+            }
+            needsReloadAfterContextMenu = false
 
             let newCount = store.rootNodes.count
             withProgrammaticOutlineUpdate {
@@ -192,6 +220,16 @@ struct FileExplorerPanelView: NSViewRepresentable {
                     refreshLoadedNodes(in: outlineView)
                 }
                 applyStoredSelection(in: outlineView, fallbackToFirstVisible: false, scroll: false)
+            }
+        }
+
+        @MainActor
+        func contextMenuDidClose() {
+            guard needsReloadAfterContextMenu else { return }
+            // Let AppKit finish tearing down the menu highlight first.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.needsReloadAfterContextMenu else { return }
+                self.reloadIfNeeded()
             }
         }
 
@@ -529,12 +567,180 @@ struct FileExplorerPanelView: NSViewRepresentable {
             return descendant.hasPrefix(ancestor + "/")
         }
 
+        /// Applies the shared native-generation fence used by both file
+        /// preview drag sources. A distinct `willBeginAt` session is an
+        /// authoritative boundary and replaces the prior owner.
+        func supersedeNativeDragIfNeeded(
+            previousSession: NSDraggingSession?,
+            newSession: NSDraggingSession,
+            finishPrevious: () -> Void,
+            clearPrevious: () -> Void
+        ) {
+            guard let previousSession, previousSession !== newSession else { return }
+            // A distinct `willBeginAt` callback is itself an AppKit native
+            // boundary. Sequence numbers are useful for terminal fencing but
+            // cannot reject this promotion because the OS may reuse them.
+            finishPrevious()
+            clearPrevious()
+        }
+
+        fileprivate func trackNativeDrag(
+            sourceView: NSView,
+            session: NSDraggingSession,
+            writer: FilePreviewDragPasteboardWriter?,
+            ownerships: [FilePreviewNativeDragOwnership]
+        ) {
+            activeNativeDragSourceView = sourceView
+            activeNativeDragWriter = writer
+            activeNativeDragSession = session
+            activeNativeDragOwnerships = ownerships
+        }
+
+        private func clearTrackedSourceState() {
+            if let outlineView = activeNativeDragSourceView as? FileExplorerNSOutlineView {
+                outlineView.activeNativeDragDelegateMarker = nil
+                outlineView.activeNativeDragWriter?.releaseSourceGraph()
+                outlineView.activeNativeDragWriter = nil
+                outlineView.activeNativeDragOwnerships = []
+                outlineView.activeNativeDragSession = nil
+            } else if let searchResultsView = activeNativeDragSourceView as? FileExplorerSearchResultsTableView {
+                searchResultsView.activeNativeDragDelegateMarker = nil
+                searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+                searchResultsView.activeNativeDragWriter = nil
+                searchResultsView.activeNativeDragOwnerships = []
+                searchResultsView.activeNativeDragSession = nil
+            }
+        }
+
+        /// Reclaims the promoted source even when its original view is no
+        /// longer the coordinator's current representable.
+        @discardableResult
+        fileprivate func reclaimTrackedNativeDrag() -> Bool {
+            guard let session = activeNativeDragSession else { return false }
+            if activeNativeDragOwnerships.isEmpty {
+                FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+            } else {
+                for ownership in activeNativeDragOwnerships {
+                    ownership.finish(from: session.draggingPasteboard)
+                }
+            }
+            let writer = activeNativeDragWriter
+            clearTrackedSourceState()
+            writer?.releaseSourceGraph()
+            activeNativeDragSourceView = nil
+            activeNativeDragWriter = nil
+            activeNativeDragSession = nil
+            activeNativeDragOwnerships = []
+            return true
+        }
+
+        fileprivate func isTrackingNativeDrag(_ session: NSDraggingSession) -> Bool {
+            activeNativeDragSession === session
+        }
+
+        fileprivate func forgetTrackedNativeDrag(matching session: NSDraggingSession) {
+            guard activeNativeDragSession === session else { return }
+            activeNativeDragSourceView = nil
+            activeNativeDragWriter = nil
+            activeNativeDragSession = nil
+            activeNativeDragOwnerships = []
+        }
+
+        private func previewWriterDidDeallocate(tokenID: UUID) {
+            guard let outlineView = outlineView as? FileExplorerNSOutlineView,
+                  outlineView.pendingNativeDragTokenID == tokenID else { return }
+            outlineView.pendingNativeDragWriter = nil
+            outlineView.pendingNativeDragTokenID = nil
+        }
+
         // MARK: - Drag-to-Preview
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
             guard let node = item as? FileExplorerNode, !node.isDirectory else { return nil }
             guard store.provider is LocalFileExplorerProvider else { return nil }
-            return FilePreviewDragPasteboardWriter(filePath: node.path, displayTitle: node.name)
+            let writer = FilePreviewDragPasteboardWriter(
+                filePath: node.path,
+                displayTitle: node.name,
+                nativeSourceView: outlineView,
+                // Retain the exact container/delegate graph through a
+                // representable rebuild; the coordinator's container edge is
+                // intentionally weak.
+                nativeSourceOwner: containerView ?? outlineView,
+                provisionalToken: pendingPreviewDrag.makeToken()
+            )
+            if let outlineView = outlineView as? FileExplorerNSOutlineView {
+                outlineView.pendingNativeDragWriter = writer
+                pendingPreviewDrag.register(writer)
+                outlineView.pendingNativeDragTokenID = writer.provisionalToken?.id
+            }
+            return writer
+        }
+
+        func outlineView(
+            _ outlineView: NSOutlineView,
+            draggingSession session: NSDraggingSession,
+            willBeginAt screenPoint: NSPoint,
+            forItems draggedItems: [Any]
+        ) {
+            _ = screenPoint
+            _ = draggedItems
+            if let outlineView = outlineView as? FileExplorerNSOutlineView {
+                if outlineView.activeNativeDragSession === session {
+                    return
+                }
+                if activeNativeDragSession === session {
+                    return
+                }
+                // A distinct begin is a native boundary, even when the prior
+                // source belonged to a rebuilt outline view.
+                _ = reclaimTrackedNativeDrag()
+                let fallbackWriter = outlineView.pendingNativeDragWriter
+                var promotedWriters = pendingPreviewDrag.writers(for: outlineView)
+                if let fallbackWriter,
+                   !promotedWriters.contains(where: { $0 === fallbackWriter }) {
+                    promotedWriters.append(fallbackWriter)
+                }
+                pendingPreviewDrag.finishPending(preserving: promotedWriters)
+                supersedeNativeDragIfNeeded(
+                    previousSession: outlineView.activeNativeDragSession,
+                    newSession: session,
+                    finishPrevious: {
+                        let pasteboard = outlineView.activeNativeDragSession?.draggingPasteboard
+                            ?? session.draggingPasteboard
+                        for ownership in outlineView.activeNativeDragOwnerships {
+                            ownership.finish(from: pasteboard)
+                        }
+                    },
+                    clearPrevious: {
+                        outlineView.activeNativeDragWriter?.releaseSourceGraph()
+                        outlineView.activeNativeDragWriter = nil
+                        outlineView.activeNativeDragDelegateMarker = nil
+                        outlineView.activeNativeDragOwnerships = []
+                        outlineView.activeNativeDragOwnership = nil
+                        outlineView.activeNativeDragSession = nil
+                    }
+                )
+                // The ordered list mirrors AppKit's pasteboard item order; use
+                // its first writer as the canonical source identity.
+                let promotedWriter = promotedWriters.first ?? fallbackWriter
+                let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
+                promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
+                let ownerships = promotedOwnerships.isEmpty
+                    ? (promotedWriter?.nativeDragOwnership()).map { [$0] } ?? []
+                    : promotedOwnerships
+                outlineView.activeNativeDragDelegateMarker = self
+                outlineView.activeNativeDragSession = session
+                outlineView.activeNativeDragWriter = promotedWriter
+                outlineView.activeNativeDragOwnerships = ownerships
+                outlineView.pendingNativeDragWriter = nil
+                outlineView.pendingNativeDragTokenID = nil
+                trackNativeDrag(
+                    sourceView: outlineView,
+                    session: session,
+                    writer: promotedWriter,
+                    ownerships: ownerships
+                )
+            }
         }
 
         func outlineView(
@@ -543,7 +749,72 @@ struct FileExplorerPanelView: NSViewRepresentable {
             endedAt screenPoint: NSPoint,
             operation: NSDragOperation
         ) {
-            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
+            guard let outlineView = outlineView as? FileExplorerNSOutlineView,
+                  outlineView.activeNativeDragSession === session else {
+                // The delegate may have been rebuilt between writer creation
+                // and the terminal callback. Use this session's own pasteboard
+                // for idempotent capability cleanup; never inspect the
+                // process-wide board here.
+                FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+                return
+            }
+            if !outlineView.activeNativeDragOwnerships.isEmpty {
+                for ownership in outlineView.activeNativeDragOwnerships {
+                    ownership.finish(from: session.draggingPasteboard)
+                }
+            } else {
+                // The matching session identity proves this is not a stale
+                // callback. Keep a compatibility fallback for an AppKit path
+                // that released the plain writer before promotion.
+                FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+            }
+            outlineView.activeNativeDragDelegateMarker = nil
+            outlineView.activeNativeDragWriter?.releaseSourceGraph()
+            outlineView.activeNativeDragWriter = nil
+            outlineView.activeNativeDragOwnerships = []
+            outlineView.activeNativeDragOwnership = nil
+            outlineView.activeNativeDragSession = nil
+            forgetTrackedNativeDrag(matching: session)
+        }
+
+        /// Reclaims an outline drag at the next pointer boundary when AppKit
+        /// omitted its native terminal callback during reconstruction. The
+        /// exact outline argument matters because ``Coordinator.outlineView``
+        /// may already point at a newly built view.
+        func prepareForNativeDragBoundary(on outlineView: NSOutlineView) {
+            guard let outlineView = outlineView as? FileExplorerNSOutlineView else { return }
+            if reclaimTrackedNativeDrag() {
+                // The tracked source may be an older outline retained by the
+                // writer. Clear only this view's pending request; its active
+                // state, if any, belongs to a separate generation.
+                pendingPreviewDrag.finishPending()
+                outlineView.pendingNativeDragWriter = nil
+                outlineView.pendingNativeDragTokenID = nil
+                return
+            }
+            guard let session = outlineView.activeNativeDragSession else {
+                outlineView.activeNativeDragDelegateMarker = nil
+                pendingPreviewDrag.finishPending()
+                outlineView.pendingNativeDragWriter = nil
+                if let tokenID = outlineView.pendingNativeDragTokenID {
+                    pendingPreviewDrag.remove(tokenID: tokenID)
+                }
+                outlineView.pendingNativeDragTokenID = nil
+                outlineView.activeNativeDragOwnership = nil
+                return
+            }
+            for ownership in outlineView.activeNativeDragOwnerships {
+                ownership.finish(from: session.draggingPasteboard)
+            }
+            pendingPreviewDrag.finishPending()
+            outlineView.activeNativeDragDelegateMarker = nil
+            outlineView.pendingNativeDragWriter = nil
+            outlineView.pendingNativeDragTokenID = nil
+            outlineView.activeNativeDragWriter?.releaseSourceGraph()
+            outlineView.activeNativeDragWriter = nil
+            outlineView.activeNativeDragOwnerships = []
+            outlineView.activeNativeDragOwnership = nil
+            outlineView.activeNativeDragSession = nil
         }
 
         @MainActor
@@ -617,15 +888,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuCopyPath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(node.path, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                node.path,
+                to: .general
+            )
         }
 
         @objc private func contextMenuCopyRelativePath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
             let relativePath = FileExplorerTerminalPathInsertion.relativePath(for: node.path, rootPath: store.rootPath)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(relativePath, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                relativePath,
+                to: .general
+            )
         }
     }
 }
@@ -650,7 +925,8 @@ final class FileExplorerContainerView: NSView {
     private var searchFieldHeightConstraint: NSLayoutConstraint!
     private(set) var searchSnapshot = FileSearchSnapshot.empty
     private var currentRootPath = ""
-    private var currentProviderIsLocal = false
+    private var currentSearchScope: FileSearchScope = .unsupported
+    var currentResourceContextID: UUID?
     private var currentWorkspaceRootIdentity: UUID?
     private var currentContentRevision = 0
     private let searchDebounceSubject = PassthroughSubject<Int, Never>()
@@ -666,11 +942,14 @@ final class FileExplorerContainerView: NSView {
         }
     }
     private var presentation: FileExplorerPanelPresentation
-    private let coordinator: FileExplorerPanelView.Coordinator
+    let coordinator: FileExplorerPanelView.Coordinator
     private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+    private lazy var pendingPreviewDrag = FilePreviewNativeDragPendingOwnership { [weak self] tokenID in
+        self?.previewWriterDidDeallocate(tokenID: tokenID)
+    }
     private let searchDebounceDelayMilliseconds = 200
     private var searchBarVisibleHeight: CGFloat { max(48, GlobalFontMagnification.scaled(48)) }
-    private var searchFieldVisibleHeight: CGFloat { max(24, GlobalFontMagnification.scaled(24)) }
+    private var searchFieldVisibleHeight: CGFloat { SidebarSearchField.visibleHeight }
 
 #if DEBUG
     private var debugLastSearchTextChangeUptime: TimeInterval = 0
@@ -693,13 +972,17 @@ final class FileExplorerContainerView: NSView {
         outlineView = FileExplorerNSOutlineView()
         searchScrollView = NSScrollView()
         searchResultsView = FileExplorerSearchResultsTableView()
-        emptyLabel = NSTextField(labelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
+        emptyLabel = NSTextField(wrappingLabelWithString: String(localized: "fileExplorer.empty", defaultValue: "No folder open"))
         loadingIndicator = NSProgressIndicator()
         self.searchController = searchController ?? FileSearchController()
         self.presentation = presentation
         self.coordinator = coordinator
 
         super.init(frame: .zero)
+        // Direct test/fixture construction bypasses NSViewRepresentable's
+        // makeNSView hook; keep the coordinator's current-container identity
+        // correct for native drag ownership in both paths.
+        coordinator.containerView = self
         updateShortcutPlacement(coordinator.placement)
         configureSearchDebounce()
 
@@ -715,12 +998,6 @@ final class FileExplorerContainerView: NSView {
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.setAccessibilityIdentifier("FileExplorerSearchField")
         searchField.placeholderString = String(localized: "fileExplorer.search.placeholder", defaultValue: "Search files")
-        searchField.focusRingType = .none
-        searchField.cell?.usesSingleLineMode = true
-        searchField.cell?.isScrollable = true
-        searchField.cell?.lineBreakMode = .byClipping
-        searchField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        searchField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         searchField.delegate = self
         searchField.onCancel = { [weak self] in
             self?.closeSearchAndFocusOutline()
@@ -752,6 +1029,7 @@ final class FileExplorerContainerView: NSView {
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
+        emptyLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
 
@@ -793,9 +1071,16 @@ final class FileExplorerContainerView: NSView {
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
+        outlineView.onNativeDragPointerBoundary = { [weak coordinator, weak outlineView] in
+            guard let outlineView else { return }
+            coordinator?.prepareForNativeDragBoundary(on: outlineView)
+        }
         outlineView.doubleAction = #selector(FileExplorerPanelView.Coordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         coordinator.outlineView = outlineView
+        outlineView.onContextMenuDidClose = { [weak coordinator] in
+            coordinator?.contextMenuDidClose()
+        }
 
         // Context menu
         let menu = NSMenu()
@@ -838,6 +1123,9 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.onModeShortcut = { [weak coordinator] mode, window in
             coordinator?.handleModeShortcut(mode, in: window) ?? false
         }
+        searchResultsView.onNativeDragPointerBoundary = { [weak self] in
+            self?.prepareForNativeDragBoundary()
+        }
         let searchColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("searchResult"))
         searchColumn.isEditable = false
         searchColumn.resizingMask = .autoresizingMask
@@ -878,9 +1166,9 @@ final class FileExplorerContainerView: NSView {
             searchBarView.trailingAnchor.constraint(equalTo: trailingAnchor),
             searchBarHeightConstraint,
 
-            searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: 8),
+            searchField.leadingAnchor.constraint(equalTo: searchBarView.leadingAnchor, constant: SidebarSearchField.leadingPadding),
             searchField.trailingAnchor.constraint(equalTo: searchBarView.trailingAnchor, constant: -8),
-            searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: 4),
+            searchField.topAnchor.constraint(equalTo: searchBarView.topAnchor, constant: SidebarSearchField.topPadding),
             searchFieldHeightConstraint,
             searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
 
@@ -898,7 +1186,8 @@ final class FileExplorerContainerView: NSView {
             searchScrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             searchScrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            emptyLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            emptyLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -907,7 +1196,7 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func applyChromeFonts() {
-        searchField.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .regular)
+        searchField.applyFontScale()
         searchStatusLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
         emptyLabel.font = GlobalFontMagnification.systemFont(ofSize: 13)
         searchFieldHeightConstraint?.constant = searchFieldVisibleHeight
@@ -962,13 +1251,15 @@ final class FileExplorerContainerView: NSView {
     }
 
     func updateHeader(store: FileExplorerStore) {
-        let nextRootPath = store.rootPath, nextProviderIsLocal = store.provider is LocalFileExplorerProvider
+        let nextRootPath = store.rootPath, nextSearchScope = FileSearchScope(provider: store.provider)
         let nextWorkspaceRootIdentity = store.workspaceRootIdentity, nextContentRevision = store.contentRevision
-        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity, contentRevisionChanged = nextContentRevision != currentContentRevision
-        let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextProviderIsLocal != currentProviderIsLocal
-        currentRootPath = nextRootPath; currentProviderIsLocal = nextProviderIsLocal
+        let workspaceRootChanged = nextWorkspaceRootIdentity != currentWorkspaceRootIdentity || currentResourceContextID != store.resourceContextID, contentRevisionChanged = nextContentRevision != currentContentRevision
+        let searchScopeChanged = workspaceRootChanged || nextRootPath != currentRootPath || nextSearchScope != currentSearchScope
+        currentRootPath = nextRootPath; currentSearchScope = nextSearchScope
+        currentResourceContextID = store.resourceContextID
         currentWorkspaceRootIdentity = nextWorkspaceRootIdentity; currentContentRevision = nextContentRevision
-        headerView.update(displayPath: store.displayRootPath)
+        headerView.update(displayPath: store.displayRootPath,
+            retry: store.provider is CloudVMFileExplorerProvider ? { [weak store] in store?.retryRemoteRoot() } : nil)
         if workspaceRootChanged { cancelPendingSearchRefresh(); pendingSearchRefreshAfterSettled = false; searchController.cancel(clear: true); searchField.stringValue = ""; applySearchSnapshot(.empty) }
         if searchScopeChanged {
             pendingSearchRefreshAfterSettled = false
@@ -1011,11 +1302,16 @@ final class FileExplorerContainerView: NSView {
         registerWithKeyboardFocusCoordinatorIfNeeded()
     }
 
-    func updateVisibility(hasContent: Bool, isLoading: Bool, statusMessage: String?) {
+    func updateVisibility(
+        hasContent: Bool,
+        isLoading: Bool,
+        statusMessage: String?,
+        showsRemoteTarget: Bool = false
+    ) {
         let normalizedStatus = statusMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasStatus = normalizedStatus?.isEmpty == false
         let canShowTree = hasContent && !hasStatus
-        applyHidden(headerView, !hasContent && !hasStatus)
+        applyHidden(headerView, !hasContent && !hasStatus && !showsRemoteTarget)
         updateSearchLayout(hasContent: canShowTree, isLoading: isLoading)
         let searchCanShow = isSearchVisible && canShowTree && !isLoading
         let nextEmptyText = hasStatus
@@ -1125,7 +1421,7 @@ final class FileExplorerContainerView: NSView {
 #if DEBUG
         dlog(
             "file.search.request queryLen=\(searchField.stringValue.count) " +
-            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) local=\(currentProviderIsLocal ? 1 : 0) " +
+            "rootReady=\(currentRootPath.isEmpty ? 0 : 1) scope=\(currentSearchScope.debugName) " +
             "revision=\(currentContentRevision) results=\(searchSnapshot.results.count) " +
             "fieldW=\(debugSearchNumber(searchField.frame.width)) statusW=\(debugSearchNumber(searchStatusLabel.frame.width))"
         )
@@ -1133,7 +1429,7 @@ final class FileExplorerContainerView: NSView {
         searchController.search(
             query: searchField.stringValue,
             rootPath: currentRootPath,
-            isLocal: currentProviderIsLocal,
+            scope: currentSearchScope,
             contentRevision: currentContentRevision
         )
     }
@@ -1196,20 +1492,22 @@ final class FileExplorerContainerView: NSView {
 
     private func updateSearchLayout(hasContent: Bool? = nil, isLoading: Bool? = nil) {
         let effectiveHasContent = hasContent ?? !currentRootPath.isEmpty
-        let effectiveIsLoading = isLoading ?? false
-        let showSearch = isSearchVisible && effectiveHasContent && !effectiveIsLoading
-        let nextSearchBarHeight = showSearch ? searchBarVisibleHeight : 0
+        let effectiveIsLoading = isLoading ?? coordinator.store.isRootLoading
+        let showSearchResults = isSearchVisible && effectiveHasContent && !effectiveIsLoading
+        let nextSearchBarHeight = isSearchVisible ? searchBarVisibleHeight : 0
 
         // Assigning isHidden/constraints unconditionally fires KVO even when unchanged,
         // which re-enters updateNSView and spins the main thread on macOS 26 (#4931).
         var changed = false
-        if applyHidden(searchBarView, !showSearch) { changed = true }
+        // Loading changes the results, not the editor's lifetime. Hiding the
+        // active search bar makes AppKit end editing and drops shortcut focus.
+        if applyHidden(searchBarView, !isSearchVisible) { changed = true }
         if searchBarHeightConstraint.constant != nextSearchBarHeight {
             searchBarHeightConstraint.constant = nextSearchBarHeight
             changed = true
         }
-        if applyHidden(searchScrollView, !showSearch) { changed = true }
-        if applyHidden(scrollView, showSearch || !effectiveHasContent || effectiveIsLoading) { changed = true }
+        if applyHidden(searchScrollView, !showSearchResults) { changed = true }
+        if applyHidden(scrollView, isSearchVisible || !effectiveHasContent || effectiveIsLoading) { changed = true }
         if changed {
             needsLayout = true
         }
@@ -1285,36 +1583,6 @@ final class FileExplorerContainerView: NSView {
         searchResultsView.reloadData()
     }
 
-    private func statusText(for snapshot: FileSearchSnapshot) -> String {
-        switch snapshot.status {
-        case .idle:
-            return ""
-        case .unsupported:
-            return String(localized: "fileExplorer.search.unsupported", defaultValue: "Local folders only")
-        case .searching:
-            return String(
-                format: String(localized: "fileExplorer.search.searching", defaultValue: "%d matches, searching"),
-                snapshot.results.count
-            )
-        case .noMatches:
-            return String(localized: "fileExplorer.search.noMatches", defaultValue: "No matches")
-        case .matches:
-            return String(
-                format: String(localized: "fileExplorer.search.matches", defaultValue: "%d matches"),
-                snapshot.results.count
-            )
-        case .limited(let limit):
-            return String(
-                format: String(localized: "fileExplorer.search.limit", defaultValue: "First %d matches"),
-                limit
-            )
-        case .failed(let message):
-            return String(
-                format: String(localized: "fileExplorer.search.failed", defaultValue: "Search failed: %@"),
-                message
-            )
-        }
-    }
 
 #if DEBUG
     private func debugSearchNumber(_ value: CGFloat) -> String {
@@ -1452,7 +1720,8 @@ final class FileExplorerContainerView: NSView {
     }
 
     private func searchResult(forMenuItem sender: NSMenuItem) -> FileSearchResult? {
-        guard let row = (sender.representedObject as? NSNumber)?.intValue,
+        guard currentResourceContextID == coordinator.store.resourceContextID,
+              let row = (sender.representedObject as? NSNumber)?.intValue,
               row >= 0,
               row < searchSnapshot.results.count else {
             return nil
@@ -1463,7 +1732,7 @@ final class FileExplorerContainerView: NSView {
     @MainActor
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
-        guard row >= 0, row < searchSnapshot.results.count else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID, row >= 0, row < searchSnapshot.results.count else { return }
         let path = searchSnapshot.results[row].path
         // Editor/preferred-editor actions operate on local file paths via
         // NSWorkspace; for non-local providers fall back to the cmux preview.
@@ -1484,25 +1753,29 @@ final class FileExplorerContainerView: NSView {
     }
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
-        guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
+        guard coordinator.store.provider is LocalFileExplorerProvider,
+              let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
         FileExternalOpenAction.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
     }
-
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
-        guard let result = searchResult(forMenuItem: sender) else { return }
+        guard coordinator.store.provider is LocalFileExplorerProvider,
+              let result = searchResult(forMenuItem: sender) else { return }
         FileExternalOpenAction.revealInFinder(fileURL: URL(fileURLWithPath: result.path))
     }
-
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.path, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            result.path,
+            to: .general
+        )
     }
 
     @objc private func contextMenuCopySearchResultRelativePath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.relativePath, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            result.relativePath,
+            to: .general
+        )
     }
 }
 
@@ -1564,6 +1837,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         searchSnapshot.results.count
     }
 
+    private func previewWriterDidDeallocate(tokenID: UUID) {
+        guard searchResultsView.pendingNativeDragTokenID == tokenID else { return }
+        searchResultsView.pendingNativeDragWriter = nil
+        searchResultsView.pendingNativeDragTokenID = nil
+    }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard row >= 0, row < searchSnapshot.results.count else { return nil }
         let identifier = NSUserInterfaceItemIdentifier("FileSearchResultCell")
@@ -1578,15 +1857,92 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     }
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-        guard tableView === searchResultsView,
+        guard tableView === searchResultsView, coordinator.store.provider is LocalFileExplorerProvider,
               row >= 0,
               row < searchSnapshot.results.count else {
             return nil
         }
         let result = searchSnapshot.results[row]
-        return FilePreviewDragPasteboardWriter(
+        let writer = FilePreviewDragPasteboardWriter(
             filePath: result.path,
-            displayTitle: (result.relativePath as NSString).lastPathComponent
+            displayTitle: (result.relativePath as NSString).lastPathComponent,
+            nativeSourceView: tableView,
+            nativeSourceOwner: self,
+            provisionalToken: pendingPreviewDrag.makeToken()
+        )
+        searchResultsView.pendingNativeDragWriter = writer
+        searchResultsView.pendingNativeDragTokenID = writer.provisionalToken?.id
+        pendingPreviewDrag.register(writer)
+        return writer
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        draggingSession session: NSDraggingSession,
+        willBeginAt screenPoint: NSPoint,
+        forRowIndexes rowIndexes: IndexSet
+    ) {
+        _ = screenPoint
+        _ = rowIndexes
+        guard tableView === searchResultsView else { return }
+        if let previousSession = searchResultsView.activeNativeDragSession,
+           previousSession === session {
+            return
+        }
+        if coordinator.isTrackingNativeDrag(session) {
+            return
+        }
+        // A distinct begin is a native boundary, including when the previous
+        // source belonged to a container replaced by SwiftUI reconstruction.
+        _ = coordinator.reclaimTrackedNativeDrag()
+        let fallbackWriter = searchResultsView.pendingNativeDragWriter
+        var promotedWriters = pendingPreviewDrag.writers(for: tableView)
+        if let fallbackWriter,
+           !promotedWriters.contains(where: { $0 === fallbackWriter }) {
+            promotedWriters.append(fallbackWriter)
+        }
+        pendingPreviewDrag.finishPending(preserving: promotedWriters)
+        coordinator.supersedeNativeDragIfNeeded(
+            previousSession: searchResultsView.activeNativeDragSession,
+            newSession: session,
+            finishPrevious: {
+                let pasteboard = searchResultsView.activeNativeDragSession?.draggingPasteboard
+                    ?? session.draggingPasteboard
+                for ownership in searchResultsView.activeNativeDragOwnerships {
+                    ownership.finish(from: pasteboard)
+                }
+            },
+            clearPrevious: {
+                searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+                searchResultsView.activeNativeDragWriter = nil
+                searchResultsView.activeNativeDragDelegateMarker = nil
+                searchResultsView.activeNativeDragOwnerships = []
+                searchResultsView.activeNativeDragOwnership = nil
+                searchResultsView.activeNativeDragSession = nil
+            }
+        )
+        // The ordered list mirrors AppKit's pasteboard item order; use its
+        // first writer as the canonical source identity.
+        let promotedWriter = promotedWriters.first ?? fallbackWriter
+        let promotedOwnerships = pendingPreviewDrag.promote(writers: promotedWriters)
+        promotedWriter?.materializeRegisteredPayload(to: session.draggingPasteboard)
+        let ownerships = promotedOwnerships.isEmpty
+            ? (promotedWriter?.nativeDragOwnership()).map { [$0] } ?? []
+            : promotedOwnerships
+        // The pasteboard writer retains this exact container through the native
+        // terminal callback. Keep only a weak marker on the table: a strong
+        // table → container edge would create a retain cycle.
+        searchResultsView.activeNativeDragDelegateMarker = self
+        searchResultsView.activeNativeDragWriter = promotedWriter
+        searchResultsView.activeNativeDragOwnerships = ownerships
+        searchResultsView.pendingNativeDragWriter = nil
+        searchResultsView.pendingNativeDragTokenID = nil
+        searchResultsView.activeNativeDragSession = session
+        coordinator.trackNativeDrag(
+            sourceView: searchResultsView,
+            session: session,
+            writer: promotedWriter,
+            ownerships: ownerships
         )
     }
 
@@ -1597,7 +1953,64 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         operation: NSDragOperation
     ) {
         guard tableView === searchResultsView else { return }
-        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
+        if searchResultsView.activeNativeDragSession === session {
+            if !searchResultsView.activeNativeDragOwnerships.isEmpty {
+                for ownership in searchResultsView.activeNativeDragOwnerships {
+                    ownership.finish(from: session.draggingPasteboard)
+                }
+            } else {
+                // This is the matching generation, so the fallback cannot
+                // accidentally parse a newer session's shared pasteboard.
+                FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+            }
+            searchResultsView.activeNativeDragDelegateMarker = nil
+            searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+            searchResultsView.activeNativeDragWriter = nil
+            searchResultsView.activeNativeDragOwnerships = []
+            searchResultsView.activeNativeDragOwnership = nil
+            searchResultsView.activeNativeDragSession = nil
+            coordinator.forgetTrackedNativeDrag(matching: session)
+        }
+    }
+
+    /// Reclaims a search drag whose native terminal callback was lost before a
+    /// subsequent pointer gesture. AppKit cannot deliver this `mouseDown`
+    /// while the prior native drag loop is active, making the boundary safe to
+    /// use for releasing the intentional container/table retain cycle.
+    func prepareForNativeDragBoundary() {
+        if coordinator.reclaimTrackedNativeDrag() {
+            // The coordinator may be tracking an outline or search table from
+            // an older container. Finish pending writers owned by this
+            // container as well, without touching a new active generation.
+            pendingPreviewDrag.finishPending()
+            searchResultsView.pendingNativeDragWriter = nil
+            searchResultsView.pendingNativeDragTokenID = nil
+            return
+        }
+        guard let session = searchResultsView.activeNativeDragSession else {
+            searchResultsView.activeNativeDragDelegateMarker = nil
+            pendingPreviewDrag.finishPending()
+            if let tokenID = searchResultsView.pendingNativeDragTokenID {
+                pendingPreviewDrag.remove(tokenID: tokenID)
+            }
+            searchResultsView.pendingNativeDragWriter = nil
+            searchResultsView.pendingNativeDragTokenID = nil
+            searchResultsView.activeNativeDragOwnership = nil
+            return
+        }
+        for ownership in searchResultsView.activeNativeDragOwnerships {
+            ownership.finish(from: session.draggingPasteboard)
+        }
+        pendingPreviewDrag.finishPending()
+        searchResultsView.pendingNativeDragWriter = nil
+        searchResultsView.pendingNativeDragTokenID = nil
+        searchResultsView.activeNativeDragDelegateMarker = nil
+        searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+        searchResultsView.activeNativeDragWriter = nil
+        searchResultsView.activeNativeDragOwnerships = []
+        searchResultsView.activeNativeDragOwnership = nil
+        searchResultsView.activeNativeDragSession = nil
+        coordinator.forgetTrackedNativeDrag(matching: session)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -1605,7 +2018,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         menu.removeAllItems()
         let clickedRow = searchResultsView.clickedRow
         let row = clickedRow >= 0 ? clickedRow : searchResultsView.selectedRow
-        guard row >= 0, row < searchSnapshot.results.count else { return }
+        guard currentResourceContextID == coordinator.store.resourceContextID, row >= 0, row < searchSnapshot.results.count else { return }
         if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
             searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }
@@ -1619,21 +2032,21 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        FileExplorerExternalOpenMenuItems(
-            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
-            target: self,
-            action: #selector(contextMenuOpenSearchResultExternally(_:))
-        ).add(to: menu)
-
-        let revealItem = NSMenuItem(
-            title: FileExternalOpenText.revealInFinder,
-            action: #selector(contextMenuRevealSearchResultInFinder(_:)),
-            keyEquivalent: ""
-        )
-        revealItem.target = self
-        revealItem.representedObject = NSNumber(value: row)
-        menu.addItem(revealItem)
-
+        if coordinator.store.provider is LocalFileExplorerProvider {
+            FileExplorerExternalOpenMenuItems(
+                fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
+                target: self,
+                action: #selector(contextMenuOpenSearchResultExternally(_:))
+            ).add(to: menu)
+            let revealItem = NSMenuItem(
+                title: FileExternalOpenText.revealInFinder,
+                action: #selector(contextMenuRevealSearchResultInFinder(_:)),
+                keyEquivalent: ""
+            )
+            revealItem.target = self
+            revealItem.representedObject = NSNumber(value: row)
+            menu.addItem(revealItem)
+        }
         menu.addItem(.separator())
 
         menu.addFileExplorerInsertPathItems(target: self, representedObject: NSNumber(value: row), insertAction: #selector(contextMenuInsertSearchResultPath(_:)), insertRelativeAction: #selector(contextMenuInsertSearchResultRelativePath(_:)))
@@ -1655,5 +2068,28 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         copyRelativePathItem.target = self
         copyRelativePathItem.representedObject = NSNumber(value: row)
         menu.addItem(copyRelativePathItem)
+    }
+}
+
+private extension FileExplorerContainerView {
+    func clearNativeDragMarkersIfIdle() {
+        guard searchResultsView.activeNativeDragSession == nil,
+              outlineView.activeNativeDragSession == nil else { return }
+        for ownership in searchResultsView.activeNativeDragOwnerships {
+            ownership.revokeRouting()
+        }
+        for ownership in outlineView.activeNativeDragOwnerships {
+            ownership.revokeRouting()
+        }
+        searchResultsView.activeNativeDragDelegateMarker = nil
+        searchResultsView.activeNativeDragWriter?.releaseSourceGraph()
+        searchResultsView.activeNativeDragWriter = nil
+        searchResultsView.activeNativeDragOwnerships = []
+        searchResultsView.activeNativeDragOwnership = nil
+        outlineView.activeNativeDragDelegateMarker = nil
+        outlineView.activeNativeDragWriter?.releaseSourceGraph()
+        outlineView.activeNativeDragWriter = nil
+        outlineView.activeNativeDragOwnerships = []
+        outlineView.activeNativeDragOwnership = nil
     }
 }

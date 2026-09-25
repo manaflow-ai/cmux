@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR 95b6c2dc8101ca1690c39b3dd40e32565dd23e01ed9fabe55270c56ba5532f91. */
+/* cmux-tui mux protocol 12, IR 133bac0154f8f94aa30e40c11ff7ed38b10dd4d82974aec87c02d404fcd12619. */
 
 
 import type * as T from "./types.js";
@@ -37,9 +37,11 @@ export interface ApplyLayoutRequest extends CmuxRequestBase {
 export interface AttachSurfaceRequest extends CmuxRequestBase {
   cmd: "attach-surface";
   "cols"?: (number) | null;
+  "expected_generation"?: (string) | null;
+  "expected_terminal_id"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
   "rows"?: (number) | null;
-  "surface": T.Id;
+  "surface"?: (T.Id) | null;
 }
 export type AttachSurfaceResult = T.EmptyResult;
 
@@ -182,6 +184,16 @@ export interface ClearWindowTitleRequest extends CmuxRequestBase {
 }
 export type ClearWindowTitleResult = T.EmptyResult;
 
+/** Protocol v12; authority: control. */
+export interface ClientFocusRequest extends CmuxRequestBase {
+  cmd: "client-focus";
+  "client_id": string;
+}
+export type ClientFocusResult = {
+  "pane": (T.Id) | null;
+  "tab": (bigint) | null;
+};
+
 /** Protocol v5; authority: control. */
 export interface ClosePaneRequest extends CmuxRequestBase {
   cmd: "close-pane";
@@ -248,6 +260,7 @@ export interface CreateSurfaceWithReceiptRequest extends CmuxRequestBase {
   "argv"?: (Array<string>) | null;
   "cols"?: (number) | null;
   "cwd"?: (string) | null;
+  "idempotency_key"?: (string) | null;
   "operation": string;
   "origin": string;
   "pane"?: (T.Id) | null;
@@ -327,6 +340,12 @@ export interface FocusPaneRequest extends CmuxRequestBase {
 }
 export type FocusPaneResult = T.EmptyResult;
 
+/** Protocol v10; authority: local-admin. */
+export interface GetBrowserProviderRequest extends CmuxRequestBase {
+  cmd: "get-browser-provider";
+}
+export type GetBrowserProviderResult = T.BrowserProviderSnapshot;
+
 /** Protocol v6; authority: frontend. */
 export interface GetCellPixelsRequest extends CmuxRequestBase {
   cmd: "get-cell-pixels";
@@ -352,6 +371,15 @@ export interface IdsRequest extends CmuxRequestBase {
   "kind"?: ("workspace" | "screen" | "pane" | "surface") | null;
 }
 
+/** Protocol v10; authority: control. */
+export interface JournalFrontendEventRequest extends CmuxRequestBase {
+  cmd: "journal-frontend-event";
+  "event": T.FrontendJournalEvent;
+}
+export type JournalFrontendEventResult = {
+  "committed": true;
+};
+
 /** Protocol v6; authority: control. */
 export interface ListAgentsRequest extends CmuxRequestBase {
   cmd: "list-agents";
@@ -376,6 +404,16 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
 }
 export type ListWorkspacesResult = T.Tree;
 
+/** Protocol v12; authority: control. */
+export interface MachineListeningTcpRequest extends CmuxRequestBase {
+  cmd: "machine-listening-tcp";
+}
+
+/** Protocol v12; authority: control. */
+export interface MachineUsageRequest extends CmuxRequestBase {
+  cmd: "machine-usage";
+}
+
 /** Protocol v9; authority: provider-authority. */
 export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
   cmd: "mark-workspaces-provider-managed";
@@ -390,6 +428,14 @@ export interface MintTerminalRendererRequest extends CmuxRequestBase {
   "ttl_ms"?: bigint;
 }
 
+/** Protocol v11; authority: frontend. */
+export interface MintTerminalRendererByTerminalRequest extends CmuxRequestBase {
+  cmd: "mint-terminal-renderer-by-terminal";
+  "terminal": string;
+  "ttl_ms"?: bigint;
+}
+export type MintTerminalRendererByTerminalResult = T.MintTerminalRendererResult;
+
 /** Protocol v5; authority: control. */
 export interface MoveTabRequest extends CmuxRequestBase {
   cmd: "move-tab";
@@ -398,6 +444,14 @@ export interface MoveTabRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type MoveTabResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface MoveTabToWorkspaceRequest extends CmuxRequestBase {
+  cmd: "move-tab-to-workspace";
+  "surface": T.Id;
+  "workspace"?: (T.Id) | null;
+}
+export type MoveTabToWorkspaceResult = T.EmptyResult;
 
 /** Protocol v9; authority: control. */
 export interface MoveTerminalRequest extends CmuxRequestBase {
@@ -505,6 +559,23 @@ export interface PaneNeighborRequest extends CmuxRequestBase {
   "pane": T.Id;
 }
 
+/** Protocol v12; authority: control. */
+export interface PasteImageRequest extends CmuxRequestBase {
+  cmd: "paste-image";
+  "data"?: (string) | null;
+  "lease": string;
+  "mime"?: (string) | null;
+  "offset"?: (bigint) | null;
+  "op": string;
+  "size"?: (bigint) | null;
+  "surface": T.Id;
+  "terminal_id": string;
+  "upload_id": string;
+}
+export type PasteImageResult = {
+  "accepted": boolean;
+};
+
 /** Protocol v6; authority: control. */
 export interface PingRequest extends CmuxRequestBase {
   cmd: "ping";
@@ -547,6 +618,17 @@ export interface ReadScrollbackRequest extends CmuxRequestBase {
   "start": number;
   "surface": T.Id;
 }
+
+/** Protocol v10; authority: local-admin. */
+export interface RegisterBrowserProviderRequest extends CmuxRequestBase {
+  cmd: "register-browser-provider";
+  "authentication": T.BrowserProviderAuthentication;
+  "bearer_token"?: (string) | null;
+  "endpoint": string;
+  "provider_id": string;
+  "targets": Array<T.BrowserProviderTarget>;
+}
+export type RegisterBrowserProviderResult = T.BrowserProviderSnapshot;
 
 /** Protocol v10; authority: frontend. */
 export interface ReleaseAttachedViewSizeRequest extends CmuxRequestBase {
@@ -627,6 +709,15 @@ export interface ReportAgentRequest extends CmuxRequestBase {
   "state": T.AgentState;
   "surface": T.Id;
 }
+
+/** Protocol v12; authority: control. */
+export interface ReportFocusRequest extends CmuxRequestBase {
+  cmd: "report-focus";
+  "client_id": string;
+  "pane": T.Id;
+  "tab"?: (bigint) | null;
+}
+export type ReportFocusResult = T.EmptyResult;
 
 /** Protocol v10; authority: frontend. */
 export interface ResizeAttachedViewRequest extends CmuxRequestBase {
@@ -716,6 +807,11 @@ export interface SendKeyRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type SendKeyResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface ServerStatsRequest extends CmuxRequestBase {
+  cmd: "server-stats";
+}
 
 /** Protocol v6; authority: frontend. */
 export interface SetCellPixelsRequest extends CmuxRequestBase {
@@ -850,6 +946,42 @@ export interface UndoLayoutRequest extends CmuxRequestBase {
 }
 export type UndoLayoutResult = T.LayoutUndoResult;
 
+/** Protocol v10; authority: local-admin. */
+export interface UnregisterBrowserProviderRequest extends CmuxRequestBase {
+  cmd: "unregister-browser-provider";
+}
+export type UnregisterBrowserProviderResult = T.BrowserProviderUnregisterResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface UrlOpenRequest extends CmuxRequestBase {
+  cmd: "url-open";
+  "terminal_id": string;
+  "url": string;
+}
+export type UrlOpenResult = T.GuestUrlOpenResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenClaimRequest extends CmuxRequestBase {
+  cmd: "url-open-claim";
+  "request_id": string;
+}
+export type UrlOpenClaimResult = T.GuestUrlClaimResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenResultRequest extends CmuxRequestBase {
+  cmd: "url-open-result";
+  "opened": boolean;
+  "request_id": string;
+}
+export type UrlOpenResultResult = T.GuestUrlAcknowledgeResult;
+
+/** Protocol v12; authority: frontend. */
+export interface UrlOpenSubscribeRequest extends CmuxRequestBase {
+  cmd: "url-open-subscribe";
+  "terminal_ids": Array<string>;
+}
+export type UrlOpenSubscribeResult = T.GuestUrlSubscribeResult;
+
 /** Protocol v5; authority: control. */
 export interface VtStateRequest extends CmuxRequestBase {
   cmd: "vt-state";
@@ -891,6 +1023,7 @@ export type CmuxRequest =
   | BrowserWheelGuardedRequest
   | ClearHistoryRequest
   | ClearWindowTitleRequest
+  | ClientFocusRequest
   | ClosePaneRequest
   | CloseProviderManagedWorkspaceRequest
   | CloseScreenRequest
@@ -906,17 +1039,23 @@ export type CmuxRequest =
   | ExportLayoutRequest
   | FocusDirectionRequest
   | FocusPaneRequest
+  | GetBrowserProviderRequest
   | GetCellPixelsRequest
   | GetFrontendProjectionRequest
   | IdentifyRequest
   | IdsRequest
+  | JournalFrontendEventRequest
   | ListAgentsRequest
   | ListClientsRequest
   | ListTerminalsRequest
   | ListWorkspacesRequest
+  | MachineListeningTcpRequest
+  | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
   | MintTerminalRendererRequest
+  | MintTerminalRendererByTerminalRequest
   | MoveTabRequest
+  | MoveTabToWorkspaceRequest
   | MoveTerminalRequest
   | MoveWorkspaceRequest
   | NewBrowserTabRequest
@@ -928,11 +1067,13 @@ export type CmuxRequest =
   | NotifyRequest
   | PairingResponseRequest
   | PaneNeighborRequest
+  | PasteImageRequest
   | PingRequest
   | ProcessInfoRequest
   | PutFrontendProjectionRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
+  | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
   | ReloadConfigRequest
@@ -942,6 +1083,7 @@ export type CmuxRequest =
   | RenameSurfaceRequest
   | RenameWorkspaceRequest
   | ReportAgentRequest
+  | ReportFocusRequest
   | ResizeAttachedViewRequest
   | ResizeSurfaceRequest
   | ResolveTerminalRequest
@@ -952,6 +1094,7 @@ export type CmuxRequest =
   | SelectWorkspaceRequest
   | SendRequest
   | SendKeyRequest
+  | ServerStatsRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
@@ -967,6 +1110,11 @@ export type CmuxRequest =
   | SwapPaneRequest
   | TerminalEventsRequest
   | UndoLayoutRequest
+  | UnregisterBrowserProviderRequest
+  | UrlOpenRequest
+  | UrlOpenClaimRequest
+  | UrlOpenResultRequest
+  | UrlOpenSubscribeRequest
   | VtStateRequest
   | WaitForRequest
   | ZoomPaneRequest;
@@ -1109,6 +1257,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "client-focus": {
+    request: ClientFocusRequest;
+    result: ClientFocusResult;
+    authority: "control";
+    since: 12;
+    capability: "client-focus-v1";
+    stream: null;
+  };
   "close-pane": {
     request: ClosePaneRequest;
     result: ClosePaneResult;
@@ -1229,6 +1385,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "get-browser-provider": {
+    request: GetBrowserProviderRequest;
+    result: GetBrowserProviderResult;
+    authority: "local-admin";
+    since: 10;
+    capability: "browser-provider-v1";
+    stream: null;
+  };
   "get-cell-pixels": {
     request: GetCellPixelsRequest;
     result: T.GetCellPixelsResult;
@@ -1259,6 +1423,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "journal-frontend-event": {
+    request: JournalFrontendEventRequest;
+    result: JournalFrontendEventResult;
+    authority: "control";
+    since: 10;
+    capability: "frontend-journal-v1";
     stream: null;
   };
   "list-agents": {
@@ -1293,6 +1465,22 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "machine-listening-tcp": {
+    request: MachineListeningTcpRequest;
+    result: T.MachineListeningTcpResult;
+    authority: "control";
+    since: 12;
+    capability: "machine-listening-tcp-v1";
+    stream: null;
+  };
+  "machine-usage": {
+    request: MachineUsageRequest;
+    result: T.MachineUsageResult;
+    authority: "control";
+    since: 12;
+    capability: "machine-usage-v1";
+    stream: null;
+  };
   "mark-workspaces-provider-managed": {
     request: MarkWorkspacesProviderManagedRequest;
     result: MarkWorkspacesProviderManagedResult;
@@ -1309,12 +1497,28 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "mint-terminal-renderer-by-terminal": {
+    request: MintTerminalRendererByTerminalRequest;
+    result: MintTerminalRendererByTerminalResult;
+    authority: "frontend";
+    since: 11;
+    capability: null;
+    stream: null;
+  };
   "move-tab": {
     request: MoveTabRequest;
     result: MoveTabResult;
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "move-tab-to-workspace": {
+    request: MoveTabToWorkspaceRequest;
+    result: MoveTabToWorkspaceResult;
+    authority: "control";
+    since: 12;
+    capability: "tab-workspace-move-v1";
     stream: null;
   };
   "move-terminal": {
@@ -1405,6 +1609,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "paste-image": {
+    request: PasteImageRequest;
+    result: PasteImageResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-image-paste-v1";
+    stream: null;
+  };
   "ping": {
     request: PingRequest;
     result: T.PingResult;
@@ -1443,6 +1655,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 7;
     capability: null;
+    stream: null;
+  };
+  "register-browser-provider": {
+    request: RegisterBrowserProviderRequest;
+    result: RegisterBrowserProviderResult;
+    authority: "local-admin";
+    since: 10;
+    capability: "browser-provider-v1";
     stream: null;
   };
   "release-attached-view-size": {
@@ -1515,6 +1735,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "report-focus": {
+    request: ReportFocusRequest;
+    result: ReportFocusResult;
+    authority: "control";
+    since: 12;
+    capability: "client-focus-v1";
     stream: null;
   };
   "resize-attached-view": {
@@ -1595,6 +1823,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "server-stats": {
+    request: ServerStatsRequest;
+    result: T.ServerStatsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "server-stats-v1";
     stream: null;
   };
   "set-cell-pixels": {
@@ -1716,6 +1952,46 @@ export interface CmuxCommandDefinitionMap {
     since: 9;
     capability: "layout-undo-v1";
     stream: null;
+  };
+  "unregister-browser-provider": {
+    request: UnregisterBrowserProviderRequest;
+    result: UnregisterBrowserProviderResult;
+    authority: "local-admin";
+    since: 10;
+    capability: "browser-provider-v1";
+    stream: null;
+  };
+  "url-open": {
+    request: UrlOpenRequest;
+    result: UrlOpenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-claim": {
+    request: UrlOpenClaimRequest;
+    result: UrlOpenClaimResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-result": {
+    request: UrlOpenResultRequest;
+    result: UrlOpenResultResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: null;
+  };
+  "url-open-subscribe": {
+    request: UrlOpenSubscribeRequest;
+    result: UrlOpenSubscribeResult;
+    authority: "frontend";
+    since: 12;
+    capability: null;
+    stream: "subscribe";
   };
   "vt-state": {
     request: VtStateRequest;

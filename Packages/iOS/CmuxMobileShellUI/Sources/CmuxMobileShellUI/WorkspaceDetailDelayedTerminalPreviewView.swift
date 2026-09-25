@@ -1,5 +1,4 @@
 import CMUXMobileCore
-import CmuxAgentChat
 import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
@@ -23,6 +22,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
     )
     @State private var browserStore = BrowserSurfaceStore()
     @State private var browserStreamStore = BrowserStreamStore()
+    @State private var simulatorStreamStore = MobileSimulatorStreamStore()
     @State private var didStartFixture = false
     @State private var themeStage = "loading"
 
@@ -34,6 +34,7 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
         )
         .environment(browserStore)
         .environment(browserStreamStore)
+        .environment(simulatorStreamStore)
         .overlay(alignment: .topLeading) {
             if Self.showsThemeParitySequence {
                 Color.clear
@@ -72,31 +73,11 @@ struct WorkspaceDetailDelayedTerminalPreviewView: View {
             if Self.showsThemeParitySequence {
                 await runThemeParitySequence()
             }
-            if Self.showsChatToggle {
-                store.rememberChatSessions(
-                    [
-                        ChatSessionDescriptor(
-                            id: "preview-chat-session",
-                            agentKind: .claude,
-                            title: "Preview Agent",
-                            workspaceID: Self.workspaceID.rawValue,
-                            terminalID: Self.terminalID.rawValue,
-                            state: .working(since: Date()),
-                            lastActivityAt: Date()
-                        ),
-                    ],
-                    workspaceID: Self.workspaceID.rawValue
-                )
-            }
         }
     }
 
     private static var usesLongTitle: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE"] == "1"
-    }
-
-    private static var showsChatToggle: Bool {
-        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_CHAT_TOGGLE"] == "1"
     }
 
     private static var showsThemeParitySequence: Bool {

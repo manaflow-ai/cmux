@@ -58,6 +58,15 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     }
 
     private func presentStandalone() {
+        alert.layout()
+        // NSAlert defers its button-stack constraints until the window enters
+        // a display/layout pass. Resolve that pass while the window is still
+        // hidden so the controls have stable, non-overlapping hit frames when
+        // it is shown (and before a synthetic test click can arrive).
+        let window = alert.window
+        window.displayIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+
         let buttons = alert.buttons
         if buttons.indices.contains(0) {
             buttons[0].target = self
@@ -68,7 +77,6 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
             buttons[1].action = #selector(cancelQuit)
         }
 
-        let window = alert.window
         window.delegate = self
         window.level = .modalPanel
         window.center()
@@ -135,6 +143,8 @@ extension AppDelegate {
         if managerHasDirtyWorkspace(tabManager) {
             return true
         }
-        return recoverableMainWindowRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
+        // Quit confirmation is a lifecycle/data-safety check, so it must include
+        // windowless recoverable owners that UI-routing snapshots intentionally hide.
+        return mainWindowSessionPersistenceRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
     }
 }

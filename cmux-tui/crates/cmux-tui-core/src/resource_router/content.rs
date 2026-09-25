@@ -44,6 +44,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalStateRead
             | ResourceOperation::TerminalHistoryRead
             | ResourceOperation::TerminalHistoryClear
+            | ResourceOperation::TerminalOutputRead
             | ResourceOperation::TerminalWait
             | ResourceOperation::TerminalWaitExit
             | ResourceOperation::TerminalCopy
@@ -73,6 +74,7 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalScreenRead => terminal_screen_read(mux, &request),
         ResourceOperation::TerminalStateRead => terminal_state_read(mux, &request),
         ResourceOperation::TerminalHistoryRead => terminal_history_read(mux, &request),
+        ResourceOperation::TerminalOutputRead => terminal_output_read(mux, &request),
         ResourceOperation::TerminalWait => terminal_wait(mux, &request),
         ResourceOperation::TerminalWaitExit => terminal_wait_exit(mux, &request),
         ResourceOperation::TerminalCopy => terminal_copy(mux, &request),
@@ -109,28 +111,16 @@ fn terminal_screen_read(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (_, surface) = resolve_terminal_surface(mux, &request.selectors)?;
-    let (text, cols, rows, cursor_col, cursor_row, cursor_visible) = surface
-        .try_with_terminal(|terminal| {
-            let text = terminal.viewport_text()?;
-            let (cursor_col, cursor_row) = terminal.cursor_position().unwrap_or((0, 0));
-            Ok::<_, ghostty_vt::Error>((
-                text,
-                terminal.cols(),
-                terminal.rows(),
-                cursor_col,
-                cursor_row,
-                terminal.mode(25, false),
-            ))
-        })
-        .map_err(resource_operation_error)?
-        .map_err(|error| resource_operation_error(error.into()))?;
+    let snapshot = surface.terminal_screen_snapshot().map_err(resource_operation_error)?;
     Ok(json!({
-        "text":text,
-        "cols":cols,
-        "rows":rows,
-        "cursor_row":cursor_row,
-        "cursor_col":cursor_col,
-        "cursor_visible":cursor_visible,
+        "text":snapshot.text,
+        "cols":snapshot.cols,
+        "rows":snapshot.rows,
+        "cursor_row":snapshot.cursor_row,
+        "cursor_col":snapshot.cursor_col,
+        "cursor_visible":snapshot.cursor_visible,
+        "revision":snapshot.revision.to_string(),
+        "osc_progress":snapshot.osc_progress,
     }))
 }
 
@@ -189,6 +179,22 @@ fn terminal_history_read(
         "next":next.map(|value| value.to_string()),
         "rows":rows,
     }))
+}
+
+/// Bounded plain-text window over one terminal's journaled output stream.
+/// Unlike the other content reads it does not require a live surface: like
+/// `terminal.wait_exit` it resolves through the durable exit receipt, so it
+/// answers for exited terminals under both exit policies (kept views and
+/// detached ones).
+fn terminal_output_read(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let terminal_id = resolve_terminal_wait_exit_id(mux, &request.selectors)?;
+    let after = optional_decimal(&request.fields, "after")?;
+    // The catalog injects the default and enforces the 1..=4 MiB bounds.
+    let max_bytes = required_u64(&request.fields, "max_bytes")?;
+    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(resource_operation_error)
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -312,11 +318,13 @@ fn terminal_process_get(
         "pid":pid,
         "argv":argv,
         "children":children,
+        "foreground_cwd":crate::platform::foreground_cwd(pid),
+        "foreground_executable":crate::platform::foreground_process_name(pid),
     });
     if let Some(executable) = executable {
         value["executable"] = json!(executable);
     }
-    if let Some(cwd) = surface.pwd().or_else(|| surface.spawn_cwd()) {
+    if let Some(cwd) = surface.local_cwd() {
         value["cwd"] = json!(cwd);
     }
     Ok(value)
@@ -326,7 +334,16 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
     validate_terminal_effect_fields(&request)?;
     let fields = request.fields.clone();
     let preparation = effects::prepare(mux, &request, || {
-        let (terminal_id, _) = resolve_terminal_surface(mux, &request.selectors)?;
+        // Explicit close is the only terminal effect that must keep working
+        // after the runtime is gone: an exited terminal survives as a durable
+        // receipt with zero views, and close is the one operation that
+        // retires that receipt. Resolve it like `terminal.wait_exit` instead
+        // of demanding a live surface.
+        let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
+            resolve_terminal_wait_exit_id(mux, &request.selectors)?
+        } else {
+            resolve_terminal_surface(mux, &request.selectors)?.0
+        };
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
     match preparation {
@@ -352,6 +369,16 @@ fn execute_terminal_effect(
         Ok(fields) => fields.clone(),
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
+    if prepared.operation == "terminal.close" {
+        let commit = mux.commit_resource_terminal_close_effect(
+            &terminal_id,
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
+        );
+        return finish_projection_commit(mux, prepared, commit);
+    }
+
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -383,7 +410,6 @@ fn execute_terminal_effect(
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
         "terminal.viewport.scroll" => terminal_scroll_viewport(mux, &surface, &fields),
-        "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
             "stored terminal effect operation is invalid",
@@ -392,16 +418,6 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
-    }
-
-    if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_terminal_close_effect(
-            surface_id,
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-        );
-        return finish_projection_commit(mux, prepared, commit);
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
@@ -607,6 +623,7 @@ fn targeted_browser_effect_projection(
         browser.source = match source {
             BrowserSource::External => RegistryBrowserSource::External,
             BrowserSource::Launched => RegistryBrowserSource::Launched,
+            BrowserSource::Provider => RegistryBrowserSource::External,
         };
     }
     browser.status = match &status {
@@ -731,6 +748,74 @@ fn terminal_project(
     super::mutation_result(mux, value, commit.revision, commit.replayed)
 }
 
+fn confirmed_terminal_write(
+    surface: &Surface,
+    bytes: &[u8],
+    operation: &str,
+) -> Result<(), ActionFailure> {
+    surface.write_bytes_confirmed(bytes).map_err(|error| confirmed_input_error(operation, error))
+}
+
+fn confirmed_input_error(
+    operation: &str,
+    error: crate::surface::ConfirmedInputFailure,
+) -> ActionFailure {
+    match error {
+        crate::surface::ConfirmedInputFailure::Known(error) => {
+            let message = match error.kind() {
+                std::io::ErrorKind::InvalidInput => "terminal_input_too_large",
+                std::io::ErrorKind::WouldBlock => "terminal_input_unavailable",
+                std::io::ErrorKind::Unsupported => "terminal_input_confirmation_unsupported",
+                _ => "terminal_input_delivery_failed",
+            };
+            ActionFailure::Known(ResourceError::operation_failed(operation, message, json!({})))
+        }
+        crate::surface::ConfirmedInputFailure::Indeterminate(error) => {
+            // Raw transport diagnostics must not enter the durable API response.
+            drop(error);
+            ActionFailure::Indeterminate("terminal_input_delivery_indeterminate".into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod confirmed_input_error_tests {
+    use super::*;
+
+    #[test]
+    fn confirmed_input_errors_do_not_expose_internal_details() {
+        let private = "internal socket /private/terminal.sock token=secret-test-value";
+        for kind in [
+            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::Unsupported,
+            std::io::ErrorKind::BrokenPipe,
+        ] {
+            let failure =
+                crate::surface::ConfirmedInputFailure::Known(std::io::Error::new(kind, private));
+            let ActionFailure::Known(error) =
+                confirmed_input_error("terminal.input.write", failure)
+            else {
+                panic!("known failure changed delivery classification");
+            };
+            assert_eq!(error.code, "operation.failed");
+            assert!(error.message.starts_with("terminal_input_"));
+            assert_eq!(error.details["reason"], error.message);
+            assert!(!error.message.contains(private));
+            assert!(!error.details.to_string().contains(private));
+            assert_eq!(error.details["operation"], "terminal.input.write");
+        }
+        let failure =
+            crate::surface::ConfirmedInputFailure::Indeterminate(std::io::Error::other(private));
+        let ActionFailure::Indeterminate(reason) =
+            confirmed_input_error("terminal.input.write", failure)
+        else {
+            panic!("uncertain delivery changed classification");
+        };
+        assert!(!reason.contains(private));
+    }
+}
+
 fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
     let bytes = match (fields.get("text"), fields.get("bytes_base64")) {
         (Some(Value::String(text)), None) => text.as_bytes().to_vec(),
@@ -749,7 +834,7 @@ fn terminal_write(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
             )));
         }
     };
-    surface.write_bytes(&bytes).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+    confirmed_terminal_write(surface, &bytes, "terminal.input.write")
 }
 
 fn terminal_scroll_viewport(
@@ -798,7 +883,7 @@ fn terminal_keys(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
         .map_err(|error| ActionFailure::Known(resource_operation_error(error)))?
         .map_err(ActionFailure::Known)?;
     surface.scroll_to_bottom().map_err(|error| ActionFailure::Indeterminate(error.to_string()))?;
-    surface.write_bytes(&encoded).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+    confirmed_terminal_write(surface, &encoded, "terminal.input.keys")
 }
 
 fn terminal_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
@@ -912,7 +997,7 @@ fn terminal_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
     if output.is_empty() {
         return Ok(());
     }
-    surface.write_bytes(&output).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+    confirmed_terminal_write(surface, &output, "terminal.input.mouse")
 }
 
 fn terminal_focus(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
@@ -926,7 +1011,7 @@ fn terminal_focus(surface: &Surface, fields: &Map<String, Value>) -> Result<(), 
         return Ok(());
     }
     let bytes: &[u8] = if focused { b"\x1b[I" } else { b"\x1b[O" };
-    surface.write_bytes(bytes).map_err(|error| ActionFailure::Indeterminate(error.to_string()))
+    confirmed_terminal_write(surface, bytes, "terminal.input.focus")
 }
 
 fn browser_key(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
@@ -1622,6 +1707,7 @@ mod tests {
             ResourceOperation::TerminalStateRead,
             ResourceOperation::TerminalHistoryRead,
             ResourceOperation::TerminalHistoryClear,
+            ResourceOperation::TerminalOutputRead,
             ResourceOperation::TerminalWait,
             ResourceOperation::TerminalWaitExit,
             ResourceOperation::TerminalCopy,
@@ -1965,7 +2051,6 @@ mod tests {
         let internal = durable.terminals.first().expect("fixture has one durable terminal");
         let internal_id = internal.terminal_id.as_str();
         let incarnation = internal.incarnation.as_deref().unwrap_or_default();
-
         let pending = dispatch(
             &mux,
             parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
@@ -2045,6 +2130,137 @@ mod tests {
         assert_eq!(terminal["tab_ids"], json!([]));
         assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
         assert!(mux.surface(surface.id).is_none());
+    }
+
+    #[test]
+    fn terminal_close_tombstones_an_exited_receipt_without_a_live_runtime() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let host_id = mux
+            .terminal_registry_snapshot()
+            .unwrap()
+            .terminals
+            .into_iter()
+            .next()
+            .unwrap()
+            .terminal_id;
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 17 },
+            exited_at_ms: 4_567_890,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+        assert!(
+            mux.resource_surface_for_terminal(&public_id).is_none(),
+            "exit detach must retire the terminal runtime"
+        );
+
+        let closed = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-exited-terminal-receipt"),
+            ),
+        )
+        .expect("terminal.close must retire an exited receipt without a live runtime");
+
+        assert_eq!(closed["replayed"], false);
+        assert!(
+            public_session_snapshot(&mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != public_id.as_str()),
+            "a closed exited receipt must leave the public session snapshot"
+        );
+        let tombstone = mux.resolve_terminal(&host_id).unwrap().unwrap();
+        assert_eq!(
+            tombstone.terminal.lifecycle,
+            crate::workspace_registry::TerminalLifecycle::Tombstoned
+        );
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_wait_exit_resolves_detached_id_after_exit_upsert() {
+        let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
+        let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let before = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap();
+        let exit = crate::terminal_host_protocol::TerminalExit {
+            outcome: crate::terminal_host_protocol::TerminalExitOutcome::Signal {
+                signal: libc::SIGTERM,
+                core_dumped: true,
+            },
+            exited_at_ms: 3_456_789,
+        };
+        assert!(mux.persist_terminal_exit_for_test(&public_id, &exit).unwrap());
+
+        let exited = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &selectors, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap();
+        assert_eq!(exited["state"], "exited");
+        assert_eq!(
+            exited["outcome"],
+            json!({"kind":"signal","signal":libc::SIGTERM,"core_dumped":true})
+        );
+        assert_eq!(exited["exited_at"], "3456789");
+
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let terminals = snapshot["terminals"].as_array().unwrap();
+        assert_eq!(terminals.len(), 1);
+        let terminal = &terminals[0];
+        assert_eq!(terminal["id"], public_id.as_str());
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["running"], false);
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
+        assert_eq!(terminal["exit"]["exited_at"], exited["exited_at"]);
+        let events = mux.resource_events_after(before).unwrap();
+        assert_eq!(events.batches.len(), 1);
+        let exit_changes = events.batches[0].changes.as_array().unwrap();
+        let exit_upsert = exit_changes
+            .iter()
+            .find(|change| {
+                change["resource"] == "terminal"
+                    && change["id"] == public_id.as_str()
+                    && change["kind"] == "upsert"
+            })
+            .expect("exit batch omitted the terminal upsert");
+        assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
+        assert_eq!(exit_upsert["value"]["exit"]["outcome"], exited["outcome"]);
+        assert_eq!(exit_upsert["sequence"], 0);
+        assert!(!exit_changes.iter().any(|change| {
+            change["resource"] == "terminal"
+                && change["id"] == public_id.as_str()
+                && change["kind"] == "delete"
+        }));
+
+        let mut stale_nested = selectors.clone();
+        stale_nested.pane = Some("pane_00000000000000000000000000000001".into());
+        let error = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &stale_nested, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "selector.not_found");
+
+        let mut unknown = selectors;
+        unknown.terminal = Some("term_ffffffffffffffffffffffffffffffff".into());
+        let error = dispatch(
+            &mux,
+            parsed_request("terminal.wait_exit", &unknown, json!({"timeout_ms":"0"}), None),
+        )
+        .unwrap_err();
+        assert_eq!(error.code, "selector.not_found");
     }
 
     #[test]
@@ -2245,6 +2461,7 @@ mod tests {
             }
         }
 
+        surface.set_test_pwd(Some("file:///tmp/hostless".into()));
         let process =
             dispatch(&mux, parsed_request("terminal.process.get", &selectors, json!({}), None))
                 .unwrap();
@@ -2252,7 +2469,9 @@ mod tests {
         assert_eq!(process["argv"], json!(["fake-shell", "argument with spaces"]));
         assert!(process["pid"].is_u64());
         assert!(process["children"].is_array());
-        assert!(process.get("cwd").is_none_or(Value::is_string));
+        assert_eq!(process["cwd"], "/tmp/hostless");
+        let foreground = process.get("foreground_cwd").expect("foreground_cwd is present");
+        assert!(foreground.is_null() || foreground.is_string());
     }
 
     #[test]
@@ -2334,7 +2553,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
+    fn terminal_viewport_scroll_uses_one_bounded_receipt_and_one_journal_outcome() {
         let (mux, surface, selectors) = terminal_fixture(None);
         surface
             .try_with_terminal(|terminal| {
@@ -2349,6 +2568,7 @@ mod tests {
         let revision = mux.with_state(|state| state.resource_revision);
         let terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
         let event_epoch = mux.resource_event_epoch();
+        let journal_head = mux.session_journal_after(0, 1).unwrap().head_sequence;
         let mutation_count = mux.resource_mutation_count_for_test().unwrap();
         let request = || {
             parsed_request(
@@ -2380,9 +2600,13 @@ mod tests {
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
         assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
+        let journal = mux.session_journal_after(journal_head, 2).unwrap();
+        assert_eq!(journal.records.len(), 1);
+        assert_eq!(journal.records[0].kind, "terminal.viewport.scroll.effect.succeeded");
+        let effect_sequence = journal.records[0].sequence;
 
         let replay = dispatch(&mux, request()).unwrap();
         assert_eq!(replay["value"], first["value"]);
@@ -2395,7 +2619,8 @@ mod tests {
             "receipt replay must not apply the viewport delta twice"
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
+        assert!(mux.session_journal_after(effect_sequence, 1).unwrap().records.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
 
         let closed = dispatch(

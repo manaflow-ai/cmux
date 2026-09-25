@@ -56,6 +56,12 @@ private final class StubCallingCenter: UserNotificationCenterCalling, @unchecked
 
     func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {}
 
+    func getNotificationCategories(
+        completionHandler: @escaping @Sendable (Set<UNNotificationCategory>) -> Void
+    ) {
+        completionHandler([])
+    }
+
     func getNotificationSettings(
         completionHandler: @escaping @Sendable (UNNotificationSettings) -> Void
     ) {

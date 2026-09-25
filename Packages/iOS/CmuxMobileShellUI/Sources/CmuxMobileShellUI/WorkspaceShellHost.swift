@@ -5,12 +5,11 @@ import SwiftUI
 /// Hosts ``WorkspaceShellView`` for every authenticated state that renders the
 /// workspace shell: the startup stored-Mac reconnect window, the connected
 /// shell, and the offline shell after a failed reconnect. The restoring window
-/// only varies the inputs passed down; this host (and therefore the shell's
-/// presentation state — an open Settings sheet, navigation paths) stays
-/// mounted across restoring → connected → offline transitions. Mounting a
-/// different view per connection state destroyed that state: a Settings sheet
-/// opened during the reconnect window dismissed itself the moment the
-/// reconnection finished.
+/// only varies the inputs passed down; this host and the shell's navigation
+/// paths stay mounted across restoring → connected → offline transitions.
+/// Root-owned presentation actions preserve an open Settings sheet across the
+/// same transitions. Mounting a different view per connection state destroyed
+/// that state and dismissed Settings when reconnection finished.
 struct WorkspaceShellHost: View {
     private static let loadingTimeout: Duration = .seconds(10)
 
@@ -21,6 +20,10 @@ struct WorkspaceShellHost: View {
     let signOut: @MainActor @Sendable () -> Void
     let showAddDevice: (() -> Void)?
     let showPairingScanner: (() -> Void)?
+    var tailscalePairingRequired = false
+    var showSettings: () -> Void = {}
+    var showComputers: () -> Void = {}
+    var taskComposerPresentation = MobileChildSheetPresentation()
     let reconnectStoredMac: () -> Void
     let workspaceListDidBecomeVisible: @MainActor @Sendable () async -> Void
 
@@ -36,7 +39,11 @@ struct WorkspaceShellHost: View {
             initialConnectionTimedOut: isRestoringStoredMac && loadingTimedOut,
             retryInitialConnection: retry,
             showAddDevice: showAddDevice,
-            showPairingScanner: showPairingScanner
+            showPairingScanner: showPairingScanner,
+            tailscalePairingRequired: tailscalePairingRequired,
+            showSettings: showSettings,
+            showComputers: showComputers,
+            taskComposerPresentation: taskComposerPresentation
         )
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()

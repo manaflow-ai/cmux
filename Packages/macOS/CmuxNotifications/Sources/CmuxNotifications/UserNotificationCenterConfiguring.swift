@@ -10,6 +10,14 @@ public protocol UserNotificationCenterConfiguring: Sendable {
         _ categories: Set<UNNotificationCategory>
     ) async -> Result<Void, UserNotificationCenterFailure>
 
+    /// Reads the currently registered notification categories, so installers
+    /// and owners of dynamic per-request categories can merge instead of
+    /// clobbering each other's registrations.
+    func notificationCategories() async -> Result<
+        Set<UNNotificationCategory>,
+        UserNotificationCenterFailure
+    >
+
     /// Installs the notification-center delegate that receives delivery and
     /// response callbacks.
     func setDelegate(_ delegate: (any UNUserNotificationCenterDelegate)?)

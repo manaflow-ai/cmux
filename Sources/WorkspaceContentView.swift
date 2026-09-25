@@ -86,13 +86,19 @@ private struct WorkspacePanelContentHostView: View {
                       let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
                     return false
                 }
-                return workspace.bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+                // selectedTabId, not selectedTab: building a Tab reads every
+                // TabItem property, which subscribes this update to the tab's
+                // title. Portal ownership only needs identity.
+                return workspace.bonsplitController.selectedTabId(inPane: paneId) == tabId
             },
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
-            onTriggerFlash: onTriggerFlash
+            onTriggerFlash: onTriggerFlash,
+            onRequestDeferredBrowserMaterialization: {
+                workspace.requestDeferredBrowserMaterialization(panelId: panel.id, isVisibleInUI: isVisibleInUI)
+            }
         )
     }
 }
@@ -105,6 +111,7 @@ final class TmuxWorkspacePaneOverlayModel {
     private(set) var activePaneBorderColorHex: String?
     private(set) var flashStartedAt: Date?
     private(set) var flashReason: WorkspaceAttentionFlashReason?
+    private(set) var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
 
     private var currentWorkspaceId: UUID?
     private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]
@@ -118,6 +125,7 @@ final class TmuxWorkspacePaneOverlayModel {
         activePaneBorderRect = state.activePaneBorderRect
         activePaneBorderColorHex = state.activePaneBorderColorHex
         flashReason = state.flashReason
+        workspaceAttentionColor = state.workspaceAttentionColor
 
         let didChangeWorkspace = currentWorkspaceId != state.workspaceId
         let previousFlashToken = lastFlashTokenByWorkspaceId[state.workspaceId]
@@ -143,6 +151,7 @@ final class TmuxWorkspacePaneOverlayModel {
         activePaneBorderColorHex = nil
         flashStartedAt = nil
         flashReason = nil
+        workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
         currentWorkspaceId = nil
         lastFlashTokenByWorkspaceId = [:]
     }
@@ -150,15 +159,6 @@ final class TmuxWorkspacePaneOverlayModel {
 
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
-    private struct DeferredThemeRefresh {
-        let reason: String
-        let backgroundOverride: NSColor?
-        let backgroundEventId: UInt64?
-        let backgroundSource: String?
-        let notificationPayloadHex: String?
-        let forceInitialApply: Bool
-    }
-
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
@@ -179,34 +179,20 @@ struct WorkspaceContentView: View {
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-    @State private var deferredThemeRefresh: DeferredThemeRefresh?
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
 #endif
 
-    static func panelVisibleInUI(
-        isWorkspaceVisible: Bool,
-        paneHasSelectedTab: Bool,
-        isSelectedInPane: Bool,
-        isFocused: Bool
-    ) -> Bool {
-        // During pane/tab reparenting, Bonsplit can transiently report selected=false
-        // for the currently focused panel. Keep focused content visible only when
-        // the pane has no selected tab to report; if another tab is selected, a
-        // stale focused terminal must not keep its portal view visible.
-        return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
-            isWorkspaceVisible: isWorkspaceVisible,
-            paneHasSelectedTab: paneHasSelectedTab,
-            isSelectedInPane: isSelectedInPane,
-            isFocused: isFocused
-        )
-    }
-
     var body: some View {
 #if DEBUG
-        let _ = { minimalModeInvalidationProbe.workspaceContentBody?() }()
+        let _ = {
+            if minimalModeInvalidationProbe.shouldTraceBodyChanges?() == true {
+                Self._printChanges()
+            }
+            minimalModeInvalidationProbe.workspaceContentBody?()
+        }()
 #endif
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
@@ -299,7 +285,9 @@ struct WorkspaceContentView: View {
                             && isSelectedInPane,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
-                        appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
+                        appearance: appearance,
+                        windowAppearance: windowAppearance,
+                        customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
@@ -339,8 +327,9 @@ struct WorkspaceContentView: View {
                         workspace.bonsplitController.focusPane(paneId)
                     }
                 }
+            } else if workspace.cloudVMID != nil {
+                TerminalPanelUnavailableView(appearance: appearance)
             } else {
-                // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)
             }
         } emptyPane: { paneId in
@@ -364,7 +353,10 @@ struct WorkspaceContentView: View {
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             updateAgentHibernationPresentationVisibility()
             guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
+            refreshGhosttyAppearanceConfig(
+                reason: "workspaceBecameVisible",
+                forceInitialApply: true
+            )
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
             updateAgentHibernationPresentationVisibility()
@@ -386,9 +378,6 @@ struct WorkspaceContentView: View {
         }
         .onChange(of: workspaceManualUnreadPanelId) { _, _ in
             syncBonsplitNotificationBadges()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
         }
         .onReceive(NotificationCenter.default.publisher(for: PaneChromeSettings.didChangeNotification)) { _ in
             workspace.applyGhosttyChrome(from: config, reason: "paneChromeSettingsDidChange")
@@ -413,6 +402,11 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: payloadHex
             )
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyChromeConfigurationDidChange)) { _ in
+            refreshGhosttyAppearanceConfig(
+                reason: "ghosttyChromeConfigurationDidChange"
+            )
+        }
 
         Group {
             if workspace.layoutMode == .canvas {
@@ -427,12 +421,21 @@ struct WorkspaceContentView: View {
                 bonsplitView
             }
         }
+        .overlay {
+            if workspace.isManagedCloudVMWorkspace {
+                CloudSurfaceDropGate(workspaceID: workspace.id, isActive: isWorkspaceInputActive)
+            }
+        }
         .modifier(WorkspaceContentMinimalModeSafeAreaModifier(isFullScreen: isFullScreen))
         // A workspace is a page: accept the parent proposal instead of
         // contributing a hidden child's content-derived ideal to its ZStack.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(CloudPaneCreationFailurePresentation(
+            failureStore: workspace.cloudPaneCreationFailureStore,
+            isWorkspaceVisible: isWorkspaceVisible,
+            sourceView: workspace.cloudPaneCreationFailureSourceView
+        ))
     }
-
     private func syncBonsplitNotificationBadges() {
         let manualUnread = workspace.manualUnreadPanelIds
         let restoredUnread = workspace.restoredUnreadPanelIds
@@ -582,20 +585,6 @@ struct WorkspaceContentView: View {
         )
     }
 
-    private func flushDeferredThemeRefreshIfNeeded() {
-        guard isWorkspaceVisible,
-              let deferredRefresh = deferredThemeRefresh else { return }
-        deferredThemeRefresh = nil
-        refreshGhosttyAppearanceConfig(
-            reason: deferredRefresh.reason,
-            backgroundOverride: deferredRefresh.backgroundOverride,
-            backgroundEventId: deferredRefresh.backgroundEventId,
-            backgroundSource: deferredRefresh.backgroundSource,
-            notificationPayloadHex: deferredRefresh.notificationPayloadHex,
-            forceInitialApply: deferredRefresh.forceInitialApply
-        )
-    }
-
     private func updateAgentHibernationPresentationVisibility() {
         workspace.setAgentHibernationAutoResumePresentationVisible(isWorkspaceVisible && isWorkspaceInputActive)
     }
@@ -608,21 +597,7 @@ struct WorkspaceContentView: View {
         notificationPayloadHex: String? = nil,
         forceInitialApply: Bool = false
     ) {
-        guard isWorkspaceVisible else {
-            let existing = deferredThemeRefresh
-            deferredThemeRefresh = DeferredThemeRefresh(
-                reason: reason,
-                backgroundOverride: backgroundOverride,
-                backgroundEventId: backgroundEventId,
-                backgroundSource: backgroundSource,
-                notificationPayloadHex: notificationPayloadHex,
-                forceInitialApply: forceInitialApply
-                    || reason == "onAppear"
-                    || existing?.forceInitialApply == true
-            )
-            return
-        }
-        deferredThemeRefresh = nil
+        guard isWorkspaceVisible else { return }
 
         let previousSignature = Self.ghosttyAppearanceSignature(
             config,
@@ -764,11 +739,41 @@ extension WorkspaceContentView {
     #endif
 }
 
+/// Keeps `isAvailable` in step with the browser availability gate for views
+/// that offer a browser affordance.
+///
+/// `BrowserAvailabilityMonitor` owns watching the gate's entrypoints, so this
+/// follows that one signal instead of subscribing to the underlying sources
+/// again.
+struct BrowserAffordanceAvailabilityTracking: ViewModifier {
+    @Binding var isAvailable: Bool
+
+    func body(content: Content) -> some View {
+        content.task { @MainActor in
+            isAvailable = BrowserAvailabilitySettings.isEnabled()
+            let changes = NotificationCenter.default.notifications(
+                named: BrowserAvailabilityMonitor.didChangeNotification
+            )
+            for await _ in changes {
+                isAvailable = BrowserAvailabilitySettings.isEnabled()
+            }
+        }
+    }
+}
+
+extension View {
+    /// Tracks browser availability for a view that offers a browser affordance.
+    func trackingBrowserAffordanceAvailability(_ isAvailable: Binding<Bool>) -> some View {
+        modifier(BrowserAffordanceAvailabilityTracking(isAvailable: isAvailable))
+    }
+}
+
 /// View shown for empty panes
 struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     private struct ShortcutHint: View {
         let text: String
@@ -823,7 +828,14 @@ struct EmptyPanelView: View {
         let button = Button(action: action) {
             HStack(spacing: 10) {
                 HStack(spacing: 6) {
-                    CmuxSystemSymbolImage(systemName: systemImage, pointSize: 13)
+                    // `.borderedProminent` paints its label in the system's
+                    // on-accent text color, so bake that semantic color rather
+                    // than a literal white.
+                    CmuxSystemSymbolImage(
+                        systemName: systemImage,
+                        pointSize: 13,
+                        tint: Color(nsColor: .alternateSelectedControlTextColor)
+                    )
                     Text(title)
                 }
                 ShortcutHint(text: shortcut.displayString)
@@ -840,8 +852,7 @@ struct EmptyPanelView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48)
-                .foregroundStyle(.tertiary)
+            CmuxSystemSymbolImage(magnified: "terminal.fill", pointSize: 48, tint: Color(nsColor: .tertiaryLabelColor))
 
             Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
                 .cmuxFont(.headline)
@@ -849,22 +860,25 @@ struct EmptyPanelView: View {
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+                if BrowserAvailabilitySettings.offersBrowserAffordance(isEnabled: browserAvailable) {
+                    emptyPaneActionButton(
+                        title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
+                        systemImage: "globe",
+                        shortcut: openBrowserShortcut,
+                        action: createBrowser
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+        .trackingBrowserAffordanceAvailability($browserAvailable)
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

@@ -1,4 +1,6 @@
+import CmuxCloud
 import CoreGraphics
+import CmuxPhonePush
 import Foundation
 import Testing
 
@@ -149,18 +151,21 @@ import Testing
             subtitle: "Completed",
             body: "May follow its live surface",
             createdAt: Self.now,
-            isRead: false
+            isRead: false,
+            replyShape: .text
         )
 
         let confinedPayload = PhonePushPayload(
             notification: confined,
             macDeviceId: "mac-1",
+            macInstanceTag: "stable",
             badgeCount: 1,
             hideContent: false
         )
         let trustedPayload = PhonePushPayload(
             notification: trusted,
             macDeviceId: "mac-1",
+            macInstanceTag: "nightly",
             badgeCount: 2,
             hideContent: false
         )
@@ -168,9 +173,13 @@ import Testing
         #expect(confinedPayload.workspaceId == workspaceId.uuidString)
         #expect(confinedPayload.surfaceId == surfaceId.uuidString)
         #expect(!confinedPayload.retargetsToLiveSurfaceOwner)
+        #expect(confinedPayload.replyShape == "none")
+        #expect(confinedPayload.macInstanceTag == "stable")
         #expect(trustedPayload.workspaceId == workspaceId.uuidString)
         #expect(trustedPayload.surfaceId == surfaceId.uuidString)
         #expect(trustedPayload.retargetsToLiveSurfaceOwner)
+        #expect(trustedPayload.macInstanceTag == "nightly")
+        #expect(trustedPayload.replyShape == "text")
     }
 
     // MARK: - Heuristic details
@@ -414,10 +423,12 @@ import Testing
             title: "secret title",
             subtitle: "secret subtitle",
             body: "secret terminal output",
+            replyShape: "",
             workspaceId: UUID().uuidString,
             surfaceId: UUID().uuidString,
             retargetsToLiveSurfaceOwner: true,
             macDeviceId: UUID().uuidString,
+            macInstanceTag: "nightly",
             notificationId: UUID().uuidString,
             notificationIds: [],
             badgeCount: 7,
@@ -450,6 +461,7 @@ import Testing
             body["expirationEpochSeconds"] as? Int == 1_750_000_120
         )
         #expect(body["hideContent"] as? Bool == true)
+        #expect(body["macInstanceTag"] as? String == "nightly")
         #expect(!encoded.contains("secret title"))
         #expect(!encoded.contains("secret subtitle"))
         #expect(!encoded.contains("secret terminal output"))
@@ -462,10 +474,12 @@ import Testing
             title: "  \(String(repeating: longCharacter, count: 100))  ",
             subtitle: String(repeating: longCharacter, count: 100),
             body: String(repeating: longCharacter, count: 300),
+            replyShape: "",
             workspaceId: UUID().uuidString,
             surfaceId: UUID().uuidString,
             retargetsToLiveSurfaceOwner: true,
             macDeviceId: UUID().uuidString,
+            macInstanceTag: nil,
             notificationId: UUID().uuidString,
             notificationIds: [],
             badgeCount: 1,
@@ -499,10 +513,12 @@ import Testing
             title: "agent",
             subtitle: "",
             body: "done",
+            replyShape: "",
             workspaceId: String(repeating: "a", count: 201),
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: nil,
+            macInstanceTag: nil,
             notificationId: nil,
             notificationIds: [],
             badgeCount: 1,
@@ -524,10 +540,12 @@ import Testing
             title: "",
             subtitle: "",
             body: "",
+            replyShape: "",
             workspaceId: nil,
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
             macDeviceId: nil,
+            macInstanceTag: nil,
             notificationId: nil,
             notificationIds: Array(
                 repeating: maximumEscapedIdentifier,
@@ -554,8 +572,7 @@ import Testing
                 expirationEpochSeconds: 1_120
             ) == 7
         )
-        // A malformed provider header can carry a negative Retry-After; the
-        // clamp floors it at an immediate retry instead of a negative delay.
+        // Malformed provider metadata must not shorten the local backoff.
         #expect(
             PhonePushRetryPolicy.delaySeconds(
                 afterAttempt: 1,
@@ -563,7 +580,16 @@ import Testing
                 retryAfterSeconds: -30,
                 nowEpochSeconds: 1_000,
                 expirationEpochSeconds: 1_120
-            ) == 0
+            ) == 1
+        )
+        #expect(
+            PhonePushRetryPolicy.delaySeconds(
+                afterAttempt: 2,
+                result: .retryableFailure,
+                retryAfterSeconds: 1,
+                nowEpochSeconds: 1_000,
+                expirationEpochSeconds: 1_120
+            ) == 2
         )
         #expect(
             PhonePushRetryPolicy.delaySeconds(
@@ -696,6 +722,24 @@ import Testing
         #expect(PhonePushHTTPResult.decode(statusCode: 429, data: Data()).shouldRetry)
         #expect(PhonePushHTTPResult.decode(statusCode: 503, data: Data()).shouldRetry)
         #expect(!PhonePushHTTPResult.decode(statusCode: 401, data: Data()).shouldRetry)
+    }
+
+    @Test func rateLimitWithoutDirectiveUsesConservativeFallback() throws {
+        let response = try #require(HTTPURLResponse(
+            url: URL(string: "https://cmux.test/api/push/send")!,
+            statusCode: 429,
+            httpVersion: nil,
+            headerFields: nil
+        ))
+
+        #expect(PhonePushHTTPResult.retryAfterSeconds(
+            response: response,
+            data: Data()
+        ) == 60)
+        #expect(PhonePushHTTPResult.retryAfterSeconds(
+            response: response,
+            data: Data(#"{"retryAfterSeconds":0}"#.utf8)
+        ) == 60)
     }
 
     @Test func retryClassificationSeparatesAuthConflictAndInProgressResponses() throws {

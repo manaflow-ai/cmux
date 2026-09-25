@@ -14,6 +14,18 @@ rm -rf "$result_bundle"
 rm -rf "$swift_scratch_root"
 rm -f "$result_root"/*.log
 
+# IrohTailscaleVersionSkewMacGateTests must execute exactly this many tests.
+# It was 6 until IROH v2 (#12326) retired the Mac's legacy TCP listener and its
+# Stack-bearer authorization context, `legacyPrivateNetworkListener`. #12754
+# re-retired them after a merge brought them back. Two tests guarded only that
+# surface and were retired rather than rewritten:
+#   testReleasedIOSWireFrameRemainsAcceptedByLegacyTCPAuthorization
+#   testLegacyCompatibilityPolicyCannotBecomeIrohAdmission
+# Shipped iOS builds are now served by the `cmux/mobile/1` dialect on the v2
+# endpoint, behind Iroh admission. The two Stable listener tests cover that path.
+# See https://github.com/manaflow-ai/cmux/issues/13683.
+app_host_expected_count=4
+
 run_app_host_gate() {
   rm -rf "$result_bundle"
   (
@@ -32,7 +44,7 @@ run_app_host_gate() {
       test
   )
 
-  python3 - "$result_bundle" <<'PY'
+  python3 - "$result_bundle" "$app_host_expected_count" <<'PY'
 import json
 import subprocess
 import sys
@@ -52,16 +64,16 @@ summary = json.loads(
         ]
     )
 )
-expected = 5
+expected = int(sys.argv[2])
 observed = int(summary.get("totalTestCount", 0))
 passed = int(summary.get("passedTests", 0))
 failed = int(summary.get("failedTests", 0))
 if summary.get("result") != "Passed" or observed != expected or passed != expected or failed:
     raise SystemExit(
-        "Mac compatibility gate did not execute exactly five passing tests: "
+        f"Mac compatibility gate did not execute exactly {expected} passing tests: "
         f"result={summary.get('result')} total={observed} passed={passed} failed={failed}"
     )
-print("Mac compatibility gate: 5/5 passed")
+print(f"Mac compatibility gate: {expected}/{expected} passed")
 PY
 }
 
@@ -104,10 +116,11 @@ run_app_host_gate
 
 run_package_gate \
   Packages/iOS/CmuxMobileShell \
-  'ReconnectRouteSelectionTests/(legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP|legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate|rejectedIrohReconnectNeverDowngradesToRawTailscale|storedReconnectPinsIrohAndExcludesRawFallbacks|switchToLegacySavedMacUpgradesFromRegistryWithoutRescan)' \
-  5 \
+  'ReconnectRouteSelectionTests/(legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP|legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate|preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade|rejectedIrohReconnectNeverDowngradesToRawTailscale|storedReconnectPinsIrohAndExcludesRawFallbacks|switchToLegacySavedMacUpgradesFromRegistryWithoutRescan)' \
+  6 \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP()' \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate()' \
+  'CmuxMobileShellTests.ReconnectRouteSelectionTests/preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade()' \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/rejectedIrohReconnectNeverDowngradesToRawTailscale()' \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/storedReconnectPinsIrohAndExcludesRawFallbacks()' \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/switchToLegacySavedMacUpgradesFromRegistryWithoutRescan()'

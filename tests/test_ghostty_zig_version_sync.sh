@@ -75,7 +75,8 @@ fi
 
 for consumer in \
   "$ROOT_DIR/scripts/install-zig-ci.sh" \
-  "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh"; do
+  "$ROOT_DIR/scripts/build-ghostty-cli-helper.sh" \
+  "$ROOT_DIR/cmux-tui/apps/macos/TerminalBytesDemo/run-demo.sh"; do
   if ! grep -Eq 'ghostty_minimum_zig_version[[:space:]]+' "$consumer"; then
     echo "$(basename "$consumer") does not use the shared Ghostty Zig version" >&2
     exit 1
@@ -92,6 +93,8 @@ python3 \
   --require-setup-zig \
   "$ROOT_DIR/.github/workflows"
 
+"$ROOT_DIR/tests/test_ghostty_cli_helper_cache.sh"
+
 for consumer in "$ROOT_DIR/scripts/setup.sh" "$ROOT_DIR/scripts/ensure-ghosttykit.sh"; do
   if ! grep -Fq 'source "$SCRIPT_DIR/ghostty-zig-version.sh"' "$consumer" ||
      ! grep -Fq 'ghostty_require_compatible_zig "$PROJECT_DIR"' "$consumer"; then
@@ -105,7 +108,7 @@ if ! awk '
   in_job && /^  [[:alnum:]_-]+:$/ { exit }
   in_job && index($0, "git submodule update --init --depth 1 ghostty") { found = 1 }
   END { exit !found }
-' "$ROOT_DIR/.github/workflows/ci.yml"; then
+' "$ROOT_DIR/.github/workflows/ci-guards.yml"; then
   echo "workflow-guard-tests does not initialize Ghostty before reading its Zig manifest" >&2
   exit 1
 fi
