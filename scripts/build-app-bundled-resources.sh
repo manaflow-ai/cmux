@@ -125,6 +125,8 @@ hash_git_worktree() {
 
 output_fingerprint() {
   {
+    hash_swiftpm_resource_bundles "$DEST"
+    hash_swiftpm_resource_bundles "$BIN_DEST"
     hash_tree "$GHOSTTY_DEST"
     hash_tree "$TERMINFO_DEST"
     hash_tree "$CMUX_SHELL_DEST"
@@ -137,6 +139,41 @@ output_fingerprint() {
       printf 'missing:%s\n' "$CMUX_CUA_HELPER_APP"
     fi
   } | shasum | awk '{print $1}'
+}
+
+# SwiftPM places a package's processed resource bundle beside the app's other
+# resources. The bundled CLI lives one directory deeper in Resources/bin, and
+# Bundle.module resolves relative to that executable's resource directory.
+# Keep a real copy beside the CLI so package resources work when the CLI is
+# invoked directly from the app bundle. This is intentionally generic: adding
+# resources to another package must not require another packaging allowlist.
+hash_swiftpm_resource_bundles() {
+  local directory="$1" bundle
+  [ -d "$directory" ] || return 0
+  for bundle in "$directory"/*.bundle; do
+    [ -d "$bundle" ] || continue
+    hash_tree "$bundle"
+  done
+}
+
+sync_swiftpm_resource_bundles() {
+  local source name destination
+  mkdir -p "$BIN_DEST"
+  for source in "$DEST"/*.bundle; do
+    [ -d "$source" ] || continue
+    name="${source##*/}"
+    destination="$BIN_DEST/$name"
+    mkdir -p "$destination"
+    rsync -a --delete "$source/" "$destination/"
+  done
+
+  # Remove copies of package bundles that disappeared from the app resource
+  # directory, while leaving unrelated helper directories in Resources/bin.
+  for destination in "$BIN_DEST"/*.bundle; do
+    [ -d "$destination" ] || continue
+    name="${destination##*/}"
+    [ -d "$DEST/$name" ] || rm -rf "$destination"
+  done
 }
 
 fingerprint="$({
@@ -153,6 +190,7 @@ fingerprint="$({
   printf 'helper-display=%s\n' "${CMUX_CUA_HELPER_DISPLAY_NAME:-}"
   printf 'bundle-id=%s\n' "${PRODUCT_BUNDLE_IDENTIFIER:-}"
   hash_git_worktree "${SRCROOT}/ghostty"
+  hash_swiftpm_resource_bundles "$DEST"
   if [ -n "${CMUX_CUA_SRC:-}" ]; then
     hash_git_worktree "${CMUX_CUA_SRC}"
   fi
@@ -194,6 +232,7 @@ if [ -f "$STAMP" ] && [ -x "$GHOSTTY_HELPER_DEST" ] && [ -x "$CMUX_CUA_DEST" ] \
   exit 0
 fi
 mkdir -p "$BIN_DEST" "$LIBEXEC_DEST"
+sync_swiftpm_resource_bundles
 if [ -d "$GHOSTTY_SRC" ]; then
   mkdir -p "$GHOSTTY_DEST"
   rsync -a --delete "$GHOSTTY_SRC/" "$GHOSTTY_DEST/"
