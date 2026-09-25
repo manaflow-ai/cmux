@@ -7,7 +7,7 @@ extension TerminalController {
     /// application deferred onto the journal center's ordered consumer.
     nonisolated func agentJournalAppend(_ args: String) -> String {
         AgentJournalLifecycleCenter.shared.handleAppendCommand(args) { draft in
-            v2MainSync(commandKey: "agent_journal_append") {
+            self.v2MainSync(commandKey: "agent_journal_append") {
                 AgentJournalLifecycleCenter.notificationTargetIsCurrent(draft)
             }
         }
