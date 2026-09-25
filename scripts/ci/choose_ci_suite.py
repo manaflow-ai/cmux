@@ -232,6 +232,62 @@ def changed_unit_selectors(
     return suites
 
 
+def reverse_unit_selectors(
+    root: Path, paths: Iterable[str] | None, app_diff: str | None, already: list[str]
+) -> list[str]:
+    """Suites that could observe an app-source change, within what the budget has left.
+
+    A pull request that changes Sources/ or a macOS/Shared package without
+    touching cmuxTests/ otherwise runs no behavior test. reverse_test_impact.py
+    names the suites whose tests mention what the diff changed; this keeps the
+    ones that fit beside `already` in one changed-suites run. It only adds:
+    anything it cannot judge (no diff, a selector error) adds nothing, and a
+    suite that would push the run past its budget or out of the changed-suites
+    lane is left out rather than turning the run into seven shards. Only
+    suites the shared batch discovers are added: the selector also names
+    helper types in cmuxTests/, and a selector that matches no test fails the
+    run. A suite a strict step owns is left out, since that step runs apart
+    from the budget. Suites with entries in app-host-known-failures.json are
+    left out too: a known failure that happens to pass fails a changed-suites
+    run, which is right for a suite the pull request edited and wrong for one
+    it only reached.
+    """
+    if paths is None or app_diff is None or not app_diff.strip():
+        return []
+    try:
+        import reverse_test_impact as reverse
+
+        if not any(reverse.is_app_path(path.strip()) for path in paths):
+            return []
+        selection = reverse.select(reverse.read_root(root), app_diff)
+        if not selection.reached:
+            return []
+        timings = load_timings(DEFAULT_TIMINGS_PATH)
+        default_ms = (timings or {}).get("default_test_ms", reverse.FALLBACK_TEST_MS)
+        costs = reverse.suite_costs(root, timings)
+        spent = sum(costs.get(selector.split("/", 1)[1], default_ms) for selector in already)
+        if spent >= CHANGED_SUITES_BUDGET_MS:
+            return []
+        catalog = json.loads((root / "scripts/ci/app-host-known-failures.json").read_text(encoding="utf-8"))
+        known = {identifier.split("/", 1)[0] for identifier in catalog.get("tests", {})}
+        workflow = (root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
+        batch_suites = {selector.identifier.split("/")[1] for selector in discover_selectors(root)}
+        data = reverse.report(selection, costs, default_ms, CHANGED_SUITES_BUDGET_MS - spent)
+        chosen: list[str] = []
+        for suite in data["would_run"]:
+            selector = f"cmuxTests/{suite}"
+            if suite in known or suite not in batch_suites or selector in already:
+                continue
+            steps = strict_steps(workflow, already + chosen)
+            if strict_steps(workflow, already + chosen + [selector]) != steps:
+                continue
+            chosen.append(selector)
+        return chosen
+    except Exception as error:  # an addition only: never the reason a run fails
+        print(f"::warning::Reverse test impact selection failed: {error!r}", file=sys.stderr)
+        return []
+
+
 def job_lines(workflow: str, job: str) -> range | None:
     """1-based line numbers of `job` in a workflow's text, header included."""
     lines = workflow.splitlines()
@@ -404,6 +460,10 @@ def main(argv: list[str]) -> int:
         "--diff-from",
         help="`git diff -U0` of cmuxTests/ and ci-macos.yml; omit to count every line of a changed file",
     )
+    parser.add_argument(
+        "--app-diff-from",
+        help="`git diff -U0` of Sources/, Packages/ and CLI/; adds the suites that could observe it",
+    )
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args(argv)
 
@@ -429,6 +489,13 @@ def main(argv: list[str]) -> int:
         except (OSError, UnicodeError):
             diff = None
 
+    app_diff = None
+    if args.app_diff_from:
+        try:
+            app_diff = Path(args.app_diff_from).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            app_diff = None
+
     full = wants_full_suite(args.event_name, args.pull_request_policy, labels)
     unit = wants_unit_suite(args.event_name, args.pull_request_policy, labels, paths)
     gap = coverage_gap(args.event_name, full, paths, labels, unit_suite=unit)
@@ -437,6 +504,25 @@ def main(argv: list[str]) -> int:
     asked_for_every_suite = full or UNIT_SUITE_LABEL in {label.strip() for label in labels or ()}
     selectors = [] if not unit or asked_for_every_suite else changed_unit_selectors(args.root, paths, diff)
     canary = False
+    reached: list[str] = []
+    # A narrowed run (or none yet) also takes the suites that could observe
+    # the app-source change; an empty `selectors` under `unit` is already
+    # every suite.
+    if not asked_for_every_suite and (selectors or not unit):
+        reached = reverse_unit_selectors(args.root, paths, app_diff, selectors)
+        if reached:
+            # Alone, these ride on a compile this run pays for, like the
+            # consumer canary: a re-push of admitted inputs reuses the build
+            # and drops them rather than compiling again.
+            canary = not unit
+            if canary:
+                # Keep the consumer canary a consumer edit would have taken.
+                selectors = [
+                    selector for selector in consumer_canary_selectors(args.root, paths, diff)
+                    if selector not in reached
+                ]
+            selectors = selectors + reached
+            unit = True
     if not unit:
         # Nothing else asked for the unit tests, so a consumer edit takes the
         # one-suite canary rather than seven shards. ci.yml drops it again when
@@ -447,7 +533,9 @@ def main(argv: list[str]) -> int:
     if selectors:
         workflow = (args.root / ".github/workflows/ci-macos.yml").read_text(encoding="utf-8")
         steps = strict_steps(workflow, selectors) or []
-    in_admission = runs_in_admission(args.root, paths, diff, selectors, steps, canary)
+    # Suites reached this way can fill the whole budget; they take the
+    # changed-suites worker rather than holding compile admission.
+    in_admission = runs_in_admission(args.root, paths, diff, selectors, steps, canary or bool(reached))
     lines = [
         f"full_suite={'true' if full else 'false'}",
         f"unit_suite={'true' if unit else 'false'}",
