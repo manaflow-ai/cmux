@@ -6,6 +6,21 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
+# Check full Xcode before anything else. On a Command Line Tools-only machine,
+# or before the Xcode license is accepted, `xcodebuild -version` fails, and the
+# later steps would fail with less direct errors.
+echo "==> Checking for Xcode..."
+if ! xcodebuild -version >/dev/null 2>&1; then
+    echo "Error: full Xcode is required, but xcodebuild could not run."
+    echo "Active developer directory: $(xcode-select -p 2>/dev/null || echo 'unset')"
+    echo "Install Xcode from the App Store and select it:"
+    echo "    sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"
+    echo "If Xcode is already selected, open it once to finish setup, or accept the license:"
+    echo "    sudo xcodebuild -license accept"
+    echo "Run 'xcodebuild -version' for details."
+    exit 1
+fi
+
 # Xcode 26 ships the Metal compiler as a separately downloaded component rather
 # than inside Xcode.app. Without it the app target fails partway through the
 # build ("cannot execute tool 'metal' due to missing Metal Toolchain"), after
@@ -45,30 +60,6 @@ if ! ghostty_zig_version_is_compatible "$ZIG_ACTUAL" "$ZIG_REQUIRED"; then
     exit 1
 fi
 echo "zig ${ZIG_ACTUAL} found at $(command -v zig)"
-
-echo "==> Checking for Xcode..."
-if ! command -v xcodebuild >/dev/null 2>&1; then
-    echo "Error: xcodebuild is not available."
-    echo "Install Xcode 15+ from the App Store, then run:"
-    echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
-    exit 1
-fi
-
-DEVELOPER_DIR="$(xcode-select -p 2>/dev/null || true)"
-if [[ "$DEVELOPER_DIR" != */Xcode*.app/Contents/Developer ]]; then
-    echo "Error: full Xcode is required, but the active developer directory is not an Xcode app."
-    echo "Install Xcode 15+ from the App Store, then run:"
-    echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
-    exit 1
-fi
-
-if ! xcodebuild -version >/dev/null 2>&1; then
-    echo "Error: xcodebuild is available but could not run."
-    echo "Open Xcode once to finish setup, or accept the license with:"
-    echo "  sudo xcodebuild -license accept"
-    echo "Run 'xcodebuild -version' for details."
-    exit 1
-fi
 
 echo "==> Checking for Rust..."
 # Xcode uses a non-login shell, so verify the same PATH used by the sidecar
