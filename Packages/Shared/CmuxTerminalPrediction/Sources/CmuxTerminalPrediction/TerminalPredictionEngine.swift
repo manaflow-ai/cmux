@@ -192,6 +192,17 @@ public struct TerminalPredictionEngine: Sendable {
         return .predicting
     }
 
+    /// Seeds whether a full-screen application already owns the screen.
+    ///
+    /// The engine otherwise learns this only from the mode switches it sees
+    /// in output, so a surface that was already in the alternate screen when
+    /// prediction started (the setting turned on, or the surface registered,
+    /// with vim or htop open) would predict inside it. The host reads the
+    /// terminal's current mode and passes it here before anything is typed.
+    public mutating func seedAlternateScreen(_ isActive: Bool) {
+        isAlternateScreen = isActive
+    }
+
     // MARK: Input
 
     /// Record what the user typed. `text` is the literal bytes cmux is about to
@@ -409,8 +420,15 @@ public struct TerminalPredictionEngine: Sendable {
         _ signal: TerminalOutputSignal,
         at now: PredictionInstant
     ) -> Bool {
-        guard let index = entries.firstIndex(where: { $0.standing == .speculative }),
-              case .erase = entries[index].keystroke else {
+        guard let index = entries.firstIndex(where: { $0.standing == .speculative }) else {
+            return withdrawAll(countingMisprediction: true, at: now)
+        }
+        guard now >= entries[index].typedAt else {
+            // Already in flight when the key was typed, as in
+            // `consumePrintable`: not its echo, and not a wrong guess.
+            return withdrawAll(countingMisprediction: false, at: now)
+        }
+        guard case .erase = entries[index].keystroke else {
             return withdrawAll(countingMisprediction: true, at: now)
         }
         return advanceErase(at: index, by: signal, at: now)

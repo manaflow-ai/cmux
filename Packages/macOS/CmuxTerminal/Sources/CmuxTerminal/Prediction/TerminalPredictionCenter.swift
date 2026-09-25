@@ -26,6 +26,10 @@ public final class TerminalPredictionCenter {
 
     private var engines: [UUID: TerminalPredictionEngine] = [:]
     private var redrawHandlers: [UUID: @MainActor () -> Void] = [:]
+    /// Reads whether each surface's terminal is in the alternate screen now.
+    /// Consulted only when prediction starts for a surface, because the
+    /// engine otherwise learns the mode from switches in output it sees.
+    private var alternateScreenReaders: [UUID: @MainActor () -> Bool] = [:]
     private var isEnabled = false
 
     /// Fires at the earliest moment a drawn glyph ages out. A terminal that
@@ -77,11 +81,31 @@ public final class TerminalPredictionCenter {
 
     // MARK: Lifecycle
 
-    /// Starts predicting for a surface. `redraw` is called on the main actor
-    /// whenever the drawn set changed.
-    public func register(surfaceID: UUID, redraw: @escaping @MainActor () -> Void) {
+    /// Starts predicting for a surface.
+    ///
+    /// - Parameters:
+    ///   - isAlternateScreen: Reads whether the terminal is in the alternate
+    ///     screen right now. Called when prediction starts for this surface
+    ///     (here while the setting is on, or when it is turned on), so a
+    ///     full-screen app that was already open is not predicted inside.
+    ///   - redraw: Called on the main actor whenever the drawn set changed.
+    public func register(
+        surfaceID: UUID,
+        isAlternateScreen: @escaping @MainActor () -> Bool,
+        redraw: @escaping @MainActor () -> Void
+    ) {
         engines[surfaceID] = TerminalPredictionEngine(isEnabled: isEnabled)
         redrawHandlers[surfaceID] = redraw
+        alternateScreenReaders[surfaceID] = isAlternateScreen
+        if isEnabled { seedAlternateScreen(surfaceID: surfaceID) }
+    }
+
+    /// Output from before prediction started was never scanned, so the mode
+    /// comes from the terminal. Anything teed since arrives after this and
+    /// applies on top of it.
+    private func seedAlternateScreen(surfaceID: UUID) {
+        guard let read = alternateScreenReaders[surfaceID] else { return }
+        engines[surfaceID]?.seedAlternateScreen(read())
     }
 
     /// Stops predicting for a surface whose runtime is gone.
@@ -97,6 +121,7 @@ public final class TerminalPredictionCenter {
         expiryTasks.removeValue(forKey: surfaceID)?.cancel()
         // With the engine gone `expiring` returns nothing, so this redraw
         // hides any glyph still drawn over a view that outlives its runtime.
+        alternateScreenReaders.removeValue(forKey: surfaceID)
         redrawHandlers.removeValue(forKey: surfaceID)?()
     }
 
@@ -133,7 +158,9 @@ public final class TerminalPredictionCenter {
         enabledGate.storeRelease(enabled)
         for surfaceID in engines.keys {
             engines[surfaceID]?.isEnabled = enabled
-            if !enabled {
+            if enabled {
+                seedAlternateScreen(surfaceID: surfaceID)
+            } else {
                 // A fresh engine has no pending glyphs and no stale echo run.
                 engines[surfaceID] = TerminalPredictionEngine(isEnabled: false)
             }

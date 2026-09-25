@@ -253,6 +253,23 @@ struct TerminalPredictionEngineTests {
         #expect(session.engine.status(at: session.clock) == .listening)
     }
 
+    @Test func aSeededAlternateScreenWithholdsPredictionUntilItExits() {
+        // Prediction started with vim already open: no mode switch is ever
+        // seen, and vim echoes typed characters in insert mode, which would
+        // otherwise arm a run.
+        var session = Session()
+        session.engine.seedAlternateScreen(true)
+        #expect(session.engine.status(at: session.clock) == .alternateScreen)
+
+        session.type("l")
+        session.remote("l")
+        session.type("s")
+        #expect(session.drawn == "")
+
+        session.remote("\u{1B}[?1049l")
+        #expect(session.engine.status(at: session.clock) == .listening)
+    }
+
     @Test func aFastLinkIsLeftAlone() {
         var session = Session()
         session.type("l")
